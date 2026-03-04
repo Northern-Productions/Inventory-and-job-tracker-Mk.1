@@ -15,6 +15,7 @@ import { BoxForm } from '../components/BoxForm';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { RollHistoryPanel } from '../components/RollHistoryPanel';
 import {
+  useBoxAllocations,
   useBox,
   useSetBoxStatus,
   useUndoAudit,
@@ -24,6 +25,7 @@ import { parseUpdateBoxDraft } from '../schemas/boxSchemas';
 import {
   createDraftFromBox,
   deriveFeetAvailableFromRollWeight,
+  getActiveAllocatedFeet,
   getRiskyFieldChanges,
   shouldAutoMoveToZeroed,
   type BoxDraft
@@ -126,14 +128,18 @@ export default function BoxDetailsPage() {
   const updateMutation = useUpdateBox();
   const statusMutation = useSetBoxStatus();
   const undoMutation = useUndoAudit();
+  const allocationsQuery = useBoxAllocations(boxId);
+  const shouldShowQrToolsOnLoad = searchParams.get('showQr') === '1';
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [isQrSectionOpen, setIsQrSectionOpen] = useState(shouldShowQrToolsOnLoad);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCodeError, setQrCodeError] = useState('');
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
+  const activeAllocatedFeet = getActiveAllocatedFeet(allocationsQuery.data || []);
   const initialDraft = useMemo(
     () => (box ? createDraftFromBox(box) : createDraftFromBox(createFallbackBox(boxId))),
     [box, boxId]
@@ -629,6 +635,11 @@ export default function BoxDetailsPage() {
             value={box.feetAvailable}
             labelClassName="detail-label-pill detail-label-pill-green"
           />
+          <DetailField
+            label="Allocated Feet"
+            value={allocationsQuery.isLoading ? '...' : activeAllocatedFeet}
+            labelClassName="detail-label-pill detail-label-pill-red"
+          />
           <DetailField label="Lot Run" value={box.lotRun} />
           <DetailField label="Order Date" value={formatDate(box.orderDate)} />
           <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
@@ -647,47 +658,69 @@ export default function BoxDetailsPage() {
           <DetailField label="Notes" value={box.notes} />
         </div>
 
-        <div className="qr-code-card">
-          <div className="qr-code-preview">
-            {qrCodeDataUrl ? (
-              <img src={qrCodeDataUrl} alt={`QR code for box ${box.boxId}`} className="qr-code-image" />
-            ) : (
-              <div className="qr-code-placeholder">
-                {qrCodeError ? 'QR unavailable' : 'Generating QR...'}
-              </div>
-            )}
-          </div>
-          <div className="qr-code-meta">
-            <div>
-              <h3 className="qr-code-title">QR Code</h3>
+        <div className={`qr-code-card ${isQrSectionOpen ? 'qr-code-card-open' : 'qr-code-card-closed'}`}>
+          <button
+            type="button"
+            className="qr-code-toggle"
+            onClick={() => setIsQrSectionOpen((current) => !current)}
+            aria-expanded={isQrSectionOpen}
+          >
+            <span className="qr-code-toggle-label">QR Code</span>
+            <span className="qr-code-toggle-symbol" aria-hidden="true">
+              {isQrSectionOpen ? '-' : '+'}
+            </span>
+          </button>
+          <div
+            className={`qr-code-card-body ${isQrSectionOpen ? 'qr-code-card-body-open' : 'qr-code-card-body-closed'}`}
+            aria-hidden={!isQrSectionOpen}
+          >
+            <div className="qr-code-preview">
+              {qrCodeDataUrl ? (
+                <img
+                  src={qrCodeDataUrl}
+                  alt={`QR code for box ${box.boxId}`}
+                  className="qr-code-image"
+                />
+              ) : (
+                <div className="qr-code-placeholder">
+                  {qrCodeError ? 'QR unavailable' : 'Generating QR...'}
+                </div>
+              )}
+            </div>
+            <div className="qr-code-meta">
               <p className="muted-text">
                 Copy the image for supported label software, download a PNG, or copy the raw BoxID
                 text. The QR contains only the BoxID.
               </p>
+              <div className="qr-code-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleCopyQrImage()}
+                  disabled={!qrCodeDataUrl || !isQrSectionOpen}
+                >
+                  Copy QR Image
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleDownloadQrImage}
+                  disabled={!qrCodeDataUrl || !isQrSectionOpen}
+                >
+                  Download QR PNG
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void handleCopyQrCode()}
+                  disabled={!isQrSectionOpen}
+                >
+                  Copy QR Code
+                </Button>
+              </div>
+              <p className="qr-code-value">{box.boxId}</p>
+              {qrCodeError ? <p className="error-text">{qrCodeError}</p> : null}
             </div>
-            <div className="qr-code-actions">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => void handleCopyQrImage()}
-                disabled={!qrCodeDataUrl}
-              >
-                Copy QR Image
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handleDownloadQrImage}
-                disabled={!qrCodeDataUrl}
-              >
-                Download QR PNG
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => void handleCopyQrCode()}>
-                Copy QR Code
-              </Button>
-            </div>
-            <p className="qr-code-value">{box.boxId}</p>
-            {qrCodeError ? <p className="error-text">{qrCodeError}</p> : null}
           </div>
         </div>
 

@@ -5,8 +5,8 @@ const navItems = [
   { to: '/', label: 'Inventory' },
   { to: '/allocations', label: 'Allocations' },
   { to: '/inventory/add', label: 'Add Box' },
-  { to: '/film-orders', label: 'Film Orders' },
   { to: '/inventory/scan', label: 'Scan' },
+  { to: '/film-orders', label: 'Film Orders' },
   { to: '/reports', label: 'Reports' },
   { to: '/checkout-history', label: 'Checkout History' },
   { to: '/activity', label: 'Activity' }

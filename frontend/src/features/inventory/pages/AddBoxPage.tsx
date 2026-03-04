@@ -159,7 +159,7 @@ export default function AddBoxPage() {
         }
       });
 
-      navigate(`/inventory/${encodeURIComponent(result.box.boxId)}`);
+      navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`);
     } catch (error) {
       toast.push({
         title: 'Unable to add box',
