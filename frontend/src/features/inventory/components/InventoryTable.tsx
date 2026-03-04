@@ -1,4 +1,13 @@
+import { Button } from '../../../components/Button';
+import {
+  MobileActionStack,
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import type { Box } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { isLowStockBox } from '../utils/boxHelpers';
 
@@ -8,8 +17,53 @@ interface InventoryTableProps {
 }
 
 export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
+  const isPhoneLayout = useIsPhoneLayout();
+
   if (!boxes.length) {
     return <div className="empty-state">No boxes matched the current filters.</div>;
+  }
+
+  if (isPhoneLayout) {
+    return (
+      <div className="mobile-record-list">
+        {boxes.map((box) => (
+          <MobileRecordCard key={box.boxId}>
+            <MobileRecordHeader
+              title={box.boxId}
+              subtitle={`${box.manufacturer} ${box.filmName}`}
+              badge={<span className={`badge badge-${box.status}`}>{box.status}</span>}
+              onTitleClick={() => onSelect(box.boxId)}
+            />
+            <MobileFieldList>
+              <MobileField label="Warehouse" value={box.warehouse} />
+              <MobileField label="Width" value={box.widthIn} />
+              <MobileField label="Initial LF" value={box.initialFeet} />
+              <MobileField
+                label="Available LF"
+                value={
+                  isLowStockBox(box) ? (
+                    <>
+                      {box.feetAvailable} <span className="stock-flag stock-flag-low">LOW STOCK</span>
+                    </>
+                  ) : (
+                    box.feetAvailable
+                  )
+                }
+              />
+              <MobileField label="Lot" value={box.lotRun || '--'} />
+              <MobileField label="Ordered" value={formatDate(box.orderDate)} />
+              <MobileField label="Received" value={formatDate(box.receivedDate)} />
+              <MobileField label="Last Weighed" value={formatDate(box.lastWeighedDate)} />
+            </MobileFieldList>
+            <MobileActionStack>
+              <Button type="button" variant="ghost" onClick={() => onSelect(box.boxId)}>
+                Open Box
+              </Button>
+            </MobileActionStack>
+          </MobileRecordCard>
+        ))}
+      </div>
+    );
   }
 
   return (

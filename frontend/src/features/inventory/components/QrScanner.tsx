@@ -1,11 +1,13 @@
 import { useEffect, useId, useState } from 'react';
 import type { Html5Qrcode } from 'html5-qrcode';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 
 interface QrScannerProps {
   onResolved: (boxId: string) => boolean | Promise<boolean>;
 }
 
 export function QrScanner({ onResolved }: QrScannerProps) {
+  const isPhoneLayout = useIsPhoneLayout();
   const [error, setError] = useState('');
   const rawId = useId();
   const elementId = rawId.replace(/:/g, '_');
@@ -28,7 +30,7 @@ export function QrScanner({ onResolved }: QrScannerProps) {
           { facingMode: 'environment' },
           {
             fps: 10,
-            qrbox: { width: 220, height: 220 }
+            qrbox: isPhoneLayout ? { width: 200, height: 200 } : { width: 220, height: 220 }
           },
           async (decodedText) => {
             const boxId = decodedText.trim();
@@ -59,7 +61,7 @@ export function QrScanner({ onResolved }: QrScannerProps) {
           });
       }
     };
-  }, [elementId, onResolved]);
+  }, [elementId, isPhoneLayout, onResolved]);
 
   return (
     <div className="panel">

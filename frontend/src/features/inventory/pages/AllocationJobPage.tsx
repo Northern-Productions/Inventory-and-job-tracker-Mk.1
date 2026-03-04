@@ -1,7 +1,15 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileActionStack,
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import type { FilmOrderEntry } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
 import { useAllocationJob } from '../hooks/useInventoryQueries';
 
@@ -42,6 +50,7 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
 
 export default function AllocationJobPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const params = useParams();
   const jobNumber = decodeURIComponent(params.jobNumber || '');
   const jobQuery = useAllocationJob(jobNumber);
@@ -113,48 +122,69 @@ export default function AllocationJobPage() {
         {!allocations.length ? (
           <div className="empty-state">No box allocations are tied to this job yet.</div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Box</th>
-                  <th>Film</th>
-                  <th>Width</th>
-                  <th>LF</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                  <th>Resolved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allocations.map((entry) => (
-                  <tr key={entry.allocationId}>
-                    <td>
-                      <button
-                        type="button"
-                        className="row-button"
-                        onClick={() =>
-                          navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)
-                        }
-                      >
-                        {entry.boxId}
-                      </button>
-                    </td>
-                    <td>
-                      {entry.manufacturer} {entry.filmName}
-                    </td>
-                    <td>{entry.widthIn || '--'}</td>
-                    <td>{entry.allocatedFeet}</td>
-                    <td>
-                      <span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>
-                    </td>
-                    <td>{renderDateTime(entry.createdAt)}</td>
-                    <td>{renderDateTime(entry.resolvedAt)}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {allocations.map((entry) => (
+                <MobileRecordCard key={entry.allocationId}>
+                  <MobileRecordHeader
+                    title={entry.boxId}
+                    subtitle={`${entry.manufacturer} ${entry.filmName}`}
+                    badge={<span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>}
+                    onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Width" value={entry.widthIn || '--'} />
+                    <MobileField label="Allocated LF" value={entry.allocatedFeet} />
+                    <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
+                    <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Box</th>
+                    <th>Film</th>
+                    <th>Width</th>
+                    <th>LF</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Resolved</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {allocations.map((entry) => (
+                    <tr key={entry.allocationId}>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() =>
+                            navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)
+                          }
+                        >
+                          {entry.boxId}
+                        </button>
+                      </td>
+                      <td>
+                        {entry.manufacturer} {entry.filmName}
+                      </td>
+                      <td>{entry.widthIn || '--'}</td>
+                      <td>{entry.allocatedFeet}</td>
+                      <td>
+                        <span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>
+                      </td>
+                      <td>{renderDateTime(entry.createdAt)}</td>
+                      <td>{renderDateTime(entry.resolvedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </section>
 
@@ -165,70 +195,124 @@ export default function AllocationJobPage() {
         {!filmOrders.length ? (
           <div className="empty-state">No film orders were created for this job.</div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Film Order</th>
-                  <th>Status</th>
-                  <th>Film</th>
-                  <th>Width</th>
-                  <th>Requested</th>
-                  <th>Covered</th>
-                  <th>On The Way</th>
-                  <th>Still Short</th>
-                  <th>Linked Boxes</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filmOrders.map((order) => (
-                  <tr key={order.filmOrderId}>
-                    <td>{order.filmOrderId}</td>
-                    <td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {filmOrders.map((order) => (
+                <MobileRecordCard key={order.filmOrderId}>
+                  <MobileRecordHeader
+                    title={order.filmOrderId}
+                    subtitle={`${order.manufacturer} ${order.filmName}`}
+                    badge={
                       <span className={`badge badge-${order.status}`}>
                         {formatFilmOrderStatusLabel(order.status)}
                       </span>
-                    </td>
-                    <td>
-                      {order.manufacturer} {order.filmName}
-                    </td>
-                    <td>{order.widthIn}</td>
-                    <td>{order.requestedFeet}</td>
-                    <td>{order.coveredFeet}</td>
-                    <td>{order.orderedFeet}</td>
-                    <td>{order.remainingToOrderFeet}</td>
-                    <td>
-                      {(order.linkedBoxes || []).length ? (
-                        <div className="film-order-linked-boxes">
-                          {(order.linkedBoxes || []).map((link) => (
-                            <div key={`${order.filmOrderId}-${link.boxId}`}>
-                              <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
-                              {link.autoAllocatedFeet} LF allocated
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        '--'
-                      )}
-                    </td>
-                    <td>
-                      {order.status === 'FULFILLED' ? null : (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => navigate(buildAddBoxTarget(order))}
-                          disabled={order.status !== 'FILM_ORDER'}
-                        >
-                          Order Film
-                        </Button>
-                      )}
-                    </td>
+                    }
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Width" value={order.widthIn} />
+                    <MobileField label="Requested LF" value={order.requestedFeet} />
+                    <MobileField label="Covered LF" value={order.coveredFeet} />
+                    <MobileField label="On The Way LF" value={order.orderedFeet} />
+                    <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
+                    <MobileField
+                      label="Linked Boxes"
+                      value={
+                        (order.linkedBoxes || []).length ? (
+                          <div className="film-order-linked-boxes">
+                            {(order.linkedBoxes || []).map((link) => (
+                              <div key={`${order.filmOrderId}-${link.boxId}`}>
+                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
+                                {link.autoAllocatedFeet} LF allocated
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          '--'
+                        )
+                      }
+                    />
+                  </MobileFieldList>
+                  {order.status === 'FULFILLED' ? null : (
+                    <MobileActionStack>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => navigate(buildAddBoxTarget(order))}
+                        disabled={order.status !== 'FILM_ORDER'}
+                      >
+                        Order Film
+                      </Button>
+                    </MobileActionStack>
+                  )}
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Film Order</th>
+                    <th>Status</th>
+                    <th>Film</th>
+                    <th>Width</th>
+                    <th>Requested</th>
+                    <th>Covered</th>
+                    <th>On The Way</th>
+                    <th>Still Short</th>
+                    <th>Linked Boxes</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filmOrders.map((order) => (
+                    <tr key={order.filmOrderId}>
+                      <td>{order.filmOrderId}</td>
+                      <td>
+                        <span className={`badge badge-${order.status}`}>
+                          {formatFilmOrderStatusLabel(order.status)}
+                        </span>
+                      </td>
+                      <td>
+                        {order.manufacturer} {order.filmName}
+                      </td>
+                      <td>{order.widthIn}</td>
+                      <td>{order.requestedFeet}</td>
+                      <td>{order.coveredFeet}</td>
+                      <td>{order.orderedFeet}</td>
+                      <td>{order.remainingToOrderFeet}</td>
+                      <td>
+                        {(order.linkedBoxes || []).length ? (
+                          <div className="film-order-linked-boxes">
+                            {(order.linkedBoxes || []).map((link) => (
+                              <div key={`${order.filmOrderId}-${link.boxId}`}>
+                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
+                                {link.autoAllocatedFeet} LF allocated
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          '--'
+                        )}
+                      </td>
+                      <td>
+                        {order.status === 'FULFILLED' ? null : (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => navigate(buildAddBoxTarget(order))}
+                            disabled={order.status !== 'FILM_ORDER'}
+                          >
+                            Order Film
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </section>
     </>

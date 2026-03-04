@@ -1,7 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import { LoadingState } from '../../../components/LoadingState';
 import type { AllocationJobStatus } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useAllocationJobs } from '../hooks/useInventoryQueries';
 
@@ -46,6 +53,7 @@ function formatStatusLabel(status: AllocationJobStatus) {
 
 export default function AllocationsPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const jobsQuery = useAllocationJobs();
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>('ACTIVE');
   const [dueFilter, setDueFilter] = useState<DueFilter>('ALL');
@@ -110,40 +118,60 @@ export default function AllocationsPage() {
           <div className="empty-state">No jobs matched the current allocation filters.</div>
         ) : null}
         {jobs.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Job Number</th>
-                  <th>Due Date</th>
-                  <th>Crew Leader</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((entry) => (
-                  <tr key={entry.jobNumber}>
-                    <td>
-                      <button
-                        type="button"
-                        className="row-button"
-                        onClick={() =>
-                          navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)
-                        }
-                      >
-                        {entry.jobNumber}
-                      </button>
-                    </td>
-                    <td>{formatDate(entry.jobDate)}</td>
-                    <td>{entry.crewLeader || '--'}</td>
-                    <td>
-                      <span className={`badge badge-${entry.status}`}>{formatStatusLabel(entry.status)}</span>
-                    </td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {jobs.map((entry) => (
+                <MobileRecordCard key={entry.jobNumber}>
+                  <MobileRecordHeader
+                    title={entry.jobNumber}
+                    subtitle={entry.crewLeader || 'No crew leader'}
+                    badge={<span className={`badge badge-${entry.status}`}>{formatStatusLabel(entry.status)}</span>}
+                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Due Date" value={formatDate(entry.jobDate)} />
+                    <MobileField label="Crew Leader" value={entry.crewLeader || '--'} />
+                    <MobileField label="Status" value={formatStatusLabel(entry.status)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job Number</th>
+                    <th>Due Date</th>
+                    <th>Crew Leader</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {jobs.map((entry) => (
+                    <tr key={entry.jobNumber}>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() =>
+                            navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)
+                          }
+                        >
+                          {entry.jobNumber}
+                        </button>
+                      </td>
+                      <td>{formatDate(entry.jobDate)}</td>
+                      <td>{entry.crewLeader || '--'}</td>
+                      <td>
+                        <span className={`badge badge-${entry.status}`}>{formatStatusLabel(entry.status)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
     </>

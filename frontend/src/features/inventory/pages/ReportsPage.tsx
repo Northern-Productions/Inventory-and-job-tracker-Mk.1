@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import type { ReportsSummaryFilters } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useReportsSummary } from '../hooks/useInventoryQueries';
 import { MANUFACTURER_OPTIONS, STANDARD_WIDTH_OPTIONS, getWidthMode } from '../utils/boxHelpers';
@@ -17,6 +24,7 @@ const EMPTY_FILTERS: ReportsSummaryFilters = {
 };
 
 export default function ReportsPage() {
+  const isPhoneLayout = useIsPhoneLayout();
   const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
@@ -161,26 +169,40 @@ export default function ReportsPage() {
           <div className="empty-state">No active inventory matched the current filters.</div>
         ) : null}
         {reportsQuery.data?.availableFeetByWidth.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Width</th>
-                  <th>Total Feet</th>
-                  <th>Box Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportsQuery.data.availableFeetByWidth.map((row) => (
-                  <tr key={row.widthIn}>
-                    <td>{row.widthIn}</td>
-                    <td>{row.totalFeetAvailable}</td>
-                    <td>{row.boxCount}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {reportsQuery.data.availableFeetByWidth.map((row) => (
+                <MobileRecordCard key={row.widthIn}>
+                  <MobileRecordHeader title={`${row.widthIn}"`} />
+                  <MobileFieldList>
+                    <MobileField label="Total Feet" value={row.totalFeetAvailable} />
+                    <MobileField label="Box Count" value={row.boxCount} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Width</th>
+                    <th>Total Feet</th>
+                    <th>Box Count</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {reportsQuery.data.availableFeetByWidth.map((row) => (
+                    <tr key={row.widthIn}>
+                      <td>{row.widthIn}</td>
+                      <td>{row.totalFeetAvailable}</td>
+                      <td>{row.boxCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
 
@@ -192,36 +214,56 @@ export default function ReportsPage() {
           <div className="empty-state">No received boxes matched this report.</div>
         ) : null}
         {reportsQuery.data?.neverCheckedOut.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>BoxID</th>
-                  <th>Warehouse</th>
-                  <th>Manufacturer</th>
-                  <th>Film</th>
-                  <th>Width</th>
-                  <th>Received</th>
-                  <th>Status</th>
-                  <th>Feet Available</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportsQuery.data.neverCheckedOut.map((row) => (
-                  <tr key={row.boxId}>
-                    <td>{row.boxId}</td>
-                    <td>{row.warehouse}</td>
-                    <td>{row.manufacturer}</td>
-                    <td>{row.filmName}</td>
-                    <td>{row.widthIn}</td>
-                    <td>{formatDate(row.receivedDate)}</td>
-                    <td>{row.status}</td>
-                    <td>{row.feetAvailable}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {reportsQuery.data.neverCheckedOut.map((row) => (
+                <MobileRecordCard key={row.boxId}>
+                  <MobileRecordHeader
+                    title={row.boxId}
+                    subtitle={`${row.manufacturer} ${row.filmName}`}
+                    badge={<span className={`badge badge-${row.status}`}>{row.status}</span>}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Warehouse" value={row.warehouse} />
+                    <MobileField label="Width" value={row.widthIn} />
+                    <MobileField label="Received" value={formatDate(row.receivedDate)} />
+                    <MobileField label="Feet Available" value={row.feetAvailable} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>BoxID</th>
+                    <th>Warehouse</th>
+                    <th>Manufacturer</th>
+                    <th>Film</th>
+                    <th>Width</th>
+                    <th>Received</th>
+                    <th>Status</th>
+                    <th>Feet Available</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {reportsQuery.data.neverCheckedOut.map((row) => (
+                    <tr key={row.boxId}>
+                      <td>{row.boxId}</td>
+                      <td>{row.warehouse}</td>
+                      <td>{row.manufacturer}</td>
+                      <td>{row.filmName}</td>
+                      <td>{row.widthIn}</td>
+                      <td>{formatDate(row.receivedDate)}</td>
+                      <td>{row.status}</td>
+                      <td>{row.feetAvailable}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
 
@@ -233,24 +275,37 @@ export default function ReportsPage() {
           <div className="empty-state">No zeroed boxes matched this report.</div>
         ) : null}
         {reportsQuery.data?.zeroedByMonth.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th>Zeroed Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportsQuery.data.zeroedByMonth.map((row) => (
-                  <tr key={row.month}>
-                    <td>{row.month}</td>
-                    <td>{row.zeroedCount}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {reportsQuery.data.zeroedByMonth.map((row) => (
+                <MobileRecordCard key={row.month}>
+                  <MobileRecordHeader title={row.month} />
+                  <MobileFieldList>
+                    <MobileField label="Zeroed Count" value={row.zeroedCount} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Zeroed Count</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {reportsQuery.data.zeroedByMonth.map((row) => (
+                    <tr key={row.month}>
+                      <td>{row.month}</td>
+                      <td>{row.zeroedCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
 

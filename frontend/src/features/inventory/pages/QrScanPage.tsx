@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { getBox } from '../../../api/client';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { QrScanner } from '../components/QrScanner';
 
 export default function QrScanPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const [manualBoxId, setManualBoxId] = useState('');
   const [lookupError, setLookupError] = useState('');
   const [isResolving, setIsResolving] = useState(false);
@@ -56,7 +58,12 @@ export default function QrScanPage() {
             placeholder="Enter BoxID"
           />
           <div className="page-actions">
-            <Button type="button" onClick={() => void goToBox(manualBoxId)} disabled={isResolving}>
+            <Button
+              type="button"
+              fullWidth={isPhoneLayout}
+              onClick={() => void goToBox(manualBoxId)}
+              disabled={isResolving}
+            >
               Open Box
             </Button>
           </div>

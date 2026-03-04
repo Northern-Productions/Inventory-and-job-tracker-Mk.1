@@ -1,4 +1,11 @@
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
 import { useBoxAllocations } from '../hooks/useInventoryQueries';
 import { getActiveAllocatedFeet } from '../utils/boxHelpers';
@@ -18,6 +25,7 @@ export function AllocationsPanel({
   boxId: string;
   feetAvailable: number;
 }) {
+  const isPhoneLayout = useIsPhoneLayout();
   const allocationsQuery = useBoxAllocations(boxId);
   const allocations = allocationsQuery.data || [];
   const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
@@ -44,34 +52,54 @@ export function AllocationsPanel({
         <div className="empty-state">No allocations saved for this box yet.</div>
       ) : null}
       {allocations.length ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Created</th>
-                <th>Job</th>
-                <th>Job Date</th>
-                <th>Crew</th>
-                <th>LF</th>
-                <th>Status</th>
-                <th>Resolved</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allocations.map((entry) => (
-                <tr key={entry.allocationId}>
-                  <td>{renderDateTime(entry.createdAt)}</td>
-                  <td>{entry.jobNumber}</td>
-                  <td>{renderDate(entry.jobDate)}</td>
-                  <td>{entry.crewLeader || '--'}</td>
-                  <td>{entry.allocatedFeet}</td>
-                  <td>{entry.status}</td>
-                  <td>{renderDateTime(entry.resolvedAt)}</td>
+        isPhoneLayout ? (
+          <div className="mobile-record-list">
+            {allocations.map((entry) => (
+              <MobileRecordCard key={entry.allocationId}>
+                <MobileRecordHeader
+                  title={entry.jobNumber}
+                  subtitle={renderDateTime(entry.createdAt)}
+                  badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
+                />
+                <MobileFieldList>
+                  <MobileField label="Job Date" value={renderDate(entry.jobDate)} />
+                  <MobileField label="Crew" value={entry.crewLeader || '--'} />
+                  <MobileField label="LF" value={entry.allocatedFeet} />
+                  <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
+                </MobileFieldList>
+              </MobileRecordCard>
+            ))}
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Job</th>
+                  <th>Job Date</th>
+                  <th>Crew</th>
+                  <th>LF</th>
+                  <th>Status</th>
+                  <th>Resolved</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {allocations.map((entry) => (
+                  <tr key={entry.allocationId}>
+                    <td>{renderDateTime(entry.createdAt)}</td>
+                    <td>{entry.jobNumber}</td>
+                    <td>{renderDate(entry.jobDate)}</td>
+                    <td>{entry.crewLeader || '--'}</td>
+                    <td>{entry.allocatedFeet}</td>
+                    <td>{entry.status}</td>
+                    <td>{renderDateTime(entry.resolvedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : null}
     </section>
   );

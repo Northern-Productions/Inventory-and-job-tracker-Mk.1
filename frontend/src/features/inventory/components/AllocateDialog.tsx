@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
 import type { AllocationPreview, Box } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import {
   useAllocateBox,
   useAllocationPreview
@@ -48,6 +55,7 @@ function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBox
 }
 
 export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
+  const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const allocateMutation = useAllocateBox();
   const [jobNumber, setJobNumber] = useState('');
@@ -264,43 +272,74 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
             )}
 
             {preview.suggestions.length ? (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Use</th>
-                      <th>Box</th>
-                      <th>Avail LF</th>
-                      <th>Planned LF</th>
-                      <th>Received</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.suggestions.map((suggestion) => {
-                      const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
-                      const selectedPlan = buildSelectionSummary(preview, selectedSuggestionBoxIds).allocations.find(
-                        (entry) => entry.boxId === suggestion.boxId
-                      );
+              isPhoneLayout ? (
+                <div className="mobile-record-list">
+                  {preview.suggestions.map((suggestion) => {
+                    const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
+                    const selectedPlan = buildSelectionSummary(preview, selectedSuggestionBoxIds).allocations.find(
+                      (entry) => entry.boxId === suggestion.boxId
+                    );
 
-                      return (
-                        <tr key={suggestion.boxId}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleSuggestion(suggestion.boxId)}
-                            />
-                          </td>
-                          <td>{suggestion.boxId}</td>
-                          <td>{suggestion.availableFeet}</td>
-                          <td>{selectedPlan?.allocatedFeet ?? 0}</td>
-                          <td>{suggestion.receivedDate || '--'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    return (
+                      <MobileRecordCard key={suggestion.boxId}>
+                        <MobileRecordHeader title={suggestion.boxId} />
+                        <MobileFieldList>
+                          <MobileField label="Use" value={selected ? 'Yes' : 'No'} />
+                          <MobileField label="Avail LF" value={suggestion.availableFeet} />
+                          <MobileField label="Planned LF" value={selectedPlan?.allocatedFeet ?? 0} />
+                          <MobileField label="Received" value={suggestion.receivedDate || '--'} />
+                        </MobileFieldList>
+                        <Button
+                          type="button"
+                          variant={selected ? 'secondary' : 'ghost'}
+                          fullWidth
+                          onClick={() => toggleSuggestion(suggestion.boxId)}
+                        >
+                          {selected ? 'Remove Box' : 'Use Box'}
+                        </Button>
+                      </MobileRecordCard>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Use</th>
+                        <th>Box</th>
+                        <th>Avail LF</th>
+                        <th>Planned LF</th>
+                        <th>Received</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.suggestions.map((suggestion) => {
+                        const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
+                        const selectedPlan = buildSelectionSummary(preview, selectedSuggestionBoxIds).allocations.find(
+                          (entry) => entry.boxId === suggestion.boxId
+                        );
+
+                        return (
+                          <tr key={suggestion.boxId}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleSuggestion(suggestion.boxId)}
+                              />
+                            </td>
+                            <td>{suggestion.boxId}</td>
+                            <td>{suggestion.availableFeet}</td>
+                            <td>{selectedPlan?.allocatedFeet ?? 0}</td>
+                            <td>{suggestion.receivedDate || '--'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
             ) : null}
 
             {!preview.suggestions.length && selectionSummary?.remainingFeet ? (

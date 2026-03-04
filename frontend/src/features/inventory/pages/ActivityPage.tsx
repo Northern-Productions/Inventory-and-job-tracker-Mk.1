@@ -3,11 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
 import { useAuditList } from '../hooks/useInventoryQueries';
 
 export default function ActivityPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const [filters, setFilters] = useState({
     from: '',
     to: '',
@@ -64,41 +72,61 @@ export default function ActivityPage() {
       </section>
 
       <section className="panel">
-        {activityQuery.isLoading ? <LoadingState label="Loading activity…" /> : null}
+        {activityQuery.isLoading ? <LoadingState label="Loading activity..." /> : null}
         {activityQuery.isError ? <p className="error-text">{activityQuery.error.message}</p> : null}
         {activityQuery.data?.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Action</th>
-                  <th>BoxID</th>
-                  <th>User</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activityQuery.data.map((entry) => (
-                  <tr key={entry.logId}>
-                    <td>{formatDateTime(entry.date)}</td>
-                    <td>{entry.action}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="row-button"
-                        onClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
-                      >
-                        {entry.boxId}
-                      </button>
-                    </td>
-                    <td>{entry.user || '—'}</td>
-                    <td>{entry.notes || '—'}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {activityQuery.data.map((entry) => (
+                <MobileRecordCard key={entry.logId}>
+                  <MobileRecordHeader
+                    title={entry.boxId}
+                    subtitle={formatDateTime(entry.date)}
+                    badge={<span className="badge">{entry.action}</span>}
+                    onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Action" value={entry.action} />
+                    <MobileField label="User" value={entry.user || '--'} />
+                    <MobileField label="Notes" value={entry.notes || '--'} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Action</th>
+                    <th>BoxID</th>
+                    <th>User</th>
+                    <th>Notes</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {activityQuery.data.map((entry) => (
+                    <tr key={entry.logId}>
+                      <td>{formatDateTime(entry.date)}</td>
+                      <td>{entry.action}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                        >
+                          {entry.boxId}
+                        </button>
+                      </td>
+                      <td>{entry.user || '--'}</td>
+                      <td>{entry.notes || '--'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
         {!activityQuery.isLoading && !activityQuery.data?.length ? (
           <div className="empty-state">No audit entries matched the current filters.</div>

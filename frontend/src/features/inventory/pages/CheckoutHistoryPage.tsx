@@ -2,6 +2,13 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
 import { useAuditList } from '../hooks/useInventoryQueries';
 
@@ -21,6 +28,7 @@ function getCheckoutJobNumber(notes: string): string {
 
 export default function CheckoutHistoryPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const checkoutQuery = useAuditList({ action: 'SET_STATUS' });
 
   const checkoutEntries = useMemo(
@@ -47,39 +55,57 @@ export default function CheckoutHistoryPage() {
       </section>
 
       <section className="panel">
-        {checkoutQuery.isLoading ? <LoadingState label="Loading checkout history…" /> : null}
+        {checkoutQuery.isLoading ? <LoadingState label="Loading checkout history..." /> : null}
         {checkoutQuery.isError ? <p className="error-text">{checkoutQuery.error.message}</p> : null}
         {checkoutEntries.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>BoxID</th>
-                  <th>Job Number</th>
-                  <th>User</th>
-                </tr>
-              </thead>
-              <tbody>
-                {checkoutEntries.map((entry) => (
-                  <tr key={entry.logId}>
-                    <td>{formatDateTime(entry.date)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="row-button"
-                        onClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
-                      >
-                        {entry.boxId}
-                      </button>
-                    </td>
-                    <td>{getCheckoutJobNumber(entry.notes) || '—'}</td>
-                    <td>{entry.user || '—'}</td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {checkoutEntries.map((entry) => (
+                <MobileRecordCard key={entry.logId}>
+                  <MobileRecordHeader
+                    title={entry.boxId}
+                    subtitle={formatDateTime(entry.date)}
+                    onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Job Number" value={getCheckoutJobNumber(entry.notes) || '--'} />
+                    <MobileField label="User" value={entry.user || '--'} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>BoxID</th>
+                    <th>Job Number</th>
+                    <th>User</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {checkoutEntries.map((entry) => (
+                    <tr key={entry.logId}>
+                      <td>{formatDateTime(entry.date)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                        >
+                          {entry.boxId}
+                        </button>
+                      </td>
+                      <td>{getCheckoutJobNumber(entry.notes) || '--'}</td>
+                      <td>{entry.user || '--'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
         {!checkoutQuery.isLoading && !checkoutEntries.length ? (
           <div className="empty-state">No checkout history yet.</div>

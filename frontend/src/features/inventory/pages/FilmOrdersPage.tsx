@@ -3,8 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { LoadingState } from '../../../components/LoadingState';
+import {
+  MobileActionStack,
+  MobileField,
+  MobileFieldList,
+  MobileRecordCard,
+  MobileRecordHeader
+} from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
 import type { CreateFilmOrderPayload, FilmOrderEntry } from '../../../domain';
+import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
@@ -54,6 +62,7 @@ function formatBadgeLabel(value: string) {
 
 export default function FilmOrdersPage() {
   const navigate = useNavigate();
+  const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
   const filmOrdersQuery = useFilmOrders();
@@ -167,88 +176,151 @@ export default function FilmOrdersPage() {
           <div className="empty-state">No film order alerts have been created yet.</div>
         ) : null}
         {orderedEntries.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Film Order</th>
-                  <th>Job</th>
-                  <th>Warehouse</th>
-                  <th>Film</th>
-                  <th>Width</th>
-                  <th>Requested</th>
-                  <th>Covered</th>
-                  <th>On The Way</th>
-                  <th>Still Short</th>
-                  <th>Job Date</th>
-                  <th>Crew</th>
-                  <th>Linked Boxes</th>
-                  <th>Created</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orderedEntries.map((order) => (
-                  <tr key={order.filmOrderId}>
-                    <td>
-                      <span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>
-                    </td>
-                    <td>{order.filmOrderId}</td>
-                    <td>{order.jobNumber}</td>
-                    <td>{order.warehouse}</td>
-                    <td>
-                      {order.manufacturer} {order.filmName}
-                    </td>
-                    <td>{order.widthIn}</td>
-                    <td>{order.requestedFeet}</td>
-                    <td>{order.coveredFeet}</td>
-                    <td>{order.orderedFeet}</td>
-                    <td>{order.remainingToOrderFeet}</td>
-                    <td>{formatDate(order.jobDate)}</td>
-                    <td>{order.crewLeader || '--'}</td>
-                    <td>
-                      {(order.linkedBoxes || []).length ? (
-                        <div className="film-order-linked-boxes">
-                          {(order.linkedBoxes || []).map((link) => (
-                            <div key={`${order.filmOrderId}-${link.boxId}`}>
-                              <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
-                              {link.autoAllocatedFeet} LF allocated
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        '--'
-                      )}
-                    </td>
-                    <td>{formatDate(order.createdAt)}</td>
-                    <td>
-                      {order.status === 'FULFILLED' ? null : (
-                        <div className="film-order-actions">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => navigate(buildAddBoxTarget(order))}
-                            disabled={order.status !== 'FILM_ORDER'}
-                          >
-                            FILM ORDERED
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="danger"
-                            onClick={() => setJobToCancel(order)}
-                            disabled={!isOpenFilmOrder(order) || cancelJobMutation.isPending}
-                          >
-                            Cancel Job
-                          </Button>
-                        </div>
-                      )}
-                    </td>
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {orderedEntries.map((order) => (
+                <MobileRecordCard key={order.filmOrderId}>
+                  <MobileRecordHeader
+                    title={order.filmOrderId}
+                    subtitle={`Job ${order.jobNumber}`}
+                    badge={<span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Warehouse" value={order.warehouse} />
+                    <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
+                    <MobileField label="Width" value={order.widthIn} />
+                    <MobileField label="Requested LF" value={order.requestedFeet} />
+                    <MobileField label="Covered LF" value={order.coveredFeet} />
+                    <MobileField label="On The Way LF" value={order.orderedFeet} />
+                    <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
+                    <MobileField label="Job Date" value={formatDate(order.jobDate)} />
+                    <MobileField label="Crew" value={order.crewLeader || '--'} />
+                    <MobileField label="Created" value={formatDate(order.createdAt)} />
+                    <MobileField
+                      label="Linked Boxes"
+                      value={
+                        (order.linkedBoxes || []).length ? (
+                          <div className="film-order-linked-boxes">
+                            {(order.linkedBoxes || []).map((link) => (
+                              <div key={`${order.filmOrderId}-${link.boxId}`}>
+                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
+                                {link.autoAllocatedFeet} LF allocated
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          '--'
+                        )
+                      }
+                    />
+                  </MobileFieldList>
+                  {order.status === 'FULFILLED' ? null : (
+                    <MobileActionStack>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => navigate(buildAddBoxTarget(order))}
+                        disabled={order.status !== 'FILM_ORDER'}
+                      >
+                        FILM ORDERED
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        onClick={() => setJobToCancel(order)}
+                        disabled={!isOpenFilmOrder(order) || cancelJobMutation.isPending}
+                      >
+                        Cancel Job
+                      </Button>
+                    </MobileActionStack>
+                  )}
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Film Order</th>
+                    <th>Job</th>
+                    <th>Warehouse</th>
+                    <th>Film</th>
+                    <th>Width</th>
+                    <th>Requested</th>
+                    <th>Covered</th>
+                    <th>On The Way</th>
+                    <th>Still Short</th>
+                    <th>Job Date</th>
+                    <th>Crew</th>
+                    <th>Linked Boxes</th>
+                    <th>Created</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {orderedEntries.map((order) => (
+                    <tr key={order.filmOrderId}>
+                      <td>
+                        <span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>
+                      </td>
+                      <td>{order.filmOrderId}</td>
+                      <td>{order.jobNumber}</td>
+                      <td>{order.warehouse}</td>
+                      <td>
+                        {order.manufacturer} {order.filmName}
+                      </td>
+                      <td>{order.widthIn}</td>
+                      <td>{order.requestedFeet}</td>
+                      <td>{order.coveredFeet}</td>
+                      <td>{order.orderedFeet}</td>
+                      <td>{order.remainingToOrderFeet}</td>
+                      <td>{formatDate(order.jobDate)}</td>
+                      <td>{order.crewLeader || '--'}</td>
+                      <td>
+                        {(order.linkedBoxes || []).length ? (
+                          <div className="film-order-linked-boxes">
+                            {(order.linkedBoxes || []).map((link) => (
+                              <div key={`${order.filmOrderId}-${link.boxId}`}>
+                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
+                                {link.autoAllocatedFeet} LF allocated
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          '--'
+                        )}
+                      </td>
+                      <td>{formatDate(order.createdAt)}</td>
+                      <td>
+                        {order.status === 'FULFILLED' ? null : (
+                          <div className="film-order-actions">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => navigate(buildAddBoxTarget(order))}
+                              disabled={order.status !== 'FILM_ORDER'}
+                            >
+                              FILM ORDERED
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="danger"
+                              onClick={() => setJobToCancel(order)}
+                              disabled={!isOpenFilmOrder(order) || cancelJobMutation.isPending}
+                            >
+                              Cancel Job
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
 
