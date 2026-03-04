@@ -129,11 +129,10 @@ export default function BoxDetailsPage() {
   const statusMutation = useSetBoxStatus();
   const undoMutation = useUndoAudit();
   const allocationsQuery = useBoxAllocations(boxId);
-  const shouldShowQrToolsOnLoad = searchParams.get('showQr') === '1';
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
-  const [isQrSectionOpen, setIsQrSectionOpen] = useState(shouldShowQrToolsOnLoad);
+  const [isQrSectionOpen, setIsQrSectionOpen] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCodeError, setQrCodeError] = useState('');
   const didHandleScanCheckIn = useRef(false);
