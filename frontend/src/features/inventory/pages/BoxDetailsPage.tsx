@@ -140,6 +140,44 @@ export default function BoxDetailsPage() {
 
   const box = boxQuery.data;
   const activeAllocatedFeet = getActiveAllocatedFeet(allocationsQuery.data || []);
+  const checkoutJobOptions = useMemo(() => {
+    const activeAllocations = (allocationsQuery.data || [])
+      .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
+      .slice()
+      .sort((left, right) => {
+        const leftTime = new Date(left.createdAt).getTime();
+        const rightTime = new Date(right.createdAt).getTime();
+
+        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+          return 0;
+        }
+
+        if (Number.isNaN(leftTime)) {
+          return 1;
+        }
+
+        if (Number.isNaN(rightTime)) {
+          return -1;
+        }
+
+        return leftTime - rightTime;
+      });
+    const seenJobNumbers = new Set<string>();
+
+    return activeAllocations.reduce<Array<{ label: string; value: string }>>((options, entry) => {
+      const jobNumber = entry.jobNumber.trim();
+      if (seenJobNumbers.has(jobNumber)) {
+        return options;
+      }
+
+      seenJobNumbers.add(jobNumber);
+      options.push({
+        label: jobNumber,
+        value: jobNumber
+      });
+      return options;
+    }, []);
+  }, [allocationsQuery.data]);
   const initialDraft = useMemo(
     () => (box ? createDraftFromBox(box) : createDraftFromBox(createFallbackBox(boxId))),
     [box, boxId]
@@ -413,12 +451,13 @@ export default function BoxDetailsPage() {
     }
 
     if (status === 'CHECKED_OUT') {
+      const checkoutMessage =
+        checkoutJobOptions.length > 0
+          ? "Select one of this box's active allocated jobs, or choose Enter New Job Number if this checkout is for something else."
+          : 'Enter the job number for this checkout. It will be saved in the box history.';
+
       setConfirmState(
-        createStatusConfirmState(
-          box.boxId,
-          status,
-          'Enter the job number for this checkout. It will be saved in the box history.'
-        )
+        createStatusConfirmState(box.boxId, status, checkoutMessage)
       );
       return;
     }
@@ -816,16 +855,46 @@ export default function BoxDetailsPage() {
         }
         reasonLabel={
           confirmState?.type === 'checkout'
-            ? 'Job Number'
+            ? checkoutJobOptions.length > 0
+              ? 'Allocated Job'
+              : 'Job Number'
             : confirmState?.type === 'checkin'
               ? 'Roll Weight (lbs)'
               : 'Reason'
         }
-        reasonPlaceholder="Required"
-        reasonField={confirmState?.type === 'checkin' ? 'input' : 'textarea'}
-        reasonInputType={confirmState?.type === 'checkin' ? 'number' : 'text'}
+        reasonPlaceholder={
+          confirmState?.type === 'checkout' ? 'Numbers only' : 'Required'
+        }
+        reasonField={
+          confirmState?.type === 'update'
+            ? 'textarea'
+            : confirmState?.type === 'checkout' || confirmState?.type === 'checkin'
+              ? 'input'
+              : 'textarea'
+        }
+        reasonInputType={
+          confirmState?.type === 'checkin'
+            ? 'number'
+            : confirmState?.type === 'checkout'
+              ? 'text'
+              : 'text'
+        }
         reasonInputStep={confirmState?.type === 'checkin' ? '0.01' : undefined}
         reasonInputMin={confirmState?.type === 'checkin' ? '0' : undefined}
+        reasonInputMode={confirmState?.type === 'checkout' ? 'numeric' : undefined}
+        reasonInputPattern={confirmState?.type === 'checkout' ? '[0-9]*' : undefined}
+        reasonDigitsOnly={confirmState?.type === 'checkout'}
+        reasonOptions={
+          confirmState?.type === 'checkout' && checkoutJobOptions.length > 0
+            ? checkoutJobOptions
+            : undefined
+        }
+        reasonSelectLabel={confirmState?.type === 'checkout' ? 'Allocated Job' : undefined}
+        reasonAllowCustomOption={
+          confirmState?.type === 'checkout' && checkoutJobOptions.length > 0
+        }
+        reasonCustomOptionLabel="Enter New Job Number"
+        customReasonLabel={confirmState?.type === 'checkout' ? 'New Job Number' : undefined}
         onCancel={handleCancelConfirm}
         onConfirm={(reason) => void handleConfirm(reason)}
       />
