@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { Button } from '../../../components/Button';
@@ -84,6 +85,36 @@ function createStatusConfirmState(
   };
 }
 
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  const didCopy = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!didCopy) {
+    throw new Error('Clipboard access is not available.');
+  }
+}
+
+async function createBlobFromDataUrl(dataUrl: string) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
 export default function BoxDetailsPage() {
   const params = useParams();
   const navigate = useNavigate();
@@ -98,6 +129,8 @@ export default function BoxDetailsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
+  const [qrCodeError, setQrCodeError] = useState('');
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
@@ -126,6 +159,119 @@ export default function BoxDetailsPage() {
     }
 
     return true;
+  }
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!box?.boxId) {
+      setQrCodeDataUrl('');
+      setQrCodeError('');
+      return () => {
+        isActive = false;
+      };
+    }
+
+    setQrCodeDataUrl('');
+    setQrCodeError('');
+
+    void QRCode.toDataURL(box.boxId, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 220,
+      color: {
+        dark: '#12343b',
+        light: '#ffffffff'
+      }
+    })
+      .then((nextDataUrl: string) => {
+        if (!isActive) {
+          return;
+        }
+
+        setQrCodeDataUrl(nextDataUrl);
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+
+        setQrCodeError('The QR image could not be generated. You can still copy the BoxID text.');
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [box?.boxId]);
+
+  async function handleCopyQrCode() {
+    if (!box) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(box.boxId);
+      toast.push({
+        title: 'QR code copied',
+        description: `${box.boxId} is ready to paste into your label software.`,
+        variant: 'success'
+      });
+    } catch (_error) {
+      toast.push({
+        title: 'Copy failed',
+        description: 'Clipboard access is unavailable. Copy the BoxID manually from the QR code section.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleCopyQrImage() {
+    if (!box || !qrCodeDataUrl) {
+      return;
+    }
+
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+      toast.push({
+        title: 'Image copy is not supported',
+        description: 'Use Download QR PNG or Copy QR Code on this device/browser.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const imageBlob = await createBlobFromDataUrl(qrCodeDataUrl);
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [imageBlob.type]: imageBlob
+        })
+      ]);
+
+      toast.push({
+        title: 'QR image copied',
+        description: `${box.boxId} is ready to paste into your label software.`,
+        variant: 'success'
+      });
+    } catch (_error) {
+      toast.push({
+        title: 'Image copy failed',
+        description: 'Use Download QR PNG or Copy QR Code instead.',
+        variant: 'error'
+      });
+    }
+  }
+
+  function handleDownloadQrImage() {
+    if (!box || !qrCodeDataUrl) {
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = qrCodeDataUrl;
+    link.download = `${box.boxId}-qr.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   async function pushUndoToast(
@@ -499,6 +645,50 @@ export default function BoxDetailsPage() {
           <DetailField label="Zeroed Reason" value={box.zeroedReason} />
           <DetailField label="Zeroed By" value={box.zeroedBy} />
           <DetailField label="Notes" value={box.notes} />
+        </div>
+
+        <div className="qr-code-card">
+          <div className="qr-code-preview">
+            {qrCodeDataUrl ? (
+              <img src={qrCodeDataUrl} alt={`QR code for box ${box.boxId}`} className="qr-code-image" />
+            ) : (
+              <div className="qr-code-placeholder">
+                {qrCodeError ? 'QR unavailable' : 'Generating QR...'}
+              </div>
+            )}
+          </div>
+          <div className="qr-code-meta">
+            <div>
+              <h3 className="qr-code-title">QR Code</h3>
+              <p className="muted-text">
+                Copy the image for supported label software, download a PNG, or copy the raw BoxID
+                text. The QR contains only the BoxID.
+              </p>
+            </div>
+            <div className="qr-code-actions">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleCopyQrImage()}
+                disabled={!qrCodeDataUrl}
+              >
+                Copy QR Image
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleDownloadQrImage}
+                disabled={!qrCodeDataUrl}
+              >
+                Download QR PNG
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => void handleCopyQrCode()}>
+                Copy QR Code
+              </Button>
+            </div>
+            <p className="qr-code-value">{box.boxId}</p>
+            {qrCodeError ? <p className="error-text">{qrCodeError}</p> : null}
+          </div>
         </div>
 
         {!isEditing ? (

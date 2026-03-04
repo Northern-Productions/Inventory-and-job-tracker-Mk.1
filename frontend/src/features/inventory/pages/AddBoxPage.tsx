@@ -132,8 +132,8 @@ export default function AddBoxPage() {
         title: `Saved ${result.box.boxId}`,
         description:
           warnings.length > 0
-            ? warnings.join(' ')
-            : `${result.box.boxId} was created and stored in ${result.box.warehouse}.`,
+            ? `${warnings.join(' ')} QR image and export actions are ready on the box details page.`
+            : `${result.box.boxId} was created and stored in ${result.box.warehouse}. QR image and export actions are ready on the box details page.`,
         actionLabel: 'Undo',
         onAction: async () => {
           try {

@@ -68,7 +68,7 @@ export default function AllocationJobPage() {
       <section className="panel">
         <div className="panel-title-row">
           <div>
-            <h2>{summary.jobNumber}</h2>
+            <h2>JOB ID {summary.jobNumber}</h2>
             <p className="muted-text">Job allocation detail</p>
           </div>
           <div className="detail-actions">
@@ -213,14 +213,16 @@ export default function AllocationJobPage() {
                       )}
                     </td>
                     <td>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => navigate(buildAddBoxTarget(order))}
-                        disabled={order.status !== 'FILM_ORDER'}
-                      >
-                        Order Film
-                      </Button>
+                      {order.status === 'FULFILLED' ? null : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => navigate(buildAddBoxTarget(order))}
+                          disabled={order.status !== 'FILM_ORDER'}
+                        >
+                          Order Film
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
