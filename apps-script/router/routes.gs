@@ -24,6 +24,7 @@ var ROUTES_ = {
   'POST /allocations/apply': applyAllocationPlanService_,
   'POST /roll-history/by-box': getRollHistoryByBoxService_,
   'POST /film-orders/list': getFilmOrdersService_,
+  'POST /film-orders/create': createFilmOrderService_,
   'POST /film-orders/cancel': cancelJobService_,
   'POST /reports/summary': getReportsSummaryService_,
   'POST /boxes/add': addBoxService_,

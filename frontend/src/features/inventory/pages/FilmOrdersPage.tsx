@@ -4,10 +4,11 @@ import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { LoadingState } from '../../../components/LoadingState';
 import { useToast } from '../../../components/Toast';
-import type { FilmOrderEntry } from '../../../domain';
+import type { CreateFilmOrderPayload, FilmOrderEntry } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
-import { useCancelJob, useFilmOrders } from '../hooks/useInventoryQueries';
+import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
+import { useCancelJob, useCreateFilmOrder, useFilmOrders } from '../hooks/useInventoryQueries';
 
 function isOpenFilmOrder(order: FilmOrderEntry) {
   return order.status === 'FILM_ORDER' || order.status === 'FILM_ON_THE_WAY';
@@ -56,7 +57,9 @@ export default function FilmOrdersPage() {
   const toast = useToast();
   const auth = useAuth();
   const filmOrdersQuery = useFilmOrders();
+  const createFilmOrderMutation = useCreateFilmOrder();
   const cancelJobMutation = useCancelJob();
+  const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
   const [jobToCancel, setJobToCancel] = useState<FilmOrderEntry | null>(null);
 
   const orderedEntries = useMemo(
@@ -108,23 +111,56 @@ export default function FilmOrdersPage() {
     }
   }
 
+  async function handleCreateFilmOrder(payload: CreateFilmOrderPayload) {
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Google sign-in is not configured',
+        description: 'Set VITE_GOOGLE_CLIENT_ID before creating film orders.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with Google before creating a film order.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { result, warnings } = await createFilmOrderMutation.mutateAsync(payload);
+      setIsCreateFilmOrderOpen(false);
+      toast.push({
+        title: `Film Order ${result.filmOrderId} created`,
+        description:
+          warnings.join(' ') || `Continue in Add Box to create the incoming box records for job ${result.jobNumber}.`,
+        variant: 'success'
+      });
+      navigate(buildAddBoxTarget(result));
+    } catch (error) {
+      toast.push({
+        title: 'Unable to create film order',
+        description: error instanceof Error ? error.message : 'The create request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   return (
     <>
       <section className="panel">
         <div className="panel-title-row">
-          <div>
-            <h2>Film Orders</h2>
-            <p className="muted-text">
-              Shortage alerts stay at the top. Use FILM ORDERED to add an incoming box tied to the job.
-            </p>
-          </div>
+          <h2>Film Orders</h2>
+          <Button type="button" variant="secondary" onClick={() => setIsCreateFilmOrderOpen(true)}>
+            Order Film
+          </Button>
         </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2>Open And History</h2>
-        </div>
+        <p className="muted-text">
+          Shortage alerts stay at the top. Use FILM ORDERED to add an incoming box tied to the job.
+        </p>
         {filmOrdersQuery.isLoading ? <LoadingState label="Loading film orders..." /> : null}
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
         {!filmOrdersQuery.isLoading && !filmOrdersQuery.isError && !orderedEntries.length ? (
@@ -228,6 +264,13 @@ export default function FilmOrdersPage() {
         cancelLabel="Keep Job"
         onCancel={() => setJobToCancel(null)}
         onConfirm={() => void handleCancelJob()}
+      />
+
+      <CreateFilmOrderDialog
+        open={isCreateFilmOrderOpen}
+        submitting={createFilmOrderMutation.isPending}
+        onCancel={() => setIsCreateFilmOrderOpen(false)}
+        onSubmit={(payload) => void handleCreateFilmOrder(payload)}
       />
     </>
   );

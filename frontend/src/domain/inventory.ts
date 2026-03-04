@@ -224,6 +224,15 @@ export interface FilmOrderListResponse {
   entries: FilmOrderEntry[];
 }
 
+export interface CreateFilmOrderPayload {
+  jobNumber: string;
+  warehouse: Warehouse;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  requestedFeet: number;
+}
+
 export interface AllocationJobSummary {
   jobNumber: string;
   jobDate: string;

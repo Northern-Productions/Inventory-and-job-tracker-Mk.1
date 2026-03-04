@@ -1734,6 +1734,69 @@ function getFilmOrdersService_() {
   };
 }
 
+function createFilmOrderService_(payload) {
+  var warnings = [];
+  var user = getAuthenticatedAuditUser_(payload);
+  var warehouse = requireString_(payload.warehouse, 'Warehouse').toUpperCase();
+  var jobNumber = requireString_(payload.jobNumber, 'JobNumber');
+  var manufacturer = requireString_(payload.manufacturer, 'Manufacturer');
+  var filmName = requireString_(payload.filmName, 'FilmName');
+  var widthIn = coerceNonNegativeNumber_(payload.widthIn, 'WidthIn');
+  var requestedFeet = coerceFeetValue_(payload.requestedFeet, 'RequestedFeet', warnings, false);
+  var lock = LockService.getScriptLock();
+  var entry;
+  var publicEntry;
+
+  if (warehouse !== 'IL' && warehouse !== 'MS') {
+    throw new Error('Warehouse must be IL or MS.');
+  }
+
+  if (widthIn <= 0) {
+    throw new Error('WidthIn must be greater than zero.');
+  }
+
+  if (requestedFeet <= 0) {
+    throw new Error('RequestedFeet must be greater than zero.');
+  }
+
+  lock.waitLock(30000);
+
+  try {
+    entry = appendFilmOrder_({
+      filmOrderId: '',
+      jobNumber: jobNumber,
+      warehouse: warehouse,
+      manufacturer: manufacturer,
+      filmName: filmName,
+      widthIn: widthIn,
+      requestedFeet: requestedFeet,
+      coveredFeet: 0,
+      orderedFeet: 0,
+      remainingToOrderFeet: requestedFeet,
+      jobDate: '',
+      crewLeader: '',
+      status: 'FILM_ORDER',
+      sourceBoxId: '',
+      createdAt: new Date().toISOString(),
+      createdBy: asTrimmedString_(user),
+      resolvedAt: '',
+      resolvedBy: '',
+      notes: 'Created manually from Film Orders.'
+    });
+
+    publicEntry = cloneObject_(entry);
+    delete publicEntry.rowIndex;
+    publicEntry.linkedBoxes = [];
+
+    return {
+      data: publicEntry,
+      warnings: warnings
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function cancelJobService_(payload) {
   var warnings = [];
   var user = getAuthenticatedAuditUser_(payload);

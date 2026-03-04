@@ -16,6 +16,7 @@ import type {
   Box,
   BoxHistoryResponse,
   BoxMutationResult,
+  CreateFilmOrderPayload,
   FilmOrderEntry,
   FilmOrderListResponse,
   HealthResponse,
@@ -177,6 +178,19 @@ export async function getFilmOrders(): Promise<FilmOrderEntry[]> {
   const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', {}, {});
 
   return data.entries;
+}
+
+export async function createFilmOrder(
+  payload: CreateFilmOrderPayload
+): Promise<{ result: FilmOrderEntry; warnings: string[] }> {
+  const response = await request<FilmOrderEntry>('POST', '/film-orders/create', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
 }
 
 export async function cancelJob(

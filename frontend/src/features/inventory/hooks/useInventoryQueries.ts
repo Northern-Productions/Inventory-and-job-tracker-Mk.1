@@ -3,6 +3,7 @@ import { useOptimisticQueue, type OptimisticOperationController } from '../../..
 import {
   applyAllocationPlan,
   cancelJob,
+  createFilmOrder,
   getAllocationJob,
   getAllocationJobs,
   getAllocationsByBox,
@@ -29,6 +30,7 @@ import type {
   AddBoxPayload,
   AuditListParams,
   Box,
+  CreateFilmOrderPayload,
   ReportsSummaryFilters,
   SearchBoxesParams,
   SetBoxStatusPayload,
@@ -281,6 +283,21 @@ export function useFilmOrders() {
   return useQuery({
     queryKey: inventoryKeys.filmOrders,
     queryFn: () => getFilmOrders()
+  });
+}
+
+export function useCreateFilmOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CreateFilmOrderPayload) => createFilmOrder(payload),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+      ]);
+    }
   });
 }
 
