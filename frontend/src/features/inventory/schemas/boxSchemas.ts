@@ -8,8 +8,7 @@ import { toOptionalNumber } from '../../../lib/number';
 import type { BoxDraft } from '../utils/boxHelpers';
 import {
   CORE_TYPE_OPTIONS,
-  deriveCreateFeetAvailable,
-  MANUFACTURER_OPTIONS
+  deriveCreateFeetAvailable
 } from '../utils/boxHelpers';
 
 export interface InventoryFilterValues {
@@ -23,10 +22,7 @@ export interface InventoryFilterValues {
 
 const requiredString = z.string().trim().min(1, 'Required.');
 const optionalString = z.string().transform((value) => value.trim());
-const addManufacturerString = requiredString.refine(
-  (value) => MANUFACTURER_OPTIONS.includes(value as (typeof MANUFACTURER_OPTIONS)[number]),
-  'Select a manufacturer.'
-);
+const addManufacturerString = requiredString;
 const optionalCoreTypeString = z
   .string()
   .trim()
