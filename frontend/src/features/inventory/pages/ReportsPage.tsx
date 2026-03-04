@@ -14,6 +14,8 @@ import { formatDate } from '../../../lib/date';
 import { useReportsSummary } from '../hooks/useInventoryQueries';
 import { MANUFACTURER_OPTIONS, STANDARD_WIDTH_OPTIONS, getWidthMode } from '../utils/boxHelpers';
 
+const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
+
 const EMPTY_FILTERS: ReportsSummaryFilters = {
   warehouse: '',
   manufacturer: '',
@@ -31,6 +33,15 @@ export default function ReportsPage() {
   const reportsQuery = useReportsSummary(filters);
   const widthMode = getWidthMode(filters.width || '72');
   const widthButtonValues = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
+  const isKnownManufacturer = MANUFACTURER_OPTIONS.includes(
+    (filters.manufacturer || '') as (typeof MANUFACTURER_OPTIONS)[number]
+  );
+  const manufacturerSelectValue = !filters.manufacturer
+    ? ''
+    : isKnownManufacturer
+      ? filters.manufacturer
+      : CUSTOM_MANUFACTURER_OPTION;
+  const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
   const isCustomWidthValid =
     customWidthDraft.trim() !== '' &&
     Number.isFinite(Number(customWidthDraft)) &&
@@ -102,8 +113,18 @@ export default function ReportsPage() {
             <span className="field-label">Manufacturer</span>
             <select
               className="field-input"
-              value={filters.manufacturer || ''}
-              onChange={(event) => patchFilters({ manufacturer: event.target.value })}
+              value={manufacturerSelectValue}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                if (nextValue === CUSTOM_MANUFACTURER_OPTION) {
+                  if (!filters.manufacturer || isKnownManufacturer) {
+                    patchFilters({ manufacturer: '' });
+                  }
+                  return;
+                }
+
+                patchFilters({ manufacturer: nextValue });
+              }}
             >
               <option value="">All</option>
               {MANUFACTURER_OPTIONS.map((manufacturer) => (
@@ -111,8 +132,17 @@ export default function ReportsPage() {
                   {manufacturer}
                 </option>
               ))}
+              <option value={CUSTOM_MANUFACTURER_OPTION}>Enter New Manufacturer</option>
             </select>
           </label>
+          {isCustomManufacturerSelected ? (
+            <Input
+              label="New Manufacturer"
+              value={filters.manufacturer || ''}
+              onChange={(event) => patchFilters({ manufacturer: event.target.value })}
+              placeholder="Type manufacturer..."
+            />
+          ) : null}
           <Input
             label="Film"
             value={filters.film || ''}

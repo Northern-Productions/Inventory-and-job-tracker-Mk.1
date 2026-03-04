@@ -5,6 +5,8 @@ import type { CreateFilmOrderPayload, Warehouse } from '../../../domain';
 import { MANUFACTURER_OPTIONS } from '../utils/boxHelpers';
 import { WarehouseToggle } from './WarehouseToggle';
 
+const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
+
 interface CreateFilmOrderDialogProps {
   open: boolean;
   submitting?: boolean;
@@ -25,6 +27,13 @@ export function CreateFilmOrderDialog({
   const [widthIn, setWidthIn] = useState('36');
   const [requestedFeet, setRequestedFeet] = useState('100');
   const [error, setError] = useState('');
+  const isKnownManufacturer = MANUFACTURER_OPTIONS.includes(
+    manufacturer as (typeof MANUFACTURER_OPTIONS)[number]
+  );
+  const manufacturerSelectValue = isKnownManufacturer
+    ? manufacturer
+    : CUSTOM_MANUFACTURER_OPTION;
+  const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
 
   useEffect(() => {
     if (open) {
@@ -55,6 +64,11 @@ export function CreateFilmOrderDialog({
 
     if (!filmName.trim()) {
       setError('Film Name is required.');
+      return;
+    }
+
+    if (!manufacturer.trim()) {
+      setError('Manufacturer is required.');
       return;
     }
 
@@ -105,9 +119,18 @@ export function CreateFilmOrderDialog({
             <span className="field-label">Manufacturer</span>
             <select
               className="field-input"
-              value={manufacturer}
+              value={manufacturerSelectValue}
               onChange={(event) => {
-                setManufacturer(event.target.value);
+                const nextValue = event.target.value;
+                if (nextValue === CUSTOM_MANUFACTURER_OPTION) {
+                  if (isKnownManufacturer) {
+                    setManufacturer('');
+                  }
+                  setError('');
+                  return;
+                }
+
+                setManufacturer(nextValue);
                 setError('');
               }}
             >
@@ -116,8 +139,20 @@ export function CreateFilmOrderDialog({
                   {option}
                 </option>
               ))}
+              <option value={CUSTOM_MANUFACTURER_OPTION}>Enter New Manufacturer</option>
             </select>
           </label>
+          {isCustomManufacturerSelected ? (
+            <Input
+              label="New Manufacturer"
+              value={manufacturer}
+              onChange={(event) => {
+                setManufacturer(event.target.value);
+                setError('');
+              }}
+              required
+            />
+          ) : null}
           <Input
             label="Film Name"
             value={filmName}
