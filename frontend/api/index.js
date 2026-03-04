@@ -11,20 +11,29 @@ function appendQuery(searchParams, key, value) {
   }
 }
 
-function readRequestBody(body) {
-  if (typeof body === 'string') {
-    return body;
+async function readRequestBody(req) {
+  if (typeof req.body === 'string') {
+    return req.body;
   }
 
-  if (Buffer.isBuffer(body)) {
-    return body.toString('utf8');
+  if (Buffer.isBuffer(req.body)) {
+    return req.body.toString('utf8');
   }
 
-  if (body === undefined || body === null) {
+  if (req.body !== undefined && req.body !== null) {
+    return JSON.stringify(req.body);
+  }
+
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+
+  if (chunks.length === 0) {
     return '';
   }
 
-  return JSON.stringify(body);
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function sendJson(res, status, payload) {
@@ -57,6 +66,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const requestBody = req.method === 'POST' ? await readRequestBody(req) : undefined;
     const upstreamResponse = await fetch(upstreamUrl, {
       method: req.method,
       headers:
@@ -65,7 +75,7 @@ export default async function handler(req, res) {
               'Content-Type': req.headers['content-type'] || 'text/plain;charset=utf-8'
             }
           : undefined,
-      body: req.method === 'POST' ? readRequestBody(req.body) : undefined
+      body: requestBody
     });
 
     const responseText = await upstreamResponse.text();
