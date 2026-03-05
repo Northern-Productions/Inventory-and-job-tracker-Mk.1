@@ -524,22 +524,23 @@ function compareBoxesByOldestStock_(a, b) {
   return a.boxId < b.boxId ? -1 : a.boxId > b.boxId ? 1 : 0;
 }
 
-function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext) {
+function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext, options) {
   var requested = coerceFeetValue_(requestedFeet, 'RequestedFeet', [], true);
   if (requested <= 0) {
     throw new Error('RequestedFeet must be greater than zero.');
   }
 
+  var useCrossWarehouse = options && options.crossWarehouse === true;
   var sourceConflicts = getDateConflictJobsForBox_(sourceBox.boxId, jobContext);
   var sourceAllocationFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
   var remaining = requested - sourceAllocationFeet;
   var candidates = [];
-  var warehouseBoxes = readWarehouseBoxes_(sourceBox.warehouse);
+  var candidateBoxes = useCrossWarehouse ? listAllBoxes_() : readWarehouseBoxes_(sourceBox.warehouse);
 
-  warehouseBoxes.sort(compareBoxesByOldestStock_);
+  candidateBoxes.sort(compareBoxesByOldestStock_);
 
-  for (var index = 0; index < warehouseBoxes.length; index += 1) {
-    var candidate = warehouseBoxes[index];
+  for (var index = 0; index < candidateBoxes.length; index += 1) {
+    var candidate = candidateBoxes[index];
     if (
       candidate.boxId === sourceBox.boxId ||
       candidate.status !== 'IN_STOCK' ||
@@ -558,6 +559,7 @@ function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext) {
 
     candidates.push({
       boxId: candidate.boxId,
+      warehouse: candidate.warehouse,
       availableFeet: candidate.feetAvailable,
       suggestedFeet: remaining > 0 ? Math.min(candidate.feetAvailable, remaining) : 0,
       receivedDate: candidate.receivedDate,
@@ -575,6 +577,7 @@ function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext) {
     crewLeader: jobContext.crewLeader,
     requestedFeet: requested,
     sourceBoxId: sourceBox.boxId,
+    sourceWarehouse: sourceBox.warehouse,
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceSuggestedFeet: sourceAllocationFeet,
     sourceConflicts: sourceConflicts,
@@ -708,15 +711,27 @@ function recalculateFilmOrder_(filmOrderId, user) {
   return updated;
 }
 
-function createFilmOrderForShortage_(sourceBox, jobContext, requestedFeet, shortageFeet, user) {
+function createFilmOrderForShortage_(
+  sourceBox,
+  jobContext,
+  requestedFeet,
+  shortageFeet,
+  user,
+  shortageWarehouse
+) {
   if (shortageFeet <= 0) {
     return null;
+  }
+
+  var resolvedWarehouse = asTrimmedString_(shortageWarehouse).toUpperCase();
+  if (!resolvedWarehouse) {
+    resolvedWarehouse = sourceBox.warehouse;
   }
 
   return appendFilmOrder_({
     filmOrderId: '',
     jobNumber: jobContext.jobNumber,
-    warehouse: sourceBox.warehouse,
+    warehouse: resolvedWarehouse,
     manufacturer: sourceBox.manufacturer,
     filmName: sourceBox.filmName,
     widthIn: sourceBox.widthIn,
@@ -734,6 +749,41 @@ function createFilmOrderForShortage_(sourceBox, jobContext, requestedFeet, short
     resolvedBy: '',
     notes: 'Created from a shortage while trying to allocate ' + requestedFeet + ' LF.'
   });
+}
+
+function parseCrossWarehouseFlag_(value) {
+  return value === true || String(value).toLowerCase() === 'true';
+}
+
+function normalizeOptionalWarehouse_(value, fieldName) {
+  var normalized = asTrimmedString_(value).toUpperCase();
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized !== 'IL' && normalized !== 'MS') {
+    throw new Error((fieldName || 'Warehouse') + ' must be IL or MS.');
+  }
+
+  return normalized;
+}
+
+function resolveShortageOrderWarehouse_(payload, jobContext, sourceBox) {
+  var fromPayload = normalizeOptionalWarehouse_(payload && payload.jobWarehouse, 'Job warehouse');
+  if (fromPayload) {
+    return fromPayload;
+  }
+
+  var jobHeader = findJobByNumber_(jobContext.jobNumber);
+  var fromJobHeader = normalizeOptionalWarehouse_(
+    jobHeader && jobHeader.warehouse ? jobHeader.warehouse : '',
+    'Job warehouse'
+  );
+  if (fromJobHeader) {
+    return fromJobHeader;
+  }
+
+  return normalizeOptionalWarehouse_(sourceBox.warehouse, 'Warehouse') || sourceBox.warehouse;
 }
 
 function linkBoxToFilmOrder_(filmOrderId, box, user) {
@@ -992,12 +1042,23 @@ function buildBoxFromPayload_(payload, warnings, existingBox) {
         );
         resolvedCoreType = effectiveCoreType;
         resolvedCoreWeightLbs = deriveCoreWeightLbs_(effectiveCoreType, widthIn);
-        resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt_(knownSqFtWeight, widthIn);
-        resolvedInitialWeightLbs = deriveInitialWeightLbs_(
-          resolvedLfWeightLbsPerFt,
-          initialFeet,
-          resolvedCoreWeightLbs
-        );
+        if (initialWeightInput !== null) {
+          var inputSqFtWeight = deriveSqFtWeightLbsPerSqFt_(
+            initialWeightInput,
+            resolvedCoreWeightLbs,
+            widthIn,
+            initialFeet
+          );
+          resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt_(inputSqFtWeight, widthIn);
+          resolvedInitialWeightLbs = roundToDecimals_(initialWeightInput, 2);
+        } else {
+          resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt_(knownSqFtWeight, widthIn);
+          resolvedInitialWeightLbs = deriveInitialWeightLbs_(
+            resolvedLfWeightLbsPerFt,
+            initialFeet,
+            resolvedCoreWeightLbs
+          );
+        }
 
         if (resolvedLastRollWeightLbs === null) {
           resolvedLastRollWeightLbs =
@@ -1292,8 +1353,11 @@ function getAllocationPreviewService_(payload) {
     throw new Error('Only in-stock boxes can be allocated.');
   }
 
+  var crossWarehouse = parseCrossWarehouseFlag_(payload.crossWarehouse);
   var jobContext = resolveJobContext_(payload.jobNumber, payload.jobDate, payload.crewLeader);
-  var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext);
+  var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext, {
+    crossWarehouse: crossWarehouse
+  });
 
   return {
     data: plan
@@ -1304,6 +1368,7 @@ function applyAllocationPlanService_(payload) {
   var warnings = [];
   var user = getAuthenticatedAuditUser_(payload);
   var boxId = requireString_(payload.boxId, 'BoxID');
+  var crossWarehouse = parseCrossWarehouseFlag_(payload.crossWarehouse);
   var lock = LockService.getScriptLock();
 
   lock.waitLock(30000);
@@ -1319,7 +1384,9 @@ function applyAllocationPlanService_(payload) {
     }
 
     var jobContext = resolveJobContext_(payload.jobNumber, payload.jobDate, payload.crewLeader);
-    var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext);
+    var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext, {
+      crossWarehouse: crossWarehouse
+    });
     var selectedSuggestionBoxIds = [];
 
     if (Object.prototype.toString.call(payload.selectedSuggestionBoxIds) === '[object Array]') {
@@ -1372,12 +1439,14 @@ function applyAllocationPlanService_(payload) {
 
     var filmOrder = null;
     if (selection.remainingFeet > 0) {
+      var shortageOrderWarehouse = resolveShortageOrderWarehouse_(payload, jobContext, source.box);
       filmOrder = createFilmOrderForShortage_(
         source.box,
         jobContext,
         plan.requestedFeet,
         selection.remainingFeet,
-        user
+        user,
+        shortageOrderWarehouse
       );
       warnings.push(
         'A Film Order alert was created for the remaining ' +
@@ -1734,6 +1803,831 @@ function getFilmOrdersService_() {
   };
 }
 
+function normalizeJobNumberDigits_(value, fieldName) {
+  var normalized = requireString_(value, fieldName || 'JobNumber');
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error((fieldName || 'JobNumber') + ' must contain numbers only.');
+  }
+
+  return normalized;
+}
+
+function normalizeJobWarehouse_(value) {
+  var normalized = requireString_(value, 'Warehouse').toUpperCase();
+  if (normalized !== 'IL' && normalized !== 'MS') {
+    throw new Error('Warehouse must be IL or MS.');
+  }
+
+  return normalized;
+}
+
+function normalizeJobSections_(value) {
+  var trimmed = asTrimmedString_(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  var rawParts = trimmed.split(',');
+  var normalizedParts = [];
+  for (var index = 0; index < rawParts.length; index += 1) {
+    var token = asTrimmedString_(rawParts[index]);
+    if (!token) {
+      continue;
+    }
+
+    if (!/^\d+$/.test(token)) {
+      throw new Error('Sections must contain numbers separated by commas.');
+    }
+
+    normalizedParts.push(token);
+  }
+
+  if (!normalizedParts.length) {
+    return null;
+  }
+
+  return normalizedParts.join(', ');
+}
+
+function normalizeJobLifecycleStatus_(value) {
+  var normalized = asTrimmedString_(value).toUpperCase();
+  if (normalized === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+
+  return 'ACTIVE';
+}
+
+function normalizeRequirementWidthKey_(value) {
+  return String(roundToDecimals_(Number(value), 4));
+}
+
+function normalizeJobRequirementLookupKey_(manufacturer, filmName, widthIn) {
+  return (
+    normalizeCatalogLookupKey_(manufacturer) +
+    '|' +
+    normalizeCatalogLookupKey_(filmName) +
+    '|' +
+    normalizeRequirementWidthKey_(widthIn)
+  );
+}
+
+function normalizeJobRequirementInput_(entry, warnings, index) {
+  var prefix = 'Requirements[' + index + ']';
+  var manufacturer = requireString_(entry && entry.manufacturer, prefix + '.Manufacturer');
+  var filmName = requireString_(entry && entry.filmName, prefix + '.FilmName');
+  var widthIn = coerceNonNegativeNumber_(entry && entry.widthIn, prefix + '.WidthIn');
+  var requiredFeet = coerceFeetValue_(entry && entry.requiredFeet, prefix + '.RequiredFeet', warnings, false);
+
+  if (widthIn <= 0) {
+    throw new Error(prefix + '.WidthIn must be greater than zero.');
+  }
+
+  if (requiredFeet <= 0) {
+    throw new Error(prefix + '.RequiredFeet must be greater than zero.');
+  }
+
+  return {
+    manufacturer: normalizeCollapsedCatalogLabel_(manufacturer),
+    filmName: normalizeCollapsedCatalogLabel_(filmName),
+    widthIn: widthIn,
+    requiredFeet: requiredFeet
+  };
+}
+
+function dedupeJobRequirements_(requirements, warnings) {
+  var deduped = {};
+  var index;
+  var normalizedEntry;
+  var key;
+
+  if (!requirements || !Array.isArray(requirements)) {
+    return [];
+  }
+
+  for (index = 0; index < requirements.length; index += 1) {
+    normalizedEntry = normalizeJobRequirementInput_(requirements[index], warnings, index);
+    key = normalizeJobRequirementLookupKey_(
+      normalizedEntry.manufacturer,
+      normalizedEntry.filmName,
+      normalizedEntry.widthIn
+    );
+
+    if (!deduped[key]) {
+      deduped[key] = normalizedEntry;
+      continue;
+    }
+
+    deduped[key].requiredFeet += normalizedEntry.requiredFeet;
+  }
+
+  var values = [];
+  for (var dedupeKey in deduped) {
+    if (Object.prototype.hasOwnProperty.call(deduped, dedupeKey)) {
+      values.push(deduped[dedupeKey]);
+    }
+  }
+
+  values.sort(function(a, b) {
+    var manufacturerCompare = compareCatalogStrings_(a.manufacturer, b.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+
+    var filmCompare = compareCatalogStrings_(a.filmName, b.filmName);
+    if (filmCompare !== 0) {
+      return filmCompare;
+    }
+
+    if (a.widthIn !== b.widthIn) {
+      return a.widthIn < b.widthIn ? -1 : 1;
+    }
+
+    return 0;
+  });
+
+  return values;
+}
+
+function buildJobRequirementsByLookupKey_(entries) {
+  var byKey = {};
+
+  for (var index = 0; index < entries.length; index += 1) {
+    var entry = entries[index];
+    byKey[
+      normalizeJobRequirementLookupKey_(entry.manufacturer, entry.filmName, entry.widthIn)
+    ] = entry;
+  }
+
+  return byKey;
+}
+
+function buildAllocationCoverageByRequirementKey_(allocations) {
+  var totals = {};
+
+  for (var index = 0; index < allocations.length; index += 1) {
+    var allocation = allocations[index];
+    if (allocation.status === 'CANCELLED') {
+      continue;
+    }
+
+    var allocatedFeet = Number(allocation.allocatedFeet || 0);
+    if (allocatedFeet <= 0) {
+      continue;
+    }
+
+    var boxRecord = findRowByBoxIdAcrossWarehouses_(allocation.boxId, true);
+    if (!boxRecord || !boxRecord.box) {
+      continue;
+    }
+
+    var key = normalizeJobRequirementLookupKey_(
+      boxRecord.box.manufacturer,
+      boxRecord.box.filmName,
+      boxRecord.box.widthIn
+    );
+    totals[key] = (totals[key] || 0) + allocatedFeet;
+  }
+
+  return totals;
+}
+
+function buildPublicJobRequirementEntries_(requirements, allocations) {
+  var coverage = buildAllocationCoverageByRequirementKey_(allocations);
+  var response = [];
+
+  for (var index = 0; index < requirements.length; index += 1) {
+    var requirement = requirements[index];
+    var key = normalizeJobRequirementLookupKey_(
+      requirement.manufacturer,
+      requirement.filmName,
+      requirement.widthIn
+    );
+    var allocatedFeet = Math.max(0, Number(coverage[key] || 0));
+    var requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
+    var remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
+    var cappedAllocatedFeet = requiredFeet - remainingFeet;
+
+    response.push({
+      requirementId: requirement.requirementId,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
+      widthIn: requirement.widthIn,
+      requiredFeet: requiredFeet,
+      allocatedFeet: cappedAllocatedFeet,
+      remainingFeet: remainingFeet
+    });
+  }
+
+  response.sort(function(a, b) {
+    var manufacturerCompare = compareCatalogStrings_(a.manufacturer, b.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+
+    var filmCompare = compareCatalogStrings_(a.filmName, b.filmName);
+    if (filmCompare !== 0) {
+      return filmCompare;
+    }
+
+    if (a.widthIn !== b.widthIn) {
+      return a.widthIn < b.widthIn ? -1 : 1;
+    }
+
+    return compareCatalogStrings_(a.requirementId, b.requirementId);
+  });
+
+  return response;
+}
+
+function buildLegacyJobHeaderFromData_(jobNumber, allocations, filmOrders) {
+  var metadata = resolveAllocationJobMetadata_(allocations, filmOrders);
+  var warehouse = '';
+  var createdAt = '';
+  var updatedAt = '';
+  var index;
+
+  for (index = 0; index < allocations.length; index += 1) {
+    if (!warehouse && allocations[index].warehouse) {
+      warehouse = allocations[index].warehouse;
+    }
+
+    if (!createdAt || (allocations[index].createdAt && allocations[index].createdAt < createdAt)) {
+      createdAt = allocations[index].createdAt || createdAt;
+    }
+
+    if (!updatedAt || (allocations[index].createdAt && allocations[index].createdAt > updatedAt)) {
+      updatedAt = allocations[index].createdAt || updatedAt;
+    }
+  }
+
+  for (index = 0; index < filmOrders.length; index += 1) {
+    if (!warehouse && filmOrders[index].warehouse) {
+      warehouse = filmOrders[index].warehouse;
+    }
+
+    if (!createdAt || (filmOrders[index].createdAt && filmOrders[index].createdAt < createdAt)) {
+      createdAt = filmOrders[index].createdAt || createdAt;
+    }
+
+    var filmUpdatedAt = filmOrders[index].resolvedAt || filmOrders[index].createdAt;
+    if (!updatedAt || (filmUpdatedAt && filmUpdatedAt > updatedAt)) {
+      updatedAt = filmUpdatedAt || updatedAt;
+    }
+  }
+
+  return {
+    jobNumber: jobNumber,
+    warehouse: warehouse || 'IL',
+    sections: null,
+    dueDate: metadata.jobDate,
+    lifecycleStatus: 'ACTIVE',
+    createdAt: createdAt,
+    createdBy: '',
+    updatedAt: updatedAt,
+    updatedBy: '',
+    notes: '',
+    rowIndex: 0
+  };
+}
+
+function deriveJobStatusFromLegacyAllocationData_(allocations, filmOrders) {
+  var legacySummary = buildAllocationJobSummary_('', allocations || [], filmOrders || []);
+  if (legacySummary.status === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+
+  if (legacySummary.status === 'READY' || legacySummary.status === 'COMPLETED') {
+    return 'READY';
+  }
+
+  return 'ALLOCATE';
+}
+
+function computeJobStatusFromRequirements_(lifecycleStatus, requirements, allocations, filmOrders) {
+  if (normalizeJobLifecycleStatus_(lifecycleStatus) === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+
+  if (!requirements.length) {
+    if (!allocations.length && !filmOrders.length) {
+      return 'ALLOCATE';
+    }
+
+    return deriveJobStatusFromLegacyAllocationData_(allocations, filmOrders);
+  }
+
+  for (var index = 0; index < requirements.length; index += 1) {
+    if (requirements[index].remainingFeet > 0) {
+      return 'ALLOCATE';
+    }
+  }
+
+  return 'READY';
+}
+
+function buildJobListEntry_(jobHeader, requirements, allocations, filmOrders) {
+  var dueDate = jobHeader.dueDate;
+  if (!dueDate) {
+    dueDate = resolveAllocationJobMetadata_(allocations, filmOrders).jobDate;
+  }
+
+  var requiredFeet = 0;
+  var allocatedFeet = 0;
+  var remainingFeet = 0;
+
+  for (var index = 0; index < requirements.length; index += 1) {
+    requiredFeet += requirements[index].requiredFeet;
+    allocatedFeet += requirements[index].allocatedFeet;
+    remainingFeet += requirements[index].remainingFeet;
+  }
+
+  return {
+    jobNumber: jobHeader.jobNumber,
+    warehouse: jobHeader.warehouse || 'IL',
+    sections: jobHeader.sections,
+    dueDate: dueDate,
+    status: computeJobStatusFromRequirements_(
+      jobHeader.lifecycleStatus,
+      requirements,
+      allocations,
+      filmOrders
+    ),
+    lifecycleStatus: normalizeJobLifecycleStatus_(jobHeader.lifecycleStatus),
+    requiredFeet: requiredFeet,
+    allocatedFeet: allocatedFeet,
+    remainingFeet: remainingFeet,
+    requirementCount: requirements.length,
+    allocationCount: allocations.length,
+    filmOrderCount: filmOrders.length,
+    updatedAt: jobHeader.updatedAt || '',
+    notes: jobHeader.notes || ''
+  };
+}
+
+function compareJobsListEntries_(a, b) {
+  if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) {
+    return a.dueDate > b.dueDate ? -1 : 1;
+  }
+
+  if (a.dueDate && !b.dueDate) {
+    return -1;
+  }
+
+  if (!a.dueDate && b.dueDate) {
+    return 1;
+  }
+
+  if (a.updatedAt && b.updatedAt && a.updatedAt !== b.updatedAt) {
+    return a.updatedAt > b.updatedAt ? -1 : 1;
+  }
+
+  if (a.updatedAt && !b.updatedAt) {
+    return -1;
+  }
+
+  if (!a.updatedAt && b.updatedAt) {
+    return 1;
+  }
+
+  return a.jobNumber > b.jobNumber ? -1 : a.jobNumber < b.jobNumber ? 1 : 0;
+}
+
+function buildJobsListEntries_(limit) {
+  var jobs = readJobs_();
+  var allAllocations = readAllocations_();
+  var allFilmOrders = readFilmOrders_();
+  var allRequirements = readJobRequirements_();
+  var groupedAllocations = groupEntriesByJobNumber_(allAllocations);
+  var groupedFilmOrders = groupEntriesByJobNumber_(allFilmOrders);
+  var groupedRequirements = groupEntriesByJobNumber_(allRequirements);
+  var byJobNumber = {};
+  var response = [];
+
+  for (var jobIndex = 0; jobIndex < jobs.length; jobIndex += 1) {
+    byJobNumber[jobs[jobIndex].jobNumber] = jobs[jobIndex];
+  }
+
+  for (var allocationIndex = 0; allocationIndex < allAllocations.length; allocationIndex += 1) {
+    if (allAllocations[allocationIndex].jobNumber) {
+      byJobNumber[allAllocations[allocationIndex].jobNumber] =
+        byJobNumber[allAllocations[allocationIndex].jobNumber] || null;
+    }
+  }
+
+  for (var filmOrderIndex = 0; filmOrderIndex < allFilmOrders.length; filmOrderIndex += 1) {
+    if (allFilmOrders[filmOrderIndex].jobNumber) {
+      byJobNumber[allFilmOrders[filmOrderIndex].jobNumber] =
+        byJobNumber[allFilmOrders[filmOrderIndex].jobNumber] || null;
+    }
+  }
+
+  var jobNumbers = Object.keys(byJobNumber);
+  for (var index = 0; index < jobNumbers.length; index += 1) {
+    var jobNumber = jobNumbers[index];
+    var allocations = groupedAllocations[jobNumber] || [];
+    var filmOrders = groupedFilmOrders[jobNumber] || [];
+    var requirements = buildPublicJobRequirementEntries_(groupedRequirements[jobNumber] || [], allocations);
+    var header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData_(jobNumber, allocations, filmOrders);
+
+    response.push(buildJobListEntry_(header, requirements, allocations, filmOrders));
+  }
+
+  response.sort(compareJobsListEntries_);
+
+  if (limit > 0 && response.length > limit) {
+    return response.slice(0, limit);
+  }
+
+  return response;
+}
+
+function getJobsListService_(params) {
+  var limitValue = Number(params && params.limit);
+  var limit = 25;
+  if (isFinite(limitValue) && limitValue > 0) {
+    limit = Math.floor(limitValue);
+  }
+
+  return {
+    data: {
+      entries: buildJobsListEntries_(limit)
+    }
+  };
+}
+
+function buildPublicAllocationEntriesForJob_(allocations) {
+  var response = [];
+
+  allocations.sort(function(a, b) {
+    if (a.status !== b.status) {
+      return a.status === 'ACTIVE' ? -1 : b.status === 'ACTIVE' ? 1 : a.status < b.status ? -1 : 1;
+    }
+
+    if (a.jobDate !== b.jobDate) {
+      if (a.jobDate && b.jobDate) {
+        return a.jobDate < b.jobDate ? -1 : 1;
+      }
+
+      if (a.jobDate) {
+        return -1;
+      }
+
+      if (b.jobDate) {
+        return 1;
+      }
+    }
+
+    return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+  });
+
+  for (var index = 0; index < allocations.length; index += 1) {
+    response.push(buildPublicAllocationJobEntry_(allocations[index]));
+  }
+
+  return response;
+}
+
+function buildPublicFilmOrdersForJob_(filmOrders) {
+  var response = [];
+
+  filmOrders.sort(function(a, b) {
+    return compareAllocationJobSummaries_(
+      { jobDate: a.createdAt, jobNumber: a.filmOrderId },
+      { jobDate: b.createdAt, jobNumber: b.filmOrderId }
+    );
+  });
+
+  for (var index = 0; index < filmOrders.length; index += 1) {
+    var publicFilmOrder = cloneObject_(filmOrders[index]);
+    delete publicFilmOrder.rowIndex;
+    publicFilmOrder.linkedBoxes = buildPublicFilmOrderLinkedBoxes_(publicFilmOrder.filmOrderId);
+    response.push(publicFilmOrder);
+  }
+
+  return response;
+}
+
+function getJobService_(params) {
+  var jobNumber = requireString_(params && params.jobNumber, 'jobNumber');
+  var header = findJobByNumber_(jobNumber);
+  var allocations = readAllocationsByJob_(jobNumber);
+  var filmOrders = readFilmOrdersByJob_(jobNumber);
+  var requirements = readJobRequirementsByJob_(jobNumber);
+
+  if (!header && !allocations.length && !filmOrders.length && !requirements.length) {
+    throw new Error('Job not found.');
+  }
+
+  if (!header) {
+    header = buildLegacyJobHeaderFromData_(jobNumber, allocations, filmOrders);
+  }
+
+  var publicRequirements = buildPublicJobRequirementEntries_(requirements, allocations);
+  var summary = buildJobListEntry_(header, publicRequirements, allocations, filmOrders);
+
+  return {
+    data: {
+      summary: summary,
+      requirements: publicRequirements,
+      allocations: buildPublicAllocationEntriesForJob_(allocations),
+      filmOrders: buildPublicFilmOrdersForJob_(filmOrders)
+    }
+  };
+}
+
+function buildRequirementRowsForReplace_(
+  jobNumber,
+  requirementEntries,
+  existingByKey,
+  user,
+  nowIso
+) {
+  var rows = [];
+
+  for (var index = 0; index < requirementEntries.length; index += 1) {
+    var requirement = requirementEntries[index];
+    var key = normalizeJobRequirementLookupKey_(
+      requirement.manufacturer,
+      requirement.filmName,
+      requirement.widthIn
+    );
+    var existing = existingByKey[key] || null;
+
+    rows.push({
+      requirementId: existing ? existing.requirementId : '',
+      jobNumber: jobNumber,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
+      widthIn: requirement.widthIn,
+      requiredFeet: requirement.requiredFeet,
+      createdAt: existing ? existing.createdAt : nowIso,
+      createdBy: existing ? existing.createdBy : user,
+      updatedAt: nowIso,
+      updatedBy: user,
+      notes: existing ? existing.notes : ''
+    });
+  }
+
+  return rows;
+}
+
+function ensureJobHeaderForUpdate_(jobNumber, payload, user, nowIso) {
+  var existing = findJobByNumber_(jobNumber);
+  if (existing) {
+    return existing;
+  }
+
+  var legacyAllocations = readAllocationsByJob_(jobNumber);
+  var legacyFilmOrders = readFilmOrdersByJob_(jobNumber);
+  var derived = buildLegacyJobHeaderFromData_(jobNumber, legacyAllocations, legacyFilmOrders);
+
+  derived.warehouse = payload.warehouse ? normalizeJobWarehouse_(payload.warehouse) : derived.warehouse;
+  derived.sections = normalizeJobSections_(payload.sections);
+  derived.dueDate = normalizeDateString_(payload.dueDate, 'DueDate', true);
+  derived.lifecycleStatus = normalizeJobLifecycleStatus_(payload.lifecycleStatus);
+  derived.createdAt = derived.createdAt || nowIso;
+  derived.createdBy = derived.createdBy || user;
+  derived.updatedAt = nowIso;
+  derived.updatedBy = user;
+  derived.notes = asTrimmedString_(payload.notes || derived.notes);
+
+  return appendJob_(derived);
+}
+
+function createJobService_(payload) {
+  var warnings = [];
+  var user = getAuthenticatedAuditUser_(payload);
+  var jobNumber = normalizeJobNumberDigits_(payload.jobNumber, 'Job ID number');
+  var warehouse = normalizeJobWarehouse_(payload.warehouse);
+  var sections = normalizeJobSections_(payload.sections);
+  var dueDate = normalizeDateString_(payload.dueDate, 'DueDate', true);
+  var lifecycleStatus = normalizeJobLifecycleStatus_(payload.lifecycleStatus);
+  var notes = asTrimmedString_(payload.notes);
+  var incomingRequirements = dedupeJobRequirements_(payload.requirements, warnings);
+  var lock = LockService.getScriptLock();
+
+  lock.waitLock(30000);
+
+  try {
+    var nowIso = new Date().toISOString();
+    var existingHeader = findJobByNumber_(jobNumber);
+    var nextHeader = existingHeader
+      ? cloneObject_(existingHeader)
+      : {
+          jobNumber: jobNumber,
+          warehouse: warehouse,
+          sections: sections,
+          dueDate: dueDate,
+          lifecycleStatus: lifecycleStatus,
+          createdAt: nowIso,
+          createdBy: user,
+          updatedAt: nowIso,
+          updatedBy: user,
+          notes: notes
+        };
+
+    if (existingHeader) {
+      nextHeader.warehouse = warehouse;
+      nextHeader.sections = sections;
+      nextHeader.dueDate = dueDate;
+      nextHeader.lifecycleStatus = lifecycleStatus;
+      nextHeader.updatedAt = nowIso;
+      nextHeader.updatedBy = user;
+      nextHeader.notes = notes;
+      updateJobRow_(existingHeader.rowIndex, nextHeader);
+    } else {
+      nextHeader = appendJob_(nextHeader);
+    }
+
+    var existingRequirements = readJobRequirementsByJob_(jobNumber);
+    var merged = {};
+    var index;
+
+    for (index = 0; index < existingRequirements.length; index += 1) {
+      var existing = existingRequirements[index];
+      var existingKey = normalizeJobRequirementLookupKey_(
+        existing.manufacturer,
+        existing.filmName,
+        existing.widthIn
+      );
+      merged[existingKey] = {
+        manufacturer: existing.manufacturer,
+        filmName: existing.filmName,
+        widthIn: existing.widthIn,
+        requiredFeet: existing.requiredFeet
+      };
+    }
+
+    for (index = 0; index < incomingRequirements.length; index += 1) {
+      var incoming = incomingRequirements[index];
+      var incomingKey = normalizeJobRequirementLookupKey_(
+        incoming.manufacturer,
+        incoming.filmName,
+        incoming.widthIn
+      );
+      if (!merged[incomingKey]) {
+        merged[incomingKey] = incoming;
+        continue;
+      }
+
+      merged[incomingKey].requiredFeet += incoming.requiredFeet;
+    }
+
+    var mergedValues = [];
+    for (var mergedKey in merged) {
+      if (Object.prototype.hasOwnProperty.call(merged, mergedKey)) {
+        mergedValues.push(merged[mergedKey]);
+      }
+    }
+
+    var existingByKey = buildJobRequirementsByLookupKey_(existingRequirements);
+    replaceJobRequirementsForJob_(
+      jobNumber,
+      buildRequirementRowsForReplace_(jobNumber, mergedValues, existingByKey, user, nowIso)
+    );
+
+    var result = getJobService_({ jobNumber: jobNumber });
+    return {
+      data: result.data,
+      warnings: warnings
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateJobService_(payload) {
+  var warnings = [];
+  var user = getAuthenticatedAuditUser_(payload);
+  var jobNumber = normalizeJobNumberDigits_(payload.jobNumber, 'Job ID number');
+  var requirements = dedupeJobRequirements_(payload.requirements, warnings);
+  var lock = LockService.getScriptLock();
+
+  lock.waitLock(30000);
+
+  try {
+    var nowIso = new Date().toISOString();
+    var header = ensureJobHeaderForUpdate_(jobNumber, payload, user, nowIso);
+    var nextHeader = cloneObject_(header);
+
+    if (payload.warehouse !== undefined) {
+      nextHeader.warehouse = normalizeJobWarehouse_(payload.warehouse);
+    }
+
+    if (payload.sections !== undefined) {
+      nextHeader.sections = normalizeJobSections_(payload.sections);
+    }
+
+    if (payload.dueDate !== undefined) {
+      nextHeader.dueDate = normalizeDateString_(payload.dueDate, 'DueDate', true);
+    }
+
+    if (payload.lifecycleStatus !== undefined) {
+      nextHeader.lifecycleStatus = normalizeJobLifecycleStatus_(payload.lifecycleStatus);
+    }
+
+    if (payload.notes !== undefined) {
+      nextHeader.notes = asTrimmedString_(payload.notes);
+    }
+
+    nextHeader.updatedAt = nowIso;
+    nextHeader.updatedBy = user;
+
+    updateJobRow_(header.rowIndex, nextHeader);
+
+    var existingRequirements = readJobRequirementsByJob_(jobNumber);
+    var existingByKey = buildJobRequirementsByLookupKey_(existingRequirements);
+    replaceJobRequirementsForJob_(
+      jobNumber,
+      buildRequirementRowsForReplace_(jobNumber, requirements, existingByKey, user, nowIso)
+    );
+
+    var result = getJobService_({ jobNumber: jobNumber });
+    return {
+      data: result.data,
+      warnings: warnings
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function normalizeCollapsedCatalogLabel_(value) {
+  return asTrimmedString_(value).replace(/\s+/g, ' ');
+}
+
+function normalizeCatalogLookupKey_(value) {
+  return normalizeCollapsedCatalogLabel_(value).toLowerCase();
+}
+
+function compareCatalogStrings_(left, right) {
+  var leftValue = asTrimmedString_(left).toLowerCase();
+  var rightValue = asTrimmedString_(right).toLowerCase();
+
+  if (leftValue < rightValue) {
+    return -1;
+  }
+
+  if (leftValue > rightValue) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function getFilmCatalogService_(_params) {
+  var entries = readFilmData_();
+  var dedupedByKey = {};
+  var response = [];
+  var index;
+
+  for (index = 0; index < entries.length; index += 1) {
+    var entry = entries[index];
+    var manufacturer = normalizeCollapsedCatalogLabel_(entry.manufacturer);
+    var filmName = normalizeCollapsedCatalogLabel_(entry.filmName);
+    var manufacturerKey = normalizeCatalogLookupKey_(manufacturer);
+    var filmNameKey = normalizeCatalogLookupKey_(filmName);
+
+    if (!manufacturerKey || !filmNameKey) {
+      continue;
+    }
+
+    dedupedByKey[manufacturerKey + '|' + filmNameKey] = {
+      filmKey: asTrimmedString_(entry.filmKey).toUpperCase(),
+      manufacturer: manufacturer,
+      filmName: filmName,
+      updatedAt: asTrimmedString_(entry.updatedAt)
+    };
+  }
+
+  for (var dedupeKey in dedupedByKey) {
+    if (Object.prototype.hasOwnProperty.call(dedupedByKey, dedupeKey)) {
+      response.push(dedupedByKey[dedupeKey]);
+    }
+  }
+
+  response.sort(function(a, b) {
+    var manufacturerCompare = compareCatalogStrings_(a.manufacturer, b.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+
+    var filmCompare = compareCatalogStrings_(a.filmName, b.filmName);
+    if (filmCompare !== 0) {
+      return filmCompare;
+    }
+
+    return compareCatalogStrings_(a.filmKey, b.filmKey);
+  });
+
+  return {
+    data: {
+      entries: response
+    }
+  };
+}
+
 function createFilmOrderService_(payload) {
   var warnings = [];
   var user = getAuthenticatedAuditUser_(payload);
@@ -1807,6 +2701,14 @@ function cancelJobService_(payload) {
 
   try {
     var result = cancelJobAndReleaseAllocations_(jobNumber, user, payload.reason);
+    var existingJob = findJobByNumber_(jobNumber);
+    if (existingJob) {
+      existingJob.lifecycleStatus = 'CANCELLED';
+      existingJob.updatedAt = new Date().toISOString();
+      existingJob.updatedBy = user;
+      updateJobRow_(existingJob.rowIndex, existingJob);
+    }
+
     warnings.push(
       'Cancelled job ' +
         jobNumber +

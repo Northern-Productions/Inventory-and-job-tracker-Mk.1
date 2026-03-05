@@ -17,6 +17,8 @@ export const ALLOCATION_JOB_STATUSES = [
   'CANCELLED'
 ] as const;
 export type AllocationJobStatus = (typeof ALLOCATION_JOB_STATUSES)[number];
+export const JOB_STATUSES = ['ALLOCATE', 'READY', 'CANCELLED'] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export interface Box {
   boxId: string;
@@ -97,10 +99,12 @@ export interface AllocateBoxPayload {
   jobDate?: string;
   crewLeader?: string;
   requestedFeet: number;
+  crossWarehouse?: boolean;
 }
 
 export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
   selectedSuggestionBoxIds?: string[];
+  jobWarehouse?: Warehouse;
 }
 
 export type AuditAction =
@@ -177,6 +181,7 @@ export interface AllocationListResponse {
 
 export interface AllocationPreviewSuggestion {
   boxId: string;
+  warehouse: Warehouse;
   availableFeet: number;
   suggestedFeet: number;
   receivedDate: string;
@@ -189,6 +194,7 @@ export interface AllocationPreview {
   crewLeader: string;
   requestedFeet: number;
   sourceBoxId: string;
+  sourceWarehouse: Warehouse;
   sourceBoxFeetAvailable: number;
   sourceSuggestedFeet: number;
   sourceConflicts: string[];
@@ -224,6 +230,13 @@ export interface FilmOrderListResponse {
   entries: FilmOrderEntry[];
 }
 
+export interface FilmCatalogEntry {
+  filmKey: string;
+  manufacturer: string;
+  filmName: string;
+  updatedAt: string;
+}
+
 export interface CreateFilmOrderPayload {
   jobNumber: string;
   warehouse: Warehouse;
@@ -255,6 +268,70 @@ export interface AllocationJobDetail {
   summary: AllocationJobSummary;
   allocations: AllocationJobDetailEntry[];
   filmOrders: FilmOrderEntry[];
+}
+
+export interface JobRequirementLine {
+  requirementId: string;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  requiredFeet: number;
+  allocatedFeet: number;
+  remainingFeet: number;
+}
+
+export interface JobListEntry {
+  jobNumber: string;
+  warehouse: Warehouse;
+  sections: string | null;
+  dueDate: string;
+  status: JobStatus;
+  lifecycleStatus: 'ACTIVE' | 'CANCELLED';
+  requiredFeet: number;
+  allocatedFeet: number;
+  remainingFeet: number;
+  requirementCount: number;
+  allocationCount: number;
+  filmOrderCount: number;
+  updatedAt: string;
+  notes: string;
+}
+
+export interface JobDetail {
+  summary: JobListEntry;
+  requirements: JobRequirementLine[];
+  allocations: AllocationJobDetailEntry[];
+  filmOrders: FilmOrderEntry[];
+}
+
+export interface CreateJobPayload {
+  jobNumber: string;
+  warehouse: Warehouse;
+  sections?: string | number | null;
+  dueDate?: string;
+  lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
+  notes?: string;
+  requirements?: Array<{
+    manufacturer: string;
+    filmName: string;
+    widthIn: number;
+    requiredFeet: number;
+  }>;
+}
+
+export interface UpdateJobPayload {
+  jobNumber: string;
+  warehouse?: Warehouse;
+  sections?: string | number | null;
+  dueDate?: string;
+  lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
+  notes?: string;
+  requirements?: Array<{
+    manufacturer: string;
+    filmName: string;
+    widthIn: number;
+    requiredFeet: number;
+  }>;
 }
 
 export interface FilmOrderLinkedBox {

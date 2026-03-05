@@ -4,6 +4,7 @@ import type {
   AllocationJobDetailResponse,
   AllocationJobListResponse,
   AllocationJobSummary,
+  CreateJobPayload,
   AllocationListResponse,
   AllocationPreview,
   AllocateBoxPayload,
@@ -18,8 +19,14 @@ import type {
   BoxMutationResult,
   CreateFilmOrderPayload,
   FilmOrderEntry,
+  FilmCatalogEntry,
+  FilmCatalogResponse,
   FilmOrderListResponse,
   HealthResponse,
+  JobDetail,
+  JobDetailResponse,
+  JobListEntry,
+  JobListResponse,
   ReportsSummary,
   ReportsSummaryFilters,
   RollHistoryResponse,
@@ -28,6 +35,7 @@ import type {
   SetBoxStatusPayload,
   UndoAuditPayload,
   UndoMutationResult,
+  UpdateJobPayload,
   UpdateBoxPayload,
   Warehouse
 } from '../domain';
@@ -38,6 +46,13 @@ import {
   type OfflineInventorySyncMeta
 } from '../lib/offlineInventory';
 import { APIError, request } from './http';
+
+type JobsApiAvailability = 'unknown' | 'available' | 'missing';
+let jobsApiAvailability: JobsApiAvailability = 'unknown';
+
+export function __resetJobsApiAvailabilityForTests() {
+  jobsApiAvailability = 'unknown';
+}
 
 export async function getHealth(): Promise<HealthResponse> {
   const { data } = await request<HealthResponse>('GET', '/health');
@@ -57,6 +72,60 @@ function buildSearchBoxFilters(params: SearchBoxesParams) {
 
 function shouldUseOfflineInventoryFallback(error: unknown): error is APIError {
   return error instanceof APIError && error.message.indexOf('The API is unreachable.') === 0;
+}
+
+function isRouteNotFoundError(error: unknown, path: string): error is APIError {
+  return error instanceof APIError && error.message === `Route not found: ${path}`;
+}
+
+function mapLegacyAllocationStatusToJobStatus(
+  status: AllocationJobSummary['status']
+): JobListEntry['status'] {
+  if (status === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+
+  if (status === 'READY' || status === 'COMPLETED') {
+    return 'READY';
+  }
+
+  return 'ALLOCATE';
+}
+
+function mapLegacyAllocationSummaryToJobListEntry(
+  summary: AllocationJobSummary,
+  warehouse: Warehouse = 'IL'
+): JobListEntry {
+  const allocatedFeet = Math.max(0, summary.activeAllocatedFeet + summary.fulfilledAllocatedFeet);
+  const status = mapLegacyAllocationStatusToJobStatus(summary.status);
+
+  return {
+    jobNumber: summary.jobNumber,
+    warehouse,
+    sections: null,
+    dueDate: summary.jobDate || '',
+    status,
+    lifecycleStatus: status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE',
+    requiredFeet: allocatedFeet,
+    allocatedFeet,
+    remainingFeet: 0,
+    requirementCount: 0,
+    allocationCount: summary.boxCount,
+    filmOrderCount: summary.openFilmOrderCount,
+    updatedAt: '',
+    notes: ''
+  };
+}
+
+function mapLegacyAllocationDetailToJobDetail(detail: AllocationJobDetail): JobDetail {
+  const fallbackWarehouse = detail.allocations[0]?.warehouse || detail.filmOrders[0]?.warehouse || 'IL';
+
+  return {
+    summary: mapLegacyAllocationSummaryToJobListEntry(detail.summary, fallbackWarehouse),
+    requirements: [],
+    allocations: detail.allocations,
+    filmOrders: detail.filmOrders
+  };
 }
 
 async function requestReadWithFallback<T>(
@@ -149,13 +218,145 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
   );
 }
 
+export async function getJobs(limit = 25): Promise<JobListEntry[]> {
+  const params = { limit };
+
+  if (jobsApiAvailability === 'missing') {
+    const legacyData = await requestReadWithFallback<AllocationJobListResponse>(
+      '/allocations/jobs',
+      {},
+      {}
+    );
+    return legacyData.entries.slice(0, limit).map((entry) => mapLegacyAllocationSummaryToJobListEntry(entry));
+  }
+
+  try {
+    const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
+    jobsApiAvailability = 'available';
+    return data.entries;
+  } catch (error) {
+    if (!isRouteNotFoundError(error, '/jobs/list')) {
+      throw error;
+    }
+
+    jobsApiAvailability = 'missing';
+    const legacyData = await requestReadWithFallback<AllocationJobListResponse>(
+      '/allocations/jobs',
+      {},
+      {}
+    );
+
+    return legacyData.entries.slice(0, limit).map((entry) => mapLegacyAllocationSummaryToJobListEntry(entry));
+  }
+}
+
+export async function getJob(jobNumber: string): Promise<JobDetail> {
+  if (jobsApiAvailability === 'missing') {
+    const legacyDetail = await requestReadWithFallback<AllocationJobDetailResponse>(
+      '/allocations/by-job',
+      { jobNumber },
+      { jobNumber }
+    );
+
+    return mapLegacyAllocationDetailToJobDetail(legacyDetail);
+  }
+
+  try {
+    const result = await requestReadWithFallback<JobDetailResponse>(
+      '/jobs/get',
+      { jobNumber },
+      { jobNumber }
+    );
+    jobsApiAvailability = 'available';
+    return result;
+  } catch (error) {
+    if (!isRouteNotFoundError(error, '/jobs/get')) {
+      throw error;
+    }
+
+    jobsApiAvailability = 'missing';
+    const legacyDetail = await requestReadWithFallback<AllocationJobDetailResponse>(
+      '/allocations/by-job',
+      { jobNumber },
+      { jobNumber }
+    );
+
+    return mapLegacyAllocationDetailToJobDetail(legacyDetail);
+  }
+}
+
+export async function createJob(
+  payload: CreateJobPayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  if (jobsApiAvailability === 'missing') {
+    throw new APIError(
+      'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/create and try again.'
+    );
+  }
+
+  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
+  try {
+    response = await request<JobDetail>('POST', '/jobs/create', {
+      body: payload
+    });
+    jobsApiAvailability = 'available';
+  } catch (error) {
+    if (isRouteNotFoundError(error, '/jobs/create')) {
+      jobsApiAvailability = 'missing';
+      throw new APIError(
+        'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/create and try again.'
+      );
+    }
+
+    throw error;
+  }
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function updateJob(
+  payload: UpdateJobPayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  if (jobsApiAvailability === 'missing') {
+    throw new APIError(
+      'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/update and try again.'
+    );
+  }
+
+  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
+  try {
+    response = await request<JobDetail>('POST', '/jobs/update', {
+      body: payload
+    });
+    jobsApiAvailability = 'available';
+  } catch (error) {
+    if (isRouteNotFoundError(error, '/jobs/update')) {
+      jobsApiAvailability = 'missing';
+      throw new APIError(
+        'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/update and try again.'
+      );
+    }
+
+    throw error;
+  }
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
 export async function previewAllocationPlan(payload: AllocateBoxPayload): Promise<AllocationPreview> {
   const params = {
     boxId: payload.boxId,
     jobNumber: payload.jobNumber,
     jobDate: payload.jobDate,
     crewLeader: payload.crewLeader,
-    requestedFeet: payload.requestedFeet
+    requestedFeet: payload.requestedFeet,
+    crossWarehouse: payload.crossWarehouse
   };
 
   return requestReadWithFallback<AllocationPreview>('/allocations/preview', params, params);
@@ -176,6 +377,12 @@ export async function applyAllocationPlan(
 
 export async function getFilmOrders(): Promise<FilmOrderEntry[]> {
   const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', {}, {});
+
+  return data.entries;
+}
+
+export async function getFilmCatalog(): Promise<FilmCatalogEntry[]> {
+  const data = await requestReadWithFallback<FilmCatalogResponse>('/film-data/catalog', {}, {});
 
   return data.entries;
 }
