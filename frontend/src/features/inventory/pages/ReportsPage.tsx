@@ -12,7 +12,12 @@ import type { ReportsSummaryFilters } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useReportsSummary } from '../hooks/useInventoryQueries';
-import { MANUFACTURER_OPTIONS, STANDARD_WIDTH_OPTIONS, getWidthMode } from '../utils/boxHelpers';
+import {
+  STANDARD_WIDTH_OPTIONS,
+  getManufacturerOptions,
+  hasManufacturerOption,
+  getWidthMode
+} from '../utils/boxHelpers';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 
@@ -33,9 +38,8 @@ export default function ReportsPage() {
   const reportsQuery = useReportsSummary(filters);
   const widthMode = getWidthMode(filters.width || '72');
   const widthButtonValues = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
-  const isKnownManufacturer = MANUFACTURER_OPTIONS.includes(
-    (filters.manufacturer || '') as (typeof MANUFACTURER_OPTIONS)[number]
-  );
+  const manufacturerOptions = getManufacturerOptions();
+  const isKnownManufacturer = hasManufacturerOption(filters.manufacturer || '', manufacturerOptions);
   const manufacturerSelectValue = !filters.manufacturer
     ? ''
     : isKnownManufacturer
@@ -127,7 +131,7 @@ export default function ReportsPage() {
               }}
             >
               <option value="">All</option>
-              {MANUFACTURER_OPTIONS.map((manufacturer) => (
+              {manufacturerOptions.map((manufacturer) => (
                 <option key={manufacturer} value={manufacturer}>
                   {manufacturer}
                 </option>

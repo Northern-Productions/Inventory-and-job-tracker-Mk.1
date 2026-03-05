@@ -6,6 +6,8 @@ export const MANUFACTURER_OPTIONS = ['3M', '3M Fasara', 'Llumar', 'Solar Gard', 
 export const CORE_TYPE_OPTIONS = ['White', 'Red', 'Cardboard'] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
+const CUSTOM_MANUFACTURERS_STORAGE_KEY = 'inventory.customManufacturers.v1';
+let customManufacturerCache: string[] | null = null;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   White: 2,
   Red: 1.85,
@@ -31,6 +33,118 @@ export interface BoxDraft {
   lfWeightLbsPerFt: string;
   purchaseCost: string;
   notes: string;
+}
+
+function normalizeManufacturerLabel(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeManufacturerKey(value: string) {
+  return normalizeManufacturerLabel(value).toLowerCase();
+}
+
+function dedupeManufacturerLabels(values: string[]) {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const label = normalizeManufacturerLabel(value);
+    const key = normalizeManufacturerKey(label);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(label);
+  }
+
+  return deduped;
+}
+
+function canUseLocalStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function readCustomManufacturerOptions() {
+  if (customManufacturerCache) {
+    return customManufacturerCache;
+  }
+
+  if (!canUseLocalStorage()) {
+    customManufacturerCache = [];
+    return customManufacturerCache;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_MANUFACTURERS_STORAGE_KEY);
+    if (!raw) {
+      customManufacturerCache = [];
+      return customManufacturerCache;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      customManufacturerCache = [];
+      return customManufacturerCache;
+    }
+
+    customManufacturerCache = dedupeManufacturerLabels(
+      parsed.filter((entry): entry is string => typeof entry === 'string')
+    );
+    return customManufacturerCache;
+  } catch (_error) {
+    customManufacturerCache = [];
+    return customManufacturerCache;
+  }
+}
+
+function writeCustomManufacturerOptions(values: string[]) {
+  const next = dedupeManufacturerLabels(values);
+  customManufacturerCache = next;
+
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CUSTOM_MANUFACTURERS_STORAGE_KEY, JSON.stringify(next));
+  } catch (_error) {
+    // Keep in-memory cache even if browser storage is blocked.
+  }
+}
+
+export function getManufacturerOptions() {
+  const defaults = [...MANUFACTURER_OPTIONS];
+  const merged = dedupeManufacturerLabels([...defaults, ...readCustomManufacturerOptions()]);
+  return merged;
+}
+
+export function hasManufacturerOption(value: string, options = getManufacturerOptions()) {
+  const key = normalizeManufacturerKey(value);
+  if (!key) {
+    return false;
+  }
+
+  return options.some((option) => normalizeManufacturerKey(option) === key);
+}
+
+export function addManufacturerOption(value: string) {
+  const label = normalizeManufacturerLabel(value);
+  const key = normalizeManufacturerKey(label);
+
+  if (!key) {
+    return '';
+  }
+
+  const options = getManufacturerOptions();
+  const existing = options.find((option) => normalizeManufacturerKey(option) === key);
+  if (existing) {
+    return existing;
+  }
+
+  const customOptions = readCustomManufacturerOptions();
+  writeCustomManufacturerOptions([...customOptions, label]);
+  return label;
 }
 
 export function deriveFilmKey(manufacturer: string, filmName: string): string {

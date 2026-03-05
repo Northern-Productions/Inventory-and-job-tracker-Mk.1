@@ -4,8 +4,9 @@ import type { Warehouse } from '../../../domain';
 import { Input, TextArea } from '../../../components/Input';
 import {
   CORE_TYPE_OPTIONS,
-  MANUFACTURER_OPTIONS,
   STANDARD_WIDTH_OPTIONS,
+  getManufacturerOptions,
+  hasManufacturerOption,
   getWidthMode,
   type BoxDraft
 } from '../utils/boxHelpers';
@@ -96,9 +97,8 @@ export function BoxForm({
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
   const canCaptureReceivingDetails = draft.receivedDate.trim() !== '';
-  const isKnownManufacturer = MANUFACTURER_OPTIONS.includes(
-    draft.manufacturer as (typeof MANUFACTURER_OPTIONS)[number]
-  );
+  const manufacturerOptions = getManufacturerOptions();
+  const isKnownManufacturer = hasManufacturerOption(draft.manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
     ? draft.manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
@@ -185,7 +185,7 @@ export function BoxForm({
                   }}
                   required
                 >
-                  {MANUFACTURER_OPTIONS.map((manufacturer) => (
+                  {manufacturerOptions.map((manufacturer) => (
                     <option key={manufacturer} value={manufacturer}>
                       {manufacturer}
                     </option>

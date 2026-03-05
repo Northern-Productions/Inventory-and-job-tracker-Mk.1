@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, Warehouse } from '../../../domain';
-import { MANUFACTURER_OPTIONS } from '../utils/boxHelpers';
+import { getManufacturerOptions, hasManufacturerOption } from '../utils/boxHelpers';
 import { WarehouseToggle } from './WarehouseToggle';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
@@ -20,16 +20,15 @@ export function CreateFilmOrderDialog({
   onCancel,
   onSubmit
 }: CreateFilmOrderDialogProps) {
+  const manufacturerOptions = useMemo(() => getManufacturerOptions(), [open]);
   const [warehouse, setWarehouse] = useState<Warehouse>('IL');
   const [jobNumber, setJobNumber] = useState('');
-  const [manufacturer, setManufacturer] = useState<string>(MANUFACTURER_OPTIONS[0]);
+  const [manufacturer, setManufacturer] = useState<string>(manufacturerOptions[0] || '');
   const [filmName, setFilmName] = useState('');
   const [widthIn, setWidthIn] = useState('36');
   const [requestedFeet, setRequestedFeet] = useState('100');
   const [error, setError] = useState('');
-  const isKnownManufacturer = MANUFACTURER_OPTIONS.includes(
-    manufacturer as (typeof MANUFACTURER_OPTIONS)[number]
-  );
+  const isKnownManufacturer = hasManufacturerOption(manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
     ? manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
@@ -42,12 +41,12 @@ export function CreateFilmOrderDialog({
 
     setWarehouse('IL');
     setJobNumber('');
-    setManufacturer(MANUFACTURER_OPTIONS[0]);
+    setManufacturer(manufacturerOptions[0] || '');
     setFilmName('');
     setWidthIn('36');
     setRequestedFeet('100');
     setError('');
-  }, [open]);
+  }, [manufacturerOptions, open]);
 
   if (!open) {
     return null;
@@ -134,7 +133,7 @@ export function CreateFilmOrderDialog({
                 setError('');
               }}
             >
-              {MANUFACTURER_OPTIONS.map((option) => (
+              {manufacturerOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>

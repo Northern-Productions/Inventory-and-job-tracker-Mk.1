@@ -8,7 +8,12 @@ import { BoxForm } from '../components/BoxForm';
 import { useAddBox, useSearchBoxes, useUndoAudit } from '../hooks/useInventoryQueries';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
-import { createEmptyBoxDraft, getNextBoxIdForWarehouse, type BoxDraft } from '../utils/boxHelpers';
+import {
+  addManufacturerOption,
+  createEmptyBoxDraft,
+  getNextBoxIdForWarehouse,
+  type BoxDraft
+} from '../utils/boxHelpers';
 
 interface FilmOrderPrefill {
   filmOrderId: string;
@@ -127,6 +132,7 @@ export default function AddBoxPage() {
       }
 
       const { result, warnings } = await addBoxMutation.mutateAsync(payload);
+      addManufacturerOption(result.box.manufacturer);
 
       toast.push({
         title: `Saved ${result.box.boxId}`,
