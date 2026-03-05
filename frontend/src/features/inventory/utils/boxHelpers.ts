@@ -1,4 +1,11 @@
-import type { AllocationEntry, Box, CoreType, UpdateBoxPayload, Warehouse } from '../../../domain';
+import type {
+  AllocationEntry,
+  Box,
+  CoreType,
+  FilmCatalogEntry,
+  UpdateBoxPayload,
+  Warehouse
+} from '../../../domain';
 import { toDateInputValue, todayDateString } from '../../../lib/date';
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
@@ -117,6 +124,23 @@ export function getManufacturerOptions() {
   const defaults = [...MANUFACTURER_OPTIONS];
   const merged = dedupeManufacturerLabels([...defaults, ...readCustomManufacturerOptions()]);
   return merged;
+}
+
+export function getManufacturerOptionsWithCatalog(catalogEntries?: FilmCatalogEntry[]) {
+  const defaults = getManufacturerOptions();
+  if (!catalogEntries || catalogEntries.length === 0) {
+    return defaults;
+  }
+
+  const catalogManufacturers: string[] = [];
+  for (let index = 0; index < catalogEntries.length; index += 1) {
+    const label = normalizeManufacturerLabel(catalogEntries[index].manufacturer || '');
+    if (label) {
+      catalogManufacturers.push(label);
+    }
+  }
+
+  return dedupeManufacturerLabels([...defaults, ...catalogManufacturers]);
 }
 
 export function hasManufacturerOption(value: string, options = getManufacturerOptions()) {

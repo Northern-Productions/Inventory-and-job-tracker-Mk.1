@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm } from '../components/BoxForm';
-import { useAddBox, useSearchBoxes, useUndoAudit } from '../hooks/useInventoryQueries';
+import { useAddBox, useFilmCatalog, useSearchBoxes, useUndoAudit } from '../hooks/useInventoryQueries';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
 import {
@@ -26,25 +26,41 @@ interface FilmOrderPrefill {
   notes: string;
 }
 
+interface AddBoxRetryState {
+  retryDraft: BoxDraft;
+  retryWarehouse: Warehouse;
+  retryNonce: number;
+}
+
 export default function AddBoxPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const toast = useToast();
   const auth = useAuth();
   const addBoxMutation = useAddBox();
   const undoMutation = useUndoAudit();
+  const filmCatalogQuery = useFilmCatalog();
   const ilBoxesQuery = useSearchBoxes({ warehouse: 'IL', showRetired: true });
   const msBoxesQuery = useSearchBoxes({ warehouse: 'MS', showRetired: true });
   const prefillToken = searchParams.toString();
+  const retryState = useMemo(() => readRetryState(location.state), [location.state]);
   const filmOrderPrefill = useMemo(
-    () => buildFilmOrderPrefill(searchParams),
-    [prefillToken, searchParams]
+    () => buildFilmOrderPrefill(new URLSearchParams(prefillToken)),
+    [prefillToken]
   );
-  const [warehouse, setWarehouse] = useState<Warehouse>(filmOrderPrefill.warehouse);
+  const [warehouse, setWarehouse] = useState<Warehouse>(
+    retryState?.retryWarehouse ?? filmOrderPrefill.warehouse
+  );
 
   useEffect(() => {
+    if (retryState?.retryWarehouse) {
+      setWarehouse(retryState.retryWarehouse);
+      return;
+    }
+
     setWarehouse(filmOrderPrefill.warehouse);
-  }, [filmOrderPrefill.warehouse]);
+  }, [filmOrderPrefill.warehouse, retryState?.retryWarehouse]);
 
   const nextBoxIdByWarehouse = useMemo(
     () => ({
@@ -54,6 +70,10 @@ export default function AddBoxPage() {
     [ilBoxesQuery.data, msBoxesQuery.data]
   );
   const initialDraft = useMemo(() => {
+    if (retryState?.retryDraft) {
+      return retryState.retryDraft;
+    }
+
     const draft = createEmptyBoxDraft();
 
     if (!filmOrderPrefill.filmOrderId) {
@@ -68,10 +88,11 @@ export default function AddBoxPage() {
       initialFeet: filmOrderPrefill.initialFeet || draft.initialFeet,
       notes: filmOrderPrefill.notes || draft.notes
     };
-  }, [filmOrderPrefill]);
+  }, [filmOrderPrefill, retryState?.retryDraft]);
   const resetKey = useMemo(
-    () => `create-box-${filmOrderPrefill.filmOrderId || 'default'}-${prefillToken || 'blank'}`,
-    [filmOrderPrefill.filmOrderId, prefillToken]
+    () =>
+      `create-box-${filmOrderPrefill.filmOrderId || 'default'}-${prefillToken || 'blank'}-${retryState?.retryNonce || 0}`,
+    [filmOrderPrefill.filmOrderId, prefillToken, retryState?.retryNonce]
   );
 
   async function handleSubmit(draft: BoxDraft) {
@@ -131,7 +152,11 @@ export default function AddBoxPage() {
         return;
       }
 
-      const { result, warnings } = await addBoxMutation.mutateAsync(payload);
+      const destination = `/inventory/${encodeURIComponent(payload.boxId)}?showQr=1`;
+      const savePromise = addBoxMutation.mutateAsync(payload);
+      navigate(destination);
+
+      const { result, warnings } = await savePromise;
       addManufacturerOption(result.box.manufacturer);
 
       toast.push({
@@ -165,8 +190,16 @@ export default function AddBoxPage() {
         }
       });
 
-      navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`);
+      navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`, { replace: true });
     } catch (error) {
+      navigate('/inventory/add', {
+        replace: true,
+        state: {
+          retryDraft: draft,
+          retryWarehouse: warehouse,
+          retryNonce: Date.now()
+        } satisfies AddBoxRetryState
+      });
       toast.push({
         title: 'Unable to add box',
         description:
@@ -225,6 +258,9 @@ export default function AddBoxPage() {
         submitting={addBoxMutation.isPending}
         createWarehouse={warehouse}
         nextBoxIdByWarehouse={nextBoxIdByWarehouse}
+        filmCatalogEntries={filmCatalogQuery.data}
+        filmCatalogLoading={filmCatalogQuery.isLoading}
+        filmCatalogError={filmCatalogQuery.error}
         onCreateWarehouseChange={setWarehouse}
         onSubmit={handleSubmit}
       />
@@ -247,5 +283,30 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
     initialFeet:
       initialFeet && Number.isFinite(Number(initialFeet)) && Number(initialFeet) > 0 ? initialFeet : '',
     notes: (searchParams.get('notes') || '').trim()
+  };
+}
+
+function readRetryState(state: unknown): AddBoxRetryState | null {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+
+  const candidate = state as Partial<AddBoxRetryState>;
+  if (!candidate.retryDraft || typeof candidate.retryDraft !== 'object') {
+    return null;
+  }
+
+  if (candidate.retryWarehouse !== 'IL' && candidate.retryWarehouse !== 'MS') {
+    return null;
+  }
+
+  if (!candidate.retryNonce || !Number.isFinite(Number(candidate.retryNonce))) {
+    return null;
+  }
+
+  return {
+    retryDraft: candidate.retryDraft as BoxDraft,
+    retryWarehouse: candidate.retryWarehouse,
+    retryNonce: Number(candidate.retryNonce)
   };
 }

@@ -6,7 +6,10 @@ import type {
   AuditEntry,
   AvailableFeetByWidthRow,
   Box,
+  FilmCatalogEntry,
   FilmOrderEntry,
+  JobDetail,
+  JobListEntry,
   NeverCheckedOutBoxRow,
   RollHistoryEntry,
   ZeroedTrendRow
@@ -59,11 +62,21 @@ export interface FilmOrderListResult {
   entries: FilmOrderEntry[];
 }
 
+export interface FilmCatalogResponse {
+  entries: FilmCatalogEntry[];
+}
+
 export interface AllocationJobListResponse {
   entries: AllocationJobSummary[];
 }
 
 export interface AllocationJobDetailResponse extends AllocationJobDetail {}
+
+export interface JobListResponse {
+  entries: JobListEntry[];
+}
+
+export interface JobDetailResponse extends JobDetail {}
 
 export interface ReportsSummary {
   availableFeetByWidth: AvailableFeetByWidthRow[];

@@ -16,7 +16,7 @@ import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
-import { useCancelJob, useCreateFilmOrder, useFilmOrders } from '../hooks/useInventoryQueries';
+import { useCancelJob, useCreateFilmOrder, useFilmCatalog, useFilmOrders } from '../hooks/useInventoryQueries';
 import { addManufacturerOption } from '../utils/boxHelpers';
 
 function isOpenFilmOrder(order: FilmOrderEntry) {
@@ -67,6 +67,7 @@ export default function FilmOrdersPage() {
   const toast = useToast();
   const auth = useAuth();
   const filmOrdersQuery = useFilmOrders();
+  const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
   const cancelJobMutation = useCancelJob();
   const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
@@ -343,6 +344,9 @@ export default function FilmOrdersPage() {
       <CreateFilmOrderDialog
         open={isCreateFilmOrderOpen}
         submitting={createFilmOrderMutation.isPending}
+        filmCatalogEntries={filmCatalogQuery.data}
+        filmCatalogLoading={filmCatalogQuery.isLoading}
+        filmCatalogError={filmCatalogQuery.error}
         onCancel={() => setIsCreateFilmOrderOpen(false)}
         onSubmit={(payload) => void handleCreateFilmOrder(payload)}
       />

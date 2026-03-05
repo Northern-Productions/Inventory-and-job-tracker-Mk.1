@@ -169,6 +169,45 @@ textarea {
   color: #2e4b53;
 }
 
+.app-nav-more-wrap {
+  position: relative;
+}
+
+.nav-more-button {
+  cursor: pointer;
+}
+
+.nav-more-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 12rem;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  border: 1px solid rgba(18, 52, 59, 0.14);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 38px rgba(18, 52, 59, 0.18);
+  z-index: 1200;
+}
+
+.nav-more-item {
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  color: #12343b;
+}
+
+.nav-more-item:hover {
+  background: rgba(18, 52, 59, 0.06);
+}
+
+.nav-more-item-active {
+  border-color: rgba(18, 52, 59, 0.18);
+  background: rgba(18, 52, 59, 0.08);
+}
+
 .nav-link-active {
   background: #12343b;
   border-color: #12343b;
@@ -290,6 +329,44 @@ textarea {
 .field-input:focus {
   outline: 2px solid rgba(42, 93, 103, 0.18);
   border-color: #2a5d67;
+}
+
+.film-name-autocomplete {
+  position: relative;
+}
+
+.film-name-autocomplete-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  border: 1px solid rgba(18, 52, 59, 0.16);
+  border-radius: 0.8rem;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(18, 52, 59, 0.14);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.film-name-autocomplete-option {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.55rem;
+  cursor: pointer;
+}
+
+.film-name-autocomplete-option small {
+  color: #587177;
+  font-size: 0.78rem;
+}
+
+.film-name-autocomplete-option-active {
+  background: rgba(18, 52, 59, 0.1);
 }
 
 .field-textarea {
@@ -568,6 +645,11 @@ textarea {
   color: #fff;
 }
 
+.button-job-new {
+  background: #4f8f66;
+  color: #fff;
+}
+
 .button-danger {
   background: #b13f35;
   color: #fff;
@@ -618,6 +700,11 @@ textarea {
 .badge-FILM_ORDER {
   background: #fff0ec;
   color: #a33a2b;
+}
+
+.badge-ALLOCATE {
+  background: #fff0e2;
+  color: #b3621d;
 }
 
 .badge-READY {
@@ -675,6 +762,19 @@ textarea {
 .toggle-button-active {
   background: #12343b;
   color: #fff;
+}
+
+.warehouse-toggle-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.warehouse-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 .table-wrap {
@@ -880,6 +980,20 @@ th {
   background: #fff;
   padding: 1.25rem;
   box-shadow: 0 20px 60px rgba(18, 52, 59, 0.22);
+}
+
+.dialog-job-editor {
+  width: min(100%, 760px);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.dialog-job-editor .dialog-actions:last-child {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .mobile-bottom-nav {

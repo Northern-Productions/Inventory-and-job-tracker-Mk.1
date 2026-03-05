@@ -16,7 +16,7 @@ function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
     warehouse: warehouse === 'MS' ? 'MS' : 'IL',
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
-    film: searchParams.get('film') || '',
+    film: '',
     width: searchParams.get('width') || '',
     showRetired: false
   };
@@ -30,7 +30,7 @@ export default function InventoryHomePage() {
   const boxesQuery = useOfflineInventorySearch(deferredFilters);
 
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
-    const merged = { ...filters, ...next };
+    const merged = { ...filters, ...next, film: '' };
     const nextParams = new URLSearchParams();
 
     nextParams.set('warehouse', merged.warehouse);
@@ -40,9 +40,6 @@ export default function InventoryHomePage() {
     }
     if (merged.status) {
       nextParams.set('status', merged.status);
-    }
-    if (merged.film) {
-      nextParams.set('film', merged.film);
     }
     if (merged.width) {
       nextParams.set('width', merged.width);

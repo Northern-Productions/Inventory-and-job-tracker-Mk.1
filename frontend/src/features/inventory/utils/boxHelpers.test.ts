@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MANUFACTURER_OPTIONS,
   createDraftFromBox,
   deriveCoreWeightLbs,
   deriveFeetAvailableFromRollWeight,
@@ -9,6 +10,7 @@ import {
   deriveRemainingFeetFromWeight,
   deriveSqFtWeightLbsPerSqFt,
   getActiveAllocatedFeet,
+  getManufacturerOptionsWithCatalog,
   getNextBoxIdForWarehouse,
   getRemainingAllocatableFeet,
   getRiskyFieldChanges,
@@ -115,6 +117,18 @@ describe('boxHelpers', () => {
     ).toBe('IL-010');
 
     expect(getNextBoxIdForWarehouse([], 'MS')).toBe('M1');
+  });
+
+  it('merges hardcoded manufacturer options with film catalog manufacturers', () => {
+    const options = getManufacturerOptionsWithCatalog([
+      { filmKey: 'MADICO|GRAFFITI FREE', manufacturer: 'Madico', filmName: 'Graffiti Free', updatedAt: '' },
+      { filmKey: '3M|S80', manufacturer: '3M', filmName: 'S80', updatedAt: '' },
+      { filmKey: 'MADICO|GRAFFITI FREE 2', manufacturer: '  madico  ', filmName: 'Graffiti Free 2', updatedAt: '' }
+    ]);
+
+    expect(options.slice(0, MANUFACTURER_OPTIONS.length)).toEqual([...MANUFACTURER_OPTIONS]);
+    expect(options).toContain('Madico');
+    expect(options.filter((entry) => entry.toLowerCase() === 'madico')).toHaveLength(1);
   });
 
   it('normalizes loaded dates for edit-form date inputs', () => {

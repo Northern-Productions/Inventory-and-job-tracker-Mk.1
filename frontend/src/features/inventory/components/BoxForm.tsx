@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/Button';
-import type { Warehouse } from '../../../domain';
+import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import { Input, TextArea } from '../../../components/Input';
 import {
   CORE_TYPE_OPTIONS,
@@ -10,6 +10,7 @@ import {
   getWidthMode,
   type BoxDraft
 } from '../utils/boxHelpers';
+import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseToggle } from './WarehouseToggle';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
@@ -22,6 +23,9 @@ interface BoxFormProps {
   submitting?: boolean;
   createWarehouse?: Warehouse;
   nextBoxIdByWarehouse?: Record<Warehouse, string>;
+  filmCatalogEntries?: FilmCatalogEntry[];
+  filmCatalogLoading?: boolean;
+  filmCatalogError?: unknown;
   onCreateWarehouseChange?: (warehouse: Warehouse) => void;
   onSubmit: (draft: BoxDraft) => void;
   onCancel?: () => void;
@@ -35,6 +39,9 @@ export function BoxForm({
   submitting = false,
   createWarehouse,
   nextBoxIdByWarehouse,
+  filmCatalogEntries,
+  filmCatalogLoading = false,
+  filmCatalogError,
   onCreateWarehouseChange,
   onSubmit,
   onCancel
@@ -210,10 +217,14 @@ export function BoxForm({
               required
             />
           )}
-          <Input
+          <FilmNameAutocompleteInput
             label="Film Name"
             value={draft.filmName}
-            onChange={(event) => updateField('filmName', event.target.value)}
+            manufacturer={draft.manufacturer}
+            catalogEntries={filmCatalogEntries}
+            catalogLoading={filmCatalogLoading}
+            catalogError={filmCatalogError}
+            onChange={(nextValue) => updateField('filmName', nextValue)}
             required
           />
           <div className="field width-selector">
@@ -243,19 +254,25 @@ export function BoxForm({
           </div>
           <Input
             label="Linear Feet"
-            type="number"
-            step="1"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={draft.initialFeet}
-            onChange={(event) => updateField('initialFeet', event.target.value)}
+            onChange={(event) =>
+              updateField('initialFeet', event.target.value.replace(/[^0-9]/g, ''))
+            }
             required
           />
           {mode === 'edit' ? (
             <Input
               label="Feet Available"
-              type="number"
-              step="1"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={draft.feetAvailable}
-              onChange={(event) => updateField('feetAvailable', event.target.value)}
+              onChange={(event) =>
+                updateField('feetAvailable', event.target.value.replace(/[^0-9]/g, ''))
+              }
               required
             />
           ) : null}

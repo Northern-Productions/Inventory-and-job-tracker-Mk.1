@@ -64,12 +64,6 @@ export function InventoryFilters({ values, onChange }: InventoryFiltersProps) {
             { label: 'Zeroed', value: 'ZEROED' }
           ]}
         />
-        <Input
-          label="Film"
-          value={values.film}
-          onChange={(event) => onChange({ film: event.target.value })}
-          placeholder="Film text"
-        />
         <div className="field width-selector">
           <span className="field-label">Width</span>
           <div className="width-button-grid">

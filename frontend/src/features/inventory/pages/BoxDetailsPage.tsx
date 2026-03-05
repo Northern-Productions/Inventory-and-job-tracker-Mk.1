@@ -16,6 +16,8 @@ import { HistoryPanel } from '../components/HistoryPanel';
 import { RollHistoryPanel } from '../components/RollHistoryPanel';
 import {
   useBoxAllocations,
+  useFilmCatalog,
+  useIsAddBoxPending,
   useBox,
   useSetBoxStatus,
   useUndoAudit,
@@ -126,9 +128,11 @@ export default function BoxDetailsPage() {
   const auth = useAuth();
   const boxId = decodeURIComponent(params.boxId || '');
   const boxQuery = useBox(boxId);
+  const isAddBoxPending = useIsAddBoxPending(boxId);
   const updateMutation = useUpdateBox();
   const statusMutation = useSetBoxStatus();
   const undoMutation = useUndoAudit();
+  const filmCatalogQuery = useFilmCatalog();
   const allocationsQuery = useBoxAllocations(boxId);
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
@@ -606,11 +610,11 @@ export default function BoxDetailsPage() {
     }
   }, [box, searchParams]);
 
-  if (boxQuery.isLoading) {
+  if (boxQuery.isLoading && !box) {
     return <LoadingState label="Loading box details..." />;
   }
 
-  if (boxQuery.isError || !box) {
+  if (!box) {
     return (
       <section className="panel">
         <p className="error-text">{boxQuery.error?.message || 'Box not found.'}</p>
@@ -623,6 +627,13 @@ export default function BoxDetailsPage() {
 
   return (
     <>
+      {isAddBoxPending ? (
+        <section className="panel">
+          <p className="muted-text">
+            Saving box... details are shown optimistically and actions are temporarily disabled.
+          </p>
+        </section>
+      ) : null}
       {isEditing ? (
         <BoxForm
           initialDraft={initialDraft}
@@ -630,6 +641,9 @@ export default function BoxDetailsPage() {
           mode="edit"
           submitLabel="Save Changes"
           submitting={updateMutation.isPending}
+          filmCatalogEntries={filmCatalogQuery.data}
+          filmCatalogLoading={filmCatalogQuery.isLoading}
+          filmCatalogError={filmCatalogQuery.error}
           onSubmit={handleEditSubmit}
           onCancel={() => setIsEditing(false)}
         />
@@ -646,13 +660,14 @@ export default function BoxDetailsPage() {
           <div className="detail-actions">
             <span className={`badge badge-${box.status}`}>{box.status}</span>
             {!isEditing ? (
-              <Button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                disabled={
-                  box.status === 'ZEROED' ||
-                  !auth.isAuthenticated ||
-                  !auth.clientIdConfigured
+                <Button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  disabled={
+                    isAddBoxPending ||
+                    box.status === 'ZEROED' ||
+                    !auth.isAuthenticated ||
+                    !auth.clientIdConfigured
                 }
               >
                 Edit
@@ -776,6 +791,7 @@ export default function BoxDetailsPage() {
                 variant="secondary"
                 onClick={() => void handleStatusChange('IN_STOCK')}
                 disabled={
+                  isAddBoxPending ||
                   statusMutation.isPending ||
                   box.status === 'ORDERED' ||
                   box.status === 'IN_STOCK' ||
@@ -792,6 +808,7 @@ export default function BoxDetailsPage() {
                 variant="secondary"
                 onClick={() => setIsAllocateOpen(true)}
                 disabled={
+                  isAddBoxPending ||
                   statusMutation.isPending ||
                   box.status !== 'IN_STOCK' ||
                   !auth.isAuthenticated ||
@@ -806,6 +823,7 @@ export default function BoxDetailsPage() {
                 variant="secondary"
                 onClick={() => void handleStatusChange('CHECKED_OUT')}
                 disabled={
+                  isAddBoxPending ||
                   statusMutation.isPending ||
                   box.status === 'ORDERED' ||
                   box.status === 'CHECKED_OUT' ||

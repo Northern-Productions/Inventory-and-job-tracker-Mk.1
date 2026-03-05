@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
-import type { CreateFilmOrderPayload, Warehouse } from '../../../domain';
+import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import { getManufacturerOptions, hasManufacturerOption } from '../utils/boxHelpers';
+import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseToggle } from './WarehouseToggle';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
@@ -10,6 +11,9 @@ const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 interface CreateFilmOrderDialogProps {
   open: boolean;
   submitting?: boolean;
+  filmCatalogEntries?: FilmCatalogEntry[];
+  filmCatalogLoading?: boolean;
+  filmCatalogError?: unknown;
   onCancel: () => void;
   onSubmit: (payload: CreateFilmOrderPayload) => void;
 }
@@ -17,6 +21,9 @@ interface CreateFilmOrderDialogProps {
 export function CreateFilmOrderDialog({
   open,
   submitting = false,
+  filmCatalogEntries,
+  filmCatalogLoading = false,
+  filmCatalogError,
   onCancel,
   onSubmit
 }: CreateFilmOrderDialogProps) {
@@ -152,11 +159,15 @@ export function CreateFilmOrderDialog({
               required
             />
           ) : null}
-          <Input
+          <FilmNameAutocompleteInput
             label="Film Name"
             value={filmName}
-            onChange={(event) => {
-              setFilmName(event.target.value);
+            manufacturer={manufacturer}
+            catalogEntries={filmCatalogEntries}
+            catalogLoading={filmCatalogLoading}
+            catalogError={filmCatalogError}
+            onChange={(nextValue) => {
+              setFilmName(nextValue);
               setError('');
             }}
             required
@@ -175,12 +186,12 @@ export function CreateFilmOrderDialog({
           />
           <Input
             label="Linear Feet"
-            type="number"
-            min="1"
-            step="1"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={requestedFeet}
             onChange={(event) => {
-              setRequestedFeet(event.target.value);
+              setRequestedFeet(event.target.value.replace(/[^0-9]/g, ''));
               setError('');
             }}
             required

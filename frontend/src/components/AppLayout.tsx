@@ -5,30 +5,73 @@ import { GoogleAccountControl } from '../features/auth/GoogleAccountControl';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
-const navItems = [
-  { to: '/', desktopLabel: 'Inventory', mobileLabel: 'Stock', mobilePlacement: 'primary' as const },
+type NavPlacement = 'primary' | 'more';
+
+interface NavItem {
+  to: string;
+  desktopLabel: string;
+  mobileLabel: string;
+  desktopPlacement: NavPlacement;
+  mobilePlacement: NavPlacement;
+}
+
+const navItems: NavItem[] = [
+  {
+    to: '/',
+    desktopLabel: 'Inventory',
+    mobileLabel: 'Stock',
+    desktopPlacement: 'primary',
+    mobilePlacement: 'primary'
+  },
   {
     to: '/allocations',
-    desktopLabel: 'Allocations',
+    desktopLabel: 'Jobs',
     mobileLabel: 'Jobs',
-    mobilePlacement: 'primary' as const
+    desktopPlacement: 'primary',
+    mobilePlacement: 'primary'
   },
-  { to: '/inventory/add', desktopLabel: 'Add Box', mobileLabel: 'Add', mobilePlacement: 'primary' as const },
-  { to: '/inventory/scan', desktopLabel: 'Scan', mobileLabel: 'Scan', mobilePlacement: 'primary' as const },
+  {
+    to: '/inventory/add',
+    desktopLabel: 'Add Box',
+    mobileLabel: 'Add',
+    desktopPlacement: 'primary',
+    mobilePlacement: 'primary'
+  },
+  {
+    to: '/inventory/scan',
+    desktopLabel: 'Scan',
+    mobileLabel: 'Scan',
+    desktopPlacement: 'primary',
+    mobilePlacement: 'primary'
+  },
   {
     to: '/film-orders',
     desktopLabel: 'Film Orders',
     mobileLabel: 'Film Orders',
-    mobilePlacement: 'more' as const
+    desktopPlacement: 'primary',
+    mobilePlacement: 'more'
   },
-  { to: '/reports', desktopLabel: 'Reports', mobileLabel: 'Reports', mobilePlacement: 'more' as const },
+  {
+    to: '/reports',
+    desktopLabel: 'Reports',
+    mobileLabel: 'Reports',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more'
+  },
   {
     to: '/checkout-history',
     desktopLabel: 'Checkout History',
     mobileLabel: 'Checkout History',
-    mobilePlacement: 'more' as const
+    desktopPlacement: 'more',
+    mobilePlacement: 'more'
   },
-  { to: '/activity', desktopLabel: 'Activity', mobileLabel: 'Activity', mobilePlacement: 'more' as const }
+  {
+    to: '/activity',
+    desktopLabel: 'Activity',
+    mobileLabel: 'Activity',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more'
+  }
 ];
 
 function isNavItemActive(pathname: string, to: string) {
@@ -54,38 +97,94 @@ function isNavItemActive(pathname: string, to: string) {
 export function AppLayout() {
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
-  const moreButtonRef = useRef<HTMLButtonElement>(null);
-  const closeMoreSheet = useCallback(() => setIsMoreOpen(false), []);
-  const toggleMoreSheet = useCallback(() => setIsMoreOpen((current) => !current), []);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
+  const mobileMoreButtonRef = useRef<HTMLButtonElement>(null);
+  const desktopMoreRef = useRef<HTMLDivElement>(null);
+  const closeMobileMoreSheet = useCallback(() => setIsMobileMoreOpen(false), []);
+  const toggleMobileMoreSheet = useCallback(() => setIsMobileMoreOpen((current) => !current), []);
+  const toggleDesktopMoreMenu = useCallback(
+    () => setIsDesktopMoreOpen((current) => !current),
+    []
+  );
+  const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
 
-  const primaryMobileItems = useMemo<MobileNavItem[]>(
+  const primaryNavItems = useMemo(
+    () =>
+      navItems
+        .filter((item) => item.desktopPlacement === 'primary')
+        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
+    [location.pathname]
+  );
+  const moreDesktopNavItems = useMemo(
+    () =>
+      navItems
+        .filter((item) => item.desktopPlacement === 'more')
+        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
+    [location.pathname]
+  );
+  const primaryMobileNavItems = useMemo(
     () =>
       navItems
         .filter((item) => item.mobilePlacement === 'primary')
-        .map((item) => ({
-          label: item.mobileLabel,
-          to: item.to,
-          active: isNavItemActive(location.pathname, item.to)
-        })),
+        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
     [location.pathname]
   );
-  const moreMobileItems = useMemo<MobileNavItem[]>(
+  const moreMobileNavItems = useMemo(
     () =>
       navItems
         .filter((item) => item.mobilePlacement === 'more')
-        .map((item) => ({
-          label: item.mobileLabel,
-          to: item.to,
-          active: isNavItemActive(location.pathname, item.to)
-        })),
+        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
     [location.pathname]
   );
-  const isMoreActive = moreMobileItems.some((item) => item.active);
+  const primaryMobileItems = useMemo<MobileNavItem[]>(
+    () =>
+      primaryMobileNavItems.map((item) => ({
+        label: item.mobileLabel,
+        to: item.to,
+        active: item.active
+      })),
+    [primaryMobileNavItems]
+  );
+  const moreMobileItems = useMemo<MobileNavItem[]>(
+    () => moreMobileNavItems.map((item) => ({ label: item.mobileLabel, to: item.to, active: item.active })),
+    [moreMobileNavItems]
+  );
+  const isDesktopMoreActive = moreDesktopNavItems.some((item) => item.active);
+  const isMobileMoreActive = moreMobileNavItems.some((item) => item.active);
 
   useEffect(() => {
-    closeMoreSheet();
-  }, [closeMoreSheet, location.pathname]);
+    closeMobileMoreSheet();
+    closeDesktopMoreMenu();
+  }, [closeDesktopMoreMenu, closeMobileMoreSheet, location.pathname]);
+
+  useEffect(() => {
+    if (isPhoneLayout || !isDesktopMoreOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (desktopMoreRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      closeDesktopMoreMenu();
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeDesktopMoreMenu();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [closeDesktopMoreMenu, isDesktopMoreOpen, isPhoneLayout]);
 
   return (
     <div className={`app-shell ${isPhoneLayout ? 'app-shell-phone' : ''}`.trim()}>
@@ -98,7 +197,7 @@ export function AppLayout() {
           <GoogleAccountControl />
           {!isPhoneLayout ? (
             <nav className="app-nav" aria-label="Primary">
-              {navItems.map((item) => (
+              {primaryNavItems.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -108,6 +207,34 @@ export function AppLayout() {
                   {item.desktopLabel}
                 </NavLink>
               ))}
+              <div className="app-nav-more-wrap" ref={desktopMoreRef}>
+                <button
+                  type="button"
+                  className={`nav-link nav-more-button ${
+                    isDesktopMoreActive || isDesktopMoreOpen ? 'nav-link-active' : ''
+                  }`.trim()}
+                  onClick={toggleDesktopMoreMenu}
+                  aria-haspopup="menu"
+                  aria-expanded={isDesktopMoreOpen}
+                >
+                  More
+                </button>
+                {isDesktopMoreOpen ? (
+                  <div className="nav-more-menu" role="menu" aria-label="More pages">
+                    {moreDesktopNavItems.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={`nav-more-item ${item.active ? 'nav-more-item-active' : ''}`.trim()}
+                        role="menuitem"
+                        onClick={closeDesktopMoreMenu}
+                      >
+                        {item.desktopLabel}
+                      </NavLink>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </nav>
           ) : null}
         </div>
@@ -119,17 +246,17 @@ export function AppLayout() {
         <>
           <MobileBottomNav
             items={primaryMobileItems}
-            moreActive={isMoreActive}
-            isMoreOpen={isMoreOpen}
-            onOpenMore={toggleMoreSheet}
-            moreButtonRef={moreButtonRef}
+            moreActive={isMobileMoreActive}
+            isMoreOpen={isMobileMoreOpen}
+            onOpenMore={toggleMobileMoreSheet}
+            moreButtonRef={mobileMoreButtonRef}
           />
           <MobileMoreSheet
-            open={isMoreOpen}
+            open={isMobileMoreOpen}
             items={moreMobileItems}
             activePath={location.pathname}
-            onClose={closeMoreSheet}
-            anchorRef={moreButtonRef}
+            onClose={closeMobileMoreSheet}
+            anchorRef={mobileMoreButtonRef}
           />
         </>
       ) : null}

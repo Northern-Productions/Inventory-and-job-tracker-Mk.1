@@ -121,6 +121,31 @@ var FILM_ORDER_BOX_LINKS_HEADERS_ = [
   'CreatedAt',
   'CreatedBy'
 ];
+var JOBS_HEADERS_ = [
+  'JobNumber',
+  'Warehouse',
+  'Sections',
+  'DueDate',
+  'LifecycleStatus',
+  'CreatedAt',
+  'CreatedBy',
+  'UpdatedAt',
+  'UpdatedBy',
+  'Notes'
+];
+var JOB_REQUIREMENTS_HEADERS_ = [
+  'RequirementID',
+  'JobNumber',
+  'Manufacturer',
+  'FilmName',
+  'WidthIn',
+  'RequiredFeet',
+  'CreatedAt',
+  'CreatedBy',
+  'UpdatedAt',
+  'UpdatedBy',
+  'Notes'
+];
 var LEGACY_BOX_HEADER_COUNT_ = 19;
 var BOX_MINIMUM_REQUIRED_HEADERS_ = [
   'BoxID',
@@ -181,7 +206,9 @@ function getRequiredSheetNames_() {
     'ROLL WEIGHT LOG',
     'ALLOCATIONS',
     'FILM ORDERS',
-    'FILM ORDER BOXES'
+    'FILM ORDER BOXES',
+    'JOBS',
+    'JOB REQUIREMENTS'
   ];
 }
 
@@ -453,6 +480,34 @@ function getFilmOrderBoxesSheet_() {
   }
 
   validateSheetHeaders_(sheet, FILM_ORDER_BOX_LINKS_HEADERS_);
+  return sheet;
+}
+
+function getJobsSheet_() {
+  var spreadsheet = getSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName('JOBS');
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet('JOBS');
+    sheet.getRange(1, 1, 1, JOBS_HEADERS_.length).setValues([JOBS_HEADERS_]);
+    return sheet;
+  }
+
+  validateSheetHeaders_(sheet, JOBS_HEADERS_);
+  return sheet;
+}
+
+function getJobRequirementsSheet_() {
+  var spreadsheet = getSpreadsheet_();
+  var sheet = spreadsheet.getSheetByName('JOB REQUIREMENTS');
+
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet('JOB REQUIREMENTS');
+    sheet.getRange(1, 1, 1, JOB_REQUIREMENTS_HEADERS_.length).setValues([JOB_REQUIREMENTS_HEADERS_]);
+    return sheet;
+  }
+
+  validateSheetHeaders_(sheet, JOB_REQUIREMENTS_HEADERS_);
   return sheet;
 }
 
@@ -1104,6 +1159,236 @@ function appendFilmOrder_(entry) {
 function updateFilmOrderRow_(rowIndex, entry) {
   var sheet = getFilmOrdersSheet_();
   sheet.getRange(rowIndex, 1, 1, FILM_ORDERS_HEADERS_.length).setValues([filmOrderToRow_(entry)]);
+}
+
+function normalizeJobRow_(row, rowIndex) {
+  var sections = normalizeSectionsCellValue_(row[2]);
+  return {
+    jobNumber: asTrimmedString_(row[0]),
+    warehouse: asTrimmedString_(row[1]).toUpperCase(),
+    sections: sections,
+    dueDate: normalizeSheetDateValue_(row[3]),
+    lifecycleStatus: asTrimmedString_(row[4]).toUpperCase() || 'ACTIVE',
+    createdAt: asTrimmedString_(row[5]),
+    createdBy: asTrimmedString_(row[6]),
+    updatedAt: asTrimmedString_(row[7]),
+    updatedBy: asTrimmedString_(row[8]),
+    notes: asTrimmedString_(row[9]),
+    rowIndex: rowIndex
+  };
+}
+
+function normalizeSectionsCellValue_(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) {
+      return null;
+    }
+
+    return [String(value.getMonth() + 1), String(value.getDate()), String(value.getFullYear())].join(', ');
+  }
+
+  var text = asTrimmedString_(value);
+  if (!text) {
+    return null;
+  }
+
+  var tokens = text.split(',');
+  var normalizedTokens = [];
+  for (var index = 0; index < tokens.length; index += 1) {
+    var token = asTrimmedString_(tokens[index]);
+    if (!token) {
+      continue;
+    }
+
+    if (!/^\d+$/.test(token)) {
+      return null;
+    }
+
+    normalizedTokens.push(token);
+  }
+
+  if (!normalizedTokens.length) {
+    return null;
+  }
+
+  return normalizedTokens.join(', ');
+}
+
+function jobToRow_(entry) {
+  return [
+    entry.jobNumber,
+    entry.warehouse,
+    entry.sections === null || entry.sections === undefined ? '' : entry.sections,
+    entry.dueDate,
+    entry.lifecycleStatus,
+    entry.createdAt,
+    entry.createdBy,
+    entry.updatedAt,
+    entry.updatedBy,
+    entry.notes
+  ];
+}
+
+function writeJobRow_(sheet, rowIndex, entry) {
+  var row = jobToRow_(entry);
+  var sectionsValue = asTrimmedString_(row[2]);
+
+  row[2] = '';
+  sheet.getRange(rowIndex, 1, 1, JOBS_HEADERS_.length).setValues([row]);
+
+  var sectionsCell = sheet.getRange(rowIndex, 3);
+  sectionsCell.setNumberFormat('@');
+  sectionsCell.setValue(sectionsValue);
+}
+
+function readJobs_() {
+  var sheet = getJobsSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+
+  var rows = sheet.getRange(2, 1, lastRow - 1, JOBS_HEADERS_.length).getValues();
+  var entries = [];
+
+  for (var index = 0; index < rows.length; index += 1) {
+    var entry = normalizeJobRow_(rows[index], index + 2);
+    if (entry.jobNumber) {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+function findJobByNumber_(jobNumber) {
+  var normalized = requireString_(jobNumber, 'JobNumber');
+  var jobs = readJobs_();
+
+  for (var index = jobs.length - 1; index >= 0; index -= 1) {
+    if (jobs[index].jobNumber === normalized) {
+      return jobs[index];
+    }
+  }
+
+  return null;
+}
+
+function appendJob_(entry) {
+  var sheet = getJobsSheet_();
+  var normalized = cloneObject_(entry);
+  normalized.rowIndex = sheet.getLastRow() + 1;
+  writeJobRow_(sheet, normalized.rowIndex, normalized);
+  return normalized;
+}
+
+function updateJobRow_(rowIndex, entry) {
+  var sheet = getJobsSheet_();
+  writeJobRow_(sheet, rowIndex, entry);
+}
+
+function normalizeJobRequirementRow_(row, rowIndex) {
+  return {
+    requirementId: asTrimmedString_(row[0]),
+    jobNumber: asTrimmedString_(row[1]),
+    manufacturer: asTrimmedString_(row[2]),
+    filmName: asTrimmedString_(row[3]),
+    widthIn: asTrimmedString_(row[4]) === '' ? 0 : Number(row[4]),
+    requiredFeet: asTrimmedString_(row[5]) === '' ? 0 : Number(row[5]),
+    createdAt: asTrimmedString_(row[6]),
+    createdBy: asTrimmedString_(row[7]),
+    updatedAt: asTrimmedString_(row[8]),
+    updatedBy: asTrimmedString_(row[9]),
+    notes: asTrimmedString_(row[10]),
+    rowIndex: rowIndex
+  };
+}
+
+function jobRequirementToRow_(entry) {
+  return [
+    entry.requirementId,
+    entry.jobNumber,
+    entry.manufacturer,
+    entry.filmName,
+    entry.widthIn,
+    entry.requiredFeet,
+    entry.createdAt,
+    entry.createdBy,
+    entry.updatedAt,
+    entry.updatedBy,
+    entry.notes
+  ];
+}
+
+function readJobRequirements_() {
+  var sheet = getJobRequirementsSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return [];
+  }
+
+  var rows = sheet.getRange(2, 1, lastRow - 1, JOB_REQUIREMENTS_HEADERS_.length).getValues();
+  var entries = [];
+
+  for (var index = 0; index < rows.length; index += 1) {
+    var entry = normalizeJobRequirementRow_(rows[index], index + 2);
+    if (entry.requirementId && entry.jobNumber) {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
+function readJobRequirementsByJob_(jobNumber) {
+  var normalized = requireString_(jobNumber, 'JobNumber').toUpperCase();
+  var entries = readJobRequirements_();
+  var filtered = [];
+
+  for (var index = entries.length - 1; index >= 0; index -= 1) {
+    if (asTrimmedString_(entries[index].jobNumber).toUpperCase() === normalized) {
+      filtered.push(entries[index]);
+    }
+  }
+
+  return filtered;
+}
+
+function appendJobRequirement_(entry) {
+  var sheet = getJobRequirementsSheet_();
+  var normalized = cloneObject_(entry);
+  if (!normalized.requirementId) {
+    normalized.requirementId = createLogId_();
+  }
+
+  sheet.appendRow(jobRequirementToRow_(normalized));
+  normalized.rowIndex = sheet.getLastRow();
+  return normalized;
+}
+
+function deleteJobRequirementRow_(rowIndex) {
+  var sheet = getJobRequirementsSheet_();
+  sheet.deleteRow(rowIndex);
+}
+
+function replaceJobRequirementsForJob_(jobNumber, entries) {
+  var existing = readJobRequirementsByJob_(jobNumber);
+
+  existing.sort(function(a, b) {
+    return b.rowIndex - a.rowIndex;
+  });
+
+  for (var index = 0; index < existing.length; index += 1) {
+    deleteJobRequirementRow_(existing[index].rowIndex);
+  }
+
+  for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+    appendJobRequirement_(entries[entryIndex]);
+  }
 }
 
 function normalizeFilmOrderBoxLinkRow_(row, rowIndex) {
