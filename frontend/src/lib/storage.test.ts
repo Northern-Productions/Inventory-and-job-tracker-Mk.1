@@ -35,9 +35,10 @@ function encodeBase64Url_(value: string): string {
 }
 
 function buildSupabaseLikeToken_(): string {
+  const configuredBase = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/g, '') || 'https://example.supabase.co';
   const header = encodeBase64Url_('{"alg":"HS256","typ":"JWT"}');
   const payload = encodeBase64Url_(
-    '{"iss":"https://example.supabase.co/auth/v1","role":"authenticated","email":"rob@example.com"}'
+    `{"iss":"${configuredBase}/auth/v1","role":"authenticated","email":"rob@example.com"}`
   );
   return `${header}.${payload}.signature`;
 }

@@ -1,4 +1,4 @@
-import type { ApiEnvelope } from '../domain';
+import type { ApiEnvelope, AuthUser } from '../domain';
 import { getStoredAuthSession } from '../lib/storage';
 import { getSupabaseClient } from '../lib/supabase';
 
@@ -104,8 +104,7 @@ export async function request<T>(
   options: RequestOptions = {}
 ): Promise<{ data: T; warnings: string[] }> {
   let response: Response;
-  const authSession = getStoredAuthSession();
-  const authToken = await resolveAuthToken_(authSession?.token ?? '');
+  const authContext = await resolveAuthContext_();
 
   try {
     const body =
@@ -113,14 +112,14 @@ export async function request<T>(
         ? {
             ...(options.body as Record<string, unknown>),
             path,
-            ...(authToken ? { authToken } : {}),
-            ...(authSession?.user ? { authUser: authSession.user } : {})
+            ...(authContext.token ? { authToken: authContext.token } : {}),
+            ...(authContext.token && authContext.user ? { authUser: authContext.user } : {})
           }
         : options.body;
 
     response = await fetch(buildUrl(path, options.query), {
       method,
-      headers: buildRequestHeaders(method, authToken),
+      headers: buildRequestHeaders(method, authContext.token),
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
     });
   } catch (_error) {
@@ -170,21 +169,62 @@ function looksLikeLegacyJwtKey_(value: string): boolean {
   return trimmed.split('.').length === 3;
 }
 
-async function resolveAuthToken_(fallbackToken: string): Promise<string> {
-  const fallback = fallbackToken.trim();
+async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | null }> {
+  const stored = getStoredAuthSession();
   const supabase = getSupabaseClient();
   if (!supabase) {
-    return fallback;
+    return {
+      token: stored?.token?.trim() || '',
+      user: stored?.user || null
+    };
   }
 
   try {
     const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session?.access_token) {
-      return fallback;
+    if (error || !data.session?.access_token || !data.session.user?.email) {
+      return { token: '', user: null };
     }
 
-    return data.session.access_token.trim() || fallback;
+    const email = data.session.user.email.trim();
+    if (!email) {
+      return { token: '', user: null };
+    }
+
+    const metadata =
+      data.session.user.user_metadata && typeof data.session.user.user_metadata === 'object'
+        ? (data.session.user.user_metadata as Record<string, unknown>)
+        : null;
+    const profileName =
+      readUserMetadataField_(metadata, 'full_name') ||
+      readUserMetadataField_(metadata, 'name') ||
+      deriveNameFromEmail_(email);
+    const avatar = readUserMetadataField_(metadata, 'avatar_url');
+
+    return {
+      token: data.session.access_token.trim(),
+      user: {
+        email,
+        hasProfileName: true,
+        name: profileName,
+        picture: avatar,
+        sub: data.session.user.id
+      }
+    };
   } catch (_error) {
-    return fallback;
+    return { token: '', user: null };
   }
+}
+
+function readUserMetadataField_(
+  metadata: Record<string, unknown> | null,
+  key: string
+): string {
+  const value = metadata ? metadata[key] : '';
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function deriveNameFromEmail_(email: string): string {
+  const localPart = email.split('@')[0] || '';
+  const sanitized = localPart.replace(/[._-]+/g, ' ').trim();
+  return sanitized || 'Inventory User';
 }

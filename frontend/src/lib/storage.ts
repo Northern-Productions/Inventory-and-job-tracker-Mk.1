@@ -1,6 +1,7 @@
 import type { AuthSession } from '../domain';
 
 const AUTH_SESSION_KEY = 'inventory-auth-session';
+const EXPECTED_ISSUER_PREFIX = buildExpectedIssuerPrefix_();
 
 export function getStoredAuthSession(): AuthSession | null {
   try {
@@ -69,8 +70,21 @@ function isLikelySupabaseAccessToken_(token: string): boolean {
 
   const issuer = typeof payload.iss === 'string' ? payload.iss : '';
   const role = typeof payload.role === 'string' ? payload.role : '';
+  const exp = typeof payload.exp === 'number' ? payload.exp : 0;
 
-  return Boolean(issuer && issuer.indexOf('/auth/v1') !== -1 && role);
+  if (!issuer || issuer.indexOf('/auth/v1') === -1 || !role) {
+    return false;
+  }
+
+  if (EXPECTED_ISSUER_PREFIX && !issuer.startsWith(EXPECTED_ISSUER_PREFIX)) {
+    return false;
+  }
+
+  if (exp > 0 && exp * 1000 <= Date.now()) {
+    return false;
+  }
+
+  return true;
 }
 
 function decodeJwtPayload_(encodedPayload: string): Record<string, unknown> | null {
@@ -90,4 +104,13 @@ function decodeJwtPayload_(encodedPayload: string): Record<string, unknown> | nu
   } catch (_error) {
     return null;
   }
+}
+
+function buildExpectedIssuerPrefix_(): string {
+  const configuredUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
+  if (!configuredUrl) {
+    return '';
+  }
+
+  return `${configuredUrl.replace(/\/+$/g, '')}/auth/v1`;
 }
