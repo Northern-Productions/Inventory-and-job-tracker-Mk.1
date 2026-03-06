@@ -14,3 +14,9 @@ frontend/.env.*
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Backend host
+backend/node_modules/
+backend/.env
+backend/.env.*
+!backend/.env.example

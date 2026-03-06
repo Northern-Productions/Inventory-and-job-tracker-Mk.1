@@ -11,6 +11,7 @@ Phase 1 is a production-focused inventory PWA for window-film boxes/rolls. It pr
 - PWA: `vite-plugin-pwa`
 - QR scanning: `html5-qrcode`
 - Backend: Google Apps Script Web App reading/writing Google Sheets
+  - Optional hosted proxy/backend: `backend/` (Node service, Render-ready)
 
 ## Project Structure
 
@@ -141,6 +142,15 @@ Use these exact headers and order for `AuditLog`:
    npm run dev
    ```
 
+### Optional Hosted Backend (Recommended)
+
+If you deploy `backend/` (Render or similar), point the frontend directly to that host:
+
+- `VITE_API_BASE_URL=https://your-backend.onrender.com/api`
+- `VITE_PROXY_TARGET=` (blank)
+
+The backend remains API-compatible with the current frontend request format (`?path=/...`) and can proxy Apps Script while you migrate to Postgres.
+
 ### Why `/api` in dev
 
 Google Apps Script Web Apps do not reliably expose configurable CORS headers. For stable local development, this project uses the Vite dev proxy so the browser talks to `/api`, and Vite forwards requests to the deployed Apps Script Web App.
@@ -239,6 +249,16 @@ When a user is signed in, the backend writes the signed-in Google identity into 
 
 2. Deploy the generated `dist/` directory to any static host.
 3. Prefer hosting behind a same-origin proxy to the Apps Script API, or keep using a reverse proxy route such as `/api`.
+
+### Backend Host Deployment
+
+Deployable backend host files live in `backend/`:
+
+- Service: `backend/server.mjs`
+- Env template: `backend/.env.example`
+- Render blueprint: `backend/render.yaml`
+- Supabase migration starter: `backend/migrations/0001_supabase_inventory_schema.sql`
+- Cutover guide: `backend/docs/MIGRATION_TO_SUPABASE.md`
 
 Hash routing is used, so page refreshes continue to work on static hosting without server-side rewrite rules.
 
