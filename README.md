@@ -151,6 +151,24 @@ If you deploy `backend/` (Render or similar), point the frontend directly to tha
 
 The backend remains API-compatible with the current frontend request format (`?path=/...`) and can proxy Apps Script while you migrate to Postgres.
 
+### Supabase Edge Function Path (No Card Required)
+
+You can host the API proxy on Supabase free tier without Render:
+
+1. Create a Supabase project.
+2. Deploy the Edge Function in `supabase/functions/api-proxy`.
+3. Set function secrets, especially `APPS_SCRIPT_URL`.
+4. Point frontend base URL to:
+   - `VITE_API_BASE_URL=https://YOUR_PROJECT_REF.supabase.co/functions/v1/api-proxy`
+   - `VITE_PROXY_TARGET=` (blank)
+
+Setup files:
+
+- `supabase/functions/api-proxy/index.ts`
+- `supabase/config.toml`
+- `supabase/.env.example`
+- `supabase/README.md`
+
 ### Why `/api` in dev
 
 Google Apps Script Web Apps do not reliably expose configurable CORS headers. For stable local development, this project uses the Vite dev proxy so the browser talks to `/api`, and Vite forwards requests to the deployed Apps Script Web App.
@@ -259,6 +277,15 @@ Deployable backend host files live in `backend/`:
 - Render blueprint: `backend/render.yaml`
 - Supabase migration starter: `backend/migrations/0001_supabase_inventory_schema.sql`
 - Cutover guide: `backend/docs/MIGRATION_TO_SUPABASE.md`
+
+### Supabase Edge Function Deployment
+
+Deployable Supabase function files live in `supabase/`:
+
+- Function: `supabase/functions/api-proxy/index.ts`
+- Function config: `supabase/config.toml`
+- Env template: `supabase/.env.example`
+- Deploy guide: `supabase/README.md`
 
 Hash routing is used, so page refreshes continue to work on static hosting without server-side rewrite rules.
 

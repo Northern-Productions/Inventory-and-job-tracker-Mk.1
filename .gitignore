@@ -20,3 +20,8 @@ backend/node_modules/
 backend/.env
 backend/.env.*
 !backend/.env.example
+
+# Supabase local env
+supabase/.env
+supabase/.env.*
+!supabase/.env.example

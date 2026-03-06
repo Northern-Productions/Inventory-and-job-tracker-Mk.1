@@ -1,0 +1,4 @@
+project_id = "your-project-ref"
+
+[functions.api-proxy]
+verify_jwt = false
