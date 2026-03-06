@@ -129,6 +129,17 @@ export async function request<T>(
   }
 
   const envelope = await parseEnvelope<T>(response);
+  if (import.meta.env.DEV && response.status === 401) {
+    const jwtDebug = describeJwt_(authContext.token);
+    console.warn('[auth-debug] 401 response', {
+      path,
+      apiBaseUrl: resolveApiBaseUrl(),
+      hasToken: Boolean(authContext.token),
+      tokenPrefix: authContext.token ? `${authContext.token.slice(0, 16)}...` : '',
+      tokenIssuer: jwtDebug.iss,
+      tokenExpIso: jwtDebug.expIso
+    });
+  }
   const fallbackErrorMessage = extractEnvelopeMessage_(envelope);
   if (!response.ok || !envelope.ok || envelope.data === undefined) {
     throw new APIError(
@@ -287,4 +298,25 @@ function deriveNameFromEmail_(email: string): string {
   const localPart = email.split('@')[0] || '';
   const sanitized = localPart.replace(/[._-]+/g, ' ').trim();
   return sanitized || 'Inventory User';
+}
+
+function describeJwt_(token: string): { iss: string; expIso: string } {
+  if (!token) {
+    return { iss: '', expIso: '' };
+  }
+
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return { iss: '', expIso: '' };
+  }
+
+  const payload = decodeJwtPayload_(parts[1]);
+  if (!payload) {
+    return { iss: '', expIso: '' };
+  }
+
+  const iss = typeof payload.iss === 'string' ? payload.iss : '';
+  const exp = typeof payload.exp === 'number' ? payload.exp : 0;
+  const expIso = exp > 0 ? new Date(exp * 1000).toISOString() : '';
+  return { iss, expIso };
 }
