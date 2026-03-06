@@ -22,6 +22,20 @@ function jsonResponse_(payload) {
   );
 }
 
+var REQUEST_CONTEXT_ = null;
+
+function getRequestContext_() {
+  if (!REQUEST_CONTEXT_) {
+    REQUEST_CONTEXT_ = {};
+  }
+
+  return REQUEST_CONTEXT_;
+}
+
+function clearRequestContext_() {
+  REQUEST_CONTEXT_ = null;
+}
+
 function resolveRoute_(e) {
   var raw = '/';
 
@@ -61,7 +75,7 @@ function cloneObject_(value) {
 function getAuthenticatedAuditUser_(payload) {
   var authUser = payload && payload.authUser ? payload.authUser : null;
   if (!authUser) {
-    throw new Error('Google sign-in session is required.');
+    throw new Error('Authenticated session is required.');
   }
 
   var email = requireString_(authUser.email, 'authUser.email');

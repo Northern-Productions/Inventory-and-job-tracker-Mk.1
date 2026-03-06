@@ -30,7 +30,6 @@ import {
   deriveFeetAvailableFromRollWeight,
   getActiveAllocatedFeet,
   getRiskyFieldChanges,
-  shouldAutoMoveToZeroed,
   type BoxDraft
 } from '../utils/boxHelpers';
 import {
@@ -190,8 +189,8 @@ export default function BoxDetailsPage() {
   function ensureSignedIn(actionLabel: string) {
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before trying to change inventory.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before trying to change inventory.',
         variant: 'error'
       });
       return false;
@@ -200,7 +199,7 @@ export default function BoxDetailsPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: `Sign in with Google before you ${actionLabel}.`,
+        description: `Sign in with email/password before you ${actionLabel}.`,
         variant: 'error'
       });
       return false;
@@ -375,21 +374,12 @@ export default function BoxDetailsPage() {
         navigate('/');
       }
     } catch (error) {
-      const expectsZeroedMove = shouldAutoMoveToZeroed(
-        payload.receivedDate,
-        box?.feetAvailable ?? 0,
-        payload.feetAvailable,
-        payload.lastRollWeightLbs ?? null
-      );
-
       toast.push({
-        title: expectsZeroedMove ? 'Move failed' : 'Update failed',
+        title: 'Update failed',
         description:
           error instanceof APIError || error instanceof Error
             ? error.message
-            : expectsZeroedMove
-              ? 'The box could not be moved to zeroed out inventory.'
-              : 'The update could not be completed.',
+            : 'The update could not be completed.',
         variant: 'error'
       });
     }
@@ -398,19 +388,6 @@ export default function BoxDetailsPage() {
   async function runStandardUpdateFlow(payload: UpdateBoxPayload) {
     const addOrEditWarnings = getAddOrEditWarnings(payload, box);
     if (!confirmWarnings(addOrEditWarnings)) {
-      return;
-    }
-
-    if (
-      shouldAutoMoveToZeroed(
-        payload.receivedDate,
-        box?.feetAvailable ?? 0,
-        payload.feetAvailable,
-        payload.lastRollWeightLbs ?? null
-      )
-    ) {
-      payload.auditNote = 'Auto-moved to zeroed out inventory';
-      await submitUpdate(payload);
       return;
     }
 
@@ -782,7 +759,7 @@ export default function BoxDetailsPage() {
         {!isEditing ? (
           <>
             {!auth.isAuthenticated ? (
-              <p className="muted-text">Sign in with Google in the header before making changes.</p>
+              <p className="muted-text">Sign in with email/password before making changes.</p>
             ) : null}
 
             <div className="page-actions detail-status-actions">

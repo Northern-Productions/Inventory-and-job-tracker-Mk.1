@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
-import { GoogleAccountControl } from '../features/auth/GoogleAccountControl';
+import { AccountControl } from '../features/auth/AccountControl';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
@@ -194,7 +194,7 @@ export function AppLayout() {
           <h1>Window Film Inventory</h1>
         </div>
         <div className="header-actions">
-          <GoogleAccountControl />
+          <AccountControl />
           {!isPhoneLayout ? (
             <nav className="app-nav" aria-label="Primary">
               {primaryNavItems.map((item) => (

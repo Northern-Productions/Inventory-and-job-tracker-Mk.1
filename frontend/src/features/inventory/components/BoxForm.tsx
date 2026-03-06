@@ -265,19 +265,6 @@ export function BoxForm({
           />
           {mode === 'edit' ? (
             <Input
-              label="Feet Available"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={draft.feetAvailable}
-              onChange={(event) =>
-                updateField('feetAvailable', event.target.value.replace(/[^0-9]/g, ''))
-              }
-              required
-            />
-          ) : null}
-          {mode === 'edit' ? (
-            <Input
               label="Lot Run"
               value={draft.lotRun}
               onChange={(event) => updateField('lotRun', event.target.value)}
@@ -365,7 +352,7 @@ export function BoxForm({
         />
         {mode === 'edit' ? (
           <p className="muted-text">
-            Editing Initial Feet, Feet Available, or Width requires confirmation and a reason.
+            Editing Initial Feet or Width requires confirmation and a reason.
           </p>
         ) : null}
         <div className="page-actions form-actions">

@@ -78,6 +78,18 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     () => (preview ? buildSelectionSummary(preview, selectedSuggestionBoxIds) : null),
     [preview, selectedSuggestionBoxIds]
   );
+  const selectedAllocationByBoxId = useMemo(() => {
+    const allocationByBoxId = new Map<string, number>();
+    if (!selectionSummary) {
+      return allocationByBoxId;
+    }
+
+    for (const allocation of selectionSummary.allocations) {
+      allocationByBoxId.set(allocation.boxId, allocation.allocatedFeet);
+    }
+
+    return allocationByBoxId;
+  }, [selectionSummary]);
 
   useEffect(() => {
     if (!open) {
@@ -276,9 +288,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                 <div className="mobile-record-list">
                   {preview.suggestions.map((suggestion) => {
                     const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
-                    const selectedPlan = buildSelectionSummary(preview, selectedSuggestionBoxIds).allocations.find(
-                      (entry) => entry.boxId === suggestion.boxId
-                    );
+                    const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) ?? 0;
 
                     return (
                       <MobileRecordCard key={suggestion.boxId}>
@@ -286,7 +296,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                         <MobileFieldList>
                           <MobileField label="Use" value={selected ? 'Yes' : 'No'} />
                           <MobileField label="Avail LF" value={suggestion.availableFeet} />
-                          <MobileField label="Planned LF" value={selectedPlan?.allocatedFeet ?? 0} />
+                          <MobileField label="Planned LF" value={selectedPlanFeet} />
                           <MobileField label="Received" value={suggestion.receivedDate || '--'} />
                         </MobileFieldList>
                         <Button
@@ -316,9 +326,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                     <tbody>
                       {preview.suggestions.map((suggestion) => {
                         const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
-                        const selectedPlan = buildSelectionSummary(preview, selectedSuggestionBoxIds).allocations.find(
-                          (entry) => entry.boxId === suggestion.boxId
-                        );
+                        const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) ?? 0;
 
                         return (
                           <tr key={suggestion.boxId}>
@@ -331,7 +339,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                             </td>
                             <td>{suggestion.boxId}</td>
                             <td>{suggestion.availableFeet}</td>
-                            <td>{selectedPlan?.allocatedFeet ?? 0}</td>
+                            <td>{selectedPlanFeet}</td>
                             <td>{suggestion.receivedDate || '--'}</td>
                           </tr>
                         );

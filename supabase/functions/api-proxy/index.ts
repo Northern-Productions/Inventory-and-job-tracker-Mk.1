@@ -100,7 +100,7 @@ function buildCorsHeaders(request: Request): Headers {
   const headers = new Headers();
   headers.set('Access-Control-Allow-Origin', getCorsOrigin(request));
   headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
   headers.set('Vary', 'Origin');
   return headers;
 }
@@ -153,6 +153,73 @@ function resolveLogicalPath(requestUrl: URL, bodyJson: Record<string, unknown> |
   }
 
   return normalizePath(requestUrl.pathname);
+}
+
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payloadText = atob(padded);
+    return JSON.parse(payloadText) as Record<string, unknown>;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function parseAuthIdentity(request: Request): { email: string; name: string; token: string } | null {
+  const authorization = request.headers.get('authorization') || '';
+  const token = authorization.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    return null;
+  }
+
+  const payload = parseJwtPayload(token);
+  if (!payload) {
+    return null;
+  }
+
+  const email = typeof payload.email === 'string' ? payload.email.trim() : '';
+  if (!email) {
+    return null;
+  }
+
+  const metadata =
+    payload.user_metadata && typeof payload.user_metadata === 'object'
+      ? (payload.user_metadata as Record<string, unknown>)
+      : null;
+  const nameFromMetadata =
+    (metadata && typeof metadata.full_name === 'string' ? metadata.full_name.trim() : '') ||
+    (metadata && typeof metadata.name === 'string' ? metadata.name.trim() : '');
+  const fallbackName = email.split('@')[0] || 'Inventory User';
+  const name = nameFromMetadata || fallbackName;
+
+  return { email, name, token };
+}
+
+function buildForwardedPostBody(
+  requestBody: string,
+  bodyJson: Record<string, unknown> | null,
+  request: Request
+): string {
+  const baseBody = bodyJson ? { ...bodyJson } : parseBodyJson(requestBody) || {};
+  const identity = parseAuthIdentity(request);
+  if (!identity) {
+    return JSON.stringify(baseBody);
+  }
+
+  return JSON.stringify({
+    ...baseBody,
+    authToken: identity.token,
+    authUser: {
+      email: identity.email,
+      name: identity.name
+    }
+  });
 }
 
 function buildUpstreamUrl(requestUrl: URL, logicalPath: string): URL {
@@ -209,12 +276,13 @@ Deno.serve(async (request: Request) => {
 
   const requestBody = request.method === 'POST' ? await request.text() : '';
   const bodyJson = request.method === 'POST' ? parseBodyJson(requestBody) : null;
+  const forwardedPostBody = request.method === 'POST' ? buildForwardedPostBody(requestBody, bodyJson, request) : '';
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
   const upstreamUrl = buildUpstreamUrl(requestUrl, logicalPath);
   const useCache = shouldUseCache(request.method, logicalPath);
   const cacheKey =
     request.method === 'POST'
-      ? `${request.method}|${upstreamUrl.toString()}|${await sha1Hex(requestBody)}`
+      ? `${request.method}|${upstreamUrl.toString()}|${await sha1Hex(forwardedPostBody)}`
       : `${request.method}|${upstreamUrl.toString()}`;
 
   if (useCache) {
@@ -239,7 +307,7 @@ Deno.serve(async (request: Request) => {
               'Content-Type': request.headers.get('content-type') || 'text/plain;charset=utf-8'
             }
           : undefined,
-      body: request.method === 'POST' ? requestBody : undefined
+      body: request.method === 'POST' ? forwardedPostBody : undefined
     });
 
     const responseBody = await upstreamResponse.text();

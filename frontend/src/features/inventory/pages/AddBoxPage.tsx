@@ -98,8 +98,8 @@ export default function AddBoxPage() {
   async function handleSubmit(draft: BoxDraft) {
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before creating boxes.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before creating boxes.',
         variant: 'error'
       });
       return;
@@ -108,7 +108,7 @@ export default function AddBoxPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google in the header before creating boxes.',
+        description: 'Sign in with email/password before creating boxes.',
         variant: 'error'
       });
       return;
@@ -247,7 +247,7 @@ export default function AddBoxPage() {
       ) : null}
       {!auth.isAuthenticated ? (
         <section className="panel">
-          <p className="muted-text">Sign in with Google in the header before creating boxes.</p>
+          <p className="muted-text">Sign in with email/password before creating boxes.</p>
         </section>
       ) : null}
       <BoxForm

@@ -279,21 +279,44 @@ function applyCheckInWarnings_(warnings, existingBox, updatedBox, willAutoZero) 
   }
 }
 
-function getActiveAllocationsForBox_(boxId) {
-  var entries = readAllocationsByBox_(boxId);
-  var active = [];
-
-  for (var index = 0; index < entries.length; index += 1) {
-    if (entries[index].status === 'ACTIVE') {
-      active.push(entries[index]);
-    }
+function buildActiveAllocationsByBoxIndex_() {
+  var cached = getRequestScopedValue_('activeAllocationsByBox', 'all');
+  if (cached !== null) {
+    return cached;
   }
 
-  return active;
+  var allocations = readAllocations_();
+  var index = {};
+
+  for (var allocationIndex = 0; allocationIndex < allocations.length; allocationIndex += 1) {
+    var allocation = allocations[allocationIndex];
+    if (allocation.status !== 'ACTIVE') {
+      continue;
+    }
+
+    if (!index[allocation.boxId]) {
+      index[allocation.boxId] = [];
+    }
+
+    index[allocation.boxId].push(allocation);
+  }
+
+  return setRequestScopedValue_('activeAllocationsByBox', 'all', index);
 }
 
-function getActiveAllocatedFeetForBox_(boxId) {
-  var active = getActiveAllocationsForBox_(boxId);
+function getActiveAllocationsForBox_(boxId, activeAllocationsByBox) {
+  var normalizedBoxId = requireString_(boxId, 'BoxID');
+  var index = activeAllocationsByBox || buildActiveAllocationsByBoxIndex_();
+
+  if (!index[normalizedBoxId]) {
+    return [];
+  }
+
+  return index[normalizedBoxId].slice();
+}
+
+function getActiveAllocatedFeetForBox_(boxId, activeAllocationsByBox) {
+  var active = getActiveAllocationsForBox_(boxId, activeAllocationsByBox);
   var total = 0;
 
   for (var index = 0; index < active.length; index += 1) {
@@ -482,12 +505,12 @@ function resolveJobContext_(jobNumber, jobDate, crewLeader) {
   };
 }
 
-function getDateConflictJobsForBox_(boxId, jobContext) {
+function getDateConflictJobsForBox_(boxId, jobContext, activeAllocationsByBox) {
   if (!jobContext.jobDate) {
     return [];
   }
 
-  var active = getActiveAllocationsForBox_(boxId);
+  var active = getActiveAllocationsForBox_(boxId, activeAllocationsByBox);
   var conflicts = [];
   var seen = {};
 
@@ -531,13 +554,18 @@ function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext, optio
   }
 
   var useCrossWarehouse = options && options.crossWarehouse === true;
-  var sourceConflicts = getDateConflictJobsForBox_(sourceBox.boxId, jobContext);
+  var activeAllocationsByBox =
+    (options && options.activeAllocationsByBox) || buildActiveAllocationsByBoxIndex_();
+  var sourceConflicts = getDateConflictJobsForBox_(
+    sourceBox.boxId,
+    jobContext,
+    activeAllocationsByBox
+  );
   var sourceAllocationFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
   var remaining = requested - sourceAllocationFeet;
   var candidates = [];
   var candidateBoxes = useCrossWarehouse ? listAllBoxes_() : readWarehouseBoxes_(sourceBox.warehouse);
-
-  candidateBoxes.sort(compareBoxesByOldestStock_);
+  var filteredCandidates = [];
 
   for (var index = 0; index < candidateBoxes.length; index += 1) {
     var candidate = candidateBoxes[index];
@@ -552,7 +580,18 @@ function buildAllocationPreviewPlan_(sourceBox, requestedFeet, jobContext, optio
       continue;
     }
 
-    var candidateConflicts = getDateConflictJobsForBox_(candidate.boxId, jobContext);
+    filteredCandidates.push(candidate);
+  }
+
+  filteredCandidates.sort(compareBoxesByOldestStock_);
+
+  for (index = 0; index < filteredCandidates.length; index += 1) {
+    candidate = filteredCandidates[index];
+    var candidateConflicts = getDateConflictJobsForBox_(
+      candidate.boxId,
+      jobContext,
+      activeAllocationsByBox
+    );
     if (candidateConflicts.length) {
       continue;
     }
@@ -929,6 +968,65 @@ function cancelJobAndReleaseAllocations_(jobNumber, user, reason) {
   };
 }
 
+function cancelFilmOrderAndReleaseAllocations_(filmOrderId, user, reason) {
+  var existingFilmOrder = findFilmOrderById_(filmOrderId);
+  if (!existingFilmOrder) {
+    throw new Error('Film Order not found.');
+  }
+
+  var allocations = readAllocationsByFilmOrderId_(filmOrderId);
+  var activeByBoxId = {};
+  var activeCount = 0;
+  var resolvedAt = new Date().toISOString();
+  var note = asTrimmedString_(reason) || 'Film order deleted.';
+
+  for (var index = 0; index < allocations.length; index += 1) {
+    var entry = cloneObject_(allocations[index]);
+    if (entry.status !== 'ACTIVE') {
+      continue;
+    }
+
+    activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + entry.allocatedFeet;
+    entry.status = 'CANCELLED';
+    entry.resolvedAt = resolvedAt;
+    entry.resolvedBy = asTrimmedString_(user);
+    entry.notes = note;
+    updateAllocationRow_(entry.rowIndex, entry);
+    activeCount += 1;
+  }
+
+  for (var boxId in activeByBoxId) {
+    if (!Object.prototype.hasOwnProperty.call(activeByBoxId, boxId)) {
+      continue;
+    }
+
+    var found = findRowByBoxIdAcrossWarehouses_(boxId, false);
+    if (!found) {
+      continue;
+    }
+
+    var updatedBox = cloneObject_(found.box);
+    updatedBox.feetAvailable += activeByBoxId[boxId];
+    updateBoxRow_(found.warehouse, found.rowIndex, updatedBox, false);
+  }
+
+  var updatedFilmOrder = cloneObject_(existingFilmOrder);
+  updatedFilmOrder.status = 'CANCELLED';
+  updatedFilmOrder.resolvedAt = resolvedAt;
+  updatedFilmOrder.resolvedBy = asTrimmedString_(user);
+  updatedFilmOrder.notes = note;
+  deleteFilmOrderBoxLinksByFilmOrderId_(filmOrderId);
+  deleteFilmOrderRow_(existingFilmOrder.rowIndex);
+  delete updatedFilmOrder.rowIndex;
+  updatedFilmOrder.linkedBoxes = [];
+
+  return {
+    filmOrder: updatedFilmOrder,
+    releasedAllocationCount: activeCount,
+    affectedBoxCount: Object.keys(activeByBoxId).length
+  };
+}
+
 function cancelActiveFilmOrderAllocationsForBox_(boxId, user, reason) {
   var entries = readAllocationsByBox_(boxId);
   var resolvedAt = new Date().toISOString();
@@ -993,6 +1091,7 @@ function buildBoxFromPayload_(payload, warnings, existingBox) {
   var resolvedCoreType = coreTypeInput || existingCoreType;
   var resolvedCoreWeightLbs = null;
   var resolvedLfWeightLbsPerFt = null;
+  var shouldRefreshReceivingMetrics = false;
 
   if (!feetAvailableInput) {
     if (existingBox) {
@@ -1017,7 +1116,7 @@ function buildBoxFromPayload_(payload, warnings, existingBox) {
       throw new Error('InitialFeet must be greater than zero for received boxes.');
     }
 
-    var shouldRefreshReceivingMetrics =
+    shouldRefreshReceivingMetrics =
       !existingBox ||
       !existingBox.receivedDate ||
       existingBox.filmKey !== filmKey ||
@@ -1168,6 +1267,34 @@ function buildBoxFromPayload_(payload, warnings, existingBox) {
     resolvedLfWeightLbsPerFt = null;
   }
 
+  if (receivedDate) {
+    if (resolvedLastRollWeightLbs === null) {
+      throw new Error(
+        'LastRollWeightLbs is required for received boxes because FeetAvailable is derived from roll weight.'
+      );
+    }
+
+    if (resolvedCoreWeightLbs === null || resolvedLfWeightLbsPerFt === null || resolvedLfWeightLbsPerFt <= 0) {
+      throw new Error(
+        'CoreWeightLbs and LfWeightLbsPerFt must be set for received boxes because FeetAvailable is derived from roll weight.'
+      );
+    }
+
+    var physicalFeetAvailable = deriveFeetAvailableFromRollWeight_(
+      resolvedLastRollWeightLbs,
+      resolvedCoreWeightLbs,
+      resolvedLfWeightLbsPerFt,
+      initialFeet
+    );
+    var activeAllocatedFeet = existingBox ? getActiveAllocatedFeetForBox_(boxId) : 0;
+    var recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
+
+    if (feetAvailable !== recalculatedFeetAvailable) {
+      feetAvailable = recalculatedFeetAvailable;
+      warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');
+    }
+  }
+
   return {
     boxId: boxId,
     warehouse: determineWarehouseFromBoxId_(boxId),
@@ -1220,6 +1347,10 @@ function healthService_() {
       getFilmOrdersSheet_();
     } else if (sheetNames[index] === 'FILM ORDER BOXES') {
       getFilmOrderBoxesSheet_();
+    } else if (sheetNames[index] === 'JOBS') {
+      getJobsSheet_();
+    } else if (sheetNames[index] === 'JOB REQUIREMENTS') {
+      getJobRequirementsSheet_();
     } else {
       getRequiredSheet_(sheetNames[index], BOX_HEADERS_);
     }
@@ -1354,9 +1485,11 @@ function getAllocationPreviewService_(payload) {
   }
 
   var crossWarehouse = parseCrossWarehouseFlag_(payload.crossWarehouse);
+  var activeAllocationsByBox = buildActiveAllocationsByBoxIndex_();
   var jobContext = resolveJobContext_(payload.jobNumber, payload.jobDate, payload.crewLeader);
   var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext, {
-    crossWarehouse: crossWarehouse
+    crossWarehouse: crossWarehouse,
+    activeAllocationsByBox: activeAllocationsByBox
   });
 
   return {
@@ -1383,9 +1516,11 @@ function applyAllocationPlanService_(payload) {
       throw new Error('Only in-stock boxes can be allocated.');
     }
 
+    var activeAllocationsByBox = buildActiveAllocationsByBoxIndex_();
     var jobContext = resolveJobContext_(payload.jobNumber, payload.jobDate, payload.crewLeader);
     var plan = buildAllocationPreviewPlan_(source.box, payload.requestedFeet, jobContext, {
-      crossWarehouse: crossWarehouse
+      crossWarehouse: crossWarehouse,
+      activeAllocationsByBox: activeAllocationsByBox
     });
     var selectedSuggestionBoxIds = [];
 
@@ -1420,7 +1555,11 @@ function applyAllocationPlanService_(payload) {
         );
       }
 
-      var conflicts = getDateConflictJobsForBox_(found.box.boxId, jobContext);
+      var conflicts = getDateConflictJobsForBox_(
+        found.box.boxId,
+        jobContext,
+        activeAllocationsByBox
+      );
       if (conflicts.length) {
         throw new Error(
           found.box.boxId +
@@ -1432,6 +1571,10 @@ function applyAllocationPlanService_(payload) {
 
       var created = createAllocationRecord_(found, jobContext, plannedAllocation.allocatedFeet, user, '');
       decrementBoxFeetAvailableForAllocation_(found, plannedAllocation.allocatedFeet);
+      if (!activeAllocationsByBox[found.box.boxId]) {
+        activeAllocationsByBox[found.box.boxId] = [];
+      }
+      activeAllocationsByBox[found.box.boxId].push(created);
       var publicEntry = cloneObject_(created);
       delete publicEntry.rowIndex;
       createdAllocations.push(publicEntry);
@@ -2734,6 +2877,49 @@ function cancelJobService_(payload) {
   }
 }
 
+function deleteFilmOrderService_(payload) {
+  var warnings = [];
+  var user = getAuthenticatedAuditUser_(payload);
+  var filmOrderId = requireString_(payload.filmOrderId, 'FilmOrderID');
+  var lock = LockService.getScriptLock();
+  var deletedEntry;
+
+  lock.waitLock(30000);
+
+  try {
+    var result = cancelFilmOrderAndReleaseAllocations_(
+      filmOrderId,
+      user,
+      payload.reason || 'Deleted from Film Orders.'
+    );
+
+    deletedEntry = cloneObject_(result.filmOrder);
+    delete deletedEntry.rowIndex;
+    deletedEntry.linkedBoxes = buildPublicFilmOrderLinkedBoxes_(deletedEntry.filmOrderId);
+
+    warnings.push(
+      'Deleted film order ' +
+        filmOrderId +
+        '. Released ' +
+        result.releasedAllocationCount +
+        ' active allocation' +
+        (result.releasedAllocationCount === 1 ? '' : 's') +
+        ' across ' +
+        result.affectedBoxCount +
+        ' box' +
+        (result.affectedBoxCount === 1 ? '' : 'es') +
+        '.'
+    );
+
+    return {
+      data: deletedEntry,
+      warnings: warnings
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getRollHistoryByBoxService_(params) {
   var boxId = requireString_(params.boxId, 'boxId');
   var entries = readRollWeightLogByBox_(boxId);
@@ -2788,8 +2974,8 @@ function getReportsSummaryService_(params) {
     from: asTrimmedString_(params.from),
     to: asTrimmedString_(params.to)
   };
-  var allBoxes = listAllBoxes_().concat(readSheetBoxes_('IL', true)).concat(readSheetBoxes_('MS', true));
   var activeBoxes = listAllBoxes_();
+  var allBoxes = activeBoxes.concat(readSheetBoxes_('IL', true)).concat(readSheetBoxes_('MS', true));
   var widthGroups = {};
   var availableFeetByWidth = [];
   var neverCheckedOut = [];

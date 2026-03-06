@@ -379,10 +379,6 @@ export function getRiskyFieldChanges(current: Box, next: UpdateBoxPayload): stri
     risky.push('Linear Feet');
   }
 
-  if (current.feetAvailable !== next.feetAvailable) {
-    risky.push('Feet Available');
-  }
-
   if (current.widthIn !== next.widthIn) {
     risky.push('Width');
   }

@@ -6,7 +6,7 @@ This folder hosts a no-card deployment path using Supabase Edge Functions.
 
 - Name: `api-proxy`
 - File: `functions/api-proxy/index.ts`
-- Auth: `verify_jwt = false` (public API compatibility)
+- Auth: `verify_jwt = false` (public proxy endpoint)
 
 This function proxies your current Apps Script API and is compatible with your existing frontend request format (`?path=/...`).
 
@@ -49,6 +49,8 @@ curl "https://YOUR_PROJECT_REF.supabase.co/functions/v1/api-proxy?path=/health"
 ```env
 VITE_API_BASE_URL=https://YOUR_PROJECT_REF.supabase.co/functions/v1/api-proxy
 VITE_PROXY_TARGET=
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=PASTE_SUPABASE_ANON_KEY
 ```
 
 Then redeploy frontend.

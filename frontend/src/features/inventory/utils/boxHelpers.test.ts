@@ -76,7 +76,7 @@ describe('boxHelpers', () => {
       }
     );
 
-    expect(risky).toEqual(['Linear Feet', 'Feet Available', 'Width']);
+    expect(risky).toEqual(['Linear Feet', 'Width']);
   });
 
   it('builds the next suggested box id per warehouse', () => {

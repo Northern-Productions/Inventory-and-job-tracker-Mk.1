@@ -276,8 +276,8 @@ export function JobAllocateDialog({
 
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before creating film orders.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before creating film orders.',
         variant: 'error'
       });
       return;
@@ -286,7 +286,7 @@ export function JobAllocateDialog({
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google before creating a film order.',
+        description: 'Sign in with email/password before creating a film order.',
         variant: 'error'
       });
       return;

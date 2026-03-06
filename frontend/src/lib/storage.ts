@@ -1,6 +1,6 @@
 import type { AuthSession } from '../domain';
 
-const AUTH_SESSION_KEY = 'inventory-google-auth';
+const AUTH_SESSION_KEY = 'inventory-auth-session';
 
 export function getStoredAuthSession(): AuthSession | null {
   try {

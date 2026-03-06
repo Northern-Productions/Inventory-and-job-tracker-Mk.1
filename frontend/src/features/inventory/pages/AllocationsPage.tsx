@@ -34,8 +34,8 @@ export default function AllocationsPage() {
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before creating jobs.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before creating jobs.',
         variant: 'error'
       });
       return;
@@ -44,7 +44,7 @@ export default function AllocationsPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google before creating a job.',
+        description: 'Sign in with email/password before creating a job.',
         variant: 'error'
       });
       return;

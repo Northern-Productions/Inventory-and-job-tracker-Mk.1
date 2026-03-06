@@ -1,14 +1,8 @@
-import { useEffect, useRef } from 'react';
 import { Button } from '../../components/Button';
 import { useAuth } from './AuthContext';
 
-export function GoogleAccountControl() {
+export function AccountControl() {
   const auth = useAuth();
-  const buttonRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    auth.mountGoogleButton(buttonRef.current);
-  }, [auth.clientIdConfigured, auth.isAuthenticated, auth.isReady, auth.session]);
 
   if (auth.isAuthenticated && auth.session) {
     return (
@@ -28,15 +22,16 @@ export function GoogleAccountControl() {
   if (!auth.clientIdConfigured) {
     return (
       <div className="auth-panel">
-        <p className="auth-note">Set `VITE_GOOGLE_CLIENT_ID` to enable Google sign-in.</p>
+        <p className="auth-note">
+          Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to enable sign-in.
+        </p>
       </div>
     );
   }
 
   return (
     <div className="auth-panel">
-      <div ref={buttonRef} className="google-signin-slot" />
-      <p className="auth-note">Sign in with Google to create and change inventory.</p>
+      <p className="auth-note">Sign in with email/password to create and change inventory.</p>
     </div>
   );
 }

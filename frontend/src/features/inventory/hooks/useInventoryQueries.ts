@@ -4,7 +4,10 @@ import {
   applyAllocationPlan,
   cancelJob,
   createJob,
+  deleteFilmOrder,
   createFilmOrder,
+  getAllocationJob,
+  getAllocationJobs,
   getJob,
   getJobs,
   getAllocationsByBox,
@@ -26,6 +29,8 @@ import {
 } from '../../../api/client';
 import type {
   AllocationEntry,
+  AllocationJobDetail,
+  AllocationJobSummary,
   AllocateBoxPayload,
   ApplyAllocationPlanPayload,
   AddBoxPayload,
@@ -33,6 +38,7 @@ import type {
   Box,
   CreateJobPayload,
   CreateFilmOrderPayload,
+  FilmOrderEntry,
   JobDetail,
   JobListEntry,
   ReportsSummaryFilters,
@@ -47,20 +53,28 @@ import { upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
 
 export const inventoryKeys = {
   root: ['inventory'] as const,
+  listRoot: ['inventory', 'list'] as const,
   list: (params: SearchBoxesParams) => ['inventory', 'list', params] as const,
+  boxRoot: ['inventory', 'box'] as const,
   box: (boxId: string) => ['inventory', 'box', boxId] as const,
+  historyRoot: ['inventory', 'history'] as const,
   history: (boxId: string) => ['inventory', 'history', boxId] as const,
+  allocationsRoot: ['inventory', 'allocations'] as const,
   allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
   jobs: ['inventory', 'jobs'] as const,
+  jobRoot: ['inventory', 'job'] as const,
   job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
-  allocationJobs: ['inventory', 'jobs'] as const,
-  allocationJob: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
+  allocationJobs: ['inventory', 'allocation-jobs'] as const,
+  allocationJobRoot: ['inventory', 'allocation-job'] as const,
+  allocationJob: (jobNumber: string) => ['inventory', 'allocation-job', jobNumber] as const,
   allocationPreview: (params: AllocateBoxPayload | null) => ['inventory', 'allocation-preview', params] as const,
   addBoxMutation: ['inventory', 'mutation', 'add-box'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,
+  activityRoot: ['inventory', 'activity'] as const,
   activity: (params: AuditListParams) => ['inventory', 'activity', params] as const,
   rollHistory: (boxId: string) => ['inventory', 'roll-history', boxId] as const,
+  reportsRoot: ['inventory', 'reports'] as const,
   reports: (filters: ReportsSummaryFilters) => ['inventory', 'reports', filters] as const
 };
 
@@ -129,7 +143,7 @@ function updateBoxCaches(
     current ? updater(current) : current
   );
 
-  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: ['inventory', 'list'] });
+  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: inventoryKeys.listRoot });
   for (let index = 0; index < listQueries.length; index += 1) {
     const [queryKey, current] = listQueries[index];
     if (!current) {
@@ -259,7 +273,7 @@ export function useJob(jobNumber: string) {
 export function useAllocationJobs() {
   return useQuery({
     queryKey: inventoryKeys.allocationJobs,
-    queryFn: () => getJobs(25),
+    queryFn: () => getAllocationJobs(),
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false
@@ -269,7 +283,7 @@ export function useAllocationJobs() {
 export function useAllocationJob(jobNumber: string) {
   return useQuery({
     queryKey: inventoryKeys.allocationJob(jobNumber),
-    queryFn: () => getJob(jobNumber),
+    queryFn: () => getAllocationJob(jobNumber),
     enabled: Boolean(jobNumber),
     staleTime: 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -414,7 +428,7 @@ export function useAddBox() {
     onSuccess: async ({ result }, _variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.root }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
       ]);
@@ -475,10 +489,12 @@ export function useAllocateBox() {
         `Allocating film for ${payload.jobNumber}`,
         [
           inventoryKeys.box(payload.boxId),
-          ['inventory', 'list'],
+          inventoryKeys.listRoot,
           inventoryKeys.allocations(payload.boxId),
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber)
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJob(payload.jobNumber)
         ],
         () => {
           if (sourceAllocatedFeet > 0) {
@@ -504,17 +520,20 @@ export function useAllocateBox() {
     onSuccess: async ({ result }, variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.root }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
 
       for (let index = 0; index < result.allocations.length; index += 1) {
+        const boxId = result.allocations[index].boxId;
+        await queryClient.invalidateQueries({ queryKey: inventoryKeys.box(boxId) });
         await queryClient.invalidateQueries({
-          queryKey: inventoryKeys.allocations(result.allocations[index].boxId)
+          queryKey: inventoryKeys.allocations(boxId)
         });
       }
 
@@ -557,12 +576,175 @@ export function useCancelJob() {
     },
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.root });
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs });
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) });
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs });
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) });
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+      void syncOfflineInventorySnapshot(queryClient);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      context?.operation?.finish();
+    }
+  });
+}
+
+export function useDeleteFilmOrder() {
+  const queryClient = useQueryClient();
+  const optimisticQueue = useOptimisticQueue();
+
+  return useMutation({
+    mutationFn: (payload: { filmOrderId: string; reason?: string; jobNumber?: string }) =>
+      deleteFilmOrder(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot })
+      ]);
+
+      return beginDelayedOptimisticMutation(
+        queryClient,
+        optimisticQueue,
+        `Deleting ${payload.filmOrderId}`,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.jobRoot,
+          inventoryKeys.filmOrders,
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJobRoot,
+          inventoryKeys.listRoot
+        ],
+        () => {
+          queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
+            current ? current.filter((entry) => entry.filmOrderId !== payload.filmOrderId) : current
+          );
+
+          const jobQueries = queryClient.getQueriesData<JobDetail>({ queryKey: inventoryKeys.jobRoot });
+          for (let index = 0; index < jobQueries.length; index += 1) {
+            const [queryKey, current] = jobQueries[index];
+            if (!current) {
+              continue;
+            }
+
+            const nextFilmOrders = current.filmOrders.filter(
+              (entry) => entry.filmOrderId !== payload.filmOrderId
+            );
+            const removedCount = current.filmOrders.length - nextFilmOrders.length;
+            if (!removedCount) {
+              continue;
+            }
+
+            queryClient.setQueryData<JobDetail>(queryKey, {
+              ...current,
+              summary: {
+                ...current.summary,
+                filmOrderCount: Math.max(current.summary.filmOrderCount - removedCount, 0)
+              },
+              filmOrders: nextFilmOrders
+            });
+          }
+
+          const allocationJobQueries = queryClient.getQueriesData<AllocationJobDetail>({
+            queryKey: inventoryKeys.allocationJobRoot
+          });
+          for (let index = 0; index < allocationJobQueries.length; index += 1) {
+            const [queryKey, current] = allocationJobQueries[index];
+            if (!current) {
+              continue;
+            }
+
+            const nextFilmOrders = current.filmOrders.filter(
+              (entry) => entry.filmOrderId !== payload.filmOrderId
+            );
+            const removedCount = current.filmOrders.length - nextFilmOrders.length;
+            if (!removedCount) {
+              continue;
+            }
+
+            queryClient.setQueryData<AllocationJobDetail>(queryKey, {
+              ...current,
+              summary: {
+                ...current.summary,
+                openFilmOrderCount: Math.max(current.summary.openFilmOrderCount - removedCount, 0)
+              },
+              filmOrders: nextFilmOrders
+            });
+          }
+
+          if (!payload.jobNumber) {
+            return;
+          }
+
+          const jobsListQueries = queryClient.getQueriesData<JobListEntry[]>({
+            queryKey: inventoryKeys.jobs
+          });
+          for (let index = 0; index < jobsListQueries.length; index += 1) {
+            const [queryKey, current] = jobsListQueries[index];
+            if (!current) {
+              continue;
+            }
+
+            queryClient.setQueryData<JobListEntry[]>(
+              queryKey,
+              current.map((entry) =>
+                entry.jobNumber === payload.jobNumber
+                  ? { ...entry, filmOrderCount: Math.max(entry.filmOrderCount - 1, 0) }
+                  : entry
+              )
+            );
+          }
+
+          queryClient.setQueryData<AllocationJobSummary[] | undefined>(
+            inventoryKeys.allocationJobs,
+            (current) =>
+              current
+                ? current.map((entry) =>
+                    entry.jobNumber === payload.jobNumber
+                      ? { ...entry, openFilmOrderCount: Math.max(entry.openFilmOrderCount - 1, 0) }
+                      : entry
+                  )
+                : current
+          );
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      context?.operation?.cancel();
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async (_data, variables, context) => {
+      await context?.operation?.waitForApply();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+
+      if (variables.jobNumber) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+          queryClient.invalidateQueries({
+            queryKey: inventoryKeys.allocationJob(variables.jobNumber)
+          })
+        ]);
+      }
+
       void syncOfflineInventorySnapshot(queryClient);
     },
     onSettled: (_data, _error, _variables, context) => {
@@ -580,14 +762,14 @@ export function useUpdateBox() {
     onMutate: async (payload) => {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
-        queryClient.cancelQueries({ queryKey: ['inventory', 'list'] })
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot })
       ]);
 
       return beginDelayedOptimisticMutation(
         queryClient,
         optimisticQueue,
         `Saving ${payload.boxId}`,
-        [inventoryKeys.box(payload.boxId), ['inventory', 'list']],
+        [inventoryKeys.box(payload.boxId), inventoryKeys.listRoot],
         () => {
           updateBoxCaches(queryClient, payload.boxId, (box) => ({
             ...box,
@@ -605,10 +787,14 @@ export function useUpdateBox() {
       await context?.operation?.waitForApply();
       if (!variables.moveToZeroed) {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: inventoryKeys.root }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
-          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
         ]);
         queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
         void persistOfflineInventoryBox(queryClient, result.box);
@@ -616,12 +802,16 @@ export function useUpdateBox() {
       }
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['inventory', 'list'] }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: ['inventory', 'activity'] })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
       void persistOfflineInventoryBox(queryClient, result.box);
     },
@@ -640,7 +830,7 @@ export function useSetBoxStatus() {
     onMutate: async (payload) => {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
-        queryClient.cancelQueries({ queryKey: ['inventory', 'list'] })
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot })
       ]);
 
       const nextDate = todayDateString();
@@ -649,7 +839,7 @@ export function useSetBoxStatus() {
         queryClient,
         optimisticQueue,
         `${payload.status === 'CHECKED_OUT' ? 'Checking out' : 'Checking in'} ${payload.boxId}`,
-        [inventoryKeys.box(payload.boxId), ['inventory', 'list']],
+        [inventoryKeys.box(payload.boxId), inventoryKeys.listRoot],
         () => {
           updateBoxCaches(queryClient, payload.boxId, (box) => ({
             ...box,
@@ -676,10 +866,16 @@ export function useSetBoxStatus() {
     onSuccess: async ({ result }, _variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.root }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
       queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
       void persistOfflineInventoryBox(queryClient, result.box);
@@ -711,9 +907,17 @@ export function useUndoAudit() {
     onSuccess: async ({ result }, _variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.root }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
 
       if (result.box) {

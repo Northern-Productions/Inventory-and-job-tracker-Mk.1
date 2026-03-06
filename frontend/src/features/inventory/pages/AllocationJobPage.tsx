@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { LoadingState } from '../../../components/LoadingState';
 import {
   MobileField,
@@ -15,7 +16,7 @@ import { formatDate, formatDateTime } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { JobAllocateDialog } from '../components/JobAllocateDialog';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
-import { useFilmCatalog, useJob, useUpdateJob } from '../hooks/useInventoryQueries';
+import { useDeleteFilmOrder, useFilmCatalog, useJob, useUpdateJob } from '../hooks/useInventoryQueries';
 
 function renderDate(value: string) {
   return value ? formatDate(value) : '--';
@@ -61,9 +62,11 @@ export default function AllocationJobPage() {
   const jobNumber = decodeURIComponent(params.jobNumber || '');
   const jobQuery = useJob(jobNumber);
   const updateJobMutation = useUpdateJob();
+  const deleteFilmOrderMutation = useDeleteFilmOrder();
   const filmCatalogQuery = useFilmCatalog();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
+  const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
@@ -78,8 +81,8 @@ export default function AllocationJobPage() {
   async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before editing jobs.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before editing jobs.',
         variant: 'error'
       });
       return;
@@ -88,7 +91,7 @@ export default function AllocationJobPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google before editing this job.',
+        description: 'Sign in with email/password before editing this job.',
         variant: 'error'
       });
       return;
@@ -114,6 +117,45 @@ export default function AllocationJobPage() {
       toast.push({
         title: 'Unable to update job',
         description: error instanceof Error ? error.message : 'The update failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before deleting film orders.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before deleting a film order.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { warnings } = await deleteFilmOrderMutation.mutateAsync({
+        filmOrderId: order.filmOrderId,
+        jobNumber: order.jobNumber,
+        reason: reason || `Deleted from Job ${order.jobNumber}`
+      });
+      toast.push({
+        title: `Deleted ${order.filmOrderId}`,
+        description: warnings.join(' ') || 'The film order was removed.',
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to delete film order',
+        description: error instanceof Error ? error.message : 'The delete request failed.',
         variant: 'error'
       });
     }
@@ -327,16 +369,26 @@ export default function AllocationJobPage() {
                   <MobileField label="On The Way LF" value={order.orderedFeet} />
                   <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
                 </MobileFieldList>
-                {order.status === 'FULFILLED' ? null : (
+                <div className="film-order-actions">
+                  {order.status === 'FULFILLED' ? null : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => navigate(buildAddBoxTarget(order))}
+                      disabled={order.status !== 'FILM_ORDER'}
+                    >
+                      Order Film
+                    </Button>
+                  )}
                   <Button
                     type="button"
-                    variant="secondary"
-                    onClick={() => navigate(buildAddBoxTarget(order))}
-                    disabled={order.status !== 'FILM_ORDER'}
+                    variant="danger"
+                    onClick={() => setFilmOrderToDelete(order)}
+                    disabled={deleteFilmOrderMutation.isPending}
                   >
-                    Order Film
+                    Delete
                   </Button>
-                )}
+                </div>
               </MobileRecordCard>
             ))}
           </div>
@@ -345,7 +397,6 @@ export default function AllocationJobPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Film Order</th>
                   <th>Status</th>
                   <th>Film</th>
                   <th>Width</th>
@@ -359,7 +410,6 @@ export default function AllocationJobPage() {
               <tbody>
                 {filmOrders.map((order) => (
                   <tr key={order.filmOrderId}>
-                    <td>{order.filmOrderId}</td>
                     <td>
                       <span className={`badge badge-${order.status}`}>
                         {formatFilmOrderStatusLabel(order.status)}
@@ -374,16 +424,26 @@ export default function AllocationJobPage() {
                     <td>{order.orderedFeet}</td>
                     <td>{order.remainingToOrderFeet}</td>
                     <td>
-                      {order.status === 'FULFILLED' ? null : (
+                      <div className="film-order-actions">
+                        {order.status === 'FULFILLED' ? null : (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => navigate(buildAddBoxTarget(order))}
+                            disabled={order.status !== 'FILM_ORDER'}
+                          >
+                            Order Film
+                          </Button>
+                        )}
                         <Button
                           type="button"
-                          variant="secondary"
-                          onClick={() => navigate(buildAddBoxTarget(order))}
-                          disabled={order.status !== 'FILM_ORDER'}
+                          variant="danger"
+                          onClick={() => setFilmOrderToDelete(order)}
+                          disabled={deleteFilmOrderMutation.isPending}
                         >
-                          Order Film
+                          Delete
                         </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -410,6 +470,28 @@ export default function AllocationJobPage() {
           </Button>
         </div>
       </section>
+
+      <ConfirmDialog
+        open={Boolean(filmOrderToDelete)}
+        title="Delete Film Order"
+        message={
+          filmOrderToDelete
+            ? `Delete film order ${filmOrderToDelete.filmOrderId}? Any active allocations tied to this film order will be released back to inventory.`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Keep Film Order"
+        onCancel={() => setFilmOrderToDelete(null)}
+        onConfirm={(reason) => {
+          if (!filmOrderToDelete) {
+            return;
+          }
+
+          const order = filmOrderToDelete;
+          setFilmOrderToDelete(null);
+          void handleDeleteFilmOrder(order, reason);
+        }}
+      />
 
       <JobEditorDialog
         open={isEditOpen}
@@ -440,4 +522,3 @@ export default function AllocationJobPage() {
     </>
   );
 }
-

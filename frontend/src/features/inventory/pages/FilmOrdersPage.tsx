@@ -16,7 +16,13 @@ import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
-import { useCancelJob, useCreateFilmOrder, useFilmCatalog, useFilmOrders } from '../hooks/useInventoryQueries';
+import {
+  useCancelJob,
+  useCreateFilmOrder,
+  useDeleteFilmOrder,
+  useFilmCatalog,
+  useFilmOrders
+} from '../hooks/useInventoryQueries';
 import { addManufacturerOption } from '../utils/boxHelpers';
 
 function isOpenFilmOrder(order: FilmOrderEntry) {
@@ -70,8 +76,10 @@ export default function FilmOrdersPage() {
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
   const cancelJobMutation = useCancelJob();
+  const deleteFilmOrderMutation = useDeleteFilmOrder();
   const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
   const [jobToCancel, setJobToCancel] = useState<FilmOrderEntry | null>(null);
+  const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
 
   const orderedEntries = useMemo(
     () => sortFilmOrders(filmOrdersQuery.data || []),
@@ -85,8 +93,8 @@ export default function FilmOrdersPage() {
 
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before cancelling jobs.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before cancelling jobs.',
         variant: 'error'
       });
       return;
@@ -95,7 +103,7 @@ export default function FilmOrdersPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google before cancelling a job.',
+        description: 'Sign in with email/password before cancelling a job.',
         variant: 'error'
       });
       return;
@@ -122,11 +130,11 @@ export default function FilmOrdersPage() {
     }
   }
 
-  async function handleCreateFilmOrder(payload: CreateFilmOrderPayload) {
+  async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
     if (!auth.clientIdConfigured) {
       toast.push({
-        title: 'Google sign-in is not configured',
-        description: 'Set VITE_GOOGLE_CLIENT_ID before creating film orders.',
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before deleting film orders.',
         variant: 'error'
       });
       return;
@@ -135,7 +143,46 @@ export default function FilmOrdersPage() {
     if (!auth.isAuthenticated) {
       toast.push({
         title: 'Sign-in required',
-        description: 'Sign in with Google before creating a film order.',
+        description: 'Sign in with email/password before deleting a film order.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { warnings } = await deleteFilmOrderMutation.mutateAsync({
+        filmOrderId: order.filmOrderId,
+        jobNumber: order.jobNumber,
+        reason: reason || `Deleted from Film Orders (${order.filmOrderId})`
+      });
+      toast.push({
+        title: `Deleted ${order.filmOrderId}`,
+        description: warnings.join(' ') || 'The film order was removed.',
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to delete film order',
+        description: error instanceof Error ? error.message : 'The delete request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleCreateFilmOrder(payload: CreateFilmOrderPayload) {
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before creating film orders.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before creating a film order.',
         variant: 'error'
       });
       return;
@@ -217,8 +264,8 @@ export default function FilmOrdersPage() {
                       }
                     />
                   </MobileFieldList>
-                  {order.status === 'FULFILLED' ? null : (
-                    <MobileActionStack>
+                  <MobileActionStack>
+                    {order.status === 'FULFILLED' ? null : (
                       <Button
                         type="button"
                         variant="secondary"
@@ -227,16 +274,26 @@ export default function FilmOrdersPage() {
                       >
                         FILM ORDERED
                       </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => setFilmOrderToDelete(order)}
+                      disabled={deleteFilmOrderMutation.isPending}
+                    >
+                      Delete
+                    </Button>
+                    {!isOpenFilmOrder(order) ? null : (
                       <Button
                         type="button"
                         variant="danger"
                         onClick={() => setJobToCancel(order)}
-                        disabled={!isOpenFilmOrder(order) || cancelJobMutation.isPending}
+                        disabled={cancelJobMutation.isPending}
                       >
                         Cancel Job
                       </Button>
-                    </MobileActionStack>
-                  )}
+                    )}
+                  </MobileActionStack>
                 </MobileRecordCard>
               ))}
             </div>
@@ -297,8 +354,8 @@ export default function FilmOrdersPage() {
                       </td>
                       <td>{formatDate(order.createdAt)}</td>
                       <td>
-                        {order.status === 'FULFILLED' ? null : (
-                          <div className="film-order-actions">
+                        <div className="film-order-actions">
+                          {order.status === 'FULFILLED' ? null : (
                             <Button
                               type="button"
                               variant="secondary"
@@ -307,16 +364,26 @@ export default function FilmOrdersPage() {
                             >
                               FILM ORDERED
                             </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="danger"
+                            onClick={() => setFilmOrderToDelete(order)}
+                            disabled={deleteFilmOrderMutation.isPending}
+                          >
+                            Delete
+                          </Button>
+                          {!isOpenFilmOrder(order) ? null : (
                             <Button
                               type="button"
                               variant="danger"
                               onClick={() => setJobToCancel(order)}
-                              disabled={!isOpenFilmOrder(order) || cancelJobMutation.isPending}
+                              disabled={cancelJobMutation.isPending}
                             >
                               Cancel Job
                             </Button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -326,6 +393,28 @@ export default function FilmOrdersPage() {
           )
         ) : null}
       </section>
+
+      <ConfirmDialog
+        open={Boolean(filmOrderToDelete)}
+        title="Delete Film Order"
+        message={
+          filmOrderToDelete
+            ? `Delete film order ${filmOrderToDelete.filmOrderId}? Any active allocations tied to this film order will be released back to inventory.`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Keep Film Order"
+        onCancel={() => setFilmOrderToDelete(null)}
+        onConfirm={(reason) => {
+          if (!filmOrderToDelete) {
+            return;
+          }
+
+          const order = filmOrderToDelete;
+          setFilmOrderToDelete(null);
+          void handleDeleteFilmOrder(order, reason);
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(jobToCancel)}

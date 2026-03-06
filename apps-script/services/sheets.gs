@@ -195,6 +195,51 @@ var BOX_HEADER_ALIASES_BY_INDEX_ = [
   ['zeroedby']
 ];
 
+function getRequestScopedCache_(cacheName) {
+  var context = getRequestContext_();
+  if (!context.readCache) {
+    context.readCache = {};
+  }
+
+  if (!context.readCache[cacheName]) {
+    context.readCache[cacheName] = {};
+  }
+
+  return context.readCache[cacheName];
+}
+
+function getRequestScopedValue_(cacheName, key) {
+  var cache = getRequestScopedCache_(cacheName);
+  return Object.prototype.hasOwnProperty.call(cache, key) ? cache[key] : null;
+}
+
+function setRequestScopedValue_(cacheName, key, value) {
+  var cache = getRequestScopedCache_(cacheName);
+  cache[key] = value;
+  return value;
+}
+
+function clearRequestScopedCache_(cacheName) {
+  var context = getRequestContext_();
+  if (!context.readCache) {
+    return;
+  }
+
+  if (cacheName) {
+    delete context.readCache[cacheName];
+    return;
+  }
+
+  context.readCache = {};
+}
+
+function clearRequestScopedBoxLookupIndexes_() {
+  var context = getRequestContext_();
+  if (context.boxLookupIndexes) {
+    delete context.boxLookupIndexes;
+  }
+}
+
 function getRequiredSheetNames_() {
   return [
     'Boxes_IL',
@@ -650,11 +695,18 @@ function toPublicBox_(box) {
 }
 
 function readSheetBoxes_(warehouse, useZeroed) {
-  var sheet = getSheetByWarehouse_(warehouse, useZeroed === true);
+  var normalizedWarehouse = requireString_(warehouse, 'warehouse').toUpperCase();
+  var cacheKey = normalizedWarehouse + '|' + (useZeroed === true ? '1' : '0');
+  var cached = getRequestScopedValue_('sheetBoxes', cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  var sheet = getSheetByWarehouse_(normalizedWarehouse, useZeroed === true);
   var boxSheetConfig = buildBoxSheetHeaderMap_(sheet);
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('sheetBoxes', cacheKey, []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, boxSheetConfig.columnCount).getValues();
@@ -663,7 +715,7 @@ function readSheetBoxes_(warehouse, useZeroed) {
   for (var index = 0; index < rows.length; index += 1) {
     var box = normalizeBoxRow_(
       rows[index],
-      warehouse,
+      normalizedWarehouse,
       index + 2,
       useZeroed === true,
       boxSheetConfig.headerMap
@@ -673,7 +725,7 @@ function readSheetBoxes_(warehouse, useZeroed) {
     }
   }
 
-  return boxes;
+  return setRequestScopedValue_('sheetBoxes', cacheKey, boxes);
 }
 
 function readWarehouseBoxes_(warehouse) {
@@ -681,7 +733,110 @@ function readWarehouseBoxes_(warehouse) {
 }
 
 function listAllBoxes_() {
-  return readWarehouseBoxes_('IL').concat(readWarehouseBoxes_('MS'));
+  var cached = getRequestScopedValue_('sheetBoxes', 'ALL_ACTIVE');
+  if (cached !== null) {
+    return cached;
+  }
+
+  return setRequestScopedValue_(
+    'sheetBoxes',
+    'ALL_ACTIVE',
+    readWarehouseBoxes_('IL').concat(readWarehouseBoxes_('MS'))
+  );
+}
+
+function getRequestScopedBoxLookupIndexes_() {
+  var context = getRequestContext_();
+  if (!context.boxLookupIndexes) {
+    context.boxLookupIndexes = {
+      active: null,
+      withZeroed: null,
+      zeroedOnly: null
+    };
+  }
+
+  return context.boxLookupIndexes;
+}
+
+function buildBoxLookupIndex_(includeZeroed) {
+  var indexes = getRequestScopedBoxLookupIndexes_();
+  var cacheKey = includeZeroed === true ? 'withZeroed' : 'active';
+
+  if (indexes[cacheKey]) {
+    return indexes[cacheKey];
+  }
+
+  var warehouses = ['IL', 'MS'];
+  var index = {};
+  var warehouseIndex;
+  var boxIndex;
+  var box;
+
+  for (warehouseIndex = 0; warehouseIndex < warehouses.length; warehouseIndex += 1) {
+    var warehouse = warehouses[warehouseIndex];
+    var activeBoxes = readSheetBoxes_(warehouse, false);
+    for (boxIndex = 0; boxIndex < activeBoxes.length; boxIndex += 1) {
+      box = activeBoxes[boxIndex];
+      if (!index[box.boxId]) {
+        index[box.boxId] = {
+          warehouse: warehouse,
+          rowIndex: box.rowIndex,
+          box: box,
+          useZeroed: false
+        };
+      }
+    }
+  }
+
+  if (includeZeroed === true) {
+    for (warehouseIndex = 0; warehouseIndex < warehouses.length; warehouseIndex += 1) {
+      var zeroedWarehouse = warehouses[warehouseIndex];
+      var zeroedBoxes = readSheetBoxes_(zeroedWarehouse, true);
+      for (boxIndex = 0; boxIndex < zeroedBoxes.length; boxIndex += 1) {
+        box = zeroedBoxes[boxIndex];
+        if (!index[box.boxId]) {
+          index[box.boxId] = {
+            warehouse: zeroedWarehouse,
+            rowIndex: box.rowIndex,
+            box: box,
+            useZeroed: true
+          };
+        }
+      }
+    }
+  }
+
+  indexes[cacheKey] = index;
+  return index;
+}
+
+function buildZeroedBoxLookupIndex_() {
+  var indexes = getRequestScopedBoxLookupIndexes_();
+  if (indexes.zeroedOnly) {
+    return indexes.zeroedOnly;
+  }
+
+  var warehouses = ['IL', 'MS'];
+  var index = {};
+
+  for (var warehouseIndex = 0; warehouseIndex < warehouses.length; warehouseIndex += 1) {
+    var warehouse = warehouses[warehouseIndex];
+    var boxes = readSheetBoxes_(warehouse, true);
+    for (var boxIndex = 0; boxIndex < boxes.length; boxIndex += 1) {
+      var box = boxes[boxIndex];
+      if (!index[box.boxId]) {
+        index[box.boxId] = {
+          warehouse: warehouse,
+          rowIndex: box.rowIndex,
+          box: box,
+          useZeroed: true
+        };
+      }
+    }
+  }
+
+  indexes.zeroedOnly = index;
+  return index;
 }
 
 function normalizeFilmDataRow_(row, rowIndex) {
@@ -860,59 +1015,22 @@ function appendRollWeightLog_(entry) {
 
 function findRowByBoxIdAcrossWarehouses_(boxId, includeZeroed) {
   var normalizedBoxId = requireString_(boxId, 'BoxID');
-  var warehouses = ['IL', 'MS'];
-  var searchZeroed = includeZeroed === true;
-
-  for (var sheetIndex = 0; sheetIndex < (searchZeroed ? 2 : 1); sheetIndex += 1) {
-    var useZeroed = sheetIndex === 1;
-
-    for (var index = 0; index < warehouses.length; index += 1) {
-      var warehouse = warehouses[index];
-      var boxes = readSheetBoxes_(warehouse, useZeroed);
-
-      for (var boxIndex = 0; boxIndex < boxes.length; boxIndex += 1) {
-        if (boxes[boxIndex].boxId === normalizedBoxId) {
-          return {
-            warehouse: warehouse,
-            rowIndex: boxes[boxIndex].rowIndex,
-            box: boxes[boxIndex],
-            useZeroed: useZeroed
-          };
-        }
-      }
-    }
-  }
-
-  return null;
+  var index = buildBoxLookupIndex_(includeZeroed === true);
+  return index[normalizedBoxId] || null;
 }
 
 function findZeroedRowByBoxIdAcrossWarehouses_(boxId) {
   var normalizedBoxId = requireString_(boxId, 'BoxID');
-  var warehouses = ['IL', 'MS'];
-
-  for (var index = 0; index < warehouses.length; index += 1) {
-    var warehouse = warehouses[index];
-    var boxes = readSheetBoxes_(warehouse, true);
-
-    for (var boxIndex = 0; boxIndex < boxes.length; boxIndex += 1) {
-      if (boxes[boxIndex].boxId === normalizedBoxId) {
-        return {
-          warehouse: warehouse,
-          rowIndex: boxes[boxIndex].rowIndex,
-          box: boxes[boxIndex],
-          useZeroed: true
-        };
-      }
-    }
-  }
-
-  return null;
+  var index = buildZeroedBoxLookupIndex_();
+  return index[normalizedBoxId] || null;
 }
 
 function appendBoxRow_(warehouse, box, useZeroed) {
   var sheet = getSheetByWarehouse_(warehouse, useZeroed === true);
   var boxSheetConfig = buildBoxSheetHeaderMap_(sheet);
   sheet.appendRow(buildBoxRowValues_(box, boxSheetConfig.headerMap, boxSheetConfig.columnCount));
+  clearRequestScopedCache_('sheetBoxes');
+  clearRequestScopedBoxLookupIndexes_();
   return sheet.getLastRow();
 }
 
@@ -925,11 +1043,15 @@ function updateBoxRow_(warehouse, rowIndex, box, useZeroed) {
     .setValues([
       buildBoxRowValues_(box, boxSheetConfig.headerMap, boxSheetConfig.columnCount, existingRow)
     ]);
+  clearRequestScopedCache_('sheetBoxes');
+  clearRequestScopedBoxLookupIndexes_();
 }
 
 function deleteBoxRow_(warehouse, rowIndex, useZeroed) {
   var sheet = getSheetByWarehouse_(warehouse, useZeroed === true);
   sheet.deleteRow(rowIndex);
+  clearRequestScopedCache_('sheetBoxes');
+  clearRequestScopedBoxLookupIndexes_();
 }
 
 function normalizeAllocationRow_(row, rowIndex) {
@@ -972,10 +1094,15 @@ function allocationToRow_(allocation) {
 }
 
 function readAllocations_() {
+  var cached = getRequestScopedValue_('allocations', 'all');
+  if (cached !== null) {
+    return cached;
+  }
+
   var sheet = getAllocationsSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('allocations', 'all', []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, ALLOCATIONS_HEADERS_.length).getValues();
@@ -988,7 +1115,7 @@ function readAllocations_() {
     }
   }
 
-  return entries;
+  return setRequestScopedValue_('allocations', 'all', entries);
 }
 
 function readAllocationsByBox_(boxId) {
@@ -1041,12 +1168,16 @@ function appendAllocation_(allocation) {
   }
 
   sheet.appendRow(allocationToRow_(normalized));
+  clearRequestScopedCache_('allocations');
+  clearRequestScopedCache_('activeAllocationsByBox');
   return normalized;
 }
 
 function updateAllocationRow_(rowIndex, allocation) {
   var sheet = getAllocationsSheet_();
   sheet.getRange(rowIndex, 1, 1, ALLOCATIONS_HEADERS_.length).setValues([allocationToRow_(allocation)]);
+  clearRequestScopedCache_('allocations');
+  clearRequestScopedCache_('activeAllocationsByBox');
 }
 
 function normalizeFilmOrderRow_(row, rowIndex) {
@@ -1099,10 +1230,15 @@ function filmOrderToRow_(entry) {
 }
 
 function readFilmOrders_() {
+  var cached = getRequestScopedValue_('filmOrders', 'all');
+  if (cached !== null) {
+    return cached;
+  }
+
   var sheet = getFilmOrdersSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('filmOrders', 'all', []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, FILM_ORDERS_HEADERS_.length).getValues();
@@ -1115,7 +1251,7 @@ function readFilmOrders_() {
     }
   }
 
-  return entries;
+  return setRequestScopedValue_('filmOrders', 'all', entries);
 }
 
 function findFilmOrderById_(filmOrderId) {
@@ -1153,12 +1289,20 @@ function appendFilmOrder_(entry) {
   }
 
   sheet.appendRow(filmOrderToRow_(normalized));
+  clearRequestScopedCache_('filmOrders');
   return normalized;
 }
 
 function updateFilmOrderRow_(rowIndex, entry) {
   var sheet = getFilmOrdersSheet_();
   sheet.getRange(rowIndex, 1, 1, FILM_ORDERS_HEADERS_.length).setValues([filmOrderToRow_(entry)]);
+  clearRequestScopedCache_('filmOrders');
+}
+
+function deleteFilmOrderRow_(rowIndex) {
+  var sheet = getFilmOrdersSheet_();
+  sheet.deleteRow(rowIndex);
+  clearRequestScopedCache_('filmOrders');
 }
 
 function normalizeJobRow_(row, rowIndex) {
@@ -1246,10 +1390,15 @@ function writeJobRow_(sheet, rowIndex, entry) {
 }
 
 function readJobs_() {
+  var cached = getRequestScopedValue_('jobs', 'all');
+  if (cached !== null) {
+    return cached;
+  }
+
   var sheet = getJobsSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('jobs', 'all', []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, JOBS_HEADERS_.length).getValues();
@@ -1262,7 +1411,7 @@ function readJobs_() {
     }
   }
 
-  return entries;
+  return setRequestScopedValue_('jobs', 'all', entries);
 }
 
 function findJobByNumber_(jobNumber) {
@@ -1283,12 +1432,14 @@ function appendJob_(entry) {
   var normalized = cloneObject_(entry);
   normalized.rowIndex = sheet.getLastRow() + 1;
   writeJobRow_(sheet, normalized.rowIndex, normalized);
+  clearRequestScopedCache_('jobs');
   return normalized;
 }
 
 function updateJobRow_(rowIndex, entry) {
   var sheet = getJobsSheet_();
   writeJobRow_(sheet, rowIndex, entry);
+  clearRequestScopedCache_('jobs');
 }
 
 function normalizeJobRequirementRow_(row, rowIndex) {
@@ -1325,10 +1476,15 @@ function jobRequirementToRow_(entry) {
 }
 
 function readJobRequirements_() {
+  var cached = getRequestScopedValue_('jobRequirements', 'all');
+  if (cached !== null) {
+    return cached;
+  }
+
   var sheet = getJobRequirementsSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('jobRequirements', 'all', []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, JOB_REQUIREMENTS_HEADERS_.length).getValues();
@@ -1341,7 +1497,7 @@ function readJobRequirements_() {
     }
   }
 
-  return entries;
+  return setRequestScopedValue_('jobRequirements', 'all', entries);
 }
 
 function readJobRequirementsByJob_(jobNumber) {
@@ -1367,12 +1523,14 @@ function appendJobRequirement_(entry) {
 
   sheet.appendRow(jobRequirementToRow_(normalized));
   normalized.rowIndex = sheet.getLastRow();
+  clearRequestScopedCache_('jobRequirements');
   return normalized;
 }
 
 function deleteJobRequirementRow_(rowIndex) {
   var sheet = getJobRequirementsSheet_();
   sheet.deleteRow(rowIndex);
+  clearRequestScopedCache_('jobRequirements');
 }
 
 function replaceJobRequirementsForJob_(jobNumber, entries) {
@@ -1389,6 +1547,8 @@ function replaceJobRequirementsForJob_(jobNumber, entries) {
   for (var entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
     appendJobRequirement_(entries[entryIndex]);
   }
+
+  clearRequestScopedCache_('jobRequirements');
 }
 
 function normalizeFilmOrderBoxLinkRow_(row, rowIndex) {
@@ -1448,6 +1608,28 @@ function readFilmOrderBoxLinksByFilmOrderId_(filmOrderId) {
   }
 
   return filtered;
+}
+
+function deleteFilmOrderBoxLinksByFilmOrderId_(filmOrderId) {
+  var normalized = requireString_(filmOrderId, 'FilmOrderID');
+  var sheet = getFilmOrderBoxesSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return;
+  }
+
+  var rows = sheet.getRange(2, 1, lastRow - 1, FILM_ORDER_BOX_LINKS_HEADERS_.length).getValues();
+  var rowIndexes = [];
+
+  for (var index = 0; index < rows.length; index += 1) {
+    if (asTrimmedString_(rows[index][1]) === normalized) {
+      rowIndexes.push(index + 2);
+    }
+  }
+
+  for (var deleteIndex = rowIndexes.length - 1; deleteIndex >= 0; deleteIndex -= 1) {
+    sheet.deleteRow(rowIndexes[deleteIndex]);
+  }
 }
 
 function readFilmOrderBoxLinksByBoxId_(boxId) {

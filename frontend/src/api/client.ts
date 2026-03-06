@@ -413,6 +413,19 @@ export async function cancelJob(
   };
 }
 
+export async function deleteFilmOrder(
+  payload: { filmOrderId: string; reason?: string }
+): Promise<{ result: FilmOrderEntry; warnings: string[] }> {
+  const response = await request<FilmOrderEntry>('POST', '/film-orders/delete', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
 export async function allocateBox(
   payload: AllocateBoxPayload
 ): Promise<{ result: ApplyAllocationPlanResult; warnings: string[] }> {

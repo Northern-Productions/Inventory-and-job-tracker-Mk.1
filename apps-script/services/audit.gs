@@ -30,6 +30,8 @@ function appendAudit_(action, boxId, beforeValue, afterValue, user, notes) {
     asTrimmedString_(notes)
   ]);
 
+  clearRequestScopedCache_('auditEntries');
+
   return logId;
 }
 
@@ -47,10 +49,15 @@ function parseAuditRow_(row) {
 }
 
 function readAuditEntries_() {
+  var cached = getRequestScopedValue_('auditEntries', 'all');
+  if (cached !== null) {
+    return cached;
+  }
+
   var sheet = getAuditSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return [];
+    return setRequestScopedValue_('auditEntries', 'all', []);
   }
 
   var rows = sheet.getRange(2, 1, lastRow - 1, AUDIT_HEADERS_.length).getValues();
@@ -63,7 +70,7 @@ function readAuditEntries_() {
     }
   }
 
-  return entries;
+  return setRequestScopedValue_('auditEntries', 'all', entries);
 }
 
 function findAuditEntryByLogId_(logId) {

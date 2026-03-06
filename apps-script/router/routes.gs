@@ -34,6 +34,7 @@ var ROUTES_ = {
   'POST /film-data/catalog': getFilmCatalogService_,
   'POST /film-orders/create': createFilmOrderService_,
   'POST /film-orders/cancel': cancelJobService_,
+  'POST /film-orders/delete': deleteFilmOrderService_,
   'POST /reports/summary': getReportsSummaryService_,
   'POST /boxes/add': addBoxService_,
   'POST /allocations/add': allocateBoxService_,
@@ -43,6 +44,8 @@ var ROUTES_ = {
 };
 
 function routeRequest_(method, e) {
+  clearRequestContext_();
+
   try {
     var payload = method === 'GET' ? (e.parameter || {}) : parseJsonBody_(e);
     var route = resolveRoute_(e);
@@ -68,5 +71,7 @@ function routeRequest_(method, e) {
     return jsonResponse_(
       errorEnvelope_(error && error.message ? error.message : 'Unexpected server error.')
     );
+  } finally {
+    clearRequestContext_();
   }
 }
