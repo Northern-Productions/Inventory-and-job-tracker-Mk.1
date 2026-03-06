@@ -1,6 +1,8 @@
 const APPS_SCRIPT_URL = Deno.env.get('APPS_SCRIPT_URL')?.trim() || '';
 const CACHE_TTL_MS = Number(Deno.env.get('CACHE_TTL_MS') || '30000');
 const MAX_CACHE_ENTRIES = Number(Deno.env.get('MAX_CACHE_ENTRIES') || '500');
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')?.trim() || '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')?.trim() || '';
 const CORS_ALLOWED_ORIGINS = (Deno.env.get('CORS_ALLOWED_ORIGINS') || '*')
   .split(',')
   .map((entry) => entry.trim())
@@ -32,6 +34,7 @@ type CacheEntry = {
 };
 
 const cache = new Map<string, CacheEntry>();
+const authIdentityCache = new Map<string, { expiresAt: number; identity: AuthIdentity }>();
 
 function normalizePath(value: string | null | undefined): string {
   const trimmed = String(value || '').trim();
@@ -155,52 +158,84 @@ function resolveLogicalPath(requestUrl: URL, bodyJson: Record<string, unknown> |
   return normalizePath(requestUrl.pathname);
 }
 
-function parseJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split('.');
-  if (parts.length < 2) {
+type AuthIdentity = { email: string; name: string; token: string };
+
+function deriveNameFromEmail(email: string): string {
+  const localPart = email.split('@')[0] || '';
+  const sanitized = localPart.replace(/[._-]+/g, ' ').trim();
+  return sanitized || 'Inventory User';
+}
+
+function pruneAuthIdentityCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of authIdentityCache.entries()) {
+    if (entry.expiresAt <= now) {
+      authIdentityCache.delete(key);
+    }
+  }
+}
+
+async function validateTokenWithSupabase(token: string): Promise<AuthIdentity | null> {
+  if (!SUPABASE_URL) {
     return null;
   }
 
+  pruneAuthIdentityCache();
+  const cached = authIdentityCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.identity;
+  }
+
   try {
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const payloadText = atob(padded);
-    return JSON.parse(payloadText) as Record<string, unknown>;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`
+    };
+    if (SUPABASE_ANON_KEY) {
+      headers.apikey = SUPABASE_ANON_KEY;
+    }
+
+    const response = await fetch(`${SUPABASE_URL.replace(/\/+$/g, '')}/auth/v1/user`, {
+      method: 'GET',
+      headers
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const user = (await response.json()) as Record<string, unknown>;
+    const email = typeof user.email === 'string' ? user.email.trim() : '';
+    if (!email) {
+      return null;
+    }
+
+    const metadata =
+      user.user_metadata && typeof user.user_metadata === 'object'
+        ? (user.user_metadata as Record<string, unknown>)
+        : null;
+    const metadataName =
+      (metadata && typeof metadata.full_name === 'string' ? metadata.full_name.trim() : '') ||
+      (metadata && typeof metadata.name === 'string' ? metadata.name.trim() : '');
+    const name = metadataName || deriveNameFromEmail(email);
+
+    const identity: AuthIdentity = { email, name, token };
+    authIdentityCache.set(token, {
+      identity,
+      expiresAt: Date.now() + 60_000
+    });
+    return identity;
   } catch (_error) {
     return null;
   }
 }
 
-type AuthIdentity = { email: string; name: string; token: string };
-
-function parseAuthIdentity(request: Request): AuthIdentity | null {
+async function parseAuthIdentity(request: Request): Promise<AuthIdentity | null> {
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
     return null;
   }
 
-  const payload = parseJwtPayload(token);
-  if (!payload) {
-    return null;
-  }
-
-  const email = typeof payload.email === 'string' ? payload.email.trim() : '';
-  if (!email) {
-    return null;
-  }
-
-  const metadata =
-    payload.user_metadata && typeof payload.user_metadata === 'object'
-      ? (payload.user_metadata as Record<string, unknown>)
-      : null;
-  const nameFromMetadata =
-    (metadata && typeof metadata.full_name === 'string' ? metadata.full_name.trim() : '') ||
-    (metadata && typeof metadata.name === 'string' ? metadata.name.trim() : '');
-  const fallbackName = email.split('@')[0] || 'Inventory User';
-  const name = nameFromMetadata || fallbackName;
-
-  return { email, name, token };
+  return await validateTokenWithSupabase(token);
 }
 
 function buildForwardedPostBody(
@@ -281,11 +316,11 @@ Deno.serve(async (request: Request) => {
   const requestBody = request.method === 'POST' ? await request.text() : '';
   const bodyJson = request.method === 'POST' ? parseBodyJson(requestBody) : null;
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
-  const authIdentity = parseAuthIdentity(request);
-  if (isMutation(request.method, logicalPath) && !authIdentity) {
+  const authIdentity = logicalPath === '/health' ? null : await parseAuthIdentity(request);
+  if (logicalPath !== '/health' && !authIdentity) {
     return jsonResponse(request, 401, {
       ok: false,
-      error: 'Authenticated session is required for this operation.'
+      error: 'Authenticated session is required.'
     });
   }
 
