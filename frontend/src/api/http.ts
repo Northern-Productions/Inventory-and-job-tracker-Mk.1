@@ -5,6 +5,7 @@ const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || '';
 const PROXY_TARGET = import.meta.env.VITE_PROXY_TARGET?.trim() || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
 const LOCAL_PROXY_HOSTS = new Set(['localhost', '127.0.0.1']);
+const SHOULD_FORWARD_SUPABASE_APIKEY = looksLikeLegacyJwtKey_(SUPABASE_ANON_KEY);
 
 function isLocalProxyEnabled(): boolean {
   return Boolean(PROXY_TARGET) && LOCAL_PROXY_HOSTS.has(window.location.hostname);
@@ -44,7 +45,9 @@ function buildRequestHeaders(method: 'GET' | 'POST', authToken: string): Record<
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  if (SUPABASE_ANON_KEY) {
+  // Supabase publishable keys are not JWTs (e.g. "sb_publishable_*").
+  // Sending those in `apikey` can trigger "Invalid JWT" at the edge gateway.
+  if (SHOULD_FORWARD_SUPABASE_APIKEY) {
     headers.apikey = SUPABASE_ANON_KEY;
   }
 
@@ -154,4 +157,13 @@ function extractEnvelopeMessage_(value: unknown): string {
   }
 
   return '';
+}
+
+function looksLikeLegacyJwtKey_(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return trimmed.split('.').length === 3;
 }
