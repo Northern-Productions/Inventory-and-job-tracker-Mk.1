@@ -26,7 +26,12 @@ export default function App() {
   const auth = useAuth();
 
   if (!auth.isReady || !auth.isAuthenticated) {
-    return <AuthGate />;
+    return (
+      <>
+        <PwaUpdateBanner />
+        <AuthGate />
+      </>
+    );
   }
 
   return (

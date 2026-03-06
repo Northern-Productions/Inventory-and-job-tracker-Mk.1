@@ -1,4 +1,4 @@
-project_id = "your-project-ref"
+project_id = "tiwpulgvxtwlmqdnyuzd"
 
-[functions.api-proxy]
+[functions.api]
 verify_jwt = false

@@ -1,17 +1,22 @@
 # Migration Plan: Sheets -> Supabase
 
-This is the practical sequence to move your app off Sheets without downtime surprises.
+This is the practical sequence that moved the app off Google Sheets and Apps Script.
 
-## 1) Create Supabase project
+## 1. Create the Supabase project
 
-1. Create project in nearest US region.
-2. In SQL editor, run:
-   - `backend/migrations/0001_supabase_inventory_schema.sql`
-   - `backend/migrations/0002_supabase_import_staging.sql`
-3. Create your first org row in `app.organizations`.
-4. Add your user to `app.organization_members` with role `owner`.
+Run:
 
-## 2) Import legacy Sheets data through staging
+1. `backend/migrations/0001_supabase_inventory_schema.sql`
+2. `backend/migrations/0002_supabase_import_staging.sql`
+3. `backend/migrations/0003_supabase_app_api_reads.sql`
+4. `backend/migrations/0004_supabase_app_api_mutations.sql`
+
+Then:
+
+1. create an org row in `app.organizations`
+2. add users to `app.organization_members`
+
+## 2. Import legacy CSV data
 
 Export these sheet tabs to CSV:
 
@@ -25,10 +30,10 @@ Export these sheet tabs to CSV:
 - `ROLL WEIGHT LOG`
 - `FILM DATA`
 
-Import each CSV into the matching staging table:
+Import into:
 
 1. `FILM DATA` -> `import.film_data_raw`
-2. `Boxes_IL`, `Boxes_MS`, `Zeroed_IL`, `Zeroed_MS` -> append all into `import.boxes_raw`
+2. all four box sheets -> `import.boxes_raw`
 3. `ALLOCATIONS` -> `import.allocations_raw`
 4. `FILM ORDERS` -> `import.film_orders_raw`
 5. `FILM ORDER BOXES` -> `import.film_order_box_links_raw`
@@ -37,73 +42,60 @@ Import each CSV into the matching staging table:
 8. `AuditLog` -> `import.audit_log_raw`
 9. `ROLL WEIGHT LOG` -> `import.roll_weight_log_raw`
 
-Then load everything into the live app schema:
+Then load staging:
 
 ```sql
 select import.load_inventory_from_staging('<org_uuid>');
 ```
 
-Optional cleanup after a successful import:
+Optional cleanup:
 
 ```sql
 select import.clear_staging();
 ```
 
-Why staging exists:
+## 3. Deploy the live backend
 
-- Legacy CSVs use natural keys like `JobNumber`, `FilmOrderID`, and `BoxID`
-- The Supabase schema uses UUID primary keys for `jobs`, `job_requirements`, and other relations
-- `import.load_inventory_from_staging(...)` resolves those joins for you during cutover
+The live backend is now the Supabase Edge Function:
 
-## 3) Configure the backend host
+- `supabase/functions/api`
 
-Set `backend/` to run in Supabase mode:
+Set function secrets:
 
-- `BACKEND_MODE=supabase`
-- `DATABASE_URL` or `SUPABASE_DB_URL`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `DEFAULT_ORG_ID` if a user can belong to multiple orgs
+- `DEFAULT_ORG_ID`
+- `CACHE_TTL_MS`
+- `MAX_CACHE_ENTRIES`
+- `CORS_ALLOWED_ORIGINS`
 
-Point the frontend to the backend URL:
+Deploy:
 
-- `VITE_API_BASE_URL=https://your-backend-host/api`
-- `VITE_PROXY_TARGET=` for hosted use
+```bash
+npx supabase functions deploy api --no-verify-jwt
+```
 
-## 4) Verify route parity
+## 4. Point the frontend at Supabase directly
 
-The Supabase backend now serves the current inventory routes directly:
+Hosted frontend env:
 
-1. `/health`
-2. `/boxes/search`, `/boxes/get`
-3. `/jobs/list`, `/jobs/get`
-4. `/allocations/jobs`, `/allocations/by-job`, `/allocations/by-box`
-5. `/film-orders/list`, `/film-orders/create`, `/film-orders/cancel`, `/film-orders/delete`
-6. `/film-data/catalog`
-7. `/roll-history/by-box`
-8. `/reports/summary`
-9. Mutations (`/boxes/add`, `/boxes/update`, `/boxes/set-status`, `/allocations/apply`, `/jobs/create`, `/jobs/update`, `/audit/undo`)
+```env
+VITE_API_BASE_URL=https://YOUR_PROJECT_REF.supabase.co/functions/v1/api
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+```
 
-Recommended checks after import:
+## 5. Verify the cutover
 
-1. Confirm `/health` returns `mode: "supabase"`
-2. Open an inventory box detail page and confirm allocations, history, and roll history load
-3. Open the jobs list and a job detail page
-4. Create a test film order
-5. Check out and check in a test box
-6. Confirm new audit and roll history entries appear in Postgres
+Recommended checks:
 
-## 5) Final cutover
-
-1. Freeze writes briefly in the old sheet-backed system.
-2. Export fresh CSVs and re-run the staging import.
-3. Switch production backend env to `BACKEND_MODE=supabase`.
-4. Keep Apps Script read-only for a short rollback window.
-5. After the confidence window, retire Apps Script and Google Sheets from the live app path.
+1. `GET /health` returns `mode: "supabase"`
+2. inventory list loads
+3. box detail loads allocations, history, and roll history
+4. jobs list and job detail load
+5. checkout/check-in writes succeed
+6. audit and roll history entries land in Postgres
 
 ## Notes
 
-- Keep API response envelopes unchanged (`{ ok, data, warnings }`) to avoid frontend churn.
-- Preserve audit-first mutation behavior during rewrite.
-- Use SQL transactions for multi-table mutations to prevent partial writes.
-- The Supabase Edge Function in `supabase/functions/api-proxy` is still a legacy Apps Script proxy. The Supabase-native path is `backend/` in `supabase` mode.
+- The frontend API contract stayed unchanged: `?path=/...` and `{ ok, data, warnings }`.
+- Multi-table writes now live in Postgres RPCs for atomicity.
+- Google Sheets and Apps Script are legacy migration sources only and are no longer part of the live app path.

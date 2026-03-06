@@ -89,7 +89,7 @@ async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
     } catch (_parseError) {
       if (trimmed.startsWith('<')) {
         throw new APIError(
-          'The API returned HTML instead of JSON. This usually means the Apps Script deployment URL is wrong, the deployment needs to be updated, or the local dev proxy needs a restart.'
+          'The API returned HTML instead of JSON. This usually means the frontend API base URL is wrong, the deployment is stale, or the local dev proxy needs a restart.'
         );
       }
 

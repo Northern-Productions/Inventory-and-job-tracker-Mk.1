@@ -547,7 +547,7 @@ export default function BoxDetailsPage() {
         toast.push({
           title: 'Check-in did not apply the new roll weight',
           description:
-            'The backend responded without saving the submitted weight. Repaste the latest Apps Script files and redeploy, then try the check-in again.',
+            'The backend responded without saving the submitted weight. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
           variant: 'error'
         });
         return;

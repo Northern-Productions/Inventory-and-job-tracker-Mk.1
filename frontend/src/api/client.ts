@@ -290,7 +290,7 @@ export async function createJob(
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   if (jobsApiAvailability === 'missing') {
     throw new APIError(
-      'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/create and try again.'
+      'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
     );
   }
 
@@ -304,7 +304,7 @@ export async function createJob(
     if (isRouteNotFoundError(error, '/jobs/create')) {
       jobsApiAvailability = 'missing';
       throw new APIError(
-        'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/create and try again.'
+        'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
       );
     }
 
@@ -322,7 +322,7 @@ export async function updateJob(
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   if (jobsApiAvailability === 'missing') {
     throw new APIError(
-      'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/update and try again.'
+      'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
     );
   }
 
@@ -336,7 +336,7 @@ export async function updateJob(
     if (isRouteNotFoundError(error, '/jobs/update')) {
       jobsApiAvailability = 'missing';
       throw new APIError(
-        'Jobs backend is not deployed yet. Deploy Apps Script updates that include /jobs/update and try again.'
+        'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
       );
     }
 
