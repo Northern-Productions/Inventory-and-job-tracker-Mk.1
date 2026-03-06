@@ -181,18 +181,38 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
 
   try {
     const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session?.access_token || !data.session.user?.email) {
+    if (error || !data.session) {
       return { token: '', user: null };
     }
 
-    const email = data.session.user.email.trim();
-    if (!email) {
+    let activeSession = data.session;
+    const expiresAtMs =
+      Number.isFinite(activeSession.expires_at) && activeSession.expires_at
+        ? activeSession.expires_at * 1000
+        : 0;
+    const shouldRefresh = !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
+
+    if (shouldRefresh) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError && refreshed.session) {
+        activeSession = refreshed.session;
+      }
+    }
+
+    const token = activeSession.access_token ? activeSession.access_token.trim() : '';
+    const email = activeSession.user?.email ? activeSession.user.email.trim() : '';
+    if (!token || !email || !isProjectTokenValid_(token)) {
+      return { token: '', user: null };
+    }
+
+    const user = activeSession.user;
+    if (!user) {
       return { token: '', user: null };
     }
 
     const metadata =
-      data.session.user.user_metadata && typeof data.session.user.user_metadata === 'object'
-        ? (data.session.user.user_metadata as Record<string, unknown>)
+      user.user_metadata && typeof user.user_metadata === 'object'
+        ? (user.user_metadata as Record<string, unknown>)
         : null;
     const profileName =
       readUserMetadataField_(metadata, 'full_name') ||
@@ -201,18 +221,58 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
     const avatar = readUserMetadataField_(metadata, 'avatar_url');
 
     return {
-      token: data.session.access_token.trim(),
+      token,
       user: {
         email,
         hasProfileName: true,
         name: profileName,
         picture: avatar,
-        sub: data.session.user.id
+        sub: user.id
       }
     };
   } catch (_error) {
     return { token: '', user: null };
   }
+}
+
+function isProjectTokenValid_(token: string): boolean {
+  const parts = token.split('.');
+  if (parts.length < 2) {
+    return false;
+  }
+
+  const payload = decodeJwtPayload_(parts[1]);
+  if (!payload) {
+    return false;
+  }
+
+  const issuer = typeof payload.iss === 'string' ? payload.iss : '';
+  const exp = typeof payload.exp === 'number' ? payload.exp : 0;
+  if (!issuer || !issuer.startsWith(buildExpectedIssuer_())) {
+    return false;
+  }
+
+  if (exp > 0 && exp * 1000 <= Date.now()) {
+    return false;
+  }
+
+  return true;
+}
+
+function decodeJwtPayload_(encodedPayload: string): Record<string, unknown> | null {
+  try {
+    const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = globalThis.atob(padded);
+    return JSON.parse(decoded) as Record<string, unknown>;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function buildExpectedIssuer_(): string {
+  const base = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
+  return `${base.replace(/\/+$/g, '')}/auth/v1`;
 }
 
 function readUserMetadataField_(
