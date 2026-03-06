@@ -219,9 +219,17 @@ function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
 }
 
 export function useSearchBoxes(params: SearchBoxesParams) {
+  return useSearchBoxesWithOptions(params, { enabled: true });
+}
+
+export function useSearchBoxesWithOptions(
+  params: SearchBoxesParams,
+  options: { enabled?: boolean } = {}
+) {
   return useQuery({
     queryKey: inventoryKeys.list(params),
-    queryFn: () => searchBoxes(params)
+    queryFn: () => searchBoxes(params),
+    enabled: options.enabled ?? true
   });
 }
 
@@ -529,13 +537,15 @@ export function useAllocateBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
 
-      for (let index = 0; index < result.allocations.length; index += 1) {
-        const boxId = result.allocations[index].boxId;
-        await queryClient.invalidateQueries({ queryKey: inventoryKeys.box(boxId) });
-        await queryClient.invalidateQueries({
-          queryKey: inventoryKeys.allocations(boxId)
-        });
-      }
+      const touchedBoxIds = Array.from(
+        new Set(result.allocations.map((entry) => entry.boxId).filter(Boolean))
+      );
+      await Promise.all(
+        touchedBoxIds.flatMap((boxId) => [
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.box(boxId) }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(boxId) })
+        ])
+      );
 
       void syncOfflineInventorySnapshot(queryClient);
     },

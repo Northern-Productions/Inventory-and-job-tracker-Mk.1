@@ -25,3 +25,4 @@ backend/.env.*
 supabase/.env
 supabase/.env.*
 !supabase/.env.example
+supabase/.temp/

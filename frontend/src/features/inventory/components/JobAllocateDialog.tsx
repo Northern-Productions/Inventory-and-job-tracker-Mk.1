@@ -8,7 +8,7 @@ import {
   useAllocateBox,
   useAllocationPreview,
   useCreateFilmOrder,
-  useSearchBoxes
+  useSearchBoxesWithOptions
 } from '../hooks/useInventoryQueries';
 
 interface JobAllocateDialogProps {
@@ -54,20 +54,27 @@ export function JobAllocateDialog({
   const searchableFilm = selectedRequirement
     ? `${selectedRequirement.manufacturer} ${selectedRequirement.filmName}`.trim()
     : '';
-  const ilBoxesQuery = useSearchBoxes({
-    warehouse: 'IL',
-    status: 'IN_STOCK',
-    film: searchableFilm,
-    width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
-    showRetired: false
-  });
-  const msBoxesQuery = useSearchBoxes({
-    warehouse: 'MS',
-    status: 'IN_STOCK',
-    film: searchableFilm,
-    width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
-    showRetired: false
-  });
+  const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
+  const ilBoxesQuery = useSearchBoxesWithOptions(
+    {
+      warehouse: 'IL',
+      status: 'IN_STOCK',
+      film: searchableFilm,
+      width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
+      showRetired: false
+    },
+    { enabled: shouldSearchMatchingBoxes }
+  );
+  const msBoxesQuery = useSearchBoxesWithOptions(
+    {
+      warehouse: 'MS',
+      status: 'IN_STOCK',
+      film: searchableFilm,
+      width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
+      showRetired: false
+    },
+    { enabled: shouldSearchMatchingBoxes }
+  );
   const matchingBoxes = useMemo(() => {
     if (!selectedRequirement) {
       return [];
@@ -125,29 +132,12 @@ export function JobAllocateDialog({
   }, [ilBoxesQuery.data, msBoxesQuery.data, selectedRequirement]);
   const autoSourceBox = matchingBoxes[0] || null;
   const isMatchingBoxesLoading = ilBoxesQuery.isLoading || msBoxesQuery.isLoading;
-  const availabilityProbePayload = useMemo(() => {
-    if (!open || !selectedRequirement || !autoSourceBox) {
-      return null;
-    }
-
-    return {
-      boxId: autoSourceBox.boxId,
-      jobNumber,
-      jobDate: dueDate || '',
-      requestedFeet: 1,
-      crossWarehouse: true
-    };
-  }, [autoSourceBox, dueDate, jobNumber, open, selectedRequirement]);
-  const availabilityProbeQuery = useAllocationPreview(open ? availabilityProbePayload : null);
-  const hasConflictFreeCoverage = (availabilityProbeQuery.data?.defaultCoveredFeet || 0) > 0;
   const isOrderFilmMode =
     !isMatchingBoxesLoading &&
     Boolean(selectedRequirement) &&
-    (!autoSourceBox || (Boolean(availabilityProbeQuery.data) && !hasConflictFreeCoverage));
+    !autoSourceBox;
   const previewQuery = useAllocationPreview(open ? previewPayload : null);
-  const isCheckingCoverage =
-    previewQuery.isLoading ||
-    (!previewQuery.data && (isMatchingBoxesLoading || (Boolean(autoSourceBox) && availabilityProbeQuery.isLoading)));
+  const isCheckingCoverage = previewQuery.isLoading || (!previewQuery.data && isMatchingBoxesLoading);
 
   useEffect(() => {
     if (!open) {
@@ -205,7 +195,7 @@ export function JobAllocateDialog({
       return;
     }
 
-    if (isMatchingBoxesLoading || availabilityProbeQuery.isLoading) {
+    if (isMatchingBoxesLoading) {
       setError('Matching boxes are still loading. Try again in a moment.');
       return;
     }
@@ -380,7 +370,6 @@ export function JobAllocateDialog({
         ) : null}
 
         {error ? <p className="error-text">{error}</p> : null}
-        {availabilityProbeQuery.isError ? <p className="error-text">{availabilityProbeQuery.error.message}</p> : null}
         {previewQuery.isError ? <p className="error-text">{previewQuery.error.message}</p> : null}
 
         {previewQuery.data ? (
