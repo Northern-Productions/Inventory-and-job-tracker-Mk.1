@@ -1,5 +1,6 @@
 import type { ApiEnvelope } from '../domain';
 import { getStoredAuthSession } from '../lib/storage';
+import { getSupabaseClient } from '../lib/supabase';
 
 const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || '';
 const PROXY_TARGET = import.meta.env.VITE_PROXY_TARGET?.trim() || '';
@@ -104,6 +105,7 @@ export async function request<T>(
 ): Promise<{ data: T; warnings: string[] }> {
   let response: Response;
   const authSession = getStoredAuthSession();
+  const authToken = await resolveAuthToken_(authSession?.token ?? '');
 
   try {
     const body =
@@ -111,14 +113,14 @@ export async function request<T>(
         ? {
             ...(options.body as Record<string, unknown>),
             path,
-            ...(authSession?.token ? { authToken: authSession.token } : {}),
+            ...(authToken ? { authToken } : {}),
             ...(authSession?.user ? { authUser: authSession.user } : {})
           }
         : options.body;
 
     response = await fetch(buildUrl(path, options.query), {
       method,
-      headers: buildRequestHeaders(method, authSession?.token ?? ''),
+      headers: buildRequestHeaders(method, authToken),
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
     });
   } catch (_error) {
@@ -166,4 +168,23 @@ function looksLikeLegacyJwtKey_(value: string): boolean {
   }
 
   return trimmed.split('.').length === 3;
+}
+
+async function resolveAuthToken_(fallbackToken: string): Promise<string> {
+  const fallback = fallbackToken.trim();
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return fallback;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) {
+      return fallback;
+    }
+
+    return data.session.access_token.trim() || fallback;
+  } catch (_error) {
+    return fallback;
+  }
 }
