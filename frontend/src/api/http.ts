@@ -1,6 +1,5 @@
-import type { ApiEnvelope, AuthSession, AuthUser } from '../domain';
-import { getStoredAuthSession, setStoredAuthSession } from '../lib/storage';
-import { getSupabaseClient } from '../lib/supabase';
+import type { ApiEnvelope } from '../domain';
+import { getStoredAuthSession } from '../lib/storage';
 
 const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || '';
 const PROXY_TARGET = import.meta.env.VITE_PROXY_TARGET?.trim() || '';
@@ -101,10 +100,9 @@ export async function request<T>(
   options: RequestOptions = {}
 ): Promise<{ data: T; warnings: string[] }> {
   let response: Response;
-  let authSession: AuthSession | null = null;
+  const authSession = getStoredAuthSession();
 
   try {
-    authSession = await resolveRequestAuthSession_();
     const body =
       method === 'POST' && options.body && typeof options.body === 'object' && !Array.isArray(options.body)
         ? {
@@ -139,89 +137,6 @@ export async function request<T>(
     data: envelope.data,
     warnings: envelope.warnings ?? []
   };
-}
-
-async function resolveRequestAuthSession_(): Promise<AuthSession | null> {
-  const stored = getStoredAuthSession();
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return stored;
-  }
-
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session || !data.session.access_token || !data.session.user?.email) {
-      setStoredAuthSession(null);
-      return null;
-    }
-
-    const email = data.session.user.email.trim();
-    if (!email) {
-      return stored;
-    }
-
-    const mapped = mapSupabaseSessionToAuthSession_(data.session.access_token, data.session.expires_at, {
-      email,
-      id: data.session.user.id,
-      metadata:
-        data.session.user.user_metadata && typeof data.session.user.user_metadata === 'object'
-          ? (data.session.user.user_metadata as Record<string, unknown>)
-          : null
-    });
-
-    setStoredAuthSession(mapped);
-    return mapped;
-  } catch (_error) {
-    setStoredAuthSession(null);
-    return null;
-  }
-}
-
-function mapSupabaseSessionToAuthSession_(
-  accessToken: string,
-  expiresAtSeconds: number | undefined,
-  user: { email: string; id: string; metadata: Record<string, unknown> | null }
-): AuthSession {
-  const userName = readUserMetadataField_(user.metadata, 'full_name') ||
-    readUserMetadataField_(user.metadata, 'name') ||
-    deriveNameFromEmail_(user.email);
-  const picture = readUserMetadataField_(user.metadata, 'avatar_url');
-
-  const authUser: AuthUser = {
-    email: user.email,
-    hasProfileName: true,
-    name: userName,
-    picture,
-    sub: user.id
-  };
-
-  const issuedAt = Date.now();
-  const expiresAt =
-    Number.isFinite(expiresAtSeconds) && expiresAtSeconds
-      ? expiresAtSeconds * 1000
-      : issuedAt + 60 * 60 * 1000;
-
-  return {
-    token: accessToken,
-    user: authUser,
-    issuedAt,
-    expiresAt
-  };
-}
-
-function readUserMetadataField_(
-  metadata: Record<string, unknown> | null,
-  key: string
-): string {
-  const value = metadata ? metadata[key] : '';
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function deriveNameFromEmail_(email: string): string {
-  const localPart = email.split('@')[0] || '';
-  const sanitized = localPart.replace(/[._-]+/g, ' ').trim();
-  return sanitized || 'Inventory User';
 }
 
 function extractEnvelopeMessage_(value: unknown): string {

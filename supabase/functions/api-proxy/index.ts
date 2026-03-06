@@ -171,7 +171,9 @@ function parseJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-function parseAuthIdentity(request: Request): { email: string; name: string; token: string } | null {
+type AuthIdentity = { email: string; name: string; token: string };
+
+function parseAuthIdentity(request: Request): AuthIdentity | null {
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
@@ -204,20 +206,22 @@ function parseAuthIdentity(request: Request): { email: string; name: string; tok
 function buildForwardedPostBody(
   requestBody: string,
   bodyJson: Record<string, unknown> | null,
-  request: Request
+  authIdentity: AuthIdentity | null
 ): string {
   const baseBody = bodyJson ? { ...bodyJson } : parseBodyJson(requestBody) || {};
-  const identity = parseAuthIdentity(request);
-  if (!identity) {
+  delete baseBody.authToken;
+  delete baseBody.authUser;
+
+  if (!authIdentity) {
     return JSON.stringify(baseBody);
   }
 
   return JSON.stringify({
     ...baseBody,
-    authToken: identity.token,
+    authToken: authIdentity.token,
     authUser: {
-      email: identity.email,
-      name: identity.name
+      email: authIdentity.email,
+      name: authIdentity.name
     }
   });
 }
@@ -276,8 +280,17 @@ Deno.serve(async (request: Request) => {
 
   const requestBody = request.method === 'POST' ? await request.text() : '';
   const bodyJson = request.method === 'POST' ? parseBodyJson(requestBody) : null;
-  const forwardedPostBody = request.method === 'POST' ? buildForwardedPostBody(requestBody, bodyJson, request) : '';
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
+  const authIdentity = parseAuthIdentity(request);
+  if (isMutation(request.method, logicalPath) && !authIdentity) {
+    return jsonResponse(request, 401, {
+      ok: false,
+      error: 'Authenticated session is required for this operation.'
+    });
+  }
+
+  const forwardedPostBody =
+    request.method === 'POST' ? buildForwardedPostBody(requestBody, bodyJson, authIdentity) : '';
   const upstreamUrl = buildUpstreamUrl(requestUrl, logicalPath);
   const useCache = shouldUseCache(request.method, logicalPath);
   const cacheKey =

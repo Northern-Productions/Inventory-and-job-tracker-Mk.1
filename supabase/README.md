@@ -6,7 +6,7 @@ This folder hosts a no-card deployment path using Supabase Edge Functions.
 
 - Name: `api-proxy`
 - File: `functions/api-proxy/index.ts`
-- Auth: `verify_jwt = false` (public proxy endpoint)
+- Auth: `verify_jwt = true` (requires a signed-in Supabase session)
 
 This function proxies your current Apps Script API and is compatible with your existing frontend request format (`?path=/...`).
 
@@ -26,7 +26,7 @@ npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_REF
 npx supabase secrets set APPS_SCRIPT_URL="https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
 npx supabase secrets set CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*"
-npx supabase functions deploy api-proxy --no-verify-jwt --use-api
+npx supabase functions deploy api-proxy --use-api
 ```
 
 Or use an env file:
