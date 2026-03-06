@@ -1,5 +1,7 @@
+import './load-env.mjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import { handleSupabaseRequest } from './supabase-backend.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'proxy').trim().toLowerCase();
 const APPS_SCRIPT_URL = String(process.env.APPS_SCRIPT_URL || '').trim();
@@ -77,12 +79,12 @@ function isMutation(method, logicalPath) {
   return method === 'POST' && logicalPath && !READ_PATHS.has(logicalPath);
 }
 
-function getCacheKey(method, upstreamUrl, requestBody) {
+function getCacheKey(method, routeKey, requestBody, authKey) {
   if (method === 'POST') {
-    return `${method}|${upstreamUrl}|${hashBody(requestBody)}`;
+    return `${method}|${routeKey}|${hashBody(requestBody)}|${authKey}`;
   }
 
-  return `${method}|${upstreamUrl}`;
+  return `${method}|${routeKey}|${authKey}`;
 }
 
 function setCorsHeaders(req, res) {
@@ -194,17 +196,68 @@ const server = http.createServer(async (req, res) => {
       data: {
         status: 'ok',
         mode: BACKEND_MODE,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        sheets: []
       },
       warnings: []
     });
     return;
   }
 
+  const requestBody = req.method === 'POST' ? await readBody(req) : '';
+  const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
+  const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
+  const authKey = hashBody(String(req.headers.authorization || ''));
+  const useCache = shouldUseCache(req.method, logicalPath);
+  const cacheRouteKey =
+    req.method === 'POST' ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
+  const cacheKey = getCacheKey(req.method, cacheRouteKey, requestBody, authKey);
+
+  if (useCache) {
+    pruneCache();
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.statusCode = cached.statusCode;
+      res.setHeader('Content-Type', cached.contentType);
+      res.end(cached.body);
+      return;
+    }
+  }
+
+  if (BACKEND_MODE === 'supabase') {
+    const response = await handleSupabaseRequest({
+      method: req.method,
+      logicalPath,
+      requestUrl,
+      bodyJson,
+      headers: req.headers
+    });
+    const responseBody = JSON.stringify(response.payload);
+    const contentType = 'application/json; charset=utf-8';
+
+    if (useCache && response.statusCode >= 200 && response.statusCode < 400) {
+      cache.set(cacheKey, {
+        expiresAt: Date.now() + CACHE_TTL_MS,
+        statusCode: response.statusCode,
+        contentType,
+        body: responseBody
+      });
+    }
+
+    if (isMutation(req.method, logicalPath) && response.statusCode >= 200 && response.statusCode < 400) {
+      cache.clear();
+    }
+
+    res.statusCode = response.statusCode;
+    res.setHeader('Content-Type', contentType);
+    res.end(responseBody);
+    return;
+  }
+
   if (BACKEND_MODE !== 'proxy') {
-    sendJson(res, 503, {
+    sendJson(res, 500, {
       ok: false,
-      error: 'Supabase mode is not wired yet. Set BACKEND_MODE=proxy for current operation.'
+      error: `Unsupported BACKEND_MODE: ${BACKEND_MODE}`
     });
     return;
   }
@@ -217,23 +270,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const requestBody = req.method === 'POST' ? await readBody(req) : '';
-  const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
-  const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
   const upstreamUrl = buildUpstreamUrl(requestUrl, logicalPath);
-  const useCache = shouldUseCache(req.method, logicalPath);
-  const cacheKey = getCacheKey(req.method, upstreamUrl.toString(), requestBody);
-
-  if (useCache) {
-    pruneCache();
-    const cached = cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      res.statusCode = cached.statusCode;
-      res.setHeader('Content-Type', cached.contentType);
-      res.end(cached.body);
-      return;
-    }
-  }
 
   try {
     const upstreamResponse = await fetch(upstreamUrl, {

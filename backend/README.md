@@ -1,33 +1,65 @@
 # Inventory Backend Host
 
-This service gives you a deployable backend host now, while you migrate off Google Sheets.
+This service is now the primary inventory API for the app. In `supabase` mode it keeps the existing frontend API contract and serves inventory, jobs, allocations, film orders, audit history, and reports from Supabase/Postgres instead of Apps Script.
 
-## Current Mode (`proxy`)
+## Supported Modes
 
-`BACKEND_MODE=proxy` forwards your existing API requests to Apps Script and adds short-lived read caching to reduce repeated latency.
+### `supabase` (recommended)
 
-- Compatible with the frontend's current `?path=/...` request format
-- Supports `GET` and `POST`
-- Clears cache after mutation routes
+- Uses direct Postgres access through `DATABASE_URL` / `SUPABASE_DB_URL`
+- Verifies frontend Supabase auth tokens with `SUPABASE_URL` + `SUPABASE_ANON_KEY`
+- Keeps the current `?path=/...` API format so the frontend does not need route changes
+- Wraps multi-table writes in SQL transactions
+- Caches read responses for a short TTL, keyed per authenticated user
 
-## Local Run
+Required env vars:
 
-```bash
-cd backend
-npm run start
-```
+- `BACKEND_MODE=supabase`
+- `DATABASE_URL` or `SUPABASE_DB_URL`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `DEFAULT_ORG_ID` if a user belongs to more than one org
+
+### `proxy` (legacy fallback)
+
+- Forwards requests to the old Apps Script backend
+- Useful only during rollback or migration validation
 
 Required env vars:
 
 - `BACKEND_MODE=proxy`
 - `APPS_SCRIPT_URL=https://script.google.com/macros/s/.../exec`
 
-Optional env vars:
+## Local Run
+
+```bash
+cd backend
+npm ci
+npm run start
+```
+
+Optional env vars for both modes:
 
 - `PORT` (default `3000`)
 - `CACHE_TTL_MS` (default `30000`)
 - `MAX_CACHE_ENTRIES` (default `500`)
 - `CORS_ALLOWED_ORIGINS` (default `*`)
+
+## Supabase Setup
+
+Run these in order:
+
+1. `migrations/0001_supabase_inventory_schema.sql`
+2. `migrations/0002_supabase_import_staging.sql`
+
+Then:
+
+1. Create at least one row in `app.organizations`
+2. Add your user to `app.organization_members`
+3. Import legacy Sheets CSVs into the `import.*_raw` staging tables
+4. Run `select import.load_inventory_from_staging('<org_uuid>');`
+
+The staging migration handles legacy CSV imports that still use natural keys like `JobNumber` and `FilmOrderID`, then resolves them into the UUID-backed `app.*` tables.
 
 ## Render Deployment
 
@@ -40,24 +72,21 @@ Use `backend/render.yaml` as blueprint or configure manually:
 
 Set env vars in Render:
 
-- `BACKEND_MODE=proxy`
-- `APPS_SCRIPT_URL=<your apps script /exec url>`
+- `BACKEND_MODE=supabase`
+- `DATABASE_URL`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `DEFAULT_ORG_ID`
 - `CACHE_TTL_MS=30000`
 - `MAX_CACHE_ENTRIES=500`
 
 ## Frontend Configuration
 
-Set frontend API base to your backend host URL:
+Point the frontend at this backend host:
 
 ```env
 VITE_API_BASE_URL=https://your-backend.onrender.com/api
 VITE_PROXY_TARGET=
 ```
 
-## Migration Starter (Supabase)
-
-Supabase schema + RLS starter:
-
-- `migrations/0001_supabase_inventory_schema.sql`
-
-This schema is designed to mirror your current inventory/jobs/allocations/film-order/audit model before replacing the route handlers.
+If you still use Vite's local proxy in frontend dev, keep `VITE_API_BASE_URL=/api` and point the dev proxy at this backend instead of Apps Script.

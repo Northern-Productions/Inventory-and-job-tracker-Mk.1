@@ -10,12 +10,18 @@ services:
     autoDeploy: true
     envVars:
       - key: BACKEND_MODE
-        value: proxy
+        value: supabase
       - key: CACHE_TTL_MS
         value: 30000
       - key: MAX_CACHE_ENTRIES
         value: 500
       - key: CORS_ALLOWED_ORIGINS
         value: "*"
-      - key: APPS_SCRIPT_URL
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: DEFAULT_ORG_ID
         sync: false

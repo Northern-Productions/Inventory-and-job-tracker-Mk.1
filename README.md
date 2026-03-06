@@ -2,6 +2,9 @@
 
 Phase 1 is a production-focused inventory PWA for window-film boxes/rolls. It provides inventory-only flows now, while keeping the codebase structured for later Jobs and Allocations modules.
 
+Current recommended backend: `backend/` in `BACKEND_MODE=supabase`.
+The old Apps Script + Google Sheets flow is now legacy migration infrastructure, not the preferred runtime path.
+
 ## Stack
 
 - Frontend: React + Vite + TypeScript
@@ -10,8 +13,8 @@ Phase 1 is a production-focused inventory PWA for window-film boxes/rolls. It pr
 - Validation: Zod
 - PWA: `vite-plugin-pwa`
 - QR scanning: `html5-qrcode`
-- Backend: Google Apps Script Web App reading/writing Google Sheets
-  - Optional hosted proxy/backend: `backend/` (Node service, Render-ready)
+- Backend: `backend/` Node service backed by Supabase Postgres
+  - Legacy migration source: Google Apps Script + Google Sheets
 
 ## Project Structure
 
@@ -142,18 +145,19 @@ Use these exact headers and order for `AuditLog`:
    npm run dev
    ```
 
-### Optional Hosted Backend (Recommended)
+### Hosted Backend (Recommended)
 
 If you deploy `backend/` (Render or similar), point the frontend directly to that host:
 
 - `VITE_API_BASE_URL=https://your-backend.onrender.com/api`
 - `VITE_PROXY_TARGET=` (blank)
 
-The backend remains API-compatible with the current frontend request format (`?path=/...`) and can proxy Apps Script while you migrate to Postgres.
+The backend remains API-compatible with the current frontend request format (`?path=/...`).
+Use `BACKEND_MODE=supabase` for the normal app path. `proxy` is only for legacy rollback.
 
-### Supabase Edge Function Path (No Card Required)
+### Supabase Edge Function Path (Legacy Proxy Only)
 
-You can host the API proxy on Supabase free tier without Render:
+You can still host the old proxy on Supabase free tier without Render, but this is not the Supabase-native data path:
 
 1. Create a Supabase project.
 2. Deploy the Edge Function in `supabase/functions/api-proxy`.
