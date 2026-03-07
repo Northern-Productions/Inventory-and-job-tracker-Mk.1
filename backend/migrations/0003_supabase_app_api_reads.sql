@@ -943,7 +943,7 @@ begin
   select coalesce(
     jsonb_agg(
       to_jsonb(r)
-      order by r.checked_in_at desc nulls last, r.created_at desc nulls last, r.log_id desc
+      order by r.checked_in_at desc nulls last, r.checked_out_at desc nulls last, r.log_id desc
     ),
     '[]'::jsonb
   )

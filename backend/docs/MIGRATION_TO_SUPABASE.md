@@ -10,6 +10,7 @@ Run:
 2. `backend/migrations/0002_supabase_import_staging.sql`
 3. `backend/migrations/0003_supabase_app_api_reads.sql`
 4. `backend/migrations/0004_supabase_app_api_mutations.sql`
+5. `backend/migrations/0005_fix_roll_history_ordering.sql`
 
 Then:
 

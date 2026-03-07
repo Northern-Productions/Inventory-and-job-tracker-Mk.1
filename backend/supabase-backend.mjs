@@ -2038,7 +2038,7 @@ async function listRollHistoryByBox(client, orgId, boxId) {
       from app.roll_weight_log
       where org_id = $1
         and box_id = $2
-      order by checked_in_at desc nulls last, created_at desc nulls last, log_id desc
+      order by checked_in_at desc nulls last, checked_out_at desc nulls last, log_id desc
     `,
     [orgId, boxId]
   );

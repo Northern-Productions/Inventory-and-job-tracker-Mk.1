@@ -23,6 +23,7 @@ Google Sheets and Apps Script are now legacy migration sources only. They are no
   - CSV staging import in `backend/migrations/0002_supabase_import_staging.sql`
   - API read helpers in `backend/migrations/0003_supabase_app_api_reads.sql`
   - API mutation RPCs in `backend/migrations/0004_supabase_app_api_mutations.sql`
+  - follow-up fixes in `backend/migrations/0005_fix_roll_history_ordering.sql`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
   - not required for production
@@ -53,6 +54,7 @@ Run these in Supabase SQL Editor:
 2. `backend/migrations/0002_supabase_import_staging.sql`
 3. `backend/migrations/0003_supabase_app_api_reads.sql`
 4. `backend/migrations/0004_supabase_app_api_mutations.sql`
+5. `backend/migrations/0005_fix_roll_history_ordering.sql`
 
 ### 2. Import legacy sheet data if needed
 
