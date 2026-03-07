@@ -1133,6 +1133,93 @@ th {
   width: min(100%, 420px);
 }
 
+.delete-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 1100;
+  background: rgba(22, 4, 4, 0.82);
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+.delete-dialog-backdrop-closing {
+  opacity: 0;
+}
+
+.delete-dialog {
+  width: min(100%, 520px);
+  border: 1px solid rgba(141, 35, 28, 0.22);
+  background: linear-gradient(180deg, #fff4f2 0%, #ffd8d2 100%);
+  box-shadow: 0 28px 70px rgba(98, 22, 22, 0.28);
+  color: #541713;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.delete-dialog-closing {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.delete-dialog h2 {
+  margin: 0;
+  color: #6f1614;
+}
+
+.delete-dialog-eyebrow {
+  margin: 0 0 0.35rem;
+  color: #9a2d22;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.delete-dialog-message {
+  margin: 0.85rem 0 0;
+  color: #6b221c;
+  font-weight: 600;
+}
+
+.delete-dialog .field {
+  margin-top: 1rem;
+}
+
+.delete-dialog .field-label,
+.delete-dialog .field-hint {
+  color: #7d2d24;
+}
+
+.delete-dialog .field-input {
+  border-color: rgba(145, 46, 40, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.delete-dialog .field-input:focus {
+  border-color: #9a2d22;
+  outline: 2px solid rgba(154, 45, 34, 0.16);
+}
+
+.delete-dialog-actions {
+  margin-top: 1rem;
+}
+
+.delete-dialog .button-ghost {
+  border-color: rgba(111, 22, 20, 0.18);
+  color: #6f1614;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.delete-dialog .button-danger {
+  background: #8f251c;
+}
+
 @media (max-width: 860px) {
   .app-header {
     align-items: stretch;

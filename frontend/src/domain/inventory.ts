@@ -86,6 +86,16 @@ export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId'> {
   moveToZeroed?: boolean;
 }
 
+export interface DeleteBoxPayload {
+  boxId: string;
+  reason?: string;
+}
+
+export interface DeleteBoxResult {
+  boxId: string;
+  logId: string;
+}
+
 export interface SetBoxStatusPayload {
   boxId: string;
   status: Extract<BoxStatus, 'IN_STOCK' | 'CHECKED_OUT'>;
@@ -109,6 +119,7 @@ export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
 
 export type AuditAction =
   | 'ADD_BOX'
+  | 'DELETE_BOX'
   | 'UPDATE_BOX'
   | 'ZERO_OUT_BOX'
   | 'SET_STATUS'

@@ -1897,6 +1897,16 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       }
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
+    case "/boxes/delete": {
+      const result = await callMutationRpc(client, "api_boxes_delete", orgId, actor, payload);
+      return ok(
+        {
+          boxId: asTrimmedString(result.boxId),
+          logId: asTrimmedString(result.logId),
+        },
+        result.warnings || [],
+      );
+    }
     case "/allocations/add":
     case "/allocations/apply": {
       const result = await callMutationRpc(client, "api_allocations_apply", orgId, actor, payload);

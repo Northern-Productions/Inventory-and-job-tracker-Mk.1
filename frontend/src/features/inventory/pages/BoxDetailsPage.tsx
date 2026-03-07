@@ -19,6 +19,7 @@ import {
   useFilmCatalog,
   useIsAddBoxPending,
   useBox,
+  useDeleteBox,
   useSetBoxStatus,
   useUndoAudit,
   useUpdateBox
@@ -129,11 +130,13 @@ export default function BoxDetailsPage() {
   const boxQuery = useBox(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
   const updateMutation = useUpdateBox();
+  const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();
   const undoMutation = useUndoAudit();
   const filmCatalogQuery = useFilmCatalog();
   const allocationsQuery = useBoxAllocations(boxId);
   const [isEditing, setIsEditing] = useState(false);
+  const [isDeletingBox, setIsDeletingBox] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [isQrSectionOpen, setIsQrSectionOpen] = useState(false);
@@ -326,7 +329,8 @@ export default function BoxDetailsPage() {
     title: string,
     boxIdValue: string,
     warnings: string[],
-    successDescription = `${boxIdValue} was saved successfully.`
+    successDescription = `${boxIdValue} was saved successfully.`,
+    onUndoSuccess?: (restoredBox: Box | null) => void
   ) {
     toast.push({
       title,
@@ -344,6 +348,7 @@ export default function BoxDetailsPage() {
             description: undone.warnings.join(' ') || `${boxIdValue} was reverted.`,
             variant: 'success'
           });
+          onUndoSuccess?.(undone.result.box);
         } catch (error) {
           toast.push({
             title: 'Undo failed',
@@ -354,6 +359,52 @@ export default function BoxDetailsPage() {
         }
       }
     });
+  }
+
+  async function handleDeleteBox() {
+    if (!box) {
+      return;
+    }
+
+    if (!ensureSignedIn('delete this box')) {
+      return;
+    }
+
+    setIsDeletingBox(true);
+
+    try {
+      const { result, warnings } = await deleteMutation.mutateAsync({
+        boxId: box.boxId,
+        reason: 'Deleted from box details.'
+      });
+
+      await pushUndoToast(
+        result.logId,
+        'Box deleted',
+        box.boxId,
+        warnings,
+        `${box.boxId} was deleted.`,
+        (restoredBox) => {
+          if (!restoredBox) {
+            return;
+          }
+
+          navigate(`/inventory/${encodeURIComponent(restoredBox.boxId)}`, { replace: true });
+        }
+      );
+
+      navigate('/', { replace: true });
+    } catch (error) {
+      setIsDeletingBox(false);
+      toast.push({
+        title: 'Delete failed',
+        description:
+          error instanceof APIError || error instanceof Error
+            ? error.message
+            : 'The box could not be deleted.',
+        variant: 'error'
+      });
+    }
   }
 
   async function submitUpdate(payload: UpdateBoxPayload) {
@@ -591,6 +642,10 @@ export default function BoxDetailsPage() {
     return <LoadingState label="Loading box details..." />;
   }
 
+  if (isDeletingBox) {
+    return <LoadingState label="Deleting box..." />;
+  }
+
   if (!box) {
     return (
       <section className="panel">
@@ -618,11 +673,13 @@ export default function BoxDetailsPage() {
           mode="edit"
           submitLabel="Save Changes"
           submitting={updateMutation.isPending}
+          deleting={deleteMutation.isPending}
           filmCatalogEntries={filmCatalogQuery.data}
           filmCatalogLoading={filmCatalogQuery.isLoading}
           filmCatalogError={filmCatalogQuery.error}
           onSubmit={handleEditSubmit}
           onCancel={() => setIsEditing(false)}
+          onDelete={() => void handleDeleteBox()}
         />
       ) : null}
 
@@ -642,6 +699,7 @@ export default function BoxDetailsPage() {
                   onClick={() => setIsEditing(true)}
                   disabled={
                     isAddBoxPending ||
+                    deleteMutation.isPending ||
                     box.status === 'ZEROED' ||
                     !auth.isAuthenticated ||
                     !auth.clientIdConfigured

@@ -4,6 +4,7 @@ import {
   applyAllocationPlan,
   cancelJob,
   createJob,
+  deleteBox,
   deleteFilmOrder,
   createFilmOrder,
   getAllocationJob,
@@ -38,6 +39,7 @@ import type {
   Box,
   CreateJobPayload,
   CreateFilmOrderPayload,
+  DeleteBoxPayload,
   FilmOrderEntry,
   JobDetail,
   JobListEntry,
@@ -49,7 +51,7 @@ import type {
   UpdateBoxPayload
 } from '../../../domain';
 import { todayDateString } from '../../../lib/date';
-import { upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
+import { deleteOfflineInventoryBox, upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
 
 export const inventoryKeys = {
   root: ['inventory'] as const,
@@ -86,6 +88,7 @@ interface QuerySnapshot {
 interface MutationOptimisticContext {
   operation?: OptimisticOperationController;
   snapshots: QuerySnapshot[];
+  deletedBox?: Box;
 }
 
 function captureSnapshots(queryClient: ReturnType<typeof useQueryClient>, queryKey: readonly unknown[]) {
@@ -134,6 +137,19 @@ async function persistOfflineInventoryBox(
   await refreshOfflineInventoryQueries(queryClient);
 }
 
+async function removeOfflineInventoryBox(
+  queryClient: ReturnType<typeof useQueryClient>,
+  box: Pick<Box, 'boxId' | 'warehouse'>
+) {
+  try {
+    await deleteOfflineInventoryBox(box);
+  } catch (_error) {
+    // The online mutation already succeeded. A local cache write failure should not block it.
+  }
+
+  await refreshOfflineInventoryQueries(queryClient);
+}
+
 function updateBoxCaches(
   queryClient: ReturnType<typeof useQueryClient>,
   boxId: string,
@@ -153,6 +169,23 @@ function updateBoxCaches(
     queryClient.setQueryData<Box[]>(
       queryKey,
       current.map((box) => (box.boxId === boxId ? updater(box) : box))
+    );
+  }
+}
+
+function removeBoxCaches(queryClient: ReturnType<typeof useQueryClient>, boxId: string) {
+  queryClient.setQueryData<Box | undefined>(inventoryKeys.box(boxId), undefined);
+
+  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: inventoryKeys.listRoot });
+  for (let index = 0; index < listQueries.length; index += 1) {
+    const [queryKey, current] = listQueries[index];
+    if (!current) {
+      continue;
+    }
+
+    queryClient.setQueryData<Box[]>(
+      queryKey,
+      current.filter((box) => box.boxId !== boxId)
     );
   }
 }
@@ -824,6 +857,64 @@ export function useUpdateBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
       void persistOfflineInventoryBox(queryClient, result.box);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      context?.operation?.finish();
+    }
+  });
+}
+
+export function useDeleteBox() {
+  const queryClient = useQueryClient();
+  const optimisticQueue = useOptimisticQueue();
+
+  return useMutation({
+    mutationFn: (payload: DeleteBoxPayload) => deleteBox(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot })
+      ]);
+
+      const deletedBox = queryClient.getQueryData<Box>(inventoryKeys.box(payload.boxId));
+      const context = beginDelayedOptimisticMutation(
+        queryClient,
+        optimisticQueue,
+        `Deleting ${payload.boxId}`,
+        [inventoryKeys.box(payload.boxId), inventoryKeys.listRoot],
+        () => {
+          removeBoxCaches(queryClient, payload.boxId);
+        }
+      );
+
+      return {
+        ...context,
+        deletedBox
+      };
+    },
+    onError: (_error, _variables, context) => {
+      context?.operation?.cancel();
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, _variables, context) => {
+      await context?.operation?.waitForApply();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+
+      queryClient.removeQueries({ queryKey: inventoryKeys.box(result.boxId), exact: true });
+      queryClient.removeQueries({ queryKey: inventoryKeys.history(result.boxId), exact: true });
+      queryClient.removeQueries({ queryKey: inventoryKeys.allocations(result.boxId), exact: true });
+      queryClient.removeQueries({ queryKey: inventoryKeys.rollHistory(result.boxId), exact: true });
+
+      if (context?.deletedBox) {
+        void removeOfflineInventoryBox(queryClient, context.deletedBox);
+        return;
+      }
+
+      await refreshOfflineInventoryQueries(queryClient);
     },
     onSettled: (_data, _error, _variables, context) => {
       context?.operation?.finish();

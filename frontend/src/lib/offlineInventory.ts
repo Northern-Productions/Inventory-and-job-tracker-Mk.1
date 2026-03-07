@@ -201,6 +201,44 @@ export async function upsertOfflineInventoryBox(box: Box): Promise<void> {
   }
 }
 
+export async function deleteOfflineInventoryBox(
+  box: Pick<Box, 'boxId' | 'warehouse'>
+): Promise<void> {
+  if (!isOfflineInventorySupported()) {
+    return;
+  }
+
+  const [existingBox, warehouseMeta] = await Promise.all([
+    getOfflineBox(box.boxId),
+    getOfflineInventorySyncMeta(box.warehouse)
+  ]);
+
+  if (!existingBox) {
+    return;
+  }
+
+  const database = await openOfflineInventoryDatabase();
+
+  try {
+    const transaction = database.transaction([BOX_STORE, SYNC_META_STORE], 'readwrite');
+    const boxStore = transaction.objectStore(BOX_STORE);
+    const metaStore = transaction.objectStore(SYNC_META_STORE);
+
+    boxStore.delete(box.boxId);
+
+    if (warehouseMeta) {
+      metaStore.put({
+        ...warehouseMeta,
+        boxCount: Math.max(warehouseMeta.boxCount - 1, 0)
+      });
+    }
+
+    await waitForTransaction(transaction);
+  } finally {
+    database.close();
+  }
+}
+
 async function getOfflineBoxesByWarehouse(warehouse: Warehouse): Promise<Box[]> {
   if (!isOfflineInventorySupported()) {
     return [];

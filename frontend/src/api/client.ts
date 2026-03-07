@@ -27,6 +27,8 @@ import type {
   JobDetailResponse,
   JobListEntry,
   JobListResponse,
+  DeleteBoxPayload,
+  DeleteBoxResult,
   ReportsSummary,
   ReportsSummaryFilters,
   RollHistoryResponse,
@@ -436,6 +438,19 @@ export async function updateBox(
   payload: UpdateBoxPayload
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
   const response = await request<BoxMutationResult>('POST', '/boxes/update', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function deleteBox(
+  payload: DeleteBoxPayload
+): Promise<{ result: DeleteBoxResult; warnings: string[] }> {
+  const response = await request<DeleteBoxResult>('POST', '/boxes/delete', {
     body: payload
   });
 

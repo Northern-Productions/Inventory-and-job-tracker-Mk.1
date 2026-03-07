@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/Button';
-import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import { Input, TextArea } from '../../../components/Input';
+import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   CORE_TYPE_OPTIONS,
   STANDARD_WIDTH_OPTIONS,
   getManufacturerOptions,
-  hasManufacturerOption,
   getWidthMode,
+  hasManufacturerOption,
   type BoxDraft
 } from '../utils/boxHelpers';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseToggle } from './WarehouseToggle';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
+const DELETE_DIALOG_FADE_MS = 180;
+const DELETE_BACKDROP_FADE_MS = 180;
 
 interface BoxFormProps {
   initialDraft: BoxDraft;
@@ -21,6 +23,7 @@ interface BoxFormProps {
   mode: 'create' | 'edit';
   submitLabel: string;
   submitting?: boolean;
+  deleting?: boolean;
   createWarehouse?: Warehouse;
   nextBoxIdByWarehouse?: Record<Warehouse, string>;
   filmCatalogEntries?: FilmCatalogEntry[];
@@ -29,6 +32,7 @@ interface BoxFormProps {
   onCreateWarehouseChange?: (warehouse: Warehouse) => void;
   onSubmit: (draft: BoxDraft) => void;
   onCancel?: () => void;
+  onDelete?: () => void;
 }
 
 export function BoxForm({
@@ -37,6 +41,7 @@ export function BoxForm({
   mode,
   submitLabel,
   submitting = false,
+  deleting = false,
   createWarehouse,
   nextBoxIdByWarehouse,
   filmCatalogEntries,
@@ -44,14 +49,62 @@ export function BoxForm({
   filmCatalogError,
   onCreateWarehouseChange,
   onSubmit,
-  onCancel
+  onCancel,
+  onDelete
 }: BoxFormProps) {
   const [draft, setDraft] = useState(initialDraft);
   const [widthMode, setWidthMode] = useState(getWidthMode(initialDraft.widthIn));
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleteDialogClosing, setIsDeleteDialogClosing] = useState(false);
+  const [isDeleteBackdropClosing, setIsDeleteBackdropClosing] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const lastSuggestedBoxIdRef = useRef(initialDraft.boxId);
   const lastCreateWarehouseRef = useRef<Warehouse | null>(createWarehouse ?? null);
+  const deleteDialogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearDeleteDialogTimer() {
+    if (deleteDialogTimeoutRef.current !== null) {
+      clearTimeout(deleteDialogTimeoutRef.current);
+      deleteDialogTimeoutRef.current = null;
+    }
+  }
+
+  function resetDeleteDialog() {
+    clearDeleteDialogTimer();
+    setIsDeleteDialogOpen(false);
+    setIsDeleteDialogClosing(false);
+    setIsDeleteBackdropClosing(false);
+    setDeleteConfirmText('');
+  }
+
+  function openDeleteDialog() {
+    clearDeleteDialogTimer();
+    setDeleteConfirmText('');
+    setIsDeleteDialogClosing(false);
+    setIsDeleteBackdropClosing(false);
+    setIsDeleteDialogOpen(true);
+  }
+
+  function closeDeleteDialog(afterClose?: () => void) {
+    if (!isDeleteDialogOpen || isDeleteDialogClosing) {
+      return;
+    }
+
+    clearDeleteDialogTimer();
+    setIsDeleteDialogClosing(true);
+    setIsDeleteBackdropClosing(false);
+
+    deleteDialogTimeoutRef.current = setTimeout(() => {
+      setIsDeleteBackdropClosing(true);
+
+      deleteDialogTimeoutRef.current = setTimeout(() => {
+        resetDeleteDialog();
+        afterClose?.();
+      }, DELETE_BACKDROP_FADE_MS);
+    }, DELETE_DIALOG_FADE_MS);
+  }
 
   useEffect(() => {
     setDraft(initialDraft);
@@ -60,6 +113,7 @@ export function BoxForm({
     setCustomWidthDraft(getWidthMode(initialDraft.widthIn) === 'CUSTOM' ? initialDraft.widthIn : '');
     lastSuggestedBoxIdRef.current = initialDraft.boxId;
     lastCreateWarehouseRef.current = createWarehouse ?? null;
+    resetDeleteDialog();
   }, [initialDraft, resetKey]);
 
   useEffect(() => {
@@ -91,6 +145,33 @@ export function BoxForm({
     });
   }, [createWarehouse, mode, nextBoxIdByWarehouse]);
 
+  useEffect(
+    () => () => {
+      clearDeleteDialogTimer();
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!isDeleteDialogOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || isDeleteDialogClosing || deleting) {
+        return;
+      }
+
+      event.preventDefault();
+      closeDeleteDialog();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [deleting, isDeleteDialogClosing, isDeleteDialogOpen]);
+
   const updateField = <K extends keyof BoxDraft,>(key: K, value: BoxDraft[K]) => {
     setDraft((current) => ({
       ...current,
@@ -110,6 +191,7 @@ export function BoxForm({
     ? draft.manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
   const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
+  const isDeleteConfirmUnlocked = deleteConfirmText.trim().toLowerCase() === 'delete';
 
   const handleWidthButtonClick = (value: (typeof widthButtonValues)[number]) => {
     if (value === 'CUSTOM') {
@@ -300,9 +382,11 @@ export function BoxForm({
             onChange={(event) => updateField('initialWeightLbs', event.target.value)}
             disabled={!canCaptureReceivingDetails}
             hint={
-              canCaptureReceivingDetails
+              mode === 'create' && canCaptureReceivingDetails
                 ? 'Required the first time a received film key is saved.'
-                : 'Add a received date to capture initial roll weight.'
+                : mode === 'create'
+                  ? 'Add a received date to capture initial roll weight.'
+                  : undefined
             }
           />
           <label className="field">
@@ -320,11 +404,13 @@ export function BoxForm({
                 </option>
               ))}
             </select>
-            <span className="field-hint">
-              {canCaptureReceivingDetails
-                ? 'Stored on the film key for future auto-filled boxes.'
-                : 'Add a received date to set the core type.'}
-            </span>
+            {mode === 'create' ? (
+              <span className="field-hint">
+                {canCaptureReceivingDetails
+                  ? 'Stored on the film key for future auto-filled boxes.'
+                  : 'Add a received date to set the core type.'}
+              </span>
+            ) : null}
           </label>
           {mode === 'edit' ? (
             <Input
@@ -350,17 +436,73 @@ export function BoxForm({
           value={draft.notes}
           onChange={(event) => updateField('notes', event.target.value)}
         />
-        {mode === 'edit' ? (
-          <p className="muted-text">
-            Editing Initial Feet or Width requires confirmation and a reason.
-          </p>
-        ) : null}
         <div className="page-actions form-actions">
-          <Button type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : submitLabel}
+          {mode === 'edit' && onDelete ? (
+            <Button
+              type="button"
+              variant="danger"
+              onClick={openDeleteDialog}
+              disabled={submitting || deleting}
+            >
+              Delete
+            </Button>
+          ) : null}
+          <Button type="submit" disabled={submitting || deleting}>
+            {submitting ? 'Saving...' : submitLabel}
           </Button>
         </div>
       </form>
+
+      {isDeleteDialogOpen ? (
+        <div
+          className={`delete-dialog-backdrop ${isDeleteBackdropClosing ? 'delete-dialog-backdrop-closing' : ''}`.trim()}
+          role="presentation"
+        >
+          <div
+            className={`dialog delete-dialog ${isDeleteDialogClosing ? 'delete-dialog-closing' : ''}`.trim()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-box-title"
+            aria-describedby="delete-box-message"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="delete-dialog-eyebrow">Warning</p>
+            <h2 id="delete-box-title">Delete Box</h2>
+            <p id="delete-box-message" className="delete-dialog-message">
+              Are you sure? This action cannot be undone. Type &quot;Delete&quot; in order to
+              delete.
+            </p>
+            <Input
+              label='Type "Delete" to unlock delete'
+              value={deleteConfirmText}
+              onChange={(event) => setDeleteConfirmText(event.target.value)}
+              placeholder="delete"
+              autoFocus
+              hint='Enter delete to enable the Delete button.'
+            />
+            <div className="dialog-actions delete-dialog-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                fullWidth
+                onClick={() => closeDeleteDialog()}
+                disabled={isDeleteDialogClosing || deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                fullWidth
+                onClick={() => closeDeleteDialog(() => onDelete?.())}
+                disabled={!isDeleteConfirmUnlocked || isDeleteDialogClosing || deleting}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isCustomWidthOpen ? (
         <div

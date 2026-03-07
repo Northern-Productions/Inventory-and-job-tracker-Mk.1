@@ -4482,6 +4482,74 @@ async function deleteFilmOrder(client, orgId, payload, actor) {
   return ok(toPublicFilmOrder(result.filmOrder, []), warnings);
 }
 
+async function deleteBox(client, orgId, payload, actor) {
+  const boxId = requireString(payload.boxId, 'BoxID');
+  const reason = asTrimmedString(payload.reason) || 'Deleted from box details.';
+  const current = await findBoxById(client, orgId, boxId);
+
+  if (!current) {
+    throw new HttpError(404, 'Box not found.');
+  }
+
+  if (current.status === 'CHECKED_OUT') {
+    throw new HttpError(
+      400,
+      'Checked-out boxes cannot be deleted. Check the box in or zero it out first.'
+    );
+  }
+
+  const activeAllocationRow = await queryRow(
+    client,
+    `
+      select count(*)::integer as count
+      from app.allocations
+      where org_id = $1
+        and box_id = $2
+        and status = 'ACTIVE'
+    `,
+    [orgId, current.boxId]
+  );
+
+  if (integerOrZero(activeAllocationRow?.count) > 0) {
+    throw new HttpError(
+      400,
+      'Boxes with active allocations cannot be deleted. Resolve the allocations first.'
+    );
+  }
+
+  const linkedFilmOrderRow = await queryRow(
+    client,
+    `
+      select count(*)::integer as count
+      from app.film_order_box_links
+      where org_id = $1
+        and box_id = $2
+    `,
+    [orgId, current.boxId]
+  );
+
+  if (integerOrZero(linkedFilmOrderRow?.count) > 0) {
+    throw new HttpError(
+      400,
+      'Boxes linked to film orders cannot be deleted. Resolve the linked film order first.'
+    );
+  }
+
+  await deleteBoxRecord(client, orgId, current.boxId);
+  const logId = await appendAuditEntry(
+    client,
+    orgId,
+    'DELETE_BOX',
+    current.boxId,
+    toPublicBox(current),
+    null,
+    actor,
+    reason
+  );
+
+  return ok({ boxId: current.boxId, logId });
+}
+
 async function previewAllocationPlan(client, orgId, payload) {
   const source = await findBoxById(client, orgId, payload.boxId);
   if (!source) {
@@ -4941,6 +5009,8 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           return deleteFilmOrder(client, authContext.orgId, params, authContext.actor);
         case '/boxes/update':
           return updateBox(client, authContext.orgId, params, authContext.actor);
+        case '/boxes/delete':
+          return deleteBox(client, authContext.orgId, params, authContext.actor);
         case '/boxes/set-status':
           return setBoxStatus(client, authContext.orgId, params, authContext.actor);
         case '/audit/undo':
