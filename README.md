@@ -41,7 +41,6 @@ supabase/
 backend/
   migrations/
   docs/
-apps-script/         # legacy migration source only
 ```
 
 ## Production Setup
@@ -151,4 +150,3 @@ npm run dev
 - The app uses hash routing for static-host refresh stability.
 - The app is a PWA. After deployments, browsers may hold an older cached shell until the site data or service worker is refreshed.
 - `backend/` remains available for rollback or parity testing, but production no longer depends on it.
-- `apps-script/` remains in the repo only as a historical reference and migration aid.

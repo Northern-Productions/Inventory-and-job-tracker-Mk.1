@@ -3,8 +3,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { handleSupabaseRequest } from './supabase-backend.mjs';
 
-const BACKEND_MODE = String(process.env.BACKEND_MODE || 'proxy').trim().toLowerCase();
-const APPS_SCRIPT_URL = String(process.env.APPS_SCRIPT_URL || '').trim();
+const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
 const PORT = Number(process.env.PORT || 3000);
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 30000);
 const MAX_CACHE_ENTRIES = Number(process.env.MAX_CACHE_ENTRIES || 500);
@@ -161,19 +160,6 @@ function resolveLogicalPath(requestUrl, bodyJson) {
   return normalizePath(requestUrl.pathname);
 }
 
-function buildUpstreamUrl(requestUrl, logicalPath) {
-  const upstreamUrl = new URL(APPS_SCRIPT_URL);
-  for (const [key, value] of requestUrl.searchParams.entries()) {
-    upstreamUrl.searchParams.set(key, value);
-  }
-
-  if (logicalPath && !upstreamUrl.searchParams.get('path')) {
-    upstreamUrl.searchParams.set('path', logicalPath);
-  }
-
-  return upstreamUrl;
-}
-
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(req, res);
 
@@ -224,37 +210,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (BACKEND_MODE === 'supabase') {
-    const response = await handleSupabaseRequest({
-      method: req.method,
-      logicalPath,
-      requestUrl,
-      bodyJson,
-      headers: req.headers
-    });
-    const responseBody = JSON.stringify(response.payload);
-    const contentType = 'application/json; charset=utf-8';
-
-    if (useCache && response.statusCode >= 200 && response.statusCode < 400) {
-      cache.set(cacheKey, {
-        expiresAt: Date.now() + CACHE_TTL_MS,
-        statusCode: response.statusCode,
-        contentType,
-        body: responseBody
-      });
-    }
-
-    if (isMutation(req.method, logicalPath) && response.statusCode >= 200 && response.statusCode < 400) {
-      cache.clear();
-    }
-
-    res.statusCode = response.statusCode;
-    res.setHeader('Content-Type', contentType);
-    res.end(responseBody);
-    return;
-  }
-
-  if (BACKEND_MODE !== 'proxy') {
+  if (BACKEND_MODE !== 'supabase') {
     sendJson(res, 500, {
       ok: false,
       error: `Unsupported BACKEND_MODE: ${BACKEND_MODE}`
@@ -262,54 +218,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (!APPS_SCRIPT_URL) {
-    sendJson(res, 500, {
-      ok: false,
-      error: 'APPS_SCRIPT_URL is not configured.'
-    });
-    return;
-  }
+  const response = await handleSupabaseRequest({
+    method: req.method,
+    logicalPath,
+    requestUrl,
+    bodyJson,
+    headers: req.headers
+  });
+  const responseBody = JSON.stringify(response.payload);
+  const contentType = 'application/json; charset=utf-8';
 
-  const upstreamUrl = buildUpstreamUrl(requestUrl, logicalPath);
-
-  try {
-    const upstreamResponse = await fetch(upstreamUrl, {
-      method: req.method,
-      headers:
-        req.method === 'POST'
-          ? {
-              'Content-Type': req.headers['content-type'] || 'text/plain;charset=utf-8'
-            }
-          : undefined,
-      body: req.method === 'POST' ? requestBody : undefined,
-      signal: AbortSignal.timeout(30000)
-    });
-
-    const responseBody = await upstreamResponse.text();
-    const contentType = upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8';
-
-    if (useCache && upstreamResponse.ok) {
-      cache.set(cacheKey, {
-        expiresAt: Date.now() + CACHE_TTL_MS,
-        statusCode: upstreamResponse.status,
-        contentType,
-        body: responseBody
-      });
-    }
-
-    if (isMutation(req.method, logicalPath) && upstreamResponse.ok) {
-      cache.clear();
-    }
-
-    res.statusCode = upstreamResponse.status;
-    res.setHeader('Content-Type', contentType);
-    res.end(responseBody);
-  } catch (_error) {
-    sendJson(res, 502, {
-      ok: false,
-      error: 'The upstream Apps Script backend could not be reached.'
+  if (useCache && response.statusCode >= 200 && response.statusCode < 400) {
+    cache.set(cacheKey, {
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      statusCode: response.statusCode,
+      contentType,
+      body: responseBody
     });
   }
+
+  if (isMutation(req.method, logicalPath) && response.statusCode >= 200 && response.statusCode < 400) {
+    cache.clear();
+  }
+
+  res.statusCode = response.statusCode;
+  res.setHeader('Content-Type', contentType);
+  res.end(responseBody);
 });
 
 server.listen(PORT, () => {
