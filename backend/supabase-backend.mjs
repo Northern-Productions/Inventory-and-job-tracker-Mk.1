@@ -16,6 +16,15 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
 };
 
 const BOX_STATUSES = new Set(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
+const MEMBER_FEATURE_AREAS = [
+  'inventory',
+  'allocations',
+  'jobs',
+  'film_orders',
+  'activity_history',
+  'reports'
+];
+const ADMIN_FEATURE_AREAS = [...MEMBER_FEATURE_AREAS, 'access_management'];
 const authIdentityCache = new Map();
 
 const pool =
@@ -51,6 +60,11 @@ function asTrimmedString(value) {
   return String(value).trim();
 }
 
+function deriveNameFromEmail(email) {
+  const localPart = asTrimmedString(email).split('@')[0] || '';
+  return localPart.replace(/[._-]+/g, ' ').trim();
+}
+
 function requireString(value, fieldName) {
   const trimmed = asTrimmedString(value);
   if (!trimmed) {
@@ -58,6 +72,20 @@ function requireString(value, fieldName) {
   }
 
   return trimmed;
+}
+
+function normalizeUsername(value) {
+  const normalized = asTrimmedString(value).replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    throw new HttpError(400, 'Username is required.');
+  }
+  if (normalized.length < 2) {
+    throw new HttpError(400, 'Username must be at least 2 characters.');
+  }
+  if (normalized.length > 64) {
+    throw new HttpError(400, 'Username must be 64 characters or fewer.');
+  }
+  return normalized;
 }
 
 function normalizeDateString(value, fieldName, allowBlank) {
@@ -914,6 +942,7 @@ function mapDbJobRow(row) {
     warehouse: asTrimmedString(row.warehouse) || 'IL',
     sections: asTrimmedString(row.sections) || null,
     dueDate: formatDateValue(row.due_date),
+    crewLeader: asTrimmedString(row.crew_leader),
     lifecycleStatus: asTrimmedString(row.lifecycle_status) || 'ACTIVE',
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
@@ -1058,6 +1087,344 @@ async function queryRow(client, text, params = []) {
   return rows[0] || null;
 }
 
+function createDeniedFeaturePermissions() {
+  return {
+    inventory: { read: false, write: false },
+    allocations: { read: false, write: false },
+    jobs: { read: false, write: false },
+    film_orders: { read: false, write: false },
+    activity_history: { read: false, write: false },
+    reports: { read: false, write: false },
+    access_management: { read: false, write: false }
+  };
+}
+
+function buildOwnerFeaturePermissions() {
+  return {
+    inventory: { read: true, write: true },
+    allocations: { read: true, write: true },
+    jobs: { read: true, write: true },
+    film_orders: { read: true, write: true },
+    activity_history: { read: true, write: true },
+    reports: { read: true, write: true },
+    access_management: { read: true, write: true }
+  };
+}
+
+async function ensureGeneralFeaturePermissions(client, orgId, actor = 'system') {
+  await client.query(
+    `
+      insert into app.general_feature_permissions (
+        org_id,
+        feature_area,
+        read_enabled,
+        write_enabled,
+        updated_at,
+        updated_by
+      )
+      select
+        $1::uuid,
+        feature_area.value,
+        true,
+        true,
+        now(),
+        $2
+      from unnest($3::text[]) as feature_area(value)
+      on conflict (org_id, feature_area) do nothing
+    `,
+    [orgId, asTrimmedString(actor), MEMBER_FEATURE_AREAS]
+  );
+}
+
+async function ensureOwnerNotificationPreference(client, orgId, ownerUserId, actor = 'system') {
+  await client.query(
+    `
+      insert into app.owner_notification_preferences (
+        org_id,
+        owner_user_id,
+        in_app_opt_in,
+        email_opt_in,
+        updated_at,
+        updated_by
+      )
+      values ($1::uuid, $2::uuid, true, true, now(), $3)
+      on conflict (org_id, owner_user_id) do nothing
+    `,
+    [orgId, ownerUserId, asTrimmedString(actor)]
+  );
+}
+
+async function getGeneralFeaturePermissions(client, orgId) {
+  await ensureGeneralFeaturePermissions(client, orgId, 'backend-access-read');
+
+  const rows = await queryRows(
+    client,
+    `
+      select feature_area, read_enabled, write_enabled
+      from app.general_feature_permissions
+      where org_id = $1
+    `,
+    [orgId]
+  );
+
+  const mapped = createDeniedFeaturePermissions();
+  MEMBER_FEATURE_AREAS.forEach((feature) => {
+    mapped[feature] = { read: true, write: true };
+  });
+  mapped.access_management = { read: false, write: false };
+
+  rows.forEach((row) => {
+    const feature = asTrimmedString(row.feature_area);
+    if (!(feature in mapped)) {
+      return;
+    }
+    mapped[feature] = {
+      read: Boolean(row.read_enabled),
+      write: Boolean(row.write_enabled)
+    };
+  });
+
+  return mapped;
+}
+
+async function getMemberEffectiveFeaturePermissionsForUser(client, orgId, userId) {
+  const mapped = await getGeneralFeaturePermissions(client, orgId);
+  const rows = await queryRows(
+    client,
+    `
+      select feature_area, read_enabled, write_enabled
+      from app.admin_feature_permissions
+      where org_id = $1
+        and admin_user_id = $2::uuid
+        and feature_area = any($3::text[])
+    `,
+    [orgId, userId, MEMBER_FEATURE_AREAS]
+  );
+
+  rows.forEach((row) => {
+    const feature = asTrimmedString(row.feature_area);
+    if (!MEMBER_FEATURE_AREAS.includes(feature)) {
+      return;
+    }
+    mapped[feature] = {
+      read: Boolean(row.read_enabled),
+      write: Boolean(row.write_enabled)
+    };
+  });
+
+  mapped.access_management = { read: false, write: false };
+  return mapped;
+}
+
+async function ensureAdminFeaturePermissions(client, orgId, adminUserId, copyMemberDefaults, actor = 'system') {
+  await ensureGeneralFeaturePermissions(client, orgId, actor);
+  const generalPermissions = await getGeneralFeaturePermissions(client, orgId);
+
+  for (const feature of ADMIN_FEATURE_AREAS) {
+    let readEnabled = true;
+    let writeEnabled = true;
+
+    if (copyMemberDefaults && feature !== 'access_management') {
+      readEnabled = Boolean(generalPermissions[feature]?.read ?? true);
+      writeEnabled = Boolean(generalPermissions[feature]?.write ?? true);
+    }
+
+    await client.query(
+      `
+        insert into app.admin_feature_permissions (
+          org_id,
+          admin_user_id,
+          feature_area,
+          read_enabled,
+          write_enabled,
+          updated_at,
+          updated_by
+        )
+        values ($1::uuid, $2::uuid, $3, $4, $5, now(), $6)
+        on conflict (org_id, admin_user_id, feature_area) do nothing
+      `,
+      [orgId, adminUserId, feature, readEnabled, writeEnabled, asTrimmedString(actor)]
+    );
+  }
+}
+
+async function getAdminFeaturePermissions(client, orgId, adminUserId) {
+  await ensureAdminFeaturePermissions(client, orgId, adminUserId, true, 'backend-admin-access-read');
+  const generalPermissions = await getGeneralFeaturePermissions(client, orgId);
+
+  const rows = await queryRows(
+    client,
+    `
+      select feature_area, read_enabled, write_enabled
+      from app.admin_feature_permissions
+      where org_id = $1
+        and admin_user_id = $2
+    `,
+    [orgId, adminUserId]
+  );
+
+  const mapped = createDeniedFeaturePermissions();
+  MEMBER_FEATURE_AREAS.forEach((feature) => {
+    mapped[feature] = {
+      read: Boolean(generalPermissions[feature]?.read ?? true),
+      write: Boolean(generalPermissions[feature]?.write ?? true)
+    };
+  });
+  mapped.access_management = { read: true, write: true };
+
+  rows.forEach((row) => {
+    const feature = asTrimmedString(row.feature_area);
+    if (!(feature in mapped)) {
+      return;
+    }
+    mapped[feature] = {
+      read: Boolean(row.read_enabled),
+      write: Boolean(row.write_enabled)
+    };
+  });
+
+  return mapped;
+}
+
+function inferFeatureForRoute(logicalPath) {
+  switch (logicalPath) {
+    case '/boxes/search':
+    case '/boxes/get':
+    case '/boxes/add':
+    case '/boxes/update':
+    case '/boxes/delete':
+    case '/boxes/set-status':
+    case '/film-data/catalog':
+    case '/inventory/add':
+    case '/inventory/scan':
+      return 'inventory';
+    case '/allocations/by-box':
+    case '/allocations/jobs':
+    case '/allocations/by-job':
+    case '/allocations/preview':
+    case '/allocations/add':
+    case '/allocations/apply':
+      return 'allocations';
+    case '/jobs/list':
+    case '/jobs/get':
+    case '/jobs/create':
+    case '/jobs/update':
+      return 'jobs';
+    case '/film-orders/list':
+    case '/film-orders/create':
+    case '/film-orders/cancel':
+    case '/film-orders/delete':
+      return 'film_orders';
+    case '/audit/list':
+    case '/audit/by-box':
+    case '/audit/undo':
+    case '/roll-history/by-box':
+    case '/checkout-history':
+      return 'activity_history';
+    case '/reports/summary':
+      return 'reports';
+    case '/admin/access/requests':
+    case '/admin/access/requests/approve':
+    case '/admin/access/requests/deny':
+    case '/admin/username-requests':
+    case '/admin/username-requests/approve':
+    case '/admin/username-requests/deny':
+    case '/admin/member-permissions':
+    case '/admin/user-permissions':
+    case '/admin/roles/promote-member-to-admin':
+      return 'access_management';
+    default:
+      return '';
+  }
+}
+
+function inferAccessModeForRoute(method, logicalPath) {
+  const isReadRoute =
+    method === 'GET' ||
+    logicalPath === '/allocations/preview' ||
+    logicalPath === '/admin/access/requests' ||
+    logicalPath === '/admin/username-requests' ||
+    logicalPath === '/admin/member-permissions' ||
+    logicalPath === '/admin/user-permissions' ||
+    logicalPath === '/owner/admin-permissions' ||
+    logicalPath === '/owner/notification-preferences';
+  return isReadRoute ? 'read' : 'write';
+}
+
+function isOwnerOnlyRoute(logicalPath) {
+  return (
+    logicalPath === '/owner/admin-permissions' ||
+    logicalPath === '/owner/roles/demote-admin-to-member' ||
+    logicalPath === '/owner/roles/promote-admin-to-owner' ||
+    logicalPath === '/owner/notification-preferences'
+  );
+}
+
+function isAdminConsoleRoute(logicalPath) {
+  return logicalPath.startsWith('/admin/');
+}
+
+function mapDatabaseBootstrapError(message) {
+  const normalized = asTrimmedString(message).toLowerCase();
+  if (
+    normalized.includes('relation "app.general_feature_permissions" does not exist') ||
+    normalized.includes('relation "app.admin_feature_permissions" does not exist') ||
+    normalized.includes('relation "app.access_requests" does not exist') ||
+    normalized.includes('relation "app.username_change_requests" does not exist') ||
+    normalized.includes('column "requested_by_name" does not exist') ||
+    (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migrations 0006, 0007, 0008, and 0009 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, and 0009_user_feature_overrides.sql, then retry.';
+  }
+  return asTrimmedString(message) || 'Unexpected server error.';
+}
+
+function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
+  if (logicalPath === '/health' || logicalPath === '/auth/context') {
+    return;
+  }
+
+  if (logicalPath === '/profile/username') {
+    return;
+  }
+
+  if (authContext.accessStatus !== 'approved') {
+    throw new HttpError(
+      403,
+      authContext.accessStatus === 'denied'
+        ? 'Your access request was denied. Contact an owner for help.'
+        : 'Your account is awaiting approval from an admin or owner.'
+    );
+  }
+
+  if (isOwnerOnlyRoute(logicalPath) && authContext.role !== 'owner') {
+    throw new HttpError(403, 'Owner access is required.');
+  }
+
+  if (isAdminConsoleRoute(logicalPath)) {
+    if (!['owner', 'admin'].includes(authContext.role)) {
+      throw new HttpError(403, 'Admin or owner access is required.');
+    }
+  }
+
+  if (authContext.role === 'owner') {
+    return;
+  }
+
+  const feature = inferFeatureForRoute(logicalPath);
+  if (!feature) {
+    return;
+  }
+
+  const mode = inferAccessModeForRoute(method, logicalPath);
+  const featurePermissions = authContext.permissions?.[feature];
+  const allowed = mode === 'read' ? featurePermissions?.read : featurePermissions?.write;
+
+  if (!allowed) {
+    throw new HttpError(403, 'Feature access denied.');
+  }
+}
+
 async function fetchAuthIdentity(token) {
   const cached = authIdentityCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
@@ -1082,7 +1449,7 @@ async function fetchAuthIdentity(token) {
   const name =
     asTrimmedString(metadata.full_name) ||
     asTrimmedString(metadata.name) ||
-    (email ? email.split('@')[0].replace(/[._-]+/g, ' ').trim() : '') ||
+    deriveNameFromEmail(email) ||
     'Inventory User';
 
   const identity = {
@@ -1116,7 +1483,7 @@ async function resolveAuthContext(headers) {
     const memberships = await queryRows(
       client,
       `
-        select org_id
+        select org_id, role
         from app.organization_members
         where user_id = $1
         order by created_at asc, org_id asc
@@ -1124,29 +1491,186 @@ async function resolveAuthContext(headers) {
       [identity.userId]
     );
 
-    if (!memberships.length) {
-      throw new HttpError(403, 'You do not have access to this inventory workspace.');
+    let orgId = DEFAULT_ORG_ID;
+    if (!orgId) {
+      if (memberships.length === 1) {
+        orgId = memberships[0].org_id;
+      } else if (memberships.length > 1) {
+        throw new HttpError(
+          500,
+          'DEFAULT_ORG_ID is required because this user belongs to multiple organizations.'
+        );
+      } else {
+        throw new HttpError(
+          500,
+          'DEFAULT_ORG_ID must be configured before handling pending approvals.'
+        );
+      }
     }
 
-    let orgId = DEFAULT_ORG_ID;
-    if (orgId) {
+    if (memberships.length > 0) {
       const found = memberships.some((entry) => entry.org_id === orgId);
-      if (!found) {
+      if (!found && DEFAULT_ORG_ID) {
         throw new HttpError(403, 'DEFAULT_ORG_ID is not assigned to the authenticated user.');
       }
-    } else if (memberships.length === 1) {
-      orgId = memberships[0].org_id;
-    } else {
-      throw new HttpError(
-        500,
-        'DEFAULT_ORG_ID is required because this user belongs to multiple organizations.'
+    }
+
+    const actor = `${identity.name} <${identity.email}>`;
+    const membership = memberships.find((entry) => entry.org_id === orgId) || null;
+    await ensureGeneralFeaturePermissions(client, orgId, actor);
+
+    if (!membership) {
+      const existingRequest = await queryRow(
+        client,
+        `
+          select status
+          from app.access_requests
+          where org_id = $1
+            and user_id = $2
+        `,
+        [orgId, identity.userId]
       );
+
+      if (existingRequest && asTrimmedString(existingRequest.status).toLowerCase() === 'denied') {
+        return {
+          ...identity,
+          orgId,
+          actor,
+          role: '',
+          accessStatus: 'denied',
+          permissions: createDeniedFeaturePermissions(),
+          isAdminConsoleAllowed: false,
+          pendingCount: 0,
+          receivesInAppNotifications: false,
+          pendingRequestCreated: false
+        };
+      }
+
+      const inserted = await client.query(
+        `
+          insert into app.access_requests (
+            org_id,
+            user_id,
+            status,
+            requested_at,
+            requested_by_email,
+            requested_by_name
+          )
+          values ($1::uuid, $2::uuid, 'pending', now(), $3, $4)
+          on conflict (org_id, user_id) do nothing
+        `,
+        [orgId, identity.userId, identity.email, asTrimmedString(identity.name)]
+      );
+
+      return {
+        ...identity,
+        orgId,
+        actor,
+        role: '',
+        accessStatus: 'pending',
+        permissions: createDeniedFeaturePermissions(),
+        isAdminConsoleAllowed: false,
+        pendingCount: 0,
+        receivesInAppNotifications: false,
+        pendingRequestCreated: inserted.rowCount > 0
+      };
+    }
+
+    const role = asTrimmedString(membership.role).toLowerCase();
+    const normalizedRole = role === 'owner' || role === 'admin' ? role : 'member';
+
+    await client.query(
+      `
+        insert into app.access_requests (
+          org_id,
+          user_id,
+          status,
+          requested_at,
+          requested_by_email,
+          requested_by_name,
+          decided_at,
+          decided_by_user_id,
+          decided_by_actor,
+          decision_note
+        )
+        values ($1::uuid, $2::uuid, 'approved', now(), $3, $4, now(), $2::uuid, 'auto-approved from membership', '')
+        on conflict (org_id, user_id) do nothing
+      `,
+      [orgId, identity.userId, identity.email, asTrimmedString(identity.name)]
+    );
+
+    await client.query(
+      `
+        update app.access_requests
+        set
+          status = 'approved',
+          decided_at = now(),
+          decided_by_user_id = $2::uuid,
+          decided_by_actor = 'auto-approved from membership',
+          decision_note = ''
+        where org_id = $1
+          and user_id = $2
+          and status <> 'approved'
+      `,
+      [orgId, identity.userId]
+    );
+
+    let permissions = createDeniedFeaturePermissions();
+    let isAdminConsoleAllowed = false;
+    let receivesInAppNotifications = false;
+
+    if (normalizedRole === 'owner') {
+      await ensureOwnerNotificationPreference(client, orgId, identity.userId, actor);
+      const preference = await queryRow(
+        client,
+        `
+          select in_app_opt_in
+          from app.owner_notification_preferences
+          where org_id = $1
+            and owner_user_id = $2
+        `,
+        [orgId, identity.userId]
+      );
+      permissions = buildOwnerFeaturePermissions();
+      isAdminConsoleAllowed = true;
+      receivesInAppNotifications = preference ? Boolean(preference.in_app_opt_in) : true;
+    } else if (normalizedRole === 'admin') {
+      await ensureAdminFeaturePermissions(client, orgId, identity.userId, true, actor);
+      permissions = await getAdminFeaturePermissions(client, orgId, identity.userId);
+      isAdminConsoleAllowed = Boolean(permissions.access_management?.write);
+      receivesInAppNotifications = true;
+    } else {
+      permissions = await getMemberEffectiveFeaturePermissionsForUser(client, orgId, identity.userId);
+      isAdminConsoleAllowed = false;
+      receivesInAppNotifications = false;
+    }
+
+    let pendingCount = 0;
+    if (normalizedRole === 'admin' || (normalizedRole === 'owner' && receivesInAppNotifications)) {
+      const pendingRow = await queryRow(
+        client,
+        `
+          select count(*)::int as pending_count
+          from app.access_requests
+          where org_id = $1
+            and status = 'pending'
+        `,
+        [orgId]
+      );
+      pendingCount = pendingRow ? integerOrZero(pendingRow.pending_count) : 0;
     }
 
     return {
       ...identity,
       orgId,
-      actor: `${identity.name} <${identity.email}>`
+      actor,
+      role: normalizedRole,
+      accessStatus: 'approved',
+      permissions,
+      isAdminConsoleAllowed,
+      pendingCount,
+      receivesInAppNotifications,
+      pendingRequestCreated: false
     };
   });
 }
@@ -1827,6 +2351,7 @@ async function saveJobRecord(client, orgId, job) {
         warehouse,
         sections,
         due_date,
+        crew_leader,
         lifecycle_status,
         notes,
         created_at,
@@ -1837,16 +2362,17 @@ async function saveJobRecord(client, orgId, job) {
       values (
         $1,$2,$3,$4,
         nullif($5, '')::date,
-        $6,$7,
-        coalesce($8::timestamptz, now()),
-        $9,
-        coalesce($10::timestamptz, now()),
-        $11
+        $6,$7,$8,
+        coalesce($9::timestamptz, now()),
+        $10,
+        coalesce($11::timestamptz, now()),
+        $12
       )
       on conflict (org_id, job_number) do update set
         warehouse = excluded.warehouse,
         sections = excluded.sections,
         due_date = excluded.due_date,
+        crew_leader = excluded.crew_leader,
         lifecycle_status = excluded.lifecycle_status,
         notes = excluded.notes,
         updated_at = excluded.updated_at,
@@ -1859,6 +2385,7 @@ async function saveJobRecord(client, orgId, job) {
       job.warehouse,
       job.sections,
       job.dueDate,
+      job.crewLeader,
       job.lifecycleStatus,
       job.notes,
       job.createdAt,
@@ -2359,6 +2886,7 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     warehouse: warehouse || 'IL',
     sections: null,
     dueDate: metadata.jobDate,
+    crewLeader: metadata.crewLeader,
     lifecycleStatus: 'ACTIVE',
     notes: '',
     createdAt,
@@ -2404,10 +2932,12 @@ function computeJobStatusFromRequirements(lifecycleStatus, requirements, allocat
 }
 
 function buildJobListEntry(jobHeader, requirements, allocations, filmOrders) {
+  const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
   if (!dueDate) {
-    dueDate = resolveAllocationJobMetadata(allocations, filmOrders).jobDate;
+    dueDate = metadata.jobDate;
   }
+  const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
 
   let requiredFeet = 0;
   let allocatedFeet = 0;
@@ -2424,6 +2954,7 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders) {
     warehouse: jobHeader.warehouse || 'IL',
     sections: jobHeader.sections,
     dueDate,
+    crewLeader,
     status: computeJobStatusFromRequirements(
       jobHeader.lifecycleStatus,
       requirements,
@@ -2522,10 +3053,11 @@ async function resolveJobContext(client, orgId, jobNumber, jobDate, crewLeader) 
   const normalizedJobNumber = requireString(jobNumber, 'JobNumber');
   const normalizedJobDate = normalizeDateString(jobDate, 'JobDate', true);
   const normalizedCrewLeader = asTrimmedString(crewLeader);
+  const existingHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
   const existingAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  let existingJobDate = '';
-  let existingCrewLeader = '';
+  let existingJobDate = existingHeader?.dueDate || '';
+  let existingCrewLeader = existingHeader?.crewLeader || '';
 
   for (let index = 0; index < existingAllocations.length; index += 1) {
     if (!existingJobDate && existingAllocations[index].jobDate) {
@@ -2611,6 +3143,12 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
 
   const useCrossWarehouse = options && options.crossWarehouse === true;
+  const minimumWidthValue = Number(options && options.minimumWidthIn);
+  const minimumWidthIn =
+    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : sourceBox.widthIn;
+  if (sourceBox.widthIn < minimumWidthIn) {
+    throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
+  }
   const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, activeAllocationsByBox);
   const sourceSuggestedFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
@@ -2629,7 +3167,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       candidate.feetAvailable <= 0 ||
       candidate.manufacturer !== sourceBox.manufacturer ||
       candidate.filmName !== sourceBox.filmName ||
-      candidate.widthIn !== sourceBox.widthIn
+      candidate.widthIn < minimumWidthIn
     ) {
       continue;
     }
@@ -2637,7 +3175,15 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     filteredCandidates.push(candidate);
   }
 
-  filteredCandidates.sort(compareBoxesByOldestStock);
+  filteredCandidates.sort((left, right) => {
+    const leftWidthDelta = left.widthIn - minimumWidthIn;
+    const rightWidthDelta = right.widthIn - minimumWidthIn;
+    if (leftWidthDelta !== rightWidthDelta) {
+      return leftWidthDelta - rightWidthDelta;
+    }
+
+    return compareBoxesByOldestStock(left, right);
+  });
 
   for (let index = 0; index < filteredCandidates.length; index += 1) {
     const candidate = filteredCandidates[index];
@@ -2649,6 +3195,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     candidates.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
+      widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
       suggestedFeet: remaining > 0 ? Math.min(candidate.feetAvailable, remaining) : 0,
       receivedDate: candidate.receivedDate,
@@ -3768,6 +4315,8 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   derived.warehouse = payload.warehouse ? normalizeJobWarehouse(payload.warehouse) : derived.warehouse;
   derived.sections = normalizeJobSections(payload.sections);
   derived.dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  derived.crewLeader =
+    payload.crewLeader !== undefined ? asTrimmedString(payload.crewLeader) : derived.crewLeader;
   derived.lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   derived.createdAt = derived.createdAt || nowIso;
   derived.createdBy = derived.createdBy || user;
@@ -4269,6 +4818,7 @@ async function createJob(client, orgId, payload, actor) {
   const warehouse = normalizeJobWarehouse(payload.warehouse);
   const sections = normalizeJobSections(payload.sections);
   const dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  const crewLeader = asTrimmedString(payload.crewLeader);
   const lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   const notes = asTrimmedString(payload.notes);
   const incomingRequirements = dedupeJobRequirements(payload.requirements, warnings);
@@ -4283,6 +4833,7 @@ async function createJob(client, orgId, payload, actor) {
       warehouse,
       sections,
       dueDate,
+      crewLeader,
       lifecycleStatus,
       notes,
       createdAt: nowIso,
@@ -4297,6 +4848,7 @@ async function createJob(client, orgId, payload, actor) {
       warehouse,
       sections,
       dueDate,
+      crewLeader,
       lifecycleStatus,
       updatedAt: nowIso,
       updatedBy: actor,
@@ -4370,6 +4922,10 @@ async function updateJob(client, orgId, payload, actor) {
 
   if (payload.dueDate !== undefined) {
     nextHeader.dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  }
+
+  if (payload.crewLeader !== undefined) {
+    nextHeader.crewLeader = asTrimmedString(payload.crewLeader);
   }
 
   if (payload.lifecycleStatus !== undefined) {
@@ -4573,6 +5129,7 @@ async function previewAllocationPlan(client, orgId, payload) {
 
   return buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
     crossWarehouse,
+    minimumWidthIn: payload.requestedWidthIn,
     allBoxes,
     activeAllocationsByBox
   });
@@ -4608,6 +5165,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   );
   const plan = buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
     crossWarehouse,
+    minimumWidthIn: payload.requestedWidthIn,
     allBoxes,
     activeAllocationsByBox
   });
@@ -4896,7 +5454,880 @@ async function buildFilmCatalog(client, orgId) {
   return response;
 }
 
+async function listAccessRequests(client, orgId, status) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        r.user_id,
+        coalesce(nullif(r.requested_by_name, ''), nullif(u.raw_user_meta_data->>'full_name', ''), nullif(u.raw_user_meta_data->>'name', '')) as requested_by_name,
+        coalesce(nullif(r.requested_by_email, ''), nullif(u.email, ''), '') as requested_by_email,
+        r.status,
+        r.requested_at,
+        r.decided_at,
+        r.decided_by_actor,
+        r.decision_note,
+        m.role as current_role
+      from app.access_requests r
+      left join app.organization_members m
+        on m.org_id = r.org_id
+       and m.user_id = r.user_id
+      left join auth.users u
+        on u.id = r.user_id
+      where r.org_id = $1
+        and ($2 = '' or lower(r.status) = lower($2))
+      order by r.requested_at asc, r.user_id asc
+    `,
+    [orgId, asTrimmedString(status).toLowerCase()]
+  );
+
+  return rows.map((row) => ({
+    userId: asTrimmedString(row.user_id),
+    name:
+      asTrimmedString(row.requested_by_name) ||
+      deriveNameFromEmail(asTrimmedString(row.requested_by_email)) ||
+      asTrimmedString(row.user_id),
+    email: asTrimmedString(row.requested_by_email),
+    status: asTrimmedString(row.status).toLowerCase(),
+    requestedAt: formatTimestamp(row.requested_at),
+    decidedAt: formatTimestamp(row.decided_at),
+    decidedByActor: asTrimmedString(row.decided_by_actor),
+    decisionNote: asTrimmedString(row.decision_note),
+    currentRole: asTrimmedString(row.current_role).toLowerCase()
+  }));
+}
+
+async function approveAccessRequestByUserId(client, orgId, actor, payload, actingUserId) {
+  const userId = requireString(payload.userId, 'userId');
+  const note = asTrimmedString(payload.note);
+  const existing = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members m
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+
+  let role = asTrimmedString(existing?.role).toLowerCase();
+  if (!role) {
+    await client.query(
+      `
+        insert into app.organization_members (
+          org_id,
+          user_id,
+          role,
+          created_at
+        )
+        values ($1::uuid, $2::uuid, 'member', now())
+        on conflict (org_id, user_id) do nothing
+      `,
+      [orgId, userId]
+    );
+    role = 'member';
+  }
+
+  await client.query(
+    `
+      insert into app.access_requests (
+        org_id,
+        user_id,
+        status,
+        requested_at,
+        requested_by_email,
+        decided_at,
+        decided_by_user_id,
+        decided_by_actor,
+        decision_note
+      )
+      values ($1::uuid, $2::uuid, 'approved', now(), '', now(), $3::uuid, $4, $5)
+      on conflict (org_id, user_id) do update
+      set
+        status = 'approved',
+        decided_at = excluded.decided_at,
+        decided_by_user_id = excluded.decided_by_user_id,
+        decided_by_actor = excluded.decided_by_actor,
+        decision_note = excluded.decision_note
+    `,
+    [orgId, userId, actingUserId, asTrimmedString(actor), note]
+  );
+
+  if (role === 'owner') {
+    await ensureOwnerNotificationPreference(client, orgId, userId, actor);
+  } else if (role === 'admin') {
+    await ensureAdminFeaturePermissions(client, orgId, userId, false, actor);
+  }
+
+  return {
+    userId,
+    status: 'approved',
+    role
+  };
+}
+
+async function denyAccessRequestByUserId(client, orgId, actor, payload, actingUserId) {
+  const userId = requireString(payload.userId, 'userId');
+  const note = asTrimmedString(payload.note);
+
+  const existing = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members m
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+  if (existing) {
+    throw new HttpError(400, 'This user is already a workspace member and cannot be denied.');
+  }
+
+  await client.query(
+    `
+      insert into app.access_requests (
+        org_id,
+        user_id,
+        status,
+        requested_at,
+        requested_by_email,
+        decided_at,
+        decided_by_user_id,
+        decided_by_actor,
+        decision_note
+      )
+      values ($1::uuid, $2::uuid, 'denied', now(), '', now(), $3::uuid, $4, $5)
+      on conflict (org_id, user_id) do update
+      set
+        status = 'denied',
+        decided_at = excluded.decided_at,
+        decided_by_user_id = excluded.decided_by_user_id,
+        decided_by_actor = excluded.decided_by_actor,
+        decision_note = excluded.decision_note
+    `,
+    [orgId, userId, actingUserId, asTrimmedString(actor), note]
+  );
+
+  return {
+    userId,
+    status: 'denied'
+  };
+}
+
+async function setUserDisplayName(client, userId, displayName) {
+  const username = normalizeUsername(displayName);
+  const result = await client.query(
+    `
+      update auth.users
+      set
+        raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
+          'name', $2,
+          'full_name', $2
+        ),
+        updated_at = now()
+      where id = $1::uuid
+    `,
+    [userId, username]
+  );
+
+  if (!result.rowCount) {
+    throw new HttpError(404, 'The user profile could not be found.');
+  }
+}
+
+async function listUsernameChangeRequests(client, orgId, status) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        r.user_id,
+        coalesce(nullif(a.requested_by_email, ''), nullif(u.email, ''), '') as email,
+        coalesce(
+          nullif(a.requested_by_name, ''),
+          nullif(u.raw_user_meta_data->>'full_name', ''),
+          nullif(u.raw_user_meta_data->>'name', '')
+        ) as current_name,
+        r.requested_name,
+        r.status,
+        r.requested_at,
+        r.decided_at,
+        r.decided_by_actor,
+        r.decision_note,
+        m.role as current_role
+      from app.username_change_requests r
+      left join app.access_requests a
+        on a.org_id = r.org_id
+       and a.user_id = r.user_id
+      left join app.organization_members m
+        on m.org_id = r.org_id
+       and m.user_id = r.user_id
+      left join auth.users u
+        on u.id = r.user_id
+      where r.org_id = $1
+        and ($2 = '' or lower(r.status) = lower($2))
+      order by r.requested_at asc, r.user_id asc
+    `,
+    [orgId, asTrimmedString(status).toLowerCase()]
+  );
+
+  return rows.map((row) => {
+    const email = asTrimmedString(row.email);
+    return {
+      userId: asTrimmedString(row.user_id),
+      email,
+      currentName: asTrimmedString(row.current_name) || deriveNameFromEmail(email) || asTrimmedString(row.user_id),
+      requestedName: asTrimmedString(row.requested_name),
+      status: asTrimmedString(row.status).toLowerCase(),
+      requestedAt: formatTimestamp(row.requested_at),
+      decidedAt: formatTimestamp(row.decided_at),
+      decidedByActor: asTrimmedString(row.decided_by_actor),
+      decisionNote: asTrimmedString(row.decision_note),
+      currentRole: asTrimmedString(row.current_role).toLowerCase()
+    };
+  });
+}
+
+async function requestUsernameChange(client, orgId, authContext, payload) {
+  const requestedName = normalizeUsername(payload.username);
+  const actor = asTrimmedString(authContext.actor);
+  const role = asTrimmedString(authContext.role).toLowerCase();
+  const email = asTrimmedString(authContext.email);
+  const userId = requireString(authContext.userId, 'userId');
+
+  if (role === 'owner' || role === 'admin') {
+    await setUserDisplayName(client, userId, requestedName);
+    await client.query(
+      `
+        insert into app.access_requests (
+          org_id,
+          user_id,
+          status,
+          requested_at,
+          requested_by_email,
+          requested_by_name
+        )
+        values ($1::uuid, $2::uuid, 'pending', now(), $3, $4)
+        on conflict (org_id, user_id) do update
+        set
+          requested_by_email = case
+            when trim(app.access_requests.requested_by_email) = '' then excluded.requested_by_email
+            else app.access_requests.requested_by_email
+          end,
+          requested_by_name = excluded.requested_by_name
+      `,
+      [orgId, userId, email, requestedName]
+    );
+
+    await client.query(
+      `
+        insert into app.username_change_requests (
+          org_id,
+          user_id,
+          requested_name,
+          status,
+          requested_at,
+          requested_by_actor,
+          decided_at,
+          decided_by_user_id,
+          decided_by_actor,
+          decision_note
+        )
+        values ($1::uuid, $2::uuid, $3, 'approved', now(), $4, now(), $2::uuid, $4, 'Auto-approved admin/owner self-update.')
+        on conflict (org_id, user_id) do update
+        set
+          requested_name = excluded.requested_name,
+          status = 'approved',
+          requested_at = excluded.requested_at,
+          requested_by_actor = excluded.requested_by_actor,
+          decided_at = excluded.decided_at,
+          decided_by_user_id = excluded.decided_by_user_id,
+          decided_by_actor = excluded.decided_by_actor,
+          decision_note = excluded.decision_note
+      `,
+      [orgId, userId, requestedName, actor]
+    );
+
+    return {
+      status: 'approved',
+      requiresApproval: false,
+      username: requestedName
+    };
+  }
+
+  await client.query(
+    `
+      insert into app.username_change_requests (
+        org_id,
+        user_id,
+        requested_name,
+        status,
+        requested_at,
+        requested_by_actor,
+        decided_at,
+        decided_by_user_id,
+        decided_by_actor,
+        decision_note
+      )
+      values ($1::uuid, $2::uuid, $3, 'pending', now(), $4, null, null, '', '')
+      on conflict (org_id, user_id) do update
+      set
+        requested_name = excluded.requested_name,
+        status = 'pending',
+        requested_at = excluded.requested_at,
+        requested_by_actor = excluded.requested_by_actor,
+        decided_at = null,
+        decided_by_user_id = null,
+        decided_by_actor = '',
+        decision_note = ''
+    `,
+    [orgId, userId, requestedName, actor]
+  );
+
+  if (email) {
+    await client.query(
+      `
+        update app.access_requests
+        set requested_by_email = $3
+        where org_id = $1
+          and user_id = $2::uuid
+          and trim(requested_by_email) = ''
+      `,
+      [orgId, userId, email]
+    );
+  }
+
+  return {
+    status: 'pending',
+    requiresApproval: true,
+    username: requestedName
+  };
+}
+
+async function approveUsernameChangeRequestByUserId(client, orgId, actor, payload, actingUserId) {
+  const userId = requireString(payload.userId, 'userId');
+  const note = asTrimmedString(payload.note);
+
+  const requestRow = await queryRow(
+    client,
+    `
+      select requested_name
+      from app.username_change_requests
+      where org_id = $1
+        and user_id = $2::uuid
+        and status = 'pending'
+      for update
+    `,
+    [orgId, userId]
+  );
+
+  if (!requestRow) {
+    throw new HttpError(404, 'No pending username change request was found for this user.');
+  }
+
+  const username = normalizeUsername(requestRow.requested_name);
+  await setUserDisplayName(client, userId, username);
+
+  const emailRow = await queryRow(
+    client,
+    `
+      select coalesce(nullif(r.requested_by_email, ''), nullif(u.email, ''), '') as email
+      from auth.users u
+      left join app.access_requests r
+        on r.org_id = $1
+       and r.user_id = u.id
+      where u.id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+  const email = asTrimmedString(emailRow?.email);
+
+  await client.query(
+    `
+      insert into app.access_requests (
+        org_id,
+        user_id,
+        status,
+        requested_at,
+        requested_by_email,
+        requested_by_name
+      )
+      values ($1::uuid, $2::uuid, 'pending', now(), $3, $4)
+      on conflict (org_id, user_id) do update
+      set
+        requested_by_email = case
+          when trim(app.access_requests.requested_by_email) = '' then excluded.requested_by_email
+          else app.access_requests.requested_by_email
+        end,
+        requested_by_name = excluded.requested_by_name
+    `,
+    [orgId, userId, email, username]
+  );
+
+  await client.query(
+    `
+      update app.username_change_requests
+      set
+        status = 'approved',
+        decided_at = now(),
+        decided_by_user_id = $3::uuid,
+        decided_by_actor = $4,
+        decision_note = $5
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId, actingUserId, asTrimmedString(actor), note]
+  );
+
+  return {
+    userId,
+    status: 'approved',
+    username
+  };
+}
+
+async function denyUsernameChangeRequestByUserId(client, orgId, actor, payload, actingUserId) {
+  const userId = requireString(payload.userId, 'userId');
+  const note = asTrimmedString(payload.note);
+  const result = await client.query(
+    `
+      update app.username_change_requests
+      set
+        status = 'denied',
+        decided_at = now(),
+        decided_by_user_id = $3::uuid,
+        decided_by_actor = $4,
+        decision_note = $5
+      where org_id = $1
+        and user_id = $2::uuid
+        and status = 'pending'
+    `,
+    [orgId, userId, actingUserId, asTrimmedString(actor), note]
+  );
+
+  if (!result.rowCount) {
+    throw new HttpError(404, 'No pending username change request was found for this user.');
+  }
+
+  return {
+    userId,
+    status: 'denied'
+  };
+}
+
+async function updateMemberFeaturePermissionsInternal(client, orgId, actor, payload) {
+  await ensureGeneralFeaturePermissions(client, orgId, actor);
+  const permissions = payload?.permissions && typeof payload.permissions === 'object' ? payload.permissions : {};
+
+  for (const feature of MEMBER_FEATURE_AREAS) {
+    const entry = permissions[feature];
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const readValue = String(entry.read).toLowerCase();
+    const writeValue = String(entry.write).toLowerCase();
+    await client.query(
+      `
+        update app.general_feature_permissions
+        set
+          read_enabled = case when $3 in ('true', 'false') then $3::boolean else read_enabled end,
+          write_enabled = case when $4 in ('true', 'false') then $4::boolean else write_enabled end,
+          updated_at = now(),
+          updated_by = $5
+        where org_id = $1
+          and feature_area = $2
+      `,
+      [orgId, feature, readValue, writeValue, asTrimmedString(actor)]
+    );
+  }
+
+  return getGeneralFeaturePermissions(client, orgId);
+}
+
+async function getUserFeaturePermissionsInternal(client, orgId, payload) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+  if (!target) {
+    throw new HttpError(404, 'Target user is not an organization member.');
+  }
+
+  const role = asTrimmedString(target.role).toLowerCase();
+  if (role === 'owner') {
+    return buildOwnerFeaturePermissions();
+  }
+  if (role === 'admin') {
+    return getAdminFeaturePermissions(client, orgId, userId);
+  }
+
+  return getMemberEffectiveFeaturePermissionsForUser(client, orgId, userId);
+}
+
+async function updateUserFeaturePermissionsInternal(client, orgId, actor, payload) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+  if (!target) {
+    throw new HttpError(404, 'Target user is not an organization member.');
+  }
+
+  const role = asTrimmedString(target.role).toLowerCase();
+  if (role !== 'member') {
+    throw new HttpError(400, 'Only member accounts can be changed from this page.');
+  }
+
+  await ensureGeneralFeaturePermissions(client, orgId, actor);
+  const permissions = payload?.permissions && typeof payload.permissions === 'object' ? payload.permissions : {};
+
+  for (const feature of MEMBER_FEATURE_AREAS) {
+    const entry = permissions[feature];
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    await client.query(
+      `
+        insert into app.admin_feature_permissions (
+          org_id,
+          admin_user_id,
+          feature_area,
+          read_enabled,
+          write_enabled,
+          updated_at,
+          updated_by
+        )
+        values (
+          $1,
+          $2::uuid,
+          $3,
+          coalesce((select g.read_enabled from app.general_feature_permissions g where g.org_id = $1 and g.feature_area = $3), true),
+          coalesce((select g.write_enabled from app.general_feature_permissions g where g.org_id = $1 and g.feature_area = $3), true),
+          now(),
+          $4
+        )
+        on conflict (org_id, admin_user_id, feature_area) do nothing
+      `,
+      [orgId, userId, feature, asTrimmedString(actor)]
+    );
+
+    const readValue = String(entry.read).toLowerCase();
+    const writeValue = String(entry.write).toLowerCase();
+    await client.query(
+      `
+        update app.admin_feature_permissions
+        set
+          read_enabled = case when $4 in ('true', 'false') then $4::boolean else read_enabled end,
+          write_enabled = case when $5 in ('true', 'false') then $5::boolean else write_enabled end,
+          updated_at = now(),
+          updated_by = $6
+        where org_id = $1
+          and admin_user_id = $2::uuid
+          and feature_area = $3
+      `,
+      [orgId, userId, feature, readValue, writeValue, asTrimmedString(actor)]
+    );
+  }
+
+  await client.query(
+    `
+      delete from app.admin_feature_permissions
+      where org_id = $1
+        and admin_user_id = $2::uuid
+        and feature_area = 'access_management'
+    `,
+    [orgId, userId]
+  );
+
+  return getMemberEffectiveFeaturePermissionsForUser(client, orgId, userId);
+}
+
+async function listAdminFeaturePermissions(client, orgId) {
+  const admins = await queryRows(
+    client,
+    `
+      select
+        m.user_id,
+        m.role,
+        coalesce(nullif(r.requested_by_name, ''), nullif(u.raw_user_meta_data->>'full_name', ''), nullif(u.raw_user_meta_data->>'name', '')) as requested_by_name,
+        coalesce(nullif(r.requested_by_email, ''), nullif(u.email, ''), '') as requested_by_email
+      from app.organization_members m
+      left join lateral (
+        select a.requested_by_name, a.requested_by_email
+        from app.access_requests a
+        where a.org_id = m.org_id
+          and a.user_id = m.user_id
+        order by a.requested_at desc
+        limit 1
+      ) r on true
+      left join auth.users u
+        on u.id = m.user_id
+      where m.org_id = $1
+        and m.role = 'admin'
+      order by m.created_at asc, m.user_id asc
+    `,
+    [orgId]
+  );
+
+  const entries = [];
+  for (const admin of admins) {
+    const email = asTrimmedString(admin.requested_by_email);
+    const name = asTrimmedString(admin.requested_by_name) || deriveNameFromEmail(email) || asTrimmedString(admin.user_id);
+    entries.push({
+      userId: asTrimmedString(admin.user_id),
+      name,
+      email,
+      role: 'admin',
+      permissions: await getAdminFeaturePermissions(client, orgId, asTrimmedString(admin.user_id))
+    });
+  }
+
+  return entries;
+}
+
+async function updateAdminFeaturePermissionsInternal(client, orgId, actor, payload) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+  if (!target || asTrimmedString(target.role).toLowerCase() !== 'admin') {
+    throw new HttpError(400, 'Target user must be an admin.');
+  }
+
+  await ensureAdminFeaturePermissions(client, orgId, userId, true, actor);
+  const permissions = payload?.permissions && typeof payload.permissions === 'object' ? payload.permissions : {};
+  for (const feature of ADMIN_FEATURE_AREAS) {
+    const entry = permissions[feature];
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    const readValue = String(entry.read).toLowerCase();
+    const writeValue = String(entry.write).toLowerCase();
+    await client.query(
+      `
+        update app.admin_feature_permissions
+        set
+          read_enabled = case when $4 in ('true', 'false') then $4::boolean else read_enabled end,
+          write_enabled = case when $5 in ('true', 'false') then $5::boolean else write_enabled end,
+          updated_at = now(),
+          updated_by = $6
+        where org_id = $1
+          and admin_user_id = $2::uuid
+          and feature_area = $3
+      `,
+      [orgId, userId, feature, readValue, writeValue, asTrimmedString(actor)]
+    );
+  }
+
+  return getAdminFeaturePermissions(client, orgId, userId);
+}
+
+async function promoteMemberToAdminInternal(client, orgId, actor, payload, actingUserId) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+  if (!target) {
+    throw new HttpError(404, 'Target user is not an organization member.');
+  }
+  if (asTrimmedString(target.role).toLowerCase() !== 'member') {
+    throw new HttpError(400, 'Only member accounts can be promoted to admin.');
+  }
+
+  await client.query(
+    `
+      update app.organization_members
+      set role = 'admin'
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+
+  await ensureAdminFeaturePermissions(client, orgId, userId, true, actor);
+  await client.query(
+    `
+      insert into app.access_requests (
+        org_id,
+        user_id,
+        status,
+        requested_at,
+        requested_by_email,
+        decided_at,
+        decided_by_user_id,
+        decided_by_actor,
+        decision_note
+      )
+      values ($1::uuid, $2::uuid, 'approved', now(), '', now(), $3::uuid, $4, 'Promoted member to admin.')
+      on conflict (org_id, user_id) do update
+      set
+        status = 'approved',
+        decided_at = excluded.decided_at,
+        decided_by_user_id = excluded.decided_by_user_id,
+        decided_by_actor = excluded.decided_by_actor,
+        decision_note = excluded.decision_note
+    `,
+    [orgId, userId, actingUserId, asTrimmedString(actor)]
+  );
+
+  return {
+    userId,
+    role: 'admin'
+  };
+}
+
+async function demoteAdminToMemberInternal(client, orgId, payload) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+  if (!target || asTrimmedString(target.role).toLowerCase() !== 'admin') {
+    throw new HttpError(400, 'Target user must be an admin.');
+  }
+
+  await client.query(
+    `
+      update app.organization_members
+      set role = 'member'
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+  await client.query(
+    `
+      delete from app.admin_feature_permissions
+      where org_id = $1
+        and admin_user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+
+  return {
+    userId,
+    role: 'member'
+  };
+}
+
+async function promoteAdminToOwnerInternal(client, orgId, actor, payload) {
+  const userId = requireString(payload.userId, 'userId');
+  const target = await queryRow(
+    client,
+    `
+      select role
+      from app.organization_members
+      where org_id = $1
+        and user_id = $2::uuid
+      for update
+    `,
+    [orgId, userId]
+  );
+  if (!target || asTrimmedString(target.role).toLowerCase() !== 'admin') {
+    throw new HttpError(400, 'Target user must be an admin.');
+  }
+
+  await client.query(
+    `
+      update app.organization_members
+      set role = 'owner'
+      where org_id = $1
+        and user_id = $2::uuid
+    `,
+    [orgId, userId]
+  );
+  await ensureOwnerNotificationPreference(client, orgId, userId, actor);
+
+  return {
+    userId,
+    role: 'owner'
+  };
+}
+
+async function getOwnerNotificationPreferencesInternal(client, orgId, ownerUserId) {
+  await ensureOwnerNotificationPreference(client, orgId, ownerUserId, 'owner-preference-read');
+  const row = await queryRow(
+    client,
+    `
+      select in_app_opt_in, email_opt_in
+      from app.owner_notification_preferences
+      where org_id = $1
+        and owner_user_id = $2::uuid
+    `,
+    [orgId, ownerUserId]
+  );
+
+  return {
+    inAppOptIn: row ? Boolean(row.in_app_opt_in) : true,
+    emailOptIn: row ? Boolean(row.email_opt_in) : true
+  };
+}
+
+async function updateOwnerNotificationPreferencesInternal(client, orgId, ownerUserId, actor, payload) {
+  await ensureOwnerNotificationPreference(client, orgId, ownerUserId, actor);
+
+  const inAppValue = String(payload.inAppOptIn).toLowerCase();
+  const emailValue = String(payload.emailOptIn).toLowerCase();
+  await client.query(
+    `
+      update app.owner_notification_preferences
+      set
+        in_app_opt_in = case when $3 in ('true', 'false') then $3::boolean else in_app_opt_in end,
+        email_opt_in = case when $4 in ('true', 'false') then $4::boolean else email_opt_in end,
+        updated_at = now(),
+        updated_by = $5
+      where org_id = $1
+        and owner_user_id = $2::uuid
+    `,
+    [orgId, ownerUserId, inAppValue, emailValue, asTrimmedString(actor)]
+  );
+
+  return getOwnerNotificationPreferencesInternal(client, orgId, ownerUserId);
+}
+
 const READ_PATHS = new Set([
+  '/auth/context',
   '/boxes/search',
   '/boxes/get',
   '/audit/list',
@@ -4910,7 +6341,13 @@ const READ_PATHS = new Set([
   '/film-orders/list',
   '/film-data/catalog',
   '/roll-history/by-box',
-  '/reports/summary'
+  '/reports/summary',
+  '/admin/access/requests',
+  '/admin/username-requests',
+  '/admin/member-permissions',
+  '/admin/user-permissions',
+  '/owner/admin-permissions',
+  '/owner/notification-preferences'
 ]);
 
 export async function handleSupabaseRequest({ method, logicalPath, requestUrl, bodyJson, headers }) {
@@ -4932,9 +6369,44 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
     const params = routeParams(method, requestUrl, bodyJson);
     const authContext = await resolveAuthContext(headers);
 
+    if (logicalPath === '/auth/context') {
+      return {
+        statusCode: 200,
+        payload: ok({
+          orgId: authContext.orgId,
+          accessStatus: authContext.accessStatus,
+          role: authContext.role || '',
+          permissions: authContext.permissions || createDeniedFeaturePermissions(),
+          isAdminConsoleAllowed: Boolean(authContext.isAdminConsoleAllowed),
+          pendingCount: integerOrZero(authContext.pendingCount),
+          receivesInAppNotifications: Boolean(authContext.receivesInAppNotifications)
+        })
+      };
+    }
+
+    ensureEffectiveRouteAccess(authContext, method, logicalPath);
+
     if (method === 'GET' || (method === 'POST' && READ_PATHS.has(logicalPath))) {
       const payload = await withReadClient(async (client) => {
         switch (logicalPath) {
+          case '/admin/access/requests':
+            return ok({ entries: await listAccessRequests(client, authContext.orgId, params.status) });
+          case '/admin/username-requests':
+            return ok({ entries: await listUsernameChangeRequests(client, authContext.orgId, params.status) });
+          case '/admin/member-permissions':
+            return ok(await getGeneralFeaturePermissions(client, authContext.orgId));
+          case '/admin/user-permissions':
+            return ok({ permissions: await getUserFeaturePermissionsInternal(client, authContext.orgId, params) });
+          case '/owner/admin-permissions':
+            return ok({ entries: await listAdminFeaturePermissions(client, authContext.orgId) });
+          case '/owner/notification-preferences':
+            return ok(
+              await getOwnerNotificationPreferencesInternal(
+                client,
+                authContext.orgId,
+                authContext.userId
+              )
+            );
           case '/boxes/search':
             return ok(await buildSearchBoxes(client, authContext.orgId, params));
           case '/boxes/get': {
@@ -4992,6 +6464,106 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
 
     const payload = await withMutation(async (client) => {
       switch (logicalPath) {
+        case '/profile/username':
+          return ok(await requestUsernameChange(client, authContext.orgId, authContext, params));
+        case '/admin/access/requests/approve':
+          return ok(
+            await approveAccessRequestByUserId(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params,
+              authContext.userId
+            )
+          );
+        case '/admin/access/requests/deny':
+          return ok(
+            await denyAccessRequestByUserId(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params,
+              authContext.userId
+            )
+          );
+        case '/admin/username-requests/approve':
+          return ok(
+            await approveUsernameChangeRequestByUserId(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params,
+              authContext.userId
+            )
+          );
+        case '/admin/username-requests/deny':
+          return ok(
+            await denyUsernameChangeRequestByUserId(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params,
+              authContext.userId
+            )
+          );
+        case '/admin/member-permissions':
+          return ok({
+            permissions: await updateMemberFeaturePermissionsInternal(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params
+            )
+          });
+        case '/admin/user-permissions':
+          return ok({
+            permissions: await updateUserFeaturePermissionsInternal(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params
+            )
+          });
+        case '/owner/admin-permissions':
+          return ok({
+            permissions: await updateAdminFeaturePermissionsInternal(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params
+            )
+          });
+        case '/admin/roles/promote-member-to-admin':
+          return ok(
+            await promoteMemberToAdminInternal(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params,
+              authContext.userId
+            )
+          );
+        case '/owner/roles/demote-admin-to-member':
+          return ok(await demoteAdminToMemberInternal(client, authContext.orgId, params));
+        case '/owner/roles/promote-admin-to-owner':
+          return ok(
+            await promoteAdminToOwnerInternal(
+              client,
+              authContext.orgId,
+              authContext.actor,
+              params
+            )
+          );
+        case '/owner/notification-preferences':
+          return ok(
+            await updateOwnerNotificationPreferencesInternal(
+              client,
+              authContext.orgId,
+              authContext.userId,
+              authContext.actor,
+              params
+            )
+          );
         case '/boxes/add':
           return addBox(client, authContext.orgId, params, authContext.actor);
         case '/allocations/add':
@@ -5040,7 +6612,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
       statusCode: 500,
       payload: {
         ok: false,
-        error: error instanceof Error ? error.message : 'Unexpected server error.',
+        error: mapDatabaseBootstrapError(error instanceof Error ? error.message : ''),
         warnings: []
       }
     };

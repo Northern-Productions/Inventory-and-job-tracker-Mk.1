@@ -113,6 +113,7 @@ describe('jobs API client fallbacks', () => {
           warehouse: 'IL',
           sections: null,
           dueDate: '',
+          crewLeader: '',
           status: 'ALLOCATE',
           lifecycleStatus: 'ACTIVE',
           requiredFeet: 0,

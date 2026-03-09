@@ -29,6 +29,15 @@ import type {
   JobListResponse,
   DeleteBoxPayload,
   DeleteBoxResult,
+  AccessRequestEntry,
+  AccessStatus,
+  AdminPermissionEntry,
+  FeatureAccessMap,
+  FeatureArea,
+  FeatureAccessMode,
+  EffectiveAccessContext,
+  OwnerNotificationPreferences,
+  Role,
   ReportsSummary,
   ReportsSummaryFilters,
   RollHistoryResponse,
@@ -39,8 +48,11 @@ import type {
   UndoMutationResult,
   UpdateJobPayload,
   UpdateBoxPayload,
+  UsernameChangeRequestEntry,
+  UsernameChangeResult,
   Warehouse
 } from '../domain';
+import { createDefaultFeatureAccessMap } from '../domain';
 import {
   getOfflineBox,
   replaceOfflineInventoryBoxes,
@@ -51,14 +63,410 @@ import { APIError, request } from './http';
 
 type JobsApiAvailability = 'unknown' | 'available' | 'missing';
 let jobsApiAvailability: JobsApiAvailability = 'unknown';
+let cachedAccessContext: EffectiveAccessContext | null = null;
 
 export function __resetJobsApiAvailabilityForTests() {
   jobsApiAvailability = 'unknown';
+  cachedAccessContext = null;
+}
+
+export function setClientAccessContext(context: EffectiveAccessContext | null) {
+  cachedAccessContext = context;
+}
+
+function ensureRole(value: unknown): Role {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'owner' || normalized === 'admin' || normalized === 'member') {
+    return normalized;
+  }
+  return '';
+}
+
+function ensureAccessStatus(value: unknown): AccessStatus {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'approved' || normalized === 'pending' || normalized === 'denied') {
+    return normalized;
+  }
+  return 'pending';
+}
+
+function mapFeaturePermissions(value: unknown): FeatureAccessMap {
+  const defaults = createDefaultFeatureAccessMap();
+  if (!value || typeof value !== 'object') {
+    return defaults;
+  }
+
+  const source = value as Record<string, unknown>;
+  (Object.keys(defaults) as FeatureArea[]).forEach((feature) => {
+    const entry = source[feature];
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+    const next = entry as Record<string, unknown>;
+    defaults[feature] = {
+      read: next.read === true || String(next.read).toLowerCase() === 'true',
+      write: next.write === true || String(next.write).toLowerCase() === 'true'
+    };
+  });
+
+  return defaults;
+}
+
+function mapAdminPermissionEntry(value: unknown): AdminPermissionEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const userId = String(source.userId || '').trim();
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    userId,
+    name: String(source.name || '').trim(),
+    email: String(source.email || '').trim(),
+    role: 'admin',
+    permissions: mapFeaturePermissions(source.permissions)
+  };
+}
+
+function mapAccessRequestEntry(value: unknown): AccessRequestEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const userId = String(source.userId || '').trim();
+  if (!userId) {
+    return null;
+  }
+
+  const status = String(source.status || '').trim().toLowerCase();
+
+  return {
+    userId,
+    name: String(source.name || '').trim(),
+    email: String(source.email || '').trim(),
+    status: status === 'approved' || status === 'denied' ? status : 'pending',
+    requestedAt: String(source.requestedAt || '').trim(),
+    decidedAt: String(source.decidedAt || '').trim(),
+    decidedByActor: String(source.decidedByActor || '').trim(),
+    decisionNote: String(source.decisionNote || '').trim(),
+    currentRole: ensureRole(source.currentRole)
+  };
+}
+
+function mapUsernameChangeRequestEntry(value: unknown): UsernameChangeRequestEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const userId = String(source.userId || '').trim();
+  if (!userId) {
+    return null;
+  }
+
+  const status = String(source.status || '').trim().toLowerCase();
+
+  return {
+    userId,
+    email: String(source.email || '').trim(),
+    currentName: String(source.currentName || '').trim(),
+    requestedName: String(source.requestedName || '').trim(),
+    status: status === 'approved' || status === 'denied' ? status : 'pending',
+    requestedAt: String(source.requestedAt || '').trim(),
+    decidedAt: String(source.decidedAt || '').trim(),
+    decidedByActor: String(source.decidedByActor || '').trim(),
+    decisionNote: String(source.decisionNote || '').trim(),
+    currentRole: ensureRole(source.currentRole)
+  };
+}
+
+function assertFeatureAccess(feature: FeatureArea, mode: FeatureAccessMode) {
+  const context = cachedAccessContext;
+  if (!context || context.accessStatus !== 'approved') {
+    return;
+  }
+
+  if (context.role === 'owner') {
+    return;
+  }
+
+  const allowed = context.permissions[feature]?.[mode];
+  if (!allowed) {
+    throw new APIError('You do not have permission to perform this action.');
+  }
 }
 
 export async function getHealth(): Promise<HealthResponse> {
   const { data } = await request<HealthResponse>('GET', '/health');
   return data;
+}
+
+export async function getAuthContext(): Promise<EffectiveAccessContext> {
+  const { data } = await request<{
+    orgId: string;
+    accessStatus: AccessStatus;
+    role: Role;
+    permissions: unknown;
+    isAdminConsoleAllowed: unknown;
+    pendingCount: unknown;
+    receivesInAppNotifications: unknown;
+  }>('GET', '/auth/context');
+
+  const context: EffectiveAccessContext = {
+    orgId: String(data.orgId || '').trim(),
+    accessStatus: ensureAccessStatus(data.accessStatus),
+    role: ensureRole(data.role),
+    permissions: mapFeaturePermissions(data.permissions),
+    isAdminConsoleAllowed:
+      data.isAdminConsoleAllowed === true ||
+      String(data.isAdminConsoleAllowed).toLowerCase() === 'true',
+    pendingCount: Number(data.pendingCount || 0) || 0,
+    receivesInAppNotifications:
+      data.receivesInAppNotifications === true ||
+      String(data.receivesInAppNotifications).toLowerCase() === 'true'
+  };
+
+  return context;
+}
+
+export async function listAccessRequests(
+  status: '' | 'pending' | 'approved' | 'denied' = ''
+): Promise<AccessRequestEntry[]> {
+  assertFeatureAccess('access_management', 'read');
+  const body = status ? { status } : {};
+  const query = status ? { status } : {};
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/admin/access/requests',
+    body,
+    query
+  );
+  if (!Array.isArray(data.entries)) {
+    return [];
+  }
+
+  return data.entries
+    .map((entry) => mapAccessRequestEntry(entry))
+    .filter((entry): entry is AccessRequestEntry => Boolean(entry));
+}
+
+export async function approveAccessRequest(payload: {
+  userId: string;
+  note?: string;
+}): Promise<{ userId: string; status: 'approved'; role: Role }> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ userId: string; status: 'approved'; role: Role }>(
+    'POST',
+    '/admin/access/requests/approve',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function denyAccessRequest(payload: {
+  userId: string;
+  note?: string;
+}): Promise<{ userId: string; status: 'denied' }> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ userId: string; status: 'denied' }>(
+    'POST',
+    '/admin/access/requests/deny',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function requestUsernameChange(payload: { username: string }): Promise<UsernameChangeResult> {
+  const { data } = await request<UsernameChangeResult>('POST', '/profile/username', { body: payload });
+  return {
+    status: data.status === 'approved' ? 'approved' : 'pending',
+    requiresApproval: Boolean(data.requiresApproval),
+    username: String(data.username || '').trim()
+  };
+}
+
+export async function listUsernameChangeRequests(
+  status: '' | 'pending' | 'approved' | 'denied' = ''
+): Promise<UsernameChangeRequestEntry[]> {
+  assertFeatureAccess('access_management', 'read');
+  const body = status ? { status } : {};
+  const query = status ? { status } : {};
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/admin/username-requests',
+    body,
+    query
+  );
+  if (!Array.isArray(data.entries)) {
+    return [];
+  }
+
+  return data.entries
+    .map((entry) => mapUsernameChangeRequestEntry(entry))
+    .filter((entry): entry is UsernameChangeRequestEntry => Boolean(entry));
+}
+
+export async function approveUsernameChangeRequest(payload: {
+  userId: string;
+  note?: string;
+}): Promise<{ userId: string; status: 'approved'; username: string }> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ userId: string; status: 'approved'; username: string }>(
+    'POST',
+    '/admin/username-requests/approve',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function denyUsernameChangeRequest(payload: {
+  userId: string;
+  note?: string;
+}): Promise<{ userId: string; status: 'denied' }> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ userId: string; status: 'denied' }>(
+    'POST',
+    '/admin/username-requests/deny',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function getMemberFeaturePermissions(): Promise<FeatureAccessMap> {
+  assertFeatureAccess('access_management', 'read');
+  const data = await requestReadWithFallback<FeatureAccessMap>(
+    '/admin/member-permissions',
+    {},
+    {}
+  );
+  return mapFeaturePermissions(data);
+}
+
+export async function updateMemberFeaturePermissions(payload: {
+  permissions: Partial<FeatureAccessMap>;
+}): Promise<FeatureAccessMap> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ permissions: FeatureAccessMap }>(
+    'POST',
+    '/admin/member-permissions',
+    { body: payload }
+  );
+  return mapFeaturePermissions(data.permissions);
+}
+
+export async function getUserFeaturePermissions(userId: string): Promise<FeatureAccessMap> {
+  assertFeatureAccess('access_management', 'read');
+  const normalizedUserId = String(userId || '').trim();
+  const data = await requestReadWithFallback<{ permissions: unknown }>(
+    '/admin/user-permissions',
+    { userId: normalizedUserId },
+    { userId: normalizedUserId }
+  );
+  return mapFeaturePermissions(data.permissions);
+}
+
+export async function updateUserFeaturePermissions(payload: {
+  userId: string;
+  permissions: Partial<FeatureAccessMap>;
+}): Promise<FeatureAccessMap> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ permissions: unknown }>(
+    'POST',
+    '/admin/user-permissions',
+    { body: payload }
+  );
+  return mapFeaturePermissions(data.permissions);
+}
+
+export async function getAdminFeaturePermissions(): Promise<AdminPermissionEntry[]> {
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/owner/admin-permissions',
+    {},
+    {}
+  );
+  if (!Array.isArray(data.entries)) {
+    return [];
+  }
+
+  return data.entries
+    .map((entry) => mapAdminPermissionEntry(entry))
+    .filter((entry): entry is AdminPermissionEntry => Boolean(entry));
+}
+
+export async function updateAdminFeaturePermissions(payload: {
+  userId: string;
+  permissions: Partial<FeatureAccessMap>;
+}): Promise<FeatureAccessMap> {
+  const { data } = await request<{ permissions: FeatureAccessMap }>(
+    'POST',
+    '/owner/admin-permissions',
+    { body: payload }
+  );
+  return mapFeaturePermissions(data.permissions);
+}
+
+export async function promoteMemberToAdmin(payload: {
+  userId: string;
+}): Promise<{ userId: string; role: 'admin' }> {
+  assertFeatureAccess('access_management', 'write');
+  const { data } = await request<{ userId: string; role: 'admin' }>(
+    'POST',
+    '/admin/roles/promote-member-to-admin',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function demoteAdminToMember(payload: {
+  userId: string;
+}): Promise<{ userId: string; role: 'member' }> {
+  const { data } = await request<{ userId: string; role: 'member' }>(
+    'POST',
+    '/owner/roles/demote-admin-to-member',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function promoteAdminToOwner(payload: {
+  userId: string;
+}): Promise<{ userId: string; role: 'owner' }> {
+  const { data } = await request<{ userId: string; role: 'owner' }>(
+    'POST',
+    '/owner/roles/promote-admin-to-owner',
+    { body: payload }
+  );
+  return data;
+}
+
+export async function getOwnerNotificationPreferences(): Promise<OwnerNotificationPreferences> {
+  const data = await requestReadWithFallback<OwnerNotificationPreferences>(
+    '/owner/notification-preferences',
+    {},
+    {}
+  );
+  return {
+    inAppOptIn: data.inAppOptIn === true || String(data.inAppOptIn).toLowerCase() === 'true',
+    emailOptIn: data.emailOptIn === true || String(data.emailOptIn).toLowerCase() === 'true'
+  };
+}
+
+export async function updateOwnerNotificationPreferences(payload: {
+  inAppOptIn: boolean;
+  emailOptIn: boolean;
+}): Promise<OwnerNotificationPreferences> {
+  const { data } = await request<OwnerNotificationPreferences>(
+    'POST',
+    '/owner/notification-preferences',
+    { body: payload }
+  );
+  return {
+    inAppOptIn: data.inAppOptIn === true || String(data.inAppOptIn).toLowerCase() === 'true',
+    emailOptIn: data.emailOptIn === true || String(data.emailOptIn).toLowerCase() === 'true'
+  };
 }
 
 function buildSearchBoxFilters(params: SearchBoxesParams) {
@@ -106,6 +514,7 @@ function mapLegacyAllocationSummaryToJobListEntry(
     warehouse,
     sections: null,
     dueDate: summary.jobDate || '',
+    crewLeader: summary.crewLeader || '',
     status,
     lifecycleStatus: status === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE',
     requiredFeet: allocatedFeet,
@@ -152,6 +561,7 @@ async function requestReadWithFallback<T>(
 }
 
 export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
+  assertFeatureAccess('inventory', 'read');
   try {
     return await fetchRemoteBoxes(params);
   } catch (error) {
@@ -164,6 +574,7 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
 }
 
 export async function getBox(boxId: string): Promise<Box> {
+  assertFeatureAccess('inventory', 'read');
   try {
     return await requestReadWithFallback<Box>(
       '/boxes/get',
@@ -186,6 +597,7 @@ export async function getBox(boxId: string): Promise<Box> {
 export async function addBox(
   payload: AddBoxPayload
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/add', {
     body: payload
   });
@@ -197,6 +609,7 @@ export async function addBox(
 }
 
 export async function getAllocationsByBox(boxId: string): Promise<AllocationEntry[]> {
+  assertFeatureAccess('allocations', 'read');
   const data = await requestReadWithFallback<AllocationListResponse>(
     '/allocations/by-box',
     { boxId },
@@ -207,12 +620,14 @@ export async function getAllocationsByBox(boxId: string): Promise<AllocationEntr
 }
 
 export async function getAllocationJobs(): Promise<AllocationJobSummary[]> {
+  assertFeatureAccess('allocations', 'read');
   const data = await requestReadWithFallback<AllocationJobListResponse>('/allocations/jobs', {}, {});
 
   return data.entries;
 }
 
 export async function getAllocationJob(jobNumber: string): Promise<AllocationJobDetail> {
+  assertFeatureAccess('allocations', 'read');
   return requestReadWithFallback<AllocationJobDetailResponse>(
     '/allocations/by-job',
     { jobNumber },
@@ -221,6 +636,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
 }
 
 export async function getJobs(limit = 25): Promise<JobListEntry[]> {
+  assertFeatureAccess('jobs', 'read');
   const params = { limit };
 
   if (jobsApiAvailability === 'missing') {
@@ -253,6 +669,7 @@ export async function getJobs(limit = 25): Promise<JobListEntry[]> {
 }
 
 export async function getJob(jobNumber: string): Promise<JobDetail> {
+  assertFeatureAccess('jobs', 'read');
   if (jobsApiAvailability === 'missing') {
     const legacyDetail = await requestReadWithFallback<AllocationJobDetailResponse>(
       '/allocations/by-job',
@@ -290,9 +707,10 @@ export async function getJob(jobNumber: string): Promise<JobDetail> {
 export async function createJob(
   payload: CreateJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
   if (jobsApiAvailability === 'missing') {
     throw new APIError(
-      'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
+      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
     );
   }
 
@@ -306,7 +724,7 @@ export async function createJob(
     if (isRouteNotFoundError(error, '/jobs/create')) {
       jobsApiAvailability = 'missing';
       throw new APIError(
-        'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
+        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
       );
     }
 
@@ -322,9 +740,10 @@ export async function createJob(
 export async function updateJob(
   payload: UpdateJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
   if (jobsApiAvailability === 'missing') {
     throw new APIError(
-      'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
+      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
     );
   }
 
@@ -338,7 +757,7 @@ export async function updateJob(
     if (isRouteNotFoundError(error, '/jobs/update')) {
       jobsApiAvailability = 'missing';
       throw new APIError(
-        'Jobs API is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
+        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
       );
     }
 
@@ -352,12 +771,14 @@ export async function updateJob(
 }
 
 export async function previewAllocationPlan(payload: AllocateBoxPayload): Promise<AllocationPreview> {
+  assertFeatureAccess('allocations', 'read');
   const params = {
     boxId: payload.boxId,
     jobNumber: payload.jobNumber,
     jobDate: payload.jobDate,
     crewLeader: payload.crewLeader,
     requestedFeet: payload.requestedFeet,
+    requestedWidthIn: payload.requestedWidthIn,
     crossWarehouse: payload.crossWarehouse
   };
 
@@ -367,6 +788,7 @@ export async function previewAllocationPlan(payload: AllocateBoxPayload): Promis
 export async function applyAllocationPlan(
   payload: ApplyAllocationPlanPayload
 ): Promise<{ result: ApplyAllocationPlanResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
   const response = await request<ApplyAllocationPlanResult>('POST', '/allocations/apply', {
     body: payload
   });
@@ -378,12 +800,14 @@ export async function applyAllocationPlan(
 }
 
 export async function getFilmOrders(): Promise<FilmOrderEntry[]> {
+  assertFeatureAccess('film_orders', 'read');
   const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', {}, {});
 
   return data.entries;
 }
 
 export async function getFilmCatalog(): Promise<FilmCatalogEntry[]> {
+  assertFeatureAccess('inventory', 'read');
   const data = await requestReadWithFallback<FilmCatalogResponse>('/film-data/catalog', {}, {});
 
   return data.entries;
@@ -392,6 +816,7 @@ export async function getFilmCatalog(): Promise<FilmCatalogEntry[]> {
 export async function createFilmOrder(
   payload: CreateFilmOrderPayload
 ): Promise<{ result: FilmOrderEntry; warnings: string[] }> {
+  assertFeatureAccess('film_orders', 'write');
   const response = await request<FilmOrderEntry>('POST', '/film-orders/create', {
     body: payload
   });
@@ -405,6 +830,7 @@ export async function createFilmOrder(
 export async function cancelJob(
   payload: { jobNumber: string; reason?: string }
 ): Promise<{ result: { jobNumber: string }; warnings: string[] }> {
+  assertFeatureAccess('film_orders', 'write');
   const response = await request<{ jobNumber: string }>('POST', '/film-orders/cancel', {
     body: payload
   });
@@ -418,6 +844,7 @@ export async function cancelJob(
 export async function deleteFilmOrder(
   payload: { filmOrderId: string; reason?: string }
 ): Promise<{ result: FilmOrderEntry; warnings: string[] }> {
+  assertFeatureAccess('film_orders', 'write');
   const response = await request<FilmOrderEntry>('POST', '/film-orders/delete', {
     body: payload
   });
@@ -437,6 +864,7 @@ export async function allocateBox(
 export async function updateBox(
   payload: UpdateBoxPayload
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/update', {
     body: payload
   });
@@ -450,6 +878,7 @@ export async function updateBox(
 export async function deleteBox(
   payload: DeleteBoxPayload
 ): Promise<{ result: DeleteBoxResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
   const response = await request<DeleteBoxResult>('POST', '/boxes/delete', {
     body: payload
   });
@@ -463,6 +892,7 @@ export async function deleteBox(
 export async function setBoxStatus(
   payload: SetBoxStatusPayload
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/set-status', {
     body: payload
   });
@@ -474,6 +904,7 @@ export async function setBoxStatus(
 }
 
 export async function getAuditByBox(boxId: string): Promise<AuditEntry[]> {
+  assertFeatureAccess('activity_history', 'read');
   const data = await requestReadWithFallback<BoxHistoryResponse>(
     '/audit/by-box',
     { boxId },
@@ -484,6 +915,7 @@ export async function getAuditByBox(boxId: string): Promise<AuditEntry[]> {
 }
 
 export async function listAudit(params: AuditListParams): Promise<AuditEntry[]> {
+  assertFeatureAccess('activity_history', 'read');
   const filters = {
     from: params.from,
     to: params.to,
@@ -496,6 +928,7 @@ export async function listAudit(params: AuditListParams): Promise<AuditEntry[]> 
 }
 
 export async function getRollHistoryByBox(boxId: string): Promise<RollHistoryEntry[]> {
+  assertFeatureAccess('activity_history', 'read');
   const data = await requestReadWithFallback<RollHistoryResponse>(
     '/roll-history/by-box',
     { boxId },
@@ -506,6 +939,7 @@ export async function getRollHistoryByBox(boxId: string): Promise<RollHistoryEnt
 }
 
 export async function getReportsSummary(filters: ReportsSummaryFilters): Promise<ReportsSummary> {
+  assertFeatureAccess('reports', 'read');
   const params = {
     warehouse: filters.warehouse,
     manufacturer: filters.manufacturer,
@@ -521,6 +955,7 @@ export async function getReportsSummary(filters: ReportsSummaryFilters): Promise
 export async function undoAudit(
   payload: UndoAuditPayload
 ): Promise<{ result: UndoMutationResult; warnings: string[] }> {
+  assertFeatureAccess('activity_history', 'write');
   const response = await request<UndoMutationResult>('POST', '/audit/undo', {
     body: payload
   });

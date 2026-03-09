@@ -55,6 +55,7 @@ export default function AllocationsPage() {
       warehouse: submitPayload.warehouse,
       sections: submitPayload.sections,
       dueDate: submitPayload.dueDate,
+      crewLeader: submitPayload.crewLeader,
       requirements: submitPayload.requirements
     };
 
@@ -187,4 +188,3 @@ export default function AllocationsPage() {
     </>
   );
 }
-

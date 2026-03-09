@@ -102,6 +102,7 @@ export default function AllocationJobPage() {
       warehouse: submitPayload.warehouse,
       sections: submitPayload.sections,
       dueDate: submitPayload.dueDate,
+      crewLeader: submitPayload.crewLeader,
       requirements: submitPayload.requirements
     };
 
@@ -206,6 +207,10 @@ export default function AllocationJobPage() {
           <div className="key-value">
             <dt>Sections</dt>
             <dd>{summary.sections ?? '--'}</dd>
+          </div>
+          <div className="key-value">
+            <dt>Crew Leader</dt>
+            <dd>{summary.crewLeader || '--'}</dd>
           </div>
           <div className="key-value">
             <dt>Required LF</dt>
@@ -503,6 +508,7 @@ export default function AllocationJobPage() {
         initialWarehouse={summary.warehouse}
         initialSections={summary.sections}
         initialDueDate={summary.dueDate}
+        initialCrewLeader={summary.crewLeader}
         initialRequirements={requirements}
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
@@ -516,7 +522,9 @@ export default function AllocationJobPage() {
         jobNumber={summary.jobNumber}
         warehouse={summary.warehouse}
         dueDate={summary.dueDate}
+        crewLeader={summary.crewLeader}
         requirements={requirements}
+        filmOrders={filmOrders}
         onCancel={() => setIsAllocateOpen(false)}
       />
     </>

@@ -1,22 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
-import type { JobRequirementLine, Warehouse } from '../../../domain';
+import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
-  useAllocationPreview,
   useCreateFilmOrder,
   useSearchBoxesWithOptions
 } from '../hooks/useInventoryQueries';
+import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
+import {
+  autoSelectCandidateBoxIds,
+  planSelectedCandidateAllocation,
+  prioritizeCandidateBoxes
+} from '../utils/jobAllocationSelection';
 
 interface JobAllocateDialogProps {
   open: boolean;
   jobNumber: string;
   warehouse: Warehouse;
   dueDate: string;
+  crewLeader: string;
   requirements: JobRequirementLine[];
+  filmOrders: FilmOrderEntry[];
   onCancel: () => void;
 }
 
@@ -24,12 +31,55 @@ function normalizeLookup(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function collectPreferredLinkedBoxIds(
+  requirement: JobRequirementLine | null,
+  filmOrders: FilmOrderEntry[]
+) {
+  if (!requirement) {
+    return new Set<string>();
+  }
+
+  const targetManufacturer = normalizeLookup(requirement.manufacturer);
+  const targetFilmName = normalizeLookup(requirement.filmName);
+  const preferred = new Set<string>();
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const order = filmOrders[index];
+    if (order.status === 'CANCELLED') {
+      continue;
+    }
+
+    if (normalizeLookup(order.manufacturer) !== targetManufacturer) {
+      continue;
+    }
+
+    if (normalizeLookup(order.filmName) !== targetFilmName) {
+      continue;
+    }
+
+    if (order.widthIn < requirement.widthIn) {
+      continue;
+    }
+
+    for (let linkIndex = 0; linkIndex < order.linkedBoxes.length; linkIndex += 1) {
+      const boxId = String(order.linkedBoxes[linkIndex].boxId || '').trim();
+      if (boxId) {
+        preferred.add(boxId);
+      }
+    }
+  }
+
+  return preferred;
+}
+
 export function JobAllocateDialog({
   open,
   jobNumber,
   warehouse,
   dueDate,
+  crewLeader,
   requirements,
+  filmOrders,
   onCancel
 }: JobAllocateDialogProps) {
   const toast = useToast();
@@ -38,29 +88,20 @@ export function JobAllocateDialog({
   const createFilmOrderMutation = useCreateFilmOrder();
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [requestedFeet, setRequestedFeet] = useState('');
-  const [previewPayload, setPreviewPayload] = useState<{
-    boxId: string;
-    jobNumber: string;
-    jobDate?: string;
-    requestedFeet: number;
-    crossWarehouse?: boolean;
-  } | null>(null);
-  const [selectedSuggestionBoxIds, setSelectedSuggestionBoxIds] = useState<string[]>([]);
+  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const autoSelectionKeyRef = useRef('');
   const selectedRequirement = useMemo(
     () => requirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
     [requirements, selectedRequirementId]
   );
-  const searchableFilm = selectedRequirement
-    ? `${selectedRequirement.manufacturer} ${selectedRequirement.filmName}`.trim()
-    : '';
+  const searchableFilmName = selectedRequirement ? selectedRequirement.filmName.trim() : '';
   const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
   const ilBoxesQuery = useSearchBoxesWithOptions(
     {
       warehouse: 'IL',
       status: 'IN_STOCK',
-      film: searchableFilm,
-      width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
+      film: searchableFilmName,
       showRetired: false
     },
     { enabled: shouldSearchMatchingBoxes }
@@ -69,8 +110,7 @@ export function JobAllocateDialog({
     {
       warehouse: 'MS',
       status: 'IN_STOCK',
-      film: searchableFilm,
-      width: selectedRequirement ? String(selectedRequirement.widthIn) : '-1',
+      film: searchableFilmName,
       showRetired: false
     },
     { enabled: shouldSearchMatchingBoxes }
@@ -80,72 +120,49 @@ export function JobAllocateDialog({
       return [];
     }
 
-    const requiredManufacturerKey = normalizeLookup(selectedRequirement.manufacturer);
-    const requiredFilmKey = normalizeLookup(selectedRequirement.filmName);
-    const requiredWidth = selectedRequirement.widthIn;
-
-    var merged = (ilBoxesQuery.data || []).concat(msBoxesQuery.data || []);
-    var dedupedByBoxId = new Map<string, (typeof merged)[number]>();
-
-    for (var mergeIndex = 0; mergeIndex < merged.length; mergeIndex += 1) {
-      var mergedBox = merged[mergeIndex];
-      var existing = dedupedByBoxId.get(mergedBox.boxId);
-      if (!existing || mergedBox.feetAvailable > existing.feetAvailable) {
-        dedupedByBoxId.set(mergedBox.boxId, mergedBox);
-      }
+    return findMatchingBoxesForRequirement((ilBoxesQuery.data || []).concat(msBoxesQuery.data || []), selectedRequirement);
+  }, [ilBoxesQuery.data, msBoxesQuery.data, selectedRequirement]);
+  const preferredLinkedBoxIds = useMemo(
+    () => collectPreferredLinkedBoxIds(selectedRequirement, filmOrders),
+    [filmOrders, selectedRequirement]
+  );
+  const prioritizedMatchingBoxes = useMemo(
+    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds),
+    [matchingBoxes, preferredLinkedBoxIds]
+  );
+  const requestedFeetValue = useMemo(() => {
+    const parsed = Number(requestedFeet);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 0;
     }
 
-    const filtered = Array.from(dedupedByBoxId.values()).filter((box) => {
-      if (box.status !== 'IN_STOCK' || box.feetAvailable <= 0) {
-        return false;
-      }
-
-      if (box.widthIn !== requiredWidth) {
-        return false;
-      }
-
-      if (normalizeLookup(box.manufacturer) !== requiredManufacturerKey) {
-        return false;
-      }
-
-      if (normalizeLookup(box.filmName) !== requiredFilmKey) {
-        return false;
-      }
-
-      return true;
-    });
-    filtered.sort((a, b) => {
-      if (a.feetAvailable !== b.feetAvailable) {
-        return b.feetAvailable - a.feetAvailable;
-      }
-
-      const aDate = a.receivedDate || a.orderDate || '';
-      const bDate = b.receivedDate || b.orderDate || '';
-      if (aDate && bDate && aDate !== bDate) {
-        return aDate < bDate ? -1 : 1;
-      }
-
-      return a.boxId.localeCompare(b.boxId);
-    });
-
-    return filtered;
-  }, [ilBoxesQuery.data, msBoxesQuery.data, selectedRequirement]);
-  const autoSourceBox = matchingBoxes[0] || null;
+    return Math.floor(parsed);
+  }, [requestedFeet]);
   const isMatchingBoxesLoading = ilBoxesQuery.isLoading || msBoxesQuery.isLoading;
   const isOrderFilmMode =
     !isMatchingBoxesLoading &&
     Boolean(selectedRequirement) &&
-    !autoSourceBox;
-  const previewQuery = useAllocationPreview(open ? previewPayload : null);
-  const isCheckingCoverage = previewQuery.isLoading || (!previewQuery.data && isMatchingBoxesLoading);
+    !prioritizedMatchingBoxes.length;
+  const plannedSelection = useMemo(
+    () => planSelectedCandidateAllocation(prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds),
+    [prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds]
+  );
+  const plannedFeetByBox = useMemo(() => {
+    const mapped = new Map<string, number>();
+    for (let index = 0; index < plannedSelection.allocations.length; index += 1) {
+      const allocation = plannedSelection.allocations[index];
+      mapped.set(allocation.boxId, allocation.allocatedFeet);
+    }
+    return mapped;
+  }, [plannedSelection.allocations]);
 
   useEffect(() => {
     if (!open) {
       setSelectedRequirementId('');
       setRequestedFeet('');
-      setPreviewPayload(null);
-      setSelectedSuggestionBoxIds([]);
+      setSelectedBoxIds([]);
       setError('');
+      autoSelectionKeyRef.current = '';
       return;
     }
 
@@ -161,75 +178,82 @@ export function JobAllocateDialog({
   useEffect(() => {
     if (!selectedRequirement) {
       setRequestedFeet('');
-      setPreviewPayload(null);
+      setSelectedBoxIds([]);
       return;
     }
 
     setRequestedFeet(selectedRequirement.remainingFeet > 0 ? String(selectedRequirement.remainingFeet) : '');
-    setPreviewPayload(null);
-    setSelectedSuggestionBoxIds([]);
+    setSelectedBoxIds([]);
+    autoSelectionKeyRef.current = '';
     setError('');
   }, [selectedRequirement?.requirementId]);
 
   useEffect(() => {
-    if (!previewQuery.data) {
+    if (!open || !selectedRequirement || requestedFeetValue <= 0 || !prioritizedMatchingBoxes.length) {
       return;
     }
 
-    setSelectedSuggestionBoxIds(previewQuery.data.suggestions.map((entry) => entry.boxId));
-  }, [previewQuery.data]);
+    const preferredKey = Array.from(preferredLinkedBoxIds).sort().join(',');
+    const candidateKey = prioritizedMatchingBoxes.map((box) => `${box.boxId}:${box.feetAvailable}`).join('|');
+    const nextKey = `${selectedRequirement.requirementId}|${requestedFeetValue}|${preferredKey}|${candidateKey}`;
+    if (autoSelectionKeyRef.current === nextKey) {
+      return;
+    }
+
+    autoSelectionKeyRef.current = nextKey;
+    setSelectedBoxIds(
+      autoSelectCandidateBoxIds(prioritizedMatchingBoxes, requestedFeetValue, preferredLinkedBoxIds)
+    );
+  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement]);
 
   if (!open) {
     return null;
   }
 
-  function toggleSuggestion(boxId: string) {
-    setSelectedSuggestionBoxIds((current) =>
+  function toggleBox(boxId: string) {
+    setSelectedBoxIds((current) =>
       current.includes(boxId) ? current.filter((value) => value !== boxId) : [...current, boxId]
     );
+    setError('');
   }
 
-  function handleFindCoverage() {
+  async function handleAllocate() {
     if (!selectedRequirement) {
       setError('Select a requirement line first.');
       return;
     }
 
-    if (isMatchingBoxesLoading) {
-      setError('Matching boxes are still loading. Try again in a moment.');
-      return;
-    }
-
-    if (!autoSourceBox) {
-      setError('No matching in-stock source box was found for this requirement.');
-      return;
-    }
-
-    const parsedRequestedFeet = Number(requestedFeet);
-    if (!Number.isFinite(parsedRequestedFeet) || parsedRequestedFeet <= 0) {
+    if (requestedFeetValue <= 0) {
       setError('Requested LF must be greater than zero.');
       return;
     }
 
-    setError('');
-    setPreviewPayload({
-      boxId: autoSourceBox.boxId,
-      jobNumber,
-      jobDate: dueDate || '',
-      requestedFeet: Math.floor(parsedRequestedFeet),
-      crossWarehouse: true
-    });
-  }
+    if (dueDate.trim() && !crewLeader.trim()) {
+      setError('CrewLeader is required when JobDate is set.');
+      return;
+    }
 
-  async function handleAllocate() {
-    if (!previewPayload) {
+    if (!selectedBoxIds.length) {
+      setError('Select at least one box to allocate.');
+      return;
+    }
+
+    const orderedSelectedBoxes = prioritizedMatchingBoxes.filter((box) => selectedBoxIds.includes(box.boxId));
+    const sourceBox = orderedSelectedBoxes[0];
+    if (!sourceBox) {
+      setError('Select at least one valid in-stock box to allocate.');
       return;
     }
 
     try {
       const { result, warnings } = await allocateMutation.mutateAsync({
-        ...previewPayload,
-        selectedSuggestionBoxIds,
+        boxId: sourceBox.boxId,
+        jobNumber,
+        jobDate: dueDate || '',
+        crewLeader: crewLeader || '',
+        requestedFeet: requestedFeetValue,
+        requestedWidthIn: selectedRequirement.widthIn,
+        selectedSuggestionBoxIds: orderedSelectedBoxes.slice(1).map((entry) => entry.boxId),
         crossWarehouse: true,
         jobWarehouse: warehouse
       });
@@ -282,8 +306,7 @@ export function JobAllocateDialog({
       return;
     }
 
-    const parsedRequestedFeet = Number(requestedFeet);
-    if (!Number.isFinite(parsedRequestedFeet) || parsedRequestedFeet <= 0) {
+    if (requestedFeetValue <= 0) {
       setError('Requested LF must be greater than zero.');
       return;
     }
@@ -295,7 +318,7 @@ export function JobAllocateDialog({
         manufacturer: selectedRequirement.manufacturer,
         filmName: selectedRequirement.filmName,
         widthIn: selectedRequirement.widthIn,
-        requestedFeet: Math.floor(parsedRequestedFeet)
+        requestedFeet: requestedFeetValue
       });
 
       onCancel();
@@ -317,6 +340,7 @@ export function JobAllocateDialog({
   }
 
   const isSubmitting = allocateMutation.isPending || createFilmOrderMutation.isPending;
+  const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
 
   return (
     <div className="dialog-backdrop" role="presentation">
@@ -350,77 +374,80 @@ export function JobAllocateDialog({
             pattern="[0-9]*"
             onChange={(event) => {
               setRequestedFeet(event.target.value.replace(/[^0-9]/g, ''));
-              setPreviewPayload(null);
+              setSelectedBoxIds([]);
+              autoSelectionKeyRef.current = '';
               setError('');
             }}
           />
         </div>
-        {!isMatchingBoxesLoading && autoSourceBox ? (
-          <p className="muted-text">
-            Source box auto-selected: {autoSourceBox.boxId} ({autoSourceBox.warehouse}, {autoSourceBox.feetAvailable}{' '}
-            LF available).
-          </p>
-        ) : null}
 
         {isMatchingBoxesLoading ? <p className="muted-text">Loading matching in-stock boxes...</p> : null}
-        {!isMatchingBoxesLoading && selectedRequirement && !matchingBoxes.length ? (
+        {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxes.length ? (
           <p className="muted-text">
-            No matching in-stock boxes were found for this requirement. Create a film-order alert instead.
+            No matching in-stock boxes were found for this requirement (same film, width at or above requested). Create
+            a film-order alert instead.
+          </p>
+        ) : null}
+        {dueDate.trim() && !crewLeader.trim() ? (
+          <p className="error-text">CrewLeader is required when JobDate is set.</p>
+        ) : null}
+        {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxes.length ? (
+          <p className="muted-text">
+            Boxes linked to this job's film orders are prioritized and auto-selected first.
           </p>
         ) : null}
 
         {error ? <p className="error-text">{error}</p> : null}
-        {previewQuery.isError ? <p className="error-text">{previewQuery.error.message}</p> : null}
 
-        {previewQuery.data ? (
+        {!isMatchingBoxesLoading && prioritizedMatchingBoxes.length ? (
           <div className="allocation-preview">
             <div className="stat-grid allocation-stat-grid">
               <div className="key-value">
                 <dt>Requested</dt>
-                <dd>{previewQuery.data.requestedFeet}</dd>
+                <dd>{requestedFeetValue}</dd>
               </div>
               <div className="key-value">
                 <dt>Covered</dt>
-                <dd>{previewQuery.data.defaultCoveredFeet}</dd>
+                <dd>{plannedSelection.coveredFeet}</dd>
               </div>
               <div className="key-value">
                 <dt>Still Short</dt>
-                <dd>{previewQuery.data.defaultRemainingFeet}</dd>
+                <dd>{plannedSelection.remainingFeet}</dd>
               </div>
             </div>
 
-            {previewQuery.data.suggestions.length ? (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Use</th>
-                      <th>Box</th>
-                      <th>Warehouse</th>
-                      <th>Avail LF</th>
-                      <th>Suggested LF</th>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Use</th>
+                    <th>Box</th>
+                    <th>Warehouse</th>
+                    <th>Width</th>
+                    <th>Avail LF</th>
+                    <th>Planned LF</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prioritizedMatchingBoxes.map((box) => (
+                    <tr key={box.boxId}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedBoxIds.includes(box.boxId)}
+                          onChange={() => toggleBox(box.boxId)}
+                        />
+                      </td>
+                      <td>{box.boxId}</td>
+                      <td>{box.warehouse}</td>
+                      <td>{box.widthIn}</td>
+                      <td>{box.feetAvailable}</td>
+                      <td>{plannedFeetByBox.get(box.boxId) || 0}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {previewQuery.data.suggestions.map((suggestion) => (
-                      <tr key={suggestion.boxId}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selectedSuggestionBoxIds.includes(suggestion.boxId)}
-                            onChange={() => toggleSuggestion(suggestion.boxId)}
-                          />
-                        </td>
-                        <td>{suggestion.boxId}</td>
-                        <td>{suggestion.warehouse}</td>
-                        <td>{suggestion.availableFeet}</td>
-                        <td>{suggestion.suggestedFeet}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
 
@@ -432,26 +459,16 @@ export function JobAllocateDialog({
             type="button"
             variant="secondary"
             fullWidth
-            onClick={
-              previewQuery.data
-                ? () => void handleAllocate()
-                : isOrderFilmMode
-                  ? () => void handleOrderFilm()
-                  : handleFindCoverage
-            }
-            disabled={isCheckingCoverage || isSubmitting}
+            onClick={isOrderFilmMode ? () => void handleOrderFilm() : () => void handleAllocate()}
+            disabled={isMatchingBoxesLoading || isSubmitting}
           >
-            {previewQuery.data
-              ? allocateMutation.isPending
+            {isOrderFilmMode
+              ? createFilmOrderMutation.isPending
+                ? 'Ordering...'
+                : 'Order Film'
+              : allocateMutation.isPending
                 ? 'Saving...'
-                : 'Allocate'
-              : isOrderFilmMode
-                ? createFilmOrderMutation.isPending
-                  ? 'Ordering...'
-                  : 'Order Film'
-              : isCheckingCoverage
-                ? 'Checking...'
-                : 'Find Coverage'}
+                : 'Allocate'}
           </Button>
         </div>
       </div>

@@ -109,6 +109,7 @@ export interface AllocateBoxPayload {
   jobDate?: string;
   crewLeader?: string;
   requestedFeet: number;
+  requestedWidthIn?: number;
   crossWarehouse?: boolean;
 }
 
@@ -193,6 +194,7 @@ export interface AllocationListResponse {
 export interface AllocationPreviewSuggestion {
   boxId: string;
   warehouse: Warehouse;
+  widthIn: number;
   availableFeet: number;
   suggestedFeet: number;
   receivedDate: string;
@@ -296,6 +298,7 @@ export interface JobListEntry {
   warehouse: Warehouse;
   sections: string | null;
   dueDate: string;
+  crewLeader: string;
   status: JobStatus;
   lifecycleStatus: 'ACTIVE' | 'CANCELLED';
   requiredFeet: number;
@@ -320,6 +323,7 @@ export interface CreateJobPayload {
   warehouse: Warehouse;
   sections?: string | number | null;
   dueDate?: string;
+  crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
   notes?: string;
   requirements?: Array<{
@@ -335,6 +339,7 @@ export interface UpdateJobPayload {
   warehouse?: Warehouse;
   sections?: string | number | null;
   dueDate?: string;
+  crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
   notes?: string;
   requirements?: Array<{

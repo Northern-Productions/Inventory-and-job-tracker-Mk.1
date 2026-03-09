@@ -2,7 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") || "").trim().replace(/\/+$/g, "");
 const SUPABASE_ANON_KEY = (Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
+const SUPABASE_SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
 const DEFAULT_ORG_ID = (Deno.env.get("DEFAULT_ORG_ID") || "").trim();
+const RESEND_API_KEY = (Deno.env.get("RESEND_API_KEY") || "").trim();
+const RESEND_FROM_EMAIL = (Deno.env.get("RESEND_FROM_EMAIL") || "").trim();
 const CACHE_TTL_MS = Number(Deno.env.get("CACHE_TTL_MS") || "30000");
 const MAX_CACHE_ENTRIES = Number(Deno.env.get("MAX_CACHE_ENTRIES") || "500");
 const CORS_ALLOWED_ORIGINS = (Deno.env.get("CORS_ALLOWED_ORIGINS") || "*")
@@ -12,6 +15,7 @@ const CORS_ALLOWED_ORIGINS = (Deno.env.get("CORS_ALLOWED_ORIGINS") || "*")
 
 const READ_PATHS = new Set([
   "/health",
+  "/auth/context",
   "/boxes/search",
   "/boxes/get",
   "/audit/list",
@@ -26,6 +30,12 @@ const READ_PATHS = new Set([
   "/film-data/catalog",
   "/roll-history/by-box",
   "/reports/summary",
+  "/admin/access/requests",
+  "/admin/username-requests",
+  "/admin/member-permissions",
+  "/admin/user-permissions",
+  "/owner/admin-permissions",
+  "/owner/notification-preferences",
 ]);
 
 type CacheEntry = {
@@ -42,10 +52,18 @@ type AuthIdentity = {
   token: string;
   orgId: string;
   actor: string;
+  role: "owner" | "admin" | "member" | "";
+  accessStatus: "approved" | "pending" | "denied";
+  permissions: Record<string, { read: boolean; write: boolean }>;
+  isAdminConsoleAllowed: boolean;
+  pendingCount: number;
+  receivesInAppNotifications: boolean;
+  pendingRequestCreated: boolean;
 };
 
 const cache = new Map<string, CacheEntry>();
 const authIdentityCache = new Map<string, { expiresAt: number; identity: AuthIdentity }>();
+const authUserProfileCache = new Map<string, { expiresAt: number; profile: { email: string; name: string } }>();
 
 class HttpError extends Error {
   statusCode: number;
@@ -301,6 +319,9 @@ function shouldUseCache(method: string, logicalPath: string): boolean {
   if (!Number.isFinite(CACHE_TTL_MS) || CACHE_TTL_MS <= 0) {
     return false;
   }
+  if (logicalPath === "/auth/context") {
+    return false;
+  }
   if (method === "GET") {
     return true;
   }
@@ -405,16 +426,236 @@ function createUserScopedClient(token: string) {
   });
 }
 
+function createServiceRoleClient() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+function parseFeaturePermissions(value: unknown): Record<string, { read: boolean; write: boolean }> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const source = value as Record<string, unknown>;
+  const next: Record<string, { read: boolean; write: boolean }> = {};
+  for (const [feature, raw] of Object.entries(source)) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const featureMap = raw as Record<string, unknown>;
+    next[feature] = {
+      read: featureMap.read === true || String(featureMap.read).toLowerCase() === "true",
+      write: featureMap.write === true || String(featureMap.write).toLowerCase() === "true",
+    };
+  }
+
+  return next;
+}
+
+async function fetchUserEmailById(userId: string): Promise<string> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !userId) {
+    return "";
+  }
+
+  const now = Date.now();
+  const cached = authUserProfileCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    return cached.profile.email;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    headers: {
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+
+  if (!response.ok) {
+    return "";
+  }
+
+  const payload = await response.json();
+  const source =
+    payload && typeof payload === "object" && payload.user && typeof payload.user === "object"
+      ? (payload.user as Record<string, unknown>)
+      : (payload as Record<string, unknown>);
+  const email = asTrimmedString(source?.email);
+  const metadata = source?.user_metadata && typeof source.user_metadata === "object"
+    ? (source.user_metadata as Record<string, unknown>)
+    : {};
+  const name =
+    asTrimmedString(metadata.full_name) ||
+    asTrimmedString(metadata.name) ||
+    (email ? deriveNameFromEmail(email) : "");
+
+  authUserProfileCache.set(userId, {
+    expiresAt: Date.now() + 5 * 60_000,
+    profile: {
+      email,
+      name,
+    },
+  });
+
+  return email;
+}
+
+async function fetchUserProfileById(userId: string): Promise<{ email: string; name: string }> {
+  const cached = authUserProfileCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.profile;
+  }
+
+  const email = await fetchUserEmailById(userId);
+  const profile = authUserProfileCache.get(userId);
+  if (profile && profile.expiresAt > Date.now()) {
+    return profile.profile;
+  }
+
+  return {
+    email,
+    name: email ? deriveNameFromEmail(email) : "",
+  };
+}
+
+async function enrichAdminPermissionEntries(entriesRaw: unknown[]): Promise<Record<string, unknown>[]> {
+  const entries = Array.isArray(entriesRaw) ? entriesRaw : [];
+  const response: Record<string, unknown>[] = [];
+
+  for (const rawEntry of entries) {
+    if (!rawEntry || typeof rawEntry !== "object") {
+      continue;
+    }
+
+    const entry = rawEntry as Record<string, unknown>;
+    const userId = asTrimmedString(entry.userId);
+    if (!userId) {
+      continue;
+    }
+
+    let email = asTrimmedString(entry.email);
+    let name = asTrimmedString(entry.name);
+    if (!email || !name) {
+      const profile = await fetchUserProfileById(userId);
+      if (!email) {
+        email = profile.email;
+      }
+      if (!name) {
+        name = profile.name;
+      }
+    }
+
+    if (!name) {
+      name = email ? deriveNameFromEmail(email) : userId;
+    }
+
+    response.push({
+      ...entry,
+      userId,
+      role: "admin",
+      email,
+      name,
+    });
+  }
+
+  return response;
+}
+
+async function sendNewAccessRequestNotification(params: {
+  orgId: string;
+  requestedEmail: string;
+  requestedUserId: string;
+}): Promise<void> {
+  if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
+    return;
+  }
+
+  const serviceClient = createServiceRoleClient();
+  if (!serviceClient) {
+    return;
+  }
+
+  const { data, error } = await serviceClient.rpc("api_list_access_notification_recipients", {
+    p_org_id: params.orgId,
+  });
+  if (error) {
+    return;
+  }
+
+  const recipientsRaw = Array.isArray(data) ? data : [];
+  const recipientEmails = new Set<string>();
+  for (const entry of recipientsRaw) {
+    const userId = asTrimmedString((entry as Record<string, unknown>)?.user_id);
+    if (!userId) {
+      continue;
+    }
+    const email = await fetchUserEmailById(userId);
+    if (email) {
+      recipientEmails.add(email);
+    }
+  }
+
+  if (!recipientEmails.size) {
+    return;
+  }
+
+  const to = [...recipientEmails];
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM_EMAIL,
+      to,
+      subject: "New inventory access request pending approval",
+      text:
+        `A new user is waiting for approval.\n\n` +
+        `Email: ${params.requestedEmail || "(unknown)"}\n` +
+        `User ID: ${params.requestedUserId}\n` +
+        `Organization ID: ${params.orgId}`,
+    }),
+  });
+}
+
 function statusFromRpcError(error: any, fallback = 500) {
   const detail = asTrimmedString(error?.details);
   const match = detail.match(/status=(\d+)/i);
   return match ? Number(match[1]) : fallback;
 }
 
+function mapBackendBootstrapError(message: string): string {
+  const normalized = asTrimmedString(message).toLowerCase();
+  if (
+    normalized.includes('relation "app.general_feature_permissions" does not exist') ||
+    normalized.includes('relation "app.admin_feature_permissions" does not exist') ||
+    normalized.includes('relation "app.access_requests" does not exist') ||
+    normalized.includes('relation "app.username_change_requests" does not exist') ||
+    normalized.includes('column "requested_by_name" does not exist') ||
+    (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_request_username_change') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_get_user_feature_permissions') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, and 0009_user_feature_overrides.sql are required. Run all four, then retry.';
+  }
+  return message;
+}
+
 async function rpcOrThrow<T>(client: any, fn: string, params: Record<string, unknown> = {}): Promise<T> {
   const { data, error } = await client.rpc(fn, params);
   if (error) {
-    throw new HttpError(statusFromRpcError(error), asTrimmedString(error.message) || "Unexpected database error.");
+    const rawMessage = asTrimmedString(error.message) || "Unexpected database error.";
+    throw new HttpError(statusFromRpcError(error), mapBackendBootstrapError(rawMessage));
   }
   return data as T;
 }
@@ -619,6 +860,7 @@ function mapDbJobRow(row: any) {
     warehouse: asTrimmedString(row.warehouse) || "IL",
     sections: asTrimmedString(row.sections) || null,
     dueDate: formatDateValue(row.due_date),
+    crewLeader: asTrimmedString(row.crew_leader),
     lifecycleStatus: asTrimmedString(row.lifecycle_status) || "ACTIVE",
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
@@ -744,31 +986,70 @@ async function resolveAuthContext(request: Request): Promise<{ identity: AuthIde
   }
 
   const client = createUserScopedClient(token);
-  const memberships = await rpcOrThrow<Array<{ org_id: string }>>(client, "api_list_memberships");
-  if (!memberships.length) {
-    throw new HttpError(403, "You do not have access to this inventory workspace.");
-  }
 
   let orgId = DEFAULT_ORG_ID;
-  if (orgId) {
-    const found = memberships.some((entry) => entry.org_id === orgId);
-    if (!found) {
-      throw new HttpError(403, "DEFAULT_ORG_ID is not assigned to the authenticated user.");
+  if (!orgId) {
+    const memberships = await rpcOrThrow<Array<{ org_id: string }>>(client, "api_list_memberships");
+    if (!memberships.length) {
+      throw new HttpError(
+        500,
+        "DEFAULT_ORG_ID must be configured before handling pending approvals.",
+      );
     }
-  } else if (memberships.length === 1) {
-    orgId = memberships[0].org_id;
-  } else {
-    throw new HttpError(
-      500,
-      "DEFAULT_ORG_ID is required because this user belongs to multiple organizations.",
-    );
+
+    if (memberships.length === 1) {
+      orgId = memberships[0].org_id;
+    } else {
+      throw new HttpError(
+        500,
+        "DEFAULT_ORG_ID is required because this user belongs to multiple organizations.",
+      );
+    }
   }
 
+  const accessContext = await rpcOrThrow<Record<string, unknown>>(client, "api_get_auth_context", {
+    p_org_id: orgId,
+  });
+
+  const accessStatusRaw = asTrimmedString(accessContext.accessStatus || "pending").toLowerCase();
+  const roleRaw = asTrimmedString(accessContext.role).toLowerCase();
   const identity: AuthIdentity = {
     ...user,
     orgId,
     actor: `${user.name} <${user.email}>`,
+    accessStatus:
+      accessStatusRaw === "approved" || accessStatusRaw === "denied"
+        ? (accessStatusRaw as "approved" | "denied")
+        : "pending",
+    role:
+      roleRaw === "owner" || roleRaw === "admin" || roleRaw === "member"
+        ? (roleRaw as "owner" | "admin" | "member")
+        : "",
+    permissions: parseFeaturePermissions(accessContext.permissions),
+    isAdminConsoleAllowed:
+      accessContext.isAdminConsoleAllowed === true ||
+      String(accessContext.isAdminConsoleAllowed).toLowerCase() === "true",
+    pendingCount: Number(accessContext.pendingCount || 0) || 0,
+    receivesInAppNotifications:
+      accessContext.receivesInAppNotifications === true ||
+      String(accessContext.receivesInAppNotifications).toLowerCase() === "true",
+    pendingRequestCreated:
+      accessContext.pendingRequestCreated === true ||
+      String(accessContext.pendingRequestCreated).toLowerCase() === "true",
   };
+
+  if (identity.accessStatus === "pending" && identity.pendingRequestCreated) {
+    try {
+      await sendNewAccessRequestNotification({
+        orgId,
+        requestedEmail: user.email,
+        requestedUserId: user.userId,
+      });
+    } catch {
+      // Non-fatal: pending state is still persisted in DB.
+    }
+  }
+
   authIdentityCache.set(token, {
     identity,
     expiresAt: Date.now() + 60_000,
@@ -797,12 +1078,12 @@ function routeParams(method: string, requestUrl: URL, bodyJson: Record<string, u
 }
 
 async function listBoxes(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_boxes", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_boxes", { p_org_id: orgId });
   return rows.map(mapDbBoxRow);
 }
 
 async function findBoxById(client: any, orgId: string, boxId: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_find_box_by_id", {
+  const row = await rpcOrThrow<any | null>(client, "api_acl_find_box_by_id", {
     p_org_id: orgId,
     p_box_id: boxId,
   });
@@ -810,17 +1091,17 @@ async function findBoxById(client: any, orgId: string, boxId: string) {
 }
 
 async function listFilmCatalog(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_film_catalog", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_catalog", { p_org_id: orgId });
   return rows.map(mapDbFilmCatalogRow);
 }
 
 async function listAllocations(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_allocations", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations", { p_org_id: orgId });
   return rows.map(mapDbAllocationRow);
 }
 
 async function listAllocationsByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_allocations_by_box", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_box", {
     p_org_id: orgId,
     p_box_id: boxId,
   });
@@ -828,7 +1109,7 @@ async function listAllocationsByBox(client: any, orgId: string, boxId: string) {
 }
 
 async function listAllocationsByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_allocations_by_job", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_job", {
     p_org_id: orgId,
     p_job_number: jobNumber,
   });
@@ -836,7 +1117,7 @@ async function listAllocationsByJob(client: any, orgId: string, jobNumber: strin
 }
 
 async function listAllocationsByFilmOrderId(client: any, orgId: string, filmOrderId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_allocations_by_film_order_id", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_film_order_id", {
     p_org_id: orgId,
     p_film_order_id: filmOrderId,
   });
@@ -844,7 +1125,7 @@ async function listAllocationsByFilmOrderId(client: any, orgId: string, filmOrde
 }
 
 async function listAllocationsByIds(client: any, orgId: string, allocationIds: string[]) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_allocations_by_ids", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_ids", {
     p_org_id: orgId,
     p_allocation_ids: allocationIds,
   });
@@ -852,17 +1133,17 @@ async function listAllocationsByIds(client: any, orgId: string, allocationIds: s
 }
 
 async function listActiveAllocations(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_active_allocations", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_active_allocations", { p_org_id: orgId });
   return rows.map(mapDbAllocationRow);
 }
 
 async function listFilmOrders(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_film_orders", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_orders", { p_org_id: orgId });
   return rows.map(mapDbFilmOrderRow);
 }
 
 async function listFilmOrdersByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_film_orders_by_job", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_orders_by_job", {
     p_org_id: orgId,
     p_job_number: jobNumber,
   });
@@ -870,7 +1151,7 @@ async function listFilmOrdersByJob(client: any, orgId: string, jobNumber: string
 }
 
 async function findFilmOrderById(client: any, orgId: string, filmOrderId: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_find_film_order_by_id", {
+  const row = await rpcOrThrow<any | null>(client, "api_acl_find_film_order_by_id", {
     p_org_id: orgId,
     p_film_order_id: filmOrderId,
   });
@@ -878,19 +1159,19 @@ async function findFilmOrderById(client: any, orgId: string, filmOrderId: string
 }
 
 async function listFilmOrderLinksByFilmOrderId(client: any, orgId: string, filmOrderId: string) {
-  return await rpcOrThrow<any[]>(client, "api_list_film_order_links_by_film_order_id", {
+  return await rpcOrThrow<any[]>(client, "api_acl_list_film_order_links_by_film_order_id", {
     p_org_id: orgId,
     p_film_order_id: filmOrderId,
   });
 }
 
 async function listJobs(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_jobs", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_jobs", { p_org_id: orgId });
   return rows.map(mapDbJobRow);
 }
 
 async function findJobByNumber(client: any, orgId: string, jobNumber: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_find_job_by_number", {
+  const row = await rpcOrThrow<any | null>(client, "api_acl_find_job_by_number", {
     p_org_id: orgId,
     p_job_number: jobNumber,
   });
@@ -898,12 +1179,12 @@ async function findJobByNumber(client: any, orgId: string, jobNumber: string) {
 }
 
 async function listJobRequirements(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_job_requirements", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_job_requirements", { p_org_id: orgId });
   return rows.map(mapDbRequirementRow);
 }
 
 async function listJobRequirementsByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_job_requirements_by_job", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_job_requirements_by_job", {
     p_org_id: orgId,
     p_job_number: jobNumber,
   });
@@ -911,12 +1192,12 @@ async function listJobRequirementsByJob(client: any, orgId: string, jobNumber: s
 }
 
 async function listAuditEntries(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_audit_entries", { p_org_id: orgId });
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_audit_entries", { p_org_id: orgId });
   return rows.map(mapDbAuditRow);
 }
 
 async function listAuditEntriesByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_audit_entries_by_box", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_audit_entries_by_box", {
     p_org_id: orgId,
     p_box_id: boxId,
   });
@@ -924,7 +1205,7 @@ async function listAuditEntriesByBox(client: any, orgId: string, boxId: string) 
 }
 
 async function listRollHistoryByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_list_roll_history_by_box", {
+  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_roll_history_by_box", {
     p_org_id: orgId,
     p_box_id: boxId,
   });
@@ -1129,6 +1410,7 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
     warehouse: warehouse || "IL",
     sections: null,
     dueDate: metadata.jobDate,
+    crewLeader: metadata.crewLeader,
     lifecycleStatus: "ACTIVE",
     notes: "",
     createdAt,
@@ -1173,10 +1455,12 @@ function computeJobStatusFromRequirements(
 }
 
 function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any[], filmOrders: any[]) {
+  const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
   if (!dueDate) {
-    dueDate = resolveAllocationJobMetadata(allocations, filmOrders).jobDate;
+    dueDate = metadata.jobDate;
   }
+  const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
   let requiredFeet = 0;
   let allocatedFeet = 0;
   let remainingFeet = 0;
@@ -1190,6 +1474,7 @@ function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any
     warehouse: jobHeader.warehouse || "IL",
     sections: jobHeader.sections,
     dueDate,
+    crewLeader,
     status: computeJobStatusFromRequirements(jobHeader.lifecycleStatus, requirements, allocations, filmOrders),
     lifecycleStatus: asTrimmedString(jobHeader.lifecycleStatus).toUpperCase() === "CANCELLED" ? "CANCELLED" : "ACTIVE",
     requiredFeet,
@@ -1311,10 +1596,11 @@ async function resolveJobContext(client: any, orgId: string, jobNumber: unknown,
   const normalizedJobNumber = requireString(jobNumber, "JobNumber");
   const normalizedJobDate = normalizeDateString(jobDate, "JobDate", true);
   const normalizedCrewLeader = asTrimmedString(crewLeader);
+  const existingHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
   const existingAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  let existingJobDate = "";
-  let existingCrewLeader = "";
+  let existingJobDate = existingHeader?.dueDate || "";
+  let existingCrewLeader = existingHeader?.crewLeader || "";
 
   for (const entry of existingAllocations) {
     if (!existingJobDate && entry.jobDate) {
@@ -1361,11 +1647,22 @@ function buildAllocationPreviewPlan(
   sourceBox: any,
   requestedFeet: unknown,
   jobContext: { jobNumber: string; jobDate: string; crewLeader: string },
-  options: { crossWarehouse: boolean; allBoxes: any[]; activeAllocationsByBox: Record<string, any[]> },
+  options: {
+    crossWarehouse: boolean;
+    minimumWidthIn?: unknown;
+    allBoxes: any[];
+    activeAllocationsByBox: Record<string, any[]>;
+  },
 ) {
   const requested = coerceFeetValue(requestedFeet, "RequestedFeet", [], true);
   if (requested <= 0) {
     throw new HttpError(400, "RequestedFeet must be greater than zero.");
+  }
+  const minimumWidthValue = Number(options.minimumWidthIn);
+  const minimumWidthIn =
+    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : sourceBox.widthIn;
+  if (sourceBox.widthIn < minimumWidthIn) {
+    throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, options.activeAllocationsByBox);
   const sourceSuggestedFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
@@ -1379,9 +1676,17 @@ function buildAllocationPreviewPlan(
     candidate.feetAvailable > 0 &&
     candidate.manufacturer === sourceBox.manufacturer &&
     candidate.filmName === sourceBox.filmName &&
-    candidate.widthIn === sourceBox.widthIn
+    candidate.widthIn >= minimumWidthIn
   );
-  filteredCandidates.sort(compareBoxesByOldestStock);
+  filteredCandidates.sort((left, right) => {
+    const leftWidthDelta = left.widthIn - minimumWidthIn;
+    const rightWidthDelta = right.widthIn - minimumWidthIn;
+    if (leftWidthDelta !== rightWidthDelta) {
+      return leftWidthDelta - rightWidthDelta;
+    }
+
+    return compareBoxesByOldestStock(left, right);
+  });
 
   const suggestions: any[] = [];
   for (const candidate of filteredCandidates) {
@@ -1393,6 +1698,7 @@ function buildAllocationPreviewPlan(
     suggestions.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
+      widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
       suggestedFeet,
       receivedDate: candidate.receivedDate,
@@ -1811,6 +2117,48 @@ async function callMutationRpc(client: any, fn: string, orgId: string, actor: st
 
 async function dispatchRead(client: any, orgId: string, logicalPath: string, params: Record<string, unknown>) {
   switch (logicalPath) {
+    case "/admin/access/requests": {
+      const status = asTrimmedString(params.status);
+      const entries = await rpcOrThrow<any[]>(client, "api_list_access_requests", {
+        p_org_id: orgId,
+        p_status: status,
+      });
+      return ok({ entries: Array.isArray(entries) ? entries : [] });
+    }
+    case "/admin/username-requests": {
+      const status = asTrimmedString(params.status);
+      const entries = await rpcOrThrow<any[]>(client, "api_list_username_change_requests", {
+        p_org_id: orgId,
+        p_status: status,
+      });
+      return ok({ entries: Array.isArray(entries) ? entries : [] });
+    }
+    case "/admin/member-permissions": {
+      const permissions = await rpcOrThrow<Record<string, unknown>>(client, "api_get_member_feature_permissions", {
+        p_org_id: orgId,
+      });
+      return ok({ permissions });
+    }
+    case "/admin/user-permissions": {
+      const permissions = await rpcOrThrow<Record<string, unknown>>(client, "api_get_user_feature_permissions", {
+        p_org_id: orgId,
+        p_user_id: requireString(params.userId, "userId"),
+      });
+      return ok({ permissions });
+    }
+    case "/owner/admin-permissions": {
+      const entriesRaw = await rpcOrThrow<any[]>(client, "api_get_admin_feature_permissions", {
+        p_org_id: orgId,
+      });
+      const entries = await enrichAdminPermissionEntries(Array.isArray(entriesRaw) ? entriesRaw : []);
+      return ok({ entries });
+    }
+    case "/owner/notification-preferences": {
+      const preferences = await rpcOrThrow<Record<string, unknown>>(client, "api_get_owner_notification_preferences", {
+        p_org_id: orgId,
+      });
+      return ok(preferences);
+    }
     case "/boxes/search":
       return ok(await buildSearchBoxes(client, orgId, params));
     case "/boxes/get": {
@@ -1846,6 +2194,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
         await resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader),
         {
           crossWarehouse: parseCrossWarehouseFlag(params.crossWarehouse),
+          minimumWidthIn: params.requestedWidthIn,
           allBoxes: await listBoxes(client, orgId),
           activeAllocationsByBox: buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId)),
         },
@@ -1873,8 +2222,56 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
 
 async function dispatchMutation(client: any, orgId: string, actor: string, logicalPath: string, payload: Record<string, unknown>) {
   switch (logicalPath) {
+    case "/profile/username": {
+      const result = await callMutationRpc(client, "api_request_username_change", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/admin/access/requests/approve": {
+      const result = await callMutationRpc(client, "api_approve_access_request", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/admin/access/requests/deny": {
+      const result = await callMutationRpc(client, "api_deny_access_request", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/admin/username-requests/approve": {
+      const result = await callMutationRpc(client, "api_approve_username_change_request", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/admin/username-requests/deny": {
+      const result = await callMutationRpc(client, "api_deny_username_change_request", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/admin/member-permissions": {
+      const permissions = await callMutationRpc(client, "api_update_member_feature_permissions", orgId, actor, payload);
+      return ok({ permissions });
+    }
+    case "/admin/user-permissions": {
+      const permissions = await callMutationRpc(client, "api_update_user_feature_permissions", orgId, actor, payload);
+      return ok({ permissions });
+    }
+    case "/owner/admin-permissions": {
+      const permissions = await callMutationRpc(client, "api_update_admin_feature_permissions", orgId, actor, payload);
+      return ok({ permissions });
+    }
+    case "/admin/roles/promote-member-to-admin": {
+      const result = await callMutationRpc(client, "api_promote_member_to_admin", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/owner/roles/demote-admin-to-member": {
+      const result = await callMutationRpc(client, "api_demote_admin_to_member", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/owner/roles/promote-admin-to-owner": {
+      const result = await callMutationRpc(client, "api_promote_admin_to_owner", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/owner/notification-preferences": {
+      const result = await callMutationRpc(client, "api_update_owner_notification_preferences", orgId, actor, payload);
+      return ok(result);
+    }
     case "/boxes/add": {
-      const result = await callMutationRpc(client, "api_boxes_add", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_add", orgId, actor, payload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -1882,7 +2279,7 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/update": {
-      const result = await callMutationRpc(client, "api_boxes_update", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_update", orgId, actor, payload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -1890,7 +2287,7 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/set-status": {
-      const result = await callMutationRpc(client, "api_boxes_set_status", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, payload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -1898,7 +2295,7 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/delete": {
-      const result = await callMutationRpc(client, "api_boxes_delete", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_delete", orgId, actor, payload);
       return ok(
         {
           boxId: asTrimmedString(result.boxId),
@@ -1909,7 +2306,7 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
     }
     case "/allocations/add":
     case "/allocations/apply": {
-      const result = await callMutationRpc(client, "api_allocations_apply", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, payload);
       const allocationIds = Array.isArray(result.allocationIds)
         ? result.allocationIds.map((value: unknown) => asTrimmedString(value)).filter(Boolean)
         : [];
@@ -1931,15 +2328,15 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       }, result.warnings || []);
     }
     case "/jobs/create": {
-      const result = await callMutationRpc(client, "api_jobs_create", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_jobs_create", orgId, actor, payload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
     case "/jobs/update": {
-      const result = await callMutationRpc(client, "api_jobs_update", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_jobs_update", orgId, actor, payload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
     case "/film-orders/create": {
-      const result = await callMutationRpc(client, "api_film_orders_create", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, payload);
       const filmOrder = await findFilmOrderById(client, orgId, result.filmOrderId);
       if (!filmOrder) {
         throw new HttpError(500, "Film order was created but could not be reloaded.");
@@ -1950,15 +2347,15 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       );
     }
     case "/film-orders/cancel": {
-      const result = await callMutationRpc(client, "api_film_orders_cancel", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, payload);
       return ok({ jobNumber: asTrimmedString(result.jobNumber) }, result.warnings || []);
     }
     case "/film-orders/delete": {
-      const result = await callMutationRpc(client, "api_film_orders_delete", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, payload);
       return ok(result.filmOrder || null, result.warnings || []);
     }
     case "/audit/undo": {
-      const result = await callMutationRpc(client, "api_audit_undo", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_audit_undo", orgId, actor, payload);
       const boxId = asTrimmedString(result.boxId);
       const box = result.boxDeleted || !boxId ? null : await findBoxById(client, orgId, boxId);
       return ok({ box: box ? toPublicBox(box) : null, logId: asTrimmedString(result.logId) }, result.warnings || []);
@@ -2025,6 +2422,31 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
 
   try {
     const { identity, client } = await resolveAuthContext(request);
+    if (logicalPath === "/auth/context") {
+      const payload = ok({
+        orgId: identity.orgId,
+        accessStatus: identity.accessStatus,
+        role: identity.role,
+        permissions: identity.permissions,
+        isAdminConsoleAllowed: identity.isAdminConsoleAllowed,
+        pendingCount: identity.pendingCount,
+        receivesInAppNotifications: identity.receivesInAppNotifications,
+      });
+      const responseBody = JSON.stringify(payload);
+      const headers = buildCorsHeaders(request);
+      headers.set("Content-Type", "application/json; charset=utf-8");
+      return new Response(responseBody, { status: 200, headers });
+    }
+
+    if (identity.accessStatus !== "approved" && logicalPath !== "/profile/username") {
+      throw new HttpError(
+        403,
+        identity.accessStatus === "denied"
+          ? "Your access request was denied. Contact an owner for help."
+          : "Your account is awaiting approval from an admin or owner.",
+      );
+    }
+
     const params = routeParams(request.method, requestUrl, bodyJson);
     const payload = (request.method === "GET" || (request.method === "POST" && READ_PATHS.has(logicalPath)))
       ? await dispatchRead(client, identity.orgId, logicalPath, params)
@@ -2041,6 +2463,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     }
     if (isMutation(request.method, logicalPath)) {
       cache.clear();
+      authIdentityCache.clear();
     }
 
     const headers = buildCorsHeaders(request);

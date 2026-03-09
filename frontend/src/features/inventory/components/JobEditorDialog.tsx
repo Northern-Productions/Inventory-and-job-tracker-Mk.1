@@ -24,6 +24,7 @@ export interface JobEditorSubmitPayload {
   warehouse: Warehouse;
   sections: string;
   dueDate: string;
+  crewLeader: string;
   requirements: JobRequirementEditorLine[];
 }
 
@@ -37,6 +38,7 @@ interface JobEditorDialogProps {
   initialWarehouse?: Warehouse;
   initialSections?: string | number | null;
   initialDueDate?: string;
+  initialCrewLeader?: string;
   initialRequirements?: JobRequirementEditorLine[];
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
@@ -118,6 +120,7 @@ export function JobEditorDialog({
   initialWarehouse = 'IL',
   initialSections = null,
   initialDueDate = '',
+  initialCrewLeader = '',
   initialRequirements = EMPTY_REQUIREMENT_LINES,
   filmCatalogEntries,
   filmCatalogLoading = false,
@@ -133,6 +136,7 @@ export function JobEditorDialog({
   const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse);
   const [sections, setSections] = useState(getSectionsInputValue(initialSections));
   const [dueDate, setDueDate] = useState(initialDueDate);
+  const [crewLeader, setCrewLeader] = useState(initialCrewLeader);
   const [requirements, setRequirements] = useState<RequirementDraftLine[]>(
     initialRequirements.map((entry) => createDraftLine(entry))
   );
@@ -163,6 +167,7 @@ export function JobEditorDialog({
     setWarehouse(initialWarehouse);
     setSections(getSectionsInputValue(initialSections));
     setDueDate(initialDueDate);
+    setCrewLeader(initialCrewLeader);
     setRequirements(initialRequirements.map((entry) => createDraftLine(entry)));
     setManufacturer(manufacturerOptions[0] || '');
     setFilmName('');
@@ -173,6 +178,7 @@ export function JobEditorDialog({
     setError('');
   }, [
     initialDueDate,
+    initialCrewLeader,
     initialJobNumber,
     initialRequirements,
     initialSections,
@@ -325,6 +331,7 @@ export function JobEditorDialog({
       warehouse,
       sections,
       dueDate,
+      crewLeader: crewLeader.trim(),
       requirements: mergedLines
     });
   }
@@ -384,6 +391,14 @@ export function JobEditorDialog({
             value={dueDate}
             onChange={(event) => {
               setDueDate(event.target.value);
+              setError('');
+            }}
+          />
+          <Input
+            label="Crew Leader"
+            value={crewLeader}
+            onChange={(event) => {
+              setCrewLeader(event.target.value);
               setError('');
             }}
           />
