@@ -613,8 +613,8 @@ export default function AllocationJobPage() {
                   <MobileField label="Width" value={entry.widthIn || '--'} />
                   <MobileField label="Used LF" value={entry.usedFeet} />
                   <MobileField label="Events" value={entry.usageEventCount} />
+                  <MobileField label="Last Check-Out" value={renderDateTime(entry.latestCheckedOutAt)} />
                   <MobileField label="Latest Check-In" value={renderDateTime(entry.latestCheckedInAt)} />
-                  <MobileField label="Last Activity" value={renderDateTime(entry.lastActivityAt)} />
                 </MobileFieldList>
               </MobileRecordCard>
             ))}
@@ -629,8 +629,8 @@ export default function AllocationJobPage() {
                   <th>Width</th>
                   <th>Used LF</th>
                   <th>Events</th>
+                  <th>Last Check-Out</th>
                   <th>Latest Check-In</th>
-                  <th>Last Activity</th>
                 </tr>
               </thead>
               <tbody>
@@ -651,8 +651,8 @@ export default function AllocationJobPage() {
                     <td>{entry.widthIn || '--'}</td>
                     <td>{entry.usedFeet}</td>
                     <td>{entry.usageEventCount}</td>
+                    <td>{renderDateTime(entry.latestCheckedOutAt)}</td>
                     <td>{renderDateTime(entry.latestCheckedInAt)}</td>
-                    <td>{renderDateTime(entry.lastActivityAt)}</td>
                   </tr>
                 ))}
               </tbody>
