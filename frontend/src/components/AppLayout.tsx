@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import type { FeatureAccessMode, FeatureArea } from '../domain';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountControl } from '../features/auth/AccountControl';
+import { useAuth } from '../features/auth/AuthContext';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
@@ -13,6 +15,10 @@ interface NavItem {
   mobileLabel: string;
   desktopPlacement: NavPlacement;
   mobilePlacement: NavPlacement;
+  feature?: FeatureArea;
+  mode?: FeatureAccessMode;
+  adminConsoleOnly?: boolean;
+  ownerOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -71,6 +77,32 @@ const navItems: NavItem[] = [
     mobileLabel: 'Activity',
     desktopPlacement: 'more',
     mobilePlacement: 'more'
+  },
+  {
+    to: '/admin/access',
+    desktopLabel: 'Access',
+    mobileLabel: 'Access',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    feature: 'access_management',
+    mode: 'read',
+    adminConsoleOnly: true
+  },
+  {
+    to: '/owner/admin-permissions',
+    desktopLabel: 'Admin Access',
+    mobileLabel: 'Admin Access',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    ownerOnly: true
+  },
+  {
+    to: '/owner/notification-preferences',
+    desktopLabel: 'Owner Alerts',
+    mobileLabel: 'Owner Alerts',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    ownerOnly: true
   }
 ];
 
@@ -95,6 +127,7 @@ function isNavItemActive(pathname: string, to: string) {
 }
 
 export function AppLayout() {
+  const auth = useAuth();
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
@@ -109,33 +142,51 @@ export function AppLayout() {
   );
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
 
+  const visibleNavItems = useMemo(() => {
+    return navItems.filter((item) => {
+      if (item.ownerOnly && !auth.isOwner) {
+        return false;
+      }
+
+      if (item.adminConsoleOnly && !auth.canAccessAdminConsole) {
+        return false;
+      }
+
+      if (item.feature && !auth.hasFeatureAccess(item.feature, item.mode || 'read')) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [auth]);
+
   const primaryNavItems = useMemo(
     () =>
-      navItems
+      visibleNavItems
         .filter((item) => item.desktopPlacement === 'primary')
         .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname]
+    [location.pathname, visibleNavItems]
   );
   const moreDesktopNavItems = useMemo(
     () =>
-      navItems
+      visibleNavItems
         .filter((item) => item.desktopPlacement === 'more')
         .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname]
+    [location.pathname, visibleNavItems]
   );
   const primaryMobileNavItems = useMemo(
     () =>
-      navItems
+      visibleNavItems
         .filter((item) => item.mobilePlacement === 'primary')
         .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname]
+    [location.pathname, visibleNavItems]
   );
   const moreMobileNavItems = useMemo(
     () =>
-      navItems
+      visibleNavItems
         .filter((item) => item.mobilePlacement === 'more')
         .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname]
+    [location.pathname, visibleNavItems]
   );
   const primaryMobileItems = useMemo<MobileNavItem[]>(
     () =>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
@@ -30,7 +31,12 @@ const EMPTY_FILTERS: ReportsSummaryFilters = {
   to: ''
 };
 
+function formatStatusLabel(status: string) {
+  return status.replace(/_/g, ' ');
+}
+
 export default function ReportsPage() {
+  const navigate = useNavigate();
   const isPhoneLayout = useIsPhoneLayout();
   const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
@@ -50,6 +56,8 @@ export default function ReportsPage() {
     customWidthDraft.trim() !== '' &&
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
+  const completedJobs = reportsQuery.data?.completedJobs || [];
+  const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
 
   useEffect(() => {
     if (widthMode === 'CUSTOM') {
@@ -334,6 +342,158 @@ export default function ReportsPage() {
                     <tr key={row.month}>
                       <td>{row.month}</td>
                       <td>{row.zeroedCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2>Completed Jobs</h2>
+        </div>
+        {!reportsQuery.isLoading && !reportsQuery.isError && !completedJobs.length ? (
+          <div className="empty-state">No completed jobs matched the current filters.</div>
+        ) : null}
+        {completedJobs.length ? (
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {completedJobs.map((row) => (
+                <MobileRecordCard key={`completed-${row.jobNumber}`}>
+                  <MobileRecordHeader
+                    title={row.jobNumber}
+                    subtitle={`${row.warehouse} warehouse`}
+                    badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
+                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Due Date" value={formatDate(row.dueDate)} />
+                    <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
+                    <MobileField label="Required LF" value={row.requiredFeet} />
+                    <MobileField label="Allocated LF" value={row.allocatedFeet} />
+                    <MobileField label="Remaining LF" value={row.remainingFeet} />
+                    <MobileField label="Closed" value={formatDate(row.closedAt)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Warehouse</th>
+                    <th>Due Date</th>
+                    <th>Crew Leader</th>
+                    <th>Status</th>
+                    <th>Required LF</th>
+                    <th>Allocated LF</th>
+                    <th>Remaining LF</th>
+                    <th>Closed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedJobs.map((row) => (
+                    <tr key={`completed-${row.jobNumber}`}>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                        >
+                          {row.jobNumber}
+                        </button>
+                      </td>
+                      <td>{row.warehouse}</td>
+                      <td>{formatDate(row.dueDate)}</td>
+                      <td>{row.crewLeader || '--'}</td>
+                      <td>
+                        <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
+                      </td>
+                      <td>{row.requiredFeet}</td>
+                      <td>{row.allocatedFeet}</td>
+                      <td>{row.remainingFeet}</td>
+                      <td>{formatDate(row.closedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2>Cancelled Jobs</h2>
+        </div>
+        {!reportsQuery.isLoading && !reportsQuery.isError && !cancelledJobs.length ? (
+          <div className="empty-state">No cancelled jobs matched the current filters.</div>
+        ) : null}
+        {cancelledJobs.length ? (
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {cancelledJobs.map((row) => (
+                <MobileRecordCard key={`cancelled-${row.jobNumber}`}>
+                  <MobileRecordHeader
+                    title={row.jobNumber}
+                    subtitle={`${row.warehouse} warehouse`}
+                    badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
+                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Due Date" value={formatDate(row.dueDate)} />
+                    <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
+                    <MobileField label="Required LF" value={row.requiredFeet} />
+                    <MobileField label="Allocated LF" value={row.allocatedFeet} />
+                    <MobileField label="Remaining LF" value={row.remainingFeet} />
+                    <MobileField label="Closed" value={formatDate(row.closedAt)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job ID</th>
+                    <th>Warehouse</th>
+                    <th>Due Date</th>
+                    <th>Crew Leader</th>
+                    <th>Status</th>
+                    <th>Required LF</th>
+                    <th>Allocated LF</th>
+                    <th>Remaining LF</th>
+                    <th>Closed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cancelledJobs.map((row) => (
+                    <tr key={`cancelled-${row.jobNumber}`}>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-button"
+                          onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                        >
+                          {row.jobNumber}
+                        </button>
+                      </td>
+                      <td>{row.warehouse}</td>
+                      <td>{formatDate(row.dueDate)}</td>
+                      <td>{row.crewLeader || '--'}</td>
+                      <td>
+                        <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
+                      </td>
+                      <td>{row.requiredFeet}</td>
+                      <td>{row.allocatedFeet}</td>
+                      <td>{row.remainingFeet}</td>
+                      <td>{formatDate(row.closedAt)}</td>
                     </tr>
                   ))}
                 </tbody>

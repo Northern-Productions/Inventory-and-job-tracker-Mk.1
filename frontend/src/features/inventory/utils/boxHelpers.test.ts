@@ -10,6 +10,7 @@ import {
   deriveRemainingFeetFromWeight,
   deriveSqFtWeightLbsPerSqFt,
   getActiveAllocatedFeet,
+  getDisplayedAllocatedFeetForBox,
   getManufacturerOptionsWithCatalog,
   getNextBoxIdForWarehouse,
   getRemainingAllocatableFeet,
@@ -288,5 +289,38 @@ describe('boxHelpers', () => {
     expect(getActiveAllocatedFeet(allocations)).toBe(27);
     expect(getRemainingAllocatableFeet(40, allocations)).toBe(40);
     expect(getRemainingAllocatableFeet(20, allocations)).toBe(20);
+  });
+
+  it('shows checkout-job allocated feet on checked-out boxes (active + fulfilled only)', () => {
+    const displayed = getDisplayedAllocatedFeetForBox(
+      {
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: ' 17643 '
+      },
+      [
+        { jobNumber: '17643', status: 'ACTIVE', allocatedFeet: 25 },
+        { jobNumber: '17643', status: 'FULFILLED', allocatedFeet: 10 },
+        { jobNumber: '17643', status: 'CANCELLED', allocatedFeet: 8 },
+        { jobNumber: '19034', status: 'ACTIVE', allocatedFeet: 12 }
+      ]
+    );
+
+    expect(displayed).toBe(35);
+  });
+
+  it('falls back to active-only totals when not checked out', () => {
+    const displayed = getDisplayedAllocatedFeetForBox(
+      {
+        status: 'IN_STOCK',
+        lastCheckoutJob: '17643'
+      },
+      [
+        { jobNumber: '17643', status: 'ACTIVE', allocatedFeet: 25 },
+        { jobNumber: '17643', status: 'FULFILLED', allocatedFeet: 10 },
+        { jobNumber: '19034', status: 'ACTIVE', allocatedFeet: 12 }
+      ]
+    );
+
+    expect(displayed).toBe(37);
   });
 });

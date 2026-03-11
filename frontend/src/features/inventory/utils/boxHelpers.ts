@@ -282,6 +282,29 @@ export function getActiveAllocatedFeet(
   }, 0);
 }
 
+export function getDisplayedAllocatedFeetForBox(
+  box: Pick<Box, 'status' | 'lastCheckoutJob'>,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'jobNumber'>>
+): number {
+  const checkoutJob = box.lastCheckoutJob.trim();
+  if (box.status !== 'CHECKED_OUT' || !checkoutJob) {
+    return getActiveAllocatedFeet(allocations);
+  }
+
+  const checkoutJobKey = checkoutJob.toUpperCase();
+  return allocations.reduce((total, entry) => {
+    if (entry.jobNumber.trim().toUpperCase() !== checkoutJobKey) {
+      return total;
+    }
+
+    if (entry.status !== 'ACTIVE' && entry.status !== 'FULFILLED') {
+      return total;
+    }
+
+    return total + entry.allocatedFeet;
+  }, 0);
+}
+
 export function getRemainingAllocatableFeet(
   feetAvailable: number,
   allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>>

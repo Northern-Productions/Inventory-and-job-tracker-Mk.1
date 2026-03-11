@@ -95,6 +95,10 @@ textarea {
   flex-wrap: wrap;
 }
 
+.access-splash-actions {
+  margin-top: 1rem;
+}
+
 .auth-gate .auth-note,
 .auth-gate .error-text {
   margin: 0.75rem 0 0;
@@ -154,6 +158,13 @@ textarea {
   grid-template-columns: auto auto;
   align-items: center;
   gap: 0.75rem;
+}
+
+.auth-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .auth-user {
@@ -264,6 +275,19 @@ textarea {
 
 .detail-status-actions {
   margin-top: 2rem;
+}
+
+.allocation-header-actions {
+  justify-content: flex-end;
+}
+
+.allocation-complete-footer {
+  justify-content: flex-end;
+}
+
+.allocation-complete-footer .button {
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 .allocation-stat-grid {
@@ -715,6 +739,11 @@ textarea {
 .badge-ALLOCATE {
   background: #fff0e2;
   color: #b3621d;
+}
+
+.badge-CONFLICT {
+  background: #fbe4e7;
+  color: #a13242;
 }
 
 .badge-READY {
@@ -1228,7 +1257,8 @@ th {
 
   .header-actions,
   .auth-panel,
-  .auth-user {
+  .auth-user,
+  .auth-panel-actions {
     justify-items: start;
     text-align: left;
   }
@@ -1407,6 +1437,93 @@ th {
   background: #0f2a30;
 }
 
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.access-requests-list {
+  margin-top: 0.6rem;
+}
+
+.access-request-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.access-request-actions {
+  margin-top: 0.35rem;
+}
+
+.access-role-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.14rem 0.58rem;
+  background: rgba(18, 52, 59, 0.08);
+  color: #23454d;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-transform: capitalize;
+}
+
+.access-role-pill-owner {
+  background: rgba(199, 177, 255, 0.3);
+  color: #5f3a9c;
+}
+
+.access-role-pill-admin {
+  background: rgba(173, 232, 198, 0.34);
+  color: #216544;
+}
+
+.access-role-pill-regular {
+  background: rgba(180, 214, 255, 0.36);
+  color: #1e4e8d;
+}
+
+.panel-subtle {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(18, 52, 59, 0.12);
+  box-shadow: none;
+}
+
+.feature-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.feature-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto auto;
+  gap: 0.6rem;
+  align-items: center;
+  border: 1px solid rgba(18, 52, 59, 0.1);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.feature-label {
+  font-weight: 600;
+  color: #1d4149;
+}
+
+.field-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #23454d;
+}
+
+.field-checkbox input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding:
@@ -1425,6 +1542,10 @@ th {
    .auth-user {
     justify-items: start;
     text-align: left;
+  }
+
+  .auth-panel-actions {
+    justify-content: flex-start;
   }
 
   .auth-panel-signed-in {
@@ -1502,5 +1623,9 @@ th {
 
   .qr-code-actions .button {
     width: 100%;
+  }
+
+  .feature-row {
+    grid-template-columns: 1fr;
   }
 }

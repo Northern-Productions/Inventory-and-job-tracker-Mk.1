@@ -6,6 +6,7 @@ import type {
   AuditEntry,
   AvailableFeetByWidthRow,
   Box,
+  ClosedJobReportRow,
   FilmCatalogEntry,
   FilmOrderEntry,
   JobDetail,
@@ -14,6 +15,13 @@ import type {
   RollHistoryEntry,
   ZeroedTrendRow
 } from './inventory';
+import type {
+  AccessRequestEntry,
+  AdminPermissionEntry,
+  EffectiveAccessContext,
+  FeatureAccessMap,
+  OwnerNotificationPreferences
+} from './auth';
 
 export interface ApiEnvelope<T> {
   ok: boolean;
@@ -82,4 +90,22 @@ export interface ReportsSummary {
   availableFeetByWidth: AvailableFeetByWidthRow[];
   neverCheckedOut: NeverCheckedOutBoxRow[];
   zeroedByMonth: ZeroedTrendRow[];
+  completedJobs: ClosedJobReportRow[];
+  cancelledJobs: ClosedJobReportRow[];
 }
+
+export interface AccessRequestsResponse {
+  entries: AccessRequestEntry[];
+}
+
+export interface MemberFeaturePermissionsResponse {
+  permissions: FeatureAccessMap;
+}
+
+export interface OwnerAdminPermissionsResponse {
+  entries: AdminPermissionEntry[];
+}
+
+export interface AuthContextResponse extends EffectiveAccessContext {}
+
+export interface OwnerNotificationPreferencesResponse extends OwnerNotificationPreferences {}

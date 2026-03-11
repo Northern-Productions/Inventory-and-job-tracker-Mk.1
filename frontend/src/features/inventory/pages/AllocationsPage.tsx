@@ -29,7 +29,10 @@ export default function AllocationsPage() {
   const createJobMutation = useCreateJob();
   const filmCatalogQuery = useFilmCatalog();
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
-  const jobs = useMemo(() => jobsQuery.data || [], [jobsQuery.data]);
+  const jobs = useMemo(
+    () => (jobsQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE'),
+    [jobsQuery.data]
+  );
 
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
@@ -84,7 +87,7 @@ export default function AllocationsPage() {
           <div>
             <h2>Jobs</h2>
             <p className="muted-text">
-              Showing the 25 most recent jobs by due date (newest first).
+              Showing active jobs only (up to 25), sorted by due date.
             </p>
           </div>
           <Button

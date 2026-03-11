@@ -22,6 +22,7 @@ interface BoxFormProps {
   resetKey: string;
   mode: 'create' | 'edit';
   submitLabel: string;
+  disabled?: boolean;
   submitting?: boolean;
   deleting?: boolean;
   createWarehouse?: Warehouse;
@@ -40,6 +41,7 @@ export function BoxForm({
   resetKey,
   mode,
   submitLabel,
+  disabled = false,
   submitting = false,
   deleting = false,
   createWarehouse,
@@ -232,6 +234,9 @@ export function BoxForm({
         className="panel"
         onSubmit={(event) => {
           event.preventDefault();
+          if (disabled) {
+            return;
+          }
           onSubmit(draft);
         }}
       >
@@ -442,12 +447,12 @@ export function BoxForm({
               type="button"
               variant="danger"
               onClick={openDeleteDialog}
-              disabled={submitting || deleting}
+              disabled={disabled || submitting || deleting}
             >
               Delete
             </Button>
           ) : null}
-          <Button type="submit" disabled={submitting || deleting}>
+          <Button type="submit" disabled={disabled || submitting || deleting}>
             {submitting ? 'Saving...' : submitLabel}
           </Button>
         </div>

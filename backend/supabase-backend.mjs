@@ -7,6 +7,7 @@ const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const DEFAULT_ORG_ID = String(process.env.DEFAULT_ORG_ID || '').trim();
 const LOW_STOCK_THRESHOLD_LF = 10;
+const ZEROED_BOX_AUTO_CANCEL_NOTE = 'Auto-cancelled because the box was moved to zeroed out inventory.';
 
 const CORE_WEIGHT_REFERENCE_WIDTH_IN = 72;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
@@ -160,6 +161,11 @@ function assertBoxStatus(value) {
   }
 
   return normalized;
+}
+
+function isAllocatableBoxStatus(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  return normalized === 'IN_STOCK' || normalized === 'CHECKED_OUT';
 }
 
 function parseBooleanFlag(value) {
@@ -571,6 +577,10 @@ function normalizeJobLifecycleStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
   if (normalized === 'CANCELLED') {
     return 'CANCELLED';
+  }
+
+  if (normalized === 'COMPLETED') {
+    return 'COMPLETED';
   }
 
   return 'ACTIVE';
@@ -1304,11 +1314,14 @@ function inferFeatureForRoute(logicalPath) {
     case '/allocations/preview':
     case '/allocations/add':
     case '/allocations/apply':
+    case '/allocations/remove-box':
       return 'allocations';
     case '/jobs/list':
     case '/jobs/get':
     case '/jobs/create':
     case '/jobs/update':
+    case '/jobs/complete':
+    case '/jobs/reopen':
       return 'jobs';
     case '/film-orders/list':
     case '/film-orders/create':
@@ -1356,7 +1369,8 @@ function isOwnerOnlyRoute(logicalPath) {
     logicalPath === '/owner/admin-permissions' ||
     logicalPath === '/owner/roles/demote-admin-to-member' ||
     logicalPath === '/owner/roles/promote-admin-to-owner' ||
-    logicalPath === '/owner/notification-preferences'
+    logicalPath === '/owner/notification-preferences' ||
+    logicalPath === '/jobs/reopen'
   );
 }
 
@@ -2573,6 +2587,82 @@ async function listRollHistoryByBox(client, orgId, boxId) {
   return rows.map(mapDbRollHistoryRow);
 }
 
+async function listRollHistoryByJob(client, orgId, jobNumber) {
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.roll_weight_log
+      where org_id = $1
+        and upper(job_number) = upper($2)
+      order by checked_in_at desc nulls last, checked_out_at desc nulls last, log_id desc
+    `,
+    [orgId, jobNumber]
+  );
+
+  return rows.map(mapDbRollHistoryRow);
+}
+
+function toUsageTimestampSortValue(entry) {
+  return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || '';
+}
+
+function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
+  const grouped = {};
+  const normalizedEntries = Array.isArray(rollHistoryEntries) ? rollHistoryEntries : [];
+
+  for (let index = 0; index < normalizedEntries.length; index += 1) {
+    const entry = normalizedEntries[index];
+    if (!entry || !entry.boxId) {
+      continue;
+    }
+
+    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const timestampSortValue = toUsageTimestampSortValue(entry);
+    const box = boxById[entry.boxId] || null;
+
+    if (!grouped[entry.boxId]) {
+      grouped[entry.boxId] = {
+        boxId: entry.boxId,
+        manufacturer: box ? box.manufacturer : asTrimmedString(entry.manufacturer),
+        filmName: box ? box.filmName : asTrimmedString(entry.filmName),
+        widthIn: box ? box.widthIn : numericOrNull(entry.widthIn) ?? 0,
+        usedFeet: 0,
+        usageEventCount: 0,
+        latestCheckedInAt: '',
+        latestCheckedOutAt: '',
+        lastActivityAt: ''
+      };
+    }
+
+    grouped[entry.boxId].usedFeet += usedFeet;
+    grouped[entry.boxId].usageEventCount += 1;
+
+    if (asTrimmedString(entry.checkedInAt) > grouped[entry.boxId].latestCheckedInAt) {
+      grouped[entry.boxId].latestCheckedInAt = asTrimmedString(entry.checkedInAt);
+    }
+
+    if (asTrimmedString(entry.checkedOutAt) > grouped[entry.boxId].latestCheckedOutAt) {
+      grouped[entry.boxId].latestCheckedOutAt = asTrimmedString(entry.checkedOutAt);
+    }
+
+    if (timestampSortValue > grouped[entry.boxId].lastActivityAt) {
+      grouped[entry.boxId].lastActivityAt = timestampSortValue;
+    }
+  }
+
+  const response = Object.values(grouped);
+  response.sort((left, right) => {
+    if (left.lastActivityAt !== right.lastActivityAt) {
+      return left.lastActivityAt > right.lastActivityAt ? -1 : 1;
+    }
+
+    return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
+  });
+
+  return response;
+}
+
 async function appendRollHistoryEntry(client, orgId, entry) {
   await client.query(
     `
@@ -2673,16 +2763,36 @@ function buildJobRequirementsByLookupKey(entries) {
   return byKey;
 }
 
-function buildAllocationCoverageByRequirementKey(allocations, boxById) {
-  const totals = {};
+function normalizeRequirementFilmKey(manufacturer, filmName) {
+  return `${normalizeCatalogLookupKey(manufacturer)}|${normalizeCatalogLookupKey(filmName)}`;
+}
+
+function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
+  const grouped = {};
+  const coverage = {};
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = requirements[index];
+    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
+    const groupKey = normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName);
+    if (!grouped[groupKey]) {
+      grouped[groupKey] = {
+        requirements: [],
+        pools: []
+      };
+    }
+
+    grouped[groupKey].requirements.push({
+      requirementId,
+      widthIn: Number(requirement.widthIn) || 0,
+      requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
+      index
+    });
+  }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
-    if (allocation.status === 'CANCELLED') {
-      continue;
-    }
-
-    if (allocation.allocatedFeet <= 0) {
+    if (allocation.status === 'CANCELLED' || allocation.allocatedFeet <= 0) {
       continue;
     }
 
@@ -2691,31 +2801,67 @@ function buildAllocationCoverageByRequirementKey(allocations, boxById) {
       continue;
     }
 
-    const key = normalizeJobRequirementLookupKey(box.manufacturer, box.filmName, box.widthIn);
-    totals[key] = (totals[key] || 0) + allocation.allocatedFeet;
+    const groupKey = normalizeRequirementFilmKey(box.manufacturer, box.filmName);
+    if (!grouped[groupKey]) {
+      grouped[groupKey] = {
+        requirements: [],
+        pools: []
+      };
+    }
+
+    grouped[groupKey].pools.push({
+      widthIn: Number(box.widthIn) || 0,
+      remainingFeet: allocation.allocatedFeet
+    });
   }
 
-  return totals;
+  const groupValues = Object.values(grouped);
+  for (let groupIndex = 0; groupIndex < groupValues.length; groupIndex += 1) {
+    const group = groupValues[groupIndex];
+    group.requirements.sort((left, right) => {
+      if (left.widthIn !== right.widthIn) {
+        return right.widthIn - left.widthIn;
+      }
+      return left.index - right.index;
+    });
+    group.pools.sort((left, right) => left.widthIn - right.widthIn);
+
+    for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
+      const requirement = group.requirements[requirementIndex];
+      let remainingNeed = requirement.requiredFeet;
+
+      for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
+        const pool = group.pools[poolIndex];
+        if (pool.remainingFeet <= 0 || pool.widthIn < requirement.widthIn) {
+          continue;
+        }
+
+        const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
+        pool.remainingFeet -= assignedFeet;
+        remainingNeed -= assignedFeet;
+      }
+
+      coverage[requirement.requirementId] = requirement.requiredFeet - remainingNeed;
+    }
+  }
+
+  return coverage;
 }
 
 function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
-  const coverage = buildAllocationCoverageByRequirementKey(allocations, boxById);
+  const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = [];
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const key = normalizeJobRequirementLookupKey(
-      requirement.manufacturer,
-      requirement.filmName,
-      requirement.widthIn
-    );
-    const allocatedFeet = Math.max(0, Number(coverage[key] || 0));
+    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
+    const allocatedFeet = Math.max(0, Number(coverage[requirementId] || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
     const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
     const cappedAllocatedFeet = requiredFeet - remainingFeet;
 
     response.push({
-      requirementId: requirement.id || createLogId(),
+      requirementId,
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
@@ -2910,8 +3056,13 @@ function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
 }
 
 function computeJobStatusFromRequirements(lifecycleStatus, requirements, allocations, filmOrders) {
-  if (normalizeJobLifecycleStatus(lifecycleStatus) === 'CANCELLED') {
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
+  if (normalizedLifecycleStatus === 'CANCELLED') {
     return 'CANCELLED';
+  }
+
+  if (normalizedLifecycleStatus === 'COMPLETED') {
+    return 'COMPLETED';
   }
 
   if (!requirements.length) {
@@ -2931,7 +3082,59 @@ function computeJobStatusFromRequirements(lifecycleStatus, requirements, allocat
   return 'READY';
 }
 
-function buildJobListEntry(jobHeader, requirements, allocations, filmOrders) {
+function hasSharedActiveBoxConflict(jobNumber, dueDate, crewLeader, jobAllocations, allAllocations) {
+  const normalizedJobDate = asTrimmedString(dueDate);
+  if (!normalizedJobDate) {
+    return false;
+  }
+
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const normalizedCrewLeader = normalizeCrewLeaderKey(crewLeader);
+  const activeBoxIds = {};
+
+  for (let index = 0; index < jobAllocations.length; index += 1) {
+    const allocation = jobAllocations[index];
+    if (allocation.status !== 'ACTIVE' || !allocation.boxId) {
+      continue;
+    }
+
+    activeBoxIds[allocation.boxId] = true;
+  }
+
+  if (!Object.keys(activeBoxIds).length) {
+    return false;
+  }
+
+  const candidates = Array.isArray(allAllocations) ? allAllocations : [];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const entry = candidates[index];
+    if (entry.status !== 'ACTIVE') {
+      continue;
+    }
+
+    if (!activeBoxIds[entry.boxId]) {
+      continue;
+    }
+
+    if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
+      continue;
+    }
+
+    if (asTrimmedString(entry.jobDate) !== normalizedJobDate) {
+      continue;
+    }
+
+    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedCrewLeader) {
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+function buildJobListEntry(jobHeader, requirements, allocations, filmOrders, allAllocations = []) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
   if (!dueDate) {
@@ -2949,18 +3152,25 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders) {
     remainingFeet += requirements[index].remainingFeet;
   }
 
+  const baseStatus = computeJobStatusFromRequirements(
+    jobHeader.lifecycleStatus,
+    requirements,
+    allocations,
+    filmOrders
+  );
+  const status =
+    baseStatus === 'ALLOCATE' &&
+    hasSharedActiveBoxConflict(jobHeader.jobNumber, dueDate, crewLeader, allocations, allAllocations)
+      ? 'CONFLICT'
+      : baseStatus;
+
   return {
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || 'IL',
     sections: jobHeader.sections,
     dueDate,
     crewLeader,
-    status: computeJobStatusFromRequirements(
-      jobHeader.lifecycleStatus,
-      requirements,
-      allocations,
-      filmOrders
-    ),
+    status,
     lifecycleStatus: normalizeJobLifecycleStatus(jobHeader.lifecycleStatus),
     requiredFeet,
     allocatedFeet,
@@ -2999,12 +3209,18 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
     })
     .map((entry) => {
       const box = boxById[entry.boxId];
+      const checkedOutOnThisJob = Boolean(
+        box &&
+          box.status === 'CHECKED_OUT' &&
+          normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(entry.jobNumber)
+      );
       return {
         ...toPublicAllocation(entry),
         manufacturer: box ? box.manufacturer : '',
         filmName: box ? box.filmName : '',
         widthIn: box ? box.widthIn : 0,
-        boxStatus: box ? box.status : ''
+        boxStatus: box ? box.status : '',
+        checkedOutOnThisJob
       };
     });
 }
@@ -3054,6 +3270,9 @@ async function resolveJobContext(client, orgId, jobNumber, jobDate, crewLeader) 
   const normalizedJobDate = normalizeDateString(jobDate, 'JobDate', true);
   const normalizedCrewLeader = asTrimmedString(crewLeader);
   const existingHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
+  if (existingHeader && normalizeJobLifecycleStatus(existingHeader.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and cannot receive allocations.`);
+  }
   const existingAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   let existingJobDate = existingHeader?.dueDate || '';
@@ -3163,7 +3382,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     const candidate = candidateBoxes[index];
     if (
       candidate.boxId === sourceBox.boxId ||
-      candidate.status !== 'IN_STOCK' ||
+      !isAllocatableBoxStatus(candidate.status) ||
       candidate.feetAvailable <= 0 ||
       candidate.manufacturer !== sourceBox.manufacturer ||
       candidate.filmName !== sourceBox.filmName ||
@@ -3531,6 +3750,82 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
   };
 }
 
+async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, user, reason) {
+  const jobHeader = await findJobByNumber(client, orgId, jobNumber);
+  if (jobHeader && normalizeJobLifecycleStatus(jobHeader.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${jobNumber} is closed and allocation rows cannot be removed.`);
+  }
+
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const normalizedAllocationId = asTrimmedString(allocationId);
+  const resolvedAt = new Date().toISOString();
+  let target = null;
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    if (asTrimmedString(allocations[index].allocationId) === normalizedAllocationId) {
+      target = allocations[index];
+      break;
+    }
+  }
+
+  if (!target) {
+    throw new HttpError(404, `Allocation ${allocationId} was not found for job ${jobNumber}.`);
+  }
+
+  if (target.status === 'CANCELLED') {
+    return {
+      allocationId: target.allocationId,
+      boxId: target.boxId,
+      removedAllocationCount: 0,
+      releasedFeet: 0
+    };
+  }
+
+  const entry = cloneValue(target);
+  const box = await findBoxById(client, orgId, entry.boxId);
+  if (
+    box &&
+    box.status === 'CHECKED_OUT' &&
+    normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobNumber
+  ) {
+    throw new HttpError(
+      400,
+      `Box ${entry.boxId} is checked out on job ${jobNumber} and cannot be removed until the box is checked in.`
+    );
+  }
+
+  const note =
+    asTrimmedString(reason) ||
+    `Removed allocation ${entry.allocationId} for box ${entry.boxId} from job ${jobNumber} on allocation detail page.`;
+  const releasedFeet =
+    entry.status === 'ACTIVE' || entry.status === 'FULFILLED' ? entry.allocatedFeet : 0;
+
+  entry.status = 'CANCELLED';
+  entry.resolvedAt = resolvedAt;
+  entry.resolvedBy = asTrimmedString(user);
+  entry.notes = note;
+  await saveAllocationRecord(client, orgId, entry);
+
+  if (releasedFeet > 0) {
+    if (box && box.status !== 'ZEROED' && box.status !== 'RETIRED') {
+      box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + releasedFeet);
+      await saveBoxRecord(client, orgId, box);
+    }
+  }
+
+  if (entry.filmOrderId) {
+    await recalculateFilmOrder(client, orgId, entry.filmOrderId, user);
+  }
+
+  return {
+    allocationId: entry.allocationId,
+    boxId: entry.boxId,
+    removedAllocationCount: 1,
+    releasedFeet
+  };
+}
+
 async function cancelFilmOrderAndReleaseAllocations(client, orgId, filmOrderId, user, reason) {
   const existing = await findFilmOrderById(client, orgId, filmOrderId);
   if (!existing) {
@@ -3618,6 +3913,331 @@ async function recalculateFilmOrdersForBoxLinks(client, orgId, boxId, user) {
   }
 }
 
+function hasNonCancelledAllocationForBoxJob(allocations, boxId, jobNumber) {
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = allocations[index];
+    if (
+      entry.status !== 'CANCELLED' &&
+      entry.boxId === boxId &&
+      normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function readFeetAvailableFromAuditState(state) {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+
+  const rawValue = state.feetAvailable;
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    return null;
+  }
+
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(parsed));
+}
+
+function resolveCheckoutSnapshotAllocationFeet(checkoutAudit, box) {
+  const afterFeet = readFeetAvailableFromAuditState(checkoutAudit && checkoutAudit.after);
+  if (afterFeet !== null) {
+    return afterFeet;
+  }
+
+  const beforeFeet = readFeetAvailableFromAuditState(checkoutAudit && checkoutAudit.before);
+  if (beforeFeet !== null) {
+    return beforeFeet;
+  }
+
+  return Math.max(0, integerOrZero(box.feetAvailable));
+}
+
+function sumRemainingMatchingRequirementFeetForBox(requirements, box) {
+  const boxFilmKey = normalizeRequirementFilmKey(box.manufacturer, box.filmName);
+  let total = 0;
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = requirements[index];
+    if (normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) !== boxFilmKey) {
+      continue;
+    }
+
+    if ((Number(requirement.widthIn) || 0) > (Number(box.widthIn) || 0)) {
+      continue;
+    }
+
+    total += Math.max(0, Number(requirement.remainingFeet || 0));
+  }
+
+  return total;
+}
+
+async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, allocations) {
+  const normalizedJobNumber = requireString(jobNumber, 'JobNumber');
+  const header = await findJobByNumber(client, orgId, normalizedJobNumber);
+  const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
+
+  return {
+    jobNumber: normalizedJobNumber,
+    jobDate: asTrimmedString(header?.dueDate) || metadata.jobDate || '',
+    crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || ''
+  };
+}
+
+async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNumber, user, mode = 'checkout') {
+  const normalizedJobNumber = requireString(jobNumber, 'JobNumber');
+  const availableFeet = Math.max(0, integerOrZero(box.feetAvailable));
+
+  if (availableFeet <= 0) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NO_AVAILABLE_FEET'
+    };
+  }
+
+  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  if (!requirements.length) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NO_REQUIREMENTS'
+    };
+  }
+
+  const jobAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
+  if (
+    mode === 'backfill' &&
+    hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, normalizedJobNumber)
+  ) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'ALREADY_LINKED'
+    };
+  }
+
+  const allBoxes = await listBoxes(client, orgId);
+  const boxById = {};
+  for (let index = 0; index < allBoxes.length; index += 1) {
+    boxById[allBoxes[index].boxId] = allBoxes[index];
+  }
+
+  const publicRequirements = buildPublicJobRequirementEntries(requirements, jobAllocations, boxById);
+  const remainingMatchingFeet = sumRemainingMatchingRequirementFeetForBox(publicRequirements, box);
+  if (remainingMatchingFeet <= 0) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NO_MATCHING_REMAINING_REQUIREMENTS'
+    };
+  }
+
+  const allocatableFeet = Math.min(availableFeet, remainingMatchingFeet);
+  if (allocatableFeet <= 0) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NO_ALLOCATABLE_FEET'
+    };
+  }
+
+  const jobContext = await buildJobContextForAutoLinkedAllocation(
+    client,
+    orgId,
+    normalizedJobNumber,
+    jobAllocations
+  );
+  const allocation = await createAllocationRecord(
+    client,
+    orgId,
+    box,
+    jobContext,
+    allocatableFeet,
+    user,
+    ''
+  );
+
+  box.feetAvailable = Math.max(availableFeet - allocatableFeet, 0);
+
+  return {
+    created: true,
+    allocatedFeet: allocatableFeet,
+    allocationId: allocation.allocationId,
+    skippedReason: ''
+  };
+}
+
+async function reconcileCheckedOutBoxAllocationLink(client, orgId, box, user) {
+  if (!box || box.status !== 'CHECKED_OUT') {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NOT_CHECKED_OUT'
+    };
+  }
+
+  const checkoutJobNumber = asTrimmedString(box.lastCheckoutJob);
+  if (!checkoutJobNumber) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'MISSING_CHECKOUT_JOB'
+    };
+  }
+
+  const jobAllocations = await listAllocationsByJob(client, orgId, checkoutJobNumber);
+  if (hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, checkoutJobNumber)) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'ALREADY_LINKED'
+    };
+  }
+
+  const checkoutAudit = await findLatestCheckoutAuditEntryByBoxId(client, orgId, box.boxId);
+  const snapshotFeet = resolveCheckoutSnapshotAllocationFeet(checkoutAudit, box);
+  if (snapshotFeet <= 0) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'NO_CHECKOUT_SNAPSHOT_FEET'
+    };
+  }
+
+  const workingBox = cloneValue(box);
+  const jobContext = await buildJobContextForAutoLinkedAllocation(
+    client,
+    orgId,
+    checkoutJobNumber,
+    jobAllocations
+  );
+
+  await createAllocationRecord(
+    client,
+    orgId,
+    workingBox,
+    jobContext,
+    snapshotFeet,
+    user,
+    ''
+  );
+
+  const availableBefore = Math.max(0, integerOrZero(workingBox.feetAvailable));
+  const deductedFeet = Math.min(availableBefore, snapshotFeet);
+  workingBox.feetAvailable = Math.max(availableBefore - deductedFeet, 0);
+
+  await resolveAllocationsForCheckout(client, orgId, workingBox.boxId, checkoutJobNumber, user);
+  await saveBoxRecord(client, orgId, workingBox);
+
+  return {
+    created: true,
+    allocatedFeet: snapshotFeet,
+    skippedReason: ''
+  };
+}
+
+async function reconcileCheckedOutBoxAllocationLinkByBoxId(client, orgId, boxId, user) {
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    return {
+      created: false,
+      allocatedFeet: 0,
+      skippedReason: 'BOX_NOT_FOUND'
+    };
+  }
+
+  return reconcileCheckedOutBoxAllocationLink(client, orgId, box, user);
+}
+
+async function reconcileCheckedOutBoxAllocationLinksForJob(client, orgId, jobNumber, user) {
+  const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
+  const normalizedKey = normalizeJobNumberKey(normalizedJobNumber);
+  const boxes = await listBoxes(client, orgId);
+
+  for (let index = 0; index < boxes.length; index += 1) {
+    const box = boxes[index];
+    if (box.status !== 'CHECKED_OUT') {
+      continue;
+    }
+
+    if (normalizeJobNumberKey(box.lastCheckoutJob) !== normalizedKey) {
+      continue;
+    }
+
+    await reconcileCheckedOutBoxAllocationLink(client, orgId, box, user);
+  }
+}
+
+async function reconcileZeroedBoxAllocationStateByBoxId(client, orgId, boxId, user) {
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    return {
+      cancelledCount: 0,
+      skippedReason: 'BOX_NOT_FOUND'
+    };
+  }
+
+  if (box.status !== 'ZEROED') {
+    return {
+      cancelledCount: 0,
+      skippedReason: 'NOT_ZEROED'
+    };
+  }
+
+  const cancelledCount = await cancelAllocationsForZeroedBox(client, orgId, box.boxId, user);
+  return {
+    cancelledCount,
+    skippedReason: cancelledCount > 0 ? '' : 'NO_ALLOCATIONS_TO_CANCEL'
+  };
+}
+
+async function reconcileZeroedBoxAllocationStateForJob(client, orgId, jobNumber, user) {
+  const allocations = await listAllocationsByJob(client, orgId, requireString(jobNumber, 'jobNumber'));
+  const boxes = await listBoxes(client, orgId);
+  const boxesById = {};
+  const zeroedBoxIds = {};
+  let cancelledCount = 0;
+
+  for (let index = 0; index < boxes.length; index += 1) {
+    boxesById[boxes[index].boxId] = boxes[index];
+  }
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const allocation = allocations[index];
+    if (allocation.status === 'CANCELLED') {
+      continue;
+    }
+
+    const box = boxesById[allocation.boxId];
+    if (!box || box.status !== 'ZEROED' || zeroedBoxIds[box.boxId]) {
+      continue;
+    }
+
+    zeroedBoxIds[box.boxId] = true;
+  }
+
+  for (const boxId of Object.keys(zeroedBoxIds)) {
+    const result = await reconcileZeroedBoxAllocationStateByBoxId(client, orgId, boxId, user);
+    cancelledCount += result.cancelledCount;
+  }
+
+  return {
+    cancelledCount
+  };
+}
+
 async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, user) {
   const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
@@ -3651,14 +4271,16 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
   return result;
 }
 
-async function cancelActiveAllocationsForBox(client, orgId, boxId, user, reason) {
-  const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
+async function cancelNonCancelledAllocationsForBox(client, orgId, boxId, user, reason) {
+  const cancellable = (await listAllocationsByBox(client, orgId, boxId)).filter(
+    (entry) => entry.status !== 'CANCELLED'
+  );
   const resolvedAt = new Date().toISOString();
   const trimmedReason = asTrimmedString(reason);
   const affectedFilmOrders = {};
 
-  for (let index = 0; index < active.length; index += 1) {
-    const entry = cloneValue(active[index]);
+  for (let index = 0; index < cancellable.length; index += 1) {
+    const entry = cloneValue(cancellable[index]);
     entry.status = 'CANCELLED';
     entry.resolvedAt = resolvedAt;
     entry.resolvedBy = asTrimmedString(user);
@@ -3674,7 +4296,17 @@ async function cancelActiveAllocationsForBox(client, orgId, boxId, user, reason)
     await recalculateFilmOrder(client, orgId, filmOrderId, user);
   }
 
-  return active.length;
+  return cancellable.length;
+}
+
+async function cancelAllocationsForZeroedBox(client, orgId, boxId, user) {
+  return cancelNonCancelledAllocationsForBox(
+    client,
+    orgId,
+    boxId,
+    user,
+    ZEROED_BOX_AUTO_CANCEL_NOTE
+  );
 }
 
 async function reactivateFulfilledAllocationsForUndo(client, orgId, boxId, jobNumber) {
@@ -3703,7 +4335,7 @@ async function reactivateFulfilledAllocationsForUndo(client, orgId, boxId, jobNu
 
 async function reactivateCancelledAllocationsForZeroUndo(client, orgId, boxId) {
   const entries = await listAllocationsByBox(client, orgId, boxId);
-  const expectedNote = 'Auto-cancelled because the box was moved to zeroed out inventory.';
+  const expectedNote = ZEROED_BOX_AUTO_CANCEL_NOTE;
   let count = 0;
   const affectedFilmOrders = {};
 
@@ -4195,6 +4827,7 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
 
   if (!allocations.length && !filmOrders.length) {
     throw new HttpError(404, 'Job not found.');
@@ -4209,6 +4842,7 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
   return {
     summary: buildAllocationJobSummary(normalizedJobNumber, allocations, filmOrders),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    usage: buildPublicJobUsageEntries(rollHistory, boxById),
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders)
   };
 }
@@ -4260,7 +4894,7 @@ async function buildJobsList(client, orgId, limit) {
     );
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
 
-    response.push(buildJobListEntry(header, requirements, allocations, filmOrders));
+    response.push(buildJobListEntry(header, requirements, allocations, filmOrders, allAllocations));
   }
 
   response.sort(compareJobsListEntries);
@@ -4278,6 +4912,8 @@ async function buildJobDetail(client, orgId, jobNumber) {
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
+  const allAllocations = await listAllocations(client, orgId);
 
   if (!header && !allocations.length && !filmOrders.length && !requirements.length) {
     throw new HttpError(404, 'Job not found.');
@@ -4295,9 +4931,10 @@ async function buildJobDetail(client, orgId, jobNumber) {
 
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   return {
-    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders),
+    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, allAllocations),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    usage: buildPublicJobUsageEntries(rollHistory, boxById),
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders)
   };
 }
@@ -4355,6 +4992,40 @@ function boxMatchesReportFilters(box, filters) {
   return true;
 }
 
+function extractClosedDate(updatedAt) {
+  const timestamp = asTrimmedString(updatedAt);
+  if (!timestamp) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestamp)) {
+    return timestamp;
+  }
+
+  return timestamp.slice(0, 10);
+}
+
+function matchesClosedJobReportFilters(jobEntry, filters) {
+  if (filters.warehouse && jobEntry.warehouse !== filters.warehouse) {
+    return false;
+  }
+
+  const closedDate = extractClosedDate(jobEntry.updatedAt);
+  if (!closedDate) {
+    return false;
+  }
+
+  if (filters.from && closedDate < filters.from) {
+    return false;
+  }
+
+  if (filters.to && closedDate > filters.to) {
+    return false;
+  }
+
+  return true;
+}
+
 async function buildReportsSummary(client, orgId, params) {
   const filters = {
     warehouse: asTrimmedString(params.warehouse).toUpperCase(),
@@ -4371,6 +5042,8 @@ async function buildReportsSummary(client, orgId, params) {
   const neverCheckedOut = [];
   const zeroedByMonthMap = {};
   const zeroedByMonth = [];
+  const completedJobs = [];
+  const cancelledJobs = [];
 
   for (let index = 0; index < activeBoxes.length; index += 1) {
     const activeBox = activeBoxes[index];
@@ -4455,10 +5128,55 @@ async function buildReportsSummary(client, orgId, params) {
 
   zeroedByMonth.sort((left, right) => (left.month < right.month ? -1 : left.month > right.month ? 1 : 0));
 
+  const allJobEntries = await buildJobsList(client, orgId, 0);
+  for (let index = 0; index < allJobEntries.length; index += 1) {
+    const jobEntry = allJobEntries[index];
+    const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
+
+    if (lifecycleStatus !== 'COMPLETED' && lifecycleStatus !== 'CANCELLED') {
+      continue;
+    }
+
+    if (!matchesClosedJobReportFilters(jobEntry, filters)) {
+      continue;
+    }
+
+    const reportEntry = {
+      jobNumber: jobEntry.jobNumber,
+      warehouse: jobEntry.warehouse,
+      dueDate: jobEntry.dueDate,
+      crewLeader: jobEntry.crewLeader,
+      status: jobEntry.status,
+      lifecycleStatus,
+      requiredFeet: jobEntry.requiredFeet,
+      allocatedFeet: jobEntry.allocatedFeet,
+      remainingFeet: jobEntry.remainingFeet,
+      closedAt: asTrimmedString(jobEntry.updatedAt)
+    };
+
+    if (lifecycleStatus === 'COMPLETED') {
+      completedJobs.push(reportEntry);
+    } else {
+      cancelledJobs.push(reportEntry);
+    }
+  }
+
+  const compareClosedJobs = (left, right) => {
+    if (left.closedAt !== right.closedAt) {
+      return left.closedAt > right.closedAt ? -1 : 1;
+    }
+
+    return left.jobNumber > right.jobNumber ? -1 : left.jobNumber < right.jobNumber ? 1 : 0;
+  };
+  completedJobs.sort(compareClosedJobs);
+  cancelledJobs.sort(compareClosedJobs);
+
   return {
     availableFeetByWidth,
     neverCheckedOut,
-    zeroedByMonth
+    zeroedByMonth,
+    completedJobs,
+    cancelledJobs
   };
 }
 
@@ -4542,12 +5260,11 @@ async function updateBox(client, orgId, payload, actor) {
     }
 
     stampZeroedMetadata(updatedBox, actor, payload.auditNote);
-    const cancelledAllocationCount = await cancelActiveAllocationsForBox(
+    const cancelledAllocationCount = await cancelAllocationsForZeroedBox(
       client,
       orgId,
       updatedBox.boxId,
-      actor,
-      'Auto-cancelled because the box was moved to zeroed out inventory.'
+      actor
     );
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     auditAction = 'ZERO_OUT_BOX';
@@ -4560,7 +5277,7 @@ async function updateBox(client, orgId, payload, actor) {
 
     if (cancelledAllocationCount > 0) {
       warnings.push(
-        `${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
+        `${cancelledAllocationCount} allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
       );
     }
   } else {
@@ -4638,6 +5355,22 @@ async function setBoxStatus(client, orgId, payload, actor) {
     updatedBox.zeroedReason = '';
     updatedBox.zeroedBy = '';
     applyCheckoutWarnings(warnings, existing);
+
+    const autoLinkResult = await autoLinkRemainingJobFeetToCheckedOutBox(
+      client,
+      orgId,
+      updatedBox,
+      jobNumber,
+      actor,
+      'checkout'
+    );
+    if (autoLinkResult.created) {
+      warnings.push(
+        `Auto-linked ${autoLinkResult.allocatedFeet} LF from ${updatedBox.boxId} to job ${jobNumber} at checkout.`
+      );
+    } else if (autoLinkResult.skippedReason === 'NO_REQUIREMENTS') {
+      warnings.push(`No job requirements were found for job ${jobNumber}, so no LF was auto-linked.`);
+    }
 
     const allocationResolution = await resolveAllocationsForCheckout(
       client,
@@ -4769,12 +5502,11 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     if (autoMoveToZeroed) {
       stampZeroedMetadata(updatedBox, actor, payload.auditNote);
-      const cancelledAllocationCount = await cancelActiveAllocationsForBox(
+      const cancelledAllocationCount = await cancelAllocationsForZeroedBox(
         client,
         orgId,
         updatedBox.boxId,
-        actor,
-        'Auto-cancelled because the box was moved to zeroed out inventory.'
+        actor
       );
       updatedBox = await saveBoxRecord(client, orgId, updatedBox);
       auditAction = 'ZERO_OUT_BOX';
@@ -4784,7 +5516,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
       if (cancelledAllocationCount > 0) {
         warnings.push(
-          `${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
+          `${cancelledAllocationCount} allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
         );
       }
     } else {
@@ -4904,12 +5636,71 @@ async function createJob(client, orgId, payload, actor) {
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
+async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
+  client,
+  orgId,
+  jobNumber,
+  jobDate,
+  crewLeader
+) {
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  let updatedAllocationCount = 0;
+  let updatedFilmOrderCount = 0;
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const allocation = cloneValue(allocations[index]);
+    if (allocation.status !== 'ACTIVE') {
+      continue;
+    }
+
+    if (allocation.jobDate === jobDate && allocation.crewLeader === crewLeader) {
+      continue;
+    }
+
+    allocation.jobDate = jobDate;
+    allocation.crewLeader = crewLeader;
+    await saveAllocationRecord(client, orgId, allocation);
+    updatedAllocationCount += 1;
+  }
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const filmOrder = cloneValue(filmOrders[index]);
+    if (filmOrder.status === 'CANCELLED' || filmOrder.status === 'FULFILLED') {
+      continue;
+    }
+
+    if (filmOrder.jobDate === jobDate && filmOrder.crewLeader === crewLeader) {
+      continue;
+    }
+
+    filmOrder.jobDate = jobDate;
+    filmOrder.crewLeader = crewLeader;
+    await saveFilmOrderRecord(client, orgId, filmOrder);
+    updatedFilmOrderCount += 1;
+  }
+
+  return {
+    updatedAllocationCount,
+    updatedFilmOrderCount
+  };
+}
+
 async function updateJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  if (
+    payload.lifecycleStatus !== undefined &&
+    normalizeJobLifecycleStatus(payload.lifecycleStatus) !== 'ACTIVE'
+  ) {
+    throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
+  }
   const requirements = dedupeJobRequirements(payload.requirements, warnings);
   const nowIso = new Date().toISOString();
   const header = await ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, actor, nowIso);
+  if (normalizeJobLifecycleStatus(header.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
+  }
   const nextHeader = cloneValue(header);
 
   if (payload.warehouse !== undefined) {
@@ -4949,6 +5740,141 @@ async function updateJob(client, orgId, payload, actor) {
     buildRequirementRowsForReplace(jobNumber, requirements, existingByKey, actor, nowIso)
   );
 
+  const dueDateChanged = asTrimmedString(header.dueDate) !== asTrimmedString(savedHeader.dueDate);
+  const crewLeaderChanged =
+    normalizeCrewLeaderKey(header.crewLeader) !== normalizeCrewLeaderKey(savedHeader.crewLeader);
+  if (dueDateChanged || crewLeaderChanged) {
+    const syncResult = await syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
+      client,
+      orgId,
+      jobNumber,
+      savedHeader.dueDate,
+      savedHeader.crewLeader
+    );
+    if (syncResult.updatedAllocationCount > 0 || syncResult.updatedFilmOrderCount > 0) {
+      warnings.push(
+        `Updated scheduling metadata on ${syncResult.updatedAllocationCount} active allocation${syncResult.updatedAllocationCount === 1 ? '' : 's'} and ${syncResult.updatedFilmOrderCount} open film order${syncResult.updatedFilmOrderCount === 1 ? '' : 's'}.`
+      );
+    }
+  }
+
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
+async function completeJob(client, orgId, payload, actor) {
+  const warnings = [];
+  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus(existingJob.lifecycleStatus);
+  if (lifecycleStatus === 'COMPLETED') {
+    throw new HttpError(400, `Job ${jobNumber} is already completed.`);
+  }
+
+  if (lifecycleStatus === 'CANCELLED') {
+    throw new HttpError(400, `Job ${jobNumber} is cancelled and cannot be completed.`);
+  }
+
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
+    (box) =>
+      box.status === 'CHECKED_OUT' &&
+      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber)
+  );
+  if (checkedOutBoxes.length) {
+    const listedBoxes = checkedOutBoxes
+      .slice(0, 5)
+      .map((box) => box.boxId)
+      .join(', ');
+    const suffix = checkedOutBoxes.length > 5 ? ', ...' : '';
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be completed while boxes are still checked out: ${listedBoxes}${suffix}.`
+    );
+  }
+
+  const resolvedAt = new Date().toISOString();
+  const cancelNote =
+    asTrimmedString(payload.reason) || `Cancelled because job ${jobNumber} was marked completed.`;
+  const activeAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const releasedFeetByBox = {};
+  let cancelledAllocationCount = 0;
+
+  for (let index = 0; index < activeAllocations.length; index += 1) {
+    const allocation = cloneValue(activeAllocations[index]);
+    if (allocation.status !== 'ACTIVE') {
+      continue;
+    }
+
+    releasedFeetByBox[allocation.boxId] =
+      integerOrZero(releasedFeetByBox[allocation.boxId]) + integerOrZero(allocation.allocatedFeet);
+    allocation.status = 'CANCELLED';
+    allocation.resolvedAt = resolvedAt;
+    allocation.resolvedBy = asTrimmedString(actor);
+    allocation.notes = cancelNote;
+    await saveAllocationRecord(client, orgId, allocation);
+    cancelledAllocationCount += 1;
+  }
+
+  for (const boxId of Object.keys(releasedFeetByBox)) {
+    const box = await findBoxById(client, orgId, boxId);
+    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+      continue;
+    }
+
+    box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(releasedFeetByBox[boxId]));
+    await saveBoxRecord(client, orgId, box);
+  }
+
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  let cancelledFilmOrderCount = 0;
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const filmOrder = cloneValue(filmOrders[index]);
+    if (filmOrder.status !== 'FILM_ORDER' && filmOrder.status !== 'FILM_ON_THE_WAY') {
+      continue;
+    }
+
+    filmOrder.status = 'CANCELLED';
+    filmOrder.resolvedAt = resolvedAt;
+    filmOrder.resolvedBy = asTrimmedString(actor);
+    filmOrder.notes = cancelNote;
+    await saveFilmOrderRecord(client, orgId, filmOrder);
+    cancelledFilmOrderCount += 1;
+  }
+
+  existingJob.lifecycleStatus = 'COMPLETED';
+  existingJob.updatedAt = resolvedAt;
+  existingJob.updatedBy = actor;
+  await saveJobRecord(client, orgId, existingJob);
+
+  warnings.push(
+    `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? '' : 's'} and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? '' : 's'}.`
+  );
+
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
+async function reopenJob(client, orgId, payload, actor) {
+  const warnings = [];
+  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus(existingJob.lifecycleStatus);
+  if (lifecycleStatus !== 'COMPLETED' && lifecycleStatus !== 'CANCELLED') {
+    throw new HttpError(400, `Job ${jobNumber} is already active.`);
+  }
+
+  existingJob.lifecycleStatus = 'ACTIVE';
+  existingJob.updatedAt = new Date().toISOString();
+  existingJob.updatedBy = actor;
+  await saveJobRecord(client, orgId, existingJob);
+  warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);
+
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
@@ -4971,6 +5897,11 @@ async function createFilmOrder(client, orgId, payload, actor) {
 
   if (requestedFeet <= 0) {
     throw new HttpError(400, 'RequestedFeet must be greater than zero.');
+  }
+
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
   }
 
   const jobId = await getOrResolveJobId(client, orgId, jobNumber);
@@ -5018,6 +5949,39 @@ async function cancelJob(client, orgId, payload, actor) {
   );
 
   return ok({ jobNumber }, warnings);
+}
+
+async function removeJobBoxAllocation(client, orgId, payload, actor) {
+  const warnings = [];
+  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
+  const allocationId = requireString(payload.allocationId, 'AllocationID');
+  const result = await removeAllocationFromJob(
+    client,
+    orgId,
+    jobNumber,
+    allocationId,
+    actor,
+    payload.reason
+  );
+
+  if (result.removedAllocationCount === 0) {
+    warnings.push(`Allocation ${allocationId} was already cancelled for job ${jobNumber}.`);
+  } else {
+    warnings.push(
+      `Removed allocation ${result.allocationId} for box ${result.boxId} on job ${jobNumber}. Released ${result.releasedFeet} LF back to box availability.`
+    );
+  }
+
+  return ok(
+    {
+      jobNumber,
+      allocationId: result.allocationId,
+      boxId: result.boxId,
+      removedAllocationCount: result.removedAllocationCount,
+      releasedFeet: result.releasedFeet
+    },
+    warnings
+  );
 }
 
 async function deleteFilmOrder(client, orgId, payload, actor) {
@@ -5112,8 +6076,8 @@ async function previewAllocationPlan(client, orgId, payload) {
     throw new HttpError(404, 'Box not found.');
   }
 
-  if (source.status !== 'IN_STOCK') {
-    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
+  if (!isAllocatableBoxStatus(source.status)) {
+    throw new HttpError(400, 'Only in-stock or checked-out boxes can be allocated.');
   }
 
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
@@ -5145,8 +6109,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(404, 'Box not found.');
   }
 
-  if (source.status !== 'IN_STOCK') {
-    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
+  if (!isAllocatableBoxStatus(source.status)) {
+    throw new HttpError(400, 'Only in-stock or checked-out boxes can be allocated.');
   }
 
   const allBoxes = await listBoxes(client, orgId);
@@ -5186,8 +6150,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       throw new HttpError(404, `Box not found: ${plannedAllocation.boxId}`);
     }
 
-    if (currentBox.status !== 'IN_STOCK') {
-      throw new HttpError(400, `Box ${currentBox.boxId} is no longer in stock.`);
+    if (!isAllocatableBoxStatus(currentBox.status)) {
+      throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
     }
 
     if (currentBox.feetAvailable < plannedAllocation.allocatedFeet) {
@@ -6326,6 +7290,40 @@ async function updateOwnerNotificationPreferencesInternal(client, orgId, ownerUs
   return getOwnerNotificationPreferencesInternal(client, orgId, ownerUserId);
 }
 
+async function runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext) {
+  if (
+    logicalPath !== '/boxes/get' &&
+    logicalPath !== '/allocations/by-box' &&
+    logicalPath !== '/jobs/get' &&
+    logicalPath !== '/allocations/by-job'
+  ) {
+    return;
+  }
+
+  await withMutation(async (client) => {
+    if (logicalPath === '/boxes/get' || logicalPath === '/allocations/by-box') {
+      const boxId = requireString(params.boxId, 'boxId');
+      await reconcileCheckedOutBoxAllocationLinkByBoxId(
+        client,
+        authContext.orgId,
+        boxId,
+        authContext.actor
+      );
+      await reconcileZeroedBoxAllocationStateByBoxId(client, authContext.orgId, boxId, authContext.actor);
+      return;
+    }
+
+    const jobNumber = requireString(params.jobNumber, 'jobNumber');
+    await reconcileCheckedOutBoxAllocationLinksForJob(
+      client,
+      authContext.orgId,
+      jobNumber,
+      authContext.actor
+    );
+    await reconcileZeroedBoxAllocationStateForJob(client, authContext.orgId, jobNumber, authContext.actor);
+  });
+}
+
 const READ_PATHS = new Set([
   '/auth/context',
   '/boxes/search',
@@ -6387,6 +7385,8 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
     ensureEffectiveRouteAccess(authContext, method, logicalPath);
 
     if (method === 'GET' || (method === 'POST' && READ_PATHS.has(logicalPath))) {
+      await runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext);
+
       const payload = await withReadClient(async (client) => {
         switch (logicalPath) {
           case '/admin/access/requests':
@@ -6569,10 +7569,16 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
         case '/allocations/add':
         case '/allocations/apply':
           return applyAllocationPlan(client, authContext.orgId, params, authContext.actor);
+        case '/allocations/remove-box':
+          return removeJobBoxAllocation(client, authContext.orgId, params, authContext.actor);
         case '/jobs/create':
           return createJob(client, authContext.orgId, params, authContext.actor);
         case '/jobs/update':
           return updateJob(client, authContext.orgId, params, authContext.actor);
+        case '/jobs/complete':
+          return completeJob(client, authContext.orgId, params, authContext.actor);
+        case '/jobs/reopen':
+          return reopenJob(client, authContext.orgId, params, authContext.actor);
         case '/film-orders/create':
           return createFilmOrder(client, authContext.orgId, params, authContext.actor);
         case '/film-orders/cancel':

@@ -29,7 +29,7 @@ import {
   addManufacturerOption,
   createDraftFromBox,
   deriveFeetAvailableFromRollWeight,
-  getActiveAllocatedFeet,
+  getDisplayedAllocatedFeetForBox,
   getRiskyFieldChanges,
   type BoxDraft
 } from '../utils/boxHelpers';
@@ -126,6 +126,8 @@ export default function BoxDetailsPage() {
   const [searchParams] = useSearchParams();
   const toast = useToast();
   const auth = useAuth();
+  const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
+  const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
   const boxId = decodeURIComponent(params.boxId || '');
   const boxQuery = useBox(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
@@ -145,7 +147,9 @@ export default function BoxDetailsPage() {
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
-  const activeAllocatedFeet = getActiveAllocatedFeet(allocationsQuery.data || []);
+  const displayedAllocatedFeet = box
+    ? getDisplayedAllocatedFeetForBox(box, allocationsQuery.data || [])
+    : 0;
   const checkoutJobOptions = useMemo(() => {
     const activeAllocations = (allocationsQuery.data || [])
       .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
@@ -189,7 +193,7 @@ export default function BoxDetailsPage() {
     [box, boxId]
   );
 
-  function ensureSignedIn(actionLabel: string) {
+  function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
@@ -203,6 +207,15 @@ export default function BoxDetailsPage() {
       toast.push({
         title: 'Sign-in required',
         description: `Sign in with email/password before you ${actionLabel}.`,
+        variant: 'error'
+      });
+      return false;
+    }
+
+    if (!auth.hasFeatureAccess(feature, 'write')) {
+      toast.push({
+        title: 'Permission denied',
+        description: `Your account cannot ${actionLabel}.`,
         variant: 'error'
       });
       return false;
@@ -366,7 +379,7 @@ export default function BoxDetailsPage() {
       return;
     }
 
-    if (!ensureSignedIn('delete this box')) {
+    if (!ensureSignedIn('delete this box', 'inventory')) {
       return;
     }
 
@@ -457,7 +470,7 @@ export default function BoxDetailsPage() {
   }
 
   async function handleEditSubmit(draft: BoxDraft) {
-    if (!ensureSignedIn('save box changes')) {
+    if (!ensureSignedIn('save box changes', 'inventory')) {
       return;
     }
 
@@ -479,7 +492,7 @@ export default function BoxDetailsPage() {
       return;
     }
 
-    if (!ensureSignedIn('change box status')) {
+    if (!ensureSignedIn('change box status', 'inventory')) {
       return;
     }
 
@@ -702,7 +715,8 @@ export default function BoxDetailsPage() {
                     deleteMutation.isPending ||
                     box.status === 'ZEROED' ||
                     !auth.isAuthenticated ||
-                    !auth.clientIdConfigured
+                    !auth.clientIdConfigured ||
+                    !canWriteInventory
                 }
               >
                 Edit
@@ -727,7 +741,7 @@ export default function BoxDetailsPage() {
           />
           <DetailField
             label="Allocated Feet"
-            value={allocationsQuery.isLoading ? '...' : activeAllocatedFeet}
+            value={allocationsQuery.isLoading ? '...' : displayedAllocatedFeet}
             labelClassName="detail-label-pill detail-label-pill-red"
           />
           <DetailField label="Lot Run" value={box.lotRun} />
@@ -819,6 +833,11 @@ export default function BoxDetailsPage() {
             {!auth.isAuthenticated ? (
               <p className="muted-text">Sign in with email/password before making changes.</p>
             ) : null}
+            {auth.isAuthenticated && !canWriteInventory ? (
+              <p className="muted-text">
+                You can view this box, but your role does not allow inventory edits.
+              </p>
+            ) : null}
 
             <div className="page-actions detail-status-actions">
               <Button
@@ -833,7 +852,8 @@ export default function BoxDetailsPage() {
                   box.status === 'ZEROED' ||
                   box.status === 'RETIRED' ||
                   !auth.isAuthenticated ||
-                  !auth.clientIdConfigured
+                  !auth.clientIdConfigured ||
+                  !canWriteInventory
                 }
               >
                 Check In
@@ -845,10 +865,11 @@ export default function BoxDetailsPage() {
                 disabled={
                   isAddBoxPending ||
                   statusMutation.isPending ||
-                  box.status !== 'IN_STOCK' ||
+                  (box.status !== 'IN_STOCK' && box.status !== 'CHECKED_OUT') ||
                   !auth.isAuthenticated ||
                   !auth.clientIdConfigured ||
-                  box.feetAvailable <= 0
+                  box.feetAvailable <= 0 ||
+                  !canWriteAllocations
                 }
               >
                 Allocate
@@ -865,7 +886,8 @@ export default function BoxDetailsPage() {
                   box.status === 'ZEROED' ||
                   box.status === 'RETIRED' ||
                   !auth.isAuthenticated ||
-                  !auth.clientIdConfigured
+                  !auth.clientIdConfigured ||
+                  !canWriteInventory
                 }
               >
                 Check Out

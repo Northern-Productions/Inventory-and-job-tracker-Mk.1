@@ -127,6 +127,7 @@ describe('jobs API client fallbacks', () => {
         },
         requirements: [],
         allocations: [],
+        usage: [],
         filmOrders: []
       },
       warnings: []

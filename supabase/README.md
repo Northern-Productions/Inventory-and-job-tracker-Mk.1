@@ -20,7 +20,9 @@ From repo root:
 
 ```bash
 npx supabase login
-npx supabase secrets set DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*"
+npx supabase secrets set DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+# verify 0006 is applied in the same DB before deploy
+npm --prefix backend run check:schema:0006
 npx supabase functions deploy api --no-verify-jwt
 ```
 

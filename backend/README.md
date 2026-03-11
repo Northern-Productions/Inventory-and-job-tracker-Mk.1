@@ -32,6 +32,9 @@ npm ci
 npm run start
 ```
 
+`npm run start` now performs a schema preflight (`check:schema:0006`) and fails fast if migration `0006` is missing in the configured DB.
+Use `npm run start:unsafe` only for debugging when you intentionally want to skip that guard.
+
 Health check:
 
 ```bash

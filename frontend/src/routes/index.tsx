@@ -2,6 +2,8 @@ import { Suspense, lazy, type ReactNode } from 'react';
 import { createHashRouter } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { LoadingState } from '../components/LoadingState';
+import { AccessRoute } from '../features/auth/AccessRoute';
+import type { FeatureAccessMode, FeatureArea } from '../domain';
 
 const InventoryHomePage = lazy(() => import('../features/inventory/pages/InventoryHomePage'));
 const AllocationsPage = lazy(() => import('../features/inventory/pages/AllocationsPage'));
@@ -15,9 +17,28 @@ const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage')
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
 );
+const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessPage'));
+const OwnerAdminPermissionsPage = lazy(
+  () => import('../features/access/pages/OwnerAdminPermissionsPage')
+);
+const OwnerNotificationPreferencesPage = lazy(
+  () => import('../features/access/pages/OwnerNotificationPreferencesPage')
+);
 
 function withSuspense(element: ReactNode) {
   return <Suspense fallback={<LoadingState />}>{element}</Suspense>;
+}
+
+function withFeatureRoute(
+  element: ReactNode,
+  feature: FeatureArea,
+  mode: FeatureAccessMode = 'read'
+) {
+  return withSuspense(
+    <AccessRoute feature={feature} mode={mode}>
+      {element}
+    </AccessRoute>
+  );
 }
 
 export const router = createHashRouter([
@@ -27,43 +48,67 @@ export const router = createHashRouter([
     children: [
       {
         index: true,
-        element: withSuspense(<InventoryHomePage />)
+        element: withFeatureRoute(<InventoryHomePage />, 'inventory', 'read')
       },
       {
         path: '/allocations',
-        element: withSuspense(<AllocationsPage />)
+        element: withFeatureRoute(<AllocationsPage />, 'allocations', 'read')
       },
       {
         path: '/allocations/:jobNumber',
-        element: withSuspense(<AllocationJobPage />)
+        element: withFeatureRoute(<AllocationJobPage />, 'allocations', 'read')
       },
       {
         path: '/inventory/add',
-        element: withSuspense(<AddBoxPage />)
+        element: withFeatureRoute(<AddBoxPage />, 'inventory', 'write')
       },
       {
         path: '/inventory/:boxId',
-        element: withSuspense(<BoxDetailsPage />)
+        element: withFeatureRoute(<BoxDetailsPage />, 'inventory', 'read')
       },
       {
         path: '/inventory/scan',
-        element: withSuspense(<QrScanPage />)
+        element: withFeatureRoute(<QrScanPage />, 'inventory', 'write')
       },
       {
         path: '/film-orders',
-        element: withSuspense(<FilmOrdersPage />)
+        element: withFeatureRoute(<FilmOrdersPage />, 'film_orders', 'read')
       },
       {
         path: '/activity',
-        element: withSuspense(<ActivityPage />)
+        element: withFeatureRoute(<ActivityPage />, 'activity_history', 'read')
       },
       {
         path: '/reports',
-        element: withSuspense(<ReportsPage />)
+        element: withFeatureRoute(<ReportsPage />, 'reports', 'read')
       },
       {
         path: '/checkout-history',
-        element: withSuspense(<CheckoutHistoryPage />)
+        element: withFeatureRoute(<CheckoutHistoryPage />, 'activity_history', 'read')
+      },
+      {
+        path: '/admin/access',
+        element: withSuspense(
+          <AccessRoute feature="access_management" mode="read" requireAdminConsole>
+            <AdminAccessPage />
+          </AccessRoute>
+        )
+      },
+      {
+        path: '/owner/admin-permissions',
+        element: withSuspense(
+          <AccessRoute requireOwner>
+            <OwnerAdminPermissionsPage />
+          </AccessRoute>
+        )
+      },
+      {
+        path: '/owner/notification-preferences',
+        element: withSuspense(
+          <AccessRoute requireOwner>
+            <OwnerNotificationPreferencesPage />
+          </AccessRoute>
+        )
       }
     ]
   }

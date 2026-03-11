@@ -24,6 +24,7 @@ Google Sheets and Apps Script are now legacy migration sources only. They are no
   - API read helpers in `backend/migrations/0003_supabase_app_api_reads.sql`
   - API mutation RPCs in `backend/migrations/0004_supabase_app_api_mutations.sql`
   - follow-up fixes in `backend/migrations/0005_fix_roll_history_ordering.sql`
+  - access control and approvals in `backend/migrations/0006_access_control_and_approvals.sql`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
   - not required for production
@@ -54,6 +55,7 @@ Run these in Supabase SQL Editor:
 3. `backend/migrations/0003_supabase_app_api_reads.sql`
 4. `backend/migrations/0004_supabase_app_api_mutations.sql`
 5. `backend/migrations/0005_fix_roll_history_ordering.sql`
+6. `backend/migrations/0006_access_control_and_approvals.sql`
 
 ### 2. Import legacy sheet data if needed
 
@@ -85,7 +87,9 @@ From repo root:
 
 ```bash
 npx supabase login
-npx supabase secrets set DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*"
+npx supabase secrets set DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+# verify migration 0006 objects exist in the same target DB
+npm --prefix backend run check:schema:0006
 npx supabase functions deploy api --no-verify-jwt
 ```
 
@@ -150,3 +154,10 @@ npm run dev
 - The app uses hash routing for static-host refresh stability.
 - The app is a PWA. After deployments, browsers may hold an older cached shell until the site data or service worker is refreshed.
 - `backend/` remains available for rollback or parity testing, but production no longer depends on it.
+
+## Release Checklist
+
+1. Apply DB migrations before API/frontend deploy (`0001` -> `0006`).
+2. Run `npm --prefix backend run check:schema:0006` against the target DB.
+3. Deploy Supabase function `api`.
+4. Deploy frontend after API is live.

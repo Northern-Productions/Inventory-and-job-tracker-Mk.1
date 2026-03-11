@@ -7,8 +7,10 @@
     "pg": "^8.16.3"
   },
   "scripts": {
-    "start": "node server.mjs",
-    "dev": "node --watch server.mjs"
+    "check:schema:0006": "node scripts/check-schema-0006.mjs",
+    "start": "npm run check:schema:0006 && node server.mjs",
+    "start:unsafe": "node server.mjs",
+    "dev": "npm run check:schema:0006 && node --watch server.mjs"
   },
   "engines": {
     "node": ">=20"

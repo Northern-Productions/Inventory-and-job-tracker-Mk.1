@@ -10,13 +10,21 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
-import type { FilmOrderEntry, UpdateJobPayload } from '../../../domain';
+import type { AllocationJobDetailEntry, FilmOrderEntry, UpdateJobPayload } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { JobAllocateDialog } from '../components/JobAllocateDialog';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
-import { useDeleteFilmOrder, useFilmCatalog, useJob, useUpdateJob } from '../hooks/useInventoryQueries';
+import {
+  useCompleteJob,
+  useDeleteFilmOrder,
+  useFilmCatalog,
+  useJob,
+  useReopenJob,
+  useRemoveJobBoxAllocations,
+  useUpdateJob
+} from '../hooks/useInventoryQueries';
 
 function renderDate(value: string) {
   return value ? formatDate(value) : '--';
@@ -62,23 +70,46 @@ export default function AllocationJobPage() {
   const jobNumber = decodeURIComponent(params.jobNumber || '');
   const jobQuery = useJob(jobNumber);
   const updateJobMutation = useUpdateJob();
+  const completeJobMutation = useCompleteJob();
+  const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
+  const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const filmCatalogQuery = useFilmCatalog();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
+  const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
+  const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
+  const [allocationToRemove, setAllocationToRemove] = useState<AllocationJobDetailEntry | null>(null);
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
+  const usage = detail?.usage || [];
+  const isClosedJob =
+    summary?.lifecycleStatus === 'COMPLETED' || summary?.lifecycleStatus === 'CANCELLED';
+  const isReadOnlyJob = isClosedJob;
+  const visibleAllocations = useMemo(
+    () => allocations.filter((entry) => entry.status === 'ACTIVE' || entry.checkedOutOnThisJob),
+    [allocations]
+  );
   const filmOrders = detail?.filmOrders || [];
   const canAllocate = useMemo(
-    () => requirements.some((entry) => entry.remainingFeet > 0),
-    [requirements]
+    () => !isReadOnlyJob && requirements.some((entry) => entry.remainingFeet > 0),
+    [isReadOnlyJob, requirements]
   );
 
   async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${submitPayload.jobNumber} is closed and cannot be edited.`,
+        variant: 'error'
+      });
+      return;
+    }
+
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
@@ -123,7 +154,109 @@ export default function AllocationJobPage() {
     }
   }
 
+  async function handleCompleteJob(reason: string) {
+    if (!summary) {
+      return;
+    }
+
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before completing jobs.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before completing this job.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { warnings } = await completeJobMutation.mutateAsync({
+        jobNumber: summary.jobNumber,
+        reason: reason || `Marked job ${summary.jobNumber} as completed.`
+      });
+      toast.push({
+        title: `Completed job ${summary.jobNumber}`,
+        description: warnings.join(' ') || `Job ${summary.jobNumber} was completed.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to complete job',
+        description: error instanceof Error ? error.message : 'The completion request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleReopenJob(reason: string) {
+    if (!summary) {
+      return;
+    }
+
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before reopening jobs.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before reopening this job.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isOwner) {
+      toast.push({
+        title: 'Owner access required',
+        description: 'Only owners can reopen completed or cancelled jobs.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { warnings } = await reopenJobMutation.mutateAsync({
+        jobNumber: summary.jobNumber,
+        reason
+      });
+      toast.push({
+        title: `Reopened job ${summary.jobNumber}`,
+        description: warnings.join(' ') || `Job ${summary.jobNumber} is active again.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to reopen job',
+        description: error instanceof Error ? error.message : 'The reopen request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${order.jobNumber} is closed and film orders cannot be changed.`,
+        variant: 'error'
+      });
+      return;
+    }
+
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
@@ -162,6 +295,67 @@ export default function AllocationJobPage() {
     }
   }
 
+  async function handleRemoveAllocation(entry: AllocationJobDetailEntry, reason: string) {
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${entry.jobNumber} is closed and allocations cannot be removed.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (entry.checkedOutOnThisJob) {
+      toast.push({
+        title: 'Cannot remove checked-out allocation',
+        description: `Box ${entry.boxId} is currently checked out on job ${entry.jobNumber}. Check it in first.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before removing allocations.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before removing an allocation.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { result, warnings } = await removeJobBoxAllocationsMutation.mutateAsync({
+        jobNumber: summary?.jobNumber || entry.jobNumber,
+        allocationId: entry.allocationId,
+        reason:
+          reason ||
+          `Removed allocation ${entry.allocationId} for box ${entry.boxId} from job ${summary?.jobNumber || entry.jobNumber}.`
+      });
+      toast.push({
+        title: `Removed allocation ${result.allocationId}`,
+        description:
+          warnings.join(' ') ||
+          `Removed ${result.removedAllocationCount} allocation${result.removedAllocationCount === 1 ? '' : 's'} for box ${result.boxId}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to remove allocation',
+        description: error instanceof Error ? error.message : 'The remove request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   if (jobQuery.isLoading) {
     return <LoadingState label="Loading job details..." />;
   }
@@ -187,9 +381,22 @@ export default function AllocationJobPage() {
           </div>
           <div className="detail-actions">
             <span className={`badge badge-${summary.status}`}>{formatBadgeLabel(summary.status)}</span>
-            <Button type="button" onClick={() => setIsEditOpen(true)}>
-              Edit
-            </Button>
+            {isReadOnlyJob ? <span className="muted-text">Read-only</span> : null}
+            {!isReadOnlyJob ? (
+              <Button type="button" onClick={() => setIsEditOpen(true)}>
+                Edit
+              </Button>
+            ) : null}
+            {isReadOnlyJob && auth.isOwner ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setIsReopenConfirmOpen(true)}
+                disabled={reopenJobMutation.isPending}
+              >
+                Reopen Job
+              </Button>
+            ) : null}
             <Button type="button" variant="ghost" onClick={() => navigate('/allocations')}>
               Back
             </Button>
@@ -282,17 +489,27 @@ export default function AllocationJobPage() {
       <section className="panel">
         <div className="panel-title-row">
           <h2>Allocated Boxes</h2>
+          <div className="detail-actions allocation-header-actions">
+            {!isReadOnlyJob ? (
+              <Button
+                type="button"
+                onClick={() => setIsAllocateOpen(true)}
+                disabled={!canAllocate || !auth.isAuthenticated || !auth.clientIdConfigured}
+              >
+                Allocate
+              </Button>
+            ) : null}
+          </div>
         </div>
-        {!allocations.length ? (
+        {!visibleAllocations.length ? (
           <div className="empty-state">No allocations are tied to this job yet.</div>
         ) : isPhoneLayout ? (
           <div className="mobile-record-list">
-            {allocations.map((entry) => (
+            {visibleAllocations.map((entry) => (
               <MobileRecordCard key={entry.allocationId}>
                 <MobileRecordHeader
                   title={entry.boxId}
                   subtitle={`${entry.manufacturer} ${entry.filmName}`}
-                  badge={<span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>}
                   onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
                 />
                 <MobileFieldList>
@@ -301,6 +518,22 @@ export default function AllocationJobPage() {
                   <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
                   <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
                 </MobileFieldList>
+                <div className="film-order-actions">
+                  {isReadOnlyJob ? (
+                    <span className="muted-text">Read-only</span>
+                  ) : entry.checkedOutOnThisJob ? (
+                    <span className="muted-text">Checked out on this job</span>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => setAllocationToRemove(entry)}
+                      disabled={removeJobBoxAllocationsMutation.isPending}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
               </MobileRecordCard>
             ))}
           </div>
@@ -313,13 +546,13 @@ export default function AllocationJobPage() {
                   <th>Film</th>
                   <th>Width</th>
                   <th>LF</th>
-                  <th>Status</th>
                   <th>Created</th>
                   <th>Resolved</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {allocations.map((entry) => (
+                {visibleAllocations.map((entry) => (
                   <tr key={entry.allocationId}>
                     <td>
                       <button
@@ -335,11 +568,91 @@ export default function AllocationJobPage() {
                     </td>
                     <td>{entry.widthIn || '--'}</td>
                     <td>{entry.allocatedFeet}</td>
-                    <td>
-                      <span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>
-                    </td>
                     <td>{renderDateTime(entry.createdAt)}</td>
                     <td>{renderDateTime(entry.resolvedAt)}</td>
+                    <td>
+                      {isReadOnlyJob ? (
+                        <span className="muted-text">Read-only</span>
+                      ) : entry.checkedOutOnThisJob ? (
+                        <span className="muted-text">Checked out on this job</span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => setAllocationToRemove(entry)}
+                          disabled={removeJobBoxAllocationsMutation.isPending}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2>Film Usage</h2>
+        </div>
+        {!usage.length ? (
+          <div className="empty-state">No checked-in usage has been recorded for this job yet.</div>
+        ) : isPhoneLayout ? (
+          <div className="mobile-record-list">
+            {usage.map((entry) => (
+              <MobileRecordCard key={entry.boxId}>
+                <MobileRecordHeader
+                  title={entry.boxId}
+                  subtitle={`${entry.manufacturer} ${entry.filmName}`}
+                  onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                />
+                <MobileFieldList>
+                  <MobileField label="Width" value={entry.widthIn || '--'} />
+                  <MobileField label="Used LF" value={entry.usedFeet} />
+                  <MobileField label="Events" value={entry.usageEventCount} />
+                  <MobileField label="Latest Check-In" value={renderDateTime(entry.latestCheckedInAt)} />
+                  <MobileField label="Last Activity" value={renderDateTime(entry.lastActivityAt)} />
+                </MobileFieldList>
+              </MobileRecordCard>
+            ))}
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Box</th>
+                  <th>Film</th>
+                  <th>Width</th>
+                  <th>Used LF</th>
+                  <th>Events</th>
+                  <th>Latest Check-In</th>
+                  <th>Last Activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.map((entry) => (
+                  <tr key={entry.boxId}>
+                    <td>
+                      <button
+                        type="button"
+                        className="row-button"
+                        onClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
+                      >
+                        {entry.boxId}
+                      </button>
+                    </td>
+                    <td>
+                      {entry.manufacturer} {entry.filmName}
+                    </td>
+                    <td>{entry.widthIn || '--'}</td>
+                    <td>{entry.usedFeet}</td>
+                    <td>{entry.usageEventCount}</td>
+                    <td>{renderDateTime(entry.latestCheckedInAt)}</td>
+                    <td>{renderDateTime(entry.lastActivityAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -375,24 +688,30 @@ export default function AllocationJobPage() {
                   <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
                 </MobileFieldList>
                 <div className="film-order-actions">
-                  {order.status === 'FULFILLED' ? null : (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => navigate(buildAddBoxTarget(order))}
-                      disabled={order.status !== 'FILM_ORDER'}
-                    >
-                      Order Film
-                    </Button>
+                  {isReadOnlyJob ? (
+                    <span className="muted-text">Read-only</span>
+                  ) : (
+                    <>
+                      {order.status === 'FULFILLED' ? null : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => navigate(buildAddBoxTarget(order))}
+                          disabled={order.status !== 'FILM_ORDER'}
+                        >
+                          Order Film
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="danger"
+                        onClick={() => setFilmOrderToDelete(order)}
+                        disabled={deleteFilmOrderMutation.isPending}
+                      >
+                        Delete
+                      </Button>
+                    </>
                   )}
-                  <Button
-                    type="button"
-                    variant="danger"
-                    onClick={() => setFilmOrderToDelete(order)}
-                    disabled={deleteFilmOrderMutation.isPending}
-                  >
-                    Delete
-                  </Button>
                 </div>
               </MobileRecordCard>
             ))}
@@ -430,24 +749,30 @@ export default function AllocationJobPage() {
                     <td>{order.remainingToOrderFeet}</td>
                     <td>
                       <div className="film-order-actions">
-                        {order.status === 'FULFILLED' ? null : (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => navigate(buildAddBoxTarget(order))}
-                            disabled={order.status !== 'FILM_ORDER'}
-                          >
-                            Order Film
-                          </Button>
+                        {isReadOnlyJob ? (
+                          <span className="muted-text">Read-only</span>
+                        ) : (
+                          <>
+                            {order.status === 'FULFILLED' ? null : (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => navigate(buildAddBoxTarget(order))}
+                                disabled={order.status !== 'FILM_ORDER'}
+                              >
+                                Order Film
+                              </Button>
+                            )}
+                            <Button
+                              type="button"
+                              variant="danger"
+                              onClick={() => setFilmOrderToDelete(order)}
+                              disabled={deleteFilmOrderMutation.isPending}
+                            >
+                              Delete
+                            </Button>
+                          </>
                         )}
-                        <Button
-                          type="button"
-                          variant="danger"
-                          onClick={() => setFilmOrderToDelete(order)}
-                          disabled={deleteFilmOrderMutation.isPending}
-                        >
-                          Delete
-                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -458,23 +783,20 @@ export default function AllocationJobPage() {
         )}
       </section>
 
-      <section className="panel">
-        <div className="page-actions detail-status-actions">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => setIsAllocateOpen(true)}
-            disabled={
-              !canAllocate ||
-              summary.status === 'CANCELLED' ||
-              !auth.isAuthenticated ||
-              !auth.clientIdConfigured
-            }
-          >
-            Allocate
-          </Button>
-        </div>
-      </section>
+      {!isReadOnlyJob ? (
+        <section className="panel">
+          <div className="page-actions allocation-complete-footer">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsCompleteConfirmOpen(true)}
+              disabled={completeJobMutation.isPending || !auth.isAuthenticated || !auth.clientIdConfigured}
+            >
+              Job Completed
+            </Button>
+          </div>
+        </section>
+      ) : null}
 
       <ConfirmDialog
         open={Boolean(filmOrderToDelete)}
@@ -495,6 +817,62 @@ export default function AllocationJobPage() {
           const order = filmOrderToDelete;
           setFilmOrderToDelete(null);
           void handleDeleteFilmOrder(order, reason);
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(allocationToRemove)}
+        title="Remove Box Allocation"
+        message={
+          allocationToRemove
+            ? `Remove this allocation row for box ${allocationToRemove.boxId} on job ${summary.jobNumber}?`
+            : ''
+        }
+        confirmLabel="Remove"
+        cancelLabel="Keep Allocation"
+        onCancel={() => setAllocationToRemove(null)}
+        onConfirm={(reason) => {
+          if (!allocationToRemove) {
+            return;
+          }
+
+          const entry = allocationToRemove;
+          setAllocationToRemove(null);
+          void handleRemoveAllocation(entry, reason);
+        }}
+      />
+
+      <ConfirmDialog
+        open={isCompleteConfirmOpen}
+        title="Mark Job Completed"
+        message={
+          summary
+            ? `Mark job ${summary.jobNumber} completed? This cancels active allocations and open film orders.`
+            : ''
+        }
+        confirmLabel="Complete Job"
+        cancelLabel="Keep Open"
+        onCancel={() => setIsCompleteConfirmOpen(false)}
+        onConfirm={(reason) => {
+          setIsCompleteConfirmOpen(false);
+          void handleCompleteJob(reason);
+        }}
+      />
+
+      <ConfirmDialog
+        open={isReopenConfirmOpen}
+        title="Reopen Job"
+        message={
+          summary
+            ? `Reopen job ${summary.jobNumber}? Cancelled allocations and film orders will stay cancelled.`
+            : ''
+        }
+        confirmLabel="Reopen Job"
+        cancelLabel="Keep Closed"
+        onCancel={() => setIsReopenConfirmOpen(false)}
+        onConfirm={(reason) => {
+          setIsReopenConfirmOpen(false);
+          void handleReopenJob(reason);
         }}
       />
 

@@ -14,6 +14,7 @@ const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
 
 const READ_PATHS = new Set([
   '/health',
+  '/auth/context',
   '/boxes/search',
   '/boxes/get',
   '/audit/list',
@@ -27,7 +28,13 @@ const READ_PATHS = new Set([
   '/film-orders/list',
   '/film-data/catalog',
   '/roll-history/by-box',
-  '/reports/summary'
+  '/reports/summary',
+  '/admin/access/requests',
+  '/admin/username-requests',
+  '/admin/member-permissions',
+  '/admin/user-permissions',
+  '/owner/admin-permissions',
+  '/owner/notification-preferences'
 ]);
 
 const cache = new Map();
@@ -60,6 +67,10 @@ function hashBody(value) {
 
 function shouldUseCache(method, logicalPath) {
   if (!Number.isFinite(CACHE_TTL_MS) || CACHE_TTL_MS <= 0) {
+    return false;
+  }
+
+  if (logicalPath === '/auth/context') {
     return false;
   }
 

@@ -7,6 +7,12 @@ export function AuthGate() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createStep, setCreateStep] = useState<'form' | 'verify_email'>('form');
+  const [createUsername, setCreateUsername] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [createError, setCreateError] = useState('');
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,24 +30,55 @@ export function AuthGate() {
     }
   }
 
-  async function handleCreateAccount() {
-    setLocalError('');
+  function openCreateAccountModal() {
+    setCreateStep('form');
+    setCreateError('');
+    setCreateUsername('');
+    setCreateEmail(email.trim());
+    setCreatePassword('');
+    setIsCreateModalOpen(true);
+  }
 
-    if (!email.trim() || !password) {
-      setLocalError('Email and password are required.');
+  function closeCreateAccountModal() {
+    if (auth.isBusy) {
+      return;
+    }
+    setIsCreateModalOpen(false);
+    setCreateStep('form');
+    setCreateError('');
+    setCreatePassword('');
+  }
+
+  async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreateError('');
+
+    if (!createUsername.trim() || !createEmail.trim() || !createPassword) {
+      setCreateError('Username, email, and password are required.');
       return;
     }
 
-    if (password.length < 8) {
-      setLocalError('Use at least 8 characters for password.');
+    if (createPassword.length < 8) {
+      setCreateError('Use at least 8 characters for password.');
       return;
     }
 
     try {
-      await auth.signUpWithPassword(email, password);
+      const result = await auth.signUpWithPassword(createUsername, createEmail, createPassword);
+      setEmail(createEmail.trim());
+      if (result.sessionCreated) {
+        closeCreateAccountModal();
+        return;
+      }
+      setCreateStep('verify_email');
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Account creation failed.');
+      setCreateError(error instanceof Error ? error.message : 'Account creation failed.');
     }
+  }
+
+  function handleBackToSignIn() {
+    setPassword('');
+    closeCreateAccountModal();
   }
 
   return (
@@ -85,7 +122,7 @@ export function AuthGate() {
                 type="button"
                 variant="secondary"
                 disabled={auth.isBusy || !auth.isReady}
-                onClick={handleCreateAccount}
+                onClick={openCreateAccountModal}
               >
                 Create Account
               </Button>
@@ -101,6 +138,94 @@ export function AuthGate() {
         {localError ? <p className="error-text">{localError}</p> : null}
         {auth.errorMessage ? <p className="error-text">{auth.errorMessage}</p> : null}
       </section>
+
+      {isCreateModalOpen ? (
+        <div className="dialog-backdrop" role="presentation">
+          <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="create-account-title">
+            <div className="dialog-header">
+              <h2 id="create-account-title">
+                {createStep === 'form' ? 'Create Account' : 'Check Your Email'}
+              </h2>
+              <button
+                type="button"
+                className="dialog-close"
+                aria-label="Close create account modal"
+                onClick={closeCreateAccountModal}
+                disabled={auth.isBusy}
+              >
+                X
+              </button>
+            </div>
+
+            {createStep === 'form' ? (
+              <form className="auth-gate-form" onSubmit={handleCreateAccount}>
+                <label className="field">
+                  <span className="field-label">Username</span>
+                  <input
+                    type="text"
+                    className="field-input"
+                    value={createUsername}
+                    autoComplete="nickname"
+                    onChange={(event) => setCreateUsername(event.target.value)}
+                    placeholder="Preferred display name"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Email</span>
+                  <input
+                    type="email"
+                    className="field-input"
+                    value={createEmail}
+                    autoComplete="email"
+                    onChange={(event) => setCreateEmail(event.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Password</span>
+                  <input
+                    type="password"
+                    className="field-input"
+                    value={createPassword}
+                    autoComplete="new-password"
+                    onChange={(event) => setCreatePassword(event.target.value)}
+                    placeholder="At least 8 characters"
+                  />
+                </label>
+                <div className="dialog-actions">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={closeCreateAccountModal}
+                    disabled={auth.isBusy}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={auth.isBusy || !auth.isReady}>
+                    {auth.isBusy ? 'Creating Account...' : 'Create Account'}
+                  </Button>
+                </div>
+                {createError ? <p className="error-text">{createError}</p> : null}
+              </form>
+            ) : (
+              <>
+                <p className="muted-text">
+                  Account created. Verify your email address, then return to sign in.
+                </p>
+                <p className="muted-text">
+                  Owners and admins are notified after your verified sign-in creates the access request.
+                </p>
+                <div className="dialog-actions">
+                  <Button type="button" onClick={handleBackToSignIn}>
+                    Back to Sign In
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
+

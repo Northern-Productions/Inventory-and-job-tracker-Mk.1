@@ -50,7 +50,8 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
   }
 
   const filtered = Array.from(dedupedByBoxId.values()).filter((box) => {
-    if (box.status !== 'IN_STOCK' || box.feetAvailable <= 0) {
+    const isAllocatableStatus = box.status === 'IN_STOCK' || box.status === 'CHECKED_OUT';
+    if (!isAllocatableStatus || box.feetAvailable <= 0) {
       return false;
     }
 

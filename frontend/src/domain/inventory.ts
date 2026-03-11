@@ -17,7 +17,7 @@ export const ALLOCATION_JOB_STATUSES = [
   'CANCELLED'
 ] as const;
 export type AllocationJobStatus = (typeof ALLOCATION_JOB_STATUSES)[number];
-export const JOB_STATUSES = ['ALLOCATE', 'READY', 'CANCELLED'] as const;
+export const JOB_STATUSES = ['ALLOCATE', 'CONFLICT', 'READY', 'COMPLETED', 'CANCELLED'] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export interface Box {
@@ -116,6 +116,20 @@ export interface AllocateBoxPayload {
 export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
   selectedSuggestionBoxIds?: string[];
   jobWarehouse?: Warehouse;
+}
+
+export interface RemoveJobBoxAllocationsPayload {
+  jobNumber: string;
+  allocationId: string;
+  reason?: string;
+}
+
+export interface RemoveJobBoxAllocationsResult {
+  jobNumber: string;
+  allocationId: string;
+  boxId: string;
+  removedAllocationCount: number;
+  releasedFeet: number;
 }
 
 export type AuditAction =
@@ -275,12 +289,26 @@ export interface AllocationJobDetailEntry extends AllocationEntry {
   filmName: string;
   widthIn: number;
   boxStatus: BoxStatus | '';
+  checkedOutOnThisJob: boolean;
 }
 
 export interface AllocationJobDetail {
   summary: AllocationJobSummary;
   allocations: AllocationJobDetailEntry[];
+  usage: JobUsageEntry[];
   filmOrders: FilmOrderEntry[];
+}
+
+export interface JobUsageEntry {
+  boxId: string;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  usedFeet: number;
+  usageEventCount: number;
+  latestCheckedInAt: string;
+  latestCheckedOutAt: string;
+  lastActivityAt: string;
 }
 
 export interface JobRequirementLine {
@@ -300,7 +328,7 @@ export interface JobListEntry {
   dueDate: string;
   crewLeader: string;
   status: JobStatus;
-  lifecycleStatus: 'ACTIVE' | 'CANCELLED';
+  lifecycleStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   requiredFeet: number;
   allocatedFeet: number;
   remainingFeet: number;
@@ -315,6 +343,7 @@ export interface JobDetail {
   summary: JobListEntry;
   requirements: JobRequirementLine[];
   allocations: AllocationJobDetailEntry[];
+  usage: JobUsageEntry[];
   filmOrders: FilmOrderEntry[];
 }
 
@@ -324,7 +353,7 @@ export interface CreateJobPayload {
   sections?: string | number | null;
   dueDate?: string;
   crewLeader?: string;
-  lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
+  lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   notes?: string;
   requirements?: Array<{
     manufacturer: string;
@@ -340,7 +369,7 @@ export interface UpdateJobPayload {
   sections?: string | number | null;
   dueDate?: string;
   crewLeader?: string;
-  lifecycleStatus?: 'ACTIVE' | 'CANCELLED';
+  lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   notes?: string;
   requirements?: Array<{
     manufacturer: string;
@@ -376,6 +405,19 @@ export interface NeverCheckedOutBoxRow {
 export interface ZeroedTrendRow {
   month: string;
   zeroedCount: number;
+}
+
+export interface ClosedJobReportRow {
+  jobNumber: string;
+  warehouse: Warehouse;
+  dueDate: string;
+  crewLeader: string;
+  status: JobStatus;
+  lifecycleStatus: 'COMPLETED' | 'CANCELLED';
+  requiredFeet: number;
+  allocatedFeet: number;
+  remainingFeet: number;
+  closedAt: string;
 }
 
 export interface ReportsSummaryFilters {

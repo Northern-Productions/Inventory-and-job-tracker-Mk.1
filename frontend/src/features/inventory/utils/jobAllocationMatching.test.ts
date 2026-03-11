@@ -52,14 +52,47 @@ describe('findMatchingBoxesForRequirement', () => {
       [
         buildBox({ boxId: 'IL-60-A', manufacturer: '  Madico ', filmName: 'Graffiti   Free 6MIL', widthIn: 60 }),
         buildBox({ boxId: 'IL-72-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 72 }),
+        buildBox({
+          boxId: 'IL-72-CHECKED',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 72,
+          status: 'CHECKED_OUT',
+          feetAvailable: 12
+        }),
         buildBox({ boxId: 'IL-48-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 48 }),
         buildBox({ boxId: 'IL-60-B', manufacturer: 'Another', filmName: 'Graffiti Free 6MIL', widthIn: 60 }),
-        buildBox({ boxId: 'IL-60-C', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 60, status: 'ORDERED' })
+        buildBox({
+          boxId: 'IL-60-C',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60,
+          status: 'ORDERED'
+        })
       ],
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL-60-A', 'IL-72-A']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL-60-A', 'IL-72-A', 'IL-72-CHECKED']);
+  });
+
+  it('excludes checked-out rolls when available LF is 0', () => {
+    const requirement = buildRequirement({ widthIn: 60 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL-72-CHECKED-ZERO',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 72,
+          status: 'CHECKED_OUT',
+          feetAvailable: 0
+        })
+      ],
+      requirement
+    );
+
+    expect(matching).toHaveLength(0);
   });
 
   it('prioritizes the closest compatible width before wider alternatives', () => {

@@ -52,6 +52,7 @@ export default function AddBoxPage() {
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse
   );
+  const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
 
   useEffect(() => {
     if (retryState?.retryWarehouse) {
@@ -109,6 +110,15 @@ export default function AddBoxPage() {
       toast.push({
         title: 'Sign-in required',
         description: 'Sign in with email/password before creating boxes.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!canWriteInventory) {
+      toast.push({
+        title: 'Permission denied',
+        description: 'Your account cannot create new boxes.',
         variant: 'error'
       });
       return;
@@ -250,12 +260,18 @@ export default function AddBoxPage() {
           <p className="muted-text">Sign in with email/password before creating boxes.</p>
         </section>
       ) : null}
+      {auth.isAuthenticated && !canWriteInventory ? (
+        <section className="panel">
+          <p className="muted-text">Your role does not allow creating new boxes.</p>
+        </section>
+      ) : null}
       <BoxForm
         initialDraft={initialDraft}
         resetKey={resetKey}
         mode="create"
         submitLabel="Create Box"
         submitting={addBoxMutation.isPending}
+        disabled={!canWriteInventory}
         createWarehouse={warehouse}
         nextBoxIdByWarehouse={nextBoxIdByWarehouse}
         filmCatalogEntries={filmCatalogQuery.data}

@@ -352,7 +352,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
 
             {!preview.suggestions.length && selectionSummary?.remainingFeet ? (
               <p className="muted-text">
-                No other matching in-stock boxes can help bridge this shortage in {box.warehouse}.
+                No other matching boxes can help bridge this shortage in {box.warehouse}.
               </p>
             ) : null}
 

@@ -2,6 +2,7 @@ import { useMutation, useMutationState, useQuery, useQueryClient } from '@tansta
 import { useOptimisticQueue, type OptimisticOperationController } from '../../../components/OptimisticQueue';
 import {
   applyAllocationPlan,
+  completeJob,
   cancelJob,
   createJob,
   deleteBox,
@@ -15,12 +16,14 @@ import {
   getFilmCatalog,
   getFilmOrders,
   previewAllocationPlan,
+  removeJobBoxAllocations,
   addBox,
   getAuditByBox,
   getBox,
   getReportsSummary,
   getRollHistoryByBox,
   listAudit,
+  reopenJob,
   searchBoxes,
   syncAllOfflineInventorySnapshots,
   setBoxStatus,
@@ -43,6 +46,7 @@ import type {
   FilmOrderEntry,
   JobDetail,
   JobListEntry,
+  RemoveJobBoxAllocationsPayload,
   ReportsSummaryFilters,
   SearchBoxesParams,
   SetBoxStatusPayload,
@@ -588,6 +592,29 @@ export function useAllocateBox() {
   });
 }
 
+export function useRemoveJobBoxAllocations() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: RemoveJobBoxAllocationsPayload) => removeJobBoxAllocations(payload),
+    onSuccess: async ({ result }, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.box(result.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+
+      void syncOfflineInventorySnapshot(queryClient);
+    }
+  });
+}
+
 export function useCancelJob() {
   const queryClient = useQueryClient();
   const optimisticQueue = useOptimisticQueue();
@@ -634,6 +661,76 @@ export function useCancelJob() {
     },
     onSettled: (_data, _error, _variables, context) => {
       context?.operation?.finish();
+    }
+  });
+}
+
+export function useCompleteJob() {
+  const queryClient = useQueryClient();
+  const optimisticQueue = useOptimisticQueue();
+
+  return useMutation({
+    mutationFn: (payload: { jobNumber: string; reason?: string }) => completeJob(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+
+      return beginDelayedOptimisticMutation(
+        queryClient,
+        optimisticQueue,
+        `Completing ${payload.jobNumber}`,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.filmOrders,
+          inventoryKeys.reportsRoot
+        ],
+        () => {}
+      );
+    },
+    onError: (_error, _variables, context) => {
+      context?.operation?.cancel();
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async (_data, variables, context) => {
+      await context?.operation?.waitForApply();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
+      void syncOfflineInventorySnapshot(queryClient);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      context?.operation?.finish();
+    }
+  });
+}
+
+export function useReopenJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: { jobNumber: string; reason?: string }) => reopenJob(payload),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+      ]);
     }
   });
 }

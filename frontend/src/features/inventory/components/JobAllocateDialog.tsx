@@ -100,7 +100,6 @@ export function JobAllocateDialog({
   const ilBoxesQuery = useSearchBoxesWithOptions(
     {
       warehouse: 'IL',
-      status: 'IN_STOCK',
       film: searchableFilmName,
       showRetired: false
     },
@@ -109,7 +108,6 @@ export function JobAllocateDialog({
   const msBoxesQuery = useSearchBoxesWithOptions(
     {
       warehouse: 'MS',
-      status: 'IN_STOCK',
       film: searchableFilmName,
       showRetired: false
     },
@@ -241,7 +239,7 @@ export function JobAllocateDialog({
     const orderedSelectedBoxes = prioritizedMatchingBoxes.filter((box) => selectedBoxIds.includes(box.boxId));
     const sourceBox = orderedSelectedBoxes[0];
     if (!sourceBox) {
-      setError('Select at least one valid in-stock box to allocate.');
+      setError('Select at least one valid box to allocate.');
       return;
     }
 
@@ -263,7 +261,7 @@ export function JobAllocateDialog({
       const summary =
         result.allocations.length > 0
           ? result.allocations.map((entry) => `${entry.boxId}: ${entry.allocatedFeet} LF`).join(', ')
-          : 'No in-stock boxes covered this request.';
+          : 'No matching boxes covered this request.';
       const filmOrderSuffix = result.filmOrder
         ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
         : '';
@@ -381,10 +379,10 @@ export function JobAllocateDialog({
           />
         </div>
 
-        {isMatchingBoxesLoading ? <p className="muted-text">Loading matching in-stock boxes...</p> : null}
+        {isMatchingBoxesLoading ? <p className="muted-text">Loading matching boxes...</p> : null}
         {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxes.length ? (
           <p className="muted-text">
-            No matching in-stock boxes were found for this requirement (same film, width at or above requested). Create
+            No matching boxes were found for this requirement (same film, width at or above requested). Create
             a film-order alert instead.
           </p>
         ) : null}

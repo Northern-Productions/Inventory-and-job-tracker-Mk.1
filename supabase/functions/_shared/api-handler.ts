@@ -245,6 +245,17 @@ function normalizeCrewLeaderKey(crewLeader: unknown): string {
   return asTrimmedString(crewLeader).toUpperCase();
 }
 
+function normalizeJobLifecycleStatus(value: unknown): "ACTIVE" | "COMPLETED" | "CANCELLED" {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (normalized === "CANCELLED") {
+    return "CANCELLED";
+  }
+  if (normalized === "COMPLETED") {
+    return "COMPLETED";
+  }
+  return "ACTIVE";
+}
+
 function compareBoxesByOldestStock(left: any, right: any): number {
   const leftDate = left.receivedDate || left.orderDate || "9999-12-31";
   const rightDate = right.receivedDate || right.orderDate || "9999-12-31";
@@ -1212,6 +1223,107 @@ async function listRollHistoryByBox(client: any, orgId: string, boxId: string) {
   return rows.map(mapDbRollHistoryRow);
 }
 
+async function listRollHistoryByJob(client: any, orgId: string, jobNumber: string) {
+  const normalizedJobNumber = asTrimmedString(jobNumber);
+  if (!normalizedJobNumber) {
+    return [];
+  }
+
+  const serviceClient = createServiceRoleClient();
+  if (serviceClient) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("roll_weight_log")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("job_number", normalizedJobNumber)
+      .order("checked_in_at", { ascending: false, nullsFirst: false })
+      .order("checked_out_at", { ascending: false, nullsFirst: false })
+      .order("log_id", { ascending: false });
+
+    if (!error) {
+      return (Array.isArray(data) ? data : []).map(mapDbRollHistoryRow);
+    }
+  }
+
+  const entries: any[] = [];
+  const boxes = await listBoxes(client, orgId);
+  for (const box of boxes) {
+    const boxEntries = await listRollHistoryByBox(client, orgId, box.boxId);
+    for (const entry of boxEntries) {
+      if (normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(normalizedJobNumber)) {
+        entries.push(entry);
+      }
+    }
+  }
+
+  entries.sort((left, right) => {
+    const leftDate = asTrimmedString(left.checkedInAt) || asTrimmedString(left.checkedOutAt) || "";
+    const rightDate = asTrimmedString(right.checkedInAt) || asTrimmedString(right.checkedOutAt) || "";
+    if (leftDate !== rightDate) {
+      return leftDate > rightDate ? -1 : 1;
+    }
+    return left.logId < right.logId ? 1 : left.logId > right.logId ? -1 : 0;
+  });
+
+  return entries;
+}
+
+function toUsageTimestampSortValue(entry: any) {
+  return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || "";
+}
+
+function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<string, any>) {
+  const grouped: Record<string, any> = {};
+  const entries = Array.isArray(rollHistoryEntries) ? rollHistoryEntries : [];
+
+  for (const entry of entries) {
+    if (!entry || !entry.boxId) {
+      continue;
+    }
+
+    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const timestampSortValue = toUsageTimestampSortValue(entry);
+    const box = boxById[entry.boxId] || null;
+
+    if (!grouped[entry.boxId]) {
+      grouped[entry.boxId] = {
+        boxId: entry.boxId,
+        manufacturer: box ? box.manufacturer : asTrimmedString(entry.manufacturer),
+        filmName: box ? box.filmName : asTrimmedString(entry.filmName),
+        widthIn: box ? box.widthIn : numericOrNull(entry.widthIn) ?? 0,
+        usedFeet: 0,
+        usageEventCount: 0,
+        latestCheckedInAt: "",
+        latestCheckedOutAt: "",
+        lastActivityAt: "",
+      };
+    }
+
+    grouped[entry.boxId].usedFeet += usedFeet;
+    grouped[entry.boxId].usageEventCount += 1;
+
+    if (asTrimmedString(entry.checkedInAt) > grouped[entry.boxId].latestCheckedInAt) {
+      grouped[entry.boxId].latestCheckedInAt = asTrimmedString(entry.checkedInAt);
+    }
+    if (asTrimmedString(entry.checkedOutAt) > grouped[entry.boxId].latestCheckedOutAt) {
+      grouped[entry.boxId].latestCheckedOutAt = asTrimmedString(entry.checkedOutAt);
+    }
+    if (timestampSortValue > grouped[entry.boxId].lastActivityAt) {
+      grouped[entry.boxId].lastActivityAt = timestampSortValue;
+    }
+  }
+
+  const response = Object.values(grouped);
+  response.sort((left: any, right: any) => {
+    if (left.lastActivityAt !== right.lastActivityAt) {
+      return left.lastActivityAt > right.lastActivityAt ? -1 : 1;
+    }
+    return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
+  });
+  return response;
+}
+
 function buildActiveAllocationsByBoxIndex(entries: any[]) {
   const grouped: Record<string, any[]> = {};
   for (const entry of entries) {
@@ -1437,8 +1549,12 @@ function computeJobStatusFromRequirements(
   allocations: any[],
   filmOrders: any[],
 ) {
-  if (asTrimmedString(lifecycleStatus).toUpperCase() === "CANCELLED") {
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
+  if (normalizedLifecycleStatus === "CANCELLED") {
     return "CANCELLED";
+  }
+  if (normalizedLifecycleStatus === "COMPLETED") {
+    return "COMPLETED";
   }
   if (!requirements.length) {
     if (!allocations.length && !filmOrders.length) {
@@ -1476,7 +1592,7 @@ function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any
     dueDate,
     crewLeader,
     status: computeJobStatusFromRequirements(jobHeader.lifecycleStatus, requirements, allocations, filmOrders),
-    lifecycleStatus: asTrimmedString(jobHeader.lifecycleStatus).toUpperCase() === "CANCELLED" ? "CANCELLED" : "ACTIVE",
+    lifecycleStatus: normalizeJobLifecycleStatus(jobHeader.lifecycleStatus),
     requiredFeet,
     allocatedFeet,
     remainingFeet,
@@ -1516,12 +1632,18 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
     })
     .map((entry) => {
       const box = boxById[entry.boxId];
+      const checkedOutOnThisJob = Boolean(
+        box &&
+          box.status === "CHECKED_OUT" &&
+          normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(entry.jobNumber),
+      );
       return {
         ...toPublicAllocation(entry),
         manufacturer: box ? box.manufacturer : "",
         filmName: box ? box.filmName : "",
         widthIn: box ? box.widthIn : 0,
         boxStatus: box ? box.status : "",
+        checkedOutOnThisJob,
       };
     });
 }
@@ -1597,6 +1719,9 @@ async function resolveJobContext(client: any, orgId: string, jobNumber: unknown,
   const normalizedJobDate = normalizeDateString(jobDate, "JobDate", true);
   const normalizedCrewLeader = asTrimmedString(crewLeader);
   const existingHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
+  if (existingHeader && normalizeJobLifecycleStatus(existingHeader.lifecycleStatus) !== "ACTIVE") {
+    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and cannot receive allocations.`);
+  }
   const existingAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   let existingJobDate = existingHeader?.dueDate || "";
@@ -1749,6 +1874,35 @@ function boxMatchesReportFilters(box: any, filters: any) {
   return true;
 }
 
+function extractClosedDate(updatedAt: unknown): string {
+  const timestamp = asTrimmedString(updatedAt);
+  if (!timestamp) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestamp)) {
+    return timestamp;
+  }
+  return timestamp.slice(0, 10);
+}
+
+function matchesClosedJobReportFilters(jobEntry: any, filters: any): boolean {
+  if (filters.warehouse && jobEntry.warehouse !== filters.warehouse) {
+    return false;
+  }
+
+  const closedDate = extractClosedDate(jobEntry.updatedAt);
+  if (!closedDate) {
+    return false;
+  }
+  if (filters.from && closedDate < filters.from) {
+    return false;
+  }
+  if (filters.to && closedDate > filters.to) {
+    return false;
+  }
+  return true;
+}
+
 async function buildSearchBoxes(client: any, orgId: string, params: Record<string, unknown>) {
   const warehouse = requireString(params.warehouse, "warehouse").toUpperCase();
   if (warehouse !== "IL" && warehouse !== "MS") {
@@ -1845,6 +1999,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
   if (!allocations.length && !filmOrders.length) {
     throw new HttpError(404, "Job not found.");
   }
@@ -1853,6 +2008,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   return {
     summary: buildAllocationJobSummary(normalizedJobNumber, allocations, filmOrders),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    usage: buildPublicJobUsageEntries(rollHistory, boxById),
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
   };
 }
@@ -1919,6 +2075,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
 
   if (!header && !allocations.length && !filmOrders.length && !requirements.length) {
     throw new HttpError(404, "Job not found.");
@@ -1933,6 +2090,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    usage: buildPublicJobUsageEntries(rollHistory, boxById),
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
   };
 }
@@ -1951,6 +2109,8 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
   const widthGroups: Record<string, { widthIn: number; totalFeetAvailable: number; boxCount: number }> = {};
   const neverCheckedOut: any[] = [];
   const zeroedByMonthMap: Record<string, number> = {};
+  const completedJobs: any[] = [];
+  const cancelledJobs: any[] = [];
 
   for (const activeBox of activeBoxes) {
     if (!boxMatchesReportFilters(activeBox, filters)) {
@@ -2019,10 +2179,51 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
     .map((month) => ({ month, zeroedCount: zeroedByMonthMap[month] }));
 
+  const allJobEntries = await buildJobsList(client, orgId, 0);
+  for (const jobEntry of allJobEntries) {
+    const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
+    if (lifecycleStatus !== "COMPLETED" && lifecycleStatus !== "CANCELLED") {
+      continue;
+    }
+    if (!matchesClosedJobReportFilters(jobEntry, filters)) {
+      continue;
+    }
+
+    const reportEntry = {
+      jobNumber: jobEntry.jobNumber,
+      warehouse: jobEntry.warehouse,
+      dueDate: jobEntry.dueDate,
+      crewLeader: jobEntry.crewLeader,
+      status: jobEntry.status,
+      lifecycleStatus,
+      requiredFeet: jobEntry.requiredFeet,
+      allocatedFeet: jobEntry.allocatedFeet,
+      remainingFeet: jobEntry.remainingFeet,
+      closedAt: asTrimmedString(jobEntry.updatedAt),
+    };
+
+    if (lifecycleStatus === "COMPLETED") {
+      completedJobs.push(reportEntry);
+    } else {
+      cancelledJobs.push(reportEntry);
+    }
+  }
+
+  const compareClosedJobs = (left: any, right: any) => {
+    if (left.closedAt !== right.closedAt) {
+      return left.closedAt > right.closedAt ? -1 : 1;
+    }
+    return left.jobNumber > right.jobNumber ? -1 : left.jobNumber < right.jobNumber ? 1 : 0;
+  };
+  completedJobs.sort(compareClosedJobs);
+  cancelledJobs.sort(compareClosedJobs);
+
   return {
     availableFeetByWidth,
     neverCheckedOut,
     zeroedByMonth,
+    completedJobs,
+    cancelledJobs,
   };
 }
 
@@ -2105,6 +2306,229 @@ async function buildFilmCatalog(client: any, orgId: string) {
     return compareCatalogStrings(left.filmKey, right.filmKey);
   });
   return response;
+}
+
+function throwOnSupabaseError(error: any, messagePrefix: string): void {
+  if (!error) {
+    return;
+  }
+  throw new HttpError(500, `${messagePrefix}: ${asTrimmedString(error.message) || "Unexpected database error."}`);
+}
+
+function requireServiceRoleClientForJobs() {
+  const serviceClient = createServiceRoleClient();
+  if (!serviceClient) {
+    throw new HttpError(500, "SUPABASE_SERVICE_ROLE_KEY is required for job lifecycle close-out operations.");
+  }
+  return serviceClient;
+}
+
+async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const warnings: string[] = [];
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const serviceClient = requireServiceRoleClientForJobs();
+
+  const { data: jobRow, error: jobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .select("id, org_id, job_number, lifecycle_status")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+  throwOnSupabaseError(jobError, "Unable to load job");
+  if (!jobRow) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  if (lifecycleStatus === "COMPLETED") {
+    throw new HttpError(400, `Job ${jobNumber} is already completed.`);
+  }
+  if (lifecycleStatus === "CANCELLED") {
+    throw new HttpError(400, `Job ${jobNumber} is cancelled and cannot be completed.`);
+  }
+
+  const { data: checkedOutRows, error: checkedOutError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("box_id, last_checkout_job")
+    .eq("org_id", orgId)
+    .eq("status", "CHECKED_OUT");
+  throwOnSupabaseError(checkedOutError, "Unable to load checked-out boxes");
+  const matchingCheckedOutRows = (Array.isArray(checkedOutRows) ? checkedOutRows : []).filter((row) =>
+    normalizeJobNumberKey((row as Record<string, unknown>).last_checkout_job) === normalizeJobNumberKey(jobNumber)
+  );
+  if (matchingCheckedOutRows.length) {
+    const listedBoxes = matchingCheckedOutRows
+      .slice(0, 5)
+      .map((row) => asTrimmedString((row as Record<string, unknown>).box_id))
+      .join(", ");
+    const suffix = matchingCheckedOutRows.length > 5 ? ", ..." : "";
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be completed while boxes are still checked out: ${listedBoxes}${suffix}.`,
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  const cancelNote = asTrimmedString(payload.reason) || `Cancelled because job ${jobNumber} was marked completed.`;
+  const { data: activeAllocations, error: activeAllocationsError } = await serviceClient
+    .schema("app")
+    .from("allocations")
+    .select("id, box_id, allocated_feet")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .eq("status", "ACTIVE");
+  throwOnSupabaseError(activeAllocationsError, "Unable to load active allocations");
+
+  const releasedFeetByBox: Record<string, number> = {};
+  let cancelledAllocationCount = 0;
+  for (const row of Array.isArray(activeAllocations) ? activeAllocations : []) {
+    const allocationId = (row as Record<string, unknown>).id;
+    const boxId = asTrimmedString((row as Record<string, unknown>).box_id);
+    const allocatedFeet = integerOrZero((row as Record<string, unknown>).allocated_feet);
+    if (!allocationId || !boxId) {
+      continue;
+    }
+
+    const { error: updateAllocationError } = await serviceClient
+      .schema("app")
+      .from("allocations")
+      .update({
+        status: "CANCELLED",
+        resolved_at: nowIso,
+        resolved_by: actor,
+        notes: cancelNote,
+      })
+      .eq("org_id", orgId)
+      .eq("id", allocationId);
+    throwOnSupabaseError(updateAllocationError, `Unable to cancel allocation ${asTrimmedString(allocationId)}`);
+
+    releasedFeetByBox[boxId] = integerOrZero(releasedFeetByBox[boxId]) + allocatedFeet;
+    cancelledAllocationCount += 1;
+  }
+
+  for (const [boxId, releasedFeet] of Object.entries(releasedFeetByBox)) {
+    const { data: boxRow, error: boxError } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("id, status, feet_available")
+      .eq("org_id", orgId)
+      .eq("box_id", boxId)
+      .maybeSingle();
+    throwOnSupabaseError(boxError, `Unable to load box ${boxId}`);
+    if (!boxRow) {
+      continue;
+    }
+
+    const boxStatus = asTrimmedString((boxRow as Record<string, unknown>).status);
+    if (boxStatus === "ZEROED" || boxStatus === "RETIRED") {
+      continue;
+    }
+
+    const nextFeetAvailable = Math.max(0, integerOrZero((boxRow as Record<string, unknown>).feet_available) + releasedFeet);
+    const { error: updateBoxError } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .update({ feet_available: nextFeetAvailable })
+      .eq("org_id", orgId)
+      .eq("id", (boxRow as Record<string, unknown>).id);
+    throwOnSupabaseError(updateBoxError, `Unable to update box ${boxId}`);
+  }
+
+  const { data: openFilmOrders, error: openFilmOrdersError } = await serviceClient
+    .schema("app")
+    .from("film_orders")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .in("status", ["FILM_ORDER", "FILM_ON_THE_WAY"]);
+  throwOnSupabaseError(openFilmOrdersError, "Unable to load open film orders");
+
+  let cancelledFilmOrderCount = 0;
+  for (const row of Array.isArray(openFilmOrders) ? openFilmOrders : []) {
+    const filmOrderId = (row as Record<string, unknown>).id;
+    if (!filmOrderId) {
+      continue;
+    }
+    const { error: updateFilmOrderError } = await serviceClient
+      .schema("app")
+      .from("film_orders")
+      .update({
+        status: "CANCELLED",
+        resolved_at: nowIso,
+        resolved_by: actor,
+        notes: cancelNote,
+      })
+      .eq("org_id", orgId)
+      .eq("id", filmOrderId);
+    throwOnSupabaseError(updateFilmOrderError, "Unable to cancel open film order");
+    cancelledFilmOrderCount += 1;
+  }
+
+  const { error: completeJobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .update({
+      lifecycle_status: "COMPLETED",
+      updated_at: nowIso,
+      updated_by: actor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", (jobRow as Record<string, unknown>).id);
+  throwOnSupabaseError(completeJobError, "Unable to mark job completed");
+
+  warnings.push(
+    `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? "" : "s"} and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? "" : "s"}.`,
+  );
+
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
+async function reopenJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  if (identity.role !== "owner") {
+    throw new HttpError(403, "Owner access is required to reopen jobs.");
+  }
+
+  const warnings: string[] = [];
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const serviceClient = requireServiceRoleClientForJobs();
+
+  const { data: jobRow, error: jobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .select("id, lifecycle_status")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+  throwOnSupabaseError(jobError, "Unable to load job");
+  if (!jobRow) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  if (lifecycleStatus !== "COMPLETED" && lifecycleStatus !== "CANCELLED") {
+    throw new HttpError(400, `Job ${jobNumber} is already active.`);
+  }
+
+  const { error: reopenError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .update({
+      lifecycle_status: "ACTIVE",
+      updated_at: new Date().toISOString(),
+      updated_by: actor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", (jobRow as Record<string, unknown>).id);
+  throwOnSupabaseError(reopenError, "Unable to reopen job");
+
+  warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
 async function callMutationRpc(client: any, fn: string, orgId: string, actor: string, payload: Record<string, unknown>) {
@@ -2220,7 +2644,14 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
   }
 }
 
-async function dispatchMutation(client: any, orgId: string, actor: string, logicalPath: string, payload: Record<string, unknown>) {
+async function dispatchMutation(
+  client: any,
+  identity: AuthIdentity,
+  logicalPath: string,
+  payload: Record<string, unknown>,
+) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
   switch (logicalPath) {
     case "/profile/username": {
       const result = await callMutationRpc(client, "api_request_username_change", orgId, actor, payload);
@@ -2306,6 +2737,12 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
     }
     case "/allocations/add":
     case "/allocations/apply": {
+      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      const existingJob = await findJobByNumber(client, orgId, jobNumber);
+      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
+        throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive allocations.`);
+      }
+
       const result = await callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, payload);
       const allocationIds = Array.isArray(result.allocationIds)
         ? result.allocationIds.map((value: unknown) => asTrimmedString(value)).filter(Boolean)
@@ -2332,10 +2769,32 @@ async function dispatchMutation(client: any, orgId: string, actor: string, logic
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
     case "/jobs/update": {
+      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      if (
+        payload.lifecycleStatus !== undefined &&
+        normalizeJobLifecycleStatus(payload.lifecycleStatus) !== "ACTIVE"
+      ) {
+        throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
+      }
+      const existingJob = await findJobByNumber(client, orgId, jobNumber);
+      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
+        throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
+      }
+
       const result = await callMutationRpc(client, "api_acl_jobs_update", orgId, actor, payload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
+    case "/jobs/complete":
+      return completeJob(client, identity, payload);
+    case "/jobs/reopen":
+      return reopenJob(client, identity, payload);
     case "/film-orders/create": {
+      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      const existingJob = await findJobByNumber(client, orgId, jobNumber);
+      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
+        throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
+      }
+
       const result = await callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, payload);
       const filmOrder = await findFilmOrderById(client, orgId, result.filmOrderId);
       if (!filmOrder) {
@@ -2450,7 +2909,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     const params = routeParams(request.method, requestUrl, bodyJson);
     const payload = (request.method === "GET" || (request.method === "POST" && READ_PATHS.has(logicalPath)))
       ? await dispatchRead(client, identity.orgId, logicalPath, params)
-      : await dispatchMutation(client, identity.orgId, identity.actor, logicalPath, params);
+      : await dispatchMutation(client, identity, logicalPath, params);
 
     const responseBody = JSON.stringify(payload);
     if (useCache) {
