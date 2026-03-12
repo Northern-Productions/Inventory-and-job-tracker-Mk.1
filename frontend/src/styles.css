@@ -1410,6 +1410,22 @@ th {
   color: #fff;
 }
 
+.access-reconnect-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #ecd5b0;
+  background: #fff7ec;
+  color: #29464d;
+}
+
+.access-reconnect-banner .button {
+  padding: 0.45rem 0.85rem;
+}
+
 .empty-state {
   padding: 1rem;
   border: 1px dashed #c6d2d6;

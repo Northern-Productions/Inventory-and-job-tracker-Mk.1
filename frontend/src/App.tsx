@@ -26,6 +26,21 @@ function PwaUpdateBanner() {
 
 export default function App() {
   const auth = useAuth();
+  const showAccessReconnectBanner =
+    auth.isAuthenticated &&
+    Boolean(auth.accessContext) &&
+    (!auth.isAccessReady || Boolean(auth.accessRefreshError));
+
+  const accessReconnectBanner = showAccessReconnectBanner ? (
+    <div className="access-reconnect-banner" role="status" aria-live="polite">
+      <span>
+        {!auth.isAccessReady ? 'Reconnecting access...' : 'Access refresh failed. Retrying automatically.'}
+      </span>
+      <Button type="button" variant="secondary" disabled={!auth.isAccessReady} onClick={() => void auth.refreshAccessContext()}>
+        Retry now
+      </Button>
+    </div>
+  ) : null;
 
   if (!auth.isReady || !auth.isAuthenticated) {
     return (
@@ -36,7 +51,7 @@ export default function App() {
     );
   }
 
-  if (!auth.isAccessReady) {
+  if (!auth.isAccessReady && !auth.accessContext) {
     return (
       <>
         <PwaUpdateBanner />
@@ -53,6 +68,7 @@ export default function App() {
     return (
       <>
         <PwaUpdateBanner />
+        {accessReconnectBanner}
         <AccessSplash mode="pending" />
       </>
     );
@@ -62,6 +78,7 @@ export default function App() {
     return (
       <>
         <PwaUpdateBanner />
+        {accessReconnectBanner}
         <AccessSplash mode="denied" />
       </>
     );
@@ -71,6 +88,7 @@ export default function App() {
     return (
       <>
         <PwaUpdateBanner />
+        {accessReconnectBanner}
         <AuthGate />
       </>
     );
@@ -79,7 +97,9 @@ export default function App() {
   return (
     <>
       <PwaUpdateBanner />
+      {accessReconnectBanner}
       <RouterProvider router={router} />
     </>
   );
 }
+

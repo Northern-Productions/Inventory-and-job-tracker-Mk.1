@@ -7,6 +7,9 @@ const PROXY_TARGET = import.meta.env.VITE_PROXY_TARGET?.trim() || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
 const LOCAL_PROXY_HOSTS = new Set(['localhost', '127.0.0.1']);
 const SHOULD_FORWARD_SUPABASE_APIKEY = looksLikeLegacyJwtKey_(SUPABASE_ANON_KEY);
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const AUTH_CONTEXT_TIMEOUT_MS = 10_000;
+const SUPABASE_AUTH_TIMEOUT_MS = 10_000;
 
 function isLocalProxyEnabled(): boolean {
   return Boolean(PROXY_TARGET) && LOCAL_PROXY_HOSTS.has(window.location.hostname);
@@ -33,6 +36,7 @@ export class APIError extends Error {
 interface RequestOptions {
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
+  timeoutMs?: number;
 }
 
 function buildRequestHeaders(method: 'GET' | 'POST', authToken: string): Record<string, string> | undefined {
@@ -73,6 +77,42 @@ function buildUrl(path: string, query?: RequestOptions['query']): URL {
   return url;
 }
 
+async function fetchWithTimeout_(input: URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new APIError('The API timed out while waiting for a response.');
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+function withTimeout_<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        globalThis.clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error: unknown) => {
+        globalThis.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 async function parseEnvelope<T>(response: Response): Promise<ApiEnvelope<T>> {
   try {
     return (await response.clone().json()) as ApiEnvelope<T>;
@@ -105,6 +145,7 @@ export async function request<T>(
 ): Promise<{ data: T; warnings: string[] }> {
   let response: Response;
   const authContext = await resolveAuthContext_();
+  const timeoutMs = options.timeoutMs ?? (path === '/auth/context' ? AUTH_CONTEXT_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS);
 
   try {
     const body =
@@ -117,12 +158,19 @@ export async function request<T>(
           }
         : options.body;
 
-    response = await fetch(buildUrl(path, options.query), {
-      method,
-      headers: buildRequestHeaders(method, authContext.token),
-      body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
-    });
-  } catch (_error) {
+    response = await fetchWithTimeout_(
+      buildUrl(path, options.query),
+      {
+        method,
+        headers: buildRequestHeaders(method, authContext.token),
+        body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
+      },
+      timeoutMs
+    );
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
     throw new APIError(
       'The API is unreachable. If you are offline, the app shell still works but data requests need a connection.'
     );
@@ -169,20 +217,40 @@ function looksLikeLegacyJwtKey_(value: string): boolean {
   return trimmed.split('.').length === 3;
 }
 
+function getStoredAuthContext_(
+  storedSession: ReturnType<typeof getStoredAuthSession>
+): { token: string; user: AuthUser | null } {
+  const token = storedSession?.token?.trim() || '';
+  const email = storedSession?.user?.email ? storedSession.user.email.trim() : '';
+  if (!token || !email || !storedSession?.user || !isProjectTokenValid_(token)) {
+    return { token: '', user: null };
+  }
+
+  return {
+    token,
+    user: {
+      ...storedSession.user,
+      email
+    }
+  };
+}
+
 async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | null }> {
   const stored = getStoredAuthSession();
+  const storedContext = getStoredAuthContext_(stored);
   const supabase = getSupabaseClient();
   if (!supabase) {
-    return {
-      token: stored?.token?.trim() || '',
-      user: stored?.user || null
-    };
+    return storedContext;
   }
 
   try {
-    const { data, error } = await supabase.auth.getSession();
+    const { data, error } = await withTimeout_(
+      supabase.auth.getSession(),
+      SUPABASE_AUTH_TIMEOUT_MS,
+      'Authentication session lookup timed out.'
+    );
     if (error || !data.session) {
-      return { token: '', user: null };
+      return storedContext;
     }
 
     let activeSession = data.session;
@@ -193,21 +261,29 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
     const shouldRefresh = !expiresAtMs || expiresAtMs <= Date.now() + 60_000;
 
     if (shouldRefresh) {
-      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-      if (!refreshError && refreshed.session) {
-        activeSession = refreshed.session;
+      try {
+        const { data: refreshed, error: refreshError } = await withTimeout_(
+          supabase.auth.refreshSession(),
+          SUPABASE_AUTH_TIMEOUT_MS,
+          'Authentication session refresh timed out.'
+        );
+        if (!refreshError && refreshed.session) {
+          activeSession = refreshed.session;
+        }
+      } catch (_error) {
+        return storedContext;
       }
     }
 
     const token = activeSession.access_token ? activeSession.access_token.trim() : '';
     const email = activeSession.user?.email ? activeSession.user.email.trim() : '';
     if (!token || !email || !isProjectTokenValid_(token)) {
-      return { token: '', user: null };
+      return storedContext;
     }
 
     const user = activeSession.user;
     if (!user) {
-      return { token: '', user: null };
+      return storedContext;
     }
 
     const metadata =
@@ -231,7 +307,7 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
       }
     };
   } catch (_error) {
-    return { token: '', user: null };
+    return storedContext;
   }
 }
 

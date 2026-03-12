@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import type {
   AuthSession,
@@ -14,6 +14,7 @@ import { getSupabaseClient, isSupabaseAuthConfigured } from '../../lib/supabase'
 
 interface AuthContextValue {
   accessContext: EffectiveAccessContext | null;
+  accessRefreshError: string;
   accessStatus: 'approved' | 'pending' | 'denied' | '';
   canAccessAdminConsole: boolean;
   clientIdConfigured: boolean;
@@ -42,6 +43,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const ACCESS_REFRESH_THROTTLE_MS = 15_000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => getSupabaseClient(), []);
@@ -49,10 +51,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuthSession());
   const [accessContext, setAccessContext] = useState<EffectiveAccessContext | null>(null);
+  const [accessRefreshError, setAccessRefreshError] = useState('');
   const [isAccessReady, setIsAccessReady] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const accessContextRef = useRef<EffectiveAccessContext | null>(null);
+  const accessRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const accessRefreshTokenRef = useRef('');
+  const lastAutoRefreshAtRef = useRef(0);
+  const sessionTokenRef = useRef(session?.token || '');
   const isAuthenticated = Boolean(session?.token && session.user?.email && session.user?.name);
+
+  const applyAccessContext = useCallback((nextContext: EffectiveAccessContext | null) => {
+    accessContextRef.current = nextContext;
+    setAccessContext(nextContext);
+    setClientAccessContext(nextContext);
+  }, []);
+
+  const normalizeAccessContext = useCallback((nextContext: EffectiveAccessContext): EffectiveAccessContext => {
+    return {
+      ...nextContext,
+      permissions: {
+        ...createDefaultFeatureAccessMap(),
+        ...nextContext.permissions
+      }
+    };
+  }, []);
+
+  const refreshAccessContext = useCallback(async () => {
+    const activeToken = session?.token || '';
+    if (!authConfigured || !activeToken) {
+      applyAccessContext(null);
+      setAccessRefreshError('');
+      setIsAccessReady(true);
+      accessRefreshPromiseRef.current = null;
+      accessRefreshTokenRef.current = '';
+      return;
+    }
+
+    if (accessRefreshPromiseRef.current && accessRefreshTokenRef.current === activeToken) {
+      return accessRefreshPromiseRef.current;
+    }
+
+    setIsAccessReady(false);
+    setAccessRefreshError('');
+
+    const requestToken = activeToken;
+    accessRefreshTokenRef.current = requestToken;
+    const refreshPromise = (async () => {
+      try {
+        const nextContext = await getAuthContext();
+        if (sessionTokenRef.current !== requestToken) {
+          return;
+        }
+        const normalizedContext = normalizeAccessContext(nextContext);
+        applyAccessContext(normalizedContext);
+        setErrorMessage('');
+      } catch (error) {
+        if (sessionTokenRef.current !== requestToken) {
+          return;
+        }
+        const message = mapAccessContextErrorMessage(error);
+        if (!accessContextRef.current) {
+          applyAccessContext(null);
+          setErrorMessage(message);
+        } else {
+          setErrorMessage('');
+          setAccessRefreshError(message);
+        }
+      } finally {
+        if (accessRefreshTokenRef.current === requestToken) {
+          accessRefreshPromiseRef.current = null;
+          accessRefreshTokenRef.current = '';
+        }
+        if (sessionTokenRef.current === requestToken) {
+          setIsAccessReady(true);
+        }
+      }
+    })();
+
+    accessRefreshPromiseRef.current = refreshPromise;
+    return refreshPromise;
+  }, [applyAccessContext, authConfigured, normalizeAccessContext, session?.token]);
+
+  useEffect(() => {
+    sessionTokenRef.current = session?.token || '';
+  }, [session?.token]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -60,9 +144,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!authConfigured || !supabase) {
       setStoredAuthSession(null);
       setSession(null);
-      setAccessContext(null);
-      setClientAccessContext(null);
+      applyAccessContext(null);
       setErrorMessage('');
+      setAccessRefreshError('');
       setIsReady(true);
       setIsAccessReady(true);
       return () => {
@@ -87,10 +171,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStoredAuthSession(nextSession);
         setSession(nextSession);
         if (!nextSession) {
-          setAccessContext(null);
-          setClientAccessContext(null);
+          applyAccessContext(null);
+          setAccessRefreshError('');
           setIsAccessReady(true);
         } else {
+          setAccessRefreshError('');
           setIsAccessReady(false);
         }
         setErrorMessage('');
@@ -98,8 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!isCancelled) {
           setStoredAuthSession(null);
           setSession(null);
-          setAccessContext(null);
-          setClientAccessContext(null);
+          applyAccessContext(null);
+          setAccessRefreshError('');
           setIsAccessReady(true);
           setErrorMessage(
             error instanceof Error && error.message ? error.message : 'Sign-in could not be initialized.'
@@ -125,10 +210,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStoredAuthSession(mapped);
       setSession(mapped);
       if (!mapped) {
-        setAccessContext(null);
-        setClientAccessContext(null);
+        applyAccessContext(null);
+        setAccessRefreshError('');
         setIsAccessReady(true);
       } else {
+        setAccessRefreshError('');
         setIsAccessReady(false);
       }
     });
@@ -137,91 +223,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isCancelled = true;
       subscription.unsubscribe();
     };
-  }, [authConfigured, supabase]);
+  }, [applyAccessContext, authConfigured, supabase]);
 
   useEffect(() => {
-    let isCancelled = false;
+    void refreshAccessContext();
+  }, [refreshAccessContext]);
 
-    async function hydrateAccessContext() {
-      if (!authConfigured || !session?.token) {
-        setAccessContext(null);
-        setClientAccessContext(null);
-        setIsAccessReady(true);
-        return;
-      }
-
-      setIsAccessReady(false);
-      setAccessContext(null);
-      setClientAccessContext(null);
-
-      try {
-        const nextContext = await getAuthContext();
-        if (isCancelled) {
-          return;
-        }
-
-        const normalizedContext: EffectiveAccessContext = {
-          ...nextContext,
-          permissions: {
-            ...createDefaultFeatureAccessMap(),
-            ...nextContext.permissions
-          }
-        };
-
-        setAccessContext(normalizedContext);
-        setClientAccessContext(normalizedContext);
-        setErrorMessage('');
-      } catch (error) {
-        if (isCancelled) {
-          return;
-        }
-
-        setAccessContext(null);
-        setClientAccessContext(null);
-        setErrorMessage(mapAccessContextErrorMessage(error));
-      } finally {
-        if (!isCancelled) {
-          setIsAccessReady(true);
-        }
-      }
-    }
-
-    void hydrateAccessContext();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [authConfigured, session?.token]);
-
-  async function refreshAccessContext() {
+  useEffect(() => {
     if (!authConfigured || !session?.token) {
-      setAccessContext(null);
-      setClientAccessContext(null);
-      setIsAccessReady(true);
       return;
     }
 
-    setIsAccessReady(false);
-    try {
-      const nextContext = await getAuthContext();
-      const normalizedContext: EffectiveAccessContext = {
-        ...nextContext,
-        permissions: {
-          ...createDefaultFeatureAccessMap(),
-          ...nextContext.permissions
-        }
-      };
-      setAccessContext(normalizedContext);
-      setClientAccessContext(normalizedContext);
-      setErrorMessage('');
-    } catch (error) {
-      setAccessContext(null);
-      setClientAccessContext(null);
-      setErrorMessage(mapAccessContextErrorMessage(error));
-    } finally {
-      setIsAccessReady(true);
-    }
-  }
+    const maybeAutoRefresh = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastAutoRefreshAtRef.current < ACCESS_REFRESH_THROTTLE_MS) {
+        return;
+      }
+
+      lastAutoRefreshAtRef.current = now;
+      void refreshAccessContext();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        maybeAutoRefresh();
+      }
+    };
+
+    window.addEventListener('focus', maybeAutoRefresh);
+    window.addEventListener('online', maybeAutoRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', maybeAutoRefresh);
+      window.removeEventListener('online', maybeAutoRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authConfigured, refreshAccessContext, session?.token]);
 
   async function signInWithPassword(email: string, password: string) {
     if (!authConfigured || !supabase) {
@@ -230,6 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsBusy(true);
     setErrorMessage('');
+    setAccessRefreshError('');
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -269,6 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsBusy(true);
     setErrorMessage('');
+    setAccessRefreshError('');
 
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -294,8 +342,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { sessionCreated: true };
       }
 
-      setAccessContext(null);
-      setClientAccessContext(null);
+      applyAccessContext(null);
+      setAccessRefreshError('');
       setIsAccessReady(true);
       setErrorMessage('');
       return { sessionCreated: false };
@@ -321,6 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setIsBusy(true);
     setErrorMessage('');
+    setAccessRefreshError('');
     try {
       const result = await requestUsernameChangeApi({ username: trimmed });
 
@@ -360,10 +409,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setErrorMessage('');
+    setAccessRefreshError('');
+    sessionTokenRef.current = '';
     setStoredAuthSession(null);
     setSession(null);
-    setAccessContext(null);
-    setClientAccessContext(null);
+    applyAccessContext(null);
+    accessRefreshPromiseRef.current = null;
+    accessRefreshTokenRef.current = '';
+    lastAutoRefreshAtRef.current = 0;
     setIsAccessReady(true);
   }
 
@@ -392,6 +445,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         accessContext,
+        accessRefreshError,
         accessStatus,
         canAccessAdminConsole,
         clientIdConfigured: authConfigured,
