@@ -1973,7 +1973,7 @@ async function listAllocationsByJob(client, orgId, jobNumber) {
       select *
       from app.allocations
       where org_id = $1
-        and upper(job_number) = upper($2)
+        and upper(trim(job_number)) = upper(trim($2))
       order by created_at desc, allocation_id desc
     `,
     [orgId, jobNumber]
@@ -2107,7 +2107,7 @@ async function listFilmOrdersByJob(client, orgId, jobNumber) {
       select *
       from app.film_orders
       where org_id = $1
-        and upper(job_number) = upper($2)
+        and upper(trim(job_number)) = upper(trim($2))
       order by created_at desc, film_order_id desc
     `,
     [orgId, jobNumber]
@@ -2347,7 +2347,7 @@ async function findJobByNumber(client, orgId, jobNumber) {
       select *
       from app.jobs
       where org_id = $1
-        and job_number = $2
+        and upper(trim(job_number)) = upper(trim($2))
     `,
     [orgId, jobNumber]
   );
@@ -2436,7 +2436,7 @@ async function listJobRequirementsByJob(client, orgId, jobNumber) {
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
       where r.org_id = $1
-        and j.job_number = $2
+        and upper(trim(j.job_number)) = upper(trim($2))
       order by r.manufacturer asc, r.film_name asc, r.width_in asc
     `,
     [orgId, jobNumber]
@@ -2594,7 +2594,7 @@ async function listRollHistoryByJob(client, orgId, jobNumber) {
       select *
       from app.roll_weight_log
       where org_id = $1
-        and upper(job_number) = upper($2)
+        and upper(trim(job_number)) = upper(trim($2))
       order by checked_in_at desc nulls last, checked_out_at desc nulls last, log_id desc
     `,
     [orgId, jobNumber]
@@ -3004,8 +3004,9 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
       createdAt = allocation.createdAt || createdAt;
     }
 
-    if (!updatedAt || (allocation.createdAt && allocation.createdAt > updatedAt)) {
-      updatedAt = allocation.createdAt || updatedAt;
+    const allocationUpdatedAt = allocation.resolvedAt || allocation.createdAt;
+    if (!updatedAt || (allocationUpdatedAt && allocationUpdatedAt > updatedAt)) {
+      updatedAt = allocationUpdatedAt || updatedAt;
     }
   }
 
@@ -3040,6 +3041,19 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     updatedAt,
     updatedBy: ''
   };
+}
+
+function deriveLegacyLifecycleStatus(allocations, filmOrders) {
+  const legacyStatus = buildAllocationJobSummary('', allocations || [], filmOrders || []).status;
+  if (legacyStatus === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+
+  if (legacyStatus === 'COMPLETED') {
+    return 'COMPLETED';
+  }
+
+  return 'ACTIVE';
 }
 
 function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
@@ -3164,6 +3178,11 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders, all
       ? 'CONFLICT'
       : baseStatus;
 
+  const lifecycleStatus =
+    jobHeader && jobHeader.id
+      ? normalizeJobLifecycleStatus(jobHeader.lifecycleStatus)
+      : deriveLegacyLifecycleStatus(allocations, filmOrders);
+
   return {
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || 'IL',
@@ -3171,7 +3190,7 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders, all
     dueDate,
     crewLeader,
     status,
-    lifecycleStatus: normalizeJobLifecycleStatus(jobHeader.lifecycleStatus),
+    lifecycleStatus,
     requiredFeet,
     allocatedFeet,
     remainingFeet,
@@ -4650,12 +4669,9 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       );
     }
 
-    const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
-      resolvedLastRollWeightLbs,
-      resolvedCoreWeightLbs,
-      resolvedLfWeightLbsPerFt,
-      initialFeet
-    );
+    const isFirstReceipt = !existingBox || !existingBox.receivedDate;
+    const weightChanged =
+      !existingBox || resolvedLastRollWeightLbs !== existingBox.lastRollWeightLbs;
     let activeAllocatedFeet = 0;
 
     if (existingBox) {
@@ -4667,10 +4683,22 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       }
     }
 
-    const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
-    if (feetAvailable !== recalculatedFeetAvailable) {
-      feetAvailable = recalculatedFeetAvailable;
-      warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');
+    if (isFirstReceipt) {
+      feetAvailable = Math.max(initialFeet - activeAllocatedFeet, 0);
+    } else if (weightChanged) {
+      const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
+        resolvedLastRollWeightLbs,
+        resolvedCoreWeightLbs,
+        resolvedLfWeightLbsPerFt,
+        initialFeet
+      );
+      const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
+      if (feetAvailable !== recalculatedFeetAvailable) {
+        feetAvailable = recalculatedFeetAvailable;
+        warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');
+      }
+    } else {
+      feetAvailable = Math.min(Math.max(existingBox ? existingBox.feetAvailable : feetAvailable, 0), initialFeet);
     }
   }
 
@@ -4962,6 +4990,48 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   derived.notes = asTrimmedString(payload.notes || derived.notes);
 
   return saveJobRecord(client, orgId, derived);
+}
+
+async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor, nowIso) {
+  const existing = await findJobByNumber(client, orgId, jobNumber);
+  if (existing) {
+    return {
+      header: existing,
+      allocations: null,
+      filmOrders: null
+    };
+  }
+
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const requirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  if (!allocations.length && !filmOrders.length && !requirements.length) {
+    return {
+      header: null,
+      allocations,
+      filmOrders
+    };
+  }
+
+  const derived = buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
+  const legacyStatus = deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
+  if (legacyStatus === 'CANCELLED') {
+    derived.lifecycleStatus = 'CANCELLED';
+  } else if (legacyStatus === 'COMPLETED') {
+    derived.lifecycleStatus = 'COMPLETED';
+  } else {
+    derived.lifecycleStatus = 'ACTIVE';
+  }
+  derived.createdAt = derived.createdAt || nowIso;
+  derived.createdBy = derived.createdBy || actor;
+  derived.updatedAt = nowIso;
+  derived.updatedBy = actor;
+
+  return {
+    header: await saveJobRecord(client, orgId, derived),
+    allocations,
+    filmOrders
+  };
 }
 
 function boxMatchesReportFilters(box, filters) {
@@ -5764,7 +5834,15 @@ async function updateJob(client, orgId, payload, actor) {
 async function completeJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const resolvedAt = new Date().toISOString();
+  const resolvedContext = await resolveExistingOrLegacyJobHeader(
+    client,
+    orgId,
+    jobNumber,
+    actor,
+    resolvedAt
+  );
+  const existingJob = resolvedContext.header;
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
@@ -5795,10 +5873,9 @@ async function completeJob(client, orgId, payload, actor) {
     );
   }
 
-  const resolvedAt = new Date().toISOString();
   const cancelNote =
     asTrimmedString(payload.reason) || `Cancelled because job ${jobNumber} was marked completed.`;
-  const activeAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const activeAllocations = resolvedContext.allocations || (await listAllocationsByJob(client, orgId, jobNumber));
   const releasedFeetByBox = {};
   let cancelledAllocationCount = 0;
 
@@ -5828,7 +5905,7 @@ async function completeJob(client, orgId, payload, actor) {
     await saveBoxRecord(client, orgId, box);
   }
 
-  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, jobNumber));
   let cancelledFilmOrderCount = 0;
   for (let index = 0; index < filmOrders.length; index += 1) {
     const filmOrder = cloneValue(filmOrders[index]);
@@ -5859,7 +5936,9 @@ async function completeJob(client, orgId, payload, actor) {
 async function reopenJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const nowIso = new Date().toISOString();
+  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor, nowIso);
+  const existingJob = resolvedContext.header;
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
@@ -5870,7 +5949,7 @@ async function reopenJob(client, orgId, payload, actor) {
   }
 
   existingJob.lifecycleStatus = 'ACTIVE';
-  existingJob.updatedAt = new Date().toISOString();
+  existingJob.updatedAt = nowIso;
   existingJob.updatedBy = actor;
   await saveJobRecord(client, orgId, existingJob);
   warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);

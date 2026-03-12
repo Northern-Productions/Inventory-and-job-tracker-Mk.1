@@ -15,7 +15,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },
   { kind: 'function', signature: 'public.api_get_user_feature_permissions(uuid, uuid)' },
-  { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' }
+  { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' }
 ];
 
 async function runSchemaCheck() {
@@ -49,7 +51,9 @@ async function runSchemaCheck() {
             ('function'::text, 'public.api_request_username_change(uuid, text, jsonb)'::text),
             ('function'::text, 'public.api_list_username_change_requests(uuid, text)'::text),
             ('function'::text, 'public.api_get_user_feature_permissions(uuid, uuid)'::text),
-            ('function'::text, 'public.api_update_user_feature_permissions(uuid, text, jsonb)'::text)
+            ('function'::text, 'public.api_update_user_feature_permissions(uuid, text, jsonb)'::text),
+            ('function'::text, 'public.api_acl_boxes_delete(uuid, text, jsonb)'::text),
+            ('function'::text, 'public.api_boxes_delete(uuid, text, jsonb)'::text)
         )
         select
           kind,
@@ -76,6 +80,7 @@ async function runSchemaCheck() {
       const details = missing.map((row) => `- ${row.kind}: ${row.signature}`).join('\n');
       throw new Error(
         '[schema-check] Missing required migration objects (0006/0007/0008/0009):\n' +
+          '(plus delete RPC compatibility for current API handlers)\n' +
           `${details}\n` +
           'Run backend/migrations/0006_access_control_and_approvals.sql, backend/migrations/0007_access_request_display_name.sql, backend/migrations/0008_username_change_requests.sql, and backend/migrations/0009_user_feature_overrides.sql against this database.'
       );
