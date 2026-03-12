@@ -1042,6 +1042,7 @@ th {
 @supports selector(body:has(.dialog-backdrop)) {
   body:has(.dialog-backdrop) .mobile-bottom-nav {
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
   }
 }
@@ -1541,17 +1542,17 @@ th {
     padding:
       calc(0.75rem + env(safe-area-inset-top))
       0.75rem
-      calc(var(--mobile-nav-offset) + 0.75rem);
+      calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 2000;
   }
 
   .dialog {
-    max-height: calc(100dvh - var(--mobile-nav-offset) - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
     overflow-y: auto;
   }
 
   .dialog-job-editor {
-    max-height: calc(100dvh - var(--mobile-nav-offset) - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
   }
 
   .dialog-job-editor .dialog-actions:last-child {
