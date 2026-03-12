@@ -1009,8 +1009,11 @@ th {
   background: rgba(8, 20, 24, 0.45);
   display: grid;
   place-items: center;
-  padding: 1rem;
-  z-index: 1000;
+  padding:
+    calc(1rem + env(safe-area-inset-top))
+    1rem
+    calc(1rem + env(safe-area-inset-bottom));
+  z-index: 1300;
 }
 
 .dialog {
@@ -1024,6 +1027,7 @@ th {
 .dialog-job-editor {
   width: min(100%, 760px);
   max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow-y: auto;
 }
 
@@ -1033,6 +1037,13 @@ th {
   background: #fff;
   padding-top: 0.75rem;
   margin-top: 0.5rem;
+}
+
+@supports selector(body:has(.dialog-backdrop)) {
+  body:has(.dialog-backdrop) .mobile-bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .mobile-bottom-nav {
@@ -1525,6 +1536,31 @@ th {
 }
 
 @media (max-width: 720px) {
+  .dialog-backdrop {
+    place-items: start center;
+    padding:
+      calc(0.75rem + env(safe-area-inset-top))
+      0.75rem
+      calc(var(--mobile-nav-offset) + 0.75rem);
+    z-index: 2000;
+  }
+
+  .dialog {
+    max-height: calc(100dvh - var(--mobile-nav-offset) - 1.5rem);
+    overflow-y: auto;
+  }
+
+  .dialog-job-editor {
+    max-height: calc(100dvh - var(--mobile-nav-offset) - 1.5rem);
+  }
+
+  .dialog-job-editor .dialog-actions:last-child {
+    position: static;
+    background: transparent;
+    padding-top: 0;
+    margin-top: 0.75rem;
+  }
+
   .app-shell {
     padding:
       calc(1rem + env(safe-area-inset-top))
