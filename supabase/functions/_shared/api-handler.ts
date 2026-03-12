@@ -2487,6 +2487,175 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
+async function recalculateFilmOrderAfterAllocationMutation(
+  client: any,
+  serviceClient: any,
+  orgId: string,
+  filmOrderId: string,
+  actor: string,
+) {
+  const existing = await findFilmOrderById(client, orgId, filmOrderId);
+  if (!existing) {
+    return;
+  }
+
+  const allocations = await listAllocationsByFilmOrderId(client, orgId, filmOrderId);
+  let coveredFeet = 0;
+  for (const allocation of allocations) {
+    if (allocation.status !== "CANCELLED") {
+      coveredFeet += integerOrZero(allocation.allocatedFeet);
+    }
+  }
+
+  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+  let orderedFeet = 0;
+  for (const link of links) {
+    const linkRecord = link as Record<string, unknown>;
+    const boxId = asTrimmedString(linkRecord.box_id);
+    if (!boxId) {
+      continue;
+    }
+
+    const box = await findBoxById(client, orgId, boxId);
+    if (!box) {
+      continue;
+    }
+    orderedFeet += integerOrZero(linkRecord.ordered_feet);
+  }
+
+  const requestedFeet = integerOrZero(existing.requestedFeet);
+  const remainingToOrderFeet = Math.max(requestedFeet - orderedFeet, 0);
+  let nextStatus = asTrimmedString(existing.status) || "FILM_ORDER";
+  let resolvedAt: string | null = existing.resolvedAt || null;
+  let resolvedBy: string | null = existing.resolvedBy || null;
+
+  if (nextStatus !== "CANCELLED") {
+    if (coveredFeet >= requestedFeet) {
+      nextStatus = "FULFILLED";
+      if (!resolvedAt) {
+        resolvedAt = new Date().toISOString();
+        resolvedBy = actor;
+      }
+    } else if (orderedFeet >= requestedFeet) {
+      nextStatus = "FILM_ON_THE_WAY";
+      resolvedAt = null;
+      resolvedBy = null;
+    } else {
+      nextStatus = "FILM_ORDER";
+      resolvedAt = null;
+      resolvedBy = null;
+    }
+  }
+
+  const { error: updateFilmOrderError } = await serviceClient
+    .schema("app")
+    .from("film_orders")
+    .update({
+      covered_feet: coveredFeet,
+      ordered_feet: orderedFeet,
+      remaining_to_order_feet: remainingToOrderFeet,
+      status: nextStatus,
+      resolved_at: resolvedAt,
+      resolved_by: resolvedBy,
+    })
+    .eq("org_id", orgId)
+    .eq("id", existing.id);
+  throwOnSupabaseError(updateFilmOrderError, `Unable to recalculate film order ${filmOrderId}`);
+}
+
+async function removeJobBoxAllocation(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const warnings: string[] = [];
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const allocationId = requireString(payload.allocationId, "AllocationID");
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const serviceClient = requireServiceRoleClientForJobs();
+
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
+    throw new HttpError(400, `Job ${jobNumber} is closed and allocation rows cannot be removed.`);
+  }
+
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const target = allocations.find((entry) => asTrimmedString(entry.allocationId) === allocationId);
+  if (!target) {
+    throw new HttpError(404, `Allocation ${allocationId} was not found for job ${jobNumber}.`);
+  }
+
+  if (target.status === "CANCELLED") {
+    warnings.push(`Allocation ${allocationId} was already cancelled for job ${jobNumber}.`);
+    return ok({
+      jobNumber,
+      allocationId: target.allocationId,
+      boxId: target.boxId,
+      removedAllocationCount: 0,
+      releasedFeet: 0,
+    }, warnings);
+  }
+
+  const box = await findBoxById(client, orgId, target.boxId);
+  if (
+    box &&
+    box.status === "CHECKED_OUT" &&
+    normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobNumber
+  ) {
+    throw new HttpError(
+      400,
+      `Box ${target.boxId} is checked out on job ${jobNumber} and cannot be removed until the box is checked in.`,
+    );
+  }
+
+  const note = asTrimmedString(payload.reason) ||
+    `Removed allocation ${target.allocationId} for box ${target.boxId} from job ${jobNumber} on allocation detail page.`;
+  const releasedFeet =
+    target.status === "ACTIVE" || target.status === "FULFILLED" ? integerOrZero(target.allocatedFeet) : 0;
+  const nowIso = new Date().toISOString();
+
+  const { error: updateAllocationError } = await serviceClient
+    .schema("app")
+    .from("allocations")
+    .update({
+      status: "CANCELLED",
+      resolved_at: nowIso,
+      resolved_by: actor,
+      notes: note,
+    })
+    .eq("org_id", orgId)
+    .eq("id", target.id);
+  throwOnSupabaseError(updateAllocationError, `Unable to remove allocation ${target.allocationId}`);
+
+  if (releasedFeet > 0 && box && box.status !== "ZEROED" && box.status !== "RETIRED") {
+    const nextFeetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + releasedFeet);
+    const { error: updateBoxError } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .update({
+        feet_available: nextFeetAvailable,
+      })
+      .eq("org_id", orgId)
+      .eq("id", box.id);
+    throwOnSupabaseError(updateBoxError, `Unable to update box ${target.boxId}`);
+  }
+
+  const filmOrderId = asTrimmedString(target.filmOrderId);
+  if (filmOrderId) {
+    await recalculateFilmOrderAfterAllocationMutation(client, serviceClient, orgId, filmOrderId, actor);
+  }
+
+  warnings.push(
+    `Removed allocation ${target.allocationId} for box ${target.boxId} on job ${jobNumber}. Released ${releasedFeet} LF back to box availability.`,
+  );
+
+  return ok({
+    jobNumber,
+    allocationId: target.allocationId,
+    boxId: target.boxId,
+    removedAllocationCount: 1,
+    releasedFeet,
+  }, warnings);
+}
+
 async function reopenJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   if (identity.role !== "owner") {
     throw new HttpError(403, "Owner access is required to reopen jobs.");
@@ -2764,6 +2933,8 @@ async function dispatchMutation(
         remainingUncoveredFeet: integerOrZero(result.remainingUncoveredFeet),
       }, result.warnings || []);
     }
+    case "/allocations/remove-box":
+      return removeJobBoxAllocation(client, identity, payload);
     case "/jobs/create": {
       const result = await callMutationRpc(client, "api_acl_jobs_create", orgId, actor, payload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
