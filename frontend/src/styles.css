@@ -344,6 +344,11 @@ textarea {
   gap: 0.35rem;
 }
 
+.jobs-search-field {
+  margin-top: 0.65rem;
+  max-width: 20rem;
+}
+
 .field-label {
   font-size: 0.9rem;
   color: #38545b;

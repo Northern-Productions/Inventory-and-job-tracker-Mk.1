@@ -12,6 +12,7 @@ import {
   getAllocationJobs,
   getJob,
   getJobs,
+  searchJobsByNumber,
   getAllocationsByBox,
   getFilmCatalog,
   getFilmOrders,
@@ -68,6 +69,7 @@ export const inventoryKeys = {
   allocationsRoot: ['inventory', 'allocations'] as const,
   allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
   jobs: ['inventory', 'jobs'] as const,
+  jobsSearch: ['inventory', 'jobs-search'] as const,
   jobRoot: ['inventory', 'job'] as const,
   job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
   allocationJobs: ['inventory', 'allocation-jobs'] as const,
@@ -298,6 +300,21 @@ export function useJobsList(limit = 25) {
   return useQuery({
     queryKey: [...inventoryKeys.jobs, { limit }],
     queryFn: () => getJobs(limit),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+}
+
+export function useJobsSearch(
+  query: string,
+  limit = 25,
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: [...inventoryKeys.jobsSearch, { query, limit }],
+    queryFn: () => searchJobsByNumber(query, limit),
+    enabled: (options.enabled ?? true) && Boolean(query.trim()),
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false

@@ -23,10 +23,31 @@ vi.mock('../lib/offlineInventory', () => ({
   searchOfflineBoxes: vi.fn()
 }));
 
-import { __resetJobsApiAvailabilityForTests, createJob, getJobs } from './client';
+import { __resetJobsApiAvailabilityForTests, createJob, getJobs, searchJobsByNumber } from './client';
 import { APIError, request } from './http';
 
 const requestMock = vi.mocked(request);
+
+function buildJobListEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    jobNumber: '000123',
+    warehouse: 'IL',
+    sections: null,
+    dueDate: '2026-03-05',
+    crewLeader: '',
+    status: 'ALLOCATE',
+    lifecycleStatus: 'ACTIVE',
+    requiredFeet: 0,
+    allocatedFeet: 0,
+    remainingFeet: 0,
+    requirementCount: 0,
+    allocationCount: 0,
+    filmOrderCount: 0,
+    updatedAt: '',
+    notes: '',
+    ...overrides
+  };
+}
 
 describe('jobs API client fallbacks', () => {
   beforeEach(() => {
@@ -91,6 +112,72 @@ describe('jobs API client fallbacks', () => {
 
     expect(requestMock).toHaveBeenCalledTimes(1);
     expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/jobs', { body: {} });
+  });
+
+  it('searches jobs through /jobs/search when available', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [buildJobListEntry({ jobNumber: '000123' }), buildJobListEntry({ jobNumber: '000120' })]
+      },
+      warnings: []
+    });
+
+    const entries = await searchJobsByNumber('00123', 25);
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123', '000120']);
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/search', {
+      body: { query: '00123', limit: 25 }
+    });
+  });
+
+  it('falls back to local ranking when /jobs/search is missing', async () => {
+    requestMock
+      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
+      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
+      .mockResolvedValueOnce({
+        data: {
+          entries: [
+            buildJobListEntry({ jobNumber: '000120', dueDate: '2026-03-01' }),
+            buildJobListEntry({ jobNumber: '000123', dueDate: '2026-03-02' }),
+            buildJobListEntry({ jobNumber: '000126', dueDate: '2026-03-03' }),
+            buildJobListEntry({ jobNumber: '000124', lifecycleStatus: 'COMPLETED' })
+          ]
+        },
+        warnings: []
+      });
+
+    const entries = await searchJobsByNumber('123', 25);
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123', '000126', '000120']);
+    expect(requestMock).toHaveBeenNthCalledWith(1, 'POST', '/jobs/search', {
+      body: { query: '123', limit: 25 }
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(2, 'GET', '/jobs/search', {
+      query: { query: '123', limit: 25 }
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(3, 'POST', '/jobs/list', {
+      body: { limit: 25 }
+    });
+  });
+
+  it('uses prefix-first ordering in /jobs/search fallback ranking', async () => {
+    requestMock
+      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
+      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
+      .mockResolvedValueOnce({
+        data: {
+          entries: [
+            buildJobListEntry({ jobNumber: '4217', dueDate: '2026-03-16' }),
+            buildJobListEntry({ jobNumber: '18542', dueDate: '2026-03-18' }),
+            buildJobListEntry({ jobNumber: '17045', dueDate: '2026-03-13' })
+          ]
+        },
+        warnings: []
+      });
+
+    const entries = await searchJobsByNumber('1854', 25);
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['18542', '4217', '17045']);
   });
 
   it('throws a deployment hint when /jobs/create is missing', async () => {

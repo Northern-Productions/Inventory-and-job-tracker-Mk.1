@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
@@ -14,7 +14,7 @@ import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
-import { useCreateJob, useFilmCatalog, useJobsList } from '../hooks/useInventoryQueries';
+import { useCreateJob, useFilmCatalog, useJobsList, useJobsSearch } from '../hooks/useInventoryQueries';
 
 function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
@@ -26,13 +26,26 @@ export default function AllocationsPage() {
   const toast = useToast();
   const auth = useAuth();
   const jobsQuery = useJobsList(25);
+  const [jobSearchInput, setJobSearchInput] = useState('');
+  const deferredJobSearchInput = useDeferredValue(jobSearchInput);
+  const isSearchingJobs = Boolean(deferredJobSearchInput.trim());
+  const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, 25, { enabled: isSearchingJobs });
   const createJobMutation = useCreateJob();
   const filmCatalogQuery = useFilmCatalog();
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
-  const jobs = useMemo(
+  const activeJobs = useMemo(
     () => (jobsQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE'),
     [jobsQuery.data]
   );
+  const jobs = useMemo(
+    () =>
+      isSearchingJobs
+        ? (jobsSearchQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE')
+        : activeJobs,
+    [activeJobs, isSearchingJobs, jobsSearchQuery.data]
+  );
+  const jobsLoading = isSearchingJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading;
+  const jobsError = isSearchingJobs ? jobsSearchQuery.error : jobsQuery.error;
 
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
@@ -89,6 +102,18 @@ export default function AllocationsPage() {
             <p className="muted-text">
               Showing active jobs only (up to 25), sorted by due date.
             </p>
+            <label className="field jobs-search-field">
+              <span className="field-label">Search Job ID Number</span>
+              <input
+                className="field-input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={jobSearchInput}
+                onChange={(event) => setJobSearchInput(event.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="Enter job number"
+              />
+            </label>
           </div>
           <Button
             type="button"
@@ -105,10 +130,18 @@ export default function AllocationsPage() {
           <h2>Recent Jobs</h2>
           <span className="muted-text">{jobs.length} job(s)</span>
         </div>
-        {jobsQuery.isLoading ? <LoadingState label="Loading jobs..." /> : null}
-        {jobsQuery.isError ? <p className="error-text">{jobsQuery.error.message}</p> : null}
-        {!jobsQuery.isLoading && !jobsQuery.isError && !jobs.length ? (
-          <div className="empty-state">No jobs found yet.</div>
+        {jobsLoading ? <LoadingState label={isSearchingJobs ? 'Searching jobs...' : 'Loading jobs...'} /> : null}
+        {jobsError ? (
+          <p className="error-text">
+            {jobsError instanceof Error ? jobsError.message : 'Jobs could not be loaded.'}
+          </p>
+        ) : null}
+        {!jobsLoading && !jobsError && !jobs.length ? (
+          <div className="empty-state">
+            {isSearchingJobs
+              ? `No active jobs match ${deferredJobSearchInput}.`
+              : 'No jobs found yet.'}
+          </div>
         ) : null}
         {jobs.length ? (
           isPhoneLayout ? (

@@ -25,6 +25,7 @@ const READ_PATHS = new Set([
   "/allocations/by-job",
   "/allocations/preview",
   "/jobs/list",
+  "/jobs/search",
   "/jobs/get",
   "/film-orders/list",
   "/film-data/catalog",
@@ -298,6 +299,29 @@ function compareJobsListEntries(left: any, right: any): number {
     return 1;
   }
   return left.jobNumber > right.jobNumber ? -1 : left.jobNumber < right.jobNumber ? 1 : 0;
+}
+
+function normalizeJobNumberDigits(value: unknown): string {
+  return asTrimmedString(value).replace(/[^0-9]/g, "");
+}
+
+function canonicalizeNumericDigits(digits: string): string {
+  const withoutLeadingZeros = digits.replace(/^0+/, "");
+  return withoutLeadingZeros || "0";
+}
+
+function compareBigInt(left: bigint, right: bigint): number {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
+function absoluteBigInt(value: bigint): bigint {
+  return value < 0n ? -value : value;
 }
 
 function normalizePath(value: string | null | undefined): string {
@@ -2069,6 +2093,73 @@ async function buildJobsList(client: any, orgId: string, limit: number) {
   return limit > 0 && response.length > limit ? response.slice(0, limit) : response;
 }
 
+async function buildJobsSearchResults(client: any, orgId: string, query: unknown, limit: number) {
+  const normalizedQueryDigits = normalizeJobNumberDigits(query);
+  if (!normalizedQueryDigits) {
+    return [];
+  }
+
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
+  const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
+  const queryValue = BigInt(queryCanonical);
+  const ranked: Array<{
+    entry: any;
+    isPrefixMatch: boolean;
+    isExactMatch: boolean;
+    distance: bigint;
+    lengthDelta: number;
+  }> = [];
+  const entries = await buildJobsList(client, orgId, 0);
+
+  for (const entry of entries) {
+    const lifecycle = asTrimmedString((entry as Record<string, unknown>).lifecycleStatus || "ACTIVE").toUpperCase();
+    if (lifecycle !== "ACTIVE") {
+      continue;
+    }
+
+    const jobDigits = normalizeJobNumberDigits((entry as Record<string, unknown>).jobNumber);
+    if (!jobDigits) {
+      continue;
+    }
+
+    const jobCanonical = canonicalizeNumericDigits(jobDigits);
+    const jobValue = BigInt(jobCanonical);
+    const isPrefixMatch = jobCanonical.startsWith(queryCanonical);
+    ranked.push({
+      entry,
+      isPrefixMatch,
+      isExactMatch: jobCanonical === queryCanonical,
+      distance: absoluteBigInt(jobValue - queryValue),
+      lengthDelta: Math.abs(jobCanonical.length - queryCanonical.length),
+    });
+  }
+
+  ranked.sort((left, right) => {
+    if (left.isPrefixMatch !== right.isPrefixMatch) {
+      return left.isPrefixMatch ? -1 : 1;
+    }
+
+    if (left.isPrefixMatch && right.isPrefixMatch) {
+      if (left.isExactMatch !== right.isExactMatch) {
+        return left.isExactMatch ? -1 : 1;
+      }
+
+      if (left.lengthDelta !== right.lengthDelta) {
+        return left.lengthDelta - right.lengthDelta;
+      }
+    }
+
+    const distanceOrder = compareBigInt(left.distance, right.distance);
+    if (distanceOrder !== 0) {
+      return distanceOrder;
+    }
+
+    return compareJobsListEntries(left.entry, right.entry);
+  });
+
+  return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
+}
+
 async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
   let header = await findJobByNumber(client, orgId, normalizedJobNumber);
@@ -2798,6 +2889,11 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
       const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
       return ok({ entries: await buildJobsList(client, orgId, limit) });
     }
+    case "/jobs/search": {
+      const limitValue = Number(params.limit);
+      const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
+      return ok({ entries: await buildJobsSearchResults(client, orgId, params.query, limit) });
+    }
     case "/jobs/get":
       return ok(await buildJobDetail(client, orgId, params.jobNumber));
     case "/film-orders/list":
@@ -3114,3 +3210,4 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     });
   }
 }
+

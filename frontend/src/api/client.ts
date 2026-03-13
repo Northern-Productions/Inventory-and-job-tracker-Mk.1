@@ -61,14 +61,18 @@ import {
   searchOfflineBoxes,
   type OfflineInventorySyncMeta
 } from '../lib/offlineInventory';
+import { rankActiveJobsByNumericCloseness } from '../lib/jobNumberSearch';
 import { APIError, request } from './http';
 
 type JobsApiAvailability = 'unknown' | 'available' | 'missing';
 let jobsApiAvailability: JobsApiAvailability = 'unknown';
+type JobsSearchApiAvailability = 'unknown' | 'available' | 'missing';
+let jobsSearchApiAvailability: JobsSearchApiAvailability = 'unknown';
 let cachedAccessContext: EffectiveAccessContext | null = null;
 
 export function __resetJobsApiAvailabilityForTests() {
   jobsApiAvailability = 'unknown';
+  jobsSearchApiAvailability = 'unknown';
   cachedAccessContext = null;
 }
 
@@ -683,6 +687,34 @@ export async function getJobs(limit = 25): Promise<JobListEntry[]> {
     );
 
     return legacyData.entries.slice(0, limit).map((entry) => mapLegacyAllocationSummaryToJobListEntry(entry));
+  }
+}
+
+export async function searchJobsByNumber(query: string, limit = 25): Promise<JobListEntry[]> {
+  assertFeatureAccess('jobs', 'read');
+  const normalizedQuery = String(query || '').replace(/[^0-9]/g, '');
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
+  const params = { query: normalizedQuery, limit: normalizedLimit };
+
+  if (jobsSearchApiAvailability === 'missing') {
+    return rankActiveJobsByNumericCloseness(await getJobs(normalizedLimit), normalizedQuery, normalizedLimit);
+  }
+
+  try {
+    const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
+    jobsSearchApiAvailability = 'available';
+    return data.entries;
+  } catch (error) {
+    if (!isRouteNotFoundError(error, '/jobs/search')) {
+      throw error;
+    }
+
+    jobsSearchApiAvailability = 'missing';
+    return rankActiveJobsByNumericCloseness(await getJobs(normalizedLimit), normalizedQuery, normalizedLimit);
   }
 }
 

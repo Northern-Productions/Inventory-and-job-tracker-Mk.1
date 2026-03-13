@@ -747,6 +747,31 @@ function compareJobsListEntries(left, right) {
   return left.jobNumber > right.jobNumber ? -1 : left.jobNumber < right.jobNumber ? 1 : 0;
 }
 
+function extractJobNumberDigitsForSearch(value) {
+  return asTrimmedString(value).replace(/[^0-9]/g, '');
+}
+
+function canonicalizeNumericDigits(digits) {
+  const withoutLeadingZeros = digits.replace(/^0+/, '');
+  return withoutLeadingZeros || '0';
+}
+
+function compareBigInt(left, right) {
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function absoluteBigInt(value) {
+  return value < 0n ? -value : value;
+}
+
 function mapDbBoxRow(row) {
   if (!row) {
     return null;
@@ -1335,6 +1360,7 @@ function inferFeatureForRoute(logicalPath) {
     case '/allocations/remove-box':
       return 'allocations';
     case '/jobs/list':
+    case '/jobs/search':
     case '/jobs/get':
     case '/jobs/create':
     case '/jobs/update':
@@ -1373,6 +1399,7 @@ function inferAccessModeForRoute(method, logicalPath) {
   const isReadRoute =
     method === 'GET' ||
     logicalPath === '/allocations/preview' ||
+    logicalPath === '/jobs/search' ||
     logicalPath === '/admin/access/requests' ||
     logicalPath === '/admin/username-requests' ||
     logicalPath === '/admin/member-permissions' ||
@@ -4952,6 +4979,68 @@ async function buildJobsList(client, orgId, limit) {
   return response;
 }
 
+async function buildJobsSearchResults(client, orgId, query, limit) {
+  const normalizedQueryDigits = extractJobNumberDigitsForSearch(query);
+  if (!normalizedQueryDigits) {
+    return [];
+  }
+
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
+  const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
+  const queryValue = BigInt(queryCanonical);
+  const ranked = [];
+  const entries = await buildJobsList(client, orgId, 0);
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const lifecycle = asTrimmedString(entry.lifecycleStatus || 'ACTIVE').toUpperCase();
+    if (lifecycle !== 'ACTIVE') {
+      continue;
+    }
+
+    const jobDigits = extractJobNumberDigitsForSearch(entry.jobNumber);
+    if (!jobDigits) {
+      continue;
+    }
+
+    const jobCanonical = canonicalizeNumericDigits(jobDigits);
+    const jobValue = BigInt(jobCanonical);
+    const isPrefixMatch = jobCanonical.startsWith(queryCanonical);
+    ranked.push({
+      entry,
+      isPrefixMatch,
+      isExactMatch: jobCanonical === queryCanonical,
+      distance: absoluteBigInt(jobValue - queryValue),
+      lengthDelta: Math.abs(jobCanonical.length - queryCanonical.length)
+    });
+  }
+
+  ranked.sort((left, right) => {
+    if (left.isPrefixMatch !== right.isPrefixMatch) {
+      return left.isPrefixMatch ? -1 : 1;
+    }
+
+    if (left.isPrefixMatch && right.isPrefixMatch) {
+      if (left.isExactMatch !== right.isExactMatch) {
+        return left.isExactMatch ? -1 : 1;
+      }
+
+      if (left.lengthDelta !== right.lengthDelta) {
+        return left.lengthDelta - right.lengthDelta;
+      }
+    }
+
+    const distanceOrder = compareBigInt(left.distance, right.distance);
+    if (distanceOrder !== 0) {
+      return distanceOrder;
+    }
+
+    return compareJobsListEntries(left.entry, right.entry);
+  });
+
+  return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
+}
+
 async function buildJobDetail(client, orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   let header = await findJobByNumber(client, orgId, normalizedJobNumber);
@@ -7432,6 +7521,7 @@ const READ_PATHS = new Set([
   '/allocations/by-job',
   '/allocations/preview',
   '/jobs/list',
+  '/jobs/search',
   '/jobs/get',
   '/film-orders/list',
   '/film-data/catalog',
@@ -7535,6 +7625,13 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
             const limitValue = Number(params && params.limit);
             const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
             return ok({ entries: await buildJobsList(client, authContext.orgId, limit) });
+          }
+          case '/jobs/search': {
+            const limitValue = Number(params && params.limit);
+            const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
+            return ok({
+              entries: await buildJobsSearchResults(client, authContext.orgId, params && params.query, limit)
+            });
           }
           case '/jobs/get':
             return ok(await buildJobDetail(client, authContext.orgId, params.jobNumber));
@@ -7721,3 +7818,4 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
     };
   }
 }
+
