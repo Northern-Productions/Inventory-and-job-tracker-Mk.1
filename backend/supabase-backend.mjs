@@ -14,7 +14,8 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
   White: 2,
   Red: 1.85,
   Cardboard: 2.05,
-  'Thick Cardboard': 6.15
+  'Thick Cardboard': 6.15,
+  'SECURITY 1/4" Cardboard': 11.6
 };
 
 const BOX_STATUSES = new Set(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
@@ -296,7 +297,19 @@ function normalizeCoreType(value, allowBlank) {
     return 'Thick Cardboard';
   }
 
-  throw new HttpError(400, 'CoreType must be White, Red, Cardboard, or Thick Cardboard.');
+  if (
+    normalized === 'security 1/4" cardboard' ||
+    normalized === 'security 1/4 cardboard' ||
+    normalized === 'security 1-4" cardboard' ||
+    normalized === 'security 1-4 cardboard'
+  ) {
+    return 'SECURITY 1/4" Cardboard';
+  }
+
+  throw new HttpError(
+    400,
+    'CoreType must be White, Red, Cardboard, Thick Cardboard, or SECURITY 1/4" Cardboard.'
+  );
 }
 
 function deriveCoreWeightLbs(coreType, widthIn) {

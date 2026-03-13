@@ -222,6 +222,12 @@ describe('boxHelpers', () => {
     expect(thickCardboardWeight).toBe(6.15);
   });
 
+  it('derives SECURITY 1/4" Cardboard at the 72-inch reference width', () => {
+    const securityCoreWeight = deriveCoreWeightLbs('SECURITY 1/4" Cardboard', 72);
+
+    expect(securityCoreWeight).toBe(11.6);
+  });
+
   it('derives remaining feet from the last roll weight', () => {
     expect(deriveRemainingFeetFromWeight(16.2333, 1.2333, 0.25)).toBeCloseTo(60, 1);
   });
