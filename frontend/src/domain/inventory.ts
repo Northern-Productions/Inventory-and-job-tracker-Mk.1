@@ -2,7 +2,7 @@ export type Warehouse = 'IL' | 'MS';
 
 export const BOX_STATUSES = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED'] as const;
 export type BoxStatus = (typeof BOX_STATUSES)[number];
-export const CORE_TYPES = ['White', 'Red', 'Cardboard'] as const;
+export const CORE_TYPES = ['White', 'Red', 'Cardboard', 'Thick Cardboard'] as const;
 export type CoreType = (typeof CORE_TYPES)[number];
 export type BoxCoreType = CoreType | '';
 export const ALLOCATION_STATUSES = ['ACTIVE', 'FULFILLED', 'CANCELLED'] as const;

@@ -13,7 +13,8 @@ const CORE_WEIGHT_REFERENCE_WIDTH_IN = 72;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
   White: 2,
   Red: 1.85,
-  Cardboard: 2.05
+  Cardboard: 2.05,
+  'Thick Cardboard': 6.15
 };
 
 const BOX_STATUSES = new Set(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
@@ -291,7 +292,11 @@ function normalizeCoreType(value, allowBlank) {
     return 'Cardboard';
   }
 
-  throw new HttpError(400, 'CoreType must be White, Red, or Cardboard.');
+  if (normalized === 'thick cardboard') {
+    return 'Thick Cardboard';
+  }
+
+  throw new HttpError(400, 'CoreType must be White, Red, Cardboard, or Thick Cardboard.');
 }
 
 function deriveCoreWeightLbs(coreType, widthIn) {

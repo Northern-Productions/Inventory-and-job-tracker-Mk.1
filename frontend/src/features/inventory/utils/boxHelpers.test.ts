@@ -214,6 +214,14 @@ describe('boxHelpers', () => {
     expect(sqFtWeight).toBeCloseTo(0.0625, 4);
   });
 
+  it('derives thick cardboard as 3x cardboard at the same width', () => {
+    const cardboardWeight = deriveCoreWeightLbs('Cardboard', 72);
+    const thickCardboardWeight = deriveCoreWeightLbs('Thick Cardboard', 72);
+
+    expect(thickCardboardWeight).toBeCloseTo(cardboardWeight * 3, 4);
+    expect(thickCardboardWeight).toBe(6.15);
+  });
+
   it('derives remaining feet from the last roll weight', () => {
     expect(deriveRemainingFeetFromWeight(16.2333, 1.2333, 0.25)).toBeCloseTo(60, 1);
   });

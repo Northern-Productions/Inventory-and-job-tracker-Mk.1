@@ -10,7 +10,7 @@ import { toDateInputValue, todayDateString } from '../../../lib/date';
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
 export const MANUFACTURER_OPTIONS = ['3M', '3M Fasara', 'Llumar', 'Solar Gard', 'SOLYX', 'Avery'] as const;
-export const CORE_TYPE_OPTIONS = ['White', 'Red', 'Cardboard'] as const;
+export const CORE_TYPE_OPTIONS = ['White', 'Red', 'Cardboard', 'Thick Cardboard'] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
 const CUSTOM_MANUFACTURERS_STORAGE_KEY = 'inventory.customManufacturers.v1';
@@ -18,7 +18,8 @@ let customManufacturerCache: string[] | null = null;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   White: 2,
   Red: 1.85,
-  Cardboard: 2.05
+  Cardboard: 2.05,
+  'Thick Cardboard': 6.15
 };
 
 export interface BoxDraft {
