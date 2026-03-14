@@ -10,8 +10,10 @@ import {
   hasManufacturerOption,
   type BoxDraft
 } from '../utils/boxHelpers';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
+import { getWarehousePrefix } from '../utils/warehouseOptions';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
-import { WarehouseToggle } from './WarehouseToggle';
+import { WarehouseSelectField } from './WarehouseSelectField';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 const DELETE_DIALOG_FADE_MS = 180;
@@ -26,7 +28,7 @@ interface BoxFormProps {
   submitting?: boolean;
   deleting?: boolean;
   createWarehouse?: Warehouse;
-  nextBoxIdByWarehouse?: Record<Warehouse, string>;
+  nextBoxIdForCreateWarehouse?: string;
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
   filmCatalogError?: unknown;
@@ -45,7 +47,7 @@ export function BoxForm({
   submitting = false,
   deleting = false,
   createWarehouse,
-  nextBoxIdByWarehouse,
+  nextBoxIdForCreateWarehouse,
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
@@ -65,6 +67,8 @@ export function BoxForm({
   const lastSuggestedBoxIdRef = useRef(initialDraft.boxId);
   const lastCreateWarehouseRef = useRef<Warehouse | null>(createWarehouse ?? null);
   const deleteDialogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warehouseRegistry = useWarehouseRegistry();
+  const createWarehousePrefix = getWarehousePrefix(warehouseRegistry.entries, createWarehouse || '');
 
   function clearDeleteDialogTimer() {
     if (deleteDialogTimeoutRef.current !== null) {
@@ -119,11 +123,11 @@ export function BoxForm({
   }, [initialDraft, resetKey]);
 
   useEffect(() => {
-    if (mode !== 'create' || !createWarehouse || !nextBoxIdByWarehouse) {
+    if (mode !== 'create' || !createWarehouse || !nextBoxIdForCreateWarehouse) {
       return;
     }
 
-    const suggestedBoxId = nextBoxIdByWarehouse[createWarehouse] || '';
+    const suggestedBoxId = nextBoxIdForCreateWarehouse;
     if (!suggestedBoxId) {
       return;
     }
@@ -145,7 +149,7 @@ export function BoxForm({
         boxId: suggestedBoxId
       };
     });
-  }, [createWarehouse, mode, nextBoxIdByWarehouse]);
+  }, [createWarehouse, mode, nextBoxIdForCreateWarehouse]);
 
   useEffect(
     () => () => {
@@ -218,10 +222,11 @@ export function BoxForm({
   };
 
   const handleBoxIdChange = (value: string) => {
-    if (mode === 'create' && createWarehouse === 'MS') {
+    if (mode === 'create' && createWarehousePrefix) {
       const normalized = value.toUpperCase();
-      const withoutPrefix = normalized.replace(/^M+/, '');
-      updateField('boxId', `M${withoutPrefix}`);
+      const escapedPrefix = createWarehousePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const withoutPrefix = normalized.replace(new RegExp(`^(?:${escapedPrefix})+`), '');
+      updateField('boxId', `${createWarehousePrefix}${withoutPrefix}`);
       return;
     }
 
@@ -243,7 +248,11 @@ export function BoxForm({
         <div className="panel-title-row">
           <h2>{mode === 'create' ? 'Add Box' : 'Edit Box'}</h2>
           {mode === 'create' && createWarehouse && onCreateWarehouseChange ? (
-            <WarehouseToggle value={createWarehouse} onChange={onCreateWarehouseChange} />
+            <WarehouseSelectField
+              label="Warehouse"
+              value={createWarehouse}
+              onChange={(warehouse) => onCreateWarehouseChange(warehouse as Warehouse)}
+            />
           ) : null}
           {mode === 'edit' && onCancel ? (
             <Button type="button" variant="ghost" onClick={onCancel}>

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
-import type { Warehouse } from '../../../domain';
+import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm } from '../components/BoxForm';
 import { useAddBox, useFilmCatalog, useSearchBoxes, useUndoAudit } from '../hooks/useInventoryQueries';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
 import {
@@ -14,6 +15,7 @@ import {
   getNextBoxIdForWarehouse,
   type BoxDraft
 } from '../utils/boxHelpers';
+import { getWarehousePrefix } from '../utils/warehouseOptions';
 
 interface FilmOrderPrefill {
   filmOrderId: string;
@@ -41,8 +43,7 @@ export default function AddBoxPage() {
   const addBoxMutation = useAddBox();
   const undoMutation = useUndoAudit();
   const filmCatalogQuery = useFilmCatalog();
-  const ilBoxesQuery = useSearchBoxes({ warehouse: 'IL', showRetired: true });
-  const msBoxesQuery = useSearchBoxes({ warehouse: 'MS', showRetired: true });
+  const warehouseRegistry = useWarehouseRegistry();
   const prefillToken = searchParams.toString();
   const retryState = useMemo(() => readRetryState(location.state), [location.state]);
   const filmOrderPrefill = useMemo(
@@ -52,6 +53,7 @@ export default function AddBoxPage() {
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse
   );
+  const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: true });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
 
   useEffect(() => {
@@ -63,12 +65,13 @@ export default function AddBoxPage() {
     setWarehouse(filmOrderPrefill.warehouse);
   }, [filmOrderPrefill.warehouse, retryState?.retryWarehouse]);
 
-  const nextBoxIdByWarehouse = useMemo(
-    () => ({
-      IL: getNextBoxIdForWarehouse(ilBoxesQuery.data ?? [], 'IL'),
-      MS: getNextBoxIdForWarehouse(msBoxesQuery.data ?? [], 'MS')
-    }),
-    [ilBoxesQuery.data, msBoxesQuery.data]
+  const warehousePrefix = useMemo(
+    () => getWarehousePrefix(warehouseRegistry.entries, warehouse),
+    [warehouse, warehouseRegistry.entries]
+  );
+  const nextBoxIdForCreateWarehouse = useMemo(
+    () => getNextBoxIdForWarehouse(warehouseBoxesQuery.data ?? [], warehouse, warehousePrefix),
+    [warehouse, warehouseBoxesQuery.data, warehousePrefix]
   );
   const initialDraft = useMemo(() => {
     if (retryState?.retryDraft) {
@@ -126,34 +129,41 @@ export default function AddBoxPage() {
 
     try {
       const normalizedBoxId = draft.boxId.trim().toUpperCase();
-      if (warehouse === 'MS' && normalizedBoxId === 'M') {
+      if (warehousePrefix && normalizedBoxId === warehousePrefix) {
         toast.push({
-          title: 'Mississippi box ID is incomplete',
-          description: 'Enter the number or suffix after the M prefix.',
+          title: `${warehouse} box ID is incomplete`,
+          description: `Enter the number or suffix after the ${warehousePrefix} prefix.`,
           variant: 'error'
         });
         return;
       }
 
-      if (warehouse === 'MS' && !normalizedBoxId.startsWith('M')) {
+      if (warehousePrefix && !normalizedBoxId.startsWith(warehousePrefix)) {
         toast.push({
-          title: 'Mississippi box IDs must start with M',
-          description: 'Use an M-prefixed BoxID for the Mississippi warehouse.',
+          title: `${warehouse} box IDs must start with ${warehousePrefix}`,
+          description: `Use a ${warehousePrefix}-prefixed BoxID for the ${warehouse} warehouse.`,
           variant: 'error'
         });
         return;
       }
 
-      if (warehouse === 'IL' && normalizedBoxId.startsWith('M')) {
+      const conflictingWarehouse = warehouseRegistry.entries.find(
+        (entry) =>
+          entry.code !== warehouse &&
+          entry.boxIdPrefix &&
+          normalizedBoxId.startsWith(entry.boxIdPrefix)
+      );
+      if (!warehousePrefix && conflictingWarehouse) {
         toast.push({
-          title: 'Illinois box IDs cannot start with M',
-          description: 'Switch the warehouse toggle to Mississippi or use a non-M BoxID.',
+          title: `${warehouse} box IDs cannot use ${conflictingWarehouse.boxIdPrefix}`,
+          description: `Switch the warehouse dropdown to ${conflictingWarehouse.name} or use a different BoxID.`,
           variant: 'error'
         });
         return;
       }
 
       const payload = parseAddBoxDraft(draft);
+      payload.warehouse = warehouse;
       if (filmOrderPrefill.filmOrderId) {
         payload.filmOrderId = filmOrderPrefill.filmOrderId;
       }
@@ -273,7 +283,7 @@ export default function AddBoxPage() {
         submitting={addBoxMutation.isPending}
         disabled={!canWriteInventory}
         createWarehouse={warehouse}
-        nextBoxIdByWarehouse={nextBoxIdByWarehouse}
+        nextBoxIdForCreateWarehouse={nextBoxIdForCreateWarehouse}
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
         filmCatalogError={filmCatalogQuery.error}
@@ -292,7 +302,7 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
   return {
     filmOrderId: (searchParams.get('filmOrderId') || '').trim(),
     jobNumber: (searchParams.get('jobNumber') || '').trim(),
-    warehouse: warehouse === 'MS' ? 'MS' : 'IL',
+    warehouse: parseWarehouse(warehouse),
     manufacturer: (searchParams.get('manufacturer') || '').trim(),
     filmName: (searchParams.get('filmName') || '').trim(),
     widthIn: width && Number.isFinite(Number(width)) && Number(width) > 0 ? width : '',
@@ -312,7 +322,10 @@ function readRetryState(state: unknown): AddBoxRetryState | null {
     return null;
   }
 
-  if (candidate.retryWarehouse !== 'IL' && candidate.retryWarehouse !== 'MS') {
+  const retryWarehouse = typeof candidate.retryWarehouse === 'string'
+    ? candidate.retryWarehouse.toUpperCase()
+    : '';
+  if (!isWarehouse(retryWarehouse)) {
     return null;
   }
 
@@ -322,7 +335,7 @@ function readRetryState(state: unknown): AddBoxRetryState | null {
 
   return {
     retryDraft: candidate.retryDraft as BoxDraft,
-    retryWarehouse: candidate.retryWarehouse,
+    retryWarehouse,
     retryNonce: Number(candidate.retryNonce)
   };
 }

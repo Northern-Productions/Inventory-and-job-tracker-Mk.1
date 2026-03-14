@@ -1,20 +1,24 @@
-import { useDeferredValue } from 'react';
+import { useDeferredValue, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
-import type { Warehouse } from '../../../domain';
+import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { useAuth } from '../../auth/AuthContext';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { InventoryTable } from '../components/InventoryTable';
-import { WarehouseToggle } from '../components/WarehouseToggle';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
+import { getManufacturerOptions } from '../utils/boxHelpers';
+import {
+  parseWarehouseFilterValue,
+  toWarehouseFilterOptionValue
+} from '../utils/warehouseOptions';
 
 function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
-  const warehouse = (searchParams.get('warehouse') || 'IL') as Warehouse;
-
   return {
-    warehouse: warehouse === 'MS' ? 'MS' : 'IL',
+    warehouse: parseWarehouseFilterValue(searchParams.get('warehouse')),
+    manufacturer: normalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
     film: '',
@@ -30,16 +34,71 @@ export default function InventoryHomePage() {
   const filters = readFilters(searchParams);
   const deferredFilters = useDeferredValue(filters);
   const boxesQuery = useOfflineInventorySearch(deferredFilters);
+  const manufacturerSourceQuery = useQuery({
+    queryKey: ['inventory', 'offline', 'manufacturer-options', filters.warehouse || 'ALL'],
+    queryFn: () =>
+      searchOfflineBoxes({
+        warehouse: filters.warehouse,
+        manufacturer: '',
+        q: '',
+        status: '',
+        film: '',
+        width: '',
+        showRetired: true
+      })
+  });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
+  const manufacturerOptions = useMemo(() => {
+    const optionsByKey = new Map<string, string>();
+    const knownManufacturerOptions = getManufacturerOptions();
+    const addOption = (value: string) => {
+      const label = normalizeManufacturerLabel(value);
+      if (!label) {
+        return;
+      }
+
+      const key = normalizeManufacturerKey(label);
+      if (!optionsByKey.has(key)) {
+        optionsByKey.set(key, label);
+      }
+    };
+
+    for (let index = 0; index < knownManufacturerOptions.length; index += 1) {
+      addOption(knownManufacturerOptions[index]);
+    }
+
+    for (let index = 0; index < (manufacturerSourceQuery.data || []).length; index += 1) {
+      addOption(manufacturerSourceQuery.data?.[index].manufacturer || '');
+    }
+
+    addOption(filters.manufacturer);
+
+    return Array.from(optionsByKey.values()).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: 'base' })
+    );
+  }, [filters.manufacturer, manufacturerSourceQuery.data]);
+
+  useEffect(() => {
+    if (searchParams.get('warehouse')) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('warehouse', toWarehouseFilterOptionValue(filters.warehouse));
+    setSearchParams(nextParams, { replace: true });
+  }, [filters.warehouse, searchParams, setSearchParams]);
 
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
     const merged = { ...filters, ...next, film: '' };
     const nextParams = new URLSearchParams();
 
-    nextParams.set('warehouse', merged.warehouse);
+    nextParams.set('warehouse', toWarehouseFilterOptionValue(merged.warehouse));
 
     if (merged.q) {
       nextParams.set('q', merged.q);
+    }
+    if (merged.manufacturer) {
+      nextParams.set('manufacturer', merged.manufacturer);
     }
     if (merged.status) {
       nextParams.set('status', merged.status);
@@ -57,7 +116,7 @@ export default function InventoryHomePage() {
           <div>
             <h2>Inventory</h2>
             <p className="muted-text">
-              Search and manage boxes in Illinois and Mississippi separately.
+              Search and manage boxes across every warehouse.
             </p>
           </div>
           <div className="page-actions">
@@ -87,10 +146,6 @@ export default function InventoryHomePage() {
           </div>
         </div>
         <div className="toolbar-row">
-          <WarehouseToggle
-            value={filters.warehouse}
-            onChange={(warehouse) => patchFilters({ warehouse })}
-          />
           <span className="muted-text">
             {boxesQuery.isLoading && !boxesQuery.hasSnapshot
               ? 'Loading...'
@@ -110,7 +165,11 @@ export default function InventoryHomePage() {
             <span className="error-text">The latest sync failed. Using the last saved copy.</span>
           ) : null}
         </div>
-        <InventoryFilters values={filters} onChange={patchFilters} />
+        <InventoryFilters
+          values={filters}
+          manufacturerOptions={manufacturerOptions}
+          onChange={patchFilters}
+        />
       </section>
 
       <section className="panel">
@@ -173,4 +232,12 @@ function formatSyncTimestamp(value: string): string {
   }
 
   return parsed.toLocaleString();
+}
+
+function normalizeManufacturerLabel(value: string): string {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeManufacturerKey(value: string): string {
+  return normalizeManufacturerLabel(value).toLowerCase();
 }

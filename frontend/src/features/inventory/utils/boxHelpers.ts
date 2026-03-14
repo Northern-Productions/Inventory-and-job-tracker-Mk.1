@@ -373,12 +373,20 @@ export function getWidthMode(widthIn: string): string {
     : 'CUSTOM';
 }
 
-export function getNextBoxIdForWarehouse(boxes: Box[], warehouse: Warehouse): string {
+export function getNextBoxIdForWarehouse(
+  boxes: Box[],
+  warehouse: Warehouse,
+  warehousePrefix = warehouse === 'MS' ? 'M' : ''
+): string {
   let bestValue = 0;
   let bestWidth = 0;
-  let bestPrefix = warehouse === 'MS' ? 'M' : '';
+  let bestPrefix = warehousePrefix;
 
   for (const box of boxes) {
+    if (warehousePrefix && !box.boxId.toUpperCase().startsWith(warehousePrefix)) {
+      continue;
+    }
+
     const match = box.boxId.match(/^(.*?)(\d+)$/);
     if (!match) {
       continue;
@@ -398,7 +406,7 @@ export function getNextBoxIdForWarehouse(boxes: Box[], warehouse: Warehouse): st
 
   const nextValue = bestValue + 1;
   const nextDigits = String(nextValue).padStart(Math.max(bestWidth, String(nextValue).length), '0');
-  const nextPrefix = bestValue > 0 ? bestPrefix : warehouse === 'MS' ? 'M' : '';
+  const nextPrefix = bestValue > 0 ? bestPrefix : warehousePrefix;
 
   return `${nextPrefix}${nextDigits}`;
 }

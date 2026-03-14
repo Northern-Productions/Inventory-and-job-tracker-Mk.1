@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
+import { searchBoxes } from '../../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
-  useCreateFilmOrder,
-  useSearchBoxesWithOptions
+  useCreateFilmOrder
 } from '../hooks/useInventoryQueries';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
 import {
   autoSelectCandidateBoxIds,
@@ -95,31 +97,36 @@ export function JobAllocateDialog({
     () => requirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
     [requirements, selectedRequirementId]
   );
+  const warehouseRegistry = useWarehouseRegistry();
+  const searchableWarehouses = useMemo(
+    () => warehouseRegistry.entries.map((entry) => entry.code),
+    [warehouseRegistry.entries]
+  );
   const searchableFilmName = selectedRequirement ? selectedRequirement.filmName.trim() : '';
   const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
-  const ilBoxesQuery = useSearchBoxesWithOptions(
-    {
-      warehouse: 'IL',
-      film: searchableFilmName,
-      showRetired: false
-    },
-    { enabled: shouldSearchMatchingBoxes }
-  );
-  const msBoxesQuery = useSearchBoxesWithOptions(
-    {
-      warehouse: 'MS',
-      film: searchableFilmName,
-      showRetired: false
-    },
-    { enabled: shouldSearchMatchingBoxes }
+  const matchingBoxesQueries = useQueries({
+    queries: searchableWarehouses.map((warehouseCode) => ({
+      queryKey: ['inventory', 'search', warehouseCode, searchableFilmName, 'active'] as const,
+      queryFn: () =>
+        searchBoxes({
+          warehouse: warehouseCode,
+          film: searchableFilmName,
+          showRetired: false
+        }),
+      enabled: shouldSearchMatchingBoxes
+    }))
+  });
+  const searchableBoxes = useMemo(
+    () => matchingBoxesQueries.flatMap((query) => query.data || []),
+    [matchingBoxesQueries]
   );
   const matchingBoxes = useMemo(() => {
     if (!selectedRequirement) {
       return [];
     }
 
-    return findMatchingBoxesForRequirement((ilBoxesQuery.data || []).concat(msBoxesQuery.data || []), selectedRequirement);
-  }, [ilBoxesQuery.data, msBoxesQuery.data, selectedRequirement]);
+    return findMatchingBoxesForRequirement(searchableBoxes, selectedRequirement);
+  }, [searchableBoxes, selectedRequirement]);
   const preferredLinkedBoxIds = useMemo(
     () => collectPreferredLinkedBoxIds(selectedRequirement, filmOrders),
     [filmOrders, selectedRequirement]
@@ -136,7 +143,9 @@ export function JobAllocateDialog({
 
     return Math.floor(parsed);
   }, [requestedFeet]);
-  const isMatchingBoxesLoading = ilBoxesQuery.isLoading || msBoxesQuery.isLoading;
+  const isMatchingBoxesLoading = matchingBoxesQueries.some(
+    (query) => query.isLoading || query.isFetching
+  );
   const isOrderFilmMode =
     !isMatchingBoxesLoading &&
     Boolean(selectedRequirement) &&

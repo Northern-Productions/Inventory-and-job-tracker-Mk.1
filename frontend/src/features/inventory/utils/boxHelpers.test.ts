@@ -118,6 +118,43 @@ describe('boxHelpers', () => {
     ).toBe('IL-010');
 
     expect(getNextBoxIdForWarehouse([], 'MS')).toBe('M1');
+    expect(
+      getNextBoxIdForWarehouse(
+        [
+          {
+            boxId: 'TX-009',
+            warehouse: 'TX',
+            manufacturer: '',
+            filmName: '',
+            widthIn: 36,
+            initialFeet: 0,
+            feetAvailable: 0,
+            lotRun: '',
+            status: 'ORDERED',
+            orderDate: '',
+            receivedDate: '',
+            initialWeightLbs: null,
+            lastRollWeightLbs: null,
+            lastWeighedDate: '',
+            filmKey: '',
+            coreType: '',
+            coreWeightLbs: null,
+            lfWeightLbsPerFt: null,
+            purchaseCost: null,
+            notes: '',
+            hasEverBeenCheckedOut: false,
+            lastCheckoutJob: '',
+            lastCheckoutDate: '',
+            zeroedDate: '',
+            zeroedReason: '',
+            zeroedBy: ''
+          }
+        ],
+        'TX',
+        'TX-'
+      )
+    ).toBe('TX-010');
+    expect(getNextBoxIdForWarehouse([], 'TX', 'TX-')).toBe('TX-1');
   });
 
   it('merges hardcoded manufacturer options with film catalog manufacturers', () => {

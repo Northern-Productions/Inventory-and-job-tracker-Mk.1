@@ -4,13 +4,15 @@ import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
 import { STANDARD_WIDTH_OPTIONS, getWidthMode } from '../utils/boxHelpers';
+import { WarehouseSelectField } from './WarehouseSelectField';
 
 interface InventoryFiltersProps {
   values: InventoryFilterValues;
+  manufacturerOptions: string[];
   onChange: (next: Partial<InventoryFilterValues>) => void;
 }
 
-export function InventoryFilters({ values, onChange }: InventoryFiltersProps) {
+export function InventoryFilters({ values, manufacturerOptions, onChange }: InventoryFiltersProps) {
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
   const widthMode = values.width ? getWidthMode(values.width) : '';
@@ -42,11 +44,29 @@ export function InventoryFilters({ values, onChange }: InventoryFiltersProps) {
   return (
     <>
       <div className="filters-grid">
+        <WarehouseSelectField
+          label="Warehouse"
+          value={values.warehouse}
+          onChange={(warehouse) => onChange({ warehouse })}
+          allowAll
+        />
+        <Select
+          label="Manufacturer"
+          value={values.manufacturer}
+          onChange={(event) => onChange({ manufacturer: event.target.value })}
+          options={[
+            { label: 'All', value: '' },
+            ...manufacturerOptions.map((manufacturer) => ({
+              label: manufacturer,
+              value: manufacturer
+            }))
+          ]}
+        />
         <Input
           label="Search"
           value={values.q}
           onChange={(event) => onChange({ q: event.target.value })}
-          placeholder="BoxID, manufacturer, film"
+          placeholder="BoxID, film"
         />
         <Select
           label="Status"

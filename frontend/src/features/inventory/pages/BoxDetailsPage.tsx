@@ -6,7 +6,7 @@ import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { LoadingState } from '../../../components/LoadingState';
 import { useToast } from '../../../components/Toast';
-import type { Box, SetBoxStatusPayload, UpdateBoxPayload } from '../../../domain';
+import { getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { AllocateDialog } from '../components/AllocateDialog';
@@ -701,7 +701,7 @@ export default function BoxDetailsPage() {
           <div>
             <h2>{box.boxId}</h2>
             <p className="warehouse-pill">
-              {box.warehouse === 'IL' ? 'Illinois' : 'Mississippi'} warehouse
+              {getWarehouseLabel(box.warehouse)} warehouse
             </p>
           </div>
           <div className="detail-actions">
@@ -981,7 +981,7 @@ export default function BoxDetailsPage() {
 function createFallbackBox(boxId: string): Box {
   return {
     boxId,
-    warehouse: boxId.startsWith('M') ? 'MS' : 'IL',
+    warehouse: 'IL',
     manufacturer: '',
     filmName: '',
     widthIn: 36,

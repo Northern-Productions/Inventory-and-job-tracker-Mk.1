@@ -9,7 +9,7 @@ import {
   hasManufacturerOption
 } from '../utils/boxHelpers';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
-import { WarehouseToggle } from './WarehouseToggle';
+import { WarehouseSelectField } from './WarehouseSelectField';
 
 export interface JobRequirementEditorLine {
   requirementId?: string;
@@ -402,10 +402,11 @@ export function JobEditorDialog({
               setError('');
             }}
           />
-          <div className="field">
-            <span className="field-label">Warehouse</span>
-            <WarehouseToggle value={warehouse} onChange={setWarehouse} />
-          </div>
+          <WarehouseSelectField
+            label="Warehouse"
+            value={warehouse}
+            onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
+          />
         </div>
 
         <div className="form-grid">

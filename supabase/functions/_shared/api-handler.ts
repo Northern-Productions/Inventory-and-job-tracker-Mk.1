@@ -31,6 +31,7 @@ const READ_PATHS = new Set([
   "/film-data/catalog",
   "/roll-history/by-box",
   "/reports/summary",
+  "/warehouses/list",
   "/admin/access/requests",
   "/admin/username-requests",
   "/admin/member-permissions",
@@ -1929,8 +1930,14 @@ function matchesClosedJobReportFilters(jobEntry: any, filters: any): boolean {
 
 async function buildSearchBoxes(client: any, orgId: string, params: Record<string, unknown>) {
   const warehouse = requireString(params.warehouse, "warehouse").toUpperCase();
-  if (warehouse !== "IL" && warehouse !== "MS") {
-    throw new HttpError(400, "warehouse must be IL or MS.");
+  const warehouseRows = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
+    p_org_id: orgId,
+  });
+  const isConfiguredWarehouse = (warehouseRows || []).some((row) =>
+    asTrimmedString(row.code).toUpperCase() === warehouse
+  );
+  if (!isConfiguredWarehouse) {
+    throw new HttpError(400, "warehouse is not configured.");
   }
   const query = asTrimmedString(params.q).toLowerCase();
   const status = asTrimmedString(params.status).toUpperCase();
@@ -2843,6 +2850,18 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
       });
       return ok(preferences);
     }
+    case "/warehouses/list": {
+      const entries = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
+        p_org_id: orgId,
+      });
+      return ok({
+        entries: (entries || []).map((entry) => ({
+          code: asTrimmedString(entry.code).toUpperCase(),
+          name: asTrimmedString(entry.name),
+          boxIdPrefix: asTrimmedString(entry.box_id_prefix).toUpperCase(),
+        })),
+      });
+    }
     case "/boxes/search":
       return ok(await buildSearchBoxes(client, orgId, params));
     case "/boxes/get": {
@@ -2964,6 +2983,10 @@ async function dispatchMutation(
     }
     case "/owner/notification-preferences": {
       const result = await callMutationRpc(client, "api_update_owner_notification_preferences", orgId, actor, payload);
+      return ok(result);
+    }
+    case "/owner/warehouses/add": {
+      const result = await callMutationRpc(client, "api_acl_add_warehouse", orgId, actor, payload);
       return ok(result);
     }
     case "/boxes/add": {

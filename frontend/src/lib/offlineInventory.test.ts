@@ -47,9 +47,9 @@ describe('offline inventory filters', () => {
     expect(result.map((box) => box.boxId)).toEqual(['1001']);
   });
 
-  it('filters by search text, film, width, and explicit statuses', () => {
+  it('filters by search text, manufacturer, film, width, and explicit statuses', () => {
     const boxes = [
-      createBox({ boxId: '1001', manufacturer: '3M', filmName: 'Night Vision', widthIn: 36 }),
+      createBox({ boxId: '1001', manufacturer: '3M Fasara', filmName: 'Night Vision', widthIn: 36 }),
       createBox({ boxId: '1002', manufacturer: 'Llumar', filmName: 'Dual Reflective', widthIn: 48 }),
       createBox({ boxId: '1003', status: 'ZEROED', widthIn: 48 })
     ];
@@ -57,6 +57,7 @@ describe('offline inventory filters', () => {
     expect(
       filterOfflineBoxes(boxes, {
         warehouse: 'IL',
+        manufacturer: '  llumar  ',
         q: 'llumar',
         film: 'dual',
         width: '48',
@@ -72,6 +73,21 @@ describe('offline inventory filters', () => {
     ).toEqual(['1003']);
   });
 
+  it('matches manufacturers exactly after normalizing case and whitespace', () => {
+    const boxes = [
+      createBox({ boxId: '1001', manufacturer: '3M Fasara' }),
+      createBox({ boxId: '1002', manufacturer: '3M' }),
+      createBox({ boxId: '1003', manufacturer: '3M  FASARA' })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: 'IL',
+      manufacturer: ' 3m fasara '
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['1001', '1003']);
+  });
+
   it('moves low stock boxes to the front when a film filter is used', () => {
     const boxes = [
       createBox({ boxId: '1002', filmName: 'Ceramic 30', feetAvailable: 40 }),
@@ -85,5 +101,19 @@ describe('offline inventory filters', () => {
     });
 
     expect(result.map((box) => box.boxId)).toEqual(['1003', '1001', '1002']);
+  });
+
+  it('keeps boxes from all warehouses when the warehouse filter is all', () => {
+    const boxes = [
+      createBox({ boxId: '1001', warehouse: 'IL' }),
+      createBox({ boxId: 'M2001', warehouse: 'MS' })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: '',
+      showRetired: true
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['1001', 'M2001']);
   });
 });

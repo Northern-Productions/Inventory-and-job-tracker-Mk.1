@@ -1,4 +1,45 @@
-export type Warehouse = 'IL' | 'MS';
+export const WAREHOUSE_CODES = ['IL', 'MS'] as const;
+export type Warehouse = string;
+export const WAREHOUSE_LABELS: Record<string, string> = {
+  IL: 'Wauconda Illinois',
+  MS: 'Ridgeland Mississippi'
+};
+
+export function isWarehouse(value: string | null | undefined): value is Warehouse {
+  if (!value) {
+    return false;
+  }
+
+  return /^[A-Z0-9]{2,8}$/.test(value.toUpperCase());
+}
+
+export function parseWarehouse(
+  value: string | null | undefined,
+  fallback: Warehouse = 'IL'
+): Warehouse {
+  if (!value) {
+    return fallback;
+  }
+
+  const normalized = value.toUpperCase();
+  return isWarehouse(normalized) ? normalized : fallback;
+}
+
+export function getWarehouseLabel(warehouse: Warehouse): string {
+  return WAREHOUSE_LABELS[warehouse] || warehouse;
+}
+
+export interface WarehouseEntry {
+  code: Warehouse;
+  name: string;
+  boxIdPrefix: string;
+}
+
+export interface AddWarehousePayload {
+  code: string;
+  name: string;
+  boxIdPrefix: string;
+}
 
 export const BOX_STATUSES = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED'] as const;
 export type BoxStatus = (typeof BOX_STATUSES)[number];
@@ -66,6 +107,7 @@ export interface SearchBoxesParams {
 
 export interface AddBoxPayload {
   boxId: string;
+  warehouse?: Warehouse;
   manufacturer: string;
   filmName: string;
   widthIn: number;

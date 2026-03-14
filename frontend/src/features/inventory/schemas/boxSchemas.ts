@@ -6,13 +6,15 @@ import type {
 } from '../../../domain';
 import { toOptionalNumber } from '../../../lib/number';
 import type { BoxDraft } from '../utils/boxHelpers';
+import type { WarehouseFilterValue } from '../utils/warehouseOptions';
 import {
   CORE_TYPE_OPTIONS,
   deriveCreateFeetAvailable
 } from '../utils/boxHelpers';
 
 export interface InventoryFilterValues {
-  warehouse: SearchBoxesParams['warehouse'];
+  warehouse: WarehouseFilterValue;
+  manufacturer: string;
   q: string;
   status: SearchBoxesParams['status'];
   film: string;

@@ -1,29 +1,66 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncAllOfflineInventorySnapshots } from '../../../api/client';
-import type { SearchBoxesParams } from '../../../domain';
-import { getOfflineInventorySyncMeta, searchOfflineBoxes } from '../../../lib/offlineInventory';
+import type { Warehouse } from '../../../domain';
+import {
+  getOfflineInventorySyncMeta,
+  searchOfflineBoxes,
+  type OfflineInventorySyncMeta,
+  type OfflineSearchBoxesParams
+} from '../../../lib/offlineInventory';
+import { useWarehouseRegistry } from './useWarehouseRegistry';
 
 const offlineInventoryKeys = {
   root: ['inventory', 'offline'] as const,
-  list: (params: SearchBoxesParams) => ['inventory', 'offline', 'list', params] as const,
-  meta: (warehouse: SearchBoxesParams['warehouse']) => ['inventory', 'offline', 'meta', warehouse] as const
+  list: (params: OfflineSearchBoxesParams) => ['inventory', 'offline', 'list', params] as const,
+  meta: (warehouses: readonly Warehouse[]) => ['inventory', 'offline', 'meta', warehouses.join('|')] as const
 };
 
-export function useOfflineInventorySearch(params: SearchBoxesParams) {
+function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
+  let boxCount = 0;
+  let lastSyncedAt = '';
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry) {
+      continue;
+    }
+
+    boxCount += entry.boxCount;
+    if (!lastSyncedAt || entry.lastSyncedAt > lastSyncedAt) {
+      lastSyncedAt = entry.lastSyncedAt;
+    }
+  }
+
+  return {
+    boxCount,
+    lastSyncedAt
+  };
+}
+
+export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
   const queryClient = useQueryClient();
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
   );
   const [syncError, setSyncError] = useState<Error | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const warehouseRegistry = useWarehouseRegistry();
+  const selectedWarehouses = useMemo<Warehouse[]>(
+    () =>
+      params.warehouse
+        ? [params.warehouse]
+        : warehouseRegistry.entries.map((entry) => entry.code),
+    [params.warehouse, warehouseRegistry.entries]
+  );
   const boxesQuery = useQuery({
     queryKey: offlineInventoryKeys.list(params),
     queryFn: () => searchOfflineBoxes(params)
   });
   const metaQuery = useQuery({
-    queryKey: offlineInventoryKeys.meta(params.warehouse),
-    queryFn: () => getOfflineInventorySyncMeta(params.warehouse)
+    queryKey: offlineInventoryKeys.meta(selectedWarehouses),
+    queryFn: async () =>
+      aggregateSyncMeta(await Promise.all(selectedWarehouses.map((warehouse) => getOfflineInventorySyncMeta(warehouse))))
   });
   const hasSnapshot = Boolean(metaQuery.data?.lastSyncedAt);
   const isInitialLoad =

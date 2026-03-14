@@ -19,6 +19,10 @@ import {
   hasManufacturerOption,
   getWidthMode
 } from '../utils/boxHelpers';
+import {
+  parseWarehouseFilterValue
+} from '../utils/warehouseOptions';
+import { WarehouseSelectField } from '../components/WarehouseSelectField';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 
@@ -107,20 +111,11 @@ export default function ReportsPage() {
         </div>
 
         <div className="toolbar-grid reports-filters">
-          <label className="field">
-            <span className="field-label">Warehouse</span>
-            <select
-              className="field-input"
-              value={filters.warehouse || ''}
-              onChange={(event) =>
-                patchFilters({ warehouse: event.target.value === 'ALL' ? '' : (event.target.value as 'IL' | 'MS') })
-              }
-            >
-              <option value="ALL">All</option>
-              <option value="IL">IL</option>
-              <option value="MS">MS</option>
-            </select>
-          </label>
+          <WarehouseSelectField
+            value={filters.warehouse || ''}
+            onChange={(warehouse) => patchFilters({ warehouse: parseWarehouseFilterValue(warehouse) })}
+            allowAll
+          />
           <label className="field">
             <span className="field-label">Manufacturer</span>
             <select

@@ -13,6 +13,7 @@ import type {
   RemoveJobBoxAllocationsPayload,
   RemoveJobBoxAllocationsResult,
   AddBoxPayload,
+  AddWarehousePayload,
   AuditEntry,
   AuditListParams,
   AuditListResponse,
@@ -50,11 +51,12 @@ import type {
   UndoMutationResult,
   UpdateJobPayload,
   UpdateBoxPayload,
+  WarehouseEntry,
   UsernameChangeRequestEntry,
   UsernameChangeResult,
   Warehouse
 } from '../domain';
-import { createDefaultFeatureAccessMap } from '../domain';
+import { WAREHOUSE_CODES, createDefaultFeatureAccessMap } from '../domain';
 import {
   getOfflineBox,
   replaceOfflineInventoryBoxes,
@@ -188,6 +190,24 @@ function mapUsernameChangeRequestEntry(value: unknown): UsernameChangeRequestEnt
     decidedByActor: String(source.decidedByActor || '').trim(),
     decisionNote: String(source.decisionNote || '').trim(),
     currentRole: ensureRole(source.currentRole)
+  };
+}
+
+function mapWarehouseEntry(value: unknown): WarehouseEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const code = String(source.code || '').trim().toUpperCase();
+  if (!code) {
+    return null;
+  }
+
+  return {
+    code,
+    name: String(source.name || '').trim() || code,
+    boxIdPrefix: String(source.boxIdPrefix || '').trim().toUpperCase()
   };
 }
 
@@ -473,6 +493,27 @@ export async function updateOwnerNotificationPreferences(payload: {
     inAppOptIn: data.inAppOptIn === true || String(data.inAppOptIn).toLowerCase() === 'true',
     emailOptIn: data.emailOptIn === true || String(data.emailOptIn).toLowerCase() === 'true'
   };
+}
+
+export async function listWarehouses(): Promise<WarehouseEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/warehouses/list',
+    {},
+    {}
+  );
+  return (data.entries || [])
+    .map((entry) => mapWarehouseEntry(entry))
+    .filter((entry): entry is WarehouseEntry => Boolean(entry));
+}
+
+export async function addWarehouse(payload: AddWarehousePayload): Promise<WarehouseEntry> {
+  const { data } = await request<unknown>('POST', '/owner/warehouses/add', { body: payload });
+  const mapped = mapWarehouseEntry(data);
+  if (!mapped) {
+    throw new APIError('The warehouse was created but the response was invalid.');
+  }
+  return mapped;
 }
 
 function buildSearchBoxFilters(params: SearchBoxesParams) {
@@ -1111,10 +1152,20 @@ export async function syncOfflineInventorySnapshot(
 }
 
 export async function syncAllOfflineInventorySnapshots(): Promise<OfflineInventorySyncMeta[]> {
-  const snapshots = await Promise.all([
-    syncOfflineInventorySnapshot('IL'),
-    syncOfflineInventorySnapshot('MS')
-  ]);
+  let warehouseCodes: Warehouse[] = [];
+  try {
+    warehouseCodes = (await listWarehouses()).map((entry) => entry.code);
+  } catch {
+    warehouseCodes = [...WAREHOUSE_CODES];
+  }
+
+  if (warehouseCodes.length === 0) {
+    return [];
+  }
+
+  const snapshots = await Promise.all(
+    warehouseCodes.map((warehouse) => syncOfflineInventorySnapshot(warehouse))
+  );
 
   return snapshots.filter((snapshot): snapshot is OfflineInventorySyncMeta => Boolean(snapshot));
 }

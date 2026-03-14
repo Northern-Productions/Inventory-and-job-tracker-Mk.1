@@ -229,7 +229,7 @@ function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
 
   return {
     boxId: payload.boxId,
-    warehouse: payload.boxId.startsWith('M') ? 'MS' : 'IL',
+    warehouse: payload.warehouse || 'IL',
     manufacturer: payload.manufacturer,
     filmName: payload.filmName,
     widthIn: payload.widthIn,
@@ -530,7 +530,7 @@ export function useAllocateBox() {
           ? {
               allocationId: `pending-${Date.now()}-${payload.boxId}`,
               boxId: payload.boxId,
-              warehouse: sourceBox?.warehouse || (payload.boxId.startsWith('M') ? 'MS' : 'IL'),
+              warehouse: sourceBox?.warehouse || payload.jobWarehouse || 'IL',
               jobNumber: payload.jobNumber,
               jobDate: payload.jobDate || '',
               crewLeader: payload.crewLeader || '',

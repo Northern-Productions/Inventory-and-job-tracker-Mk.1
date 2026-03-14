@@ -12,11 +12,17 @@ export interface OfflineInventorySyncMeta {
   lastSyncedAt: string;
 }
 
+export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse'> {
+  warehouse: Warehouse | '';
+  manufacturer?: string;
+}
+
 export function isOfflineInventorySupported(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
-export function filterOfflineBoxes(boxes: Box[], params: SearchBoxesParams): Box[] {
+export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParams): Box[] {
+  const manufacturerKey = normalizeManufacturerLookup(params.manufacturer || '');
   const query = (params.q || '').trim().toLowerCase();
   const film = (params.film || '').trim().toLowerCase();
   const status = params.status || '';
@@ -26,6 +32,14 @@ export function filterOfflineBoxes(boxes: Box[], params: SearchBoxesParams): Box
 
   for (let index = 0; index < boxes.length; index += 1) {
     const box = boxes[index];
+
+    if (params.warehouse && box.warehouse !== params.warehouse) {
+      continue;
+    }
+
+    if (manufacturerKey && normalizeManufacturerLookup(box.manufacturer) !== manufacturerKey) {
+      continue;
+    }
 
     if (!showRetired && !status && (box.status === 'ZEROED' || box.status === 'RETIRED')) {
       continue;
@@ -88,8 +102,10 @@ export function filterOfflineBoxes(boxes: Box[], params: SearchBoxesParams): Box
   return lowStock.concat(remaining);
 }
 
-export async function searchOfflineBoxes(params: SearchBoxesParams): Promise<Box[]> {
-  const boxes = await getOfflineBoxesByWarehouse(params.warehouse);
+export async function searchOfflineBoxes(params: OfflineSearchBoxesParams): Promise<Box[]> {
+  const boxes = params.warehouse
+    ? await getOfflineBoxesByWarehouse(params.warehouse)
+    : await getAllOfflineBoxes();
   return filterOfflineBoxes(boxes, params);
 }
 
@@ -256,8 +272,29 @@ async function getOfflineBoxesByWarehouse(warehouse: Warehouse): Promise<Box[]> 
   }
 }
 
+async function getAllOfflineBoxes(): Promise<Box[]> {
+  if (!isOfflineInventorySupported()) {
+    return [];
+  }
+
+  const database = await openOfflineInventoryDatabase();
+
+  try {
+    const transaction = database.transaction(BOX_STORE, 'readonly');
+    const request = transaction.objectStore(BOX_STORE).getAll();
+    const result = await requestToPromise<Box[]>(request);
+    return result;
+  } finally {
+    database.close();
+  }
+}
+
 function isLowStockBox(box: Box): boolean {
   return box.status === 'IN_STOCK' && box.feetAvailable > 0 && box.feetAvailable < LOW_STOCK_THRESHOLD_LF;
+}
+
+function normalizeManufacturerLookup(value: string): string {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function openOfflineInventoryDatabase(): Promise<IDBDatabase> {

@@ -4,7 +4,7 @@ import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import { getManufacturerOptions, hasManufacturerOption } from '../utils/boxHelpers';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
-import { WarehouseToggle } from './WarehouseToggle';
+import { WarehouseSelectField } from './WarehouseSelectField';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 
@@ -107,10 +107,11 @@ export function CreateFilmOrderDialog({
           Save the film order first, then you will be sent to Add Box to create the incoming box records.
         </p>
         <div className="form-grid">
-          <div className="field">
-            <span className="field-label">Warehouse</span>
-            <WarehouseToggle value={warehouse} onChange={setWarehouse} />
-          </div>
+          <WarehouseSelectField
+            label="Warehouse"
+            value={warehouse}
+            onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
+          />
           <Input
             label="Job ID"
             value={jobNumber}
