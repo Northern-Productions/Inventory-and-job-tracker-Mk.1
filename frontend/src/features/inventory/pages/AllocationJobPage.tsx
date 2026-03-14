@@ -404,7 +404,7 @@ export default function AllocationJobPage() {
         </div>
         <div className="stat-grid allocation-stat-grid">
           <div className="key-value">
-            <dt>Due Date</dt>
+            <dt>Install Date</dt>
             <dd>{renderDate(summary.dueDate)}</dd>
           </div>
           <div className="key-value">

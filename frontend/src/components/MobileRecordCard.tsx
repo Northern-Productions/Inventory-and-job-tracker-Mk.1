@@ -30,7 +30,7 @@ export function MobileRecordHeader({
   onTitleClick
 }: MobileRecordHeaderProps) {
   return (
-    <div className="mobile-record-header">
+    <div className={`mobile-record-header ${badge ? 'mobile-record-header-with-badge' : ''}`.trim()}>
       <div className="mobile-record-heading">
         {onTitleClick ? (
           <button type="button" className="mobile-record-title-button" onClick={onTitleClick}>

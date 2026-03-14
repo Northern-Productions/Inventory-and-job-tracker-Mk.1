@@ -203,7 +203,7 @@ describe('boxHelpers', () => {
   });
 
   it('derives film and core weights for any width and length', () => {
-    const coreWeight = deriveCoreWeightLbs('Red', 48);
+    const coreWeight = deriveCoreWeightLbs('Red plastic', 48);
     const lfWeight = deriveLfWeightLbsPerFt(0.0625, 48);
     const initialWeight = deriveInitialWeightLbs(lfWeight, 150, coreWeight);
     const sqFtWeight = deriveSqFtWeightLbsPerSqFt(initialWeight, coreWeight, 48, 150);
@@ -214,9 +214,9 @@ describe('boxHelpers', () => {
     expect(sqFtWeight).toBeCloseTo(0.0625, 4);
   });
 
-  it('derives thick cardboard as 3x cardboard at the same width', () => {
-    const cardboardWeight = deriveCoreWeightLbs('Cardboard', 72);
-    const thickCardboardWeight = deriveCoreWeightLbs('Thick Cardboard', 72);
+  it('derives Cardboard 3/4" as 3x Cardboard 1/8" at the same width', () => {
+    const cardboardWeight = deriveCoreWeightLbs('Cardboard 1/8"', 72);
+    const thickCardboardWeight = deriveCoreWeightLbs('Cardboard 3/4"', 72);
 
     expect(thickCardboardWeight).toBeCloseTo(cardboardWeight * 3, 4);
     expect(thickCardboardWeight).toBe(6.15);

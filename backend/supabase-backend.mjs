@@ -11,10 +11,10 @@ const ZEROED_BOX_AUTO_CANCEL_NOTE = 'Auto-cancelled because the box was moved to
 
 const CORE_WEIGHT_REFERENCE_WIDTH_IN = 72;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
-  White: 2,
-  Red: 1.85,
-  Cardboard: 2.05,
-  'Thick Cardboard': 6.15,
+  'White plastic': 2,
+  'Red plastic': 1.85,
+  'Cardboard 1/8"': 2.05,
+  'Cardboard 3/4"': 6.15,
   'SECURITY 1/4" Cardboard': 11.6
 };
 
@@ -281,20 +281,35 @@ function normalizeCoreType(value, allowBlank) {
   }
 
   const normalized = trimmed.toLowerCase();
-  if (normalized === 'white') {
-    return 'White';
+  if (normalized === 'white' || normalized === 'white plastic' || normalized === 'whiteplastic') {
+    return 'White plastic';
   }
 
-  if (normalized === 'red') {
-    return 'Red';
+  if (normalized === 'red' || normalized === 'red plastic' || normalized === 'redplastic') {
+    return 'Red plastic';
   }
 
-  if (normalized === 'cardboard') {
-    return 'Cardboard';
+  if (
+    normalized === 'cardboard' ||
+    normalized === 'cardboard 1/8"' ||
+    normalized === 'cardboard 1/8' ||
+    normalized === 'cardboard 1-8"' ||
+    normalized === 'cardboard 1-8'
+  ) {
+    return 'Cardboard 1/8"';
   }
 
-  if (normalized === 'thick cardboard') {
-    return 'Thick Cardboard';
+  if (
+    normalized === 'thick cardboard' ||
+    normalized === 'thick-cardboard' ||
+    normalized === 'thick_cardboard' ||
+    normalized === 'thickcardboard' ||
+    normalized === 'cardboard 3/4"' ||
+    normalized === 'cardboard 3/4' ||
+    normalized === 'cardboard 3-4"' ||
+    normalized === 'cardboard 3-4'
+  ) {
+    return 'Cardboard 3/4"';
   }
 
   if (
@@ -308,7 +323,7 @@ function normalizeCoreType(value, allowBlank) {
 
   throw new HttpError(
     400,
-    'CoreType must be White, Red, Cardboard, Thick Cardboard, or SECURITY 1/4" Cardboard.'
+    'CoreType must be White plastic, Red plastic, Cardboard 1/8", Cardboard 3/4", or SECURITY 1/4" Cardboard.'
   );
 }
 

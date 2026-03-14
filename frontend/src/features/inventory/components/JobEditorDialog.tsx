@@ -386,7 +386,7 @@ export function JobEditorDialog({
             }}
           />
           <Input
-            label="Due Date"
+            label="Install Date"
             type="date"
             value={dueDate}
             onChange={(event) => {

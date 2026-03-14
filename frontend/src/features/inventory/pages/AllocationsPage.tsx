@@ -100,7 +100,7 @@ export default function AllocationsPage() {
           <div>
             <h2>Jobs</h2>
             <p className="muted-text">
-              Showing active jobs only (up to 25), sorted by due date.
+              Showing active jobs only (up to 25), sorted by install date.
             </p>
             <label className="field jobs-search-field">
               <span className="field-label">Search Job ID Number</span>
@@ -126,9 +126,9 @@ export default function AllocationsPage() {
       </section>
 
       <section className="panel">
-        <div className="panel-title-row">
+        <div className="panel-title-row allocations-recent-title-row">
           <h2>Recent Jobs</h2>
-          <span className="muted-text">{jobs.length} job(s)</span>
+          <span className="muted-text allocations-recent-count">{jobs.length} job(s)</span>
         </div>
         {jobsLoading ? <LoadingState label={isSearchingJobs ? 'Searching jobs...' : 'Loading jobs...'} /> : null}
         {jobsError ? (
@@ -155,7 +155,7 @@ export default function AllocationsPage() {
                     onTitleClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Due Date" value={formatDate(entry.dueDate)} />
+                    <MobileField label="Install Date" value={formatDate(entry.dueDate)} />
                     <MobileField label="Sections" value={entry.sections ?? '--'} />
                     <MobileField label="Required LF" value={entry.requiredFeet} />
                     <MobileField label="Allocated LF" value={entry.allocatedFeet} />
@@ -170,7 +170,7 @@ export default function AllocationsPage() {
                 <thead>
                   <tr>
                     <th>Job ID</th>
-                    <th>Due Date</th>
+                    <th>Install Date</th>
                     <th>Sections</th>
                     <th>Warehouse</th>
                     <th>Status</th>

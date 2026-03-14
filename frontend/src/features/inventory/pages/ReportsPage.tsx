@@ -370,12 +370,8 @@ export default function ReportsPage() {
                     onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Due Date" value={formatDate(row.dueDate)} />
+                    <MobileField label="Install Date" value={formatDate(row.dueDate)} />
                     <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
-                    <MobileField label="Required LF" value={row.requiredFeet} />
-                    <MobileField label="Allocated LF" value={row.allocatedFeet} />
-                    <MobileField label="Remaining LF" value={row.remainingFeet} />
-                    <MobileField label="Closed" value={formatDate(row.closedAt)} />
                   </MobileFieldList>
                 </MobileRecordCard>
               ))}
@@ -387,13 +383,9 @@ export default function ReportsPage() {
                   <tr>
                     <th>Job ID</th>
                     <th>Warehouse</th>
-                    <th>Due Date</th>
+                    <th>Install Date</th>
                     <th>Crew Leader</th>
                     <th>Status</th>
-                    <th>Required LF</th>
-                    <th>Allocated LF</th>
-                    <th>Remaining LF</th>
-                    <th>Closed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -414,10 +406,6 @@ export default function ReportsPage() {
                       <td>
                         <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
                       </td>
-                      <td>{row.requiredFeet}</td>
-                      <td>{row.allocatedFeet}</td>
-                      <td>{row.remainingFeet}</td>
-                      <td>{formatDate(row.closedAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -446,7 +434,7 @@ export default function ReportsPage() {
                     onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Due Date" value={formatDate(row.dueDate)} />
+                    <MobileField label="Install Date" value={formatDate(row.dueDate)} />
                     <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
                     <MobileField label="Required LF" value={row.requiredFeet} />
                     <MobileField label="Allocated LF" value={row.allocatedFeet} />
@@ -463,7 +451,7 @@ export default function ReportsPage() {
                   <tr>
                     <th>Job ID</th>
                     <th>Warehouse</th>
-                    <th>Due Date</th>
+                    <th>Install Date</th>
                     <th>Crew Leader</th>
                     <th>Status</th>
                     <th>Required LF</th>

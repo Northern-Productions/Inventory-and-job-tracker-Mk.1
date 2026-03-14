@@ -24,7 +24,7 @@ function createBox(overrides: Partial<Box> = {}): Box {
     lastRollWeightLbs: 15,
     lastWeighedDate: '2026-03-03',
     filmKey: '3M|PRESTIGE 40',
-    coreType: 'White',
+    coreType: 'White plastic',
     coreWeightLbs: 1,
     lfWeightLbsPerFt: 0.14,
     purchaseCost: 120,
