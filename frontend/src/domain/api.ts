@@ -13,6 +13,7 @@ import type {
   JobListEntry,
   NeverCheckedOutBoxRow,
   RollHistoryEntry,
+  ZeroedBoxRow,
   ZeroedTrendRow
 } from './inventory';
 import type {
@@ -90,6 +91,7 @@ export interface ReportsSummary {
   availableFeetByWidth: AvailableFeetByWidthRow[];
   neverCheckedOut: NeverCheckedOutBoxRow[];
   zeroedByMonth: ZeroedTrendRow[];
+  zeroedBoxes: ZeroedBoxRow[];
   completedJobs: ClosedJobReportRow[];
   cancelledJobs: ClosedJobReportRow[];
 }

@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
 import { searchOfflineBoxes } from '../../../lib/offlineInventory';
-import { useAuth } from '../../auth/AuthContext';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { InventoryTable } from '../components/InventoryTable';
@@ -28,7 +27,6 @@ function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
 }
 
 export default function InventoryHomePage() {
-  const auth = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const filters = readFilters(searchParams);
@@ -47,7 +45,6 @@ export default function InventoryHomePage() {
         showRetired: true
       })
   });
-  const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const manufacturerOptions = useMemo(() => {
     const optionsByKey = new Map<string, string>();
     const knownManufacturerOptions = getManufacturerOptions();
@@ -118,31 +115,6 @@ export default function InventoryHomePage() {
             <p className="muted-text">
               Search and manage boxes across every warehouse.
             </p>
-          </div>
-          <div className="page-actions">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => void boxesQuery.syncNow()}
-              disabled={boxesQuery.isSyncing}
-            >
-              {boxesQuery.isSyncing ? 'Syncing...' : 'Sync Offline Copy'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => navigate('/inventory/scan')}
-              disabled={!canWriteInventory}
-            >
-              Scan QR
-            </Button>
-            <Button
-              type="button"
-              onClick={() => navigate('/inventory/add')}
-              disabled={!canWriteInventory}
-            >
-              Add Box
-            </Button>
           </div>
         </div>
         <div className="toolbar-row">

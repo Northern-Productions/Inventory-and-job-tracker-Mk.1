@@ -84,7 +84,7 @@ export function InventoryFilters({ values, manufacturerOptions, onChange }: Inve
             { label: 'Zeroed', value: 'ZEROED' }
           ]}
         />
-        <div className="field width-selector">
+        <div className="field width-selector inventory-width-selector">
           <span className="field-label">Width</span>
           <div className="width-button-grid">
             {widthButtonValues.map((value) => {

@@ -1248,15 +1248,147 @@ async function listRollHistoryByBox(client: any, orgId: string, boxId: string) {
   return rows.map(mapDbRollHistoryRow);
 }
 
-async function listRollHistoryByJob(client: any, orgId: string, jobNumber: string) {
+function isUnknownJobNumber(value: unknown): boolean {
+  const normalized = normalizeJobNumberKey(value);
+  return !normalized || normalized === "UNKNOWN";
+}
+
+function toTimestampMs(value: unknown): number | null {
+  const timestamp = asTrimmedString(value);
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getRollHistoryActivityTimestamp(entry: any): string {
+  return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || "";
+}
+
+function buildRollHistoryAllocationWindowsByBox(allocations: any[]) {
+  const grouped: Record<string, Array<{ startMs: number | null; endMs: number | null }>> = {};
+  const entries = Array.isArray(allocations) ? allocations : [];
+  for (const allocation of entries) {
+    const boxId = asTrimmedString(allocation && allocation.boxId);
+    if (!boxId) {
+      continue;
+    }
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+    grouped[boxId].push({
+      startMs: toTimestampMs(allocation && allocation.createdAt),
+      endMs: toTimestampMs(allocation && allocation.resolvedAt),
+    });
+  }
+  return grouped;
+}
+
+function isTimestampInAllocationWindow(
+  timestampMs: number | null,
+  window: { startMs: number | null; endMs: number | null },
+): boolean {
+  if (timestampMs === null) {
+    return false;
+  }
+  if (window.startMs !== null && timestampMs < window.startMs) {
+    return false;
+  }
+  if (window.endMs !== null && timestampMs > window.endMs) {
+    return false;
+  }
+  return true;
+}
+
+function isRollHistoryEntryInAllocationWindow(entry: any, windows: Array<{ startMs: number | null; endMs: number | null }>) {
+  if (!Array.isArray(windows) || !windows.length) {
+    return false;
+  }
+  const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
+  return windows.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window));
+}
+
+function buildRollHistoryEntryDedupeKey(entry: any): string {
+  return `${asTrimmedString(entry && entry.logId)}|${asTrimmedString(entry && entry.boxId)}`;
+}
+
+function dedupeRollHistoryEntries(entries: any[]) {
+  const deduped: Record<string, any> = {};
+  const source = Array.isArray(entries) ? entries : [];
+  for (const entry of source) {
+    if (!entry || !entry.boxId) {
+      continue;
+    }
+    const key = buildRollHistoryEntryDedupeKey(entry);
+    if (!deduped[key]) {
+      deduped[key] = entry;
+    }
+  }
+  return Object.values(deduped);
+}
+
+function shouldIncludeRollHistoryEntryForJob(
+  entry: any,
+  normalizedJobNumberKey: string,
+  allocationWindowsByBox: Record<string, Array<{ startMs: number | null; endMs: number | null }>>,
+) {
+  if (!entry || !entry.boxId) {
+    return false;
+  }
+  if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumberKey) {
+    return true;
+  }
+  if (!isUnknownJobNumber(entry.jobNumber)) {
+    return false;
+  }
+  return isRollHistoryEntryInAllocationWindow(entry, allocationWindowsByBox[entry.boxId] || []);
+}
+
+function finalizeRollHistoryEntriesForJob(
+  entries: any[],
+  normalizedJobNumberKey: string,
+  allocationWindowsByBox: Record<string, Array<{ startMs: number | null; endMs: number | null }>>,
+) {
+  const deduped = dedupeRollHistoryEntries(entries);
+  const filtered = deduped.filter((entry) =>
+    shouldIncludeRollHistoryEntryForJob(entry, normalizedJobNumberKey, allocationWindowsByBox)
+  );
+  filtered.sort((left, right) => {
+    const leftDate = getRollHistoryActivityTimestamp(left);
+    const rightDate = getRollHistoryActivityTimestamp(right);
+    if (leftDate !== rightDate) {
+      return leftDate > rightDate ? -1 : 1;
+    }
+    const leftLogId = asTrimmedString(left.logId);
+    const rightLogId = asTrimmedString(right.logId);
+    return leftLogId < rightLogId ? 1 : leftLogId > rightLogId ? -1 : 0;
+  });
+  return filtered;
+}
+
+function chunkStringValues(values: string[], size: number): string[][] {
+  const source = Array.isArray(values) ? values : [];
+  const chunkSize = Number.isFinite(size) && size > 0 ? Math.floor(size) : 100;
+  const chunks: string[][] = [];
+  for (let index = 0; index < source.length; index += chunkSize) {
+    chunks.push(source.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+async function listRollHistoryByJob(client: any, orgId: string, jobNumber: string, allocations: any[] = []) {
   const normalizedJobNumber = asTrimmedString(jobNumber);
   if (!normalizedJobNumber) {
     return [];
   }
+  const normalizedJobNumberKey = normalizeJobNumberKey(normalizedJobNumber);
+  const allocationWindowsByBox = buildRollHistoryAllocationWindowsByBox(allocations);
+  const allocatedBoxIds = Object.keys(allocationWindowsByBox);
 
   const serviceClient = createServiceRoleClient();
   if (serviceClient) {
-    const { data, error } = await serviceClient
+    const directQuery = await serviceClient
       .schema("app")
       .from("roll_weight_log")
       .select("*")
@@ -1266,8 +1398,31 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
       .order("checked_out_at", { ascending: false, nullsFirst: false })
       .order("log_id", { ascending: false });
 
-    if (!error) {
-      return (Array.isArray(data) ? data : []).map(mapDbRollHistoryRow);
+    if (!directQuery.error) {
+      const mergedEntries = (Array.isArray(directQuery.data) ? directQuery.data : []).map(mapDbRollHistoryRow);
+      let canUseServiceRoleResults = true;
+      for (const boxIdChunk of chunkStringValues(allocatedBoxIds, 100)) {
+        if (!boxIdChunk.length) {
+          continue;
+        }
+        const allocatedQuery = await serviceClient
+          .schema("app")
+          .from("roll_weight_log")
+          .select("*")
+          .eq("org_id", orgId)
+          .in("box_id", boxIdChunk)
+          .order("checked_in_at", { ascending: false, nullsFirst: false })
+          .order("checked_out_at", { ascending: false, nullsFirst: false })
+          .order("log_id", { ascending: false });
+        if (allocatedQuery.error) {
+          canUseServiceRoleResults = false;
+          break;
+        }
+        mergedEntries.push(...(Array.isArray(allocatedQuery.data) ? allocatedQuery.data : []).map(mapDbRollHistoryRow));
+      }
+      if (canUseServiceRoleResults) {
+        return finalizeRollHistoryEntriesForJob(mergedEntries, normalizedJobNumberKey, allocationWindowsByBox);
+      }
     }
   }
 
@@ -1276,26 +1431,14 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
   for (const box of boxes) {
     const boxEntries = await listRollHistoryByBox(client, orgId, box.boxId);
     for (const entry of boxEntries) {
-      if (normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(normalizedJobNumber)) {
-        entries.push(entry);
-      }
+      entries.push(entry);
     }
   }
-
-  entries.sort((left, right) => {
-    const leftDate = asTrimmedString(left.checkedInAt) || asTrimmedString(left.checkedOutAt) || "";
-    const rightDate = asTrimmedString(right.checkedInAt) || asTrimmedString(right.checkedOutAt) || "";
-    if (leftDate !== rightDate) {
-      return leftDate > rightDate ? -1 : 1;
-    }
-    return left.logId < right.logId ? 1 : left.logId > right.logId ? -1 : 0;
-  });
-
-  return entries;
+  return finalizeRollHistoryEntriesForJob(entries, normalizedJobNumberKey, allocationWindowsByBox);
 }
 
 function toUsageTimestampSortValue(entry: any) {
-  return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || "";
+  return getRollHistoryActivityTimestamp(entry);
 }
 
 function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<string, any>) {
@@ -2030,7 +2173,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
   if (!allocations.length && !filmOrders.length) {
     throw new HttpError(404, "Job not found.");
   }
@@ -2173,7 +2316,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
+  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
 
   if (!header && !allocations.length && !filmOrders.length && !requirements.length) {
     throw new HttpError(404, "Job not found.");
@@ -2207,6 +2350,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
   const widthGroups: Record<string, { widthIn: number; totalFeetAvailable: number; boxCount: number }> = {};
   const neverCheckedOut: any[] = [];
   const zeroedByMonthMap: Record<string, number> = {};
+  const zeroedBoxes: any[] = [];
   const completedJobs: any[] = [];
   const cancelledJobs: any[] = [];
 
@@ -2255,6 +2399,14 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
       if (filters.to && box.zeroedDate > filters.to) {
         continue;
       }
+      zeroedBoxes.push({
+        boxId: box.boxId,
+        warehouse: box.warehouse,
+        manufacturer: box.manufacturer,
+        filmName: box.filmName,
+        widthIn: box.widthIn,
+        zeroedDate: box.zeroedDate,
+      });
       const monthKey = box.zeroedDate.slice(0, 7);
       zeroedByMonthMap[monthKey] = (zeroedByMonthMap[monthKey] || 0) + 1;
     }
@@ -2276,6 +2428,12 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
   const zeroedByMonth = Object.keys(zeroedByMonthMap)
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
     .map((month) => ({ month, zeroedCount: zeroedByMonthMap[month] }));
+  zeroedBoxes.sort((left, right) => {
+    if (left.zeroedDate !== right.zeroedDate) {
+      return left.zeroedDate > right.zeroedDate ? -1 : 1;
+    }
+    return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
+  });
 
   const allJobEntries = await buildJobsList(client, orgId, 0);
   for (const jobEntry of allJobEntries) {
@@ -2320,6 +2478,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     availableFeetByWidth,
     neverCheckedOut,
     zeroedByMonth,
+    zeroedBoxes,
     completedJobs,
     cancelledJobs,
   };

@@ -1125,6 +1125,7 @@ export async function getReportsSummary(filters: ReportsSummaryFilters): Promise
     availableFeetByWidth: summary.availableFeetByWidth || [],
     neverCheckedOut: summary.neverCheckedOut || [],
     zeroedByMonth: summary.zeroedByMonth || [],
+    zeroedBoxes: summary.zeroedBoxes || [],
     completedJobs: summary.completedJobs || [],
     cancelledJobs: summary.cancelledJobs || []
   };

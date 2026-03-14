@@ -455,6 +455,15 @@ export interface ZeroedTrendRow {
   zeroedCount: number;
 }
 
+export interface ZeroedBoxRow {
+  boxId: string;
+  warehouse: Warehouse;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  zeroedDate: string;
+}
+
 export interface ClosedJobReportRow {
   jobNumber: string;
   warehouse: Warehouse;

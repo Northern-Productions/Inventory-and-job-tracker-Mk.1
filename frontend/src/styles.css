@@ -1465,7 +1465,15 @@ td.col-available-linear-ft {
   grid-column: span 2;
 }
 
+.inventory-width-selector {
+  grid-column: span 2;
+}
+
 .reports-width-selector .width-button-grid {
+  grid-template-columns: repeat(5, minmax(3.25rem, 1fr));
+}
+
+.inventory-width-selector .width-button-grid {
   grid-template-columns: repeat(5, minmax(3.25rem, 1fr));
 }
 
@@ -1682,6 +1690,10 @@ td.col-available-linear-ft {
   }
 
   .reports-width-selector {
+    grid-column: span 1;
+  }
+
+  .inventory-width-selector {
     grid-column: span 1;
   }
 

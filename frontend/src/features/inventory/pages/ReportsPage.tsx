@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
@@ -9,31 +10,48 @@ import {
   MobileRecordCard,
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
+import { Select } from '../../../components/Select';
 import type { ReportsSummaryFilters } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
+import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { formatDate } from '../../../lib/date';
 import { useReportsSummary } from '../hooks/useInventoryQueries';
+import { STANDARD_WIDTH_OPTIONS, getManufacturerOptions, getWidthMode } from '../utils/boxHelpers';
 import {
-  STANDARD_WIDTH_OPTIONS,
-  getManufacturerOptions,
-  hasManufacturerOption,
-  getWidthMode
-} from '../utils/boxHelpers';
-import {
-  parseWarehouseFilterValue
-} from '../utils/warehouseOptions';
+  buildZeroedManufacturerOptions,
+  filterZeroedBoxes,
+  type ZeroedBoxesFilters
+} from '../utils/reportsZeroedFilters';
+import { parseWarehouseFilterValue } from '../utils/warehouseOptions';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 
-const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
+type ReportType = 'never_checked_out' | 'zeroed_boxes' | 'completed_jobs' | 'cancelled_jobs';
+
+const REPORT_TYPE_OPTIONS = [
+  { label: 'Received But Never Checked Out', value: 'never_checked_out' },
+  { label: 'All Zeroed Boxes', value: 'zeroed_boxes' },
+  { label: 'Completed Jobs', value: 'completed_jobs' },
+  { label: 'Cancelled Jobs', value: 'cancelled_jobs' }
+];
+
+const REPORT_TYPE_TITLES: Record<ReportType, string> = {
+  never_checked_out: 'Received But Never Checked Out',
+  zeroed_boxes: 'All Zeroed Boxes',
+  completed_jobs: 'Completed Jobs',
+  cancelled_jobs: 'Cancelled Jobs'
+};
 
 const EMPTY_FILTERS: ReportsSummaryFilters = {
-  warehouse: '',
-  manufacturer: '',
-  film: '',
-  width: '72',
-  from: '',
-  to: ''
+  warehouse: ''
 };
+
+const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
+  manufacturer: '',
+  q: '',
+  width: ''
+};
+
+const ZEROED_WIDTH_OPTIONS = ['ALL', ...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 
 function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
@@ -43,47 +61,93 @@ export default function ReportsPage() {
   const navigate = useNavigate();
   const isPhoneLayout = useIsPhoneLayout();
   const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
+  const [reportType, setReportType] = useState<ReportType>('never_checked_out');
+  const [zeroedFilters, setZeroedFilters] = useState<ZeroedBoxesFilters>(EMPTY_ZEROED_FILTERS);
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
+
   const reportsQuery = useReportsSummary(filters);
-  const widthMode = getWidthMode(filters.width || '72');
-  const widthButtonValues = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
-  const manufacturerOptions = getManufacturerOptions();
-  const isKnownManufacturer = hasManufacturerOption(filters.manufacturer || '', manufacturerOptions);
-  const manufacturerSelectValue = !filters.manufacturer
-    ? ''
-    : isKnownManufacturer
-      ? filters.manufacturer
-      : CUSTOM_MANUFACTURER_OPTION;
-  const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
+  const zeroedFallbackQuery = useQuery({
+    queryKey: ['reports', 'zeroed-fallback', filters.warehouse || 'ALL'],
+    queryFn: () =>
+      searchOfflineBoxes({
+        warehouse: filters.warehouse || '',
+        manufacturer: '',
+        q: '',
+        status: 'ZEROED',
+        film: '',
+        width: '',
+        showRetired: true
+      })
+  });
+  const knownManufacturerOptions = useMemo(() => getManufacturerOptions(), []);
+  const neverCheckedOut = reportsQuery.data?.neverCheckedOut || [];
+  const completedJobs = reportsQuery.data?.completedJobs || [];
+  const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
+  const zeroedBoxes = useMemo(() => {
+    const fromSummary = reportsQuery.data?.zeroedBoxes || [];
+    if (fromSummary.length) {
+      return fromSummary;
+    }
+
+    return (zeroedFallbackQuery.data || [])
+      .filter((box) => box.status === 'ZEROED' && box.zeroedDate)
+      .map((box) => ({
+        boxId: box.boxId,
+        warehouse: box.warehouse,
+        manufacturer: box.manufacturer,
+        filmName: box.filmName,
+        widthIn: box.widthIn,
+        zeroedDate: box.zeroedDate
+      }));
+  }, [reportsQuery.data?.zeroedBoxes, zeroedFallbackQuery.data]);
+  const zeroedManufacturerOptions = useMemo(
+    () =>
+      buildZeroedManufacturerOptions(
+        zeroedBoxes,
+        knownManufacturerOptions,
+        zeroedFilters.manufacturer
+      ),
+    [knownManufacturerOptions, zeroedBoxes, zeroedFilters.manufacturer]
+  );
+  const filteredZeroedBoxes = useMemo(
+    () => filterZeroedBoxes(zeroedBoxes, zeroedFilters),
+    [zeroedBoxes, zeroedFilters]
+  );
+  const zeroedWidthMode = zeroedFilters.width ? getWidthMode(zeroedFilters.width) : '';
   const isCustomWidthValid =
     customWidthDraft.trim() !== '' &&
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
-  const completedJobs = reportsQuery.data?.completedJobs || [];
-  const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
 
   useEffect(() => {
-    if (widthMode === 'CUSTOM') {
-      setCustomWidthDraft(filters.width || '');
+    if (reportType !== 'zeroed_boxes') {
+      setIsCustomWidthOpen(false);
+      setCustomWidthDraft('');
+    }
+  }, [reportType]);
+
+  function patchWarehouse(warehouse: string) {
+    setFilters({ warehouse: parseWarehouseFilterValue(warehouse) });
+  }
+
+  function patchZeroedFilters(next: Partial<ZeroedBoxesFilters>) {
+    setZeroedFilters((current) => ({ ...current, ...next }));
+  }
+
+  function handleZeroedWidthClick(value: (typeof ZEROED_WIDTH_OPTIONS)[number]) {
+    if (value === 'ALL') {
+      patchZeroedFilters({ width: '' });
       return;
     }
 
-    setCustomWidthDraft('');
-  }, [filters.width, widthMode]);
-
-  function patchFilters(next: Partial<ReportsSummaryFilters>) {
-    setFilters((current) => ({ ...current, ...next }));
-  }
-
-  function handleWidthButtonClick(value: (typeof widthButtonValues)[number]) {
     if (value === 'CUSTOM') {
-      setCustomWidthDraft(widthMode === 'CUSTOM' ? filters.width || '' : '');
+      setCustomWidthDraft(zeroedWidthMode === 'CUSTOM' ? zeroedFilters.width : '');
       setIsCustomWidthOpen(true);
       return;
     }
 
-    patchFilters({ width: value });
+    patchZeroedFilters({ width: value });
   }
 
   function saveCustomWidth() {
@@ -91,7 +155,7 @@ export default function ReportsPage() {
       return;
     }
 
-    patchFilters({ width: customWidthDraft.trim() });
+    patchZeroedFilters({ width: customWidthDraft.trim() });
     setIsCustomWidthOpen(false);
   }
 
@@ -101,397 +165,334 @@ export default function ReportsPage() {
         <div className="panel-title-row">
           <div>
             <h2>Reports</h2>
-            <p className="muted-text">Operational totals and exception lists for the current inventory.</p>
-          </div>
-          <div className="page-actions">
-            <Button type="button" variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>
-              Clear Filters
-            </Button>
+            <p className="muted-text">Select a report view and filter by warehouse.</p>
           </div>
         </div>
 
         <div className="toolbar-grid reports-filters">
+          <Select
+            label="Report Type"
+            value={reportType}
+            onChange={(event) => setReportType(event.target.value as ReportType)}
+            options={REPORT_TYPE_OPTIONS}
+          />
           <WarehouseSelectField
             value={filters.warehouse || ''}
-            onChange={(warehouse) => patchFilters({ warehouse: parseWarehouseFilterValue(warehouse) })}
+            onChange={(warehouse) => patchWarehouse(warehouse)}
             allowAll
           />
-          <label className="field">
-            <span className="field-label">Manufacturer</span>
-            <select
-              className="field-input"
-              value={manufacturerSelectValue}
-              onChange={(event) => {
-                const nextValue = event.target.value;
-                if (nextValue === CUSTOM_MANUFACTURER_OPTION) {
-                  if (!filters.manufacturer || isKnownManufacturer) {
-                    patchFilters({ manufacturer: '' });
-                  }
-                  return;
-                }
+        </div>
 
-                patchFilters({ manufacturer: nextValue });
-              }}
-            >
-              <option value="">All</option>
-              {manufacturerOptions.map((manufacturer) => (
-                <option key={manufacturer} value={manufacturer}>
-                  {manufacturer}
-                </option>
-              ))}
-              <option value={CUSTOM_MANUFACTURER_OPTION}>Enter New Manufacturer</option>
-            </select>
-          </label>
-          {isCustomManufacturerSelected ? (
+        {reportType === 'zeroed_boxes' ? (
+          <div className="toolbar-grid reports-filters">
+            <label className="field">
+              <span className="field-label">Manufacturer</span>
+              <select
+                className="field-input"
+                value={zeroedFilters.manufacturer}
+                onChange={(event) => patchZeroedFilters({ manufacturer: event.target.value })}
+              >
+                <option value="">All</option>
+                {zeroedManufacturerOptions.map((manufacturer) => (
+                  <option key={manufacturer} value={manufacturer}>
+                    {manufacturer}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Input
-              label="New Manufacturer"
-              value={filters.manufacturer || ''}
-              onChange={(event) => patchFilters({ manufacturer: event.target.value })}
-              placeholder="Type manufacturer..."
+              label="Search"
+              value={zeroedFilters.q}
+              onChange={(event) => patchZeroedFilters({ q: event.target.value })}
+              placeholder="BoxID, manufacturer, film"
             />
-          ) : null}
-          <Input
-            label="Film"
-            value={filters.film || ''}
-            onChange={(event) => patchFilters({ film: event.target.value })}
-            placeholder="Contains..."
-          />
-          <div className="field width-selector reports-width-selector">
-            <span className="field-label">Width</span>
-            <div className="width-button-grid">
-              {widthButtonValues.map((value) => {
-                const isActive = value === 'CUSTOM' ? widthMode === 'CUSTOM' : widthMode === value;
-                const buttonLabel =
-                  value === 'CUSTOM' && widthMode === 'CUSTOM' && filters.width
-                    ? filters.width
-                    : value === 'CUSTOM'
-                      ? 'Cust.'
-                      : value;
+            <div className="field width-selector reports-width-selector">
+              <span className="field-label">Width</span>
+              <div className="width-button-grid">
+                {ZEROED_WIDTH_OPTIONS.map((value) => {
+                  const isActive =
+                    value === 'ALL'
+                      ? !zeroedFilters.width
+                      : value === 'CUSTOM'
+                        ? zeroedWidthMode === 'CUSTOM' && Boolean(zeroedFilters.width)
+                        : zeroedWidthMode === value;
+                  const buttonLabel =
+                    value === 'CUSTOM' && zeroedWidthMode === 'CUSTOM' && zeroedFilters.width
+                      ? zeroedFilters.width
+                      : value === 'CUSTOM'
+                        ? 'Cust.'
+                        : value;
 
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`width-chip ${isActive ? 'width-chip-active' : ''}`.trim()}
-                    onClick={() => handleWidthButtonClick(value)}
-                  >
-                    {buttonLabel}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`width-chip ${isActive ? 'width-chip-active' : ''}`.trim()}
+                      onClick={() => handleZeroedWidthClick(value)}
+                    >
+                      {buttonLabel}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-          <Input
-            label="From"
-            type="date"
-            value={filters.from || ''}
-            onChange={(event) => patchFilters({ from: event.target.value })}
-          />
-          <Input
-            label="To"
-            type="date"
-            value={filters.to || ''}
-            onChange={(event) => patchFilters({ to: event.target.value })}
-          />
-        </div>
+        ) : null}
       </section>
 
       <section className="panel">
         <div className="panel-title-row">
-          <h2>Available Feet By Width</h2>
+          <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
         </div>
+
         {reportsQuery.isLoading ? <LoadingState label="Loading reports..." /> : null}
         {reportsQuery.isError ? <p className="error-text">{reportsQuery.error.message}</p> : null}
-        {!reportsQuery.isLoading && !reportsQuery.isError && !reportsQuery.data?.availableFeetByWidth.length ? (
-          <div className="empty-state">No active inventory matched the current filters.</div>
-        ) : null}
-        {reportsQuery.data?.availableFeetByWidth.length ? (
-          isPhoneLayout ? (
-            <div className="mobile-record-list">
-              {reportsQuery.data.availableFeetByWidth.map((row) => (
-                <MobileRecordCard key={row.widthIn}>
-                  <MobileRecordHeader title={`${row.widthIn}"`} />
-                  <MobileFieldList>
-                    <MobileField label="Total Feet" value={row.totalFeetAvailable} />
-                    <MobileField label="Box Count" value={row.boxCount} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Width</th>
-                    <th>Total Feet</th>
-                    <th>Box Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportsQuery.data.availableFeetByWidth.map((row) => (
-                    <tr key={row.widthIn}>
-                      <td>{row.widthIn}</td>
-                      <td>{row.totalFeetAvailable}</td>
-                      <td>{row.boxCount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : null}
-      </section>
 
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2>Received But Never Checked Out</h2>
-        </div>
-        {!reportsQuery.isLoading && !reportsQuery.isError && !reportsQuery.data?.neverCheckedOut.length ? (
-          <div className="empty-state">No received boxes matched this report.</div>
-        ) : null}
-        {reportsQuery.data?.neverCheckedOut.length ? (
-          isPhoneLayout ? (
-            <div className="mobile-record-list">
-              {reportsQuery.data.neverCheckedOut.map((row) => (
-                <MobileRecordCard key={row.boxId}>
-                  <MobileRecordHeader
-                    title={row.boxId}
-                    subtitle={`${row.manufacturer} ${row.filmName}`}
-                    badge={<span className={`badge badge-${row.status}`}>{row.status}</span>}
-                  />
-                  <MobileFieldList>
-                    <MobileField label="Warehouse" value={row.warehouse} />
-                    <MobileField label="Width" value={row.widthIn} />
-                    <MobileField label="Received" value={formatDate(row.receivedDate)} />
-                    <MobileField label="Feet Available" value={row.feetAvailable} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>BoxID</th>
-                    <th>Warehouse</th>
-                    <th>Manufacturer</th>
-                    <th>Film</th>
-                    <th>Width</th>
-                    <th>Received</th>
-                    <th>Status</th>
-                    <th>Feet Available</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportsQuery.data.neverCheckedOut.map((row) => (
-                    <tr key={row.boxId}>
-                      <td>{row.boxId}</td>
-                      <td>{row.warehouse}</td>
-                      <td>{row.manufacturer}</td>
-                      <td>{row.filmName}</td>
-                      <td>{row.widthIn}</td>
-                      <td>{formatDate(row.receivedDate)}</td>
-                      <td>{row.status}</td>
-                      <td>{row.feetAvailable}</td>
-                    </tr>
+        {!reportsQuery.isLoading && !reportsQuery.isError ? (
+          <>
+            {reportType === 'never_checked_out' ? (
+              !neverCheckedOut.length ? (
+                <div className="empty-state">No received boxes matched this report.</div>
+              ) : isPhoneLayout ? (
+                <div className="mobile-record-list">
+                  {neverCheckedOut.map((row) => (
+                    <MobileRecordCard key={row.boxId}>
+                      <MobileRecordHeader
+                        title={row.boxId}
+                        subtitle={`${row.manufacturer} ${row.filmName}`}
+                        badge={<span className={`badge badge-${row.status}`}>{row.status}</span>}
+                      />
+                      <MobileFieldList>
+                        <MobileField label="Warehouse" value={row.warehouse} />
+                        <MobileField label="Width" value={row.widthIn} />
+                        <MobileField label="Received" value={formatDate(row.receivedDate)} />
+                        <MobileField label="Feet Available" value={row.feetAvailable} />
+                      </MobileFieldList>
+                    </MobileRecordCard>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : null}
-      </section>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>BoxID</th>
+                        <th>Warehouse</th>
+                        <th>Manufacturer</th>
+                        <th>Film</th>
+                        <th>Width</th>
+                        <th>Received</th>
+                        <th>Status</th>
+                        <th>Feet Available</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {neverCheckedOut.map((row) => (
+                        <tr key={row.boxId}>
+                          <td>{row.boxId}</td>
+                          <td>{row.warehouse}</td>
+                          <td>{row.manufacturer}</td>
+                          <td>{row.filmName}</td>
+                          <td>{row.widthIn}</td>
+                          <td>{formatDate(row.receivedDate)}</td>
+                          <td>{row.status}</td>
+                          <td>{row.feetAvailable}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
 
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2>Zeroed Boxes Over Time</h2>
-        </div>
-        {!reportsQuery.isLoading && !reportsQuery.isError && !reportsQuery.data?.zeroedByMonth.length ? (
-          <div className="empty-state">No zeroed boxes matched this report.</div>
-        ) : null}
-        {reportsQuery.data?.zeroedByMonth.length ? (
-          isPhoneLayout ? (
-            <div className="mobile-record-list">
-              {reportsQuery.data.zeroedByMonth.map((row) => (
-                <MobileRecordCard key={row.month}>
-                  <MobileRecordHeader title={row.month} />
-                  <MobileFieldList>
-                    <MobileField label="Zeroed Count" value={row.zeroedCount} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Month</th>
-                    <th>Zeroed Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportsQuery.data.zeroedByMonth.map((row) => (
-                    <tr key={row.month}>
-                      <td>{row.month}</td>
-                      <td>{row.zeroedCount}</td>
-                    </tr>
+            {reportType === 'zeroed_boxes' ? (
+              !filteredZeroedBoxes.length ? (
+                <div className="empty-state">No zeroed boxes matched this report.</div>
+              ) : isPhoneLayout ? (
+                <div className="mobile-record-list">
+                  {filteredZeroedBoxes.map((row) => (
+                    <MobileRecordCard key={row.boxId}>
+                      <MobileRecordHeader
+                        title={row.boxId}
+                        subtitle={`${row.manufacturer} ${row.filmName}`}
+                        onTitleClick={() => navigate(`/inventory/${encodeURIComponent(row.boxId)}`)}
+                      />
+                      <MobileFieldList>
+                        <MobileField label="Warehouse" value={row.warehouse} />
+                        <MobileField label="Zeroed Date" value={formatDate(row.zeroedDate)} />
+                      </MobileFieldList>
+                    </MobileRecordCard>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : null}
-      </section>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>BoxID</th>
+                        <th>Warehouse</th>
+                        <th>Manufacturer</th>
+                        <th>Film</th>
+                        <th>Zeroed Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredZeroedBoxes.map((row) => (
+                        <tr key={row.boxId}>
+                          <td>
+                            <button
+                              type="button"
+                              className="row-button"
+                              onClick={() => navigate(`/inventory/${encodeURIComponent(row.boxId)}`)}
+                            >
+                              {row.boxId}
+                            </button>
+                          </td>
+                          <td>{row.warehouse}</td>
+                          <td>{row.manufacturer}</td>
+                          <td>{row.filmName}</td>
+                          <td>{formatDate(row.zeroedDate)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
 
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2>Completed Jobs</h2>
-        </div>
-        {!reportsQuery.isLoading && !reportsQuery.isError && !completedJobs.length ? (
-          <div className="empty-state">No completed jobs matched the current filters.</div>
-        ) : null}
-        {completedJobs.length ? (
-          isPhoneLayout ? (
-            <div className="mobile-record-list">
-              {completedJobs.map((row) => (
-                <MobileRecordCard key={`completed-${row.jobNumber}`}>
-                  <MobileRecordHeader
-                    title={row.jobNumber}
-                    subtitle={`${row.warehouse} warehouse`}
-                    badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
-                  />
-                  <MobileFieldList>
-                    <MobileField label="Install Date" value={formatDate(row.dueDate)} />
-                    <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Job ID</th>
-                    <th>Warehouse</th>
-                    <th>Install Date</th>
-                    <th>Crew Leader</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
+            {reportType === 'completed_jobs' ? (
+              !completedJobs.length ? (
+                <div className="empty-state">No completed jobs matched the current filters.</div>
+              ) : isPhoneLayout ? (
+                <div className="mobile-record-list">
                   {completedJobs.map((row) => (
-                    <tr key={`completed-${row.jobNumber}`}>
-                      <td>
-                        <button
-                          type="button"
-                          className="row-button"
-                          onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
-                        >
-                          {row.jobNumber}
-                        </button>
-                      </td>
-                      <td>{row.warehouse}</td>
-                      <td>{formatDate(row.dueDate)}</td>
-                      <td>{row.crewLeader || '--'}</td>
-                      <td>
-                        <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
-                      </td>
-                    </tr>
+                    <MobileRecordCard key={`completed-${row.jobNumber}`}>
+                      <MobileRecordHeader
+                        title={row.jobNumber}
+                        subtitle={`${row.warehouse} warehouse`}
+                        badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
+                        onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                      />
+                      <MobileFieldList>
+                        <MobileField label="Install Date" value={formatDate(row.dueDate)} />
+                        <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
+                      </MobileFieldList>
+                    </MobileRecordCard>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : null}
-      </section>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Job ID</th>
+                        <th>Warehouse</th>
+                        <th>Install Date</th>
+                        <th>Crew Leader</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedJobs.map((row) => (
+                        <tr key={`completed-${row.jobNumber}`}>
+                          <td>
+                            <button
+                              type="button"
+                              className="row-button"
+                              onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                            >
+                              {row.jobNumber}
+                            </button>
+                          </td>
+                          <td>{row.warehouse}</td>
+                          <td>{formatDate(row.dueDate)}</td>
+                          <td>{row.crewLeader || '--'}</td>
+                          <td>
+                            <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
 
-      <section className="panel">
-        <div className="panel-title-row">
-          <h2>Cancelled Jobs</h2>
-        </div>
-        {!reportsQuery.isLoading && !reportsQuery.isError && !cancelledJobs.length ? (
-          <div className="empty-state">No cancelled jobs matched the current filters.</div>
-        ) : null}
-        {cancelledJobs.length ? (
-          isPhoneLayout ? (
-            <div className="mobile-record-list">
-              {cancelledJobs.map((row) => (
-                <MobileRecordCard key={`cancelled-${row.jobNumber}`}>
-                  <MobileRecordHeader
-                    title={row.jobNumber}
-                    subtitle={`${row.warehouse} warehouse`}
-                    badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
-                  />
-                  <MobileFieldList>
-                    <MobileField label="Install Date" value={formatDate(row.dueDate)} />
-                    <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
-                    <MobileField label="Required LF" value={row.requiredFeet} />
-                    <MobileField label="Allocated LF" value={row.allocatedFeet} />
-                    <MobileField label="Remaining LF" value={row.remainingFeet} />
-                    <MobileField label="Closed" value={formatDate(row.closedAt)} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Job ID</th>
-                    <th>Warehouse</th>
-                    <th>Install Date</th>
-                    <th>Crew Leader</th>
-                    <th>Status</th>
-                    <th>Required LF</th>
-                    <th>Allocated LF</th>
-                    <th>Remaining LF</th>
-                    <th>Closed</th>
-                  </tr>
-                </thead>
-                <tbody>
+            {reportType === 'cancelled_jobs' ? (
+              !cancelledJobs.length ? (
+                <div className="empty-state">No cancelled jobs matched the current filters.</div>
+              ) : isPhoneLayout ? (
+                <div className="mobile-record-list">
                   {cancelledJobs.map((row) => (
-                    <tr key={`cancelled-${row.jobNumber}`}>
-                      <td>
-                        <button
-                          type="button"
-                          className="row-button"
-                          onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
-                        >
-                          {row.jobNumber}
-                        </button>
-                      </td>
-                      <td>{row.warehouse}</td>
-                      <td>{formatDate(row.dueDate)}</td>
-                      <td>{row.crewLeader || '--'}</td>
-                      <td>
-                        <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
-                      </td>
-                      <td>{row.requiredFeet}</td>
-                      <td>{row.allocatedFeet}</td>
-                      <td>{row.remainingFeet}</td>
-                      <td>{formatDate(row.closedAt)}</td>
-                    </tr>
+                    <MobileRecordCard key={`cancelled-${row.jobNumber}`}>
+                      <MobileRecordHeader
+                        title={row.jobNumber}
+                        subtitle={`${row.warehouse} warehouse`}
+                        badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
+                        onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                      />
+                      <MobileFieldList>
+                        <MobileField label="Install Date" value={formatDate(row.dueDate)} />
+                        <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
+                        <MobileField label="Required LF" value={row.requiredFeet} />
+                        <MobileField label="Allocated LF" value={row.allocatedFeet} />
+                        <MobileField label="Remaining LF" value={row.remainingFeet} />
+                        <MobileField label="Closed" value={formatDate(row.closedAt)} />
+                      </MobileFieldList>
+                    </MobileRecordCard>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Job ID</th>
+                        <th>Warehouse</th>
+                        <th>Install Date</th>
+                        <th>Crew Leader</th>
+                        <th>Status</th>
+                        <th>Required LF</th>
+                        <th>Allocated LF</th>
+                        <th>Remaining LF</th>
+                        <th>Closed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cancelledJobs.map((row) => (
+                        <tr key={`cancelled-${row.jobNumber}`}>
+                          <td>
+                            <button
+                              type="button"
+                              className="row-button"
+                              onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                            >
+                              {row.jobNumber}
+                            </button>
+                          </td>
+                          <td>{row.warehouse}</td>
+                          <td>{formatDate(row.dueDate)}</td>
+                          <td>{row.crewLeader || '--'}</td>
+                          <td>
+                            <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
+                          </td>
+                          <td>{row.requiredFeet}</td>
+                          <td>{row.allocatedFeet}</td>
+                          <td>{row.remainingFeet}</td>
+                          <td>{formatDate(row.closedAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : null}
+          </>
         ) : null}
       </section>
 
       {isCustomWidthOpen ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onClick={() => setIsCustomWidthOpen(false)}
-        >
+        <div className="dialog-backdrop" role="presentation" onClick={() => setIsCustomWidthOpen(false)}>
           <div
             className="dialog width-dialog"
             role="dialog"
