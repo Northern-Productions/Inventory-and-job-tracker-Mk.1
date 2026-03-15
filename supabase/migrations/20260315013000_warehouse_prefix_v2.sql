@@ -166,8 +166,8 @@ begin
     updated_by
   )
   values
-    (p_org_id, 'IL1', 'Wauconda Illinois #1', 'IL1', app_api.trim_text(p_actor), app_api.trim_text(p_actor)),
-    (p_org_id, 'MS1', 'Ridgeland Mississippi #1', 'MS1', app_api.trim_text(p_actor), app_api.trim_text(p_actor))
+    (p_org_id, 'IL1', 'Wauconda IL1', 'IL1', app_api.trim_text(p_actor), app_api.trim_text(p_actor)),
+    (p_org_id, 'MS1', 'Ridgeland MS1', 'MS1', app_api.trim_text(p_actor), app_api.trim_text(p_actor))
   on conflict (org_id, code) do update set
     name = excluded.name,
     box_id_prefix = excluded.box_id_prefix,
@@ -650,8 +650,8 @@ begin
     updated_by
   )
   values
-    (target_org_id, 'IL1', 'Wauconda Illinois #1', 'IL1', app_api.trim_text(actor), app_api.trim_text(actor)),
-    (target_org_id, 'MS1', 'Ridgeland Mississippi #1', 'MS1', app_api.trim_text(actor), app_api.trim_text(actor))
+    (target_org_id, 'IL1', 'Wauconda IL1', 'IL1', app_api.trim_text(actor), app_api.trim_text(actor)),
+    (target_org_id, 'MS1', 'Ridgeland MS1', 'MS1', app_api.trim_text(actor), app_api.trim_text(actor))
   on conflict (org_id, code) do update set
     name = excluded.name,
     box_id_prefix = excluded.box_id_prefix,

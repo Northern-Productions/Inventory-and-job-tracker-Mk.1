@@ -45,7 +45,7 @@ describe('warehouse client APIs', () => {
     requestMock.mockResolvedValueOnce({
       data: {
         entries: [
-          { code: 'il1', name: 'Wauconda Illinois #1', boxIdPrefix: 'il1' },
+          { code: 'il1', name: 'Wauconda IL1', boxIdPrefix: 'il1' },
           { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'tx1' }
         ]
       },
@@ -55,7 +55,7 @@ describe('warehouse client APIs', () => {
     const result = await listWarehouses();
 
     expect(result).toEqual([
-      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+      { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
       { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'TX1' }
     ]);
     expect(requestMock).toHaveBeenCalledWith('POST', '/warehouses/list', { body: {} });
@@ -66,7 +66,7 @@ describe('warehouse client APIs', () => {
       .mockResolvedValueOnce({
         data: {
           entries: [
-            { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+            { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
             { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'TX1' }
           ]
         },

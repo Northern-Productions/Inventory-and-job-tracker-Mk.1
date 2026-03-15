@@ -1,8 +1,8 @@
 export const WAREHOUSE_CODES = ['IL1', 'MS1'] as const;
 export type Warehouse = string;
 export const WAREHOUSE_LABELS: Record<string, string> = {
-  IL1: 'Wauconda Illinois #1',
-  MS1: 'Ridgeland Mississippi #1'
+  IL1: 'Wauconda IL1',
+  MS1: 'Ridgeland MS1'
 };
 
 export function isWarehouse(value: string | null | undefined): value is Warehouse {

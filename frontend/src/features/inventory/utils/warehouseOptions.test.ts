@@ -23,26 +23,26 @@ describe('warehouseOptions', () => {
 
   it('builds select options from warehouse entries', () => {
     const entries = [
-      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+      { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
       { code: 'CA1', name: 'California #1', boxIdPrefix: 'CA1' }
     ];
 
     expect(toWarehouseSelectOptions(entries)).toEqual([
-      { label: 'Wauconda Illinois #1', value: 'IL1' },
+      { label: 'Wauconda IL1', value: 'IL1' },
       { label: 'California #1', value: 'CA1' }
     ]);
 
     expect(toWarehouseFilterSelectOptions(entries)).toEqual([
       { label: 'All', value: ALL_WAREHOUSES_OPTION_VALUE },
-      { label: 'Wauconda Illinois #1', value: 'IL1' },
+      { label: 'Wauconda IL1', value: 'IL1' },
       { label: 'California #1', value: 'CA1' }
     ]);
   });
 
   it('normalizes warehouse codes and resolves prefixes', () => {
     const entries = [
-      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
-      { code: 'MS1', name: 'Ridgeland Mississippi #1', boxIdPrefix: 'MS1' },
+      { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+      { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' },
       { code: 'CA1', name: 'California #1', boxIdPrefix: 'CA1' }
     ];
 

@@ -829,6 +829,11 @@ td.col-on-hand-linear-ft {
   min-width: 7.25rem;
 }
 
+th.col-box-id,
+td.col-box-id {
+  min-width: var(--box-id-col-width, 8ch);
+}
+
 th.col-available-linear-ft,
 td.col-available-linear-ft {
   min-width: 6.25rem;
@@ -849,6 +854,7 @@ td.col-available-linear-ft {
 
 .inventory-table .row-button {
   text-align: center;
+  white-space: nowrap;
 }
 
 .row-button:hover,

@@ -43,8 +43,8 @@ describe('WarehouseSelectField', () => {
   beforeEach(() => {
     useWarehouseRegistryMock.mockReturnValue({
       entries: [
-        { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
-        { code: 'MS1', name: 'Ridgeland Mississippi #1', boxIdPrefix: 'MS1' }
+        { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
       ]
     });
   });
@@ -59,8 +59,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All',
-      'Wauconda Illinois #1',
-      'Ridgeland Mississippi #1',
+      'Wauconda IL1',
+      'Ridgeland MS1',
       'Add New Warehouse...'
     ]);
   });
@@ -75,8 +75,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All',
-      'Wauconda Illinois #1',
-      'Ridgeland Mississippi #1'
+      'Wauconda IL1',
+      'Ridgeland MS1'
     ]);
     expect(html).not.toContain('Add New Warehouse...');
   });

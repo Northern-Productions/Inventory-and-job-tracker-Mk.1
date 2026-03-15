@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+import { useMemo } from 'react';
 import { Button } from '../../../components/Button';
 import {
   MobileActionStack,
@@ -18,6 +20,17 @@ interface InventoryTableProps {
 
 export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
   const isPhoneLayout = useIsPhoneLayout();
+  const boxIdColumnWidth = useMemo(() => {
+    const longest = boxes.reduce((maxLength, box) => Math.max(maxLength, box.boxId.length), 0);
+    return `${Math.max(longest + 2, 8)}ch`;
+  }, [boxes]);
+  const tableStyle = useMemo(
+    () =>
+      ({
+        '--box-id-col-width': boxIdColumnWidth
+      }) as CSSProperties,
+    [boxIdColumnWidth]
+  );
 
   if (!boxes.length) {
     return <div className="empty-state">No boxes matched the current filters.</div>;
@@ -65,10 +78,10 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
 
   return (
     <div className="table-wrap">
-      <table className="inventory-table">
+      <table className="inventory-table" style={tableStyle}>
         <thead>
           <tr>
-            <th>BoxID</th>
+            <th className="col-box-id">BoxID</th>
             <th>Manufacturer</th>
             <th>Film</th>
             <th>Width</th>
@@ -85,7 +98,7 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
         <tbody>
           {boxes.map((box) => (
             <tr key={box.boxId}>
-              <td>
+              <td className="col-box-id">
                 <button className="row-button" type="button" onClick={() => onSelect(box.boxId)}>
                   {box.boxId}
                 </button>
