@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MANUFACTURER_OPTIONS,
+  canonicalizeManufacturerLabel,
   createDraftFromBox,
   deriveCoreWeightLbs,
   deriveFeetAvailableFromRollWeight,
@@ -22,6 +23,13 @@ import {
 } from './boxHelpers';
 
 describe('boxHelpers', () => {
+  it('canonicalizes legacy manufacturer aliases while preserving 3M Fasara', () => {
+    expect(canonicalizeManufacturerLabel('3M')).toBe('3M Solar');
+    expect(canonicalizeManufacturerLabel('Avery')).toBe('Avery Dennison');
+    expect(canonicalizeManufacturerLabel('Solar Guard')).toBe('Solar Gard');
+    expect(canonicalizeManufacturerLabel('3M Fasara')).toBe('3M Fasara');
+  });
+
   it('builds film keys in uppercase', () => {
     expect(deriveFilmKey('SunTek', 'Carbon 35')).toBe('SUNTEK|CARBON 35');
   });

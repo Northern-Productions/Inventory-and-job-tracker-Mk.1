@@ -62,6 +62,21 @@ describe('filterZeroedBoxes', () => {
     expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-1001', 'Z-3003']);
   });
 
+  it('matches legacy manufacturer aliases to canonical rows', () => {
+    const rows = [
+      row({ boxId: 'Z-1001', manufacturer: 'Solar Gard' }),
+      row({ boxId: 'Z-2002', manufacturer: 'Llumar' })
+    ];
+
+    const filtered = filterZeroedBoxes(rows, {
+      manufacturer: 'Solar Guard',
+      q: '',
+      width: ''
+    });
+
+    expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-1001']);
+  });
+
   it('supports custom width filtering', () => {
     const rows = [
       row({ boxId: 'Z-1001', widthIn: 72 }),
@@ -105,5 +120,12 @@ describe('buildZeroedManufacturerOptions', () => {
     const options = buildZeroedManufacturerOptions(rows, ['Madico'], 'SunTek');
 
     expect(options).toEqual(['Llumar', 'Madico', 'SunTek']);
+  });
+
+  it('rewrites legacy aliases to canonical labels', () => {
+    const rows = [row({ boxId: 'Z-3003', manufacturer: 'Solar Guard' })];
+    const options = buildZeroedManufacturerOptions(rows, ['Avery', '3M']);
+
+    expect(options).toEqual(['3M Solar', 'Avery Dennison', 'Solar Gard']);
   });
 });

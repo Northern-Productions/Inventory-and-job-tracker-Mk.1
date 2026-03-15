@@ -88,6 +88,20 @@ describe('offline inventory filters', () => {
     expect(result.map((box) => box.boxId)).toEqual(['IL1-1001', 'IL1-1003']);
   });
 
+  it('matches legacy manufacturer filters against canonical labels', () => {
+    const boxes = [
+      createBox({ boxId: 'IL1-1001', manufacturer: 'Solar Gard' }),
+      createBox({ boxId: 'IL1-1002', manufacturer: 'Llumar' })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: 'IL1',
+      manufacturer: 'Solar Guard'
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-1001']);
+  });
+
   it('moves low stock boxes to the front when a film filter is used', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1002', filmName: 'Ceramic 30', feetAvailable: 40 }),

@@ -7,9 +7,22 @@ import type {
   Warehouse
 } from '../../../domain';
 import { toDateInputValue, todayDateString } from '../../../lib/date';
+import {
+  canonicalizeManufacturerLabel,
+  normalizeManufacturerLookupKey
+} from '../../../lib/manufacturerCanonicalization';
+
+export { canonicalizeManufacturerLabel };
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
-export const MANUFACTURER_OPTIONS = ['3M', '3M Fasara', 'Llumar', 'Solar Gard', 'SOLYX', 'Avery'] as const;
+export const MANUFACTURER_OPTIONS = [
+  '3M Solar',
+  '3M Fasara',
+  'Llumar',
+  'Solar Gard',
+  'SOLYX',
+  'Avery Dennison'
+] as const;
 export const CORE_TYPE_OPTIONS = [
   'White plastic',
   'Red plastic',
@@ -52,11 +65,11 @@ export interface BoxDraft {
 }
 
 function normalizeManufacturerLabel(value: string) {
-  return value.trim().replace(/\s+/g, ' ');
+  return canonicalizeManufacturerLabel(value);
 }
 
 function normalizeManufacturerKey(value: string) {
-  return normalizeManufacturerLabel(value).toLowerCase();
+  return normalizeManufacturerLookupKey(value);
 }
 
 function dedupeManufacturerLabels(values: string[]) {
@@ -107,6 +120,11 @@ function readCustomManufacturerOptions() {
     customManufacturerCache = dedupeManufacturerLabels(
       parsed.filter((entry): entry is string => typeof entry === 'string')
     );
+    const normalizedRaw = JSON.stringify(customManufacturerCache);
+    if (normalizedRaw !== raw) {
+      // Rewrite stale aliases (or mixed casing/spacing variants) the first time we read them.
+      window.localStorage.setItem(CUSTOM_MANUFACTURERS_STORAGE_KEY, normalizedRaw);
+    }
     return customManufacturerCache;
   } catch (_error) {
     customManufacturerCache = [];

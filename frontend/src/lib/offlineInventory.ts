@@ -1,4 +1,5 @@
 import type { Box, SearchBoxesParams, Warehouse } from '../domain';
+import { normalizeManufacturerLookupKey } from './manufacturerCanonicalization';
 
 const OFFLINE_DB_NAME = 'inventory-offline';
 const OFFLINE_DB_VERSION = 1;
@@ -294,7 +295,7 @@ function isLowStockBox(box: Box): boolean {
 }
 
 function normalizeManufacturerLookup(value: string): string {
-  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return normalizeManufacturerLookupKey(value);
 }
 
 function openOfflineInventoryDatabase(): Promise<IDBDatabase> {

@@ -21,13 +21,16 @@ $profileConfigs = @{
     run_dir = "backend/migration-dry-runs/il-assigned"
     default_prefix = "IL1"
     legacy_m_prefix = "MS1"
-    manufacturer_map = @{}
+    manufacturer_map = @{
+      "SOLAR GUARD" = "Solar Gard"
+    }
   }
   MS = [pscustomobject]@{
     run_dir = "backend/migration-dry-runs/ms-inventory"
     default_prefix = "MS1"
     legacy_m_prefix = "MS1"
     manufacturer_map = @{
+      "SOLAR GUARD" = "Solar Gard"
       "LLUMARVISTA" = "Llumar"
       "MADICO" = "ASWFVKOOL"
     }

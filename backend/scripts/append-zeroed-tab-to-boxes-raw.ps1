@@ -77,6 +77,23 @@ function Normalize-Text {
   return [regex]::Replace($clean, "\s+", " ").Trim()
 }
 
+function Canonicalize-ManufacturerName {
+  param([AllowNull()][string]$Value)
+
+  $normalized = "$Value".Trim()
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return ""
+  }
+
+  $collapsed = [regex]::Replace($normalized, "\s+", " ")
+  switch ($collapsed.ToUpperInvariant()) {
+    "3M" { return "3M Solar" }
+    "AVERY" { return "Avery Dennison" }
+    "SOLAR GUARD" { return "Solar Gard" }
+    default { return $collapsed }
+  }
+}
+
 function Parse-FilmNameFromDescription {
   param(
     [string]$Description,
@@ -163,7 +180,7 @@ function Infer-ManufacturerFromKeywords {
     return [pscustomobject]@{ Manufacturer = "Avery Dennison"; Source = "keyword_avery" }
   }
   if ($hasSolarGuardCue) {
-    return [pscustomobject]@{ Manufacturer = "Solar Guard"; Source = "keyword_solar_guard" }
+    return [pscustomobject]@{ Manufacturer = "Solar Gard"; Source = "keyword_solar_guard" }
   }
   if ($hasDiNocCue) {
     return [pscustomobject]@{ Manufacturer = "Di-Noc"; Source = "keyword_di_noc" }
@@ -268,12 +285,13 @@ function New-ZeroedBoxesRawRow {
     [string]$RawDescription
   )
 
-  $filmKey = "$($Manufacturer.ToUpperInvariant())|$($FilmName.ToUpperInvariant())"
+  $canonicalManufacturer = Canonicalize-ManufacturerName -Value $Manufacturer
+  $filmKey = "$($canonicalManufacturer.ToUpperInvariant())|$($FilmName.ToUpperInvariant())"
   $notes = "SourceSheet=Zeroed Out Inventory; SourceRow=$RowNumber; DateMethod=$DateMethod; ManufacturerSource=$ManufacturerSource; RawDescription=$RawDescription"
 
   return [pscustomobject][ordered]@{
     BoxID = $BoxId
-    Manufacturer = $Manufacturer
+    Manufacturer = $canonicalManufacturer
     FilmName = $FilmName
     WidthIn = "$Width"
     InitialFeet = "0"
@@ -355,7 +373,7 @@ $filmIndex = @{}
 foreach ($row in $baseRows) {
   $film = Normalize-Text -Value $row.FilmName
   $width = "$($row.WidthIn)".Trim()
-  $manufacturer = "$($row.Manufacturer)".Trim()
+  $manufacturer = Canonicalize-ManufacturerName -Value $row.Manufacturer
 
   if ([string]::IsNullOrWhiteSpace($film) -or [string]::IsNullOrWhiteSpace($manufacturer)) {
     continue
@@ -445,7 +463,7 @@ foreach ($zero in $zeroRows) {
   }
 
   $manufacturerResolution = Resolve-Manufacturer -FilmName $filmName -Width "$widthParsed" -FilmWidthIndex $filmWidthIndex -FilmIndex $filmIndex
-  $manufacturer = "$($manufacturerResolution.Manufacturer)".Trim()
+  $manufacturer = Canonicalize-ManufacturerName -Value $manufacturerResolution.Manufacturer
   $manufacturerSource = "$($manufacturerResolution.Source)".Trim()
 
   if ([string]::IsNullOrWhiteSpace($manufacturer)) {

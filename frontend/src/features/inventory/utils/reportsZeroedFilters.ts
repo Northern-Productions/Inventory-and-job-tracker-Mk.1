@@ -1,4 +1,8 @@
 import type { ZeroedBoxRow } from '../../../domain';
+import {
+  canonicalizeManufacturerLabel,
+  normalizeManufacturerLookupKey
+} from '../../../lib/manufacturerCanonicalization';
 
 export interface ZeroedBoxesFilters {
   manufacturer: string;
@@ -14,6 +18,10 @@ function normalizeLookup(value: unknown): string {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeManufacturerLookup(value: unknown): string {
+  return normalizeManufacturerLookupKey(normalizeText(value));
+}
+
 function parseWidth(value: unknown): number | null {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -24,20 +32,31 @@ function parseWidth(value: unknown): number | null {
 }
 
 function matchesManufacturer(row: ZeroedBoxRow, manufacturer: string): boolean {
-  const target = normalizeLookup(manufacturer);
+  const target = normalizeManufacturerLookup(manufacturer);
   if (!target) {
     return true;
   }
-  return normalizeLookup(row.manufacturer) === target;
+  return normalizeManufacturerLookup(row.manufacturer) === target;
 }
 
 function matchesSearchQuery(row: ZeroedBoxRow, query: string): boolean {
-  const normalizedQuery = normalizeLookup(query);
-  if (!normalizedQuery) {
+  const rawQuery = normalizeLookup(query);
+  if (!rawQuery) {
     return true;
   }
-  const haystack = normalizeLookup([row.boxId, row.manufacturer, row.filmName].join(' '));
-  return haystack.includes(normalizedQuery);
+
+  const canonicalQuery = normalizeLookup(canonicalizeManufacturerLabel(normalizeText(query)));
+  const haystack = normalizeLookup([
+    row.boxId,
+    row.manufacturer,
+    canonicalizeManufacturerLabel(row.manufacturer),
+    row.filmName
+  ].join(' '));
+  if (haystack.includes(rawQuery)) {
+    return true;
+  }
+
+  return canonicalQuery !== rawQuery ? haystack.includes(canonicalQuery) : false;
 }
 
 function matchesWidth(row: ZeroedBoxRow, width: string): boolean {
@@ -86,11 +105,11 @@ export function buildZeroedManufacturerOptions(
   const byKey = new Map<string, string>();
 
   const add = (value: string) => {
-    const normalized = normalizeText(value);
+    const normalized = canonicalizeManufacturerLabel(normalizeText(value));
     if (!normalized) {
       return;
     }
-    const key = normalizeLookup(normalized);
+    const key = normalizeManufacturerLookup(normalized);
     if (!byKey.has(key)) {
       byKey.set(key, normalized);
     }

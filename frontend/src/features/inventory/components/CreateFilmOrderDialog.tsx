@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
-import { getManufacturerOptions, hasManufacturerOption } from '../utils/boxHelpers';
+import {
+  canonicalizeManufacturerLabel,
+  getManufacturerOptions,
+  hasManufacturerOption
+} from '../utils/boxHelpers';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
@@ -65,6 +69,7 @@ export function CreateFilmOrderDialog({
   function handleSubmit() {
     const parsedWidth = Number(widthIn);
     const parsedRequestedFeet = Number(requestedFeet);
+    const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
 
     if (!jobNumber.trim()) {
       setError('Job ID is required.');
@@ -76,7 +81,7 @@ export function CreateFilmOrderDialog({
       return;
     }
 
-    if (!manufacturer.trim()) {
+    if (!normalizedManufacturer.trim()) {
       setError('Manufacturer is required.');
       return;
     }
@@ -95,7 +100,7 @@ export function CreateFilmOrderDialog({
     onSubmit({
       jobNumber: jobNumber.trim(),
       warehouse,
-      manufacturer: manufacturer.trim(),
+      manufacturer: normalizedManufacturer.trim(),
       filmName: filmName.trim(),
       widthIn: parsedWidth,
       requestedFeet: parsedRequestedFeet

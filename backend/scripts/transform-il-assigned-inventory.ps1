@@ -30,7 +30,9 @@ $profileConfigs = @{
     default_prefix = "IL1"
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $false
-    manufacturer_map = @{}
+    manufacturer_map = @{
+      "SOLAR GUARD" = "Solar Gard"
+    }
     baseline_accepted = 644
     baseline_skipped = 36
   }
@@ -53,6 +55,7 @@ $profileConfigs = @{
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $true
     manufacturer_map = @{
+      "SOLAR GUARD" = "Solar Gard"
       "LLUMARVISTA" = "Llumar"
       "MADICO" = "ASWFVKOOL"
     }

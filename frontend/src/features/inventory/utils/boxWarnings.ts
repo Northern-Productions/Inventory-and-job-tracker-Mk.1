@@ -1,5 +1,6 @@
 import type { AddBoxPayload, Box, UpdateBoxPayload } from '../../../domain';
 import { deriveFeetAvailableFromRollWeight } from './boxHelpers';
+import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 
 function hasEstablishedWeights(box: Box): boolean {
   return box.initialWeightLbs !== null || box.lastRollWeightLbs !== null || box.lfWeightLbsPerFt !== null;
@@ -54,7 +55,8 @@ export function getAddOrEditWarnings(
     currentBox &&
     hasEstablishedWeights(currentBox) &&
     currentBox.receivedDate &&
-    (currentBox.manufacturer !== payload.manufacturer ||
+    (normalizeManufacturerLookupKey(currentBox.manufacturer) !==
+      normalizeManufacturerLookupKey(payload.manufacturer) ||
       currentBox.filmName !== payload.filmName ||
       currentBox.widthIn !== payload.widthIn ||
       currentBox.initialFeet !== payload.initialFeet)

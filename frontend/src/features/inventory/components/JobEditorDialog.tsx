@@ -5,6 +5,7 @@ import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   STANDARD_WIDTH_OPTIONS,
   addManufacturerOption,
+  canonicalizeManufacturerLabel,
   getManufacturerOptionsWithCatalog,
   hasManufacturerOption
 } from '../utils/boxHelpers';
@@ -70,7 +71,7 @@ function createDraftLine(entry?: JobRequirementEditorLine): RequirementDraftLine
   return {
     id: makeRequirementLineId(),
     requirementId: entry?.requirementId || '',
-    manufacturer: entry?.manufacturer || '',
+    manufacturer: canonicalizeManufacturerLabel(entry?.manufacturer || ''),
     filmName: entry?.filmName || '',
     widthIn: entry ? String(entry.widthIn) : '',
     requiredFeet: entry ? String(entry.requiredFeet) : ''
@@ -86,7 +87,7 @@ function getSectionsInputValue(value: string | number | null | undefined) {
 }
 
 function normalizeKey(manufacturer: string, filmName: string, widthIn: number) {
-  return `${manufacturer.trim().toLowerCase().replace(/\s+/g, ' ')}|${filmName
+  return `${canonicalizeManufacturerLabel(manufacturer).toLowerCase()}|${filmName
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')}|${widthIn}`;
@@ -207,8 +208,9 @@ export function JobEditorDialog({
   function handleAddRequirement() {
     const parsedWidth = Number(widthIn);
     const parsedRequiredFeet = Number(requiredFeet);
+    const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
 
-    if (!manufacturer.trim()) {
+    if (!normalizedManufacturer.trim()) {
       setError('Manufacturer is required for each film line.');
       return;
     }
@@ -229,11 +231,11 @@ export function JobEditorDialog({
     }
 
     setError('');
-    addManufacturerOption(manufacturer);
+    addManufacturerOption(normalizedManufacturer);
     const nextLine: RequirementDraftLine = {
       id: makeRequirementLineId(),
       requirementId: '',
-      manufacturer: manufacturer.trim(),
+      manufacturer: normalizedManufacturer.trim(),
       filmName: filmName.trim(),
       widthIn: String(parsedWidth),
       requiredFeet: String(Math.floor(parsedRequiredFeet))
@@ -321,7 +323,7 @@ export function JobEditorDialog({
 
       normalizedLines.push({
         requirementId: line.requirementId || undefined,
-        manufacturer: line.manufacturer.trim(),
+        manufacturer: canonicalizeManufacturerLabel(line.manufacturer).trim(),
         filmName: line.filmName.trim(),
         widthIn: parsedWidth,
         requiredFeet: Math.floor(parsedRequiredFeet)

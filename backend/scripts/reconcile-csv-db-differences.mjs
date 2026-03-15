@@ -130,6 +130,20 @@ function chunk(items, size) {
   return out;
 }
 
+function canonicalizeManufacturerLabel(value) {
+  const normalized = String(value ?? "").trim().replace(/\s+/g, " ");
+  switch (normalized.toLowerCase()) {
+    case "3m":
+      return "3M Solar";
+    case "avery":
+      return "Avery Dennison";
+    case "solar guard":
+      return "Solar Gard";
+    default:
+      return normalized;
+  }
+}
+
 async function loadCsvTempTable(client, rows) {
   await client.query(`
     create temporary table tmp_csv_reconcile (
@@ -154,7 +168,7 @@ async function loadCsvTempTable(client, rows) {
       placeholders.push(`($${p},$${p + 1},$${p + 2},$${p + 3},$${p + 4},$${p + 5},$${p + 6},$${p + 7},$${p + 8},$${p + 9})`);
       values.push(
         (row.BoxID ?? "").trim(),
-        (row.Manufacturer ?? "").trim(),
+        canonicalizeManufacturerLabel(row.Manufacturer ?? ""),
         (row.FilmName ?? "").trim(),
         (row.WidthIn ?? "").trim() === "" ? null : Number(row.WidthIn),
         (row.InitialFeet ?? "").trim() === "" ? null : Number(row.InitialFeet),

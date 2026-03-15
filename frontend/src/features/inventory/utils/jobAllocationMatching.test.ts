@@ -76,6 +76,16 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-72-CHECKED']);
   });
 
+  it('treats legacy manufacturer aliases as equivalent for matching', () => {
+    const requirement = buildRequirement({ manufacturer: '3M', filmName: 'Prestige 40', widthIn: 60 });
+    const matching = findMatchingBoxesForRequirement(
+      [buildBox({ boxId: 'IL1-3M', manufacturer: '3M Solar', filmName: 'Prestige 40', widthIn: 60 })],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-3M']);
+  });
+
   it('excludes checked-out rolls when available LF is 0', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(

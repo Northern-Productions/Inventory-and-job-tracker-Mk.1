@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
+import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { InventoryTable } from '../components/InventoryTable';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
-import { getManufacturerOptions } from '../utils/boxHelpers';
+import { canonicalizeManufacturerLabel, getManufacturerOptions } from '../utils/boxHelpers';
 import {
   parseWarehouseFilterValue,
   toWarehouseFilterOptionValue
@@ -17,7 +18,7 @@ import {
 function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
   return {
     warehouse: parseWarehouseFilterValue(searchParams.get('warehouse')),
-    manufacturer: normalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
+    manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
     film: '',
@@ -49,12 +50,12 @@ export default function InventoryHomePage() {
     const optionsByKey = new Map<string, string>();
     const knownManufacturerOptions = getManufacturerOptions();
     const addOption = (value: string) => {
-      const label = normalizeManufacturerLabel(value);
+      const label = canonicalizeManufacturerLabel(value);
       if (!label) {
         return;
       }
 
-      const key = normalizeManufacturerKey(label);
+      const key = normalizeManufacturerLookupKey(label);
       if (!optionsByKey.has(key)) {
         optionsByKey.set(key, label);
       }
@@ -207,12 +208,4 @@ function formatSyncTimestamp(value: string): string {
   }
 
   return parsed.toLocaleString();
-}
-
-function normalizeManufacturerLabel(value: string): string {
-  return String(value || '').trim().replace(/\s+/g, ' ');
-}
-
-function normalizeManufacturerKey(value: string): string {
-  return normalizeManufacturerLabel(value).toLowerCase();
 }

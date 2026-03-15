@@ -11,6 +11,7 @@ import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
 import {
   addManufacturerOption,
+  canonicalizeManufacturerLabel,
   createEmptyBoxDraft,
   getNextBoxIdForWarehouse,
   type BoxDraft
@@ -316,7 +317,7 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
     filmOrderId: (searchParams.get('filmOrderId') || '').trim(),
     jobNumber: (searchParams.get('jobNumber') || '').trim(),
     warehouse: parseWarehouse(warehouse),
-    manufacturer: (searchParams.get('manufacturer') || '').trim(),
+    manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     filmName: (searchParams.get('filmName') || '').trim(),
     widthIn: width && Number.isFinite(Number(width)) && Number(width) > 0 ? width : '',
     initialFeet:

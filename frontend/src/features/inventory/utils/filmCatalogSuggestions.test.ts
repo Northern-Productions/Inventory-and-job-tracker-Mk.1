@@ -56,6 +56,17 @@ describe('getFilmNameSuggestions', () => {
     ]);
   });
 
+  it('treats legacy manufacturer aliases as canonical equivalents', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'Prestige 40'),
+      catalogEntry('3M Fasara', 'Luce')
+    ];
+
+    const suggestions = getFilmNameSuggestions(entries, '3M', 'pre');
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].manufacturer).toBe('3M Solar');
+  });
+
   it('falls back to global suggestions when manufacturer is blank or unknown', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('Madico', 'Safety Shield'),

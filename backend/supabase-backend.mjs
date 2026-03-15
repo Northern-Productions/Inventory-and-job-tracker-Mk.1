@@ -549,8 +549,51 @@ function normalizeCollapsedCatalogLabel(value) {
   return asTrimmedString(value).replace(/\s+/g, ' ');
 }
 
+function canonicalizeManufacturerLabel(value) {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const key = normalized.toLowerCase();
+
+  if (key === '3m') {
+    return '3M Solar';
+  }
+
+  if (key === 'avery') {
+    return 'Avery Dennison';
+  }
+
+  if (key === 'solar guard') {
+    return 'Solar Gard';
+  }
+
+  return normalized;
+}
+
 function normalizeCatalogLookupKey(value) {
   return normalizeCollapsedCatalogLabel(value).toLowerCase();
+}
+
+function normalizeCatalogManufacturerLookupKey(value) {
+  return normalizeCatalogLookupKey(canonicalizeManufacturerLabel(value));
+}
+
+function normalizeFilmKeyInput(manufacturer, filmName, filmKeyInput) {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const trimmedFilmKey = asTrimmedString(filmKeyInput).toUpperCase();
+
+  if (!trimmedFilmKey) {
+    return buildFilmKey(normalizedManufacturer, normalizedFilmName);
+  }
+
+  const separatorIndex = trimmedFilmKey.indexOf('|');
+  if (separatorIndex <= 0 || separatorIndex === trimmedFilmKey.length - 1) {
+    return trimmedFilmKey;
+  }
+
+  const manufacturerToken = trimmedFilmKey.slice(0, separatorIndex);
+  const filmToken = trimmedFilmKey.slice(separatorIndex + 1).trim();
+  const canonicalManufacturerToken = canonicalizeManufacturerLabel(manufacturerToken).toUpperCase();
+  return `${canonicalManufacturerToken}|${filmToken}`;
 }
 
 function compareCatalogStrings(left, right) {
@@ -628,7 +671,7 @@ function normalizeRequirementWidthKey(value) {
 
 function normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn) {
   return [
-    normalizeCatalogLookupKey(manufacturer),
+    normalizeCatalogManufacturerLookupKey(manufacturer),
     normalizeCatalogLookupKey(filmName),
     normalizeRequirementWidthKey(widthIn)
   ].join('|');
@@ -650,7 +693,7 @@ function normalizeJobRequirementInput(entry, warnings, index) {
   }
 
   return {
-    manufacturer: normalizeCollapsedCatalogLabel(manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(manufacturer),
     filmName: normalizeCollapsedCatalogLabel(filmName),
     widthIn,
     requiredFeet
@@ -800,7 +843,7 @@ function mapDbBoxRow(row) {
     orgId: row.org_id,
     boxId: asTrimmedString(row.box_id),
     warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
     initialFeet: integerOrZero(row.initial_feet),
@@ -869,7 +912,7 @@ function mapDbFilmCatalogRow(row) {
     id: row.id,
     orgId: row.org_id,
     filmKey: asTrimmedString(row.film_key).toUpperCase(),
-    manufacturer: asTrimmedString(row.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     sqFtWeightLbsPerSqFt: numericOrNull(row.sq_ft_weight_lbs_per_sq_ft),
     defaultCoreType: asTrimmedString(row.default_core_type),
@@ -939,7 +982,7 @@ function mapDbFilmOrderRow(row) {
     jobId: row.job_id || null,
     jobNumber: asTrimmedString(row.job_number),
     warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
     requestedFeet: integerOrZero(row.requested_feet),
@@ -1033,7 +1076,7 @@ function mapDbRequirementRow(row) {
     orgId: row.org_id,
     jobId: row.job_id,
     jobNumber: asTrimmedString(row.job_number),
-    manufacturer: asTrimmedString(row.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
     requiredFeet: integerOrZero(row.required_feet),
@@ -1075,7 +1118,7 @@ function mapDbRollHistoryRow(row) {
     logId: asTrimmedString(row.log_id),
     boxId: asTrimmedString(row.box_id),
     warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
     jobNumber: asTrimmedString(row.job_number),
@@ -1857,6 +1900,9 @@ async function findBoxById(client, orgId, boxId) {
 }
 
 async function saveBoxRecord(client, orgId, box) {
+  const manufacturer = canonicalizeManufacturerLabel(box.manufacturer);
+  const filmName = normalizeCollapsedCatalogLabel(box.filmName);
+  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, box.filmKey);
   const row = await queryRow(
     client,
     `
@@ -1931,8 +1977,8 @@ async function saveBoxRecord(client, orgId, box) {
       orgId,
       box.boxId,
       box.warehouse,
-      box.manufacturer,
-      box.filmName,
+      manufacturer,
+      filmName,
       box.widthIn,
       box.initialFeet,
       box.feetAvailable,
@@ -1943,7 +1989,7 @@ async function saveBoxRecord(client, orgId, box) {
       box.initialWeightLbs,
       box.lastRollWeightLbs,
       box.lastWeighedDate,
-      box.filmKey,
+      filmKey,
       box.coreType,
       box.coreWeightLbs,
       box.lfWeightLbsPerFt,
@@ -2003,6 +2049,9 @@ async function findFilmCatalogByFilmKey(client, orgId, filmKey) {
 }
 
 async function upsertFilmCatalogRecord(client, orgId, record) {
+  const manufacturer = canonicalizeManufacturerLabel(record.manufacturer);
+  const filmName = normalizeCollapsedCatalogLabel(record.filmName);
+  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, record.filmKey);
   const row = await queryRow(
     client,
     `
@@ -2036,9 +2085,9 @@ async function upsertFilmCatalogRecord(client, orgId, record) {
     `,
     [
       orgId,
-      record.filmKey,
-      record.manufacturer,
-      record.filmName,
+      filmKey,
+      manufacturer,
+      filmName,
       record.sqFtWeightLbsPerSqFt,
       record.defaultCoreType,
       record.sourceWidthIn,
@@ -2251,6 +2300,8 @@ async function findFilmOrderById(client, orgId, filmOrderId) {
 }
 
 async function saveFilmOrderRecord(client, orgId, entry) {
+  const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
+  const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
   const row = await queryRow(
     client,
     `
@@ -2314,8 +2365,8 @@ async function saveFilmOrderRecord(client, orgId, entry) {
       entry.jobId,
       entry.jobNumber,
       entry.warehouse,
-      entry.manufacturer,
-      entry.filmName,
+      manufacturer,
+      filmName,
       entry.widthIn,
       entry.requestedFeet,
       entry.coveredFeet,
@@ -2577,6 +2628,8 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
+    const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
+    const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
     await client.query(
       `
         insert into app.job_requirements (
@@ -2599,8 +2652,8 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
         entry.id || crypto.randomUUID(),
         orgId,
         jobHeader.id,
-        entry.manufacturer,
-        entry.filmName,
+        manufacturer,
+        filmName,
         entry.widthIn,
         entry.requiredFeet,
         entry.notes || '',
@@ -2746,7 +2799,7 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
     if (!grouped[entry.boxId]) {
       grouped[entry.boxId] = {
         boxId: entry.boxId,
-        manufacturer: box ? box.manufacturer : asTrimmedString(entry.manufacturer),
+        manufacturer: box ? box.manufacturer : canonicalizeManufacturerLabel(entry.manufacturer),
         filmName: box ? box.filmName : asTrimmedString(entry.filmName),
         widthIn: box ? box.widthIn : numericOrNull(entry.widthIn) ?? 0,
         usedFeet: 0,
@@ -2786,6 +2839,8 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
 }
 
 async function appendRollHistoryEntry(client, orgId, entry) {
+  const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
+  const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
   await client.query(
     `
       insert into app.roll_weight_log (
@@ -2822,8 +2877,8 @@ async function appendRollHistoryEntry(client, orgId, entry) {
       entry.logId || createLogId(),
       entry.boxId,
       entry.warehouse,
-      entry.manufacturer,
-      entry.filmName,
+      manufacturer,
+      filmName,
       entry.widthIn,
       entry.jobNumber,
       entry.checkedOutAt,
@@ -2886,7 +2941,7 @@ function buildJobRequirementsByLookupKey(entries) {
 }
 
 function normalizeRequirementFilmKey(manufacturer, filmName) {
-  return `${normalizeCatalogLookupKey(manufacturer)}|${normalizeCatalogLookupKey(filmName)}`;
+  return `${normalizeCatalogManufacturerLookupKey(manufacturer)}|${normalizeCatalogLookupKey(filmName)}`;
 }
 
 function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
@@ -4571,14 +4626,14 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
 
 async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox) {
   const boxId = existingBox ? existingBox.boxId : requireString(payload.boxId, 'BoxID');
-  const manufacturer = requireString(payload.manufacturer, 'Manufacturer');
-  const filmName = requireString(payload.filmName, 'FilmName');
+  const manufacturer = canonicalizeManufacturerLabel(requireString(payload.manufacturer, 'Manufacturer'));
+  const filmName = normalizeCollapsedCatalogLabel(requireString(payload.filmName, 'FilmName'));
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const initialFeet = coerceFeetValue(payload.initialFeet, 'InitialFeet', warnings, false);
   const orderDate = normalizeDateString(payload.orderDate, 'OrderDate', false);
   const receivedDate = normalizeDateString(payload.receivedDate, 'ReceivedDate', true);
   const feetAvailableInput = asTrimmedString(payload.feetAvailable);
-  const filmKey = asTrimmedString(payload.filmKey) || buildFilmKey(manufacturer, filmName);
+  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, payload.filmKey);
   const initialWeightInput = coerceOptionalNonNegativeNumber(payload.initialWeightLbs, 'InitialWeightLbs');
   const lastRollWeightInput = coerceOptionalNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const lastWeighedDateInput = normalizeDateString(payload.lastWeighedDate, 'LastWeighedDate', true);
@@ -4859,6 +4914,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 async function buildSearchBoxes(client, orgId, params) {
   const warehouse = await requireConfiguredWarehouse(client, orgId, params.warehouse, 'warehouse');
 
+  const manufacturerFilterKey = normalizeCatalogManufacturerLookupKey(params.manufacturer);
   const query = asTrimmedString(params.q).toLowerCase();
   const status = asTrimmedString(params.status).toUpperCase();
   const film = asTrimmedString(params.film).toLowerCase();
@@ -4875,6 +4931,13 @@ async function buildSearchBoxes(client, orgId, params) {
     }
 
     if (status && box.status !== status) {
+      continue;
+    }
+
+    if (
+      manufacturerFilterKey &&
+      normalizeCatalogManufacturerLookupKey(box.manufacturer).indexOf(manufacturerFilterKey) === -1
+    ) {
       continue;
     }
 
@@ -5216,9 +5279,10 @@ function boxMatchesReportFilters(box, filters) {
     return false;
   }
 
+  const manufacturerFilterKey = normalizeCatalogManufacturerLookupKey(filters.manufacturer);
   if (
-    filters.manufacturer &&
-    box.manufacturer.toLowerCase().indexOf(filters.manufacturer.toLowerCase()) === -1
+    manufacturerFilterKey &&
+    normalizeCatalogManufacturerLookupKey(box.manufacturer).indexOf(manufacturerFilterKey) === -1
   ) {
     return false;
   }
@@ -5276,7 +5340,7 @@ function matchesClosedJobReportFilters(jobEntry, filters) {
 async function buildReportsSummary(client, orgId, params) {
   const filters = {
     warehouse: asTrimmedString(params.warehouse).toUpperCase(),
-    manufacturer: asTrimmedString(params.manufacturer),
+    manufacturer: canonicalizeManufacturerLabel(params.manufacturer),
     film: asTrimmedString(params.film),
     width: asTrimmedString(params.width),
     from: asTrimmedString(params.from),
@@ -6138,8 +6202,8 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
   const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
   const jobNumber = requireString(payload.jobNumber, 'JobNumber');
-  const manufacturer = requireString(payload.manufacturer, 'Manufacturer');
-  const filmName = requireString(payload.filmName, 'FilmName');
+  const manufacturer = canonicalizeManufacturerLabel(requireString(payload.manufacturer, 'Manufacturer'));
+  const filmName = normalizeCollapsedCatalogLabel(requireString(payload.filmName, 'FilmName'));
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const requestedFeet = coerceFeetValue(payload.requestedFeet, 'RequestedFeet', warnings, false);
 
@@ -6635,9 +6699,9 @@ async function buildFilmCatalog(client, orgId) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const manufacturer = normalizeCollapsedCatalogLabel(entry.manufacturer);
+    const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
     const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
-    const manufacturerKey = normalizeCatalogLookupKey(manufacturer);
+    const manufacturerKey = normalizeCatalogManufacturerLookupKey(manufacturer);
     const filmNameKey = normalizeCatalogLookupKey(filmName);
 
     if (!manufacturerKey || !filmNameKey) {

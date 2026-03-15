@@ -1,4 +1,8 @@
 import type { FilmCatalogEntry } from '../../../domain';
+import {
+  canonicalizeManufacturerLabel,
+  normalizeManufacturerLookupKey
+} from '../../../lib/manufacturerCanonicalization';
 
 interface RankedSuggestion {
   entry: FilmCatalogEntry;
@@ -114,7 +118,7 @@ function dedupeCatalogEntries(entries: FilmCatalogEntry[]): FilmCatalogEntry[] {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const normalizedManufacturer = normalizeLookup(entry.manufacturer);
+    const normalizedManufacturer = normalizeManufacturerLookupKey(entry.manufacturer);
     const normalizedFilmName = normalizeLookup(entry.filmName);
 
     if (!normalizedFilmName) {
@@ -123,7 +127,7 @@ function dedupeCatalogEntries(entries: FilmCatalogEntry[]): FilmCatalogEntry[] {
 
     dedupedByKey[`${normalizedManufacturer}|${normalizedFilmName}`] = {
       filmKey: entry.filmKey,
-      manufacturer: normalizeLabel(entry.manufacturer),
+      manufacturer: canonicalizeManufacturerLabel(entry.manufacturer),
       filmName: normalizeLabel(entry.filmName),
       updatedAt: entry.updatedAt
     };
@@ -177,12 +181,12 @@ export function getFilmNameSuggestions(
   }
 
   const dedupedEntries = dedupeCatalogEntries(entries);
-  const normalizedManufacturer = normalizeLookup(manufacturer);
+  const normalizedManufacturer = normalizeManufacturerLookupKey(manufacturer);
   const hasExactManufacturerMatch =
     normalizedManufacturer !== '' &&
-    dedupedEntries.some((entry) => normalizeLookup(entry.manufacturer) === normalizedManufacturer);
+    dedupedEntries.some((entry) => normalizeManufacturerLookupKey(entry.manufacturer) === normalizedManufacturer);
   const scopedEntries = hasExactManufacturerMatch
-    ? dedupedEntries.filter((entry) => normalizeLookup(entry.manufacturer) === normalizedManufacturer)
+    ? dedupedEntries.filter((entry) => normalizeManufacturerLookupKey(entry.manufacturer) === normalizedManufacturer)
     : dedupedEntries;
 
   const ranked = scopedEntries
