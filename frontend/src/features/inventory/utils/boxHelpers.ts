@@ -19,6 +19,7 @@ export const CORE_TYPE_OPTIONS = [
 ] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
+const TRAILING_LETTER_BOX_ID_PATTERN = /^([A-Z]{2}[1-9][0-9]*-[0-9]+)[A-Z]+$/;
 const CUSTOM_MANUFACTURERS_STORAGE_KEY = 'inventory.customManufacturers.v1';
 let customManufacturerCache: string[] | null = null;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
@@ -181,6 +182,12 @@ export function addManufacturerOption(value: string) {
 
 export function deriveFilmKey(manufacturer: string, filmName: string): string {
   return `${manufacturer.trim().toUpperCase()}|${filmName.trim().toUpperCase()}`;
+}
+
+export function normalizeTrailingLetterBoxId(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  const match = normalized.match(TRAILING_LETTER_BOX_ID_PATTERN);
+  return match ? match[1] : normalized;
 }
 
 export function deriveCreateFeetAvailable(

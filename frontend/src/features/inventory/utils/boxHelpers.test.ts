@@ -17,6 +17,7 @@ import {
   getRiskyFieldChanges,
   isLowStockBox,
   isLowStockFeetValue,
+  normalizeTrailingLetterBoxId,
   shouldAutoMoveToZeroed
 } from './boxHelpers';
 
@@ -155,6 +156,13 @@ describe('boxHelpers', () => {
       )
     ).toBe('CA1-010');
     expect(getNextBoxIdForWarehouse([], 'CA1', 'CA1')).toBe('CA1-1');
+  });
+
+  it('normalizes trailing-letter box ids to numeric canonical ids', () => {
+    expect(normalizeTrailingLetterBoxId('IL1-3194A')).toBe('IL1-3194');
+    expect(normalizeTrailingLetterBoxId('ms1-214b')).toBe('MS1-214');
+    expect(normalizeTrailingLetterBoxId('CA1-1002')).toBe('CA1-1002');
+    expect(normalizeTrailingLetterBoxId('IL1-ABC')).toBe('IL1-ABC');
   });
 
   it('merges hardcoded manufacturer options with film catalog manufacturers', () => {

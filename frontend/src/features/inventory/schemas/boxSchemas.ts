@@ -9,7 +9,8 @@ import type { BoxDraft } from '../utils/boxHelpers';
 import type { WarehouseFilterValue } from '../utils/warehouseOptions';
 import {
   CORE_TYPE_OPTIONS,
-  deriveCreateFeetAvailable
+  deriveCreateFeetAvailable,
+  normalizeTrailingLetterBoxId
 } from '../utils/boxHelpers';
 
 export interface InventoryFilterValues {
@@ -102,7 +103,7 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
   const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
 
   return addSchema.parse({
-    boxId: draft.boxId,
+    boxId: normalizeTrailingLetterBoxId(draft.boxId),
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
@@ -131,7 +132,7 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
 
 export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
   return updateSchema.parse({
-    boxId: draft.boxId,
+    boxId: normalizeTrailingLetterBoxId(draft.boxId),
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
