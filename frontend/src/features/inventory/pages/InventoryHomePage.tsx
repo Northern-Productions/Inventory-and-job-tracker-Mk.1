@@ -134,7 +134,10 @@ export default function InventoryHomePage() {
             )}
           </span>
           {boxesQuery.syncError ? (
-            <span className="error-text">The latest sync failed. Using the last saved copy.</span>
+            <span className="error-text">
+              The latest sync failed. Using the last saved copy.
+              {boxesQuery.syncError.message ? ` (${boxesQuery.syncError.message})` : ''}
+            </span>
           ) : null}
         </div>
         <InventoryFilters

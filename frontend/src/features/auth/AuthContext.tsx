@@ -111,6 +111,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (sessionTokenRef.current !== requestToken) {
           return;
         }
+        if (isSessionExpiredOrMissingError(error)) {
+          // Local site data can be cleared while this tab is still open. In that case
+          // we may still have an in-memory auth state, but no valid token to call APIs.
+          // Reset session state so the app returns to the sign-in gate cleanly.
+          setStoredAuthSession(null);
+          setSession(null);
+          applyAccessContext(null);
+          setAccessRefreshError('');
+          setErrorMessage('Your session expired. Please sign in again.');
+          accessRefreshPromiseRef.current = null;
+          accessRefreshTokenRef.current = '';
+          lastAutoRefreshAtRef.current = 0;
+          return;
+        }
         const message = mapAccessContextErrorMessage(error);
         if (!accessContextRef.current) {
           applyAccessContext(null);
@@ -502,6 +516,15 @@ function mapAccessContextErrorMessage(error: unknown): string {
   }
 
   return message || 'Your access details could not be loaded.';
+}
+
+function isSessionExpiredOrMissingError(error: unknown): boolean {
+  const message = error instanceof Error && error.message ? error.message.toLowerCase() : '';
+  return (
+    message.includes('authenticated session is required') ||
+    message.includes('jwt') && message.includes('invalid') ||
+    message.includes('token') && message.includes('expired')
+  );
 }
 
 function readUserMetadataField(user: User, key: string): string {
