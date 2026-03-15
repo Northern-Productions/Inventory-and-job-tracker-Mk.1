@@ -1,0 +1,104 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T22:55:21Z",
+    "final_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
+    "requested_corrections":  9,
+    "applied_corrections":  9,
+    "missing_targets":  0,
+    "duplicate_box_ids_after":  0,
+    "invalid_rows_after":  0,
+    "changed_rows":  [
+                         {
+                             "box_id":  "IL-1364",
+                             "width_before":  "2",
+                             "width_after":  "60",
+                             "film_before":  "Solyx Silver Etch Stripe SX-2",
+                             "film_after":  "Solyx Silver Etch Stripe SX-2002",
+                             "film_key_before":  "SOLYX|SOLYX SILVER ETCH STRIPE SX-2",
+                             "film_key_after":  "SOLYX|SOLYX SILVER ETCH STRIPE SX-2002",
+                             "reason":  "Model code SX-2002 parsed as width 2"
+                         },
+                         {
+                             "box_id":  "IL-1436",
+                             "width_before":  "200",
+                             "width_after":  "60",
+                             "film_before":  "VERTICAL STRIPES SX-9",
+                             "film_after":  "VERTICAL STRIPES SX-9200",
+                             "film_key_before":  "SOLYX|VERTICAL STRIPES SX-9",
+                             "film_key_after":  "SOLYX|VERTICAL STRIPES SX-9200",
+                             "reason":  "Model code SX-9200 parsed as width 200"
+                         },
+                         {
+                             "box_id":  "IL-1437",
+                             "width_before":  "200",
+                             "width_after":  "60",
+                             "film_before":  "VERTICAL STRIPES SX-9",
+                             "film_after":  "VERTICAL STRIPES SX-9200",
+                             "film_key_before":  "SOLYX|VERTICAL STRIPES SX-9",
+                             "film_key_after":  "SOLYX|VERTICAL STRIPES SX-9200",
+                             "reason":  "Model code SX-9200 parsed as width 200"
+                         },
+                         {
+                             "box_id":  "IL-1456",
+                             "width_before":  "1",
+                             "width_after":  "18",
+                             "film_before":  "WHITE RICE PAPER SXG-",
+                             "film_after":  "WHITE RICE PAPER SXG-001",
+                             "film_key_before":  "SOLYX|WHITE RICE PAPER SXG-",
+                             "film_key_after":  "SOLYX|WHITE RICE PAPER SXG-001",
+                             "reason":  "Model code SXG-001 parsed as width 1; sibling SXG row uses 18"
+                         },
+                         {
+                             "box_id":  "IL-2670",
+                             "width_before":  "314",
+                             "width_after":  "60",
+                             "film_before":  "Acid Etch SOL SX3-",
+                             "film_after":  "Acid Etch SOL SX3-314",
+                             "film_key_before":  "SOLYX|ACID ETCH SOL SX3-",
+                             "film_key_after":  "SOLYX|ACID ETCH SOL SX3-314",
+                             "reason":  "Model code SX3-314 parsed as width 314; same code appears as 60 in IL-6380"
+                         },
+                         {
+                             "box_id":  "IL-2865",
+                             "width_before":  "751",
+                             "width_after":  "48",
+                             "film_before":  "Oracal 090 Silver Gray Series",
+                             "film_after":  "Oracal 090 Silver Gray Series",
+                             "film_key_before":  "VINYL|ORACAL 090 SILVER GRAY SERIES",
+                             "film_key_after":  "VINYL|ORACAL 090 SILVER GRAY SERIES",
+                             "reason":  "Series code 751 parsed as width; aligned to Oracal 751 silver rows at 48"
+                         },
+                         {
+                             "box_id":  "IL-3289",
+                             "width_before":  "959",
+                             "width_after":  "60",
+                             "film_before":  "DI-NOC PS-",
+                             "film_after":  "DI-NOC PS-959",
+                             "film_key_before":  "DI-NOC|DI-NOC PS-",
+                             "film_key_after":  "DI-NOC|DI-NOC PS-959",
+                             "reason":  "Model code PS-959 parsed as width; PS-series DI-NOC row uses 60"
+                         },
+                         {
+                             "box_id":  "IL-3401",
+                             "width_before":  "164",
+                             "width_after":  "48",
+                             "film_before":  "3M Di-Noc Wood Grain-1147",
+                             "film_after":  "3M Di-Noc Wood Grain-1147",
+                             "film_key_before":  "DI-NOC|3M DI-NOC WOOD GRAIN-1147",
+                             "film_key_after":  "DI-NOC|3M DI-NOC WOOD GRAIN-1147",
+                             "reason":  "Trailing 164 was malformed width token; Wood Grain DI-NOC rows are 48"
+                         },
+                         {
+                             "box_id":  "IL-3753",
+                             "width_before":  "473",
+                             "width_after":  "60",
+                             "film_before":  "DI-NOC OYSTER LINEN F",
+                             "film_after":  "DI-NOC OYSTER LINEN F473",
+                             "film_key_before":  "DI-NOC|DI-NOC OYSTER LINEN F",
+                             "film_key_after":  "DI-NOC|DI-NOC OYSTER LINEN F473",
+                             "reason":  "Model code F473 parsed as width; matched ZEROED row IL-3595 at 60"
+                         }
+                     ],
+    "missing_rows":  [
+
+                     ]
+}

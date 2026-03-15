@@ -1,0 +1,166 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T20:50:49Z",
+    "workbook_path":  "C:\\Users\\Rober\\Downloads\\IL Assigned Inventory.xlsx",
+    "output_dir":  "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\migration-dry-runs\\il-assigned",
+    "totals":  {
+                   "accepted_rows":  635,
+                   "skipped_rows":  45,
+                   "collision_rows":  7
+               },
+    "warehouse_counts":  {
+                             "IL":  632,
+                             "MS":  3
+                         },
+    "target_sheets":  [
+                          "Llumar",
+                          "3M Solar",
+                          "Fasara",
+                          "Solar Guard",
+                          "Security",
+                          "Di-Noc",
+                          "Avery Dennison",
+                          "Solyx",
+                          "Vinyl",
+                          "ASWFVKOOL"
+                      ],
+    "per_sheet":  [
+                      {
+                          "sheet":  "Llumar",
+                          "inventory_date":  "2025-07-31",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  66,
+                          "skipped_rows":  7,
+                          "reasons":  {
+                                          "missing_quantity":  2,
+                                          "missing_width":  5
+                                      }
+                      },
+                      {
+                          "sheet":  "3M Solar",
+                          "inventory_date":  "2023-07-31",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  86,
+                          "skipped_rows":  2,
+                          "reasons":  {
+                                          "missing_quantity":  2
+                                      }
+                      },
+                      {
+                          "sheet":  "Fasara",
+                          "inventory_date":  "2023-02-13",
+                          "quantity_column":  "FT On hand",
+                          "lot_column":  "Lot/Run# ",
+                          "accepted_rows":  94,
+                          "skipped_rows":  7,
+                          "reasons":  {
+                                          "duplicate_box_id":  2,
+                                          "missing_width":  5
+                                      }
+                      },
+                      {
+                          "sheet":  "Solar Guard",
+                          "inventory_date":  "2023-07-31",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  56,
+                          "skipped_rows":  2,
+                          "reasons":  {
+                                          "non_positive_quantity":  1,
+                                          "malformed_description":  1
+                                      }
+                      },
+                      {
+                          "sheet":  "Security",
+                          "inventory_date":  "2023-07-31",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  108,
+                          "skipped_rows":  6,
+                          "reasons":  {
+                                          "missing_quantity":  2,
+                                          "duplicate_box_id":  2,
+                                          "missing_width":  2
+                                      }
+                      },
+                      {
+                          "sheet":  "Di-Noc",
+                          "inventory_date":  "2023-02-13",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  13,
+                          "skipped_rows":  8,
+                          "reasons":  {
+                                          "missing_quantity":  3,
+                                          "missing_width":  5
+                                      }
+                      },
+                      {
+                          "sheet":  "Avery Dennison",
+                          "inventory_date":  "2023-02-13",
+                          "quantity_column":  "FT On hand",
+                          "lot_column":  "Lot/Run#",
+                          "accepted_rows":  24,
+                          "skipped_rows":  1,
+                          "reasons":  {
+                                          "duplicate_box_id":  1
+                                      }
+                      },
+                      {
+                          "sheet":  "Solyx",
+                          "inventory_date":  "2023-07-31",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  149,
+                          "skipped_rows":  8,
+                          "reasons":  {
+                                          "missing_quantity":  1,
+                                          "missing_width":  6,
+                                          "malformed_description":  1
+                                      }
+                      },
+                      {
+                          "sheet":  "Vinyl",
+                          "inventory_date":  "2025-02-13",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  29,
+                          "skipped_rows":  4,
+                          "reasons":  {
+                                          "missing_quantity":  1,
+                                          "duplicate_box_id":  2,
+                                          "missing_width":  1
+                                      }
+                      },
+                      {
+                          "sheet":  "ASWFVKOOL",
+                          "inventory_date":  "2023-02-13",
+                          "quantity_column":  "FT On Hand",
+                          "lot_column":  "Lot/Run #",
+                          "accepted_rows":  10,
+                          "skipped_rows":  0,
+                          "reasons":  {
+
+                                      }
+                      }
+                  ],
+    "skip_reasons":  {
+                         "malformed_description":  2,
+                         "duplicate_box_id":  7,
+                         "missing_width":  24,
+                         "non_positive_quantity":  1,
+                         "missing_quantity":  11
+                     },
+    "baseline_reference":  {
+                               "expected_accepted_approx":  644,
+                               "expected_skipped_approx":  36
+                           },
+    "critical_success_gates":  {
+                                   "use_test_or_new_org":  true,
+                                   "run_import_clear_staging_before_each_attempt":  true,
+                                   "review_collision_and_exception_files_before_live_load":  true,
+                                   "ensure_boxes_raw_header_matches_import_table":  true,
+                                   "post_load_verify_counts_duplicates_required_fields_and_warehouse_split":  true
+                               }
+}

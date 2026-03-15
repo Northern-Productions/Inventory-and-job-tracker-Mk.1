@@ -1,0 +1,15 @@
+﻿sheet,row_number,reason,action,box_id,manufacturer,film_name,width_in,initial_feet,lot_run,order_date,note
+Solar Guard,19,malformed_description,import_row,IL-4045,Solar Guard,SG Truevue 05,72,6,,2023-07-31,user_confirmed
+Solyx,154,malformed_description,skip_row,,,,,,,unusable raw description 65.0
+Llumar,43,missing_quantity,zeroed_missing_quantity,IL-3935,Llumar,Llumar Silver Sparkle,60,0,D764480P32,2025-07-31,width_source=quoted_hint
+Llumar,56,missing_quantity,zeroed_missing_quantity,IL-6417,Llumar,Llumar SCL SR PS8,60,0,,2025-07-31,width_source=quoted_hint
+3M Solar,9,missing_quantity,zeroed_missing_quantity,IL-3614,3M Solar,3M PR 50,60,0,B048323891,2023-07-31,width_source=quoted_hint
+3M Solar,26,missing_quantity,zeroed_missing_quantity,IL-6228,3M Solar,3M PR 70 EXT,60,0,E100324755,2023-07-31,width_source=quoted_hint
+Security,58,missing_quantity,zeroed_missing_quantity,IL-6295,Security,3M S140 SH14CLARL,60,0,242B,2023-07-31,width_source=quoted_hint
+Security,115,missing_quantity,zeroed_missing_quantity,IL-6885,Security,Madico CL 800 PS SR,72,0,2.535330016E9,2023-07-31,width_source=quoted_hint
+Di-Noc,9,missing_quantity,zeroed_missing_quantity,IL-3591,Di-Noc,3M Di-Noc NU-2179 Textile Nuno,48,0,,2023-02-13,width_source=quoted_hint
+Di-Noc,10,missing_quantity,zeroed_missing_quantity,IL-3518,Di-Noc,3M DI-NOC NU-2179 TEXTILE NUNO,48,0,880955.0,2023-02-13,width_source=quoted_hint
+Di-Noc,13,missing_quantity,zeroed_missing_quantity,IL-3595,Di-Noc,3M DI-NOC OYSTER LINEN F473,60,0,,2023-02-13,width_source=default_60
+Solyx,157,missing_quantity,zeroed_missing_quantity,IL-6881,Solyx,SOLYX reeded glass 1" bars SX1255,60,0,,2023-07-31,width_source=quoted_hint
+Vinyl,34,missing_quantity,zeroed_missing_quantity,IL-6777,Vinyl,Oracal 8500 Dk. Green 060,48,0,,2025-02-13,width_source=quoted_hint
+Solar Guard,36,non_positive_quantity,zeroed_non_positive_quantity,IL-6354,Solar Guard,SG Slate 10,48,0,5.434769058E9,2023-07-31,user_confirmed_zero

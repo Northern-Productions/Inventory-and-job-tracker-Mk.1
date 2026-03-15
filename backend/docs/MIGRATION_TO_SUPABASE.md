@@ -49,6 +49,15 @@ Then load staging:
 select import.load_inventory_from_staging('<org_uuid>');
 ```
 
+If you need non-destructive box import (append/merge) instead of replace:
+
+```sql
+select import.merge_boxes_from_staging('<org_uuid>'::uuid, true, 'keep_existing');
+```
+
+`import.merge_boxes_from_staging` only merges `import.boxes_raw` into `app.boxes` and does not delete existing org data.
+Use `conflict_mode='overwrite_existing'` only when you intentionally want incoming staging rows to overwrite existing `box_id` matches.
+
 Optional cleanup:
 
 ```sql

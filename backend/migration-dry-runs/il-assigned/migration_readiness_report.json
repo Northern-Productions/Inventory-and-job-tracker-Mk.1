@@ -1,0 +1,67 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T22:56:16Z",
+    "totals":  {
+                   "final_rows":  2045,
+                   "base_rows":  669,
+                   "appended_rows":  1376,
+                   "expected_final_rows_from_parts":  2045
+               },
+    "schema":  {
+                   "header_exact_match_import_boxes_raw":  true,
+                   "expected_header_count":  25,
+                   "actual_header_count":  25,
+                   "actual_header":  [
+                                         "BoxID",
+                                         "Manufacturer",
+                                         "FilmName",
+                                         "WidthIn",
+                                         "InitialFeet",
+                                         "FeetAvailable",
+                                         "LotRun",
+                                         "Status",
+                                         "OrderDate",
+                                         "ReceivedDate",
+                                         "InitialWeightLbs",
+                                         "LastRollWeightLbs",
+                                         "LastWeighedDate",
+                                         "FilmKey",
+                                         "CoreType",
+                                         "CoreWeightLbs",
+                                         "LfWeightLbsPerFt",
+                                         "PurchaseCost",
+                                         "Notes",
+                                         "HasEverBeenCheckedOut",
+                                         "LastCheckoutJob",
+                                         "LastCheckoutDate",
+                                         "ZeroedDate",
+                                         "ZeroedReason",
+                                         "ZeroedBy"
+                                     ]
+               },
+    "quality":  {
+                    "duplicate_box_ids":  0,
+                    "required_field_failures":  0,
+                    "numeric_failures":  0,
+                    "date_failures":  0,
+                    "status_failures":  0,
+                    "zeroed_consistency_failures":  0,
+                    "bad_box_id_pattern":  0,
+                    "film_key_mismatches":  0,
+                    "unresolved_manual_review_rows":  0,
+                    "remaining_exceptions_rows":  0,
+                    "zeroed_skipped_rows":  0,
+                    "width_outliers_gt_120":  0
+                },
+    "distribution":  {
+                         "status_counts":  [
+                                               {
+                                                   "status":  "ZEROED",
+                                                   "count":  1388
+                                               },
+                                               {
+                                                   "status":  "IN_STOCK",
+                                                   "count":  657
+                                               }
+                                           ]
+                     }
+}

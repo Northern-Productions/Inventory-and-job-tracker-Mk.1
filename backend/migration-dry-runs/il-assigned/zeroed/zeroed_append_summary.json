@@ -1,0 +1,75 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T22:13:41Z",
+    "base_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
+    "zeroed_candidates_csv":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_candidates_unique_last_occurrence_widths_defaulted.csv",
+    "output_combined_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
+    "output_appended_csv":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_appended.csv",
+    "output_skipped_csv":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_skipped.csv",
+    "base_rows":  669,
+    "zeroed_candidate_rows":  1376,
+    "appended_rows":  1376,
+    "skipped_rows":  0,
+    "combined_rows":  2045,
+    "duplicate_box_ids_after_merge":  0,
+    "invalid_rows_after_merge":  0,
+    "appended_status_breakdown":  {
+                                      "ZEROED":  1376
+                                  },
+    "appended_manufacturer_distribution":  [
+                                               {
+                                                   "manufacturer":  "Security",
+                                                   "rows":  466
+                                               },
+                                               {
+                                                   "manufacturer":  "3M Solar",
+                                                   "rows":  251
+                                               },
+                                               {
+                                                   "manufacturer":  "Solyx",
+                                                   "rows":  148
+                                               },
+                                               {
+                                                   "manufacturer":  "Solar Guard",
+                                                   "rows":  137
+                                               },
+                                               {
+                                                   "manufacturer":  "Fasara",
+                                                   "rows":  136
+                                               },
+                                               {
+                                                   "manufacturer":  "Llumar",
+                                                   "rows":  124
+                                               },
+                                               {
+                                                   "manufacturer":  "Vinyl",
+                                                   "rows":  86
+                                               },
+                                               {
+                                                   "manufacturer":  "Avery Dennison",
+                                                   "rows":  23
+                                               },
+                                               {
+                                                   "manufacturer":  "ASWFVKOOL",
+                                                   "rows":  3
+                                               },
+                                               {
+                                                   "manufacturer":  "Di-Noc",
+                                                   "rows":  2
+                                               }
+                                           ],
+    "manufacturer_inference_sources":  {
+                                           "keyword_3m_solar":  9,
+                                           "keyword_avery":  8,
+                                           "keyword_fasara":  53,
+                                           "lookup_film":  145,
+                                           "lookup_film_width":  757,
+                                           "default_vinyl":  51,
+                                           "keyword_3m_default":  49,
+                                           "keyword_vinyl":  32,
+                                           "keyword_aswfvkool":  2,
+                                           "keyword_solar_guard":  32,
+                                           "keyword_solyx":  84,
+                                           "keyword_security":  122,
+                                           "keyword_llumar":  32
+                                       }
+}

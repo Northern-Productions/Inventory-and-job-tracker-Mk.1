@@ -1,0 +1,36 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T22:28:09Z",
+    "review_queue_csv":  "backend/migration-dry-runs/il-assigned/zeroed/vinyl_review_queue.csv",
+    "combined_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
+    "appended_csv":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_appended.csv",
+    "decisions_csv":  "backend/migration-dry-runs/il-assigned/zeroed/vinyl_review_decisions_applied.csv",
+    "review_rows":  86,
+    "moves_planned":  36,
+    "moved_rows_in_combined":  36,
+    "moved_rows_in_appended":  36,
+    "conservative_hold_box_ids":  [
+                                      "IL-3286"
+                                  ],
+    "duplicate_box_ids_after_update":  0,
+    "invalid_rows_after_update":  0,
+    "action_breakdown":  [
+                             {
+                                 "action":  "keep",
+                                 "rows":  50
+                             },
+                             {
+                                 "action":  "move",
+                                 "rows":  36
+                             }
+                         ],
+    "move_breakdown":  [
+                           {
+                               "manufacturer":  "3M Solar",
+                               "rows":  35
+                           },
+                           {
+                               "manufacturer":  "Llumar",
+                               "rows":  1
+                           }
+                       ]
+}

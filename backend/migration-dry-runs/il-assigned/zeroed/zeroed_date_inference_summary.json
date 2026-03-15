@@ -1,0 +1,21 @@
+﻿{
+    "total_zeroed_rows":  1524,
+    "candidate_rows_with_box_id":  1516,
+    "known_date_rows":  23,
+    "inferred_date_rows":  1493,
+    "method_counts":  [
+                          {
+                              "method":  "back_fill_from_next",
+                              "count":  1482
+                          },
+                          {
+                              "method":  "interpolated_between_known",
+                              "count":  11
+                          },
+                          {
+                              "method":  "original_known",
+                              "count":  23
+                          }
+                      ],
+    "output_timeline_csv":  "backend\\migration-dry-runs\\il-assigned\\zeroed\\zeroed_date_inference_timeline.csv"
+}

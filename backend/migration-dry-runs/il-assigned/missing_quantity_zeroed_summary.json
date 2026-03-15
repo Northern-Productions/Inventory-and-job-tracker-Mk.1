@@ -1,0 +1,134 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T21:46:31Z",
+    "source_files":  {
+                         "resolved_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
+                         "remaining_exceptions_csv":  "backend/migration-dry-runs/il-assigned/boxes_exceptions_remaining.csv",
+                         "manual_resolution_log":  "backend/migration-dry-runs/il-assigned/exception_manual_resolutions.csv"
+                     },
+    "processed_missing_quantity_rows":  11,
+    "inserted_rows":  10,
+    "updated_rows":  1,
+    "skipped_rows":  0,
+    "remaining_exceptions_count":  1,
+    "remaining_exceptions_by_reason":  [
+                                           {
+                                               "reason":  "non_positive_quantity",
+                                               "count":  1
+                                           }
+                                       ],
+    "zeroed_added":  [
+                         {
+                             "box_id":  "IL-3935",
+                             "sheet":  "Llumar",
+                             "row_number":  "43",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "D764480P32",
+                             "order_date":  "2025-07-31"
+                         },
+                         {
+                             "box_id":  "IL-6417",
+                             "sheet":  "Llumar",
+                             "row_number":  "56",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "",
+                             "order_date":  "2025-07-31"
+                         },
+                         {
+                             "box_id":  "IL-3614",
+                             "sheet":  "3M Solar",
+                             "row_number":  "9",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "B048323891",
+                             "order_date":  "2023-07-31"
+                         },
+                         {
+                             "box_id":  "IL-6228",
+                             "sheet":  "3M Solar",
+                             "row_number":  "26",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "E100324755",
+                             "order_date":  "2023-07-31"
+                         },
+                         {
+                             "box_id":  "IL-6295",
+                             "sheet":  "Security",
+                             "row_number":  "58",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "242B",
+                             "order_date":  "2023-07-31"
+                         },
+                         {
+                             "box_id":  "IL-6885",
+                             "sheet":  "Security",
+                             "row_number":  "115",
+                             "action":  "zeroed",
+                             "width":  72,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "2.535330016E9",
+                             "order_date":  "2023-07-31"
+                         },
+                         {
+                             "box_id":  "IL-3591",
+                             "sheet":  "Di-Noc",
+                             "row_number":  "9",
+                             "action":  "zeroed",
+                             "width":  48,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "",
+                             "order_date":  "2023-02-13"
+                         },
+                         {
+                             "box_id":  "IL-3518",
+                             "sheet":  "Di-Noc",
+                             "row_number":  "10",
+                             "action":  "zeroed",
+                             "width":  48,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "880955.0",
+                             "order_date":  "2023-02-13"
+                         },
+                         {
+                             "box_id":  "IL-3595",
+                             "sheet":  "Di-Noc",
+                             "row_number":  "13",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "default_60",
+                             "lot_run":  "",
+                             "order_date":  "2023-02-13"
+                         },
+                         {
+                             "box_id":  "IL-6881",
+                             "sheet":  "Solyx",
+                             "row_number":  "157",
+                             "action":  "zeroed",
+                             "width":  60,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "",
+                             "order_date":  "2023-07-31"
+                         },
+                         {
+                             "box_id":  "IL-6777",
+                             "sheet":  "Vinyl",
+                             "row_number":  "34",
+                             "action":  "zeroed",
+                             "width":  48,
+                             "width_source":  "quoted_hint",
+                             "lot_run":  "",
+                             "order_date":  "2025-02-13"
+                         }
+                     ],
+    "conflicts":  [
+
+                  ]
+}

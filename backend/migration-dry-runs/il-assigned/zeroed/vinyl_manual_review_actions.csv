@@ -1,0 +1,15 @@
+﻿timestamp_utc,box_id,decision,manufacturer_before,manufacturer_after,source,source_row,notes
+2026-03-14T22:32:30Z,IL-3286,move,Vinyl,Avery Dennison,manual_queue,1073,manual_review
+2026-03-14T22:33:57Z,IL-3002,keep,Vinyl,Vinyl,,1037,manual_review
+2026-03-14T22:34:56Z,IL-1366,move,Vinyl,Security,,1223,manual_review
+2026-03-14T22:38:14Z,IL-6471,move,Vinyl,Fasara,,1261,manual_review
+2026-03-14T22:39:01Z,IL-2597,move,Vinyl,Security,,1328,manual_review
+2026-03-14T22:40:22Z,IL-3312,move,Vinyl,3M Solar,,304,manual_review
+2026-03-14T22:40:23Z,IL-5400,move,Vinyl,Fasara,,416,manual_review
+2026-03-14T22:40:24Z,IL-1381,move,Vinyl,Security,,418,manual_review
+2026-03-14T22:40:25Z,IL-9126,move,Vinyl,3M Solar,,461,manual_review
+2026-03-14T22:40:26Z,IL-2967,move,Vinyl,Security,,9,manual_review
+2026-03-14T22:41:55Z,IL-3054,move,Vinyl,Llumar,,278,manual_review
+2026-03-14T22:43:32Z,IL-2324,move,Vinyl,Llumar,,368,manual_review
+2026-03-14T22:43:33Z,IL-3055,move,Vinyl,Llumar,,981,manual_review
+2026-03-14T22:44:19Z,IL-3337,move,Vinyl,3M Solar,,982,manual_review

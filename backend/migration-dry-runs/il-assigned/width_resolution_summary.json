@@ -1,0 +1,43 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T21:35:21Z",
+    "total_width_resolutions":  26,
+    "width_resolutions_auto_added":  0,
+    "inserted_rows_from_missing_width":  22,
+    "updated_rows_from_missing_width":  2,
+    "remaining_exceptions_count":  14,
+    "remaining_exceptions_by_reason":  [
+                                           {
+                                               "reason":  "malformed_description",
+                                               "count":  2
+                                           },
+                                           {
+                                               "reason":  "missing_quantity",
+                                               "count":  11
+                                           },
+                                           {
+                                               "reason":  "non_positive_quantity",
+                                               "count":  1
+                                           }
+                                       ],
+    "duplicate_box_id_count_in_resolved_output":  0,
+    "invalid_row_count_in_resolved_output":  0,
+    "conflicts":  [
+                      {
+                          "sheet":  "Di-Noc",
+                          "row_number":  "15",
+                          "reason":  "qty_parse_failed",
+                          "raw_qty":  ""
+                      },
+                      {
+                          "sheet":  "Di-Noc",
+                          "row_number":  "21",
+                          "reason":  "qty_parse_failed",
+                          "raw_qty":  ""
+                      }
+                  ],
+    "output_files":  {
+                         "resolved_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
+                         "remaining_exceptions_csv":  "backend/migration-dry-runs/il-assigned/boxes_exceptions_remaining.csv",
+                         "width_resolution_csv":  "backend/migration-dry-runs/il-assigned/exception_width_resolutions.csv"
+                     }
+}

@@ -1,0 +1,10 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T22:03:28Z",
+    "input_file":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_candidates_unique_last_occurrence.csv",
+    "output_file":  "backend/migration-dry-runs/il-assigned/zeroed/zeroed_candidates_unique_last_occurrence_widths_defaulted.csv",
+    "total_rows":  1376,
+    "width_missing_before":  62,
+    "width_defaulted_to_60":  62,
+    "width_kept_from_source":  1314,
+    "width_missing_after":  0
+}

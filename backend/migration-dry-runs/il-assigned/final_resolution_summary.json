@@ -1,0 +1,12 @@
+﻿{
+    "generated_at_utc":  "2026-03-14T21:50:19Z",
+    "resolved_csv":  "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
+    "remaining_exceptions_csv":  "backend/migration-dry-runs/il-assigned/boxes_exceptions_remaining.csv",
+    "manual_resolution_log":  "backend/migration-dry-runs/il-assigned/exception_manual_resolutions.csv",
+    "total_resolved_rows":  669,
+    "remaining_exceptions_count":  0,
+    "duplicate_box_id_count":  0,
+    "invalid_row_count":  0,
+    "zeroed_total":  12,
+    "in_stock_total":  657
+}
