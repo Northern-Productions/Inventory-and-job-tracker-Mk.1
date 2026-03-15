@@ -88,6 +88,8 @@ function Canonicalize-ManufacturerName {
   $collapsed = [regex]::Replace($normalized, "\s+", " ")
   switch ($collapsed.ToUpperInvariant()) {
     "3M" { return "3M Solar" }
+    "FASARA" { return "3M Fasara" }
+    "3M FASARA" { return "3M Fasara" }
     "AVERY" { return "Avery Dennison" }
     "SOLAR GUARD" { return "Solar Gard" }
     default { return $collapsed }
@@ -192,7 +194,7 @@ function Infer-ManufacturerFromKeywords {
     return [pscustomobject]@{ Manufacturer = "Security"; Source = "keyword_security" }
   }
   if ($hasFasaraCue) {
-    return [pscustomobject]@{ Manufacturer = "Fasara"; Source = "keyword_fasara" }
+    return [pscustomobject]@{ Manufacturer = "3M Fasara"; Source = "keyword_fasara" }
   }
   if ($is3m -and $has3mSolarCue) {
     return [pscustomobject]@{ Manufacturer = "3M Solar"; Source = "keyword_3m_solar" }

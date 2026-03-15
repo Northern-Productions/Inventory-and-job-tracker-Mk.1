@@ -19,6 +19,7 @@ $profileConfigs = @{
     default_prefix = "IL1"
     legacy_m_prefix = "MS1"
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
     }
   }
@@ -27,6 +28,7 @@ $profileConfigs = @{
     default_prefix = "MS1"
     legacy_m_prefix = "MS1"
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
       "LLUMARVISTA" = "Llumar"
       "MADICO" = "ASWFVKOOL"

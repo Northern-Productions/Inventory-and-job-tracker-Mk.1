@@ -4,6 +4,12 @@ import type {
   AllocationJobSummary,
   AllocationPreview,
   AuditEntry,
+  CaulkManufacturerEntry,
+  CaulkMutationResult,
+  CaulkProductEntry,
+  CaulkStockEntry,
+  CaulkTransactionEntry,
+  CaulkTransferResult,
   AvailableFeetByWidthRow,
   Box,
   ClosedJobReportRow,
@@ -111,3 +117,23 @@ export interface OwnerAdminPermissionsResponse {
 export interface AuthContextResponse extends EffectiveAccessContext {}
 
 export interface OwnerNotificationPreferencesResponse extends OwnerNotificationPreferences {}
+
+export interface CaulkManufacturersResponse {
+  entries: CaulkManufacturerEntry[];
+}
+
+export interface CaulkProductsResponse {
+  entries: CaulkProductEntry[];
+}
+
+export interface CaulkStockResponse {
+  entries: CaulkStockEntry[];
+}
+
+export interface CaulkTransactionsResponse {
+  entries: CaulkTransactionEntry[];
+}
+
+export interface CaulkMutationResponse extends CaulkMutationResult {}
+
+export interface CaulkTransferResponse extends CaulkTransferResult {}

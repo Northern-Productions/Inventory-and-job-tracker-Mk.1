@@ -9,6 +9,9 @@ export function canonicalizeManufacturerLabel(value: string): string {
   switch (key) {
     case '3m':
       return '3M Solar';
+    case 'fasara':
+    case '3m fasara':
+      return '3M Fasara';
     case 'avery':
       return 'Avery Dennison';
     case 'solar guard':

@@ -62,6 +62,8 @@ function manufacturerCanonicalSql(columnSql) {
   return `
     case lower(${normalized})
       when '3m' then '3M Solar'
+      when 'fasara' then '3M Fasara'
+      when '3m fasara' then '3M Fasara'
       when 'avery' then 'Avery Dennison'
       when 'solar guard' then 'Solar Gard'
       else ${normalized}
@@ -197,7 +199,7 @@ async function buildPreflight(client, orgId) {
       select count(*)::int as count
       from app.boxes b
       where b.org_id = $1::uuid
-        and lower(${manufacturerNormalizedSql("b.manufacturer")}) in ('3m', 'avery', 'solar guard')
+        and lower(${manufacturerNormalizedSql("b.manufacturer")}) in ('3m', 'fasara', 'avery', 'solar guard')
     `,
     [orgId],
   );
@@ -207,7 +209,7 @@ async function buildPreflight(client, orgId) {
       select count(*)::int as count
       from app.film_catalog f
       where f.org_id = $1::uuid
-        and lower(${manufacturerNormalizedSql("f.manufacturer")}) in ('3m', 'avery', 'solar guard')
+        and lower(${manufacturerNormalizedSql("f.manufacturer")}) in ('3m', 'fasara', 'avery', 'solar guard')
     `,
     [orgId],
   );
@@ -217,7 +219,7 @@ async function buildPreflight(client, orgId) {
       select count(*)::int as count
       from app.job_requirements r
       where r.org_id = $1::uuid
-        and lower(${manufacturerNormalizedSql("r.manufacturer")}) in ('3m', 'avery', 'solar guard')
+        and lower(${manufacturerNormalizedSql("r.manufacturer")}) in ('3m', 'fasara', 'avery', 'solar guard')
     `,
     [orgId],
   );
@@ -227,7 +229,7 @@ async function buildPreflight(client, orgId) {
       select count(*)::int as count
       from app.film_orders f
       where f.org_id = $1::uuid
-        and lower(${manufacturerNormalizedSql("f.manufacturer")}) in ('3m', 'avery', 'solar guard')
+        and lower(${manufacturerNormalizedSql("f.manufacturer")}) in ('3m', 'fasara', 'avery', 'solar guard')
     `,
     [orgId],
   );
@@ -237,7 +239,7 @@ async function buildPreflight(client, orgId) {
       select count(*)::int as count
       from app.roll_weight_log r
       where r.org_id = $1::uuid
-        and lower(${manufacturerNormalizedSql("r.manufacturer")}) in ('3m', 'avery', 'solar guard')
+        and lower(${manufacturerNormalizedSql("r.manufacturer")}) in ('3m', 'fasara', 'avery', 'solar guard')
     `,
     [orgId],
   );

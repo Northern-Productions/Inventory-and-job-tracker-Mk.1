@@ -65,6 +65,15 @@ const navItems: NavItem[] = [
     mobilePlacement: 'more'
   },
   {
+    to: '/caulk',
+    desktopLabel: 'Caulk',
+    mobileLabel: 'Caulk',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    feature: 'inventory',
+    mode: 'read'
+  },
+  {
     to: '/checkout-history',
     desktopLabel: 'Checkout History',
     mobileLabel: 'Checkout History',

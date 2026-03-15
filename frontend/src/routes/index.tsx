@@ -17,6 +17,7 @@ const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage')
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
 );
+const CaulkPage = lazy(() => import('../features/caulk/pages/CaulkPage'));
 const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessPage'));
 const OwnerAdminPermissionsPage = lazy(
   () => import('../features/access/pages/OwnerAdminPermissionsPage')
@@ -85,6 +86,10 @@ export const router = createHashRouter([
       {
         path: '/checkout-history',
         element: withFeatureRoute(<CheckoutHistoryPage />, 'activity_history', 'read')
+      },
+      {
+        path: '/caulk',
+        element: withFeatureRoute(<CaulkPage />, 'inventory', 'read')
       },
       {
         path: '/admin/access',

@@ -135,6 +135,9 @@ function canonicalizeManufacturerLabel(value) {
   switch (normalized.toLowerCase()) {
     case "3m":
       return "3M Solar";
+    case "fasara":
+    case "3m fasara":
+      return "3M Fasara";
     case "avery":
       return "Avery Dennison";
     case "solar guard":

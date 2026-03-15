@@ -7,6 +7,7 @@ import {
 describe('manufacturer canonicalization', () => {
   it('maps legacy aliases to canonical labels', () => {
     expect(canonicalizeManufacturerLabel('3M')).toBe('3M Solar');
+    expect(canonicalizeManufacturerLabel('Fasara')).toBe('3M Fasara');
     expect(canonicalizeManufacturerLabel('Avery')).toBe('Avery Dennison');
     expect(canonicalizeManufacturerLabel('Solar Guard')).toBe('Solar Gard');
   });

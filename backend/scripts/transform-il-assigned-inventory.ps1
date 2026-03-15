@@ -31,6 +31,7 @@ $profileConfigs = @{
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $false
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
     }
     baseline_accepted = 644
@@ -55,6 +56,7 @@ $profileConfigs = @{
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $true
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
       "LLUMARVISTA" = "Llumar"
       "MADICO" = "ASWFVKOOL"
@@ -768,6 +770,160 @@ function New-ExceptionRow {
   }
 }
 
+function Get-CaulkDetectionReason {
+  param(
+    [string]$Manufacturer,
+    [string]$FilmName,
+    [string]$RawDescription
+  )
+
+  $combined = "$Manufacturer $FilmName $RawDescription".ToLowerInvariant()
+  if ($combined -match "\bdow\s*995\b") {
+    return "dow_995"
+  }
+  if ($combined -match "\bdow\s*795\b") {
+    return "dow_795"
+  }
+  if ($combined -match "\bcaulk\b") {
+    return "caulk_keyword"
+  }
+  if ($combined -match "\bsilicone\b") {
+    return "silicone_keyword"
+  }
+  return ""
+}
+
+function Get-CaulkSuggestion {
+  param(
+    [string]$Manufacturer,
+    [string]$FilmName,
+    [string]$RawDescription
+  )
+
+  $detectionReason = Get-CaulkDetectionReason -Manufacturer $Manufacturer -FilmName $FilmName -RawDescription $RawDescription
+  $suggestedManufacturer = "$Manufacturer".Trim()
+  $suggestedProductName = "$FilmName".Trim()
+  $suggestedProductCode = ""
+
+  if ([string]::IsNullOrWhiteSpace($suggestedProductName)) {
+    $suggestedProductName = "$RawDescription".Trim()
+  }
+
+  if ($detectionReason -like "dow_*") {
+    $suggestedManufacturer = "3M"
+  }
+
+  if ($suggestedProductName -match "(?i)\bdow\s*(?<code>995|795)\b") {
+    $suggestedProductCode = "DOW-$($matches["code"])"
+  }
+
+  return [pscustomobject]@{
+    IsCaulkLike = -not [string]::IsNullOrWhiteSpace($detectionReason)
+    DetectionReason = $detectionReason
+    SuggestedManufacturer = $suggestedManufacturer
+    SuggestedProductName = $suggestedProductName
+    SuggestedProductCode = $suggestedProductCode
+    SuggestedTubesPerCase = 16
+  }
+}
+
+function New-CaulkCandidateRow {
+  param(
+    [string]$Sheet,
+    [int]$RowNumber,
+    [string]$InventoryDate,
+    [string]$BoxIdCandidate,
+    [string]$Manufacturer,
+    [string]$FilmName,
+    [int]$WidthIn,
+    [int]$QuantityCases,
+    [string]$LotRun,
+    [string]$RawDescription,
+    [string]$DetectionReason,
+    [string]$SuggestedManufacturer,
+    [string]$SuggestedProductName,
+    [string]$SuggestedProductCode,
+    [int]$SuggestedTubesPerCase
+  )
+
+  return [pscustomobject][ordered]@{
+    source_sheet = $Sheet
+    row_number = $RowNumber
+    inventory_date = $InventoryDate
+    box_id_candidate = $BoxIdCandidate
+    warehouse_candidate = (Get-WarehouseBucketFromBoxId -BoxId $BoxIdCandidate)
+    source_manufacturer = $Manufacturer
+    source_film_name = $FilmName
+    width_in = $WidthIn
+    quantity_cases = $QuantityCases
+    lot_run = $LotRun
+    raw_description = $RawDescription
+    detection_reason = $DetectionReason
+    suggested_manufacturer = $SuggestedManufacturer
+    suggested_product_name = $SuggestedProductName
+    suggested_product_code = $SuggestedProductCode
+    suggested_tubes_per_case = $SuggestedTubesPerCase
+  }
+}
+
+function Get-CaulkCandidateKey {
+  param(
+    [string]$Sheet,
+    [int]$RowNumber,
+    [string]$BoxIdCandidate
+  )
+
+  return "$($Sheet.ToUpperInvariant())|$RowNumber|$($BoxIdCandidate.ToUpperInvariant())"
+}
+
+function New-CaulkReviewRow {
+  param(
+    [pscustomobject]$Candidate,
+    [pscustomobject]$Existing
+  )
+
+  $decision = ""
+  $canonicalManufacturer = [string]$Candidate.suggested_manufacturer
+  $canonicalProductName = [string]$Candidate.suggested_product_name
+  $canonicalProductCode = [string]$Candidate.suggested_product_code
+  $canonicalTubesPerCase = [int]$Candidate.suggested_tubes_per_case
+  $notes = ""
+
+  if ($null -ne $Existing) {
+    $decision = [string]$Existing.decision
+    $canonicalManufacturer = [string]$Existing.canonical_manufacturer
+    if ([string]::IsNullOrWhiteSpace($canonicalManufacturer)) {
+      $canonicalManufacturer = [string]$Candidate.suggested_manufacturer
+    }
+    $canonicalProductName = [string]$Existing.canonical_product_name
+    if ([string]::IsNullOrWhiteSpace($canonicalProductName)) {
+      $canonicalProductName = [string]$Candidate.suggested_product_name
+    }
+    $canonicalProductCode = [string]$Existing.canonical_product_code
+    if ([string]::IsNullOrWhiteSpace($canonicalProductCode)) {
+      $canonicalProductCode = [string]$Candidate.suggested_product_code
+    }
+    $canonicalTubesPerCaseText = [string]$Existing.canonical_tubes_per_case
+    $parsedCanonicalTubes = 0
+    if ([int]::TryParse($canonicalTubesPerCaseText, [ref]$parsedCanonicalTubes) -and $parsedCanonicalTubes -gt 0) {
+      $canonicalTubesPerCase = $parsedCanonicalTubes
+    }
+    $notes = [string]$Existing.notes
+  }
+
+  return [pscustomobject][ordered]@{
+    source_sheet = [string]$Candidate.source_sheet
+    row_number = [int]$Candidate.row_number
+    box_id_candidate = [string]$Candidate.box_id_candidate
+    decision = $decision
+    canonical_manufacturer = $canonicalManufacturer
+    canonical_product_name = $canonicalProductName
+    canonical_product_code = $canonicalProductCode
+    canonical_tubes_per_case = $canonicalTubesPerCase
+    notes = $notes
+  }
+}
+
 function Get-WarehouseBucketFromBoxId {
   param(
     [string]$BoxId
@@ -792,8 +948,20 @@ $boxesCsvPath = Join-Path -Path $outputPath -ChildPath "boxes_raw.csv"
 $exceptionsCsvPath = Join-Path -Path $outputPath -ChildPath "boxes_exceptions.csv"
 $collisionsCsvPath = Join-Path -Path $outputPath -ChildPath "id_collisions.csv"
 $summaryJsonPath = Join-Path -Path $outputPath -ChildPath "summary.json"
+$caulkCandidatesCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_raw_candidates.csv"
+$caulkReviewCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_review_decisions.csv"
+$caulkFinalCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_raw_final.csv"
+$caulkSummaryJsonPath = Join-Path -Path $outputPath -ChildPath "caulk_summary.json"
 
-foreach ($path in @($boxesCsvPath, $exceptionsCsvPath, $collisionsCsvPath, $summaryJsonPath)) {
+foreach ($path in @(
+    $boxesCsvPath,
+    $exceptionsCsvPath,
+    $collisionsCsvPath,
+    $summaryJsonPath,
+    $caulkCandidatesCsvPath,
+    $caulkFinalCsvPath,
+    $caulkSummaryJsonPath
+  )) {
   if (Test-Path -LiteralPath $path) {
     Remove-Item -LiteralPath $path -Force
   }
@@ -861,9 +1029,11 @@ try {
   $boxesRows = New-Object System.Collections.Generic.List[object]
   $exceptionsRows = New-Object System.Collections.Generic.List[object]
   $collisionsRows = New-Object System.Collections.Generic.List[object]
+  $caulkCandidateRows = New-Object System.Collections.Generic.List[object]
   $seenBoxIds = @{}
   $warehouseCounts = @{ IL = 0; MS = 0; OTHER = 0 }
   $globalReasonCounts = @{}
+  $caulkReasonCounts = @{}
   $perSheetSummary = New-Object System.Collections.Generic.List[object]
 
   foreach ($sheetName in $targetSheetNames) {
@@ -882,6 +1052,7 @@ try {
           lot_column = $null
           accepted_rows = 0
           skipped_rows = 0
+          caulk_routed_rows = 0
           reasons = @{}
         })
       continue
@@ -921,6 +1092,7 @@ try {
 
     $sheetAccepted = 0
     $sheetSkipped = 0
+    $sheetCaulkRouted = 0
     $sheetReasonCounts = @{}
 
     foreach ($row in ($rows | Where-Object { [int]$_.GetAttribute("r") -gt 1 })) {
@@ -1010,6 +1182,34 @@ try {
 
       $feet = [int]$quantityRounded
       $candidateBoxId = [string]$parsed.CandidateBoxId
+      $manufacturer = Resolve-ManufacturerName -SheetName $sheetName -ManufacturerMap $manufacturerMap
+      $lotRun = "$rawLot".Trim()
+      $caulkSuggestion = Get-CaulkSuggestion -Manufacturer $manufacturer -FilmName $parsed.FilmName -RawDescription $rawDescription
+      if ($caulkSuggestion.IsCaulkLike) {
+        $caulkCandidateRows.Add((New-CaulkCandidateRow `
+              -Sheet $sheetName `
+              -RowNumber $rowNumber `
+              -InventoryDate $inventoryDate `
+              -BoxIdCandidate $candidateBoxId `
+              -Manufacturer $manufacturer `
+              -FilmName $parsed.FilmName `
+              -WidthIn $parsed.WidthIn `
+              -QuantityCases $feet `
+              -LotRun $lotRun `
+              -RawDescription $rawDescription `
+              -DetectionReason $caulkSuggestion.DetectionReason `
+              -SuggestedManufacturer $caulkSuggestion.SuggestedManufacturer `
+              -SuggestedProductName $caulkSuggestion.SuggestedProductName `
+              -SuggestedProductCode $caulkSuggestion.SuggestedProductCode `
+              -SuggestedTubesPerCase $caulkSuggestion.SuggestedTubesPerCase))
+        $sheetCaulkRouted++
+        if (-not $caulkReasonCounts.ContainsKey($caulkSuggestion.DetectionReason)) {
+          $caulkReasonCounts[$caulkSuggestion.DetectionReason] = 0
+        }
+        $caulkReasonCounts[$caulkSuggestion.DetectionReason]++
+        continue
+      }
+
       if ($seenBoxIds.ContainsKey($candidateBoxId)) {
         $first = $seenBoxIds[$candidateBoxId]
         $collisionsRows.Add([pscustomobject][ordered]@{
@@ -1038,9 +1238,6 @@ try {
         raw_description = $rawDescription
       }
 
-      $manufacturer = Resolve-ManufacturerName -SheetName $sheetName -ManufacturerMap $manufacturerMap
-      $lotRun = "$rawLot".Trim()
-
       $boxesRow = New-BoxesRawRow -BoxId $candidateBoxId -Manufacturer $manufacturer -FilmName $parsed.FilmName -WidthIn $parsed.WidthIn -Feet $feet -LotRun $lotRun -InventoryDate $inventoryDate -SourceSheet $sheetName -SourceRow $rowNumber -RawDescription $rawDescription
       $boxesRows.Add($boxesRow)
 
@@ -1061,6 +1258,7 @@ try {
         lot_column_source = $lotColumnSource
         accepted_rows = $sheetAccepted
         skipped_rows = $sheetSkipped
+        caulk_routed_rows = $sheetCaulkRouted
         reasons = $sheetReasonCounts
       })
   }
@@ -1096,10 +1294,105 @@ try {
   $boxesRows | Select-Object $boxesRawColumns | Export-Csv -LiteralPath $boxesCsvPath -NoTypeInformation -Encoding UTF8
   $exceptionsRows | Export-Csv -LiteralPath $exceptionsCsvPath -NoTypeInformation -Encoding UTF8
   $collisionsRows | Export-Csv -LiteralPath $collisionsCsvPath -NoTypeInformation -Encoding UTF8
+  $caulkCandidateRows | Export-Csv -LiteralPath $caulkCandidatesCsvPath -NoTypeInformation -Encoding UTF8
+
+  $candidateByKey = @{}
+  foreach ($candidate in $caulkCandidateRows) {
+    $candidateKey = Get-CaulkCandidateKey -Sheet ([string]$candidate.source_sheet) -RowNumber ([int]$candidate.row_number) -BoxIdCandidate ([string]$candidate.box_id_candidate)
+    $candidateByKey[$candidateKey] = $candidate
+  }
+
+  $existingReviewByKey = @{}
+  if (Test-Path -LiteralPath $caulkReviewCsvPath) {
+    $existingReviews = Import-Csv -LiteralPath $caulkReviewCsvPath
+    foreach ($review in $existingReviews) {
+      $reviewRowNumber = 0
+      [void][int]::TryParse([string]$review.row_number, [ref]$reviewRowNumber)
+      $reviewKey = Get-CaulkCandidateKey -Sheet ([string]$review.source_sheet) -RowNumber $reviewRowNumber -BoxIdCandidate ([string]$review.box_id_candidate)
+      $existingReviewByKey[$reviewKey] = $review
+    }
+  }
+
+  $reviewRows = New-Object System.Collections.Generic.List[object]
+  foreach ($candidate in $caulkCandidateRows) {
+    $candidateKey = Get-CaulkCandidateKey -Sheet ([string]$candidate.source_sheet) -RowNumber ([int]$candidate.row_number) -BoxIdCandidate ([string]$candidate.box_id_candidate)
+    $existingRow = $null
+    if ($existingReviewByKey.ContainsKey($candidateKey)) {
+      $existingRow = $existingReviewByKey[$candidateKey]
+    }
+    $reviewRows.Add((New-CaulkReviewRow -Candidate $candidate -Existing $existingRow))
+  }
+  $reviewRows | Export-Csv -LiteralPath $caulkReviewCsvPath -NoTypeInformation -Encoding UTF8
+
+  $caulkFinalRows = New-Object System.Collections.Generic.List[object]
+  $approvedCount = 0
+  $rejectedCount = 0
+  $pendingCount = 0
+  foreach ($review in $reviewRows) {
+    $decision = ([string]$review.decision).Trim().ToLowerInvariant()
+    $isApproved = $decision -in @("approve", "approved", "yes", "y", "true", "1")
+    $isRejected = $decision -in @("reject", "rejected", "no", "n", "false", "0")
+
+    if ($isRejected) {
+      $rejectedCount++
+      continue
+    }
+
+    if (-not $isApproved) {
+      $pendingCount++
+      continue
+    }
+
+    $approvedCount++
+    $reviewRowNumber = [int]$review.row_number
+    $reviewKey = Get-CaulkCandidateKey -Sheet ([string]$review.source_sheet) -RowNumber $reviewRowNumber -BoxIdCandidate ([string]$review.box_id_candidate)
+    if (-not $candidateByKey.ContainsKey($reviewKey)) {
+      continue
+    }
+
+    $candidate = $candidateByKey[$reviewKey]
+    $canonicalManufacturer = ([string]$review.canonical_manufacturer).Trim()
+    if ([string]::IsNullOrWhiteSpace($canonicalManufacturer)) {
+      $canonicalManufacturer = [string]$candidate.suggested_manufacturer
+    }
+    $canonicalProductName = ([string]$review.canonical_product_name).Trim()
+    if ([string]::IsNullOrWhiteSpace($canonicalProductName)) {
+      $canonicalProductName = [string]$candidate.suggested_product_name
+    }
+    $canonicalProductCode = ([string]$review.canonical_product_code).Trim()
+    if ([string]::IsNullOrWhiteSpace($canonicalProductCode)) {
+      $canonicalProductCode = [string]$candidate.suggested_product_code
+    }
+
+    $canonicalTubesPerCase = 16
+    [void][int]::TryParse([string]$review.canonical_tubes_per_case, [ref]$canonicalTubesPerCase)
+    if ($canonicalTubesPerCase -le 0) {
+      $canonicalTubesPerCase = 16
+    }
+
+    $caulkFinalRows.Add([pscustomobject][ordered]@{
+        source_sheet = [string]$candidate.source_sheet
+        row_number = [int]$candidate.row_number
+        box_id_candidate = [string]$candidate.box_id_candidate
+        warehouse = [string]$candidate.warehouse_candidate
+        manufacturer = $canonicalManufacturer
+        product_name = $canonicalProductName
+        product_code = $canonicalProductCode
+        tubes_per_case = $canonicalTubesPerCase
+        quantity_cases = [int]$candidate.quantity_cases
+        quantity_tubes = ([int]$candidate.quantity_cases * $canonicalTubesPerCase)
+        inventory_date = [string]$candidate.inventory_date
+        lot_run = [string]$candidate.lot_run
+        raw_description = [string]$candidate.raw_description
+      })
+  }
+
+  $caulkFinalRows | Export-Csv -LiteralPath $caulkFinalCsvPath -NoTypeInformation -Encoding UTF8
 
   $acceptedCount = $boxesRows.Count
   $skippedCount = $exceptionsRows.Count
   $collisionCount = $collisionsRows.Count
+  $caulkCandidateCount = $caulkCandidateRows.Count
 
   $summary = [pscustomobject][ordered]@{
     generated_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -1113,6 +1406,7 @@ try {
       accepted_rows = $acceptedCount
       skipped_rows = $skippedCount
       collision_rows = $collisionCount
+      caulk_candidate_rows = $caulkCandidateCount
     }
     warehouse_counts = [pscustomobject][ordered]@{
       IL = [int]$warehouseCounts["IL"]
@@ -1122,6 +1416,7 @@ try {
     target_sheets = $targetSheetNames
     per_sheet = $perSheetSummary
     skip_reasons = [pscustomobject]$globalReasonCounts
+    caulk_reasons = [pscustomobject]$caulkReasonCounts
     baseline_reference = [pscustomobject][ordered]@{
       expected_accepted_approx = $config.baseline_accepted
       expected_skipped_approx = $config.baseline_skipped
@@ -1135,18 +1430,43 @@ try {
     }
   }
 
+  $caulkSummary = [pscustomobject][ordered]@{
+    generated_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    profile = $Profile
+    workbook_path = $WorkbookPath
+    output_dir = $outputPath
+    totals = [pscustomobject][ordered]@{
+      candidate_rows = $caulkCandidateCount
+      approved_rows = $approvedCount
+      rejected_rows = $rejectedCount
+      pending_rows = $pendingCount
+      final_rows = $caulkFinalRows.Count
+    }
+    detection_reasons = [pscustomobject]$caulkReasonCounts
+    notes = @(
+      "Review caulk_review_decisions.csv and set decision=approve/reject for every candidate row.",
+      "Only approved rows are emitted into caulk_raw_final.csv."
+    )
+  }
+
   $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryJsonPath -Encoding UTF8
+  $caulkSummary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $caulkSummaryJsonPath -Encoding UTF8
 
   Write-Host "Dry-run transform complete."
   Write-Host "Profile:       $Profile"
   Write-Host "Accepted rows: $acceptedCount"
   Write-Host "Skipped rows:  $skippedCount"
   Write-Host "Collisions:    $collisionCount"
+  Write-Host "Caulk rows:    $caulkCandidateCount"
   Write-Host "Artifacts:"
   Write-Host "  $boxesCsvPath"
   Write-Host "  $exceptionsCsvPath"
   Write-Host "  $collisionsCsvPath"
   Write-Host "  $summaryJsonPath"
+  Write-Host "  $caulkCandidatesCsvPath"
+  Write-Host "  $caulkReviewCsvPath"
+  Write-Host "  $caulkFinalCsvPath"
+  Write-Host "  $caulkSummaryJsonPath"
 } finally {
   $archive.Dispose()
 }

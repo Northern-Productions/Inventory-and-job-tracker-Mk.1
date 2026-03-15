@@ -22,6 +22,7 @@ $profileConfigs = @{
     default_prefix = "IL1"
     legacy_m_prefix = "MS1"
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
     }
   }
@@ -30,6 +31,7 @@ $profileConfigs = @{
     default_prefix = "MS1"
     legacy_m_prefix = "MS1"
     manufacturer_map = @{
+      "FASARA" = "3M Fasara"
       "SOLAR GUARD" = "Solar Gard"
       "LLUMARVISTA" = "Llumar"
       "MADICO" = "ASWFVKOOL"
@@ -303,8 +305,34 @@ Sort-Object sheet, @{ Expression = { [int]$_.row_number } } |
 Export-Csv -LiteralPath $WidthResCsvPath -NoTypeInformation -Encoding UTF8
 
 $rowsById = @{}
+$canonicalizedInputBoxIds = 0
+$canonicalizedInputCollisions = New-Object System.Collections.Generic.List[object]
 foreach ($row in $rows) {
-  $rowsById[$row.BoxID] = $row
+  $rawBoxId = "$($row.BoxID)".Trim().ToUpperInvariant()
+  $canonicalBoxId = Normalize-CanonicalBoxId -RawBoxId $rawBoxId
+  if ($canonicalBoxId -notmatch "^[A-Z]{2}[1-9][0-9]*-[A-Z0-9]+$" -and $rawBoxId -match "^[A-Z0-9]{1,24}$") {
+    $rebuiltBoxId = Build-BoxId -IdToken $rawBoxId -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
+    if (-not [string]::IsNullOrWhiteSpace($rebuiltBoxId)) {
+      $canonicalBoxId = $rebuiltBoxId
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($canonicalBoxId)) {
+    $canonicalBoxId = $rawBoxId
+  }
+
+  if ($canonicalBoxId -ne $rawBoxId) {
+    $canonicalizedInputBoxIds++
+    if ($rowsById.ContainsKey($canonicalBoxId)) {
+      $canonicalizedInputCollisions.Add([pscustomobject]@{
+          canonical_box_id = $canonicalBoxId
+          replaced_raw_box_id = $rawBoxId
+          existing_box_id = "$($rowsById[$canonicalBoxId].BoxID)"
+        })
+    }
+  }
+
+  $row.BoxID = $canonicalBoxId
+  $rowsById[$canonicalBoxId] = $row
 }
 
 $insertedCount = 0
@@ -492,6 +520,9 @@ $summary = [pscustomobject][ordered]@{
   )
   duplicate_box_id_count_in_resolved_output = $duplicateCount
   invalid_row_count_in_resolved_output = $invalidCount
+  canonicalized_input_box_id_count = $canonicalizedInputBoxIds
+  canonicalized_input_collision_count = $canonicalizedInputCollisions.Count
+  canonicalized_input_collision_sample = @($canonicalizedInputCollisions | Select-Object -First 20)
   conflicts = $conflicts
   output_files = [pscustomobject]@{
     resolved_csv = $OutputResolvedCsvPath

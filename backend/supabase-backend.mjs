@@ -19,6 +19,7 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
 };
 
 const BOX_STATUSES = new Set(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBER_FEATURE_AREAS = [
   'inventory',
   'allocations',
@@ -220,6 +221,22 @@ function integerOrNull(value) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function parseIntegerInput(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed) {
+    throw new HttpError(400, `${fieldName} must be an integer.`);
+  }
+  return Math.trunc(parsed);
+}
+
+function requireUuid(value, fieldName) {
+  const normalized = requireString(value, fieldName);
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new HttpError(400, `${fieldName} must be a valid UUID.`);
+  }
+  return normalized;
 }
 
 function cloneValue(value) {
@@ -557,6 +574,10 @@ function canonicalizeManufacturerLabel(value) {
     return '3M Solar';
   }
 
+  if (key === 'fasara' || key === '3m fasara') {
+    return '3M Fasara';
+  }
+
   if (key === 'avery') {
     return 'Avery Dennison';
   }
@@ -576,24 +597,303 @@ function normalizeCatalogManufacturerLookupKey(value) {
   return normalizeCatalogLookupKey(canonicalizeManufacturerLabel(value));
 }
 
-function normalizeFilmKeyInput(manufacturer, filmName, filmKeyInput) {
+const SECURITY_MANUFACTURER_LABEL = 'Security';
+
+function normalizeMilTokenSpacing(value) {
+  return normalizeCollapsedCatalogLabel(value).replace(/\b(\d+)\s*mil\b/gi, (_match, digits) => `${digits} MIL`);
+}
+
+function stripLeadingSecurityToken(value) {
+  return normalizeCollapsedCatalogLabel(value).replace(/^security\b[:\-\s]*/i, '').trim();
+}
+
+function normalizeSecurityMakerPrefix(value) {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const key = normalized.toLowerCase();
+  if (!normalized) return '';
+  if (key === '3m' || key === '3m solar' || key === '3m fasara') return '3M';
+  if (key === 'solar guard' || key === 'solargard' || key === 'solar gard') return 'Solar Gard';
+  if (key === 'avery' || key === 'avery dennison') return 'Avery Dennison';
+  if (key === 'llumar vista' || key === 'llumarvista' || key === 'llumar') return 'Llumar';
+  if (key === 'solyx') return 'Solyx';
+  if (key === 'aswfvkool') return 'ASWFVKOOL';
+  if (key === 'madico') return 'Madico';
+  if (key === 'sol') return 'SOL';
+  return normalized;
+}
+
+function startsWithMakerPrefix(value, makerPrefix) {
+  const normalizedValue = normalizeCollapsedCatalogLabel(value).toLowerCase();
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix).toLowerCase();
+  if (!normalizedPrefix) {
+    return false;
+  }
+  if (normalizedValue === normalizedPrefix) {
+    return true;
+  }
+  if (normalizedValue.startsWith(`${normalizedPrefix} `)) {
+    return true;
+  }
+  if (normalizedPrefix === '3m' && normalizedValue.startsWith('3m solar ')) {
+    return true;
+  }
+  if (normalizedPrefix === 'solar gard' && normalizedValue.startsWith('solargard ')) {
+    return true;
+  }
+  if (normalizedPrefix === 'avery dennison' && normalizedValue.startsWith('avery ')) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeLeadingMakerPrefix(baseName, makerPrefix) {
+  const normalizedBase = normalizeCollapsedCatalogLabel(baseName);
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix);
+  if (!normalizedPrefix) {
+    return normalizedBase;
+  }
+
+  if (normalizedPrefix === '3M') {
+    return normalizedBase.replace(/^3m(?:\s+solar)?\b/i, '3M');
+  }
+  if (normalizedPrefix === 'Solar Gard') {
+    return normalizedBase.replace(/^(?:solar\s*guard|solargard|solar\s+gard)\b/i, 'Solar Gard');
+  }
+  if (normalizedPrefix === 'Avery Dennison') {
+    return normalizedBase.replace(/^avery(?:\s+dennison)?\b/i, 'Avery Dennison');
+  }
+  if (normalizedPrefix === 'Llumar') {
+    return normalizedBase.replace(/^llumar(?:\s+vista)?\b/i, 'Llumar');
+  }
+  if (normalizedPrefix === 'Solyx') {
+    return normalizedBase.replace(/^solyx\b/i, 'Solyx');
+  }
+  if (normalizedPrefix === 'ASWFVKOOL') {
+    return normalizedBase.replace(/^aswfvkool\b/i, 'ASWFVKOOL');
+  }
+  if (normalizedPrefix === 'Madico') {
+    return normalizedBase.replace(/^madico\b/i, 'Madico');
+  }
+  if (normalizedPrefix === 'SOL') {
+    return normalizedBase.replace(/^sol\b/i, 'SOL');
+  }
+
+  return normalizedBase;
+}
+
+function inferSecurityMakerPrefixFromFilmName(filmName) {
+  const cleaned = stripLeadingSecurityToken(filmName);
+  if (!cleaned) return '';
+  if (/^3m\b/i.test(cleaned)) return '3M';
+  if (/^madico\b/i.test(cleaned)) return 'Madico';
+  if (/^solar\s*guard\b/i.test(cleaned) || /^solargard\b/i.test(cleaned)) return 'Solar Gard';
+  if (/^avery(?:\s+dennison)?\b/i.test(cleaned)) return 'Avery Dennison';
+  if (/^llumar(?:\s+vista)?\b/i.test(cleaned)) return 'Llumar';
+  if (/^solyx\b/i.test(cleaned)) return 'Solyx';
+  if (/^aswfvkool\b/i.test(cleaned)) return 'ASWFVKOOL';
+  if (/^sol\b/i.test(cleaned)) return 'SOL';
+  return '';
+}
+
+function inferSecurityMakerPrefixFromManufacturer(manufacturer) {
+  const canonical = canonicalizeManufacturerLabel(manufacturer);
+  if (!canonical || normalizeCatalogManufacturerLookupKey(canonical) === normalizeCatalogManufacturerLookupKey(SECURITY_MANUFACTURER_LABEL)) {
+    return '';
+  }
+  return normalizeSecurityMakerPrefix(canonical);
+}
+
+function detectSecurityFilmFamily(filmName) {
+  const normalized = normalizeCollapsedCatalogLabel(filmName);
+  const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const agMatch = normalized.match(/\bAG[-\s]*([0-9]+)\b/i);
+
+  if (agMatch || /\banti\s*graffiti\b/i.test(normalized)) {
+    return { isSecurity: true, family: 'ag', agCode: agMatch ? agMatch[1] : '' };
+  }
+  if (/\bS[-\s]*140\b/i.test(normalized)) {
+    return { isSecurity: true, family: 's140', agCode: '' };
+  }
+  if (/\bS[-\s]*70\b/i.test(normalized)) {
+    return { isSecurity: true, family: 's70', agCode: '' };
+  }
+  if (
+    /\bULTRA\s*S?800\b/i.test(normalized) ||
+    /\bS[-\s]*800\b/i.test(normalized) ||
+    squashedUpper.includes('ULTRAS800')
+  ) {
+    return { isSecurity: true, family: 's800', agCode: '' };
+  }
+  if (/\b\d+\s*mil\b/i.test(normalized)) {
+    return { isSecurity: true, family: 'mil', agCode: '' };
+  }
+  return { isSecurity: false, family: '', agCode: '' };
+}
+
+function buildCanonicalSecurityFilmName(sourceFilmName, detection, makerPrefix) {
+  const cleanedSource = normalizeMilTokenSpacing(stripLeadingSecurityToken(sourceFilmName));
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix);
+  const withPrefix = (baseName) => {
+    const normalizedBase = normalizeCollapsedCatalogLabel(baseName);
+    if (!normalizedPrefix) {
+      return normalizedBase;
+    }
+    if (startsWithMakerPrefix(normalizedBase, normalizedPrefix)) {
+      return normalizeLeadingMakerPrefix(normalizedBase, normalizedPrefix);
+    }
+    return `${normalizedPrefix} ${normalizedBase}`;
+  };
+
+  if (detection.family === 's800') {
+    return withPrefix('Ultra S800');
+  }
+  if (detection.family === 's70') {
+    return withPrefix('S70');
+  }
+  if (detection.family === 's140') {
+    return withPrefix('S140');
+  }
+  if (detection.family === 'ag') {
+    const code = detection.agCode ? `AG-${detection.agCode}` : 'AG';
+    return withPrefix(code);
+  }
+
+  return withPrefix(cleanedSource);
+}
+
+function normalizeSecurityManufacturerAndFilm(manufacturer, filmName) {
   const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
   const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
-  const trimmedFilmKey = asTrimmedString(filmKeyInput).toUpperCase();
-
-  if (!trimmedFilmKey) {
-    return buildFilmKey(normalizedManufacturer, normalizedFilmName);
+  const detection = detectSecurityFilmFamily(normalizedFilmName);
+  if (!detection.isSecurity) {
+    return {
+      manufacturer: normalizedManufacturer,
+      filmName: normalizedFilmName
+    };
   }
 
-  const separatorIndex = trimmedFilmKey.indexOf('|');
-  if (separatorIndex <= 0 || separatorIndex === trimmedFilmKey.length - 1) {
-    return trimmedFilmKey;
+  const makerPrefix =
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromFilmName(normalizedFilmName)) ||
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer));
+
+  return {
+    manufacturer: SECURITY_MANUFACTURER_LABEL,
+    filmName: buildCanonicalSecurityFilmName(normalizedFilmName, detection, makerPrefix)
+  };
+}
+
+function normalizeFilmKeyInput(manufacturer, filmName, filmKeyInput) {
+  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  void filmKeyInput;
+  return buildFilmKey(normalized.manufacturer, normalized.filmName);
+}
+
+function isFilmNameAliasLookupUnavailableError(error) {
+  const message = asTrimmedString(error?.message).toLowerCase();
+  return (
+    (message.includes('app.film_name_aliases') && message.includes('does not exist')) ||
+    (message.includes('app.film_name_aliases') && message.includes('permission denied'))
+  );
+}
+
+async function resolveCanonicalFilmNameAlias(client, orgId, manufacturer, filmName) {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) {
+    return '';
   }
 
-  const manufacturerToken = trimmedFilmKey.slice(0, separatorIndex);
-  const filmToken = trimmedFilmKey.slice(separatorIndex + 1).trim();
-  const canonicalManufacturerToken = canonicalizeManufacturerLabel(manufacturerToken).toUpperCase();
-  return `${canonicalManufacturerToken}|${filmToken}`;
+  let row = null;
+  try {
+    row = await queryRow(
+      client,
+      `
+        select canonical_film_name
+        from app.film_name_aliases
+        where org_id = $1
+          and manufacturer_lookup_key = $2
+          and old_film_name_lookup_key = $3
+        limit 1
+      `,
+      [
+        orgId,
+        normalizeCatalogManufacturerLookupKey(canonicalManufacturer),
+        normalizeCatalogLookupKey(normalizedFilmName)
+      ]
+    );
+  } catch (error) {
+    if (isFilmNameAliasLookupUnavailableError(error)) {
+      return normalizedFilmName;
+    }
+    throw error;
+  }
+
+  if (!row || !row.canonical_film_name) {
+    return normalizedFilmName;
+  }
+
+  return normalizeCollapsedCatalogLabel(row.canonical_film_name);
+}
+
+async function resolveCanonicalFilmEntry(client, orgId, manufacturer, filmName) {
+  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const aliasResolvedFilmName = await resolveCanonicalFilmNameAlias(
+    client,
+    orgId,
+    normalized.manufacturer,
+    normalized.filmName
+  );
+  return normalizeSecurityManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
+}
+
+function dedupeNormalizedJobRequirements(requirements) {
+  const deduped = {};
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const entry = requirements[index];
+    const key = normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn);
+    if (!deduped[key]) {
+      deduped[key] = { ...entry };
+      continue;
+    }
+    deduped[key].requiredFeet += entry.requiredFeet;
+  }
+
+  const values = Object.values(deduped);
+  values.sort((left, right) => {
+    const manufacturerCompare = compareCatalogStrings(left.manufacturer, right.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+
+    const filmCompare = compareCatalogStrings(left.filmName, right.filmName);
+    if (filmCompare !== 0) {
+      return filmCompare;
+    }
+
+    if (left.widthIn !== right.widthIn) {
+      return left.widthIn < right.widthIn ? -1 : 1;
+    }
+
+    return 0;
+  });
+
+  return values;
+}
+
+async function canonicalizeJobRequirementEntriesWithAliases(client, orgId, requirements) {
+  const normalized = [];
+  for (let index = 0; index < requirements.length; index += 1) {
+    const entry = requirements[index];
+    const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
+    normalized.push({
+      ...entry,
+      manufacturer: canonical.manufacturer,
+      filmName: canonical.filmName
+    });
+  }
+
+  return dedupeNormalizedJobRequirements(normalized);
 }
 
 function compareCatalogStrings(left, right) {
@@ -1135,6 +1435,85 @@ function mapDbRollHistoryRow(row) {
   };
 }
 
+function mapCaulkManufacturerRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    manufacturerId: asTrimmedString(row.manufacturer_id || row.id),
+    name: asTrimmedString(row.name),
+    lookupKey: asTrimmedString(row.lookup_key),
+    isActive: Boolean(row.is_active),
+    updatedAt: formatTimestamp(row.updated_at)
+  };
+}
+
+function mapCaulkProductRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    productId: asTrimmedString(row.product_id || row.id),
+    manufacturerId: asTrimmedString(row.manufacturer_id),
+    manufacturer: asTrimmedString(row.manufacturer),
+    productName: asTrimmedString(row.product_name || row.name),
+    productCode: asTrimmedString(row.product_code || row.code),
+    lookupKey: asTrimmedString(row.lookup_key),
+    tubesPerCase: integerOrZero(row.tubes_per_case),
+    isActive: Boolean(row.is_active),
+    notes: asTrimmedString(row.notes),
+    updatedAt: formatTimestamp(row.updated_at)
+  };
+}
+
+function mapCaulkStockRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    warehouse: asTrimmedString(row.warehouse).toUpperCase(),
+    productId: asTrimmedString(row.product_id),
+    manufacturerId: asTrimmedString(row.manufacturer_id),
+    manufacturer: asTrimmedString(row.manufacturer),
+    productName: asTrimmedString(row.product_name),
+    productCode: asTrimmedString(row.product_code),
+    tubesPerCase: integerOrZero(row.tubes_per_case),
+    tubesOnHand: integerOrZero(row.tubes_on_hand),
+    casesOnHand: integerOrZero(row.cases_on_hand),
+    looseTubes: integerOrZero(row.loose_tubes),
+    updatedAt: formatTimestamp(row.updated_at),
+    updatedBy: asTrimmedString(row.updated_by)
+  };
+}
+
+function mapCaulkTransactionRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    transactionId: asTrimmedString(row.transaction_id),
+    productId: asTrimmedString(row.product_id),
+    warehouse: asTrimmedString(row.warehouse).toUpperCase(),
+    manufacturer: asTrimmedString(row.manufacturer),
+    productName: asTrimmedString(row.product_name),
+    productCode: asTrimmedString(row.product_code),
+    action: asTrimmedString(row.action),
+    deltaTubes: integerOrZero(row.delta_tubes),
+    resultingTubesOnHand: integerOrZero(row.resulting_tubes_on_hand),
+    tubesPerCase: integerOrZero(row.tubes_per_case),
+    reason: asTrimmedString(row.reason),
+    notes: asTrimmedString(row.notes),
+    transferId: asTrimmedString(row.transfer_id),
+    sourceBoxId: asTrimmedString(row.source_box_id),
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by)
+  };
+}
+
 function ensureConfigured() {
   if (!pool) {
     throw new HttpError(500, 'DATABASE_URL (or SUPABASE_DB_URL) is not configured.');
@@ -1411,6 +1790,14 @@ function inferFeatureForRoute(logicalPath) {
     case '/film-data/catalog':
     case '/inventory/add':
     case '/inventory/scan':
+    case '/caulk/manufacturers/list':
+    case '/caulk/products/list':
+    case '/caulk/stock/list':
+    case '/caulk/transactions/list':
+    case '/caulk/products/upsert':
+    case '/caulk/mutate':
+    case '/caulk/transfer':
+    case '/owner/caulk/manufacturers/upsert':
       return 'inventory';
     case '/allocations/by-box':
     case '/allocations/jobs':
@@ -1466,7 +1853,11 @@ function inferAccessModeForRoute(method, logicalPath) {
     logicalPath === '/admin/member-permissions' ||
     logicalPath === '/admin/user-permissions' ||
     logicalPath === '/owner/admin-permissions' ||
-    logicalPath === '/owner/notification-preferences';
+    logicalPath === '/owner/notification-preferences' ||
+    logicalPath === '/caulk/manufacturers/list' ||
+    logicalPath === '/caulk/products/list' ||
+    logicalPath === '/caulk/stock/list' ||
+    logicalPath === '/caulk/transactions/list';
   return isReadRoute ? 'read' : 'write';
 }
 
@@ -1476,6 +1867,7 @@ function isOwnerOnlyRoute(logicalPath) {
     logicalPath === '/owner/roles/demote-admin-to-member' ||
     logicalPath === '/owner/roles/promote-admin-to-owner' ||
     logicalPath === '/owner/notification-preferences' ||
+    logicalPath === '/owner/caulk/manufacturers/upsert' ||
     logicalPath === '/jobs/reopen'
   );
 }
@@ -1841,6 +2233,370 @@ async function requireConfiguredWarehouse(client, orgId, warehouse, fieldName) {
   return normalized;
 }
 
+async function listCaulkManufacturers(client, orgId) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        m.id as manufacturer_id,
+        m.name,
+        m.lookup_key,
+        m.is_active,
+        m.updated_at
+      from app.caulk_manufacturers m
+      where m.org_id = $1::uuid
+      order by lower(m.name)
+    `,
+    [orgId]
+  );
+
+  return rows.map(mapCaulkManufacturerRow);
+}
+
+async function listCaulkProducts(client, orgId) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        p.id as product_id,
+        p.manufacturer_id,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        p.lookup_key,
+        p.tubes_per_case,
+        p.is_active,
+        p.notes,
+        p.updated_at
+      from app.caulk_products p
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where p.org_id = $1::uuid
+      order by lower(m.name), lower(p.name), lower(p.code)
+    `,
+    [orgId]
+  );
+
+  return rows.map(mapCaulkProductRow);
+}
+
+async function listCaulkStock(client, orgId, params) {
+  const warehouseFilterRaw = asTrimmedString(params.warehouse).toUpperCase();
+  const warehouseFilter =
+    warehouseFilterRaw && warehouseFilterRaw !== 'ALL'
+      ? await requireConfiguredWarehouse(client, orgId, warehouseFilterRaw, 'Warehouse')
+      : '';
+  const manufacturerFilter = asTrimmedString(params.manufacturer);
+  const queryText = asTrimmedString(params.q);
+
+  const rows = await queryRows(
+    client,
+    `
+      select
+        s.warehouse,
+        p.id as product_id,
+        p.manufacturer_id,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        p.tubes_per_case,
+        s.tubes_on_hand,
+        floor(s.tubes_on_hand::numeric / p.tubes_per_case::numeric)::integer as cases_on_hand,
+        mod(s.tubes_on_hand, p.tubes_per_case) as loose_tubes,
+        s.updated_at,
+        s.updated_by
+      from app.caulk_stock s
+      join app.caulk_products p
+        on p.org_id = s.org_id
+       and p.id = s.product_id
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where s.org_id = $1::uuid
+        and ($2::text = '' or s.warehouse = $2::text)
+        and ($3::text = '' or lower(m.name) = lower($3::text))
+        and (
+          $4::text = ''
+          or p.name ilike ('%' || $4::text || '%')
+          or p.code ilike ('%' || $4::text || '%')
+          or m.name ilike ('%' || $4::text || '%')
+        )
+      order by s.warehouse asc, lower(m.name), lower(p.name), lower(p.code)
+    `,
+    [orgId, warehouseFilter, manufacturerFilter, queryText]
+  );
+
+  return rows.map(mapCaulkStockRow);
+}
+
+async function listCaulkTransactions(client, orgId, params) {
+  const warehouseFilterRaw = asTrimmedString(params.warehouse).toUpperCase();
+  const warehouseFilter =
+    warehouseFilterRaw && warehouseFilterRaw !== 'ALL'
+      ? await requireConfiguredWarehouse(client, orgId, warehouseFilterRaw, 'Warehouse')
+      : '';
+  const productIdRaw = asTrimmedString(params.productId);
+  const productId = productIdRaw ? requireUuid(productIdRaw, 'ProductId') : null;
+  const limitValue = Number(params.limit);
+  const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.min(Math.trunc(limitValue), 1000) : 200;
+
+  const rows = await queryRows(
+    client,
+    `
+      select
+        t.transaction_id,
+        t.product_id,
+        t.warehouse,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        t.action,
+        t.delta_tubes,
+        t.resulting_tubes_on_hand,
+        t.tubes_per_case,
+        t.reason,
+        t.notes,
+        t.transfer_id,
+        t.source_box_id,
+        t.created_at,
+        t.created_by
+      from app.caulk_transactions t
+      join app.caulk_products p
+        on p.org_id = t.org_id
+       and p.id = t.product_id
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where t.org_id = $1::uuid
+        and ($2::text = '' or t.warehouse = $2::text)
+        and ($3::uuid is null or t.product_id = $3::uuid)
+      order by t.created_at desc
+      limit $4::integer
+    `,
+    [orgId, warehouseFilter, productId, limit]
+  );
+
+  return rows.map(mapCaulkTransactionRow);
+}
+
+async function ownerUpsertCaulkManufacturer(client, orgId, actor, payload) {
+  const name = requireString(payload.name, 'Name');
+  const isActive = payload.isActive === undefined ? true : parseBooleanFlag(payload.isActive);
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app_api.caulk_upsert_manufacturer($1::uuid, $2::text, $3::text, $4::boolean)
+    `,
+    [orgId, actor, name, isActive]
+  );
+
+  return mapCaulkManufacturerRow(row);
+}
+
+async function upsertCaulkProduct(client, orgId, actor, payload) {
+  const productIdRaw = asTrimmedString(payload.productId);
+  const productId = productIdRaw ? requireUuid(productIdRaw, 'ProductId') : null;
+  const manufacturerId = requireUuid(payload.manufacturerId, 'ManufacturerId');
+  const productName = requireString(payload.productName, 'ProductName');
+  const productCode = asTrimmedString(payload.productCode);
+  const notes = asTrimmedString(payload.notes);
+  const isActive = payload.isActive === undefined ? true : parseBooleanFlag(payload.isActive);
+  const tubesPerCaseValue = payload.tubesPerCase === undefined ? 16 : payload.tubesPerCase;
+  const tubesPerCase = parseIntegerInput(tubesPerCaseValue, 'TubesPerCase');
+  if (tubesPerCase <= 0) {
+    throw new HttpError(400, 'TubesPerCase must be greater than zero.');
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app_api.caulk_upsert_product(
+        $1::uuid,
+        $2::text,
+        $3::uuid,
+        $4::uuid,
+        $5::text,
+        $6::text,
+        $7::integer,
+        $8::boolean,
+        $9::text
+      )
+    `,
+    [orgId, actor, productId, manufacturerId, productName, productCode, tubesPerCase, isActive, notes]
+  );
+  const product = mapCaulkProductRow(row);
+  const manufacturer = await queryRow(
+    client,
+    `
+      select name
+      from app.caulk_manufacturers
+      where org_id = $1::uuid
+        and id = $2::uuid
+    `,
+    [orgId, manufacturerId]
+  );
+  if (product) {
+    product.manufacturer = asTrimmedString(manufacturer?.name);
+  }
+  return product;
+}
+
+async function getCaulkProductTubesPerCase(client, orgId, productId) {
+  const row = await queryRow(
+    client,
+    `
+      select tubes_per_case
+      from app.caulk_products
+      where org_id = $1::uuid
+        and id = $2::uuid
+    `,
+    [orgId, productId]
+  );
+  if (!row) {
+    throw new HttpError(404, 'Caulk product was not found.');
+  }
+  const tubesPerCase = integerOrZero(row.tubes_per_case);
+  if (tubesPerCase <= 0) {
+    throw new HttpError(400, 'Caulk product tubes-per-case must be greater than zero.');
+  }
+  return tubesPerCase;
+}
+
+async function applyCaulkDelta(
+  client,
+  orgId,
+  actor,
+  productId,
+  warehouse,
+  action,
+  deltaTubes,
+  reason,
+  transferId = '',
+  sourceBoxId = '',
+  notes = ''
+) {
+  const row = await queryRow(
+    client,
+    `
+      select app_api.caulk_apply_stock_delta(
+        $1::uuid,
+        $2::text,
+        $3::uuid,
+        $4::text,
+        $5::text,
+        $6::integer,
+        $7::text,
+        $8::text,
+        $9::text,
+        $10::text
+      ) as result
+    `,
+    [orgId, actor, productId, warehouse, action, deltaTubes, reason, transferId, sourceBoxId, notes]
+  );
+
+  return row?.result || {};
+}
+
+async function mutateCaulkStock(client, orgId, actor, payload) {
+  const action = requireString(payload.action, 'Action').toUpperCase();
+  if (!['RECEIVE', 'USE', 'ADJUST'].includes(action)) {
+    throw new HttpError(400, 'Action must be RECEIVE, USE, or ADJUST.');
+  }
+
+  const productId = requireUuid(payload.productId, 'ProductId');
+  const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
+  const tubesPerCase = await getCaulkProductTubesPerCase(client, orgId, productId);
+  const cases = payload.cases === undefined || payload.cases === '' ? 0 : parseIntegerInput(payload.cases, 'Cases');
+  const tubes = payload.tubes === undefined || payload.tubes === '' ? 0 : parseIntegerInput(payload.tubes, 'Tubes');
+  const deltaOverride =
+    payload.deltaTubes === undefined || payload.deltaTubes === ''
+      ? null
+      : parseIntegerInput(payload.deltaTubes, 'DeltaTubes');
+  const reason = asTrimmedString(payload.reason) || action;
+  const notes = asTrimmedString(payload.notes);
+
+  let delta = deltaOverride !== null ? deltaOverride : (cases * tubesPerCase) + tubes;
+  if (action === 'RECEIVE') {
+    if (delta <= 0) {
+      throw new HttpError(400, 'Receive requires a positive quantity.');
+    }
+    return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'RECEIVE', delta, reason, '', '', notes);
+  }
+  if (action === 'USE') {
+    if (delta <= 0) {
+      throw new HttpError(400, 'Use requires a positive quantity.');
+    }
+    return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'USE', -delta, reason, '', '', notes);
+  }
+
+  if (delta === 0) {
+    throw new HttpError(400, 'Adjust requires a non-zero delta.');
+  }
+  return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'ADJUST', delta, reason, '', '', notes);
+}
+
+async function transferCaulkStock(client, orgId, actor, payload) {
+  const productId = requireUuid(payload.productId, 'ProductId');
+  const fromWarehouse = await requireConfiguredWarehouse(client, orgId, payload.fromWarehouse, 'FromWarehouse');
+  const toWarehouse = await requireConfiguredWarehouse(client, orgId, payload.toWarehouse, 'ToWarehouse');
+  if (fromWarehouse === toWarehouse) {
+    throw new HttpError(400, 'Transfer source and destination warehouse must differ.');
+  }
+
+  const tubesPerCase = await getCaulkProductTubesPerCase(client, orgId, productId);
+  const cases = payload.cases === undefined || payload.cases === '' ? 0 : parseIntegerInput(payload.cases, 'Cases');
+  const tubes = payload.tubes === undefined || payload.tubes === '' ? 0 : parseIntegerInput(payload.tubes, 'Tubes');
+  const deltaOverride =
+    payload.deltaTubes === undefined || payload.deltaTubes === ''
+      ? null
+      : parseIntegerInput(payload.deltaTubes, 'DeltaTubes');
+  const reason = asTrimmedString(payload.reason) || 'TRANSFER';
+  const notes = asTrimmedString(payload.notes);
+  const delta = deltaOverride !== null ? deltaOverride : (cases * tubesPerCase) + tubes;
+  if (delta <= 0) {
+    throw new HttpError(400, 'Transfer requires a positive quantity.');
+  }
+
+  const transferRow = await queryRow(client, 'select app_api.caulk_create_transaction_id() as transfer_id');
+  const transferId = asTrimmedString(transferRow?.transfer_id);
+  const from = await applyCaulkDelta(
+    client,
+    orgId,
+    actor,
+    productId,
+    fromWarehouse,
+    'TRANSFER_OUT',
+    -delta,
+    reason,
+    transferId,
+    '',
+    notes
+  );
+  const to = await applyCaulkDelta(
+    client,
+    orgId,
+    actor,
+    productId,
+    toWarehouse,
+    'TRANSFER_IN',
+    delta,
+    reason,
+    transferId,
+    '',
+    notes
+  );
+
+  return {
+    transferId,
+    movedTubes: delta,
+    from,
+    to
+  };
+}
+
 async function resolveBoxIdAlias(client, orgId, boxId) {
   const trimmed = requireString(boxId, 'BoxID').toUpperCase();
   const row = await queryRow(
@@ -1900,8 +2656,9 @@ async function findBoxById(client, orgId, boxId) {
 }
 
 async function saveBoxRecord(client, orgId, box) {
-  const manufacturer = canonicalizeManufacturerLabel(box.manufacturer);
-  const filmName = normalizeCollapsedCatalogLabel(box.filmName);
+  const canonical = await resolveCanonicalFilmEntry(client, orgId, box.manufacturer, box.filmName);
+  const manufacturer = canonical.manufacturer;
+  const filmName = canonical.filmName;
   const filmKey = normalizeFilmKeyInput(manufacturer, filmName, box.filmKey);
   const row = await queryRow(
     client,
@@ -2049,8 +2806,9 @@ async function findFilmCatalogByFilmKey(client, orgId, filmKey) {
 }
 
 async function upsertFilmCatalogRecord(client, orgId, record) {
-  const manufacturer = canonicalizeManufacturerLabel(record.manufacturer);
-  const filmName = normalizeCollapsedCatalogLabel(record.filmName);
+  const canonical = await resolveCanonicalFilmEntry(client, orgId, record.manufacturer, record.filmName);
+  const manufacturer = canonical.manufacturer;
+  const filmName = canonical.filmName;
   const filmKey = normalizeFilmKeyInput(manufacturer, filmName, record.filmKey);
   const row = await queryRow(
     client,
@@ -2300,8 +3058,9 @@ async function findFilmOrderById(client, orgId, filmOrderId) {
 }
 
 async function saveFilmOrderRecord(client, orgId, entry) {
-  const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
-  const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
+  const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
+  const manufacturer = canonical.manufacturer;
+  const filmName = canonical.filmName;
   const row = await queryRow(
     client,
     `
@@ -2628,8 +3387,9 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
-    const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
+    const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
+    const manufacturer = canonical.manufacturer;
+    const filmName = canonical.filmName;
     await client.query(
       `
         insert into app.job_requirements (
@@ -2795,12 +3555,13 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
     const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
     const timestampSortValue = toUsageTimestampSortValue(entry);
     const box = boxById[entry.boxId] || null;
+    const rollEntryNormalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
 
     if (!grouped[entry.boxId]) {
       grouped[entry.boxId] = {
         boxId: entry.boxId,
-        manufacturer: box ? box.manufacturer : canonicalizeManufacturerLabel(entry.manufacturer),
-        filmName: box ? box.filmName : asTrimmedString(entry.filmName),
+        manufacturer: box ? box.manufacturer : rollEntryNormalized.manufacturer,
+        filmName: box ? box.filmName : rollEntryNormalized.filmName,
         widthIn: box ? box.widthIn : numericOrNull(entry.widthIn) ?? 0,
         usedFeet: 0,
         usageEventCount: 0,
@@ -2839,8 +3600,9 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
 }
 
 async function appendRollHistoryEntry(client, orgId, entry) {
-  const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
-  const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
+  const normalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
+  const manufacturer = normalized.manufacturer;
+  const filmName = normalized.filmName;
   await client.query(
     `
       insert into app.roll_weight_log (
@@ -4626,8 +5388,14 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
 
 async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox) {
   const boxId = existingBox ? existingBox.boxId : requireString(payload.boxId, 'BoxID');
-  const manufacturer = canonicalizeManufacturerLabel(requireString(payload.manufacturer, 'Manufacturer'));
-  const filmName = normalizeCollapsedCatalogLabel(requireString(payload.filmName, 'FilmName'));
+  const canonical = await resolveCanonicalFilmEntry(
+    client,
+    orgId,
+    requireString(payload.manufacturer, 'Manufacturer'),
+    requireString(payload.filmName, 'FilmName')
+  );
+  const manufacturer = canonical.manufacturer;
+  const filmName = canonical.filmName;
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const initialFeet = coerceFeetValue(payload.initialFeet, 'InitialFeet', warnings, false);
   const orderDate = normalizeDateString(payload.orderDate, 'OrderDate', false);
@@ -5864,7 +6632,12 @@ async function createJob(client, orgId, payload, actor) {
   const crewLeader = asTrimmedString(payload.crewLeader);
   const lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   const notes = asTrimmedString(payload.notes);
-  const incomingRequirements = dedupeJobRequirements(payload.requirements, warnings);
+  const incomingRequirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
+  const incomingRequirements = await canonicalizeJobRequirementEntriesWithAliases(
+    client,
+    orgId,
+    incomingRequirementsRaw
+  );
   const nowIso = new Date().toISOString();
   const existingHeader = await findJobByNumber(client, orgId, jobNumber);
   let nextHeader =
@@ -5906,14 +6679,22 @@ async function createJob(client, orgId, payload, actor) {
 
   for (let index = 0; index < existingRequirements.length; index += 1) {
     const existing = existingRequirements[index];
-    const existingKey = normalizeJobRequirementLookupKey(
+    const existingCanonical = await resolveCanonicalFilmEntry(
+      client,
+      orgId,
       existing.manufacturer,
-      existing.filmName,
+      existing.filmName
+    );
+    const existingManufacturer = existingCanonical.manufacturer;
+    const existingFilmName = existingCanonical.filmName;
+    const existingKey = normalizeJobRequirementLookupKey(
+      existingManufacturer,
+      existingFilmName,
       existing.widthIn
     );
     merged[existingKey] = {
-      manufacturer: existing.manufacturer,
-      filmName: existing.filmName,
+      manufacturer: existingManufacturer,
+      filmName: existingFilmName,
       widthIn: existing.widthIn,
       requiredFeet: existing.requiredFeet
     };
@@ -6006,7 +6787,8 @@ async function updateJob(client, orgId, payload, actor) {
   ) {
     throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
   }
-  const requirements = dedupeJobRequirements(payload.requirements, warnings);
+  const requirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
+  const requirements = await canonicalizeJobRequirementEntriesWithAliases(client, orgId, requirementsRaw);
   const nowIso = new Date().toISOString();
   const header = await ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, actor, nowIso);
   if (normalizeJobLifecycleStatus(header.lifecycleStatus) !== 'ACTIVE') {
@@ -6699,8 +7481,9 @@ async function buildFilmCatalog(client, orgId) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const manufacturer = canonicalizeManufacturerLabel(entry.manufacturer);
-    const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
+    const normalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const manufacturer = normalized.manufacturer;
+    const filmName = normalized.filmName;
     const manufacturerKey = normalizeCatalogManufacturerLookupKey(manufacturer);
     const filmNameKey = normalizeCatalogLookupKey(filmName);
 
@@ -7657,6 +8440,10 @@ const READ_PATHS = new Set([
   '/film-data/catalog',
   '/roll-history/by-box',
   '/reports/summary',
+  '/caulk/manufacturers/list',
+  '/caulk/products/list',
+  '/caulk/stock/list',
+  '/caulk/transactions/list',
   '/admin/access/requests',
   '/admin/username-requests',
   '/admin/member-permissions',
@@ -7775,6 +8562,14 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
             });
           case '/reports/summary':
             return ok(await buildReportsSummary(client, authContext.orgId, params));
+          case '/caulk/manufacturers/list':
+            return ok({ entries: await listCaulkManufacturers(client, authContext.orgId) });
+          case '/caulk/products/list':
+            return ok({ entries: await listCaulkProducts(client, authContext.orgId) });
+          case '/caulk/stock/list':
+            return ok({ entries: await listCaulkStock(client, authContext.orgId, params) });
+          case '/caulk/transactions/list':
+            return ok({ entries: await listCaulkTransactions(client, authContext.orgId, params) });
           default:
             throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);
         }
@@ -7888,6 +8683,14 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
               params
             )
           );
+        case '/owner/caulk/manufacturers/upsert':
+          return ok(await ownerUpsertCaulkManufacturer(client, authContext.orgId, authContext.actor, params));
+        case '/caulk/products/upsert':
+          return ok(await upsertCaulkProduct(client, authContext.orgId, authContext.actor, params));
+        case '/caulk/mutate':
+          return ok(await mutateCaulkStock(client, authContext.orgId, authContext.actor, params));
+        case '/caulk/transfer':
+          return ok(await transferCaulkStock(client, authContext.orgId, authContext.actor, params));
         case '/boxes/add':
           return addBox(client, authContext.orgId, params, authContext.actor);
         case '/allocations/add':

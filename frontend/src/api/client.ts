@@ -20,6 +20,12 @@ import type {
   Box,
   BoxHistoryResponse,
   BoxMutationResult,
+  CaulkManufacturerEntry,
+  CaulkMutationResult,
+  CaulkProductEntry,
+  CaulkStockEntry,
+  CaulkTransactionEntry,
+  CaulkTransferResult,
   CreateFilmOrderPayload,
   FilmOrderEntry,
   FilmCatalogEntry,
@@ -45,13 +51,19 @@ import type {
   ReportsSummaryFilters,
   RollHistoryResponse,
   RollHistoryEntry,
+  ListCaulkStockParams,
+  ListCaulkTransactionsParams,
   SearchBoxesParams,
   SetBoxStatusPayload,
+  TransferCaulkStockPayload,
   UndoAuditPayload,
   UndoMutationResult,
+  UpsertCaulkManufacturerPayload,
+  UpsertCaulkProductPayload,
   UpdateJobPayload,
   UpdateBoxPayload,
   WarehouseEntry,
+  MutateCaulkStockPayload,
   UsernameChangeRequestEntry,
   UsernameChangeResult,
   Warehouse
@@ -209,6 +221,123 @@ function mapWarehouseEntry(value: unknown): WarehouseEntry | null {
     name: String(source.name || '').trim() || code,
     boxIdPrefix: String(source.boxIdPrefix || '').trim().toUpperCase()
   };
+}
+
+function mapCaulkManufacturerEntry(value: unknown): CaulkManufacturerEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const manufacturerId = String(source.manufacturerId || '').trim();
+  if (!manufacturerId) {
+    return null;
+  }
+
+  return {
+    manufacturerId,
+    name: String(source.name || '').trim(),
+    lookupKey: String(source.lookupKey || '').trim().toLowerCase(),
+    isActive: source.isActive === true || String(source.isActive).toLowerCase() === 'true',
+    updatedAt: String(source.updatedAt || '').trim()
+  };
+}
+
+function mapCaulkProductEntry(value: unknown): CaulkProductEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const productId = String(source.productId || '').trim();
+  const manufacturerId = String(source.manufacturerId || '').trim();
+  if (!productId || !manufacturerId) {
+    return null;
+  }
+
+  return {
+    productId,
+    manufacturerId,
+    manufacturer: String(source.manufacturer || '').trim(),
+    productName: String(source.productName || '').trim(),
+    productCode: String(source.productCode || '').trim(),
+    lookupKey: String(source.lookupKey || '').trim().toLowerCase(),
+    tubesPerCase: Number(source.tubesPerCase || 0) || 0,
+    isActive: source.isActive === true || String(source.isActive).toLowerCase() === 'true',
+    notes: String(source.notes || '').trim(),
+    updatedAt: String(source.updatedAt || '').trim()
+  };
+}
+
+function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const productId = String(source.productId || '').trim();
+  const warehouse = String(source.warehouse || '').trim().toUpperCase();
+  if (!productId || !warehouse) {
+    return null;
+  }
+
+  return {
+    warehouse,
+    productId,
+    manufacturerId: String(source.manufacturerId || '').trim(),
+    manufacturer: String(source.manufacturer || '').trim(),
+    productName: String(source.productName || '').trim(),
+    productCode: String(source.productCode || '').trim(),
+    tubesPerCase: Number(source.tubesPerCase || 0) || 0,
+    tubesOnHand: Number(source.tubesOnHand || 0) || 0,
+    casesOnHand: Number(source.casesOnHand || 0) || 0,
+    looseTubes: Number(source.looseTubes || 0) || 0,
+    updatedAt: String(source.updatedAt || '').trim(),
+    updatedBy: String(source.updatedBy || '').trim()
+  };
+}
+
+function mapCaulkTransactionEntry(value: unknown): CaulkTransactionEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const transactionId = String(source.transactionId || '').trim();
+  const productId = String(source.productId || '').trim();
+  if (!transactionId || !productId) {
+    return null;
+  }
+
+  return {
+    transactionId,
+    productId,
+    warehouse: String(source.warehouse || '').trim().toUpperCase(),
+    manufacturer: String(source.manufacturer || '').trim(),
+    productName: String(source.productName || '').trim(),
+    productCode: String(source.productCode || '').trim(),
+    action: String(source.action || '').trim().toUpperCase(),
+    deltaTubes: Number(source.deltaTubes || 0) || 0,
+    resultingTubesOnHand: Number(source.resultingTubesOnHand || 0) || 0,
+    tubesPerCase: Number(source.tubesPerCase || 0) || 0,
+    reason: String(source.reason || '').trim(),
+    notes: String(source.notes || '').trim(),
+    transferId: String(source.transferId || '').trim(),
+    sourceBoxId: String(source.sourceBoxId || '').trim(),
+    createdAt: String(source.createdAt || '').trim(),
+    createdBy: String(source.createdBy || '').trim()
+  };
+}
+
+function assertOwnerAccess() {
+  const context = cachedAccessContext;
+  if (!context || context.accessStatus !== 'approved') {
+    return;
+  }
+
+  if (context.role !== 'owner') {
+    throw new APIError('Owner access is required.');
+  }
 }
 
 function assertFeatureAccess(feature: FeatureArea, mode: FeatureAccessMode) {
@@ -514,6 +643,108 @@ export async function addWarehouse(payload: AddWarehousePayload): Promise<Wareho
     throw new APIError('The warehouse was created but the response was invalid.');
   }
   return mapped;
+}
+
+export async function listCaulkManufacturers(): Promise<CaulkManufacturerEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/caulk/manufacturers/list',
+    {},
+    {}
+  );
+  return (data.entries || [])
+    .map((entry) => mapCaulkManufacturerEntry(entry))
+    .filter((entry): entry is CaulkManufacturerEntry => Boolean(entry));
+}
+
+export async function listCaulkProducts(): Promise<CaulkProductEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/caulk/products/list',
+    {},
+    {}
+  );
+  return (data.entries || [])
+    .map((entry) => mapCaulkProductEntry(entry))
+    .filter((entry): entry is CaulkProductEntry => Boolean(entry));
+}
+
+export async function listCaulkStock(params: ListCaulkStockParams): Promise<CaulkStockEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const body = {
+    warehouse: params.warehouse || 'ALL',
+    manufacturer: params.manufacturer || '',
+    q: params.q || ''
+  };
+  const query = { ...body };
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/caulk/stock/list',
+    body,
+    query
+  );
+  return (data.entries || [])
+    .map((entry) => mapCaulkStockEntry(entry))
+    .filter((entry): entry is CaulkStockEntry => Boolean(entry));
+}
+
+export async function listCaulkTransactions(
+  params: ListCaulkTransactionsParams
+): Promise<CaulkTransactionEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const body = {
+    warehouse: params.warehouse || 'ALL',
+    productId: params.productId || '',
+    limit: params.limit || 200
+  };
+  const query = {
+    warehouse: body.warehouse,
+    productId: body.productId,
+    limit: body.limit
+  };
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/caulk/transactions/list',
+    body,
+    query
+  );
+  return (data.entries || [])
+    .map((entry) => mapCaulkTransactionEntry(entry))
+    .filter((entry): entry is CaulkTransactionEntry => Boolean(entry));
+}
+
+export async function ownerUpsertCaulkManufacturer(
+  payload: UpsertCaulkManufacturerPayload
+): Promise<CaulkManufacturerEntry> {
+  assertOwnerAccess();
+  const { data } = await request<unknown>('POST', '/owner/caulk/manufacturers/upsert', { body: payload });
+  const mapped = mapCaulkManufacturerEntry(data);
+  if (!mapped) {
+    throw new APIError('Manufacturer update completed but the response was invalid.');
+  }
+  return mapped;
+}
+
+export async function upsertCaulkProduct(payload: UpsertCaulkProductPayload): Promise<CaulkProductEntry> {
+  assertFeatureAccess('inventory', 'write');
+  const { data } = await request<unknown>('POST', '/caulk/products/upsert', { body: payload });
+  const mapped = mapCaulkProductEntry(data);
+  if (!mapped) {
+    throw new APIError('Product update completed but the response was invalid.');
+  }
+  return mapped;
+}
+
+export async function mutateCaulkStock(payload: MutateCaulkStockPayload): Promise<CaulkMutationResult> {
+  assertFeatureAccess('inventory', 'write');
+  const { data } = await request<CaulkMutationResult>('POST', '/caulk/mutate', { body: payload });
+  return data;
+}
+
+export async function transferCaulkStock(
+  payload: TransferCaulkStockPayload
+): Promise<CaulkTransferResult> {
+  assertFeatureAccess('inventory', 'write');
+  const { data } = await request<CaulkTransferResult>('POST', '/caulk/transfer', { body: payload });
+  return data;
 }
 
 function buildSearchBoxFilters(params: SearchBoxesParams) {

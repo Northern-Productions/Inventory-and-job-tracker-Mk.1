@@ -25,6 +25,7 @@ import {
 describe('boxHelpers', () => {
   it('canonicalizes legacy manufacturer aliases while preserving 3M Fasara', () => {
     expect(canonicalizeManufacturerLabel('3M')).toBe('3M Solar');
+    expect(canonicalizeManufacturerLabel('Fasara')).toBe('3M Fasara');
     expect(canonicalizeManufacturerLabel('Avery')).toBe('Avery Dennison');
     expect(canonicalizeManufacturerLabel('Solar Guard')).toBe('Solar Gard');
     expect(canonicalizeManufacturerLabel('3M Fasara')).toBe('3M Fasara');

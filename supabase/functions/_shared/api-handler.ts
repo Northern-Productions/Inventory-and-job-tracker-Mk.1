@@ -8,6 +8,7 @@ const RESEND_API_KEY = (Deno.env.get("RESEND_API_KEY") || "").trim();
 const RESEND_FROM_EMAIL = (Deno.env.get("RESEND_FROM_EMAIL") || "").trim();
 const CACHE_TTL_MS = Number(Deno.env.get("CACHE_TTL_MS") || "30000");
 const MAX_CACHE_ENTRIES = Number(Deno.env.get("MAX_CACHE_ENTRIES") || "500");
+const FILM_NAME_ALIAS_CACHE_TTL_MS = Number(Deno.env.get("FILM_NAME_ALIAS_CACHE_TTL_MS") || "30000");
 const CORS_ALLOWED_ORIGINS = (Deno.env.get("CORS_ALLOWED_ORIGINS") || "*")
   .split(",")
   .map((entry) => entry.trim())
@@ -32,6 +33,10 @@ const READ_PATHS = new Set([
   "/roll-history/by-box",
   "/reports/summary",
   "/warehouses/list",
+  "/caulk/manufacturers/list",
+  "/caulk/products/list",
+  "/caulk/stock/list",
+  "/caulk/transactions/list",
   "/admin/access/requests",
   "/admin/username-requests",
   "/admin/member-permissions",
@@ -66,6 +71,10 @@ type AuthIdentity = {
 const cache = new Map<string, CacheEntry>();
 const authIdentityCache = new Map<string, { expiresAt: number; identity: AuthIdentity }>();
 const authUserProfileCache = new Map<string, { expiresAt: number; profile: { email: string; name: string } }>();
+const filmNameAliasCache = new Map<string, {
+  expiresAt: number;
+  aliases: Record<string, string>;
+}>();
 
 class HttpError extends Error {
   statusCode: number;
@@ -209,6 +218,212 @@ function normalizeCollapsedCatalogLabel(value: unknown): string {
 
 function normalizeCatalogLookupKey(value: unknown): string {
   return normalizeCollapsedCatalogLabel(value).toLowerCase();
+}
+
+function canonicalizeManufacturerLabel(value: unknown): string {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const key = normalized.toLowerCase();
+
+  if (key === "3m") {
+    return "3M Solar";
+  }
+  if (key === "fasara" || key === "3m fasara") {
+    return "3M Fasara";
+  }
+  if (key === "avery") {
+    return "Avery Dennison";
+  }
+  if (key === "solar guard") {
+    return "Solar Gard";
+  }
+
+  return normalized;
+}
+
+const SECURITY_MANUFACTURER_LABEL = "Security";
+
+function normalizeMilTokenSpacing(value: unknown): string {
+  return normalizeCollapsedCatalogLabel(value).replace(/\b(\d+)\s*mil\b/gi, (_match, digits) => `${digits} MIL`);
+}
+
+function stripLeadingSecurityToken(value: unknown): string {
+  return normalizeCollapsedCatalogLabel(value).replace(/^security\b[:\-\s]*/i, "").trim();
+}
+
+function normalizeSecurityMakerPrefix(value: unknown): string {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const key = normalized.toLowerCase();
+  if (!normalized) return "";
+  if (key === "3m" || key === "3m solar" || key === "3m fasara") return "3M";
+  if (key === "solar guard" || key === "solargard" || key === "solar gard") return "Solar Gard";
+  if (key === "avery" || key === "avery dennison") return "Avery Dennison";
+  if (key === "llumar vista" || key === "llumarvista" || key === "llumar") return "Llumar";
+  if (key === "solyx") return "Solyx";
+  if (key === "aswfvkool") return "ASWFVKOOL";
+  if (key === "madico") return "Madico";
+  if (key === "sol") return "SOL";
+  return normalized;
+}
+
+function startsWithMakerPrefix(value: unknown, makerPrefix: string): boolean {
+  const normalizedValue = normalizeCollapsedCatalogLabel(value).toLowerCase();
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix).toLowerCase();
+  if (!normalizedPrefix) {
+    return false;
+  }
+  if (normalizedValue === normalizedPrefix) {
+    return true;
+  }
+  if (normalizedValue.startsWith(`${normalizedPrefix} `)) {
+    return true;
+  }
+  if (normalizedPrefix === "3m" && normalizedValue.startsWith("3m solar ")) {
+    return true;
+  }
+  if (normalizedPrefix === "solar gard" && normalizedValue.startsWith("solargard ")) {
+    return true;
+  }
+  if (normalizedPrefix === "avery dennison" && normalizedValue.startsWith("avery ")) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeLeadingMakerPrefix(baseName: unknown, makerPrefix: string): string {
+  const normalizedBase = normalizeCollapsedCatalogLabel(baseName);
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix);
+  if (!normalizedPrefix) {
+    return normalizedBase;
+  }
+
+  if (normalizedPrefix === "3M") {
+    return normalizedBase.replace(/^3m(?:\s+solar)?\b/i, "3M");
+  }
+  if (normalizedPrefix === "Solar Gard") {
+    return normalizedBase.replace(/^(?:solar\s*guard|solargard|solar\s+gard)\b/i, "Solar Gard");
+  }
+  if (normalizedPrefix === "Avery Dennison") {
+    return normalizedBase.replace(/^avery(?:\s+dennison)?\b/i, "Avery Dennison");
+  }
+  if (normalizedPrefix === "Llumar") {
+    return normalizedBase.replace(/^llumar(?:\s+vista)?\b/i, "Llumar");
+  }
+  if (normalizedPrefix === "Solyx") {
+    return normalizedBase.replace(/^solyx\b/i, "Solyx");
+  }
+  if (normalizedPrefix === "ASWFVKOOL") {
+    return normalizedBase.replace(/^aswfvkool\b/i, "ASWFVKOOL");
+  }
+  if (normalizedPrefix === "Madico") {
+    return normalizedBase.replace(/^madico\b/i, "Madico");
+  }
+  if (normalizedPrefix === "SOL") {
+    return normalizedBase.replace(/^sol\b/i, "SOL");
+  }
+
+  return normalizedBase;
+}
+
+function inferSecurityMakerPrefixFromFilmName(filmName: unknown): string {
+  const cleaned = stripLeadingSecurityToken(filmName);
+  if (!cleaned) return "";
+  if (/^3m\b/i.test(cleaned)) return "3M";
+  if (/^madico\b/i.test(cleaned)) return "Madico";
+  if (/^solar\s*guard\b/i.test(cleaned) || /^solargard\b/i.test(cleaned)) return "Solar Gard";
+  if (/^avery(?:\s+dennison)?\b/i.test(cleaned)) return "Avery Dennison";
+  if (/^llumar(?:\s+vista)?\b/i.test(cleaned)) return "Llumar";
+  if (/^solyx\b/i.test(cleaned)) return "Solyx";
+  if (/^aswfvkool\b/i.test(cleaned)) return "ASWFVKOOL";
+  if (/^sol\b/i.test(cleaned)) return "SOL";
+  return "";
+}
+
+function inferSecurityMakerPrefixFromManufacturer(manufacturer: unknown): string {
+  const canonical = canonicalizeManufacturerLabel(manufacturer);
+  if (!canonical || normalizeCatalogManufacturerLookupKey(canonical) === normalizeCatalogManufacturerLookupKey(SECURITY_MANUFACTURER_LABEL)) {
+    return "";
+  }
+  return normalizeSecurityMakerPrefix(canonical);
+}
+
+function detectSecurityFilmFamily(filmName: unknown): { isSecurity: boolean; family: string; agCode: string } {
+  const normalized = normalizeCollapsedCatalogLabel(filmName);
+  const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const agMatch = normalized.match(/\bAG[-\s]*([0-9]+)\b/i);
+
+  if (agMatch || /\banti\s*graffiti\b/i.test(normalized)) {
+    return { isSecurity: true, family: "ag", agCode: agMatch ? agMatch[1] : "" };
+  }
+  if (/\bS[-\s]*140\b/i.test(normalized)) {
+    return { isSecurity: true, family: "s140", agCode: "" };
+  }
+  if (/\bS[-\s]*70\b/i.test(normalized)) {
+    return { isSecurity: true, family: "s70", agCode: "" };
+  }
+  if (
+    /\bULTRA\s*S?800\b/i.test(normalized) ||
+    /\bS[-\s]*800\b/i.test(normalized) ||
+    squashedUpper.includes("ULTRAS800")
+  ) {
+    return { isSecurity: true, family: "s800", agCode: "" };
+  }
+  if (/\b\d+\s*mil\b/i.test(normalized)) {
+    return { isSecurity: true, family: "mil", agCode: "" };
+  }
+  return { isSecurity: false, family: "", agCode: "" };
+}
+
+function buildCanonicalSecurityFilmName(sourceFilmName: unknown, family: string, agCode: string, makerPrefix: string): string {
+  const cleanedSource = normalizeMilTokenSpacing(stripLeadingSecurityToken(sourceFilmName));
+  const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix);
+  const withPrefix = (baseName: string) => {
+    const normalizedBase = normalizeCollapsedCatalogLabel(baseName);
+    if (!normalizedPrefix) {
+      return normalizedBase;
+    }
+    if (startsWithMakerPrefix(normalizedBase, normalizedPrefix)) {
+      return normalizeLeadingMakerPrefix(normalizedBase, normalizedPrefix);
+    }
+    return `${normalizedPrefix} ${normalizedBase}`;
+  };
+
+  if (family === "s800") return withPrefix("Ultra S800");
+  if (family === "s70") return withPrefix("S70");
+  if (family === "s140") return withPrefix("S140");
+  if (family === "ag") return withPrefix(agCode ? `AG-${agCode}` : "AG");
+  return withPrefix(cleanedSource);
+}
+
+function normalizeSecurityManufacturerAndFilm(manufacturer: unknown, filmName: unknown): { manufacturer: string; filmName: string } {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const detection = detectSecurityFilmFamily(normalizedFilmName);
+  if (!detection.isSecurity) {
+    return { manufacturer: normalizedManufacturer, filmName: normalizedFilmName };
+  }
+
+  const makerPrefix =
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromFilmName(normalizedFilmName)) ||
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer));
+
+  return {
+    manufacturer: SECURITY_MANUFACTURER_LABEL,
+    filmName: buildCanonicalSecurityFilmName(normalizedFilmName, detection.family, detection.agCode, makerPrefix),
+  };
+}
+
+function normalizeCatalogManufacturerLookupKey(value: unknown): string {
+  return normalizeCatalogLookupKey(canonicalizeManufacturerLabel(value));
+}
+
+function buildFilmKey(manufacturer: unknown, filmName: unknown): string {
+  return `${asTrimmedString(manufacturer).toUpperCase()}|${asTrimmedString(filmName).toUpperCase()}`;
+}
+
+function normalizeFilmKeyInput(manufacturer: unknown, filmName: unknown, filmKeyInput: unknown): string {
+  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  void filmKeyInput;
+  return buildFilmKey(normalized.manufacturer, normalized.filmName);
 }
 
 function compareCatalogStrings(left: unknown, right: unknown): number {
@@ -369,6 +584,15 @@ function shouldUseCache(method: string, logicalPath: string): boolean {
 
 function isMutation(method: string, logicalPath: string): boolean {
   return method === "POST" && logicalPath !== "" && !READ_PATHS.has(logicalPath);
+}
+
+function isOwnerOnlyRoute(logicalPath: string): boolean {
+  return logicalPath === "/owner/admin-permissions" ||
+    logicalPath === "/owner/roles/demote-admin-to-member" ||
+    logicalPath === "/owner/roles/promote-admin-to-owner" ||
+    logicalPath === "/owner/notification-preferences" ||
+    logicalPath === "/owner/warehouses/add" ||
+    logicalPath === "/owner/caulk/manufacturers/upsert";
 }
 
 function getCorsOrigin(request: Request): string {
@@ -694,6 +918,100 @@ async function rpcOrThrow<T>(client: any, fn: string, params: Record<string, unk
     throw new HttpError(statusFromRpcError(error), mapBackendBootstrapError(rawMessage));
   }
   return data as T;
+}
+
+function isFilmNameAliasRpcUnavailable(message: string): boolean {
+  const normalized = asTrimmedString(message).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    (normalized.includes("api_acl_list_film_name_aliases") && normalized.includes("does not exist")) ||
+    (normalized.includes("api_acl_list_film_name_aliases") && normalized.includes("permission denied")) ||
+    (normalized.includes("app.film_name_aliases") && normalized.includes("does not exist"))
+  );
+}
+
+function pruneFilmNameAliasCache() {
+  const now = Date.now();
+  for (const [key, entry] of filmNameAliasCache.entries()) {
+    if (entry.expiresAt <= now) {
+      filmNameAliasCache.delete(key);
+    }
+  }
+}
+
+async function listFilmNameAliases(client: any, orgId: string) {
+  pruneFilmNameAliasCache();
+  const cached = filmNameAliasCache.get(orgId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.aliases;
+  }
+
+  let rows: Array<{
+    manufacturer_lookup_key: unknown;
+    old_film_name_lookup_key: unknown;
+    canonical_film_name: unknown;
+  }> = [];
+  try {
+    rows = await rpcOrThrow(client, "api_acl_list_film_name_aliases", { p_org_id: orgId });
+  } catch (error) {
+    const message = error instanceof HttpError ? asTrimmedString(error.message) : "";
+    if (!isFilmNameAliasRpcUnavailable(message)) {
+      throw error;
+    }
+  }
+
+  const aliases: Record<string, string> = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const manufacturerLookupKey = normalizeCatalogManufacturerLookupKey(row.manufacturer_lookup_key);
+    const oldFilmNameLookupKey = normalizeCatalogLookupKey(row.old_film_name_lookup_key);
+    const canonicalFilmName = normalizeCollapsedCatalogLabel(row.canonical_film_name);
+    if (!manufacturerLookupKey || !oldFilmNameLookupKey || !canonicalFilmName) {
+      continue;
+    }
+    aliases[`${manufacturerLookupKey}|${oldFilmNameLookupKey}`] = canonicalFilmName;
+  }
+
+  filmNameAliasCache.set(orgId, {
+    aliases,
+    expiresAt: Date.now() + FILM_NAME_ALIAS_CACHE_TTL_MS,
+  });
+  return aliases;
+}
+
+async function resolveCanonicalFilmNameAlias(
+  client: any,
+  orgId: string,
+  manufacturer: unknown,
+  filmName: unknown,
+): Promise<string> {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) {
+    return "";
+  }
+
+  const aliases = await listFilmNameAliases(client, orgId);
+  const key = `${normalizeCatalogManufacturerLookupKey(canonicalManufacturer)}|${normalizeCatalogLookupKey(normalizedFilmName)}`;
+  return aliases[key] || normalizedFilmName;
+}
+
+async function resolveCanonicalFilmEntry(
+  client: any,
+  orgId: string,
+  manufacturer: unknown,
+  filmName: unknown,
+): Promise<{ manufacturer: string; filmName: string }> {
+  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const aliasResolvedFilmName = await resolveCanonicalFilmNameAlias(
+    client,
+    orgId,
+    normalized.manufacturer,
+    normalized.filmName,
+  );
+  return normalizeSecurityManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
 }
 
 function mapDbBoxRow(row: any) {
@@ -2957,6 +3275,64 @@ async function reopenJob(client: any, identity: AuthIdentity, payload: Record<st
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
+async function canonicalizeRequirementPayloadEntries(
+  client: any,
+  orgId: string,
+  entriesRaw: unknown,
+) {
+  if (!Array.isArray(entriesRaw)) {
+    return entriesRaw;
+  }
+
+  const normalized = [];
+  for (const entry of entriesRaw) {
+    if (!entry || typeof entry !== "object") {
+      normalized.push(entry);
+      continue;
+    }
+    const source = entry as Record<string, unknown>;
+    const canonical = await resolveCanonicalFilmEntry(client, orgId, source.manufacturer, source.filmName);
+    normalized.push({
+      ...source,
+      manufacturer: canonical.manufacturer,
+      filmName: canonical.filmName,
+    });
+  }
+
+  return normalized;
+}
+
+async function canonicalizeMutationPayloadForRoute(
+  client: any,
+  orgId: string,
+  logicalPath: string,
+  payload: Record<string, unknown>,
+) {
+  const next = payload && typeof payload === "object" ? { ...payload } : {};
+
+  if (logicalPath === "/boxes/add" || logicalPath === "/boxes/update") {
+    const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
+    next.manufacturer = canonical.manufacturer;
+    next.filmName = canonical.filmName;
+    next.filmKey = normalizeFilmKeyInput(canonical.manufacturer, canonical.filmName, next.filmKey);
+    return next;
+  }
+
+  if (logicalPath === "/film-orders/create") {
+    const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
+    next.manufacturer = canonical.manufacturer;
+    next.filmName = canonical.filmName;
+    return next;
+  }
+
+  if (logicalPath === "/jobs/create" || logicalPath === "/jobs/update") {
+    next.requirements = await canonicalizeRequirementPayloadEntries(client, orgId, next.requirements);
+    return next;
+  }
+
+  return next;
+}
+
 async function callMutationRpc(client: any, fn: string, orgId: string, actor: string, payload: Record<string, unknown>) {
   return await rpcOrThrow<any>(client, fn, {
     p_org_id: orgId,
@@ -3020,6 +3396,87 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
           boxIdPrefix: asTrimmedString(entry.box_id_prefix).toUpperCase(),
         })),
       });
+    }
+    case "/caulk/manufacturers/list": {
+      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_manufacturers", {
+        p_org_id: orgId,
+      });
+      const entries = (entriesRaw || []).map((entry) => ({
+        manufacturerId: asTrimmedString(entry.manufacturer_id),
+        name: asTrimmedString(entry.name),
+        lookupKey: asTrimmedString(entry.lookup_key),
+        isActive: entry.is_active === true || String(entry.is_active).toLowerCase() === "true",
+        updatedAt: asTrimmedString(entry.updated_at),
+      }));
+      return ok({ entries });
+    }
+    case "/caulk/products/list": {
+      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_products", {
+        p_org_id: orgId,
+      });
+      const entries = (entriesRaw || []).map((entry) => ({
+        productId: asTrimmedString(entry.product_id),
+        manufacturerId: asTrimmedString(entry.manufacturer_id),
+        manufacturer: asTrimmedString(entry.manufacturer),
+        productName: asTrimmedString(entry.product_name),
+        productCode: asTrimmedString(entry.product_code),
+        lookupKey: asTrimmedString(entry.lookup_key),
+        tubesPerCase: integerOrZero(entry.tubes_per_case),
+        isActive: entry.is_active === true || String(entry.is_active).toLowerCase() === "true",
+        notes: asTrimmedString(entry.notes),
+        updatedAt: asTrimmedString(entry.updated_at),
+      }));
+      return ok({ entries });
+    }
+    case "/caulk/stock/list": {
+      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_stock", {
+        p_org_id: orgId,
+        p_warehouse: asTrimmedString(params.warehouse),
+        p_manufacturer: asTrimmedString(params.manufacturer),
+        p_q: asTrimmedString(params.q),
+      });
+      const entries = (entriesRaw || []).map((entry) => ({
+        warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
+        productId: asTrimmedString(entry.product_id),
+        manufacturerId: asTrimmedString(entry.manufacturer_id),
+        manufacturer: asTrimmedString(entry.manufacturer),
+        productName: asTrimmedString(entry.product_name),
+        productCode: asTrimmedString(entry.product_code),
+        tubesPerCase: integerOrZero(entry.tubes_per_case),
+        tubesOnHand: integerOrZero(entry.tubes_on_hand),
+        casesOnHand: integerOrZero(entry.cases_on_hand),
+        looseTubes: integerOrZero(entry.loose_tubes),
+        updatedAt: asTrimmedString(entry.updated_at),
+        updatedBy: asTrimmedString(entry.updated_by),
+      }));
+      return ok({ entries });
+    }
+    case "/caulk/transactions/list": {
+      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_transactions", {
+        p_org_id: orgId,
+        p_warehouse: asTrimmedString(params.warehouse),
+        p_product_id: asTrimmedString(params.productId) || null,
+        p_limit: integerOrZero(params.limit) > 0 ? integerOrZero(params.limit) : 200,
+      });
+      const entries = (entriesRaw || []).map((entry) => ({
+        transactionId: asTrimmedString(entry.transaction_id),
+        productId: asTrimmedString(entry.product_id),
+        warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
+        manufacturer: asTrimmedString(entry.manufacturer),
+        productName: asTrimmedString(entry.product_name),
+        productCode: asTrimmedString(entry.product_code),
+        action: asTrimmedString(entry.action),
+        deltaTubes: integerOrZero(entry.delta_tubes),
+        resultingTubesOnHand: integerOrZero(entry.resulting_tubes_on_hand),
+        tubesPerCase: integerOrZero(entry.tubes_per_case),
+        reason: asTrimmedString(entry.reason),
+        notes: asTrimmedString(entry.notes),
+        transferId: asTrimmedString(entry.transfer_id),
+        sourceBoxId: asTrimmedString(entry.source_box_id),
+        createdAt: asTrimmedString(entry.created_at),
+        createdBy: asTrimmedString(entry.created_by),
+      }));
+      return ok({ entries });
     }
     case "/boxes/search":
       return ok(await buildSearchBoxes(client, orgId, params));
@@ -3095,61 +3552,132 @@ async function dispatchMutation(
 ) {
   const orgId = identity.orgId;
   const actor = identity.actor;
+  const normalizedPayload = await canonicalizeMutationPayloadForRoute(client, orgId, logicalPath, payload);
   switch (logicalPath) {
     case "/profile/username": {
-      const result = await callMutationRpc(client, "api_request_username_change", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_request_username_change", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/admin/access/requests/approve": {
-      const result = await callMutationRpc(client, "api_approve_access_request", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_approve_access_request", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/admin/access/requests/deny": {
-      const result = await callMutationRpc(client, "api_deny_access_request", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_deny_access_request", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/admin/username-requests/approve": {
-      const result = await callMutationRpc(client, "api_approve_username_change_request", orgId, actor, payload);
+      const result = await callMutationRpc(
+        client,
+        "api_approve_username_change_request",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
       return ok(result);
     }
     case "/admin/username-requests/deny": {
-      const result = await callMutationRpc(client, "api_deny_username_change_request", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_deny_username_change_request", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/admin/member-permissions": {
-      const permissions = await callMutationRpc(client, "api_update_member_feature_permissions", orgId, actor, payload);
+      const permissions = await callMutationRpc(
+        client,
+        "api_update_member_feature_permissions",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
       return ok({ permissions });
     }
     case "/admin/user-permissions": {
-      const permissions = await callMutationRpc(client, "api_update_user_feature_permissions", orgId, actor, payload);
+      const permissions = await callMutationRpc(
+        client,
+        "api_update_user_feature_permissions",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
       return ok({ permissions });
     }
     case "/owner/admin-permissions": {
-      const permissions = await callMutationRpc(client, "api_update_admin_feature_permissions", orgId, actor, payload);
+      const permissions = await callMutationRpc(
+        client,
+        "api_update_admin_feature_permissions",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
       return ok({ permissions });
     }
     case "/admin/roles/promote-member-to-admin": {
-      const result = await callMutationRpc(client, "api_promote_member_to_admin", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_promote_member_to_admin", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/owner/roles/demote-admin-to-member": {
-      const result = await callMutationRpc(client, "api_demote_admin_to_member", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_demote_admin_to_member", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/owner/roles/promote-admin-to-owner": {
-      const result = await callMutationRpc(client, "api_promote_admin_to_owner", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_promote_admin_to_owner", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/owner/notification-preferences": {
-      const result = await callMutationRpc(client, "api_update_owner_notification_preferences", orgId, actor, payload);
+      const result = await callMutationRpc(
+        client,
+        "api_update_owner_notification_preferences",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
+      return ok(result);
+    }
+    case "/owner/caulk/manufacturers/upsert": {
+      const result = await callMutationRpc(
+        client,
+        "api_acl_owner_upsert_caulk_manufacturer",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
+      return ok(result);
+    }
+    case "/caulk/products/upsert": {
+      const result = await callMutationRpc(
+        client,
+        "api_acl_caulk_upsert_product",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
+      return ok(result);
+    }
+    case "/caulk/mutate": {
+      const result = await callMutationRpc(
+        client,
+        "api_acl_caulk_mutate_stock",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
+      return ok(result);
+    }
+    case "/caulk/transfer": {
+      const result = await callMutationRpc(
+        client,
+        "api_acl_caulk_transfer_stock",
+        orgId,
+        actor,
+        normalizedPayload,
+      );
       return ok(result);
     }
     case "/owner/warehouses/add": {
-      const result = await callMutationRpc(client, "api_acl_add_warehouse", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_add_warehouse", orgId, actor, normalizedPayload);
       return ok(result);
     }
     case "/boxes/add": {
-      const result = await callMutationRpc(client, "api_acl_boxes_add", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_add", orgId, actor, normalizedPayload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -3157,7 +3685,7 @@ async function dispatchMutation(
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/update": {
-      const result = await callMutationRpc(client, "api_acl_boxes_update", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_update", orgId, actor, normalizedPayload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -3165,7 +3693,7 @@ async function dispatchMutation(
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/set-status": {
-      const result = await callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, normalizedPayload);
       const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
       if (!box) {
         throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
@@ -3173,7 +3701,7 @@ async function dispatchMutation(
       return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
     }
     case "/boxes/delete": {
-      const result = await callMutationRpc(client, "api_acl_boxes_delete", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_boxes_delete", orgId, actor, normalizedPayload);
       return ok(
         {
           boxId: asTrimmedString(result.boxId),
@@ -3184,13 +3712,13 @@ async function dispatchMutation(
     }
     case "/allocations/add":
     case "/allocations/apply": {
-      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
       const existingJob = await findJobByNumber(client, orgId, jobNumber);
       if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
         throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive allocations.`);
       }
 
-      const result = await callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, normalizedPayload);
       const allocationIds = Array.isArray(result.allocationIds)
         ? result.allocationIds.map((value: unknown) => asTrimmedString(value)).filter(Boolean)
         : [];
@@ -3214,14 +3742,14 @@ async function dispatchMutation(
     case "/allocations/remove-box":
       return removeJobBoxAllocation(client, identity, payload);
     case "/jobs/create": {
-      const result = await callMutationRpc(client, "api_acl_jobs_create", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
     case "/jobs/update": {
-      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
       if (
-        payload.lifecycleStatus !== undefined &&
-        normalizeJobLifecycleStatus(payload.lifecycleStatus) !== "ACTIVE"
+        normalizedPayload.lifecycleStatus !== undefined &&
+        normalizeJobLifecycleStatus(normalizedPayload.lifecycleStatus) !== "ACTIVE"
       ) {
         throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
       }
@@ -3230,7 +3758,7 @@ async function dispatchMutation(
         throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
       }
 
-      const result = await callMutationRpc(client, "api_acl_jobs_update", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_jobs_update", orgId, actor, normalizedPayload);
       return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
     }
     case "/jobs/complete":
@@ -3238,13 +3766,13 @@ async function dispatchMutation(
     case "/jobs/reopen":
       return reopenJob(client, identity, payload);
     case "/film-orders/create": {
-      const jobNumber = requireString(payload.jobNumber, "JobNumber");
+      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
       const existingJob = await findJobByNumber(client, orgId, jobNumber);
       if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
         throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
       }
 
-      const result = await callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, normalizedPayload);
       const filmOrder = await findFilmOrderById(client, orgId, result.filmOrderId);
       if (!filmOrder) {
         throw new HttpError(500, "Film order was created but could not be reloaded.");
@@ -3255,15 +3783,15 @@ async function dispatchMutation(
       );
     }
     case "/film-orders/cancel": {
-      const result = await callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, normalizedPayload);
       return ok({ jobNumber: asTrimmedString(result.jobNumber) }, result.warnings || []);
     }
     case "/film-orders/delete": {
-      const result = await callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, normalizedPayload);
       return ok(result.filmOrder || null, result.warnings || []);
     }
     case "/audit/undo": {
-      const result = await callMutationRpc(client, "api_acl_audit_undo", orgId, actor, payload);
+      const result = await callMutationRpc(client, "api_acl_audit_undo", orgId, actor, normalizedPayload);
       const boxId = asTrimmedString(result.boxId);
       const box = result.boxDeleted || !boxId ? null : await findBoxById(client, orgId, boxId);
       return ok({ box: box ? toPublicBox(box) : null, logId: asTrimmedString(result.logId) }, result.warnings || []);
@@ -3353,6 +3881,10 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
           ? "Your access request was denied. Contact an owner for help."
           : "Your account is awaiting approval from an admin or owner.",
       );
+    }
+
+    if (isOwnerOnlyRoute(logicalPath) && identity.role !== "owner") {
+      throw new HttpError(403, "Owner access is required.");
     }
 
     const params = routeParams(request.method, requestUrl, bodyJson);
