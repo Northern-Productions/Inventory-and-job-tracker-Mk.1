@@ -1,10 +1,10 @@
-# IL Boxes Merge Runbook (Repeatable Across Environments)
+# Inventory Boxes Merge Runbook (Repeatable Across Environments)
 
-Use this runbook to replay the same IL box merge into a different org or database environment.
+Use this runbook to replay the same box merge into a different org or database environment.
 
 ## Scope
 
-- Loads IL workbook output into `import.boxes_raw`
+- Loads profile output (`IL` or `MS`) into `import.boxes_raw`
 - Runs non-destructive merge into `app.boxes` with `keep_existing`
 - Does **not** overwrite existing matching `box_id` rows
 
@@ -18,6 +18,9 @@ Use this runbook to replay the same IL box merge into a different org or databas
 3. `backend/.env` has:
    - `DATABASE_URL=<target_environment_database_url>`
    - `DEFAULT_ORG_ID=<target_org_uuid>`
+4. Pick a profile and run directory:
+   - `IL` -> `backend/migration-dry-runs/il-assigned`
+   - `MS` -> `backend/migration-dry-runs/ms-inventory`
 
 ## Step 1: Ensure Merge SQL Exists In Target DB
 
@@ -31,14 +34,22 @@ npx supabase db push
 
 ## Step 2: Prepare Input CSV
 
-Use the reviewed final CSV:
+For IL:
 
 - `backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv`
 
-If you must rebuild it from workbook:
+For MS:
+
+- `backend/migration-dry-runs/ms-inventory/boxes_raw_final_with_zeroed.csv`
+
+If you must rebuild from workbook:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\transform-il-assigned-inventory.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\transform-il-assigned-inventory.ps1 -Profile <IL|MS>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\prepare-zeroed-candidates.ps1 -Profile <IL|MS>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\apply-width-resolutions.ps1 -Profile <IL|MS>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\apply-missing-quantity-as-zeroed.ps1 -Profile <IL|MS>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\append-zeroed-tab-to-boxes-raw.ps1 -Profile <IL|MS>
 ```
 
 Then re-apply your approved manual resolution workflow before proceeding.
@@ -46,7 +57,7 @@ Then re-apply your approved manual resolution workflow before proceeding.
 ## Step 3: Run Merge Load
 
 ```powershell
-node .\backend\scripts\run-il-boxes-merge-load.mjs
+node .\backend\scripts\run-il-boxes-merge-load.mjs --profile <IL|MS>
 ```
 
 Expected behavior:
@@ -59,13 +70,13 @@ Expected behavior:
 ## Step 4: Run QA Sign-Off
 
 ```powershell
-node .\backend\scripts\run-il-qa-signoff.mjs
+node .\backend\scripts\run-il-qa-signoff.mjs --profile <IL|MS>
 ```
 
 Review:
 
-- `backend/migration-dry-runs/il-assigned/qa_signoff_report.md`
-- `backend/migration-dry-runs/il-assigned/qa_signoff_report.json`
+- `<run_dir>/qa_signoff_report.md`
+- `<run_dir>/qa_signoff_report.json`
 
 ## Success Gates
 

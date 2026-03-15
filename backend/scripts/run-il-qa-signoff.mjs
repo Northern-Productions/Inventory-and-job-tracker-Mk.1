@@ -9,9 +9,39 @@ const backendDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(backendDir, "..");
 
 const envPath = path.join(backendDir, ".env");
-const csvPath = path.join(backendDir, "migration-dry-runs", "il-assigned", "boxes_raw_final_with_zeroed.csv");
-const reportJsonPath = path.join(backendDir, "migration-dry-runs", "il-assigned", "qa_signoff_report.json");
-const reportMdPath = path.join(backendDir, "migration-dry-runs", "il-assigned", "qa_signoff_report.md");
+
+function parseArgs(argv) {
+  const options = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (!token.startsWith("--")) continue;
+
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith("--")) {
+      options[key] = true;
+      continue;
+    }
+
+    options[key] = next;
+    i += 1;
+  }
+  return options;
+}
+
+const args = parseArgs(process.argv.slice(2));
+const profile = String(args.profile || "IL").toUpperCase();
+const defaultRunDir = profile === "MS"
+  ? path.join(backendDir, "migration-dry-runs", "ms-inventory")
+  : path.join(backendDir, "migration-dry-runs", "il-assigned");
+const runDir = args["run-dir"] ? path.resolve(repoRoot, String(args["run-dir"])) : defaultRunDir;
+const csvPath = args.csv ? path.resolve(repoRoot, String(args.csv)) : path.join(runDir, "boxes_raw_final_with_zeroed.csv");
+const reportJsonPath = args["report-json"]
+  ? path.resolve(repoRoot, String(args["report-json"]))
+  : path.join(runDir, "qa_signoff_report.json");
+const reportMdPath = args["report-md"]
+  ? path.resolve(repoRoot, String(args["report-md"]))
+  : path.join(runDir, "qa_signoff_report.md");
 
 const REQUIRED_COLUMNS = [
   "BoxID",
@@ -134,7 +164,7 @@ function chunk(items, size) {
 
 async function loadCsvTempTable(client, rows) {
   await client.query(`
-    create temporary table tmp_il_csv_boxes (
+    create temporary table tmp_csv_boxes (
       box_id text primary key,
       manufacturer text not null,
       film_name text not null,
@@ -169,7 +199,7 @@ async function loadCsvTempTable(client, rows) {
     }
     await client.query(
       `
-        insert into tmp_il_csv_boxes (
+        insert into tmp_csv_boxes (
           box_id, manufacturer, film_name, width_in, initial_feet, feet_available, status, order_date, received_date
         ) values ${placeholders.join(", ")}
       `,
@@ -210,7 +240,7 @@ async function main() {
     const dbNowUtc = nowRes.rows[0]?.now_utc ?? null;
 
     const totalRes = await client.query(
-      `select count(*)::int as c from app.boxes where org_id = $1::uuid`,
+      "select count(*)::int as c from app.boxes where org_id = $1::uuid",
       [orgId],
     );
     const totalBoxes = totalRes.rows[0]?.c ?? 0;
@@ -218,7 +248,7 @@ async function main() {
     const presentRes = await client.query(
       `
         select count(*)::int as c
-        from tmp_il_csv_boxes c
+        from tmp_csv_boxes c
         join app.boxes b
           on b.org_id = $1::uuid
          and b.box_id = c.box_id
@@ -230,7 +260,7 @@ async function main() {
     const missingRes = await client.query(
       `
         select c.box_id
-        from tmp_il_csv_boxes c
+        from tmp_csv_boxes c
         left join app.boxes b
           on b.org_id = $1::uuid
          and b.box_id = c.box_id
@@ -245,7 +275,7 @@ async function main() {
     const missingCountRes = await client.query(
       `
         select count(*)::int as c
-        from tmp_il_csv_boxes c
+        from tmp_csv_boxes c
         left join app.boxes b
           on b.org_id = $1::uuid
          and b.box_id = c.box_id
@@ -344,7 +374,7 @@ async function main() {
             nullif(c.order_date, '')::date as csv_order_date,
             b.received_date as db_received_date,
             nullif(c.received_date, '')::date as csv_received_date
-          from tmp_il_csv_boxes c
+          from tmp_csv_boxes c
           join app.boxes b
             on b.org_id = $1::uuid
            and b.box_id = c.box_id
@@ -386,7 +416,7 @@ async function main() {
             nullif(c.order_date, '')::date as csv_order_date,
             b.received_date as db_received_date,
             nullif(c.received_date, '')::date as csv_received_date
-          from tmp_il_csv_boxes c
+          from tmp_csv_boxes c
           join app.boxes b
             on b.org_id = $1::uuid
            and b.box_id = c.box_id
@@ -430,14 +460,16 @@ async function main() {
     const warnings = [];
     if (csvDiffCount > 0) warnings.push(`CSV vs DB field differences on matched BoxIDs: ${csvDiffCount} (expected when keep_existing skipped conflicts)`);
     const topZeroed = zeroedDistRes.rows[0];
-    if (topZeroed && topZeroed.zeroed_date === "2026-01-14" && Number(topZeroed.count) > 1000) {
-      warnings.push(`Large inferred zeroed-date concentration remains (${topZeroed.count} rows on 2026-01-14).`);
+    if (topZeroed && Number(topZeroed.count) > 1000) {
+      warnings.push(`Large inferred zeroed-date concentration remains (${topZeroed.count} rows on ${topZeroed.zeroed_date}).`);
     }
 
     const report = {
       generated_at_utc: new Date().toISOString(),
+      profile,
       db_now_utc: dbNowUtc,
       org_id: orgId,
+      run_dir: path.relative(repoRoot, runDir).replace(/\\/g, "/"),
       csv_path: path.relative(repoRoot, csvPath).replace(/\\/g, "/"),
       totals: {
         csv_rows: csvRows.length,
@@ -472,7 +504,7 @@ async function main() {
     fs.writeFileSync(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
     const md = [
-      "# IL Merge QA Sign-Off",
+      `# ${profile} Merge QA Sign-Off`,
       "",
       `- Generated (UTC): ${report.generated_at_utc}`,
       `- Org: \`${orgId}\``,

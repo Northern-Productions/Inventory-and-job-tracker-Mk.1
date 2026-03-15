@@ -1,6 +1,9 @@
 param(
-  [string]$WorkbookPath = "C:\Users\Rober\Downloads\IL Assigned Inventory.xlsx",
-  [string]$OutputDir = "backend/migration-dry-runs/il-assigned"
+  [ValidateSet("IL", "MS")]
+  [string]$Profile = "IL",
+  [string]$WorkbookPath = "",
+  [string]$OutputDir = "",
+  [switch]$AllowOptionalHyphenDescriptions
 )
 
 Set-StrictMode -Version Latest
@@ -8,18 +11,77 @@ $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$targetSheetNames = @(
-  "Llumar",
-  "3M Solar",
-  "Fasara",
-  "Solar Guard",
-  "Security",
-  "Di-Noc",
-  "Avery Dennison",
-  "Solyx",
-  "Vinyl",
-  "ASWFVKOOL"
-)
+$profileConfigs = @{
+  IL = [pscustomobject]@{
+    default_workbook = "C:\Users\Rober\Downloads\IL Assigned Inventory.xlsx"
+    default_output_dir = "backend/migration-dry-runs/il-assigned"
+    target_sheets = @(
+      "Llumar",
+      "3M Solar",
+      "Fasara",
+      "Solar Guard",
+      "Security",
+      "Di-Noc",
+      "Avery Dennison",
+      "Solyx",
+      "Vinyl",
+      "ASWFVKOOL"
+    )
+    default_prefix = "IL1"
+    legacy_m_prefix = "MS1"
+    allow_optional_hyphen = $false
+    manufacturer_map = @{}
+    baseline_accepted = 644
+    baseline_skipped = 36
+  }
+  MS = [pscustomobject]@{
+    default_workbook = "C:\Users\Rober\Downloads\MS Inventory.xlsx"
+    default_output_dir = "backend/migration-dry-runs/ms-inventory"
+    target_sheets = @(
+      "3M Solar",
+      "Fasara",
+      "Avery Dennison",
+      "LlumarVista",
+      "Security",
+      "Solar Guard",
+      "Solyx",
+      "Madico",
+      "Di-Noc",
+      "Vinyl"
+    )
+    default_prefix = "MS1"
+    legacy_m_prefix = "MS1"
+    allow_optional_hyphen = $true
+    manufacturer_map = @{
+      "LLUMARVISTA" = "Llumar"
+      "MADICO" = "ASWFVKOOL"
+    }
+    baseline_accepted = $null
+    baseline_skipped = $null
+  }
+}
+
+$config = $profileConfigs[$Profile]
+if ($null -eq $config) {
+  throw "Unsupported profile: $Profile"
+}
+
+if ([string]::IsNullOrWhiteSpace($WorkbookPath)) {
+  $WorkbookPath = [string]$config.default_workbook
+}
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+  $OutputDir = [string]$config.default_output_dir
+}
+
+$allowOptionalHyphen = [bool]$config.allow_optional_hyphen
+if ($PSBoundParameters.ContainsKey("AllowOptionalHyphenDescriptions")) {
+  $allowOptionalHyphen = $AllowOptionalHyphenDescriptions.IsPresent
+}
+
+$targetSheetNames = [string[]]$config.target_sheets
+$defaultPrefix = [string]$config.default_prefix
+$legacyMPrefix = [string]$config.legacy_m_prefix
+$manufacturerMap = [hashtable]$config.manufacturer_map
 
 $boxesRawColumns = @(
   "BoxID",
@@ -219,6 +281,126 @@ function Get-LotColumnIndex {
   return -1
 }
 
+function Test-LotLikeValue {
+  param(
+    [string]$Value
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    return $false
+  }
+
+  $trimmed = $Value.Trim()
+  $normalized = $trimmed.ToUpperInvariant()
+  if ($normalized -in @("NA", "N/A", "NONE", "NULL", "DONE")) {
+    return $false
+  }
+
+  $numeric = 0.0
+  $isNumericOnly = [double]::TryParse(
+    $trimmed,
+    [System.Globalization.NumberStyles]::Float,
+    [System.Globalization.CultureInfo]::InvariantCulture,
+    [ref]$numeric
+  )
+  if ($isNumericOnly) {
+    return $false
+  }
+
+  if ($trimmed -match "[A-Za-z]") {
+    return $true
+  }
+
+  if ($trimmed -match "[-/]") {
+    return $true
+  }
+
+  return $trimmed.Length -ge 6
+}
+
+function Get-LotColumnIndexFallback {
+  param(
+    [AllowEmptyCollection()]
+    [object[]]$Rows,
+    [AllowEmptyCollection()]
+    [AllowEmptyString()]
+    [string[]]$SharedStrings
+  )
+
+  $candidateIndex = 1
+  $sampleRows = @($Rows | Where-Object { [int]$_.GetAttribute("r") -gt 1 } | Select-Object -First 40)
+  if ($sampleRows.Count -eq 0) {
+    return -1
+  }
+
+  $nonEmpty = 0
+  $lotLike = 0
+  foreach ($row in $sampleRows) {
+    $valueMap = Get-RowValueMap -Row $row -SharedStrings $SharedStrings
+    if (-not $valueMap.ContainsKey($candidateIndex)) {
+      continue
+    }
+
+    $raw = [string]$valueMap[$candidateIndex]
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+      continue
+    }
+
+    $nonEmpty++
+    if (Test-LotLikeValue -Value $raw) {
+      $lotLike++
+    }
+  }
+
+  if ($nonEmpty -lt 5) {
+    return -1
+  }
+
+  $score = $lotLike / [double]$nonEmpty
+  if ($score -ge 0.6) {
+    return $candidateIndex
+  }
+
+  return -1
+}
+
+function Convert-ToMonthEndDateYmd {
+  param(
+    [int]$Year,
+    [int]$Month
+  )
+
+  try {
+    $first = [datetime]::new($Year, $Month, 1)
+    return $first.AddMonths(1).AddDays(-1).ToString("yyyy-MM-dd")
+  } catch {
+    return $null
+  }
+}
+
+function Get-MonthNumberFromName {
+  param(
+    [string]$MonthToken
+  )
+
+  $month = "$MonthToken".Trim().ToLowerInvariant()
+  switch -Regex ($month) {
+    "^jan" { return 1 }
+    "^feb" { return 2 }
+    "^mar" { return 3 }
+    "^apr" { return 4 }
+    "^may" { return 5 }
+    "^jun" { return 6 }
+    "^jul" { return 7 }
+    "^aug" { return 8 }
+    "^sep" { return 9 }
+    "^oct" { return 10 }
+    "^nov" { return 11 }
+    "^dec" { return 12 }
+    default { return 0 }
+  }
+}
+
 function Get-InventoryDateFromHeaders {
   param(
     [AllowEmptyCollection()]
@@ -248,6 +430,31 @@ function Get-InventoryDateFromHeaders {
       return $date.ToString("yyyy-MM-dd")
     } catch {
       continue
+    }
+  }
+
+  foreach ($header in $Headers) {
+    if ([string]::IsNullOrWhiteSpace($header)) {
+      continue
+    }
+
+    $monthYear = [regex]::Match(
+      $header,
+      "(?i)(?<month>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*,?\s*(?<year>\d{4})"
+    )
+    if (-not $monthYear.Success) {
+      continue
+    }
+
+    $month = Get-MonthNumberFromName -MonthToken $monthYear.Groups["month"].Value
+    if ($month -le 0) {
+      continue
+    }
+
+    $year = [int]$monthYear.Groups["year"].Value
+    $monthEnd = Convert-ToMonthEndDateYmd -Year $year -Month $month
+    if (-not [string]::IsNullOrWhiteSpace($monthEnd)) {
+      return $monthEnd
     }
   }
 
@@ -284,9 +491,93 @@ function Parse-Quantity {
   return $parsed
 }
 
+function Normalize-TrailingLetterSuffix {
+  param(
+    [string]$BoxId
+  )
+
+  if ([string]::IsNullOrWhiteSpace($BoxId)) {
+    return ""
+  }
+
+  $trimmed = $BoxId.Trim().ToUpperInvariant()
+  $match = [regex]::Match($trimmed, "^(?<prefix>[A-Z]{2}[1-9][0-9]*)-(?<number>\d+)[A-Z]$")
+  if ($match.Success) {
+    return "$($match.Groups["prefix"].Value)-$($match.Groups["number"].Value)"
+  }
+
+  return $trimmed
+}
+
+function Normalize-CanonicalBoxId {
+  param(
+    [string]$RawBoxId
+  )
+
+  if ([string]::IsNullOrWhiteSpace($RawBoxId)) {
+    return ""
+  }
+
+  $clean = $RawBoxId.Trim().ToUpperInvariant()
+  if ($clean -match "^(?<state>[A-Z]{2})-(?<suffix>[A-Z0-9]+)$") {
+    $clean = "$($matches["state"])1-$($matches["suffix"])"
+  }
+
+  return Normalize-TrailingLetterSuffix -BoxId $clean
+}
+
+function Build-CanonicalBoxIdFromIdToken {
+  param(
+    [string]$IdToken,
+    [string]$DefaultPrefix,
+    [string]$LegacyMPrefix
+  )
+
+  $token = "$IdToken".Trim().ToUpperInvariant()
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    return ""
+  }
+
+  if ($token -match "^[A-Z]{2}[1-9][0-9]*-[A-Z0-9]+$") {
+    return Normalize-CanonicalBoxId -RawBoxId $token
+  }
+
+  if ($token -match "^[A-Z]{2}-[A-Z0-9]+$") {
+    return Normalize-CanonicalBoxId -RawBoxId $token
+  }
+
+  if ($token.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase) -and $token.Length -gt 1) {
+    return Normalize-CanonicalBoxId -RawBoxId "$LegacyMPrefix-$($token.Substring(1))"
+  }
+
+  return Normalize-CanonicalBoxId -RawBoxId "$DefaultPrefix-$token"
+}
+
+function Resolve-ManufacturerName {
+  param(
+    [string]$SheetName,
+    [hashtable]$ManufacturerMap
+  )
+
+  $name = "$SheetName".Trim()
+  if ([string]::IsNullOrWhiteSpace($name)) {
+    return $name
+  }
+
+  $key = $name.ToUpperInvariant()
+  if ($null -ne $ManufacturerMap -and $ManufacturerMap.ContainsKey($key)) {
+    return [string]$ManufacturerMap[$key]
+  }
+
+  return $name
+}
+
 function Parse-Description {
   param(
-    [string]$RawDescription
+    [string]$RawDescription,
+    [string]$DefaultPrefix,
+    [string]$LegacyMPrefix,
+    [bool]$AllowOptionalHyphenDescriptions = $false
   )
 
   $description = "$RawDescription".Trim()
@@ -301,7 +592,14 @@ function Parse-Description {
     }
   }
 
-  $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z0-9]{2,12})\s*-\s*(?<rest>.+)$")
+  $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z]{2}[1-9][0-9]*-[A-Za-z0-9]+)\s*-\s*(?<rest>.+)$")
+  if (-not $idMatch.Success) {
+    $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z0-9]{2,16})\s*-\s*(?<rest>.+)$")
+  }
+  if (-not $idMatch.Success -and $AllowOptionalHyphenDescriptions) {
+    $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z0-9]{2,16})\s+(?<rest>.+)$")
+  }
+
   if (-not $idMatch.Success) {
     return [pscustomobject]@{
       Success = $false
@@ -361,11 +659,16 @@ function Parse-Description {
     }
   }
 
-  $boxId = ""
-  if ($idToken.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase)) {
-    $boxId = "MS1-$($idToken.Substring(1))"
-  } else {
-    $boxId = "IL1-$idToken"
+  $boxId = Build-CanonicalBoxIdFromIdToken -IdToken $idToken -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
+  if ([string]::IsNullOrWhiteSpace($boxId)) {
+    return [pscustomobject]@{
+      Success = $false
+      Reason = "malformed_description"
+      IdToken = $idToken
+      CandidateBoxId = ""
+      FilmName = $filmName
+      WidthIn = $widthIn
+    }
   }
 
   return [pscustomobject]@{
@@ -461,6 +764,21 @@ function New-ExceptionRow {
   }
 }
 
+function Get-WarehouseBucketFromBoxId {
+  param(
+    [string]$BoxId
+  )
+
+  $normalized = "$BoxId".Trim().ToUpperInvariant()
+  if ($normalized -match "^IL[1-9][0-9]*-") {
+    return "IL"
+  }
+  if ($normalized -match "^MS[1-9][0-9]*-") {
+    return "MS"
+  }
+  return "OTHER"
+}
+
 $outputPath = Join-Path -Path (Get-Location) -ChildPath $OutputDir
 if (-not (Test-Path -LiteralPath $outputPath)) {
   [void](New-Item -Path $outputPath -ItemType Directory -Force)
@@ -540,7 +858,7 @@ try {
   $exceptionsRows = New-Object System.Collections.Generic.List[object]
   $collisionsRows = New-Object System.Collections.Generic.List[object]
   $seenBoxIds = @{}
-  $warehouseCounts = @{ IL = 0; MS = 0 }
+  $warehouseCounts = @{ IL = 0; MS = 0; OTHER = 0 }
   $globalReasonCounts = @{}
   $perSheetSummary = New-Object System.Collections.Generic.List[object]
 
@@ -588,6 +906,13 @@ try {
 
     $quantityColumnIndex = Get-QuantityColumnIndex -Headers $headers
     $lotColumnIndex = Get-LotColumnIndex -Headers $headers
+    $lotColumnSource = "header"
+    if ($lotColumnIndex -lt 0) {
+      $lotColumnIndex = Get-LotColumnIndexFallback -Rows $rows -SharedStrings $sharedStrings
+      if ($lotColumnIndex -ge 0) {
+        $lotColumnSource = "fallback_b_column"
+      }
+    }
     $inventoryDate = Get-InventoryDateFromHeaders -Headers $headers
 
     $sheetAccepted = 0
@@ -627,7 +952,11 @@ try {
         continue
       }
 
-      $parsed = Parse-Description -RawDescription $rawDescription
+      $parsed = Parse-Description `
+        -RawDescription $rawDescription `
+        -DefaultPrefix $defaultPrefix `
+        -LegacyMPrefix $legacyMPrefix `
+        -AllowOptionalHyphenDescriptions $allowOptionalHyphen
       if (-not $parsed.Success) {
         $reason = $parsed.Reason
         $exceptionsRows.Add((New-ExceptionRow -Sheet $sheetName -RowNumber $rowNumber -Reason $reason -RawDescription $rawDescription -RawQty $rawQty -RawLot $rawLot -ParsedIdCandidate $parsed.IdToken -ParsedWidthCandidate "" -InventoryDate $inventoryDate))
@@ -705,17 +1034,17 @@ try {
         raw_description = $rawDescription
       }
 
-      $manufacturer = $sheetName
+      $manufacturer = Resolve-ManufacturerName -SheetName $sheetName -ManufacturerMap $manufacturerMap
       $lotRun = "$rawLot".Trim()
 
       $boxesRow = New-BoxesRawRow -BoxId $candidateBoxId -Manufacturer $manufacturer -FilmName $parsed.FilmName -WidthIn $parsed.WidthIn -Feet $feet -LotRun $lotRun -InventoryDate $inventoryDate -SourceSheet $sheetName -SourceRow $rowNumber -RawDescription $rawDescription
       $boxesRows.Add($boxesRow)
 
-      if ($candidateBoxId.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase)) {
-        $warehouseCounts["MS"] = [int]$warehouseCounts["MS"] + 1
-      } else {
-        $warehouseCounts["IL"] = [int]$warehouseCounts["IL"] + 1
+      $warehouseBucket = Get-WarehouseBucketFromBoxId -BoxId $candidateBoxId
+      if (-not $warehouseCounts.ContainsKey($warehouseBucket)) {
+        $warehouseCounts[$warehouseBucket] = 0
       }
+      $warehouseCounts[$warehouseBucket] = [int]$warehouseCounts[$warehouseBucket] + 1
 
       $sheetAccepted++
     }
@@ -725,6 +1054,7 @@ try {
         inventory_date = $inventoryDate
         quantity_column = if ($quantityColumnIndex -ge 0 -and $quantityColumnIndex -lt $headers.Count) { $headers[$quantityColumnIndex] } else { $null }
         lot_column = if ($lotColumnIndex -ge 0 -and $lotColumnIndex -lt $headers.Count) { $headers[$lotColumnIndex] } else { $null }
+        lot_column_source = $lotColumnSource
         accepted_rows = $sheetAccepted
         skipped_rows = $sheetSkipped
         reasons = $sheetReasonCounts
@@ -752,6 +1082,13 @@ try {
     throw "Validation failed: invalid date format detected in boxes_raw output."
   }
 
+  $invalidBoxIdRow = $boxesRows | Where-Object {
+    "$($_.BoxID)" -notmatch "^[A-Z]{2}[1-9][0-9]*-[A-Z0-9]+$"
+  } | Select-Object -First 1
+  if ($invalidBoxIdRow) {
+    throw "Validation failed: non-canonical BoxID format detected in boxes_raw output."
+  }
+
   $boxesRows | Select-Object $boxesRawColumns | Export-Csv -LiteralPath $boxesCsvPath -NoTypeInformation -Encoding UTF8
   $exceptionsRows | Export-Csv -LiteralPath $exceptionsCsvPath -NoTypeInformation -Encoding UTF8
   $collisionsRows | Export-Csv -LiteralPath $collisionsCsvPath -NoTypeInformation -Encoding UTF8
@@ -762,6 +1099,10 @@ try {
 
   $summary = [pscustomobject][ordered]@{
     generated_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    profile = $Profile
+    allow_optional_hyphen_descriptions = $allowOptionalHyphen
+    default_prefix = $defaultPrefix
+    legacy_m_prefix = $legacyMPrefix
     workbook_path = $WorkbookPath
     output_dir = $outputPath
     totals = [pscustomobject][ordered]@{
@@ -772,13 +1113,14 @@ try {
     warehouse_counts = [pscustomobject][ordered]@{
       IL = [int]$warehouseCounts["IL"]
       MS = [int]$warehouseCounts["MS"]
+      OTHER = [int]$warehouseCounts["OTHER"]
     }
     target_sheets = $targetSheetNames
     per_sheet = $perSheetSummary
     skip_reasons = [pscustomobject]$globalReasonCounts
     baseline_reference = [pscustomobject][ordered]@{
-      expected_accepted_approx = 644
-      expected_skipped_approx = 36
+      expected_accepted_approx = $config.baseline_accepted
+      expected_skipped_approx = $config.baseline_skipped
     }
     critical_success_gates = [pscustomobject][ordered]@{
       use_test_or_new_org = $true
@@ -792,6 +1134,7 @@ try {
   $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryJsonPath -Encoding UTF8
 
   Write-Host "Dry-run transform complete."
+  Write-Host "Profile:       $Profile"
   Write-Host "Accepted rows: $acceptedCount"
   Write-Host "Skipped rows:  $skippedCount"
   Write-Host "Collisions:    $collisionCount"

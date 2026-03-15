@@ -4,15 +4,42 @@ param(
   [Parameter(Mandatory = $true)]
   [ValidateSet("keep", "move")]
   [string]$Decision,
+  [ValidateSet("IL", "MS")]
+  [string]$Profile = "IL",
+  [string]$RunDir = "",
   [string]$TargetManufacturer = "",
-  [string]$ReviewQueueCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/vinyl_manual_review_queue.csv",
-  [string]$CombinedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
-  [string]$AppendedCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_appended.csv",
-  [string]$ActionsCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/vinyl_manual_review_actions.csv"
+  [string]$ReviewQueueCsvPath = "",
+  [string]$CombinedCsvPath = "",
+  [string]$AppendedCsvPath = "",
+  [string]$ActionsCsvPath = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$profileRunDirs = @{
+  IL = "backend/migration-dry-runs/il-assigned"
+  MS = "backend/migration-dry-runs/ms-inventory"
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  $RunDir = [string]$profileRunDirs[$Profile]
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  throw "Unable to resolve run directory for profile: $Profile"
+}
+
+if ([string]::IsNullOrWhiteSpace($ReviewQueueCsvPath)) {
+  $ReviewQueueCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/vinyl_manual_review_queue.csv"
+}
+if ([string]::IsNullOrWhiteSpace($CombinedCsvPath)) {
+  $CombinedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_final_with_zeroed.csv"
+}
+if ([string]::IsNullOrWhiteSpace($AppendedCsvPath)) {
+  $AppendedCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_rows_appended.csv"
+}
+if ([string]::IsNullOrWhiteSpace($ActionsCsvPath)) {
+  $ActionsCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/vinyl_manual_review_actions.csv"
+}
 
 if (-not (Test-Path -LiteralPath $ReviewQueueCsvPath)) {
   throw "Manual review queue CSV not found: $ReviewQueueCsvPath"
@@ -22,6 +49,11 @@ if (-not (Test-Path -LiteralPath $CombinedCsvPath)) {
 }
 if (-not (Test-Path -LiteralPath $AppendedCsvPath)) {
   throw "Appended CSV not found: $AppendedCsvPath"
+}
+
+$actionsDir = Split-Path -Path $ActionsCsvPath -Parent
+if (-not [string]::IsNullOrWhiteSpace($actionsDir) -and -not (Test-Path -LiteralPath $actionsDir)) {
+  [void](New-Item -Path $actionsDir -ItemType Directory -Force)
 }
 
 function Test-DateYmd {

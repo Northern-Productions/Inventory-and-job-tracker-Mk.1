@@ -1,13 +1,43 @@
 param(
-  [string]$ReviewQueueCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/vinyl_review_queue.csv",
-  [string]$CombinedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
-  [string]$AppendedCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_appended.csv",
-  [string]$DecisionsCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/vinyl_review_decisions_applied.csv",
-  [string]$SummaryJsonPath = "backend/migration-dry-runs/il-assigned/zeroed/vinyl_review_apply_summary.json"
+  [ValidateSet("IL", "MS")]
+  [string]$Profile = "IL",
+  [string]$RunDir = "",
+  [string]$ReviewQueueCsvPath = "",
+  [string]$CombinedCsvPath = "",
+  [string]$AppendedCsvPath = "",
+  [string]$DecisionsCsvPath = "",
+  [string]$SummaryJsonPath = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$profileRunDirs = @{
+  IL = "backend/migration-dry-runs/il-assigned"
+  MS = "backend/migration-dry-runs/ms-inventory"
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  $RunDir = [string]$profileRunDirs[$Profile]
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  throw "Unable to resolve run directory for profile: $Profile"
+}
+
+if ([string]::IsNullOrWhiteSpace($ReviewQueueCsvPath)) {
+  $ReviewQueueCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/vinyl_review_queue.csv"
+}
+if ([string]::IsNullOrWhiteSpace($CombinedCsvPath)) {
+  $CombinedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_final_with_zeroed.csv"
+}
+if ([string]::IsNullOrWhiteSpace($AppendedCsvPath)) {
+  $AppendedCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_rows_appended.csv"
+}
+if ([string]::IsNullOrWhiteSpace($DecisionsCsvPath)) {
+  $DecisionsCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/vinyl_review_decisions_applied.csv"
+}
+if ([string]::IsNullOrWhiteSpace($SummaryJsonPath)) {
+  $SummaryJsonPath = Join-Path -Path $RunDir -ChildPath "zeroed/vinyl_review_apply_summary.json"
+}
 
 if (-not (Test-Path -LiteralPath $ReviewQueueCsvPath)) {
   throw "Review queue CSV not found: $ReviewQueueCsvPath"
@@ -17,6 +47,19 @@ if (-not (Test-Path -LiteralPath $CombinedCsvPath)) {
 }
 if (-not (Test-Path -LiteralPath $AppendedCsvPath)) {
   throw "Appended CSV not found: $AppendedCsvPath"
+}
+
+$outputDirs = @(
+  (Split-Path -Path $DecisionsCsvPath -Parent),
+  (Split-Path -Path $SummaryJsonPath -Parent)
+)
+foreach ($dir in $outputDirs) {
+  if ([string]::IsNullOrWhiteSpace($dir)) {
+    continue
+  }
+  if (-not (Test-Path -LiteralPath $dir)) {
+    [void](New-Item -Path $dir -ItemType Directory -Force)
+  }
 }
 
 function Test-DateYmd {
@@ -37,7 +80,10 @@ $combinedRows = @(Import-Csv -LiteralPath $CombinedCsvPath)
 $appendedRows = @(Import-Csv -LiteralPath $AppendedCsvPath)
 
 # Conservative hold list for ambiguous high-confidence shorthand patterns.
-$conservativeHoldBoxIds = @("IL1-3286")
+$conservativeHoldBoxIds = @()
+if ($Profile -eq "IL") {
+  $conservativeHoldBoxIds = @("IL1-3286")
+}
 $holdLookup = @{}
 foreach ($id in $conservativeHoldBoxIds) {
   $holdLookup[$id] = $true
@@ -193,6 +239,8 @@ $moveBreakdown = @($decisions | Where-Object { $_.final_action -eq "move" } | Gr
 
 $summary = [ordered]@{
   generated_at_utc = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+  profile = $Profile
+  run_dir = $RunDir
   review_queue_csv = $ReviewQueueCsvPath
   combined_csv = $CombinedCsvPath
   appended_csv = $AppendedCsvPath

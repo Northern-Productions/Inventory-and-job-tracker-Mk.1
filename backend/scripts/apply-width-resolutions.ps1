@@ -1,15 +1,74 @@
 param(
-  [string]$ResolvedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_resolved.csv",
-  [string]$ExceptionsCsvPath = "backend/migration-dry-runs/il-assigned/boxes_exceptions.csv",
-  [string]$WidthResCsvPath = "backend/migration-dry-runs/il-assigned/exception_width_resolutions.csv",
-  [string]$CollisionResCsvPath = "backend/migration-dry-runs/il-assigned/collision_resolutions.csv",
-  [string]$OutputResolvedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
-  [string]$OutputRemainingExceptionsCsvPath = "backend/migration-dry-runs/il-assigned/boxes_exceptions_remaining.csv",
-  [string]$OutputSummaryJsonPath = "backend/migration-dry-runs/il-assigned/width_resolution_summary.json"
+  [ValidateSet("IL", "MS")]
+  [string]$Profile = "IL",
+  [string]$RunDir = "",
+  [string]$DefaultPrefix = "",
+  [string]$LegacyMPrefix = "",
+  [string]$ResolvedCsvPath = "",
+  [string]$ExceptionsCsvPath = "",
+  [string]$WidthResCsvPath = "",
+  [string]$CollisionResCsvPath = "",
+  [string]$OutputResolvedCsvPath = "",
+  [string]$OutputRemainingExceptionsCsvPath = "",
+  [string]$OutputSummaryJsonPath = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$profileConfigs = @{
+  IL = [pscustomobject]@{
+    run_dir = "backend/migration-dry-runs/il-assigned"
+    default_prefix = "IL1"
+    legacy_m_prefix = "MS1"
+    manufacturer_map = @{}
+  }
+  MS = [pscustomobject]@{
+    run_dir = "backend/migration-dry-runs/ms-inventory"
+    default_prefix = "MS1"
+    legacy_m_prefix = "MS1"
+    manufacturer_map = @{
+      "LLUMARVISTA" = "Llumar"
+      "MADICO" = "ASWFVKOOL"
+    }
+  }
+}
+
+$config = $profileConfigs[$Profile]
+if ($null -eq $config) {
+  throw "Unsupported profile: $Profile"
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  $RunDir = [string]$config.run_dir
+}
+if ([string]::IsNullOrWhiteSpace($DefaultPrefix)) {
+  $DefaultPrefix = [string]$config.default_prefix
+}
+if ([string]::IsNullOrWhiteSpace($LegacyMPrefix)) {
+  $LegacyMPrefix = [string]$config.legacy_m_prefix
+}
+
+if ([string]::IsNullOrWhiteSpace($ResolvedCsvPath)) {
+  $ResolvedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_resolved.csv"
+}
+if ([string]::IsNullOrWhiteSpace($ExceptionsCsvPath)) {
+  $ExceptionsCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_exceptions.csv"
+}
+if ([string]::IsNullOrWhiteSpace($WidthResCsvPath)) {
+  $WidthResCsvPath = Join-Path -Path $RunDir -ChildPath "exception_width_resolutions.csv"
+}
+if ([string]::IsNullOrWhiteSpace($CollisionResCsvPath)) {
+  $CollisionResCsvPath = Join-Path -Path $RunDir -ChildPath "collision_resolutions.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputResolvedCsvPath)) {
+  $OutputResolvedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_resolved_with_widths.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputRemainingExceptionsCsvPath)) {
+  $OutputRemainingExceptionsCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_exceptions_remaining.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputSummaryJsonPath)) {
+  $OutputSummaryJsonPath = Join-Path -Path $RunDir -ChildPath "width_resolution_summary.json"
+}
 
 foreach ($requiredPath in @($ResolvedCsvPath, $ExceptionsCsvPath)) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -19,22 +78,97 @@ foreach ($requiredPath in @($ResolvedCsvPath, $ExceptionsCsvPath)) {
 
 function Parse-IdToken {
   param([string]$Description)
-  $match = [regex]::Match("$Description", "^(?<id>[A-Za-z0-9]{2,12})\s*-")
+  $text = "$Description".Trim()
+  if ([string]::IsNullOrWhiteSpace($text)) {
+    return ""
+  }
+
+  $match = [regex]::Match($text, "^(?<id>[A-Za-z]{2}[1-9][0-9]*-[A-Za-z0-9]+)\s*-\s*")
+  if (-not $match.Success) {
+    $match = [regex]::Match($text, "^(?<id>[A-Za-z0-9]{2,16})\s*-\s*")
+  }
+  if (-not $match.Success) {
+    $match = [regex]::Match($text, "^(?<id>[A-Za-z0-9]{2,16})\s+")
+  }
+
   if ($match.Success) {
     return $match.Groups["id"].Value.ToUpperInvariant()
   }
   return ""
 }
 
+function Normalize-TrailingLetterSuffix {
+  param([string]$BoxId)
+
+  if ([string]::IsNullOrWhiteSpace($BoxId)) {
+    return ""
+  }
+
+  $clean = $BoxId.Trim().ToUpperInvariant()
+  $match = [regex]::Match($clean, "^(?<prefix>[A-Z]{2}[1-9][0-9]*)-(?<number>\d+)[A-Z]$")
+  if ($match.Success) {
+    return "$($match.Groups["prefix"].Value)-$($match.Groups["number"].Value)"
+  }
+
+  return $clean
+}
+
+function Normalize-CanonicalBoxId {
+  param([string]$RawBoxId)
+
+  if ([string]::IsNullOrWhiteSpace($RawBoxId)) {
+    return ""
+  }
+
+  $clean = $RawBoxId.Trim().ToUpperInvariant()
+  if ($clean -match "^(?<state>[A-Z]{2})-(?<suffix>[A-Z0-9]+)$") {
+    $clean = "$($matches["state"])1-$($matches["suffix"])"
+  }
+
+  return Normalize-TrailingLetterSuffix -BoxId $clean
+}
+
 function Build-BoxId {
-  param([string]$IdToken)
+  param(
+    [string]$IdToken,
+    [string]$DefaultPrefix,
+    [string]$LegacyMPrefix
+  )
+
   if ([string]::IsNullOrWhiteSpace($IdToken)) {
     return ""
   }
-  if ($IdToken.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase)) {
-    return "MS1-$($IdToken.Substring(1))"
+
+  $token = $IdToken.Trim().ToUpperInvariant()
+  if ($token -match "^[A-Z]{2}[1-9][0-9]*-[A-Z0-9]+$") {
+    return Normalize-CanonicalBoxId -RawBoxId $token
   }
-  return "IL1-$IdToken"
+  if ($token -match "^[A-Z]{2}-[A-Z0-9]+$") {
+    return Normalize-CanonicalBoxId -RawBoxId $token
+  }
+  if ($token.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase) -and $token.Length -gt 1) {
+    return Normalize-CanonicalBoxId -RawBoxId "$LegacyMPrefix-$($token.Substring(1))"
+  }
+  return Normalize-CanonicalBoxId -RawBoxId "$DefaultPrefix-$token"
+}
+
+function Resolve-ManufacturerName {
+  param(
+    [string]$SheetName,
+    [hashtable]$ManufacturerMap
+  )
+
+  $name = "$SheetName".Trim()
+  if ([string]::IsNullOrWhiteSpace($name)) {
+    return $name
+  }
+
+  $key = $name.ToUpperInvariant()
+  if ($null -ne $ManufacturerMap -and $ManufacturerMap.ContainsKey($key)) {
+    return [string]$ManufacturerMap[$key]
+  }
+
+  return $name
 }
 
 function Parse-PositiveFeet {
@@ -82,7 +216,14 @@ function Build-FilmName {
     [int]$Width
   )
 
-  $match = [regex]::Match("$Description", "^[A-Za-z0-9]{2,12}\s*-\s*(?<rest>.+)$")
+  $descriptionText = "$Description".Trim()
+  $match = [regex]::Match($descriptionText, "^[A-Za-z]{2}[1-9][0-9]*-[A-Za-z0-9]+\s*-\s*(?<rest>.+)$")
+  if (-not $match.Success) {
+    $match = [regex]::Match($descriptionText, "^[A-Za-z0-9]{2,16}\s*-\s*(?<rest>.+)$")
+  }
+  if (-not $match.Success) {
+    $match = [regex]::Match($descriptionText, "^[A-Za-z0-9]{2,16}\s+(?<rest>.+)$")
+  }
   if (-not $match.Success) {
     return [regex]::Replace("$Description".Trim(), "\s+", " ")
   }
@@ -133,7 +274,7 @@ foreach ($exception in $missingWidthExceptions) {
   $note = if ($null -ne $hint) { "auto_from_description_hint_user_approved" } else { "auto_default_60_user_approved" }
 
   $idToken = Parse-IdToken -Description $exception.raw_description
-  $boxId = Build-BoxId -IdToken $idToken
+  $boxId = Build-BoxId -IdToken $idToken -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
 
   $newWidthResolutions.Add([pscustomobject][ordered]@{
       box_id = $boxId
@@ -170,7 +311,7 @@ foreach ($resolution in $allWidthResolutions) {
   }
 
   $idToken = Parse-IdToken -Description $exception.raw_description
-  $boxId = Build-BoxId -IdToken $idToken
+  $boxId = Build-BoxId -IdToken $idToken -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
   if ([string]::IsNullOrWhiteSpace($boxId)) {
     $conflicts.Add([pscustomobject]@{
         sheet = $exception.sheet
@@ -203,7 +344,7 @@ foreach ($resolution in $allWidthResolutions) {
     continue
   }
 
-  $manufacturer = "$($exception.sheet)".Trim()
+  $manufacturer = Resolve-ManufacturerName -SheetName "$($exception.sheet)" -ManufacturerMap $config.manufacturer_map
   $filmName = Build-FilmName -Description $exception.raw_description -Width $width
   if ([string]::IsNullOrWhiteSpace($filmName)) {
     $conflicts.Add([pscustomobject]@{
@@ -292,7 +433,7 @@ foreach ($exception in $exceptions) {
     }
   } elseif ($exception.reason -eq "duplicate_box_id") {
     $idToken = "$($exception.parsed_id_candidate)".Trim().ToUpperInvariant()
-    $boxId = Build-BoxId -IdToken $idToken
+    $boxId = Build-BoxId -IdToken $idToken -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
     if ($resolvedDuplicateIds.ContainsKey($boxId)) {
       $isResolved = $true
     }
@@ -319,6 +460,10 @@ $invalidCount = (@($resolvedWithWidths | Where-Object {
 
 $summary = [pscustomobject][ordered]@{
   generated_at_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  profile = $Profile
+  run_dir = $RunDir
+  default_prefix = $DefaultPrefix
+  legacy_m_prefix = $LegacyMPrefix
   total_width_resolutions = $allWidthResolutions.Count
   width_resolutions_auto_added = $newWidthResolutions.Count
   inserted_rows_from_missing_width = $insertedCount

@@ -1,14 +1,47 @@
 param(
-  [string]$BaseResolvedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_resolved_with_widths.csv",
-  [string]$ZeroedCandidatesCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_candidates_unique_last_occurrence_widths_defaulted.csv",
-  [string]$OutputCombinedCsvPath = "backend/migration-dry-runs/il-assigned/boxes_raw_final_with_zeroed.csv",
-  [string]$OutputAppendedCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_appended.csv",
-  [string]$OutputSkippedCsvPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_rows_skipped.csv",
-  [string]$OutputSummaryJsonPath = "backend/migration-dry-runs/il-assigned/zeroed/zeroed_append_summary.json"
+  [ValidateSet("IL", "MS")]
+  [string]$Profile = "IL",
+  [string]$RunDir = "",
+  [string]$BaseResolvedCsvPath = "",
+  [string]$ZeroedCandidatesCsvPath = "",
+  [string]$OutputCombinedCsvPath = "",
+  [string]$OutputAppendedCsvPath = "",
+  [string]$OutputSkippedCsvPath = "",
+  [string]$OutputSummaryJsonPath = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$profileRunDirs = @{
+  IL = "backend/migration-dry-runs/il-assigned"
+  MS = "backend/migration-dry-runs/ms-inventory"
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  $RunDir = [string]$profileRunDirs[$Profile]
+}
+if ([string]::IsNullOrWhiteSpace($RunDir)) {
+  throw "Unable to resolve run directory for profile: $Profile"
+}
+
+if ([string]::IsNullOrWhiteSpace($BaseResolvedCsvPath)) {
+  $BaseResolvedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_resolved_with_widths.csv"
+}
+if ([string]::IsNullOrWhiteSpace($ZeroedCandidatesCsvPath)) {
+  $ZeroedCandidatesCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_candidates_unique_last_occurrence_widths_defaulted.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputCombinedCsvPath)) {
+  $OutputCombinedCsvPath = Join-Path -Path $RunDir -ChildPath "boxes_raw_final_with_zeroed.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputAppendedCsvPath)) {
+  $OutputAppendedCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_rows_appended.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputSkippedCsvPath)) {
+  $OutputSkippedCsvPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_rows_skipped.csv"
+}
+if ([string]::IsNullOrWhiteSpace($OutputSummaryJsonPath)) {
+  $OutputSummaryJsonPath = Join-Path -Path $RunDir -ChildPath "zeroed/zeroed_append_summary.json"
+}
 
 if (-not (Test-Path -LiteralPath $BaseResolvedCsvPath)) {
   throw "Base resolved CSV not found: $BaseResolvedCsvPath"
@@ -16,6 +49,21 @@ if (-not (Test-Path -LiteralPath $BaseResolvedCsvPath)) {
 
 if (-not (Test-Path -LiteralPath $ZeroedCandidatesCsvPath)) {
   throw "Zeroed candidates CSV not found: $ZeroedCandidatesCsvPath"
+}
+
+$outputDirs = @(
+  (Split-Path -Path $OutputCombinedCsvPath -Parent),
+  (Split-Path -Path $OutputAppendedCsvPath -Parent),
+  (Split-Path -Path $OutputSkippedCsvPath -Parent),
+  (Split-Path -Path $OutputSummaryJsonPath -Parent)
+)
+foreach ($dir in $outputDirs) {
+  if ([string]::IsNullOrWhiteSpace($dir)) {
+    continue
+  }
+  if (-not (Test-Path -LiteralPath $dir)) {
+    [void](New-Item -Path $dir -ItemType Directory -Force)
+  }
 }
 
 function Normalize-Text {
@@ -470,6 +518,8 @@ $manufacturerDistribution = @($appendedRows | Group-Object Manufacturer | Sort-O
 
 $summary = [ordered]@{
   generated_at_utc = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+  profile = $Profile
+  run_dir = $RunDir
   base_csv = $BaseResolvedCsvPath
   zeroed_candidates_csv = $ZeroedCandidatesCsvPath
   output_combined_csv = $OutputCombinedCsvPath

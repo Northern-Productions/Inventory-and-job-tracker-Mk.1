@@ -13,7 +13,33 @@ const migrationPaths = [
   path.join(backendDir, "migrations", "0019_import_boxes_merge_mode.sql"),
   path.join(backendDir, "migrations", "0020_warehouse_prefix_v2.sql"),
 ];
-const csvPath = path.join(backendDir, "migration-dry-runs", "il-assigned", "boxes_raw_final_with_zeroed.csv");
+
+function parseArgs(argv) {
+  const options = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (!token.startsWith("--")) continue;
+
+    const key = token.slice(2);
+    const next = argv[i + 1];
+    if (!next || next.startsWith("--")) {
+      options[key] = true;
+      continue;
+    }
+
+    options[key] = next;
+    i += 1;
+  }
+  return options;
+}
+
+const args = parseArgs(process.argv.slice(2));
+const profile = String(args.profile || "IL").toUpperCase();
+const defaultRunDir = profile === "MS"
+  ? path.join(backendDir, "migration-dry-runs", "ms-inventory")
+  : path.join(backendDir, "migration-dry-runs", "il-assigned");
+const runDir = args["run-dir"] ? path.resolve(repoRoot, String(args["run-dir"])) : defaultRunDir;
+const csvPath = args.csv ? path.resolve(repoRoot, String(args.csv)) : path.join(runDir, "boxes_raw_final_with_zeroed.csv");
 
 const REQUIRED_COLUMNS = [
   "BoxID",
@@ -235,7 +261,9 @@ async function main() {
     const afterCount = afterRes.rows[0]?.c ?? 0;
 
     const output = {
+      profile,
       org_id: orgId,
+      run_dir: path.relative(repoRoot, runDir).replace(/\\/g, "/"),
       csv_path: path.relative(repoRoot, csvPath).replace(/\\/g, "/"),
       csv_rows: rows.length,
       staged_rows: stagedRows,
