@@ -273,7 +273,8 @@ function Get-LotColumnIndex {
   )
 
   for ($i = 0; $i -lt $Headers.Count; $i++) {
-    if ((Normalize-HeaderText -Value $Headers[$i]) -like "*lot*") {
+    $normalized = Normalize-HeaderText -Value $Headers[$i]
+    if ($normalized -match "\blot\b") {
       return $i
     }
   }

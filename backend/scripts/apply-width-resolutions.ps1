@@ -70,6 +70,13 @@ if ([string]::IsNullOrWhiteSpace($OutputSummaryJsonPath)) {
   $OutputSummaryJsonPath = Join-Path -Path $RunDir -ChildPath "width_resolution_summary.json"
 }
 
+if (-not (Test-Path -LiteralPath $ResolvedCsvPath)) {
+  $seedResolvedPath = Join-Path -Path (Split-Path -Path $ResolvedCsvPath -Parent) -ChildPath "boxes_raw.csv"
+  if (Test-Path -LiteralPath $seedResolvedPath) {
+    Copy-Item -LiteralPath $seedResolvedPath -Destination $ResolvedCsvPath -Force
+  }
+}
+
 foreach ($requiredPath in @($ResolvedCsvPath, $ExceptionsCsvPath)) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
     throw "Required file not found: $requiredPath"
