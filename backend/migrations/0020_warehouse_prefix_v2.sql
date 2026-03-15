@@ -488,6 +488,7 @@ begin
     raise exception 'Organization % does not exist in app.organizations', target_org_id;
   end if;
 
+  drop table if exists pg_temp.tmp_prefix_v2_box_map;
   create temporary table tmp_prefix_v2_box_map (
     old_box_id text primary key,
     new_box_id text not null
@@ -617,6 +618,7 @@ begin
       nullif(v_preflight->>'collision_sample', '');
   end if;
 
+  drop table if exists pg_temp.tmp_prefix_v2_box_map;
   create temporary table tmp_prefix_v2_box_map (
     old_box_id text primary key,
     new_box_id text not null

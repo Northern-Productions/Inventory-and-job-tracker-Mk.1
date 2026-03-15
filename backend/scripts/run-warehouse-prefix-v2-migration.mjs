@@ -68,6 +68,10 @@ async function main() {
       );
     }
 
+    // preflight and migrate functions both use the same temp table name.
+    // clear it explicitly so migrate can run in this same session.
+    await client.query("drop table if exists pg_temp.tmp_prefix_v2_box_map");
+
     const migrateRes = await client.query(
       "select import.migrate_org_warehouse_prefix_v2($1::uuid, $2::text, $3::integer) as result",
       [orgId, "migration", 90],
