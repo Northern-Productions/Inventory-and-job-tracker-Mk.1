@@ -250,8 +250,16 @@ function roundToDecimals(value, decimals) {
   return Math.round(value * factor) / factor;
 }
 
-function determineWarehouseFromBoxId(boxId) {
-  return requireString(boxId, 'BoxID').charAt(0).toUpperCase() === 'M' ? 'MS' : 'IL';
+function normalizeWarehouseCodeFormat(value, fieldName) {
+  const normalized = requireString(value, fieldName || 'Warehouse').toUpperCase();
+  if (!/^[A-Z]{2}[1-9][0-9]{0,6}$/.test(normalized)) {
+    throw new HttpError(
+      400,
+      `${fieldName || 'Warehouse'} must match AA1, AA2, ... with a 1-based index.`
+    );
+  }
+
+  return normalized;
 }
 
 function buildFilmKey(manufacturer, filmName) {
@@ -570,12 +578,7 @@ function normalizeJobNumberDigits(value, fieldName) {
 }
 
 function normalizeJobWarehouse(value) {
-  const normalized = requireString(value, 'Warehouse').toUpperCase();
-  if (normalized !== 'IL' && normalized !== 'MS') {
-    throw new HttpError(400, 'Warehouse must be IL or MS.');
-  }
-
-  return normalized;
+  return normalizeWarehouseCodeFormat(value, 'Warehouse');
 }
 
 function normalizeJobSections(value) {
@@ -1007,7 +1010,7 @@ function mapDbJobRow(row) {
     id: row.id,
     orgId: row.org_id,
     jobNumber: asTrimmedString(row.job_number),
-    warehouse: asTrimmedString(row.warehouse) || 'IL',
+    warehouse: asTrimmedString(row.warehouse),
     sections: asTrimmedString(row.sections) || null,
     dueDate: formatDateValue(row.due_date),
     crewLeader: asTrimmedString(row.crew_leader),
@@ -1769,6 +1772,60 @@ function routeParams(method, requestUrl, bodyJson) {
   return next;
 }
 
+async function listWarehouseCodes(client, orgId) {
+  const rows = await queryRows(
+    client,
+    `
+      select code
+      from app.warehouses
+      where org_id = $1
+      order by code
+    `,
+    [orgId]
+  );
+
+  return rows
+    .map((row) => asTrimmedString(row.code).toUpperCase())
+    .filter((code) => code.length > 0);
+}
+
+async function requireConfiguredWarehouse(client, orgId, warehouse, fieldName) {
+  const normalized = normalizeWarehouseCodeFormat(warehouse, fieldName || 'Warehouse');
+  const configured = await listWarehouseCodes(client, orgId);
+  if (!configured.includes(normalized)) {
+    throw new HttpError(400, `${fieldName || 'Warehouse'} is not configured.`);
+  }
+  return normalized;
+}
+
+async function resolveBoxIdAlias(client, orgId, boxId) {
+  const trimmed = requireString(boxId, 'BoxID').toUpperCase();
+  const row = await queryRow(
+    client,
+    `
+      select app_api.resolve_box_id_alias($1::uuid, $2::text) as box_id
+    `,
+    [orgId, trimmed]
+  );
+  return asTrimmedString(row?.box_id) || trimmed;
+}
+
+async function resolveWarehouseFromBoxId(client, orgId, boxId) {
+  const normalizedBoxId = requireString(boxId, 'BoxID').toUpperCase();
+  const row = await queryRow(
+    client,
+    `
+      select app_api.resolve_warehouse_from_box_id($1::uuid, $2::text) as warehouse
+    `,
+    [orgId, normalizedBoxId]
+  );
+  const resolved = asTrimmedString(row?.warehouse).toUpperCase();
+  if (!resolved) {
+    throw new HttpError(400, 'Unable to resolve warehouse from BoxID.');
+  }
+  return resolved;
+}
+
 async function listBoxes(client, orgId) {
   const rows = await queryRows(
     client,
@@ -1784,6 +1841,7 @@ async function listBoxes(client, orgId) {
 }
 
 async function findBoxById(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const row = await queryRow(
     client,
     `
@@ -1792,7 +1850,7 @@ async function findBoxById(client, orgId, boxId) {
       where org_id = $1
         and box_id = $2
     `,
-    [orgId, boxId]
+    [orgId, canonicalBoxId]
   );
 
   return mapDbBoxRow(row);
@@ -2011,6 +2069,7 @@ async function listAllocations(client, orgId) {
 }
 
 async function listAllocationsByBox(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const rows = await queryRows(
     client,
     `
@@ -2020,7 +2079,7 @@ async function listAllocationsByBox(client, orgId, boxId) {
         and box_id = $2
       order by created_at desc, allocation_id desc
     `,
-    [orgId, boxId]
+    [orgId, canonicalBoxId]
   );
 
   return rows.map(mapDbAllocationRow);
@@ -2320,6 +2379,7 @@ async function listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId) {
 }
 
 async function listFilmOrderLinksByBoxId(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const rows = await queryRows(
     client,
     `
@@ -2329,7 +2389,7 @@ async function listFilmOrderLinksByBoxId(client, orgId, boxId) {
         and box_id = $2
       order by created_at desc, link_id desc
     `,
-    [orgId, boxId]
+    [orgId, canonicalBoxId]
   );
 
   return rows.map(mapDbFilmOrderLinkRow);
@@ -2569,6 +2629,7 @@ async function listAuditEntries(client, orgId) {
 }
 
 async function listAuditEntriesByBox(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const rows = await queryRows(
     client,
     `
@@ -2578,7 +2639,7 @@ async function listAuditEntriesByBox(client, orgId, boxId) {
         and box_id = $2
       order by created_at desc, log_id desc
     `,
-    [orgId, boxId]
+    [orgId, canonicalBoxId]
   );
 
   return rows.map(mapDbAuditRow);
@@ -2632,6 +2693,7 @@ async function appendAuditEntry(client, orgId, action, boxId, beforeState, after
 }
 
 async function listRollHistoryByBox(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const rows = await queryRows(
     client,
     `
@@ -2641,7 +2703,7 @@ async function listRollHistoryByBox(client, orgId, boxId) {
         and box_id = $2
       order by checked_in_at desc nulls last, checked_out_at desc nulls last, log_id desc
     `,
-    [orgId, boxId]
+    [orgId, canonicalBoxId]
   );
 
   return rows.map(mapDbRollHistoryRow);
@@ -3090,7 +3152,7 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     id: '',
     orgId: '',
     jobNumber,
-    warehouse: warehouse || 'IL',
+    warehouse: warehouse || '',
     sections: null,
     dueDate: metadata.jobDate,
     crewLeader: metadata.crewLeader,
@@ -3245,7 +3307,7 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders, all
 
   return {
     jobNumber: jobHeader.jobNumber,
-    warehouse: jobHeader.warehouse || 'IL',
+    warehouse: jobHeader.warehouse || '',
     sections: jobHeader.sections,
     dueDate,
     crewLeader,
@@ -3568,11 +3630,7 @@ function normalizeOptionalWarehouse(value, fieldName) {
     return '';
   }
 
-  if (normalized !== 'IL' && normalized !== 'MS') {
-    throw new HttpError(400, `${fieldName || 'Warehouse'} must be IL or MS.`);
-  }
-
-  return normalized;
+  return normalizeWarehouseCodeFormat(normalized, fieldName || 'Warehouse');
 }
 
 async function getOrResolveJobId(client, orgId, jobNumber) {
@@ -4764,7 +4822,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
   return {
     boxId,
-    warehouse: determineWarehouseFromBoxId(boxId),
+    warehouse: await resolveWarehouseFromBoxId(client, orgId, boxId),
     manufacturer,
     filmName,
     widthIn,
@@ -4799,10 +4857,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 }
 
 async function buildSearchBoxes(client, orgId, params) {
-  const warehouse = requireString(params.warehouse, 'warehouse').toUpperCase();
-  if (warehouse !== 'IL' && warehouse !== 'MS') {
-    throw new HttpError(400, 'warehouse must be IL or MS.');
-  }
+  const warehouse = await requireConfiguredWarehouse(client, orgId, params.warehouse, 'warehouse');
 
   const query = asTrimmedString(params.q).toLowerCase();
   const status = asTrimmedString(params.status).toUpperCase();
@@ -6081,16 +6136,12 @@ async function reopenJob(client, orgId, payload, actor) {
 
 async function createFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
-  const warehouse = requireString(payload.warehouse, 'Warehouse').toUpperCase();
+  const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
   const jobNumber = requireString(payload.jobNumber, 'JobNumber');
   const manufacturer = requireString(payload.manufacturer, 'Manufacturer');
   const filmName = requireString(payload.filmName, 'FilmName');
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const requestedFeet = coerceFeetValue(payload.requestedFeet, 'RequestedFeet', warnings, false);
-
-  if (warehouse !== 'IL' && warehouse !== 'MS') {
-    throw new HttpError(400, 'Warehouse must be IL or MS.');
-  }
 
   if (widthIn <= 0) {
     throw new HttpError(400, 'WidthIn must be greater than zero.');

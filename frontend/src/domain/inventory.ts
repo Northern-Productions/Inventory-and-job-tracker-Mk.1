@@ -1,8 +1,8 @@
-export const WAREHOUSE_CODES = ['IL', 'MS'] as const;
+export const WAREHOUSE_CODES = ['IL1', 'MS1'] as const;
 export type Warehouse = string;
 export const WAREHOUSE_LABELS: Record<string, string> = {
-  IL: 'Wauconda Illinois',
-  MS: 'Ridgeland Mississippi'
+  IL1: 'Wauconda Illinois #1',
+  MS1: 'Ridgeland Mississippi #1'
 };
 
 export function isWarehouse(value: string | null | undefined): value is Warehouse {
@@ -10,12 +10,12 @@ export function isWarehouse(value: string | null | undefined): value is Warehous
     return false;
   }
 
-  return /^[A-Z0-9]{2,8}$/.test(value.toUpperCase());
+  return /^[A-Z]{2}[1-9][0-9]{0,6}$/.test(value.toUpperCase());
 }
 
 export function parseWarehouse(
   value: string | null | undefined,
-  fallback: Warehouse = 'IL'
+  fallback: Warehouse = ''
 ): Warehouse {
   if (!value) {
     return fallback;

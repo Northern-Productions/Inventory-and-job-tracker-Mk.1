@@ -55,6 +55,7 @@ import type {
   UpdateJobPayload,
   UpdateBoxPayload
 } from '../../../domain';
+import { WAREHOUSE_CODES } from '../../../domain';
 import { todayDateString } from '../../../lib/date';
 import { deleteOfflineInventoryBox, upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
 
@@ -229,7 +230,7 @@ function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
 
   return {
     boxId: payload.boxId,
-    warehouse: payload.warehouse || 'IL',
+    warehouse: payload.warehouse || WAREHOUSE_CODES[0],
     manufacturer: payload.manufacturer,
     filmName: payload.filmName,
     widthIn: payload.widthIn,
@@ -530,7 +531,7 @@ export function useAllocateBox() {
           ? {
               allocationId: `pending-${Date.now()}-${payload.boxId}`,
               boxId: payload.boxId,
-              warehouse: sourceBox?.warehouse || payload.jobWarehouse || 'IL',
+              warehouse: sourceBox?.warehouse || payload.jobWarehouse || WAREHOUSE_CODES[0],
               jobNumber: payload.jobNumber,
               jobDate: payload.jobDate || '',
               crewLeader: payload.crewLeader || '',

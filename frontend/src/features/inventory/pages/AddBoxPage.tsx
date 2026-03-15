@@ -50,8 +50,9 @@ export default function AddBoxPage() {
     () => buildFilmOrderPrefill(new URLSearchParams(prefillToken)),
     [prefillToken]
   );
+  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
   const [warehouse, setWarehouse] = useState<Warehouse>(
-    retryState?.retryWarehouse ?? filmOrderPrefill.warehouse
+    retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
   );
   const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: true });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
@@ -62,8 +63,15 @@ export default function AddBoxPage() {
       return;
     }
 
-    setWarehouse(filmOrderPrefill.warehouse);
-  }, [filmOrderPrefill.warehouse, retryState?.retryWarehouse]);
+    if (filmOrderPrefill.warehouse) {
+      setWarehouse(filmOrderPrefill.warehouse);
+      return;
+    }
+
+    if (defaultWarehouse) {
+      setWarehouse(defaultWarehouse);
+    }
+  }, [defaultWarehouse, filmOrderPrefill.warehouse, retryState?.retryWarehouse]);
 
   const warehousePrefix = useMemo(
     () => getWarehousePrefix(warehouseRegistry.entries, warehouse),
@@ -129,34 +137,39 @@ export default function AddBoxPage() {
 
     try {
       const normalizedBoxId = draft.boxId.trim().toUpperCase();
-      if (warehousePrefix && normalizedBoxId === warehousePrefix) {
+      const prefixToken = warehousePrefix ? `${warehousePrefix}-` : '';
+      if (prefixToken && (normalizedBoxId === warehousePrefix || normalizedBoxId === prefixToken)) {
         toast.push({
           title: `${warehouse} box ID is incomplete`,
-          description: `Enter the number or suffix after the ${warehousePrefix} prefix.`,
+          description: `Enter the number or suffix after the ${prefixToken} prefix.`,
           variant: 'error'
         });
         return;
       }
 
-      if (warehousePrefix && !normalizedBoxId.startsWith(warehousePrefix)) {
+      if (prefixToken && !normalizedBoxId.startsWith(prefixToken)) {
         toast.push({
-          title: `${warehouse} box IDs must start with ${warehousePrefix}`,
-          description: `Use a ${warehousePrefix}-prefixed BoxID for the ${warehouse} warehouse.`,
+          title: `${warehouse} box IDs must start with ${prefixToken}`,
+          description: `Use a ${prefixToken}-prefixed BoxID for the ${warehouse} warehouse.`,
           variant: 'error'
         });
         return;
       }
 
       const conflictingWarehouse = warehouseRegistry.entries.find(
-        (entry) =>
-          entry.code !== warehouse &&
-          entry.boxIdPrefix &&
-          normalizedBoxId.startsWith(entry.boxIdPrefix)
+        (entry) => {
+          const candidatePrefix = entry.boxIdPrefix ? `${entry.boxIdPrefix}-` : '';
+          return (
+            entry.code !== warehouse &&
+            candidatePrefix !== '' &&
+            normalizedBoxId.startsWith(candidatePrefix)
+          );
+        }
       );
-      if (!warehousePrefix && conflictingWarehouse) {
+      if (!prefixToken && conflictingWarehouse) {
         toast.push({
-          title: `${warehouse} box IDs cannot use ${conflictingWarehouse.boxIdPrefix}`,
-          description: `Switch the warehouse dropdown to ${conflictingWarehouse.name} or use a different BoxID.`,
+          title: `${warehouse} box IDs cannot use ${conflictingWarehouse.boxIdPrefix}-`,
+          description: `Switch the warehouse dropdown to ${conflictingWarehouse.name} or use a different BoxID format.`,
           variant: 'error'
         });
         return;

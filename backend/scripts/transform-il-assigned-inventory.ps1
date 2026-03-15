@@ -363,9 +363,9 @@ function Parse-Description {
 
   $boxId = ""
   if ($idToken.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase)) {
-    $boxId = $idToken
+    $boxId = "MS1-$($idToken.Substring(1))"
   } else {
-    $boxId = "IL-$idToken"
+    $boxId = "IL1-$idToken"
   }
 
   return [pscustomobject]@{

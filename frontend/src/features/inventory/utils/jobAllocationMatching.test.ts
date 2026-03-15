@@ -5,7 +5,7 @@ import { findMatchingBoxesForRequirement } from './jobAllocationMatching';
 function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' | 'filmName' | 'widthIn'>): Box {
   return {
     boxId: overrides.boxId,
-    warehouse: overrides.warehouse || 'IL',
+    warehouse: overrides.warehouse || 'IL1',
     manufacturer: overrides.manufacturer,
     filmName: overrides.filmName,
     widthIn: overrides.widthIn,
@@ -50,20 +50,20 @@ describe('findMatchingBoxesForRequirement', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(
       [
-        buildBox({ boxId: 'IL-60-A', manufacturer: '  Madico ', filmName: 'Graffiti   Free 6MIL', widthIn: 60 }),
-        buildBox({ boxId: 'IL-72-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 72 }),
+        buildBox({ boxId: 'IL1-60-A', manufacturer: '  Madico ', filmName: 'Graffiti   Free 6MIL', widthIn: 60 }),
+        buildBox({ boxId: 'IL1-72-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 72 }),
         buildBox({
-          boxId: 'IL-72-CHECKED',
+          boxId: 'IL1-72-CHECKED',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 72,
           status: 'CHECKED_OUT',
           feetAvailable: 12
         }),
-        buildBox({ boxId: 'IL-48-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 48 }),
-        buildBox({ boxId: 'IL-60-B', manufacturer: 'Another', filmName: 'Graffiti Free 6MIL', widthIn: 60 }),
+        buildBox({ boxId: 'IL1-48-A', manufacturer: 'Madico', filmName: 'Graffiti Free 6MIL', widthIn: 48 }),
+        buildBox({ boxId: 'IL1-60-B', manufacturer: 'Another', filmName: 'Graffiti Free 6MIL', widthIn: 60 }),
         buildBox({
-          boxId: 'IL-60-C',
+          boxId: 'IL1-60-C',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
@@ -73,7 +73,7 @@ describe('findMatchingBoxesForRequirement', () => {
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL-60-A', 'IL-72-A', 'IL-72-CHECKED']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-72-CHECKED']);
   });
 
   it('excludes checked-out rolls when available LF is 0', () => {
@@ -81,7 +81,7 @@ describe('findMatchingBoxesForRequirement', () => {
     const matching = findMatchingBoxesForRequirement(
       [
         buildBox({
-          boxId: 'IL-72-CHECKED-ZERO',
+          boxId: 'IL1-72-CHECKED-ZERO',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 72,
@@ -100,21 +100,21 @@ describe('findMatchingBoxesForRequirement', () => {
     const matching = findMatchingBoxesForRequirement(
       [
         buildBox({
-          boxId: 'IL-72-A',
+          boxId: 'IL1-72-A',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 72,
           receivedDate: '2026-01-01'
         }),
         buildBox({
-          boxId: 'IL-60-NEW',
+          boxId: 'IL1-60-NEW',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
           receivedDate: '2026-02-01'
         }),
         buildBox({
-          boxId: 'IL-60-OLD',
+          boxId: 'IL1-60-OLD',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
@@ -124,7 +124,7 @@ describe('findMatchingBoxesForRequirement', () => {
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL-60-OLD', 'IL-60-NEW', 'IL-72-A']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-OLD', 'IL1-60-NEW', 'IL1-72-A']);
   });
 
   it('dedupes repeated box ids by keeping the highest available feet snapshot', () => {
@@ -132,14 +132,14 @@ describe('findMatchingBoxesForRequirement', () => {
     const matching = findMatchingBoxesForRequirement(
       [
         buildBox({
-          boxId: 'IL-60-A',
+          boxId: 'IL1-60-A',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
           feetAvailable: 10
         }),
         buildBox({
-          boxId: 'IL-60-A',
+          boxId: 'IL1-60-A',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
@@ -150,7 +150,7 @@ describe('findMatchingBoxesForRequirement', () => {
     );
 
     expect(matching).toHaveLength(1);
-    expect(matching[0].boxId).toBe('IL-60-A');
+    expect(matching[0].boxId).toBe('IL1-60-A');
     expect(matching[0].feetAvailable).toBe(25);
   });
 
@@ -159,7 +159,7 @@ describe('findMatchingBoxesForRequirement', () => {
     const matching = findMatchingBoxesForRequirement(
       [
         buildBox({
-          boxId: 'IL-60-A',
+          boxId: 'IL1-60-A',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
@@ -167,7 +167,7 @@ describe('findMatchingBoxesForRequirement', () => {
           receivedDate: '2026-01-10'
         }),
         buildBox({
-          boxId: 'IL-60-B',
+          boxId: 'IL1-60-B',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
@@ -175,7 +175,7 @@ describe('findMatchingBoxesForRequirement', () => {
           receivedDate: '2026-01-11'
         }),
         buildBox({
-          boxId: 'IL-72-A',
+          boxId: 'IL1-72-A',
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 72,
@@ -186,7 +186,7 @@ describe('findMatchingBoxesForRequirement', () => {
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL-60-A', 'IL-60-B', 'IL-72-A']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-60-B', 'IL1-72-A']);
 
     let remaining = 85;
     const plannedAllocations = matching.map((box) => {
@@ -199,9 +199,9 @@ describe('findMatchingBoxesForRequirement', () => {
     });
 
     expect(plannedAllocations).toEqual([
-      { boxId: 'IL-60-A', allocatedFeet: 25 },
-      { boxId: 'IL-60-B', allocatedFeet: 25 },
-      { boxId: 'IL-72-A', allocatedFeet: 35 }
+      { boxId: 'IL1-60-A', allocatedFeet: 25 },
+      { boxId: 'IL1-60-B', allocatedFeet: 25 },
+      { boxId: 'IL1-72-A', allocatedFeet: 35 }
     ]);
     expect(remaining).toBe(0);
   });

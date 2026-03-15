@@ -6,7 +6,7 @@ import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { LoadingState } from '../../../components/LoadingState';
 import { useToast } from '../../../components/Toast';
-import { getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
+import { WAREHOUSE_CODES, getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { AllocateDialog } from '../components/AllocateDialog';
@@ -192,6 +192,20 @@ export default function BoxDetailsPage() {
     () => (box ? createDraftFromBox(box) : createDraftFromBox(createFallbackBox(boxId))),
     [box, boxId]
   );
+
+  useEffect(() => {
+    if (!box || !box.boxId) {
+      return;
+    }
+    if (box.boxId === boxId) {
+      return;
+    }
+    const nextSearch = searchParams.toString();
+    const nextUrl = nextSearch
+      ? `/inventory/${encodeURIComponent(box.boxId)}?${nextSearch}`
+      : `/inventory/${encodeURIComponent(box.boxId)}`;
+    navigate(nextUrl, { replace: true });
+  }, [box, boxId, navigate, searchParams]);
 
   function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
     if (!auth.clientIdConfigured) {
@@ -981,7 +995,7 @@ export default function BoxDetailsPage() {
 function createFallbackBox(boxId: string): Box {
   return {
     boxId,
-    warehouse: 'IL',
+    warehouse: WAREHOUSE_CODES[0],
     manufacturer: '',
     filmName: '',
     widthIn: 36,

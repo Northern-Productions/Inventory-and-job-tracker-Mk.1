@@ -32,9 +32,9 @@ function Build-BoxId {
     return ""
   }
   if ($IdToken.StartsWith("M", [System.StringComparison]::OrdinalIgnoreCase)) {
-    return $IdToken
+    return "MS1-$($IdToken.Substring(1))"
   }
-  return "IL-$IdToken"
+  return "IL1-$IdToken"
 }
 
 function Parse-PositiveFeet {

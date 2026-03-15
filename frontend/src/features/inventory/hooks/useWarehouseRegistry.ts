@@ -9,7 +9,7 @@ function defaultEntries(): WarehouseEntry[] {
   return WAREHOUSE_CODES.map((code) => ({
     code,
     name: WAREHOUSE_LABELS[code] || code,
-    boxIdPrefix: code === 'MS' ? 'M' : ''
+    boxIdPrefix: code
   }));
 }
 
@@ -22,10 +22,10 @@ function normalizeEntry(entry: WarehouseEntry): WarehouseEntry {
 }
 
 function entrySortOrder(entry: WarehouseEntry): number {
-  if (entry.code === 'IL') {
+  if (entry.code === 'IL1') {
     return 0;
   }
-  if (entry.code === 'MS') {
+  if (entry.code === 'MS1') {
     return 1;
   }
   return 2;

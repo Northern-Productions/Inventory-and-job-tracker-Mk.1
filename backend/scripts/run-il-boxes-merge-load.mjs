@@ -9,7 +9,10 @@ const backendDir = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(backendDir, "..");
 
 const envPath = path.join(backendDir, ".env");
-const migrationPath = path.join(backendDir, "migrations", "0019_import_boxes_merge_mode.sql");
+const migrationPaths = [
+  path.join(backendDir, "migrations", "0019_import_boxes_merge_mode.sql"),
+  path.join(backendDir, "migrations", "0020_warehouse_prefix_v2.sql"),
+];
 const csvPath = path.join(backendDir, "migration-dry-runs", "il-assigned", "boxes_raw_final_with_zeroed.csv");
 
 const REQUIRED_COLUMNS = [
@@ -174,8 +177,10 @@ async function main() {
   if (!fs.existsSync(envPath)) {
     throw new Error(`Missing env file: ${envPath}`);
   }
-  if (!fs.existsSync(migrationPath)) {
-    throw new Error(`Missing migration file: ${migrationPath}`);
+  for (const migrationPath of migrationPaths) {
+    if (!fs.existsSync(migrationPath)) {
+      throw new Error(`Missing migration file: ${migrationPath}`);
+    }
   }
   if (!fs.existsSync(csvPath)) {
     throw new Error(`Missing CSV file: ${csvPath}`);
@@ -191,7 +196,9 @@ async function main() {
     throw new Error("DEFAULT_ORG_ID missing in backend/.env");
   }
 
-  const migrationSql = fs.readFileSync(migrationPath, "utf8");
+  const migrationSql = migrationPaths
+    .map((migrationPath) => fs.readFileSync(migrationPath, "utf8"))
+    .join("\n\n");
   const csvText = fs.readFileSync(csvPath, "utf8");
   const csvRows = parseCsv(csvText);
   const rows = toObjects(csvRows);

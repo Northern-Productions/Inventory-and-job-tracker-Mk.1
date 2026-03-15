@@ -31,7 +31,7 @@ const requestMock = vi.mocked(request);
 function buildJobListEntry(overrides: Record<string, unknown> = {}) {
   return {
     jobNumber: '000123',
-    warehouse: 'IL',
+    warehouse: 'IL1',
     sections: null,
     dueDate: '2026-03-05',
     crewLeader: '',
@@ -186,7 +186,7 @@ describe('jobs API client fallbacks', () => {
     await expect(
       createJob({
         jobNumber: '000123',
-        warehouse: 'IL',
+        warehouse: 'IL1',
         requirements: []
       })
     ).rejects.toThrow('Jobs backend is not deployed yet.');
@@ -197,7 +197,7 @@ describe('jobs API client fallbacks', () => {
       data: {
         summary: {
           jobNumber: '000123',
-          warehouse: 'IL',
+          warehouse: 'IL1',
           sections: null,
           dueDate: '',
           crewLeader: '',
@@ -222,7 +222,7 @@ describe('jobs API client fallbacks', () => {
 
     const result = await createJob({
       jobNumber: '000123',
-      warehouse: 'IL',
+      warehouse: 'IL1',
       requirements: []
     });
 
@@ -230,7 +230,7 @@ describe('jobs API client fallbacks', () => {
     expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/create', {
       body: {
         jobNumber: '000123',
-        warehouse: 'IL',
+        warehouse: 'IL1',
         requirements: []
       }
     });

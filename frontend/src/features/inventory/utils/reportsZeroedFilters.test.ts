@@ -5,7 +5,7 @@ import { buildZeroedManufacturerOptions, filterZeroedBoxes } from './reportsZero
 function row(overrides: Partial<ZeroedBoxRow> & Pick<ZeroedBoxRow, 'boxId'>): ZeroedBoxRow {
   return {
     boxId: overrides.boxId,
-    warehouse: overrides.warehouse || 'IL',
+    warehouse: overrides.warehouse || 'IL1',
     manufacturer: overrides.manufacturer || 'Llumar',
     filmName: overrides.filmName || 'V33',
     widthIn: overrides.widthIn ?? 72,

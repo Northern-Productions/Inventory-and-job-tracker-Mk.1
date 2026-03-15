@@ -8,6 +8,7 @@ import {
   getManufacturerOptionsWithCatalog,
   hasManufacturerOption
 } from '../utils/boxHelpers';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
@@ -117,7 +118,7 @@ export function JobEditorDialog({
   submitLabel,
   submitting = false,
   initialJobNumber = '',
-  initialWarehouse = 'IL',
+  initialWarehouse = '',
   initialSections = null,
   initialDueDate = '',
   initialCrewLeader = '',
@@ -128,12 +129,14 @@ export function JobEditorDialog({
   onCancel,
   onSubmit
 }: JobEditorDialogProps) {
+  const warehouseRegistry = useWarehouseRegistry();
+  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
   const manufacturerOptions = useMemo(
     () => getManufacturerOptionsWithCatalog(filmCatalogEntries),
     [filmCatalogEntries]
   );
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
-  const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse);
+  const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse || defaultWarehouse);
   const [sections, setSections] = useState(getSectionsInputValue(initialSections));
   const [dueDate, setDueDate] = useState(initialDueDate);
   const [crewLeader, setCrewLeader] = useState(initialCrewLeader);
@@ -164,7 +167,7 @@ export function JobEditorDialog({
     }
 
     setJobNumber(initialJobNumber);
-    setWarehouse(initialWarehouse);
+    setWarehouse(initialWarehouse || defaultWarehouse);
     setSections(getSectionsInputValue(initialSections));
     setDueDate(initialDueDate);
     setCrewLeader(initialCrewLeader);
@@ -182,6 +185,7 @@ export function JobEditorDialog({
     initialJobNumber,
     initialRequirements,
     initialSections,
+    defaultWarehouse,
     initialWarehouse,
     open
   ]);

@@ -45,8 +45,8 @@ describe('warehouse client APIs', () => {
     requestMock.mockResolvedValueOnce({
       data: {
         entries: [
-          { code: 'il', name: 'Wauconda Illinois', boxIdPrefix: '' },
-          { code: 'TX', name: 'Texas', boxIdPrefix: 't' }
+          { code: 'il1', name: 'Wauconda Illinois #1', boxIdPrefix: 'il1' },
+          { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'tx1' }
         ]
       },
       warnings: []
@@ -55,8 +55,8 @@ describe('warehouse client APIs', () => {
     const result = await listWarehouses();
 
     expect(result).toEqual([
-      { code: 'IL', name: 'Wauconda Illinois', boxIdPrefix: '' },
-      { code: 'TX', name: 'Texas', boxIdPrefix: 'T' }
+      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+      { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'TX1' }
     ]);
     expect(requestMock).toHaveBeenCalledWith('POST', '/warehouses/list', { body: {} });
   });
@@ -66,8 +66,8 @@ describe('warehouse client APIs', () => {
       .mockResolvedValueOnce({
         data: {
           entries: [
-            { code: 'IL', name: 'Wauconda Illinois', boxIdPrefix: '' },
-            { code: 'TX', name: 'Texas', boxIdPrefix: 'T' }
+            { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+            { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'TX1' }
           ]
         },
         warnings: []
@@ -83,12 +83,12 @@ describe('warehouse client APIs', () => {
 
     replaceOfflineInventoryBoxesMock
       .mockResolvedValueOnce({
-        warehouse: 'IL',
+        warehouse: 'IL1',
         boxCount: 0,
         lastSyncedAt: '2026-03-13T00:00:00.000Z'
       })
       .mockResolvedValueOnce({
-        warehouse: 'TX',
+        warehouse: 'TX1',
         boxCount: 0,
         lastSyncedAt: '2026-03-13T00:00:00.000Z'
       });
@@ -97,7 +97,7 @@ describe('warehouse client APIs', () => {
 
     expect(requestMock).toHaveBeenNthCalledWith(2, 'POST', '/boxes/search', {
       body: {
-        warehouse: 'IL',
+        warehouse: 'IL1',
         q: undefined,
         status: undefined,
         film: undefined,
@@ -107,7 +107,7 @@ describe('warehouse client APIs', () => {
     });
     expect(requestMock).toHaveBeenNthCalledWith(3, 'POST', '/boxes/search', {
       body: {
-        warehouse: 'TX',
+        warehouse: 'TX1',
         q: undefined,
         status: undefined,
         film: undefined,
@@ -115,8 +115,8 @@ describe('warehouse client APIs', () => {
         showRetired: true
       }
     });
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, 'IL', []);
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'TX', []);
-    expect(snapshots.map((entry) => entry.warehouse)).toEqual(['IL', 'TX']);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, 'IL1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'TX1', []);
+    expect(snapshots.map((entry) => entry.warehouse)).toEqual(['IL1', 'TX1']);
   });
 });

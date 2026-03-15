@@ -376,39 +376,39 @@ export function getWidthMode(widthIn: string): string {
 export function getNextBoxIdForWarehouse(
   boxes: Box[],
   warehouse: Warehouse,
-  warehousePrefix = warehouse === 'MS' ? 'M' : ''
+  warehousePrefix = warehouse
 ): string {
+  const normalizedPrefix = String(warehousePrefix || warehouse).trim().toUpperCase().replace(/-+$/, '');
+  const requiredPrefix = normalizedPrefix ? `${normalizedPrefix}-` : '';
   let bestValue = 0;
   let bestWidth = 0;
-  let bestPrefix = warehousePrefix;
 
   for (const box of boxes) {
-    if (warehousePrefix && !box.boxId.toUpperCase().startsWith(warehousePrefix)) {
+    const normalizedBoxId = box.boxId.toUpperCase();
+    if (requiredPrefix && !normalizedBoxId.startsWith(requiredPrefix)) {
       continue;
     }
 
-    const match = box.boxId.match(/^(.*?)(\d+)$/);
+    const match = normalizedBoxId.match(/^[A-Z0-9]+-(\d+)$/);
     if (!match) {
       continue;
     }
 
-    const numericValue = Number(match[2]);
+    const numericValue = Number(match[1]);
     if (!Number.isFinite(numericValue)) {
       continue;
     }
 
     if (numericValue > bestValue) {
       bestValue = numericValue;
-      bestWidth = match[2].length;
-      bestPrefix = match[1];
+      bestWidth = match[1].length;
     }
   }
 
   const nextValue = bestValue + 1;
   const nextDigits = String(nextValue).padStart(Math.max(bestWidth, String(nextValue).length), '0');
-  const nextPrefix = bestValue > 0 ? bestPrefix : warehousePrefix;
 
-  return `${nextPrefix}${nextDigits}`;
+  return `${requiredPrefix}${nextDigits}`;
 }
 
 export function getRiskyFieldChanges(current: Box, next: UpdateBoxPayload): string[] {

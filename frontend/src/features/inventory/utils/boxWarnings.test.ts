@@ -10,7 +10,7 @@ import {
 function createBox(overrides: Partial<Box> = {}): Box {
   return {
     boxId: '2',
-    warehouse: 'IL',
+    warehouse: 'IL1',
     manufacturer: '3M',
     filmName: 'Prestige 40',
     widthIn: 36,

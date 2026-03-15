@@ -893,7 +893,7 @@ function mapDbJobRow(row: any) {
     id: row.id,
     orgId: row.org_id,
     jobNumber: asTrimmedString(row.job_number),
-    warehouse: asTrimmedString(row.warehouse) || "IL",
+    warehouse: asTrimmedString(row.warehouse),
     sections: asTrimmedString(row.sections) || null,
     dueDate: formatDateValue(row.due_date),
     crewLeader: asTrimmedString(row.crew_leader),
@@ -1687,7 +1687,7 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
     id: "",
     orgId: "",
     jobNumber,
-    warehouse: warehouse || "IL",
+    warehouse: warehouse || "",
     sections: null,
     dueDate: metadata.jobDate,
     crewLeader: metadata.crewLeader,
@@ -1755,7 +1755,7 @@ function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any
   }
   return {
     jobNumber: jobHeader.jobNumber,
-    warehouse: jobHeader.warehouse || "IL",
+    warehouse: jobHeader.warehouse || "",
     sections: jobHeader.sections,
     dueDate,
     crewLeader,

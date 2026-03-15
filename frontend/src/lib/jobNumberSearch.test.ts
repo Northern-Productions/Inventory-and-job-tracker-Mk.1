@@ -5,7 +5,7 @@ import { rankActiveJobsByNumericCloseness } from './jobNumberSearch';
 function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
   return {
     jobNumber: overrides.jobNumber || '000001',
-    warehouse: overrides.warehouse || 'IL',
+    warehouse: overrides.warehouse || 'IL1',
     sections: overrides.sections ?? null,
     dueDate: overrides.dueDate || '',
     crewLeader: overrides.crewLeader || '',

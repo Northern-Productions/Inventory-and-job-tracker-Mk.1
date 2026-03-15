@@ -34,58 +34,58 @@ $rows = @(Import-Csv -LiteralPath $FinalCsvPath)
 # Targeted corrections for known model-code width parse errors.
 $corrections = @(
   [pscustomobject]@{
-    BoxID = "IL-1364"
+    BoxID = "IL1-1364"
     WidthIn = "60"
     FilmName = "Solyx Silver Etch Stripe SX-2002"
     Reason = "Model code SX-2002 parsed as width 2"
   },
   [pscustomobject]@{
-    BoxID = "IL-1436"
+    BoxID = "IL1-1436"
     WidthIn = "60"
     FilmName = "VERTICAL STRIPES SX-9200"
     Reason = "Model code SX-9200 parsed as width 200"
   },
   [pscustomobject]@{
-    BoxID = "IL-1437"
+    BoxID = "IL1-1437"
     WidthIn = "60"
     FilmName = "VERTICAL STRIPES SX-9200"
     Reason = "Model code SX-9200 parsed as width 200"
   },
   [pscustomobject]@{
-    BoxID = "IL-1456"
+    BoxID = "IL1-1456"
     WidthIn = "18"
     FilmName = "WHITE RICE PAPER SXG-001"
     Reason = "Model code SXG-001 parsed as width 1; sibling SXG row uses 18"
   },
   [pscustomobject]@{
-    BoxID = "IL-2670"
+    BoxID = "IL1-2670"
     WidthIn = "60"
     FilmName = "Acid Etch SOL SX3-314"
-    Reason = "Model code SX3-314 parsed as width 314; same code appears as 60 in IL-6380"
+    Reason = "Model code SX3-314 parsed as width 314; same code appears as 60 in IL1-6380"
   },
   [pscustomobject]@{
-    BoxID = "IL-2865"
+    BoxID = "IL1-2865"
     WidthIn = "48"
     FilmName = "Oracal 090 Silver Gray Series"
     Reason = "Series code 751 parsed as width; aligned to Oracal 751 silver rows at 48"
   },
   [pscustomobject]@{
-    BoxID = "IL-3289"
+    BoxID = "IL1-3289"
     WidthIn = "60"
     FilmName = "DI-NOC PS-959"
     Reason = "Model code PS-959 parsed as width; PS-series DI-NOC row uses 60"
   },
   [pscustomobject]@{
-    BoxID = "IL-3401"
+    BoxID = "IL1-3401"
     WidthIn = "48"
     FilmName = "3M Di-Noc Wood Grain-1147"
     Reason = "Trailing 164 was malformed width token; Wood Grain DI-NOC rows are 48"
   },
   [pscustomobject]@{
-    BoxID = "IL-3753"
+    BoxID = "IL1-3753"
     WidthIn = "60"
     FilmName = "DI-NOC OYSTER LINEN F473"
-    Reason = "Model code F473 parsed as width; matched ZEROED row IL-3595 at 60"
+    Reason = "Model code F473 parsed as width; matched ZEROED row IL1-3595 at 60"
   }
 )
 

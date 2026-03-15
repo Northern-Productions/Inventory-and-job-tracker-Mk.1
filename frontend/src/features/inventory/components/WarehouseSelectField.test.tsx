@@ -25,7 +25,7 @@ function renderWarehouseField(props: Partial<ComponentProps<typeof WarehouseSele
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <WarehouseSelectField
-        value="IL"
+        value="IL1"
         onChange={() => {}}
         {...props}
       />
@@ -43,8 +43,8 @@ describe('WarehouseSelectField', () => {
   beforeEach(() => {
     useWarehouseRegistryMock.mockReturnValue({
       entries: [
-        { code: 'IL', name: 'Wauconda Illinois', boxIdPrefix: '' },
-        { code: 'MS', name: 'Ridgeland Mississippi', boxIdPrefix: 'M' }
+        { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland Mississippi #1', boxIdPrefix: 'MS1' }
       ]
     });
   });
@@ -59,8 +59,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All',
-      'Wauconda Illinois',
-      'Ridgeland Mississippi',
+      'Wauconda Illinois #1',
+      'Ridgeland Mississippi #1',
       'Add New Warehouse...'
     ]);
   });
@@ -75,8 +75,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All',
-      'Wauconda Illinois',
-      'Ridgeland Mississippi'
+      'Wauconda Illinois #1',
+      'Ridgeland Mississippi #1'
     ]);
     expect(html).not.toContain('Add New Warehouse...');
   });

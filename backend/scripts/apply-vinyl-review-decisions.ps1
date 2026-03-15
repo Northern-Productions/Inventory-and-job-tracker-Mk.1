@@ -37,7 +37,7 @@ $combinedRows = @(Import-Csv -LiteralPath $CombinedCsvPath)
 $appendedRows = @(Import-Csv -LiteralPath $AppendedCsvPath)
 
 # Conservative hold list for ambiguous high-confidence shorthand patterns.
-$conservativeHoldBoxIds = @("IL-3286")
+$conservativeHoldBoxIds = @("IL1-3286")
 $holdLookup = @{}
 foreach ($id in $conservativeHoldBoxIds) {
   $holdLookup[$id] = $true

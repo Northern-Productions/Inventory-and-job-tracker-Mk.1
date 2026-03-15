@@ -555,7 +555,7 @@ function mapLegacyAllocationStatusToJobStatus(
 
 function mapLegacyAllocationSummaryToJobListEntry(
   summary: AllocationJobSummary,
-  warehouse: Warehouse = 'IL'
+  warehouse: Warehouse = WAREHOUSE_CODES[0]
 ): JobListEntry {
   const allocatedFeet = Math.max(0, summary.activeAllocatedFeet + summary.fulfilledAllocatedFeet);
   const status = mapLegacyAllocationStatusToJobStatus(summary.status);
@@ -580,7 +580,8 @@ function mapLegacyAllocationSummaryToJobListEntry(
 }
 
 function mapLegacyAllocationDetailToJobDetail(detail: AllocationJobDetail): JobDetail {
-  const fallbackWarehouse = detail.allocations[0]?.warehouse || detail.filmOrders[0]?.warehouse || 'IL';
+  const fallbackWarehouse =
+    detail.allocations[0]?.warehouse || detail.filmOrders[0]?.warehouse || WAREHOUSE_CODES[0];
 
   return {
     summary: mapLegacyAllocationSummaryToJobListEntry(detail.summary, fallbackWarehouse),

@@ -16,6 +16,8 @@ import {
   toWarehouseSelectOptions
 } from '../utils/warehouseOptions';
 
+const INDEXED_WAREHOUSE_PATTERN = /^[A-Z]{2}[1-9][0-9]{0,6}$/;
+
 interface WarehouseSelectFieldProps {
   label?: string;
   value: Warehouse | '';
@@ -90,19 +92,23 @@ export function WarehouseSelectField({
 
   async function handleCreateWarehouse() {
     const normalizedCode = normalizeWarehouseCode(codeDraft);
-    const normalizedPrefix = String(prefixDraft || '').trim().toUpperCase();
+    const normalizedPrefix = String(prefixDraft || normalizedCode).trim().toUpperCase();
     const resolvedName = String(nameDraft || '').trim() || suggestedName;
 
     if (!normalizedCode) {
-      setFormError('Warehouse code must be 2-8 uppercase letters or numbers.');
+      setFormError('Warehouse code must match AA1, AA2, ... with a 1-based index.');
       return;
     }
     if (!resolvedName) {
       setFormError('Warehouse name is required.');
       return;
     }
-    if (!/^[A-Z0-9]{1,4}$/.test(normalizedPrefix)) {
-      setFormError('BoxID prefix must be 1-4 uppercase letters or numbers.');
+    if (!INDEXED_WAREHOUSE_PATTERN.test(normalizedPrefix)) {
+      setFormError('BoxID prefix must match AA1, AA2, ... with a 1-based index.');
+      return;
+    }
+    if (normalizedPrefix !== normalizedCode) {
+      setFormError('Warehouse code and BoxID prefix must match.');
       return;
     }
 
@@ -173,10 +179,14 @@ export function WarehouseSelectField({
                 label="Warehouse Code"
                 value={codeDraft}
                 onChange={(event) => {
-                  setCodeDraft(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                  const nextCode = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  setCodeDraft(nextCode);
+                  if (!prefixDraft || prefixDraft === codeDraft) {
+                    setPrefixDraft(nextCode);
+                  }
                   setFormError('');
                 }}
-                placeholder="TX"
+                placeholder="CA1"
                 maxLength={8}
                 autoFocus
               />
@@ -197,8 +207,8 @@ export function WarehouseSelectField({
                   setPrefixDraft(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
                   setFormError('');
                 }}
-                placeholder="T"
-                maxLength={4}
+                placeholder="CA1"
+                maxLength={8}
               />
             </div>
             {formError ? <p className="error-text">{formError}</p> : null}

@@ -12,43 +12,43 @@ import {
 describe('warehouseOptions', () => {
   it('parses warehouse filter values with ALL and normalized codes', () => {
     expect(parseWarehouseFilterValue('ALL')).toBe('');
-    expect(parseWarehouseFilterValue(' tx ')).toBe('TX');
+    expect(parseWarehouseFilterValue(' ca1 ')).toBe('CA1');
     expect(parseWarehouseFilterValue('x')).toBe('');
   });
 
   it('maps warehouse filter values back to select values', () => {
     expect(toWarehouseFilterOptionValue('')).toBe(ALL_WAREHOUSES_OPTION_VALUE);
-    expect(toWarehouseFilterOptionValue('TX')).toBe('TX');
+    expect(toWarehouseFilterOptionValue('CA1')).toBe('CA1');
   });
 
   it('builds select options from warehouse entries', () => {
     const entries = [
-      { code: 'IL', name: 'Wauconda Illinois', boxIdPrefix: '' },
-      { code: 'TX', name: 'Texas', boxIdPrefix: 'T' }
+      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+      { code: 'CA1', name: 'California #1', boxIdPrefix: 'CA1' }
     ];
 
     expect(toWarehouseSelectOptions(entries)).toEqual([
-      { label: 'Wauconda Illinois', value: 'IL' },
-      { label: 'Texas', value: 'TX' }
+      { label: 'Wauconda Illinois #1', value: 'IL1' },
+      { label: 'California #1', value: 'CA1' }
     ]);
 
     expect(toWarehouseFilterSelectOptions(entries)).toEqual([
       { label: 'All', value: ALL_WAREHOUSES_OPTION_VALUE },
-      { label: 'Wauconda Illinois', value: 'IL' },
-      { label: 'Texas', value: 'TX' }
+      { label: 'Wauconda Illinois #1', value: 'IL1' },
+      { label: 'California #1', value: 'CA1' }
     ]);
   });
 
   it('normalizes warehouse codes and resolves prefixes', () => {
     const entries = [
-      { code: 'IL', name: 'Wauconda Illinois', boxIdPrefix: '' },
-      { code: 'MS', name: 'Ridgeland Mississippi', boxIdPrefix: 'M' },
-      { code: 'TX', name: 'Texas', boxIdPrefix: 'TX-' }
+      { code: 'IL1', name: 'Wauconda Illinois #1', boxIdPrefix: 'IL1' },
+      { code: 'MS1', name: 'Ridgeland Mississippi #1', boxIdPrefix: 'MS1' },
+      { code: 'CA1', name: 'California #1', boxIdPrefix: 'CA1' }
     ];
 
-    expect(normalizeWarehouseCode(' tx ')).toBe('TX');
+    expect(normalizeWarehouseCode(' ca1 ')).toBe('CA1');
     expect(normalizeWarehouseCode('1')).toBe('');
-    expect(getWarehousePrefix(entries, 'TX')).toBe('TX-');
-    expect(getWarehousePrefix(entries, 'IL')).toBe('');
+    expect(getWarehousePrefix(entries, 'CA1')).toBe('CA1');
+    expect(getWarehousePrefix(entries, 'IL1')).toBe('IL1');
   });
 });

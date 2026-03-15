@@ -28,8 +28,8 @@ describe('boxHelpers', () => {
   it('identifies risky inventory edits', () => {
     const risky = getRiskyFieldChanges(
       {
-        boxId: 'IL-1',
-        warehouse: 'IL',
+        boxId: 'IL1-1',
+        warehouse: 'IL1',
         manufacturer: 'A',
         filmName: 'B',
         widthIn: 36,
@@ -56,7 +56,7 @@ describe('boxHelpers', () => {
       zeroedBy: ''
     },
       {
-        boxId: 'IL-1',
+        boxId: 'IL1-1',
         manufacturer: 'A',
         filmName: 'B',
         widthIn: 48,
@@ -85,8 +85,8 @@ describe('boxHelpers', () => {
       getNextBoxIdForWarehouse(
         [
           {
-            boxId: 'IL-009',
-            warehouse: 'IL',
+            boxId: 'IL1-009',
+            warehouse: 'IL1',
             manufacturer: '',
             filmName: '',
             widthIn: 36,
@@ -113,17 +113,17 @@ describe('boxHelpers', () => {
             zeroedBy: ''
           }
         ],
-        'IL'
+        'IL1'
       )
-    ).toBe('IL-010');
+    ).toBe('IL1-010');
 
-    expect(getNextBoxIdForWarehouse([], 'MS')).toBe('M1');
+    expect(getNextBoxIdForWarehouse([], 'MS1')).toBe('MS1-1');
     expect(
       getNextBoxIdForWarehouse(
         [
           {
-            boxId: 'TX-009',
-            warehouse: 'TX',
+            boxId: 'CA1-009',
+            warehouse: 'CA1',
             manufacturer: '',
             filmName: '',
             widthIn: 36,
@@ -150,11 +150,11 @@ describe('boxHelpers', () => {
             zeroedBy: ''
           }
         ],
-        'TX',
-        'TX-'
+        'CA1',
+        'CA1'
       )
-    ).toBe('TX-010');
-    expect(getNextBoxIdForWarehouse([], 'TX', 'TX-')).toBe('TX-1');
+    ).toBe('CA1-010');
+    expect(getNextBoxIdForWarehouse([], 'CA1', 'CA1')).toBe('CA1-1');
   });
 
   it('merges hardcoded manufacturer options with film catalog manufacturers', () => {
@@ -173,8 +173,8 @@ describe('boxHelpers', () => {
     const orderedAt = new Date(2026, 1, 28).toString();
 
     const draft = createDraftFromBox({
-      boxId: 'IL-2',
-      warehouse: 'IL',
+      boxId: 'IL1-2',
+      warehouse: 'IL1',
       manufacturer: 'A',
       filmName: 'B',
       widthIn: 36,
@@ -208,7 +208,7 @@ describe('boxHelpers', () => {
   it('keeps stored ISO dates unchanged in the edit form', () => {
     const draft = createDraftFromBox({
       boxId: '100',
-      warehouse: 'IL',
+      warehouse: 'IL1',
       manufacturer: '3M',
       filmName: 'S800',
       widthIn: 72,
@@ -295,8 +295,8 @@ describe('boxHelpers', () => {
     const allocations = [
       {
         allocationId: 'A-1',
-        boxId: 'IL-1',
-        warehouse: 'IL' as const,
+        boxId: 'IL1-1',
+        warehouse: 'IL1' as const,
         jobNumber: 'JOB-1',
         jobDate: '',
         allocatedFeet: 18,
@@ -309,8 +309,8 @@ describe('boxHelpers', () => {
       },
       {
         allocationId: 'A-2',
-        boxId: 'IL-1',
-        warehouse: 'IL' as const,
+        boxId: 'IL1-1',
+        warehouse: 'IL1' as const,
         jobNumber: 'JOB-2',
         jobDate: '',
         allocatedFeet: 7,
@@ -323,8 +323,8 @@ describe('boxHelpers', () => {
       },
       {
         allocationId: 'A-3',
-        boxId: 'IL-1',
-        warehouse: 'IL' as const,
+        boxId: 'IL1-1',
+        warehouse: 'IL1' as const,
         jobNumber: 'JOB-3',
         jobDate: '',
         allocatedFeet: 9,

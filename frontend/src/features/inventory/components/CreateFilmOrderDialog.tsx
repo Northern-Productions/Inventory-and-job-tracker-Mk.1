@@ -3,6 +3,7 @@ import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import { getManufacturerOptions, hasManufacturerOption } from '../utils/boxHelpers';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
@@ -28,7 +29,9 @@ export function CreateFilmOrderDialog({
   onSubmit
 }: CreateFilmOrderDialogProps) {
   const manufacturerOptions = useMemo(() => getManufacturerOptions(), [open]);
-  const [warehouse, setWarehouse] = useState<Warehouse>('IL');
+  const warehouseRegistry = useWarehouseRegistry();
+  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
+  const [warehouse, setWarehouse] = useState<Warehouse>(defaultWarehouse);
   const [jobNumber, setJobNumber] = useState('');
   const [manufacturer, setManufacturer] = useState<string>(manufacturerOptions[0] || '');
   const [filmName, setFilmName] = useState('');
@@ -46,14 +49,14 @@ export function CreateFilmOrderDialog({
       return;
     }
 
-    setWarehouse('IL');
+    setWarehouse(defaultWarehouse);
     setJobNumber('');
     setManufacturer(manufacturerOptions[0] || '');
     setFilmName('');
     setWidthIn('36');
     setRequestedFeet('100');
     setError('');
-  }, [manufacturerOptions, open]);
+  }, [defaultWarehouse, manufacturerOptions, open]);
 
   if (!open) {
     return null;
