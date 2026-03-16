@@ -817,6 +817,11 @@ td {
   vertical-align: top;
 }
 
+.table-wrap th,
+.table-wrap td {
+  text-align: center;
+}
+
 th {
   font-size: 0.85rem;
   text-transform: uppercase;
@@ -850,6 +855,10 @@ td.col-available-linear-ft {
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 0.14em;
+}
+
+.table-wrap .row-button {
+  text-align: center;
 }
 
 .inventory-table .row-button {

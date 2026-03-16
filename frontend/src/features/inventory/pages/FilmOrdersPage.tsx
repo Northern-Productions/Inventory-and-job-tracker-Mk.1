@@ -290,7 +290,7 @@ export default function FilmOrdersPage() {
                         onClick={() => setJobToCancel(order)}
                         disabled={cancelJobMutation.isPending}
                       >
-                        Cancel Job
+                        Cancel
                       </Button>
                     )}
                   </MobileActionStack>
@@ -378,7 +378,7 @@ export default function FilmOrdersPage() {
                               onClick={() => setJobToCancel(order)}
                               disabled={cancelJobMutation.isPending}
                             >
-                              Cancel Job
+                              Cancel
                             </Button>
                           )}
                         </div>
