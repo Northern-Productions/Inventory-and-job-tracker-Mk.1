@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MANUFACTURER_OPTIONS,
   canonicalizeManufacturerLabel,
+  createEmptyBoxDraft,
   createDraftFromBox,
   deriveCoreWeightLbs,
   deriveFeetAvailableFromRollWeight,
@@ -182,16 +182,24 @@ describe('boxHelpers', () => {
     expect(formatBoxIdWithWarehousePrefix('il1-1338', 'IL1')).toBe('IL1-1338');
   });
 
-  it('merges hardcoded manufacturer options with film catalog manufacturers', () => {
+  it('derives manufacturer options from film catalog values only', () => {
     const options = getManufacturerOptionsWithCatalog([
       { filmKey: 'MADICO|GRAFFITI FREE', manufacturer: 'Madico', filmName: 'Graffiti Free', updatedAt: '' },
       { filmKey: '3M|S80', manufacturer: '3M', filmName: 'S80', updatedAt: '' },
       { filmKey: 'MADICO|GRAFFITI FREE 2', manufacturer: '  madico  ', filmName: 'Graffiti Free 2', updatedAt: '' }
     ]);
 
-    expect(options.slice(0, MANUFACTURER_OPTIONS.length)).toEqual([...MANUFACTURER_OPTIONS]);
-    expect(options).toContain('Madico');
-    expect(options.filter((entry) => entry.toLowerCase() === 'madico')).toHaveLength(1);
+    expect(options).toEqual(['3M Solar', 'Madico']);
+  });
+
+  it('returns an empty manufacturer option list when no catalog entries are available', () => {
+    expect(getManufacturerOptionsWithCatalog()).toEqual([]);
+    expect(getManufacturerOptionsWithCatalog([])).toEqual([]);
+  });
+
+  it('supports catalog-driven default manufacturer for new box drafts', () => {
+    expect(createEmptyBoxDraft('Madico').manufacturer).toBe('Madico');
+    expect(createEmptyBoxDraft().manufacturer).toBe('');
   });
 
   it('normalizes loaded dates for edit-form date inputs', () => {

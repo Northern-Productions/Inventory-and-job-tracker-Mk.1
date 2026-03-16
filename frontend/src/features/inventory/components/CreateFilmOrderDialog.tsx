@@ -4,7 +4,7 @@ import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   canonicalizeManufacturerLabel,
-  getManufacturerOptions,
+  getManufacturerOptionsWithCatalog,
   hasManufacturerOption
 } from '../utils/boxHelpers';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
@@ -32,7 +32,10 @@ export function CreateFilmOrderDialog({
   onCancel,
   onSubmit
 }: CreateFilmOrderDialogProps) {
-  const manufacturerOptions = useMemo(() => getManufacturerOptions(), [open]);
+  const manufacturerOptions = useMemo(
+    () => getManufacturerOptionsWithCatalog(filmCatalogEntries),
+    [filmCatalogEntries]
+  );
   const warehouseRegistry = useWarehouseRegistry();
   const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
   const [warehouse, setWarehouse] = useState<Warehouse>(defaultWarehouse);

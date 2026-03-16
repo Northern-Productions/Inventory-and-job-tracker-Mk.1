@@ -20,6 +20,14 @@ function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
+function getJobListDisplayStatus(status: string, filmOrderCount: number) {
+  if (status === 'ALLOCATE' && filmOrderCount > 0) {
+    return 'FILM_ORDER';
+  }
+
+  return status;
+}
+
 export default function AllocationsPage() {
   const navigate = useNavigate();
   const isPhoneLayout = useIsPhoneLayout();
@@ -146,23 +154,26 @@ export default function AllocationsPage() {
         {jobs.length ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
-              {jobs.map((entry) => (
-                <MobileRecordCard key={entry.jobNumber}>
-                  <MobileRecordHeader
-                    title={entry.jobNumber}
-                    subtitle={`${entry.warehouse} warehouse`}
-                    badge={<span className={`badge badge-${entry.status}`}>{formatStatusLabel(entry.status)}</span>}
-                    onTitleClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
-                  />
-                  <MobileFieldList>
-                    <MobileField label="Install Date" value={formatDate(entry.dueDate)} />
-                    <MobileField label="Sections" value={entry.sections ?? '--'} />
-                    <MobileField label="Required LF" value={entry.requiredFeet} />
-                    <MobileField label="Allocated LF" value={entry.allocatedFeet} />
-                    <MobileField label="Remaining LF" value={entry.remainingFeet} />
-                  </MobileFieldList>
-                </MobileRecordCard>
-              ))}
+              {jobs.map((entry) => {
+                const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
+                return (
+                  <MobileRecordCard key={entry.jobNumber}>
+                    <MobileRecordHeader
+                      title={entry.jobNumber}
+                      subtitle={`${entry.warehouse} warehouse`}
+                      badge={<span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>}
+                      onTitleClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
+                    />
+                    <MobileFieldList>
+                      <MobileField label="Install Date" value={formatDate(entry.dueDate)} />
+                      <MobileField label="Sections" value={entry.sections ?? '--'} />
+                      <MobileField label="Required LF" value={entry.requiredFeet} />
+                      <MobileField label="Allocated LF" value={entry.allocatedFeet} />
+                      <MobileField label="Remaining LF" value={entry.remainingFeet} />
+                    </MobileFieldList>
+                  </MobileRecordCard>
+                );
+              })}
             </div>
           ) : (
             <div className="table-wrap">
@@ -180,28 +191,31 @@ export default function AllocationsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.map((entry) => (
-                    <tr key={entry.jobNumber}>
-                      <td>
-                        <button
-                          type="button"
-                          className="row-button"
-                          onClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
-                        >
-                          {entry.jobNumber}
-                        </button>
-                      </td>
-                      <td>{formatDate(entry.dueDate)}</td>
-                      <td>{entry.sections ?? '--'}</td>
-                      <td>{entry.warehouse}</td>
-                      <td>
-                        <span className={`badge badge-${entry.status}`}>{formatStatusLabel(entry.status)}</span>
-                      </td>
-                      <td>{entry.requiredFeet}</td>
-                      <td>{entry.allocatedFeet}</td>
-                      <td>{entry.remainingFeet}</td>
-                    </tr>
-                  ))}
+                  {jobs.map((entry) => {
+                    const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
+                    return (
+                      <tr key={entry.jobNumber}>
+                        <td>
+                          <button
+                            type="button"
+                            className="row-button"
+                            onClick={() => navigate(`/allocations/${encodeURIComponent(entry.jobNumber)}`)}
+                          >
+                            {entry.jobNumber}
+                          </button>
+                        </td>
+                        <td>{formatDate(entry.dueDate)}</td>
+                        <td>{entry.sections ?? '--'}</td>
+                        <td>{entry.warehouse}</td>
+                        <td>
+                          <span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>
+                        </td>
+                        <td>{entry.requiredFeet}</td>
+                        <td>{entry.allocatedFeet}</td>
+                        <td>{entry.remainingFeet}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

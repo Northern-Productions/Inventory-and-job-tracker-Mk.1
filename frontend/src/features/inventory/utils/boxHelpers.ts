@@ -15,14 +15,6 @@ import {
 export { canonicalizeManufacturerLabel };
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
-export const MANUFACTURER_OPTIONS = [
-  '3M Solar',
-  '3M Fasara',
-  'Llumar',
-  'Solar Gard',
-  'SOLYX',
-  'Avery Dennison'
-] as const;
 export const CORE_TYPE_OPTIONS = [
   'White plastic',
   'Red plastic',
@@ -35,8 +27,6 @@ export const LOW_STOCK_THRESHOLD_LF = 10;
 const TRAILING_LETTER_BOX_ID_PATTERN = /^([A-Z]{2}[1-9][0-9]*-[0-9]+)[A-Z]+$/;
 const CANONICAL_PREFIXED_BOX_ID_PATTERN = /^[A-Z]{2}[1-9][0-9]*-.+/;
 const LEGACY_PREFIXED_BOX_ID_PATTERN = /^[A-Z]+-(.+)$/;
-const CUSTOM_MANUFACTURERS_STORAGE_KEY = 'inventory.customManufacturers.v1';
-let customManufacturerCache: string[] | null = null;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'White plastic': 2,
   'Red plastic': 1.85,
@@ -92,73 +82,13 @@ function dedupeManufacturerLabels(values: string[]) {
   return deduped;
 }
 
-function canUseLocalStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+function compareManufacturerLabels(left: string, right: string) {
+  return left.localeCompare(right, undefined, { sensitivity: 'base' });
 }
 
-function readCustomManufacturerOptions() {
-  if (customManufacturerCache) {
-    return customManufacturerCache;
-  }
-
-  if (!canUseLocalStorage()) {
-    customManufacturerCache = [];
-    return customManufacturerCache;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_MANUFACTURERS_STORAGE_KEY);
-    if (!raw) {
-      customManufacturerCache = [];
-      return customManufacturerCache;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      customManufacturerCache = [];
-      return customManufacturerCache;
-    }
-
-    customManufacturerCache = dedupeManufacturerLabels(
-      parsed.filter((entry): entry is string => typeof entry === 'string')
-    );
-    const normalizedRaw = JSON.stringify(customManufacturerCache);
-    if (normalizedRaw !== raw) {
-      // Rewrite stale aliases (or mixed casing/spacing variants) the first time we read them.
-      window.localStorage.setItem(CUSTOM_MANUFACTURERS_STORAGE_KEY, normalizedRaw);
-    }
-    return customManufacturerCache;
-  } catch (_error) {
-    customManufacturerCache = [];
-    return customManufacturerCache;
-  }
-}
-
-function writeCustomManufacturerOptions(values: string[]) {
-  const next = dedupeManufacturerLabels(values);
-  customManufacturerCache = next;
-
-  if (!canUseLocalStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(CUSTOM_MANUFACTURERS_STORAGE_KEY, JSON.stringify(next));
-  } catch (_error) {
-    // Keep in-memory cache even if browser storage is blocked.
-  }
-}
-
-export function getManufacturerOptions() {
-  const defaults = [...MANUFACTURER_OPTIONS];
-  const merged = dedupeManufacturerLabels([...defaults, ...readCustomManufacturerOptions()]);
-  return merged;
-}
-
-export function getManufacturerOptionsWithCatalog(catalogEntries?: FilmCatalogEntry[]) {
-  const defaults = getManufacturerOptions();
+export function getManufacturerOptions(catalogEntries?: FilmCatalogEntry[]) {
   if (!catalogEntries || catalogEntries.length === 0) {
-    return defaults;
+    return [];
   }
 
   const catalogManufacturers: string[] = [];
@@ -169,35 +99,20 @@ export function getManufacturerOptionsWithCatalog(catalogEntries?: FilmCatalogEn
     }
   }
 
-  return dedupeManufacturerLabels([...defaults, ...catalogManufacturers]);
+  return dedupeManufacturerLabels(catalogManufacturers).sort(compareManufacturerLabels);
 }
 
-export function hasManufacturerOption(value: string, options = getManufacturerOptions()) {
+export function getManufacturerOptionsWithCatalog(catalogEntries?: FilmCatalogEntry[]) {
+  return getManufacturerOptions(catalogEntries);
+}
+
+export function hasManufacturerOption(value: string, options: string[] = []) {
   const key = normalizeManufacturerKey(value);
   if (!key) {
     return false;
   }
 
   return options.some((option) => normalizeManufacturerKey(option) === key);
-}
-
-export function addManufacturerOption(value: string) {
-  const label = normalizeManufacturerLabel(value);
-  const key = normalizeManufacturerKey(label);
-
-  if (!key) {
-    return '';
-  }
-
-  const options = getManufacturerOptions();
-  const existing = options.find((option) => normalizeManufacturerKey(option) === key);
-  if (existing) {
-    return existing;
-  }
-
-  const customOptions = readCustomManufacturerOptions();
-  writeCustomManufacturerOptions([...customOptions, label]);
-  return label;
 }
 
 export function deriveFilmKey(manufacturer: string, filmName: string): string {
@@ -368,10 +283,10 @@ export function getRemainingAllocatableFeet(
   return Math.max(feetAvailable, 0);
 }
 
-export function createEmptyBoxDraft(): BoxDraft {
+export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
   return {
     boxId: '',
-    manufacturer: MANUFACTURER_OPTIONS[0],
+    manufacturer: defaultManufacturer,
     filmName: '',
     widthIn: '36',
     initialFeet: '100',

@@ -5,7 +5,7 @@ import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   CORE_TYPE_OPTIONS,
   STANDARD_WIDTH_OPTIONS,
-  getManufacturerOptions,
+  getManufacturerOptionsWithCatalog,
   getWidthMode,
   hasManufacturerOption,
   type BoxDraft
@@ -64,6 +64,7 @@ export function BoxForm({
   const [isDeleteDialogClosing, setIsDeleteDialogClosing] = useState(false);
   const [isDeleteBackdropClosing, setIsDeleteBackdropClosing] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [hasAutoSelectedManufacturer, setHasAutoSelectedManufacturer] = useState(false);
   const lastSuggestedBoxIdRef = useRef(initialDraft.boxId);
   const lastCreateWarehouseRef = useRef<Warehouse | null>(createWarehouse ?? null);
   const deleteDialogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,6 +120,7 @@ export function BoxForm({
     setCustomWidthDraft(getWidthMode(initialDraft.widthIn) === 'CUSTOM' ? initialDraft.widthIn : '');
     lastSuggestedBoxIdRef.current = initialDraft.boxId;
     lastCreateWarehouseRef.current = createWarehouse ?? null;
+    setHasAutoSelectedManufacturer(false);
     resetDeleteDialog();
   }, [initialDraft, resetKey]);
 
@@ -191,13 +193,35 @@ export function BoxForm({
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
   const canCaptureReceivingDetails = draft.receivedDate.trim() !== '';
-  const manufacturerOptions = getManufacturerOptions();
+  const manufacturerOptions = getManufacturerOptionsWithCatalog(filmCatalogEntries);
   const isKnownManufacturer = hasManufacturerOption(draft.manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
     ? draft.manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
   const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
   const isDeleteConfirmUnlocked = deleteConfirmText.trim().toLowerCase() === 'delete';
+
+  useEffect(() => {
+    if (
+      mode !== 'create' ||
+      hasAutoSelectedManufacturer ||
+      draft.manufacturer.trim() ||
+      manufacturerOptions.length === 0
+    ) {
+      return;
+    }
+
+    setDraft((current) => ({
+      ...current,
+      manufacturer: manufacturerOptions[0]
+    }));
+    setHasAutoSelectedManufacturer(true);
+  }, [
+    draft.manufacturer,
+    hasAutoSelectedManufacturer,
+    manufacturerOptions,
+    mode
+  ]);
 
   const handleWidthButtonClick = (value: (typeof widthButtonValues)[number]) => {
     if (value === 'CUSTOM') {

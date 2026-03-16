@@ -69,25 +69,19 @@ import type {
   Warehouse
 } from '../domain';
 import { WAREHOUSE_CODES, createDefaultFeatureAccessMap } from '../domain';
+import { isReadRoute } from '../domain/runtimeContract.mjs';
 import {
   getOfflineBox,
   replaceOfflineInventoryBoxes,
   searchOfflineBoxes,
   type OfflineInventorySyncMeta
 } from '../lib/offlineInventory';
-import { rankActiveJobsByNumericCloseness } from '../lib/jobNumberSearch';
 import { APIError, request } from './http';
 
-type JobsApiAvailability = 'unknown' | 'available' | 'missing';
-let jobsApiAvailability: JobsApiAvailability = 'unknown';
-type JobsSearchApiAvailability = 'unknown' | 'available' | 'missing';
-let jobsSearchApiAvailability: JobsSearchApiAvailability = 'unknown';
 let cachedAccessContext: EffectiveAccessContext | null = null;
 const CAULK_FULL_CASE_TUBE_COUNT = 16;
 
 export function __resetJobsApiAvailabilityForTests() {
-  jobsApiAvailability = 'unknown';
-  jobsSearchApiAvailability = 'unknown';
   cachedAccessContext = null;
 }
 
@@ -768,67 +762,6 @@ function shouldUseOfflineInventoryFallback(error: unknown): error is APIError {
   return error instanceof APIError && error.message.indexOf('The API is unreachable.') === 0;
 }
 
-function isRouteNotFoundError(error: unknown, path: string): error is APIError {
-  return error instanceof APIError && error.message === `Route not found: ${path}`;
-}
-
-function mapLegacyAllocationStatusToJobStatus(
-  status: AllocationJobSummary['status']
-): JobListEntry['status'] {
-  if (status === 'CANCELLED') {
-    return 'CANCELLED';
-  }
-
-  if (status === 'COMPLETED') {
-    return 'COMPLETED';
-  }
-
-  if (status === 'READY') {
-    return 'READY';
-  }
-
-  return 'ALLOCATE';
-}
-
-function mapLegacyAllocationSummaryToJobListEntry(
-  summary: AllocationJobSummary,
-  warehouse: Warehouse = WAREHOUSE_CODES[0]
-): JobListEntry {
-  const allocatedFeet = Math.max(0, summary.activeAllocatedFeet + summary.fulfilledAllocatedFeet);
-  const status = mapLegacyAllocationStatusToJobStatus(summary.status);
-
-  return {
-    jobNumber: summary.jobNumber,
-    warehouse,
-    sections: null,
-    dueDate: summary.jobDate || '',
-    crewLeader: summary.crewLeader || '',
-    status,
-    lifecycleStatus: status === 'CANCELLED' ? 'CANCELLED' : status === 'COMPLETED' ? 'COMPLETED' : 'ACTIVE',
-    requiredFeet: allocatedFeet,
-    allocatedFeet,
-    remainingFeet: 0,
-    requirementCount: 0,
-    allocationCount: summary.boxCount,
-    filmOrderCount: summary.openFilmOrderCount,
-    updatedAt: '',
-    notes: ''
-  };
-}
-
-function mapLegacyAllocationDetailToJobDetail(detail: AllocationJobDetail): JobDetail {
-  const fallbackWarehouse =
-    detail.allocations[0]?.warehouse || detail.filmOrders[0]?.warehouse || WAREHOUSE_CODES[0];
-
-  return {
-    summary: mapLegacyAllocationSummaryToJobListEntry(detail.summary, fallbackWarehouse),
-    requirements: [],
-    allocations: detail.allocations,
-    usage: [],
-    filmOrders: detail.filmOrders
-  };
-}
-
 function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
@@ -838,23 +771,14 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
 
 async function requestReadWithFallback<T>(
   path: string,
-  body: Record<string, unknown>,
+  _body: Record<string, unknown>,
   query: Record<string, string | number | boolean | undefined>
 ): Promise<T> {
-  try {
-    const { data } = await request<T>('POST', path, { body });
-    return data;
-  } catch (error) {
-    if (
-      error instanceof APIError &&
-      (error.message === `Route not found: ${path}` || error.message === 'Route not found: /')
-    ) {
-      const { data } = await request<T>('GET', path, { query });
-      return data;
-    }
-
-    throw error;
+  if (!isReadRoute(path)) {
+    throw new APIError(`Route is not configured as a read route: ${path}`);
   }
+  const { data } = await request<T>('GET', path, { query });
+  return data;
 }
 
 export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
@@ -939,34 +863,8 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
 export async function getJobs(limit = 25): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
   const params = { limit };
-
-  if (jobsApiAvailability === 'missing') {
-    const legacyData = await requestReadWithFallback<AllocationJobListResponse>(
-      '/allocations/jobs',
-      {},
-      {}
-    );
-    return legacyData.entries.slice(0, limit).map((entry) => mapLegacyAllocationSummaryToJobListEntry(entry));
-  }
-
-  try {
-    const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
-    jobsApiAvailability = 'available';
-    return data.entries;
-  } catch (error) {
-    if (!isRouteNotFoundError(error, '/jobs/list')) {
-      throw error;
-    }
-
-    jobsApiAvailability = 'missing';
-    const legacyData = await requestReadWithFallback<AllocationJobListResponse>(
-      '/allocations/jobs',
-      {},
-      {}
-    );
-
-    return legacyData.entries.slice(0, limit).map((entry) => mapLegacyAllocationSummaryToJobListEntry(entry));
-  }
+  const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
+  return data.entries;
 }
 
 export async function searchJobsByNumber(query: string, limit = 25): Promise<JobListEntry[]> {
@@ -978,87 +876,27 @@ export async function searchJobsByNumber(query: string, limit = 25): Promise<Job
 
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const params = { query: normalizedQuery, limit: normalizedLimit };
-
-  if (jobsSearchApiAvailability === 'missing') {
-    return rankActiveJobsByNumericCloseness(await getJobs(normalizedLimit), normalizedQuery, normalizedLimit);
-  }
-
-  try {
-    const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
-    jobsSearchApiAvailability = 'available';
-    return data.entries;
-  } catch (error) {
-    if (!isRouteNotFoundError(error, '/jobs/search')) {
-      throw error;
-    }
-
-    jobsSearchApiAvailability = 'missing';
-    return rankActiveJobsByNumericCloseness(await getJobs(normalizedLimit), normalizedQuery, normalizedLimit);
-  }
+  const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
+  return data.entries;
 }
 
 export async function getJob(jobNumber: string): Promise<JobDetail> {
   assertFeatureAccess('jobs', 'read');
-  if (jobsApiAvailability === 'missing') {
-    const legacyDetail = await requestReadWithFallback<AllocationJobDetailResponse>(
-      '/allocations/by-job',
-      { jobNumber },
-      { jobNumber }
-    );
-
-    return mapLegacyAllocationDetailToJobDetail(legacyDetail);
-  }
-
-  try {
-    const result = await requestReadWithFallback<JobDetailResponse>(
-      '/jobs/get',
-      { jobNumber },
-      { jobNumber }
-    );
-    jobsApiAvailability = 'available';
-    return normalizeJobDetail(result);
-  } catch (error) {
-    if (!isRouteNotFoundError(error, '/jobs/get')) {
-      throw error;
-    }
-
-    jobsApiAvailability = 'missing';
-    const legacyDetail = await requestReadWithFallback<AllocationJobDetailResponse>(
-      '/allocations/by-job',
-      { jobNumber },
-      { jobNumber }
-    );
-
-    return mapLegacyAllocationDetailToJobDetail(legacyDetail);
-  }
+  const result = await requestReadWithFallback<JobDetailResponse>(
+    '/jobs/get',
+    { jobNumber },
+    { jobNumber }
+  );
+  return normalizeJobDetail(result);
 }
 
 export async function createJob(
   payload: CreateJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
-  if (jobsApiAvailability === 'missing') {
-    throw new APIError(
-      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
-    );
-  }
-
-  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
-  try {
-    response = await request<JobDetail>('POST', '/jobs/create', {
-      body: payload
-    });
-    jobsApiAvailability = 'available';
-  } catch (error) {
-    if (isRouteNotFoundError(error, '/jobs/create')) {
-      jobsApiAvailability = 'missing';
-      throw new APIError(
-        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/create and try again.'
-      );
-    }
-
-    throw error;
-  }
+  const response = await request<JobDetail>('POST', '/jobs/create', {
+    body: payload
+  });
 
   return {
     result: normalizeJobDetail(response.data),
@@ -1070,28 +908,9 @@ export async function updateJob(
   payload: UpdateJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
-  if (jobsApiAvailability === 'missing') {
-    throw new APIError(
-      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
-    );
-  }
-
-  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
-  try {
-    response = await request<JobDetail>('POST', '/jobs/update', {
-      body: payload
-    });
-    jobsApiAvailability = 'available';
-  } catch (error) {
-    if (isRouteNotFoundError(error, '/jobs/update')) {
-      jobsApiAvailability = 'missing';
-      throw new APIError(
-        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/update and try again.'
-      );
-    }
-
-    throw error;
-  }
+  const response = await request<JobDetail>('POST', '/jobs/update', {
+    body: payload
+  });
 
   return {
     result: normalizeJobDetail(response.data),
@@ -1103,28 +922,9 @@ export async function completeJob(
   payload: { jobNumber: string; reason?: string }
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
-  if (jobsApiAvailability === 'missing') {
-    throw new APIError(
-      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/complete and try again.'
-    );
-  }
-
-  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
-  try {
-    response = await request<JobDetail>('POST', '/jobs/complete', {
-      body: payload
-    });
-    jobsApiAvailability = 'available';
-  } catch (error) {
-    if (isRouteNotFoundError(error, '/jobs/complete')) {
-      jobsApiAvailability = 'missing';
-      throw new APIError(
-        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/complete and try again.'
-      );
-    }
-
-    throw error;
-  }
+  const response = await request<JobDetail>('POST', '/jobs/complete', {
+    body: payload
+  });
 
   return {
     result: normalizeJobDetail(response.data),
@@ -1136,28 +936,9 @@ export async function reopenJob(
   payload: { jobNumber: string; reason?: string }
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
-  if (jobsApiAvailability === 'missing') {
-    throw new APIError(
-      'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/reopen and try again.'
-    );
-  }
-
-  let response: Awaited<ReturnType<typeof request<JobDetail>>>;
-  try {
-    response = await request<JobDetail>('POST', '/jobs/reopen', {
-      body: payload
-    });
-    jobsApiAvailability = 'available';
-  } catch (error) {
-    if (isRouteNotFoundError(error, '/jobs/reopen')) {
-      jobsApiAvailability = 'missing';
-      throw new APIError(
-        'Jobs backend is not deployed yet. Deploy the Supabase Edge API with /jobs/reopen and try again.'
-      );
-    }
-
-    throw error;
-  }
+  const response = await request<JobDetail>('POST', '/jobs/reopen', {
+    body: payload
+  });
 
   return {
     result: normalizeJobDetail(response.data),

@@ -58,7 +58,7 @@ describe('warehouse client APIs', () => {
       { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
       { code: 'TX1', name: 'Texas #1', boxIdPrefix: 'TX1' }
     ]);
-    expect(requestMock).toHaveBeenCalledWith('POST', '/warehouses/list', { body: {} });
+    expect(requestMock).toHaveBeenCalledWith('GET', '/warehouses/list', { query: {} });
   });
 
   it('syncs offline snapshots for warehouses returned by /warehouses/list', async () => {
@@ -95,8 +95,8 @@ describe('warehouse client APIs', () => {
 
     const snapshots = await syncAllOfflineInventorySnapshots();
 
-    expect(requestMock).toHaveBeenNthCalledWith(2, 'POST', '/boxes/search', {
-      body: {
+    expect(requestMock).toHaveBeenNthCalledWith(2, 'GET', '/boxes/search', {
+      query: {
         warehouse: 'IL1',
         q: undefined,
         status: undefined,
@@ -105,8 +105,8 @@ describe('warehouse client APIs', () => {
         showRetired: true
       }
     });
-    expect(requestMock).toHaveBeenNthCalledWith(3, 'POST', '/boxes/search', {
-      body: {
+    expect(requestMock).toHaveBeenNthCalledWith(3, 'GET', '/boxes/search', {
+      query: {
         warehouse: 'TX1',
         q: undefined,
         status: undefined,

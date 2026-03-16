@@ -1,3 +1,11 @@
+import {
+  ALLOCATION_JOB_STATUSES as RUNTIME_ALLOCATION_JOB_STATUSES,
+  BOX_STATUSES as RUNTIME_BOX_STATUSES,
+  FILM_ORDER_STATUSES as RUNTIME_FILM_ORDER_STATUSES,
+  JOB_STATUSES as RUNTIME_JOB_STATUSES,
+  WAREHOUSE_CODE_PATTERN
+} from './runtimeContract.mjs';
+
 export const WAREHOUSE_CODES = ['IL1', 'MS1'] as const;
 export type Warehouse = string;
 export const WAREHOUSE_LABELS: Record<string, string> = {
@@ -10,7 +18,7 @@ export function isWarehouse(value: string | null | undefined): value is Warehous
     return false;
   }
 
-  return /^[A-Z]{2}[1-9][0-9]{0,6}$/.test(value.toUpperCase());
+  return WAREHOUSE_CODE_PATTERN.test(value.toUpperCase());
 }
 
 export function parseWarehouse(
@@ -41,7 +49,7 @@ export interface AddWarehousePayload {
   boxIdPrefix: string;
 }
 
-export const BOX_STATUSES = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED'] as const;
+export const BOX_STATUSES = [...RUNTIME_BOX_STATUSES] as const;
 export type BoxStatus = (typeof BOX_STATUSES)[number];
 export const CORE_TYPES = [
   'White plastic',
@@ -54,17 +62,11 @@ export type CoreType = (typeof CORE_TYPES)[number];
 export type BoxCoreType = CoreType | '';
 export const ALLOCATION_STATUSES = ['ACTIVE', 'FULFILLED', 'CANCELLED'] as const;
 export type AllocationStatus = (typeof ALLOCATION_STATUSES)[number];
-export const FILM_ORDER_STATUSES = ['FILM_ORDER', 'FILM_ON_THE_WAY', 'FULFILLED', 'CANCELLED'] as const;
+export const FILM_ORDER_STATUSES = [...RUNTIME_FILM_ORDER_STATUSES] as const;
 export type FilmOrderStatus = (typeof FILM_ORDER_STATUSES)[number];
-export const ALLOCATION_JOB_STATUSES = [
-  'READY',
-  'ON_ORDER',
-  'FILM_ORDER',
-  'COMPLETED',
-  'CANCELLED'
-] as const;
+export const ALLOCATION_JOB_STATUSES = [...RUNTIME_ALLOCATION_JOB_STATUSES] as const;
 export type AllocationJobStatus = (typeof ALLOCATION_JOB_STATUSES)[number];
-export const JOB_STATUSES = ['ALLOCATE', 'CONFLICT', 'READY', 'COMPLETED', 'CANCELLED'] as const;
+export const JOB_STATUSES = [...RUNTIME_JOB_STATUSES] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export interface Box {

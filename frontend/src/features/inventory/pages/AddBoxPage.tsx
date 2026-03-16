@@ -10,7 +10,6 @@ import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
 import {
-  addManufacturerOption,
   canonicalizeManufacturerLabel,
   createEmptyBoxDraft,
   getNextBoxIdForWarehouse,
@@ -191,7 +190,6 @@ export default function AddBoxPage() {
       navigate(destination);
 
       const { result, warnings } = await savePromise;
-      addManufacturerOption(result.box.manufacturer);
 
       toast.push({
         title: `Saved ${result.box.boxId}`,

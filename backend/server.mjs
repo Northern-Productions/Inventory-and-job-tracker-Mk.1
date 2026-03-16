@@ -1,9 +1,10 @@
 import './load-env.mjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { handleSupabaseRequest } from './supabase-backend.mjs';
+import { isReadRoute } from '../frontend/src/domain/runtimeContract.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
+const EDGE_API_BASE_URL = String(process.env.EDGE_API_BASE_URL || '').trim();
 const PORT = Number(process.env.PORT || 3000);
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 30000);
 const MAX_CACHE_ENTRIES = Number(process.env.MAX_CACHE_ENTRIES || 500);
@@ -11,31 +12,6 @@ const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
   .split(',')
   .map((entry) => entry.trim())
   .filter(Boolean);
-
-const READ_PATHS = new Set([
-  '/health',
-  '/auth/context',
-  '/boxes/search',
-  '/boxes/get',
-  '/audit/list',
-  '/audit/by-box',
-  '/allocations/by-box',
-  '/allocations/jobs',
-  '/allocations/by-job',
-  '/allocations/preview',
-  '/jobs/list',
-  '/jobs/get',
-  '/film-orders/list',
-  '/film-data/catalog',
-  '/roll-history/by-box',
-  '/reports/summary',
-  '/admin/access/requests',
-  '/admin/username-requests',
-  '/admin/member-permissions',
-  '/admin/user-permissions',
-  '/owner/admin-permissions',
-  '/owner/notification-preferences'
-]);
 
 const cache = new Map();
 
@@ -79,14 +55,14 @@ function shouldUseCache(method, logicalPath) {
   }
 
   if (method === 'POST') {
-    return READ_PATHS.has(logicalPath);
+    return isReadRoute(logicalPath);
   }
 
   return false;
 }
 
 function isMutation(method, logicalPath) {
-  return method === 'POST' && logicalPath && !READ_PATHS.has(logicalPath);
+  return method === 'POST' && logicalPath && !isReadRoute(logicalPath);
 }
 
 function getCacheKey(method, routeKey, requestBody, authKey) {
@@ -115,6 +91,13 @@ function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(payload));
+}
+
+function copyHeader(sourceHeaders, targetHeaders, name) {
+  const value = sourceHeaders[name] || sourceHeaders[name.toLowerCase()] || sourceHeaders[name.toUpperCase()];
+  if (typeof value === 'string' && value.trim()) {
+    targetHeaders[name] = value;
+  }
 }
 
 async function readBody(req) {
@@ -169,6 +152,62 @@ function resolveLogicalPath(requestUrl, bodyJson) {
   }
 
   return normalizePath(requestUrl.pathname);
+}
+
+function buildUpstreamUrl(requestUrl, logicalPath) {
+  const target = new URL(EDGE_API_BASE_URL);
+  if (requestUrl.searchParams.has('path')) {
+    target.search = requestUrl.search;
+  } else {
+    const params = new URLSearchParams(requestUrl.search);
+    if (logicalPath) {
+      params.set('path', logicalPath);
+    }
+    target.search = params.toString();
+  }
+  return target;
+}
+
+async function forwardToEdgeApi({ method, logicalPath, requestUrl, requestBody, headers }) {
+  if (!EDGE_API_BASE_URL) {
+    return {
+      statusCode: 500,
+      payload: {
+        ok: false,
+        error: 'EDGE_API_BASE_URL is required when BACKEND_MODE=supabase'
+      }
+    };
+  }
+
+  const upstreamHeaders = {};
+  copyHeader(headers, upstreamHeaders, 'Authorization');
+  copyHeader(headers, upstreamHeaders, 'apikey');
+  copyHeader(headers, upstreamHeaders, 'x-client-info');
+  if (method === 'POST') {
+    upstreamHeaders['Content-Type'] = 'text/plain;charset=utf-8';
+  }
+
+  const upstreamResponse = await fetch(buildUpstreamUrl(requestUrl, logicalPath), {
+    method,
+    headers: upstreamHeaders,
+    body: method === 'POST' ? requestBody : undefined
+  });
+
+  const raw = await upstreamResponse.text();
+  let payload;
+  try {
+    payload = raw ? JSON.parse(raw) : { ok: false, error: 'Upstream returned empty response.' };
+  } catch (_error) {
+    payload = {
+      ok: false,
+      error: raw ? `Upstream returned non-JSON response: ${raw.slice(0, 160)}` : 'Upstream returned non-JSON response.'
+    };
+  }
+
+  return {
+    statusCode: upstreamResponse.status,
+    payload
+  };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -229,11 +268,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const response = await handleSupabaseRequest({
+  const response = await forwardToEdgeApi({
     method: req.method,
     logicalPath,
     requestUrl,
-    bodyJson,
+    requestBody,
     headers: req.headers
   });
   const responseBody = JSON.stringify(response.payload);

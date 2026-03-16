@@ -15,8 +15,12 @@ import type { ReportsSummaryFilters } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { formatDate } from '../../../lib/date';
-import { useReportsSummary } from '../hooks/useInventoryQueries';
-import { STANDARD_WIDTH_OPTIONS, getManufacturerOptions, getWidthMode } from '../utils/boxHelpers';
+import { useFilmCatalog, useReportsSummary } from '../hooks/useInventoryQueries';
+import {
+  STANDARD_WIDTH_OPTIONS,
+  getManufacturerOptionsWithCatalog,
+  getWidthMode
+} from '../utils/boxHelpers';
 import {
   buildZeroedManufacturerOptions,
   filterZeroedBoxes,
@@ -67,6 +71,7 @@ export default function ReportsPage() {
   const [customWidthDraft, setCustomWidthDraft] = useState('');
 
   const reportsQuery = useReportsSummary(filters);
+  const filmCatalogQuery = useFilmCatalog();
   const zeroedFallbackQuery = useQuery({
     queryKey: ['reports', 'zeroed-fallback', filters.warehouse || 'ALL'],
     queryFn: () =>
@@ -80,7 +85,10 @@ export default function ReportsPage() {
         showRetired: true
       })
   });
-  const knownManufacturerOptions = useMemo(() => getManufacturerOptions(), []);
+  const knownManufacturerOptions = useMemo(
+    () => getManufacturerOptionsWithCatalog(filmCatalogQuery.data),
+    [filmCatalogQuery.data]
+  );
   const neverCheckedOut = reportsQuery.data?.neverCheckedOut || [];
   const completedJobs = reportsQuery.data?.completedJobs || [];
   const cancelledJobs = reportsQuery.data?.cancelledJobs || [];

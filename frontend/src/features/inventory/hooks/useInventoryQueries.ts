@@ -1,5 +1,5 @@
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOptimisticQueue, type OptimisticOperationController } from '../../../components/OptimisticQueue';
+import { useOptimisticQueue } from '../../../components/OptimisticQueue';
 import {
   applyAllocationPlan,
   completeJob,
@@ -37,8 +37,8 @@ import type {
   AllocationJobDetail,
   AllocationJobSummary,
   AllocateBoxPayload,
-  ApplyAllocationPlanPayload,
   AddBoxPayload,
+  ApplyAllocationPlanPayload,
   AuditListParams,
   Box,
   CreateJobPayload,
@@ -58,64 +58,17 @@ import type {
 import { WAREHOUSE_CODES } from '../../../domain';
 import { todayDateString } from '../../../lib/date';
 import { deleteOfflineInventoryBox, upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
-
-export const inventoryKeys = {
-  root: ['inventory'] as const,
-  listRoot: ['inventory', 'list'] as const,
-  list: (params: SearchBoxesParams) => ['inventory', 'list', params] as const,
-  boxRoot: ['inventory', 'box'] as const,
-  box: (boxId: string) => ['inventory', 'box', boxId] as const,
-  historyRoot: ['inventory', 'history'] as const,
-  history: (boxId: string) => ['inventory', 'history', boxId] as const,
-  allocationsRoot: ['inventory', 'allocations'] as const,
-  allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
-  jobs: ['inventory', 'jobs'] as const,
-  jobsSearch: ['inventory', 'jobs-search'] as const,
-  jobRoot: ['inventory', 'job'] as const,
-  job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
-  allocationJobs: ['inventory', 'allocation-jobs'] as const,
-  allocationJobRoot: ['inventory', 'allocation-job'] as const,
-  allocationJob: (jobNumber: string) => ['inventory', 'allocation-job', jobNumber] as const,
-  allocationPreview: (params: AllocateBoxPayload | null) => ['inventory', 'allocation-preview', params] as const,
-  addBoxMutation: ['inventory', 'mutation', 'add-box'] as const,
-  filmOrders: ['inventory', 'film-orders'] as const,
-  filmCatalog: ['inventory', 'film-catalog'] as const,
-  activityRoot: ['inventory', 'activity'] as const,
-  activity: (params: AuditListParams) => ['inventory', 'activity', params] as const,
-  rollHistory: (boxId: string) => ['inventory', 'roll-history', boxId] as const,
-  reportsRoot: ['inventory', 'reports'] as const,
-  reports: (filters: ReportsSummaryFilters) => ['inventory', 'reports', filters] as const
-};
-
-interface QuerySnapshot {
-  queryKey: readonly unknown[];
-  data: unknown;
-}
-
-interface MutationOptimisticContext {
-  operation?: OptimisticOperationController;
-  snapshots: QuerySnapshot[];
-  deletedBox?: Box;
-}
-
-function captureSnapshots(queryClient: ReturnType<typeof useQueryClient>, queryKey: readonly unknown[]) {
-  return queryClient
-    .getQueriesData({ queryKey })
-    .map(([key, data]) => ({ queryKey: key, data }));
-}
-
-function restoreSnapshots(
-  queryClient: ReturnType<typeof useQueryClient>,
-  snapshots: QuerySnapshot[] | undefined
-) {
-  if (!snapshots) {
-    return;
-  }
-
-  for (let index = 0; index < snapshots.length; index += 1) {
-    queryClient.setQueryData(snapshots[index].queryKey, snapshots[index].data);
-  }
-}
+import { inventoryKeys } from './inventoryQueryKeys';
+import {
+  beginDelayedOptimisticMutation,
+  beginImmediateOptimisticMutation,
+  createOptimisticBoxFromAddPayload,
+  type MutationOptimisticContext,
+  removeBoxCaches,
+  restoreSnapshots,
+  updateBoxCaches
+} from './inventoryMutationUtils';
+export { inventoryKeys } from './inventoryQueryKeys';
 
 async function refreshOfflineInventoryQueries(queryClient: ReturnType<typeof useQueryClient>) {
   await queryClient.invalidateQueries({ queryKey: ['inventory', 'offline'] });
@@ -155,107 +108,6 @@ async function removeOfflineInventoryBox(
   }
 
   await refreshOfflineInventoryQueries(queryClient);
-}
-
-function updateBoxCaches(
-  queryClient: ReturnType<typeof useQueryClient>,
-  boxId: string,
-  updater: (box: Box) => Box
-) {
-  queryClient.setQueryData<Box | undefined>(inventoryKeys.box(boxId), (current) =>
-    current ? updater(current) : current
-  );
-
-  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: inventoryKeys.listRoot });
-  for (let index = 0; index < listQueries.length; index += 1) {
-    const [queryKey, current] = listQueries[index];
-    if (!current) {
-      continue;
-    }
-
-    queryClient.setQueryData<Box[]>(
-      queryKey,
-      current.map((box) => (box.boxId === boxId ? updater(box) : box))
-    );
-  }
-}
-
-function removeBoxCaches(queryClient: ReturnType<typeof useQueryClient>, boxId: string) {
-  queryClient.setQueryData<Box | undefined>(inventoryKeys.box(boxId), undefined);
-
-  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: inventoryKeys.listRoot });
-  for (let index = 0; index < listQueries.length; index += 1) {
-    const [queryKey, current] = listQueries[index];
-    if (!current) {
-      continue;
-    }
-
-    queryClient.setQueryData<Box[]>(
-      queryKey,
-      current.filter((box) => box.boxId !== boxId)
-    );
-  }
-}
-
-function beginDelayedOptimisticMutation(
-  queryClient: ReturnType<typeof useQueryClient>,
-  optimisticQueue: ReturnType<typeof useOptimisticQueue>,
-  label: string,
-  snapshotKeys: readonly (readonly unknown[])[],
-  apply: () => void
-): MutationOptimisticContext {
-  const snapshots = snapshotKeys.flatMap((queryKey) => captureSnapshots(queryClient, queryKey));
-
-  return {
-    operation: optimisticQueue.begin(label, apply),
-    snapshots
-  };
-}
-
-function beginImmediateOptimisticMutation(
-  queryClient: ReturnType<typeof useQueryClient>,
-  snapshotKeys: readonly (readonly unknown[])[],
-  apply: () => void
-): MutationOptimisticContext {
-  const snapshots = snapshotKeys.flatMap((queryKey) => captureSnapshots(queryClient, queryKey));
-  apply();
-
-  return {
-    snapshots
-  };
-}
-
-function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
-  const isReceived = Boolean(payload.receivedDate);
-
-  return {
-    boxId: payload.boxId,
-    warehouse: payload.warehouse || WAREHOUSE_CODES[0],
-    manufacturer: payload.manufacturer,
-    filmName: payload.filmName,
-    widthIn: payload.widthIn,
-    initialFeet: payload.initialFeet,
-    feetAvailable: payload.feetAvailable,
-    lotRun: payload.lotRun || '',
-    status: isReceived ? 'IN_STOCK' : 'ORDERED',
-    orderDate: payload.orderDate,
-    receivedDate: payload.receivedDate,
-    initialWeightLbs: payload.initialWeightLbs ?? null,
-    lastRollWeightLbs: payload.lastRollWeightLbs ?? null,
-    lastWeighedDate: payload.lastWeighedDate || '',
-    filmKey: payload.filmKey || '',
-    coreType: payload.coreType || '',
-    coreWeightLbs: payload.coreWeightLbs ?? null,
-    lfWeightLbsPerFt: payload.lfWeightLbsPerFt ?? null,
-    purchaseCost: payload.purchaseCost ?? null,
-    notes: payload.notes || '',
-    hasEverBeenCheckedOut: false,
-    lastCheckoutJob: '',
-    lastCheckoutDate: '',
-    zeroedDate: '',
-    zeroedReason: '',
-    zeroedBy: ''
-  };
 }
 
 export function useSearchBoxes(params: SearchBoxesParams) {
@@ -493,7 +345,8 @@ export function useAddBox() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog })
       ]);
       queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
       void persistOfflineInventoryBox(queryClient, result.box);

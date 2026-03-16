@@ -23,7 +23,7 @@ vi.mock('../lib/offlineInventory', () => ({
   searchOfflineBoxes: vi.fn()
 }));
 
-import { __resetJobsApiAvailabilityForTests, createJob, getJobs, searchJobsByNumber } from './client';
+import { __resetJobsApiAvailabilityForTests, createJob, getJob, getJobs, searchJobsByNumber } from './client';
 import { APIError, request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -49,138 +49,60 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('jobs API client fallbacks', () => {
+describe('jobs API client canonical routes', () => {
   beforeEach(() => {
     __resetJobsApiAvailabilityForTests();
     requestMock.mockReset();
   });
 
-  it('falls back to legacy allocations jobs route when /jobs/list is missing', async () => {
-    requestMock
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/list'))
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/list'))
-      .mockResolvedValueOnce({
-        data: {
-          entries: [
-            {
-              jobNumber: '123',
-              jobDate: '2026-03-05',
-              crewLeader: '',
-              status: 'FILM_ORDER',
-              activeAllocatedFeet: 0,
-              fulfilledAllocatedFeet: 0,
-              openFilmOrderCount: 1,
-              boxCount: 0
-            }
-          ]
-        },
-        warnings: []
-      });
-
-    const entries = await getJobs(25);
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      jobNumber: '123',
-      dueDate: '2026-03-05',
-      status: 'ALLOCATE',
-      lifecycleStatus: 'ACTIVE'
-    });
-    expect(requestMock).toHaveBeenNthCalledWith(1, 'POST', '/jobs/list', { body: { limit: 25 } });
-    expect(requestMock).toHaveBeenNthCalledWith(2, 'GET', '/jobs/list', { query: { limit: 25 } });
-    expect(requestMock).toHaveBeenNthCalledWith(3, 'POST', '/allocations/jobs', { body: {} });
-  });
-
-  it('skips repeated /jobs/list failures after capability is marked missing', async () => {
-    requestMock
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/list'))
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/list'))
-      .mockResolvedValueOnce({
-        data: { entries: [] },
-        warnings: []
-      });
-
-    await getJobs(25);
-
-    requestMock.mockClear();
+  it('loads jobs through GET /jobs/list', async () => {
     requestMock.mockResolvedValueOnce({
-      data: { entries: [] },
+      data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
       warnings: []
     });
 
-    await getJobs(25);
+    const entries = await getJobs(25);
 
-    expect(requestMock).toHaveBeenCalledTimes(1);
-    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/jobs', { body: {} });
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', { query: { limit: 25 } });
   });
 
-  it('searches jobs through /jobs/search when available', async () => {
+  it('loads jobs search through GET /jobs/search', async () => {
     requestMock.mockResolvedValueOnce({
-      data: {
-        entries: [buildJobListEntry({ jobNumber: '000123' }), buildJobListEntry({ jobNumber: '000120' })]
-      },
+      data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
       warnings: []
     });
 
     const entries = await searchJobsByNumber('00123', 25);
 
-    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123', '000120']);
-    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/search', {
-      body: { query: '00123', limit: 25 }
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
+      query: { query: '00123', limit: 25 }
     });
   });
 
-  it('falls back to local ranking when /jobs/search is missing', async () => {
-    requestMock
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
-      .mockResolvedValueOnce({
-        data: {
-          entries: [
-            buildJobListEntry({ jobNumber: '000120', dueDate: '2026-03-01' }),
-            buildJobListEntry({ jobNumber: '000123', dueDate: '2026-03-02' }),
-            buildJobListEntry({ jobNumber: '000126', dueDate: '2026-03-03' }),
-            buildJobListEntry({ jobNumber: '000124', lifecycleStatus: 'COMPLETED' })
-          ]
-        },
-        warnings: []
-      });
-
-    const entries = await searchJobsByNumber('123', 25);
-
-    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123', '000126', '000120']);
-    expect(requestMock).toHaveBeenNthCalledWith(1, 'POST', '/jobs/search', {
-      body: { query: '123', limit: 25 }
+  it('loads one job through GET /jobs/get and normalizes usage', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry(),
+        requirements: [],
+        allocations: [],
+        usage: undefined,
+        filmOrders: []
+      },
+      warnings: []
     });
-    expect(requestMock).toHaveBeenNthCalledWith(2, 'GET', '/jobs/search', {
-      query: { query: '123', limit: 25 }
-    });
-    expect(requestMock).toHaveBeenNthCalledWith(3, 'POST', '/jobs/list', {
-      body: { limit: 25 }
+
+    const detail = await getJob('000123');
+
+    expect(detail.summary.jobNumber).toBe('000123');
+    expect(detail.usage).toEqual([]);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/get', {
+      query: { jobNumber: '000123' }
     });
   });
 
-  it('uses prefix-first ordering in /jobs/search fallback ranking', async () => {
-    requestMock
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
-      .mockRejectedValueOnce(new APIError('Route not found: /jobs/search'))
-      .mockResolvedValueOnce({
-        data: {
-          entries: [
-            buildJobListEntry({ jobNumber: '4217', dueDate: '2026-03-16' }),
-            buildJobListEntry({ jobNumber: '18542', dueDate: '2026-03-18' }),
-            buildJobListEntry({ jobNumber: '17045', dueDate: '2026-03-13' })
-          ]
-        },
-        warnings: []
-      });
-
-    const entries = await searchJobsByNumber('1854', 25);
-
-    expect(entries.map((entry) => entry.jobNumber)).toEqual(['18542', '4217', '17045']);
-  });
-
-  it('throws a deployment hint when /jobs/create is missing', async () => {
+  it('surfaces backend route errors for create job', async () => {
     requestMock.mockRejectedValueOnce(new APIError('Route not found: /jobs/create'));
 
     await expect(
@@ -189,29 +111,13 @@ describe('jobs API client fallbacks', () => {
         warehouse: 'IL1',
         requirements: []
       })
-    ).rejects.toThrow('Jobs backend is not deployed yet.');
+    ).rejects.toThrow('Route not found: /jobs/create');
   });
 
-  it('creates a job when /jobs/create is available', async () => {
+  it('creates a job through POST /jobs/create', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
-        summary: {
-          jobNumber: '000123',
-          warehouse: 'IL1',
-          sections: null,
-          dueDate: '',
-          crewLeader: '',
-          status: 'ALLOCATE',
-          lifecycleStatus: 'ACTIVE',
-          requiredFeet: 0,
-          allocatedFeet: 0,
-          remainingFeet: 0,
-          requirementCount: 0,
-          allocationCount: 0,
-          filmOrderCount: 0,
-          updatedAt: '',
-          notes: ''
-        },
+        summary: buildJobListEntry({ jobNumber: '000123' }),
         requirements: [],
         allocations: [],
         usage: [],

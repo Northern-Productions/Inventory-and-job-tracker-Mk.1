@@ -23,7 +23,6 @@ import {
   useFilmCatalog,
   useFilmOrders
 } from '../hooks/useInventoryQueries';
-import { addManufacturerOption } from '../utils/boxHelpers';
 
 function isOpenFilmOrder(order: FilmOrderEntry) {
   return order.status === 'FILM_ORDER' || order.status === 'FILM_ON_THE_WAY';
@@ -190,7 +189,6 @@ export default function FilmOrdersPage() {
 
     try {
       const { result, warnings } = await createFilmOrderMutation.mutateAsync(payload);
-      addManufacturerOption(result.manufacturer);
       setIsCreateFilmOrderOpen(false);
       toast.push({
         title: `Film Order ${result.filmOrderId} created`,

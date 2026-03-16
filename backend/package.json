@@ -8,6 +8,9 @@
   },
   "scripts": {
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
+    "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
+    "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
+    "smoke:routes": "node scripts/smoke-backend-routes.mjs",
     "start": "npm run check:schema:0006 && node server.mjs",
     "start:unsafe": "node server.mjs",
     "dev": "npm run check:schema:0006 && node --watch server.mjs"

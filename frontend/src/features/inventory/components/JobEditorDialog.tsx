@@ -4,7 +4,6 @@ import { Input } from '../../../components/Input';
 import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   STANDARD_WIDTH_OPTIONS,
-  addManufacturerOption,
   canonicalizeManufacturerLabel,
   getManufacturerOptionsWithCatalog,
   hasManufacturerOption
@@ -231,7 +230,6 @@ export function JobEditorDialog({
     }
 
     setError('');
-    addManufacturerOption(normalizedManufacturer);
     const nextLine: RequirementDraftLine = {
       id: makeRequirementLineId(),
       requirementId: '',

@@ -1,49 +1,18 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") || "").trim().replace(/\/+$/g, "");
-const SUPABASE_ANON_KEY = (Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
-const SUPABASE_SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").trim();
-const DEFAULT_ORG_ID = (Deno.env.get("DEFAULT_ORG_ID") || "").trim();
-const RESEND_API_KEY = (Deno.env.get("RESEND_API_KEY") || "").trim();
-const RESEND_FROM_EMAIL = (Deno.env.get("RESEND_FROM_EMAIL") || "").trim();
-const CACHE_TTL_MS = Number(Deno.env.get("CACHE_TTL_MS") || "30000");
-const MAX_CACHE_ENTRIES = Number(Deno.env.get("MAX_CACHE_ENTRIES") || "500");
-const FILM_NAME_ALIAS_CACHE_TTL_MS = Number(Deno.env.get("FILM_NAME_ALIAS_CACHE_TTL_MS") || "30000");
-const CORS_ALLOWED_ORIGINS = (Deno.env.get("CORS_ALLOWED_ORIGINS") || "*")
-  .split(",")
-  .map((entry) => entry.trim())
-  .filter(Boolean);
-
-const READ_PATHS = new Set([
-  "/health",
-  "/auth/context",
-  "/boxes/search",
-  "/boxes/get",
-  "/audit/list",
-  "/audit/by-box",
-  "/allocations/by-box",
-  "/allocations/jobs",
-  "/allocations/by-job",
-  "/allocations/preview",
-  "/jobs/list",
-  "/jobs/search",
-  "/jobs/get",
-  "/film-orders/list",
-  "/film-data/catalog",
-  "/roll-history/by-box",
-  "/reports/summary",
-  "/warehouses/list",
-  "/caulk/manufacturers/list",
-  "/caulk/products/list",
-  "/caulk/stock/list",
-  "/caulk/transactions/list",
-  "/admin/access/requests",
-  "/admin/username-requests",
-  "/admin/member-permissions",
-  "/admin/user-permissions",
-  "/owner/admin-permissions",
-  "/owner/notification-preferences",
-]);
+import { isOwnerOnlyRoute as isOwnerOnlyRouteContract, isReadRoute } from "../../../frontend/src/domain/runtimeContract.mjs";
+import {
+  CACHE_TTL_MS,
+  CORS_ALLOWED_ORIGINS,
+  DEFAULT_ORG_ID,
+  FILM_NAME_ALIAS_CACHE_TTL_MS,
+  MAX_CACHE_ENTRIES,
+  RESEND_API_KEY,
+  RESEND_FROM_EMAIL,
+  SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_URL
+} from "./config.ts";
+import { HttpError, ok } from "./http.ts";
 
 type CacheEntry = {
   expiresAt: number;
@@ -75,26 +44,6 @@ const filmNameAliasCache = new Map<string, {
   expiresAt: number;
   aliases: Record<string, string>;
 }>();
-
-class HttpError extends Error {
-  statusCode: number;
-  warnings: string[];
-
-  constructor(statusCode: number, message: string, warnings: string[] = []) {
-    super(message);
-    this.name = "HttpError";
-    this.statusCode = statusCode;
-    this.warnings = warnings;
-  }
-}
-
-function ok(data: unknown, warnings: string[] = []) {
-  return {
-    ok: true,
-    data,
-    warnings,
-  };
-}
 
 function asTrimmedString(value: unknown): string {
   if (value === null || value === undefined) {
@@ -655,22 +604,13 @@ function shouldUseCache(method: string, logicalPath: string): boolean {
     return true;
   }
   if (method === "POST") {
-    return READ_PATHS.has(logicalPath);
+    return isReadRoute(logicalPath);
   }
   return false;
 }
 
 function isMutation(method: string, logicalPath: string): boolean {
-  return method === "POST" && logicalPath !== "" && !READ_PATHS.has(logicalPath);
-}
-
-function isOwnerOnlyRoute(logicalPath: string): boolean {
-  return logicalPath === "/owner/admin-permissions" ||
-    logicalPath === "/owner/roles/demote-admin-to-member" ||
-    logicalPath === "/owner/roles/promote-admin-to-owner" ||
-    logicalPath === "/owner/notification-preferences" ||
-    logicalPath === "/owner/warehouses/add" ||
-    logicalPath === "/owner/caulk/manufacturers/upsert";
+  return method === "POST" && logicalPath !== "" && !isReadRoute(logicalPath);
 }
 
 function getCorsOrigin(request: Request): string {
@@ -3971,12 +3911,12 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       );
     }
 
-    if (isOwnerOnlyRoute(logicalPath) && identity.role !== "owner") {
+    if (isOwnerOnlyRouteContract(logicalPath) && identity.role !== "owner") {
       throw new HttpError(403, "Owner access is required.");
     }
 
     const params = routeParams(request.method, requestUrl, bodyJson);
-    const payload = (request.method === "GET" || (request.method === "POST" && READ_PATHS.has(logicalPath)))
+    const payload = (request.method === "GET" || (request.method === "POST" && isReadRoute(logicalPath)))
       ? await dispatchRead(client, identity.orgId, logicalPath, params)
       : await dispatchMutation(client, identity, logicalPath, params);
 

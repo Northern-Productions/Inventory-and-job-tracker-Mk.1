@@ -1,15 +1,17 @@
 import { useDeferredValue, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
-import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
+import { useFilmCatalog } from '../hooks/useInventoryQueries';
 import { InventoryTable } from '../components/InventoryTable';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
-import { canonicalizeManufacturerLabel, getManufacturerOptions } from '../utils/boxHelpers';
+import {
+  canonicalizeManufacturerLabel,
+  getManufacturerOptionsWithCatalog
+} from '../utils/boxHelpers';
 import {
   parseWarehouseFilterValue,
   toWarehouseFilterOptionValue
@@ -33,22 +35,10 @@ export default function InventoryHomePage() {
   const filters = readFilters(searchParams);
   const deferredFilters = useDeferredValue(filters);
   const boxesQuery = useOfflineInventorySearch(deferredFilters);
-  const manufacturerSourceQuery = useQuery({
-    queryKey: ['inventory', 'offline', 'manufacturer-options', filters.warehouse || 'ALL'],
-    queryFn: () =>
-      searchOfflineBoxes({
-        warehouse: filters.warehouse,
-        manufacturer: '',
-        q: '',
-        status: '',
-        film: '',
-        width: '',
-        showRetired: true
-      })
-  });
+  const filmCatalogQuery = useFilmCatalog();
   const manufacturerOptions = useMemo(() => {
     const optionsByKey = new Map<string, string>();
-    const knownManufacturerOptions = getManufacturerOptions();
+    const knownManufacturerOptions = getManufacturerOptionsWithCatalog(filmCatalogQuery.data);
     const addOption = (value: string) => {
       const label = canonicalizeManufacturerLabel(value);
       if (!label) {
@@ -65,16 +55,12 @@ export default function InventoryHomePage() {
       addOption(knownManufacturerOptions[index]);
     }
 
-    for (let index = 0; index < (manufacturerSourceQuery.data || []).length; index += 1) {
-      addOption(manufacturerSourceQuery.data?.[index].manufacturer || '');
-    }
-
     addOption(filters.manufacturer);
 
     return Array.from(optionsByKey.values()).sort((left, right) =>
       left.localeCompare(right, undefined, { sensitivity: 'base' })
     );
-  }, [filters.manufacturer, manufacturerSourceQuery.data]);
+  }, [filmCatalogQuery.data, filters.manufacturer]);
 
   useEffect(() => {
     if (searchParams.get('warehouse')) {

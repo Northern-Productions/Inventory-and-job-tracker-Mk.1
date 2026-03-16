@@ -1,0 +1,379 @@
+{
+  "generatedAt": "2026-03-16T18:09:43.517Z",
+  "features": [
+    "inventory",
+    "allocations",
+    "jobs",
+    "film_orders",
+    "activity_history",
+    "reports",
+    "access_management"
+  ],
+  "statuses": {
+    "box": [
+      "ORDERED",
+      "IN_STOCK",
+      "CHECKED_OUT",
+      "ZEROED",
+      "RETIRED"
+    ],
+    "filmOrders": [
+      "FILM_ORDER",
+      "FILM_ON_THE_WAY",
+      "FULFILLED",
+      "CANCELLED"
+    ],
+    "jobs": [
+      "ALLOCATE",
+      "CONFLICT",
+      "READY",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "allocationJobs": [
+      "READY",
+      "ON_ORDER",
+      "FILM_ORDER",
+      "COMPLETED",
+      "CANCELLED"
+    ]
+  },
+  "routes": [
+    {
+      "route": "/admin/access/requests",
+      "feature": "access_management",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/access/requests/approve",
+      "feature": "access_management",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/access/requests/deny",
+      "feature": "access_management",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/member-permissions",
+      "feature": "access_management",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/roles/promote-member-to-admin",
+      "feature": "access_management",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/user-permissions",
+      "feature": "access_management",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/username-requests",
+      "feature": "access_management",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/username-requests/approve",
+      "feature": "access_management",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/admin/username-requests/deny",
+      "feature": "access_management",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/add",
+      "feature": "allocations",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/apply",
+      "feature": "allocations",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/by-box",
+      "feature": "allocations",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/by-job",
+      "feature": "allocations",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/jobs",
+      "feature": "allocations",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/preview",
+      "feature": "allocations",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/allocations/remove-box",
+      "feature": "allocations",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/audit/by-box",
+      "feature": "activity_history",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/audit/list",
+      "feature": "activity_history",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/audit/undo",
+      "feature": "activity_history",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/auth/context",
+      "feature": "",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/add",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/delete",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/get",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/search",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/set-status",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/boxes/update",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/manufacturers/list",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/mutate",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/products/list",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/products/upsert",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/stock/list",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/transactions/list",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/caulk/transfer",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/film-data/catalog",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/film-orders/cancel",
+      "feature": "film_orders",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/film-orders/create",
+      "feature": "film_orders",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/film-orders/delete",
+      "feature": "film_orders",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/film-orders/list",
+      "feature": "film_orders",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/health",
+      "feature": "",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/complete",
+      "feature": "jobs",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/create",
+      "feature": "jobs",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/get",
+      "feature": "jobs",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/list",
+      "feature": "jobs",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/reopen",
+      "feature": "jobs",
+      "mode": "write",
+      "ownerOnly": true
+    },
+    {
+      "route": "/jobs/search",
+      "feature": "jobs",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/jobs/update",
+      "feature": "jobs",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/owner/admin-permissions",
+      "feature": "",
+      "mode": "read",
+      "ownerOnly": true
+    },
+    {
+      "route": "/owner/caulk/manufacturers/upsert",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": true
+    },
+    {
+      "route": "/owner/notification-preferences",
+      "feature": "",
+      "mode": "read",
+      "ownerOnly": true
+    },
+    {
+      "route": "/owner/roles/demote-admin-to-member",
+      "feature": "",
+      "mode": "write",
+      "ownerOnly": true
+    },
+    {
+      "route": "/owner/roles/promote-admin-to-owner",
+      "feature": "",
+      "mode": "write",
+      "ownerOnly": true
+    },
+    {
+      "route": "/owner/warehouses/add",
+      "feature": "inventory",
+      "mode": "write",
+      "ownerOnly": true
+    },
+    {
+      "route": "/profile/username",
+      "feature": "",
+      "mode": "write",
+      "ownerOnly": false
+    },
+    {
+      "route": "/reports/summary",
+      "feature": "reports",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/roll-history/by-box",
+      "feature": "activity_history",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
+      "route": "/warehouses/list",
+      "feature": "inventory",
+      "mode": "read",
+      "ownerOnly": false
+    }
+  ]
+}

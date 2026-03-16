@@ -1,3 +1,5 @@
+import { FEATURE_AREAS as RUNTIME_FEATURE_AREAS } from './runtimeContract.mjs';
+
 export interface AuthUser {
   email: string;
   hasProfileName: boolean;
@@ -90,15 +92,7 @@ export interface UsernameChangeResult {
   username: string;
 }
 
-export const FEATURE_AREAS: FeatureArea[] = [
-  'inventory',
-  'allocations',
-  'jobs',
-  'film_orders',
-  'activity_history',
-  'reports',
-  'access_management'
-];
+export const FEATURE_AREAS: FeatureArea[] = [...RUNTIME_FEATURE_AREAS] as FeatureArea[];
 
 export function createDefaultFeatureAccessMap(): FeatureAccessMap {
   return {

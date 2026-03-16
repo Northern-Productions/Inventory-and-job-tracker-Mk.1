@@ -26,7 +26,6 @@ import {
 } from '../hooks/useInventoryQueries';
 import { parseUpdateBoxDraft } from '../schemas/boxSchemas';
 import {
-  addManufacturerOption,
   createDraftFromBox,
   deriveFeetAvailableFromRollWeight,
   getDisplayedAllocatedFeetForBox,
@@ -437,7 +436,6 @@ export default function BoxDetailsPage() {
   async function submitUpdate(payload: UpdateBoxPayload) {
     try {
       const { result, warnings } = await updateMutation.mutateAsync(payload);
-      addManufacturerOption(result.box.manufacturer);
       setIsEditing(false);
 
       const didMoveToZeroed = result.box.status === 'ZEROED';
