@@ -161,6 +161,30 @@ function compareAlphabeticalByFilmName(left: FilmCatalogEntry, right: FilmCatalo
   return 0;
 }
 
+function rankSuggestions(entries: FilmCatalogEntry[], normalizedQuery: string): RankedSuggestion[] {
+  const ranked = entries
+    .map((entry) => getRankedSuggestion(entry, normalizedQuery))
+    .filter((entry): entry is RankedSuggestion => entry !== null);
+
+  ranked.sort((left, right) => {
+    if (left.tier !== right.tier) {
+      return left.tier - right.tier;
+    }
+
+    if (left.matchIndex !== right.matchIndex) {
+      return left.matchIndex - right.matchIndex;
+    }
+
+    if (left.lengthDelta !== right.lengthDelta) {
+      return left.lengthDelta - right.lengthDelta;
+    }
+
+    return compareAlphabeticalByFilmName(left.entry, right.entry);
+  });
+
+  return ranked;
+}
+
 export function getFilmNameSuggestions(
   entries: FilmCatalogEntry[] | undefined,
   manufacturer: string,
@@ -189,25 +213,13 @@ export function getFilmNameSuggestions(
     ? dedupedEntries.filter((entry) => normalizeManufacturerLookupKey(entry.manufacturer) === normalizedManufacturer)
     : dedupedEntries;
 
-  const ranked = scopedEntries
-    .map((entry) => getRankedSuggestion(entry, normalizedQuery))
-    .filter((entry): entry is RankedSuggestion => entry !== null);
+  let ranked = rankSuggestions(scopedEntries, normalizedQuery);
 
-  ranked.sort((left, right) => {
-    if (left.tier !== right.tier) {
-      return left.tier - right.tier;
-    }
-
-    if (left.matchIndex !== right.matchIndex) {
-      return left.matchIndex - right.matchIndex;
-    }
-
-    if (left.lengthDelta !== right.lengthDelta) {
-      return left.lengthDelta - right.lengthDelta;
-    }
-
-    return compareAlphabeticalByFilmName(left.entry, right.entry);
-  });
+  // Security-family canonicalization can move Prestige rows under "Security",
+  // so fall back to global ranking when strict manufacturer scope has no text matches.
+  if (hasExactManufacturerMatch && ranked.length === 0) {
+    ranked = rankSuggestions(dedupedEntries, normalizedQuery);
+  }
 
   return ranked.slice(0, limit).map((entry) => entry.entry);
 }

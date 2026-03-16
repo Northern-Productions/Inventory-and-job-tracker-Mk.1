@@ -56,6 +56,31 @@ describe('getFilmNameSuggestions', () => {
     ]);
   });
 
+  it('falls back to global matches when scoped manufacturer has no text hits', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'Night Vision 15'),
+      catalogEntry('Security', '3M Ultra Prestige 40'),
+      catalogEntry('Security', '3M Ultra Prestige 70')
+    ];
+
+    expect(getFilmNameSuggestions(entries, '3M Solar', 'pr').map((entry) => entry.filmName)).toEqual([
+      '3M Ultra Prestige 40',
+      '3M Ultra Prestige 70'
+    ]);
+  });
+
+  it('keeps strict manufacturer-first behavior when scoped matches exist', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'Prestige Solar 40'),
+      catalogEntry('Security', '3M Ultra Prestige 40'),
+      catalogEntry('Security', '3M Ultra Prestige 70')
+    ];
+
+    expect(getFilmNameSuggestions(entries, '3M Solar', 'pr').map((entry) => entry.filmName)).toEqual([
+      'Prestige Solar 40'
+    ]);
+  });
+
   it('treats legacy manufacturer aliases as canonical equivalents', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('3M Solar', 'Prestige 40'),
@@ -93,6 +118,22 @@ describe('getFilmNameSuggestions', () => {
 
     expect(getFilmNameSuggestions(entries, '3M', 'pro').length).toBe(3);
     expect(getFilmNameSuggestions(entries, '3M', 'pro', 2).length).toBe(2);
+  });
+
+  it('still applies the result limit during global fallback', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'Night Vision 15'),
+      catalogEntry('Security', '3M Ultra Prestige 20'),
+      catalogEntry('Security', '3M Ultra Prestige 40'),
+      catalogEntry('Security', '3M Ultra Prestige 70')
+    ];
+
+    const suggestions = getFilmNameSuggestions(entries, '3M Solar', 'pr', 2);
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions.map((entry) => entry.filmName)).toEqual([
+      '3M Ultra Prestige 20',
+      '3M Ultra Prestige 40'
+    ]);
   });
 
   it('dedupes repeated manufacturer and film-name combinations using the latest entry', () => {
