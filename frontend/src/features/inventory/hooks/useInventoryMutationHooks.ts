@@ -54,6 +54,11 @@ import {
   updateBoxCaches
 } from './inventoryMutationUtils';
 import {
+  invalidateGlobalPlanningQueries,
+  invalidateJobAndFilmOrderQueries,
+  invalidateJobLifecycleQueries
+} from './inventoryInvalidation';
+import {
   persistOfflineInventoryBox,
   refreshOfflineInventoryQueries,
   removeOfflineInventoryBox,
@@ -81,12 +86,7 @@ export function useCreateJob() {
   return useMutation({
     mutationFn: (payload: CreateJobPayload) => createJob(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.summary.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
-      ]);
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
 }
@@ -97,12 +97,7 @@ export function useUpdateJob() {
   return useMutation({
     mutationFn: (payload: UpdateJobPayload) => updateJob(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.summary.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
-      ]);
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
 }
@@ -225,12 +220,7 @@ export function useAllocateBox() {
       await context?.operation?.waitForApply();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
       ]);
 
       const touchedBoxIds = Array.from(
@@ -261,12 +251,7 @@ export function useRemoveJobBoxAllocations() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.box(result.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.boxId) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
       ]);
 
       void syncOfflineInventoryQueries(queryClient);
@@ -306,15 +291,9 @@ export function useCancelJob() {
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
       void syncOfflineInventoryQueries(queryClient);
     },
@@ -358,15 +337,9 @@ export function useCompleteJob() {
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
       void syncOfflineInventoryQueries(queryClient);
     },
@@ -382,14 +355,7 @@ export function useReopenJob() {
   return useMutation({
     mutationFn: (payload: { jobNumber: string; reason?: string }) => reopenJob(payload),
     onSuccess: async (_data, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
-      ]);
+      await invalidateJobLifecycleQueries(queryClient, variables.jobNumber);
     }
   });
 }
@@ -524,15 +490,7 @@ export function useDeleteFilmOrder() {
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        invalidateGlobalPlanningQueries(queryClient)
       ]);
 
       if (variables.jobNumber) {
@@ -764,17 +722,9 @@ export function useUndoAudit() {
     onSuccess: async ({ result }, _variables, context) => {
       await context?.operation?.waitForApply();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot })
       ]);
 
       if (result.box) {
