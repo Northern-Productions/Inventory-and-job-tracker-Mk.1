@@ -231,7 +231,7 @@ export default function FilmOrdersPage() {
               {orderedEntries.map((order) => (
                 <MobileRecordCard key={order.filmOrderId}>
                   <MobileRecordHeader
-                    title={order.filmOrderId}
+                    title={`${order.manufacturer} ${order.filmName}`}
                     subtitle={`Job ${order.jobNumber}`}
                     badge={<span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>}
                   />
@@ -303,7 +303,6 @@ export default function FilmOrdersPage() {
                 <thead>
                   <tr>
                     <th>Status</th>
-                    <th>Film Order</th>
                     <th>Job</th>
                     <th>Warehouse</th>
                     <th>Film</th>
@@ -325,7 +324,6 @@ export default function FilmOrdersPage() {
                       <td>
                         <span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>
                       </td>
-                      <td>{order.filmOrderId}</td>
                       <td>{order.jobNumber}</td>
                       <td>{order.warehouse}</td>
                       <td>

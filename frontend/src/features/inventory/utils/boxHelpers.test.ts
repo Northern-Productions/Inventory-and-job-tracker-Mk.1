@@ -10,6 +10,7 @@ import {
   deriveLfWeightLbsPerFt,
   deriveRemainingFeetFromWeight,
   deriveSqFtWeightLbsPerSqFt,
+  formatBoxIdWithWarehousePrefix,
   getActiveAllocatedFeet,
   getDisplayedAllocatedFeetForBox,
   getManufacturerOptionsWithCatalog,
@@ -172,6 +173,13 @@ describe('boxHelpers', () => {
     expect(normalizeTrailingLetterBoxId('ms1-214b')).toBe('MS1-214');
     expect(normalizeTrailingLetterBoxId('CA1-1002')).toBe('CA1-1002');
     expect(normalizeTrailingLetterBoxId('IL1-ABC')).toBe('IL1-ABC');
+  });
+
+  it('formats box ids with warehouse prefixes when ids are bare or legacy-prefixed', () => {
+    expect(formatBoxIdWithWarehousePrefix('6901', 'IL1')).toBe('IL1-6901');
+    expect(formatBoxIdWithWarehousePrefix('IL-6901', 'IL1')).toBe('IL1-6901');
+    expect(formatBoxIdWithWarehousePrefix('ms-214', 'MS1')).toBe('MS1-214');
+    expect(formatBoxIdWithWarehousePrefix('il1-1338', 'IL1')).toBe('IL1-1338');
   });
 
   it('merges hardcoded manufacturer options with film catalog manufacturers', () => {

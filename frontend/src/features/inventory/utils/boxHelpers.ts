@@ -33,6 +33,8 @@ export const CORE_TYPE_OPTIONS = [
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
 const TRAILING_LETTER_BOX_ID_PATTERN = /^([A-Z]{2}[1-9][0-9]*-[0-9]+)[A-Z]+$/;
+const CANONICAL_PREFIXED_BOX_ID_PATTERN = /^[A-Z]{2}[1-9][0-9]*-.+/;
+const LEGACY_PREFIXED_BOX_ID_PATTERN = /^[A-Z]+-(.+)$/;
 const CUSTOM_MANUFACTURERS_STORAGE_KEY = 'inventory.customManufacturers.v1';
 let customManufacturerCache: string[] | null = null;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
@@ -206,6 +208,26 @@ export function normalizeTrailingLetterBoxId(value: string): string {
   const normalized = value.trim().toUpperCase();
   const match = normalized.match(TRAILING_LETTER_BOX_ID_PATTERN);
   return match ? match[1] : normalized;
+}
+
+export function formatBoxIdWithWarehousePrefix(boxId: string, warehouse: Warehouse | string): string {
+  const normalizedBoxId = String(boxId || '').trim().toUpperCase();
+  if (!normalizedBoxId) {
+    return '';
+  }
+
+  if (CANONICAL_PREFIXED_BOX_ID_PATTERN.test(normalizedBoxId)) {
+    return normalizedBoxId;
+  }
+
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase().replace(/-+$/, '');
+  if (!normalizedWarehouse) {
+    return normalizedBoxId;
+  }
+
+  const legacyMatch = normalizedBoxId.match(LEGACY_PREFIXED_BOX_ID_PATTERN);
+  const suffix = legacyMatch ? legacyMatch[1] : normalizedBoxId;
+  return `${normalizedWarehouse}-${suffix}`;
 }
 
 export function deriveCreateFeetAvailable(
