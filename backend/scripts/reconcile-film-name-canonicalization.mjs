@@ -31,6 +31,29 @@ function parseArgs(argv) {
   return options;
 }
 
+function parseBooleanOption(value, fallbackValue = false) {
+  if (value === undefined || value === null) {
+    return fallbackValue;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = normalizeCollapsedLabel(value).toLowerCase();
+  if (!normalized) {
+    return fallbackValue;
+  }
+  if (["1", "true", "t", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "f", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Invalid boolean option value "${value}"`);
+}
+
 function parseEnv(filePath) {
   const result = {};
   const content = fs.readFileSync(filePath, "utf8");
@@ -133,7 +156,40 @@ function normalizeFilmLookupKey(value) {
 
 const SECURITY_MANUFACTURER = "Security";
 const SECURITY_REASON_FUZZY_REVIEW = "fuzzy_review";
-const SECURITY_FAMILY_WITH_EVIDENCE_FALLBACK = new Set(["s800", "s70", "s140", "ag"]);
+const SECURITY_FAMILY_WITH_EVIDENCE_FALLBACK = new Set(["s800", "s70", "s140", "ag", "s600", "prestige"]);
+const CONFIDENCE_HIGH = "high";
+const CONFIDENCE_MEDIUM = "medium";
+const CONFIDENCE_LOW = "low";
+const SCOPE_ALL = "all";
+const SCOPE_SECURITY = "security";
+const VALID_SCOPES = new Set([SCOPE_ALL, SCOPE_SECURITY]);
+
+function normalizeScopeOption(value) {
+  const normalized = normalizeCollapsedLabel(value || SCOPE_ALL).toLowerCase();
+  if (!VALID_SCOPES.has(normalized)) {
+    throw new Error(`Invalid --scope "${value}". Expected one of: ${[...VALID_SCOPES].join(", ")}`);
+  }
+  return normalized;
+}
+
+function isBareMilLabel(value) {
+  return /^\d+\s*mil$/i.test(normalizeCollapsedLabel(value));
+}
+
+function inferPrestigeCode(value) {
+  const normalized = normalizeCollapsedLabel(value);
+  const directMatch = normalized.match(/\b(?:ultra\s+)?prestige\s+(\d{2,3})\b/i);
+  if (directMatch) {
+    return directMatch[1];
+  }
+
+  const prMatch = normalized.match(/\bpr\s*[-]?\s*(\d{2,3})\b/i);
+  if (prMatch && /\b(ultra|prestige)\b/i.test(normalized)) {
+    return prMatch[1];
+  }
+
+  return "";
+}
 
 function normalizeMilTokenSpacing(value) {
   return normalizeCollapsedLabel(value).replace(/\b(\d+)\s*mil\b/gi, (_match, digits) => `${digits} MIL`);
@@ -248,6 +304,31 @@ function detectSecurityFilmFamily(filmName) {
   const normalized = normalizeCollapsedLabel(filmName);
   const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const agMatch = normalized.match(/\bAG[-\s]*([0-9]+)\b/i);
+  const prestigeCode = inferPrestigeCode(normalized);
+
+  if (prestigeCode) {
+    return {
+      is_security: true,
+      family: "prestige",
+      reason_source: "pr_prestige_rule",
+      ag_code: "",
+      model_code: prestigeCode,
+    };
+  }
+
+  if (
+    /\bULTRA\s*S?600\b/i.test(normalized) ||
+    /\bS[-\s]*600\b/i.test(normalized) ||
+    squashedUpper.includes("ULTRAS600")
+  ) {
+    return {
+      is_security: true,
+      family: "s600",
+      reason_source: "s600_rule",
+      ag_code: "",
+      model_code: "600",
+    };
+  }
 
   if (agMatch || /\banti\s*graffiti\b/i.test(normalized)) {
     return {
@@ -255,6 +336,7 @@ function detectSecurityFilmFamily(filmName) {
       family: "ag",
       reason_source: "ag_rule",
       ag_code: agMatch ? agMatch[1] : "",
+      model_code: "",
     };
   }
 
@@ -264,6 +346,7 @@ function detectSecurityFilmFamily(filmName) {
       family: "s140",
       reason_source: "s140_rule",
       ag_code: "",
+      model_code: "140",
     };
   }
 
@@ -273,6 +356,7 @@ function detectSecurityFilmFamily(filmName) {
       family: "s70",
       reason_source: "s70_rule",
       ag_code: "",
+      model_code: "70",
     };
   }
 
@@ -286,6 +370,17 @@ function detectSecurityFilmFamily(filmName) {
       family: "s800",
       reason_source: "s800_rule",
       ag_code: "",
+      model_code: "800",
+    };
+  }
+
+  if (isBareMilLabel(normalized)) {
+    return {
+      is_security: false,
+      family: "mil_ambiguous",
+      reason_source: "mil_ambiguous_keep",
+      ag_code: "",
+      model_code: "",
     };
   }
 
@@ -295,6 +390,7 @@ function detectSecurityFilmFamily(filmName) {
       family: "mil",
       reason_source: "mil_rule",
       ag_code: "",
+      model_code: "",
     };
   }
 
@@ -303,7 +399,15 @@ function detectSecurityFilmFamily(filmName) {
     family: "",
     reason_source: "",
     ag_code: "",
+    model_code: "",
   };
+}
+
+function getDefaultMakerPrefixForFamily(family) {
+  if (family === "prestige" || family === "s600") {
+    return "3M";
+  }
+  return "";
 }
 
 function chooseMakerPrefixFromEvidence(evidenceByFamily, family) {
@@ -386,6 +490,13 @@ function buildCanonicalSecurityFilmName(sourceFilmName, detection, makerPrefix) 
     const agSuffix = detection.ag_code ? `AG-${detection.ag_code}` : "AG";
     return prefixFilmName(agSuffix);
   }
+  if (detection.family === "s600") {
+    return prefixFilmName("Ultra S600");
+  }
+  if (detection.family === "prestige") {
+    const prestigeCode = normalizeCollapsedLabel(detection.model_code || "");
+    return prefixFilmName(prestigeCode ? `Ultra Prestige ${prestigeCode}` : "Ultra Prestige");
+  }
 
   return prefixFilmName(cleanedSource);
 }
@@ -407,7 +518,8 @@ function normalizeSecurityFilmEntry(oldManufacturer, oldFilmName, evidenceByFami
   const makerPrefixFromFilm = normalizeMakerPrefix(inferMakerPrefixFromFilmName(normalizedFilmName));
   const makerPrefixFromManufacturer = normalizeMakerPrefix(inferMakerPrefixFromManufacturer(normalizedManufacturer));
   const makerPrefixFromEvidence = normalizeMakerPrefix(chooseMakerPrefixFromEvidence(evidenceByFamily, detection.family));
-  const makerPrefix = makerPrefixFromFilm || makerPrefixFromManufacturer || makerPrefixFromEvidence;
+  const makerPrefixDefault = normalizeMakerPrefix(getDefaultMakerPrefixForFamily(detection.family));
+  const makerPrefix = makerPrefixFromFilm || makerPrefixFromManufacturer || makerPrefixFromEvidence || makerPrefixDefault;
 
   return {
     manufacturer: SECURITY_MANUFACTURER,
@@ -530,6 +642,25 @@ function profilesAreSimilar(left, right) {
   return false;
 }
 
+function classifyFuzzyConfidence(aliasEntry, canonicalEntry) {
+  if (
+    canonicalEntry.in_catalog &&
+    aliasEntry.profile.tokenSignature &&
+    canonicalEntry.profile.tokenSignature &&
+    aliasEntry.profile.tokenSignature === canonicalEntry.profile.tokenSignature
+  ) {
+    return { confidence: CONFIDENCE_HIGH, reason_source: "catalog_exact_match" };
+  }
+
+  const sharedCodes = setIntersection(aliasEntry.profile.codes, canonicalEntry.profile.codes);
+  const sharedDescriptors = setIntersection(aliasEntry.profile.nonCodeTokens, canonicalEntry.profile.nonCodeTokens);
+  if (sharedCodes.size > 0 && sharedDescriptors.size > 0) {
+    return { confidence: CONFIDENCE_MEDIUM, reason_source: "model_descriptor_overlap" };
+  }
+
+  return { confidence: CONFIDENCE_LOW, reason_source: "loose_similarity" };
+}
+
 function findConnectedComponents(nodes, shouldLink) {
   const parent = nodes.map((_, index) => index);
 
@@ -598,12 +729,17 @@ function parseExistingDecisionMap(decisionCsvPath) {
   return decisionMap;
 }
 
-function buildDecisionRows(mappingRows, existingDecisionMap) {
+function buildDecisionRows(mappingRows, existingDecisionMap, options = {}) {
+  const autoApproveHigh = Boolean(options.autoApproveHigh);
   return mappingRows.map((row) => {
     const existing = existingDecisionMap.get(row.mapping_key) || { decision: "", notes: "" };
+    let decision = existing.decision || "";
+    if (!decision && autoApproveHigh && row.confidence === CONFIDENCE_HIGH) {
+      decision = "approve";
+    }
     return {
       ...row,
-      decision: existing.decision || "",
+      decision,
       notes: existing.notes || "",
     };
   });
@@ -636,6 +772,7 @@ function toDecisionCsv(decisionRows) {
       "mapping_key",
       "group_id",
       "reason_source",
+      "confidence",
       "old_manufacturer",
       "old_film_name",
       "canonical_manufacturer",
@@ -653,6 +790,7 @@ function toDecisionCsv(decisionRows) {
         row.mapping_key,
         row.group_id,
         row.reason_source || SECURITY_REASON_FUZZY_REVIEW,
+        row.confidence || CONFIDENCE_LOW,
         row.old_manufacturer,
         row.alias_film_name,
         row.manufacturer,
@@ -764,6 +902,7 @@ async function buildPreflight(client, orgId, approvedMappings) {
   const candidateUpdates = {
     boxes: 0,
     film_catalog: 0,
+    film_catalog_missing_upserts: 0,
     job_requirements: 0,
     film_orders: 0,
     roll_weight_log: 0,
@@ -804,6 +943,26 @@ async function buildPreflight(client, orgId, approvedMappings) {
             or app_api.normalize_catalog_lookup_key(f.film_name)
               is distinct from app_api.normalize_catalog_lookup_key(m.canonical_film_name)
           )
+      `,
+      [orgId],
+    );
+
+    candidateUpdates.film_catalog_missing_upserts = await queryInt(
+      client,
+      `
+        with canonical_targets as (
+          select distinct
+            upper(app_api.canonical_manufacturer_label(m.canonical_manufacturer))
+              || '|'
+              || upper(m.canonical_film_name) as canonical_film_key
+          from tmp_film_name_alias_mapping m
+        )
+        select count(*)::int as count
+        from canonical_targets t
+        left join app.film_catalog f
+          on f.org_id = $1::uuid
+         and f.film_key = t.canonical_film_key
+        where f.id is null
       `,
       [orgId],
     );
@@ -957,6 +1116,7 @@ async function runApply(client, orgId, actor, approvedMappings) {
     aliases_upserted: 0,
     boxes: 0,
     film_catalog: 0,
+    film_catalog_missing_upserts: 0,
     job_requirements: 0,
     film_orders: 0,
     roll_weight_log: 0,
@@ -1061,6 +1221,55 @@ async function runApply(client, orgId, actor, approvedMappings) {
     [orgId],
   );
   updates.film_catalog = updateCatalog.rowCount ?? 0;
+
+  const upsertMissingCatalog = await client.query(
+    `
+      with canonical_targets as (
+        select distinct
+          m.canonical_manufacturer as manufacturer,
+          m.canonical_film_name as film_name,
+          upper(app_api.canonical_manufacturer_label(m.canonical_manufacturer))
+            || '|'
+            || upper(m.canonical_film_name) as film_key
+        from tmp_film_name_alias_mapping m
+      ),
+      missing as (
+        select
+          t.manufacturer,
+          t.film_name,
+          t.film_key
+        from canonical_targets t
+        left join app.film_catalog f
+          on f.org_id = $1::uuid
+         and f.film_key = t.film_key
+        where f.id is null
+      )
+      insert into app.film_catalog (
+        id,
+        org_id,
+        film_key,
+        manufacturer,
+        film_name,
+        notes,
+        updated_at
+      )
+      select
+        gen_random_uuid(),
+        $1::uuid,
+        m.film_key,
+        m.manufacturer,
+        m.film_name,
+        '',
+        now()
+      from missing m
+      on conflict (org_id, film_key) do update set
+        manufacturer = excluded.manufacturer,
+        film_name = excluded.film_name,
+        updated_at = excluded.updated_at
+    `,
+    [orgId],
+  );
+  updates.film_catalog_missing_upserts = upsertMissingCatalog.rowCount ?? 0;
 
   const updateRequirements = await client.query(
     `
@@ -1201,7 +1410,10 @@ async function loadSourceRows(client, orgId) {
   };
 }
 
-function buildSimilarityCandidates(source) {
+function buildSimilarityCandidates(source, options = {}) {
+  const scope = normalizeScopeOption(options.scope || SCOPE_ALL);
+  const securityManufacturerLookupKey = normalizeManufacturerLookupKey(SECURITY_MANUFACTURER);
+
   const sourceRows = source.boxes.map((row) => {
     const oldManufacturer = canonicalizeManufacturerLabel(row.manufacturer);
     const oldFilmName = normalizeCollapsedLabel(row.film_name);
@@ -1233,22 +1445,40 @@ function buildSimilarityCandidates(source) {
     };
   });
 
+  const isInScope = (row) => {
+    if (scope === SCOPE_ALL) {
+      return true;
+    }
+
+    return (
+      row.manufacturer_lookup_key === securityManufacturerLookupKey
+      || row.old_manufacturer_lookup_key === securityManufacturerLookupKey
+    );
+  };
+
+  const scopedRows = normalizedRows.filter((row) => isInScope(row));
+
   const catalogKeySet = new Set(
     source.catalog.map((row) => {
       const normalized = normalizeRow(row.manufacturer, row.film_name);
-      return `${normalizeManufacturerLookupKey(normalized.manufacturer)}|${normalizeFilmLookupKey(normalized.film_name)}`;
+      const manufacturerLookupKey = normalizeManufacturerLookupKey(normalized.manufacturer);
+      if (scope === SCOPE_SECURITY && manufacturerLookupKey !== securityManufacturerLookupKey) {
+        return "";
+      }
+      return `${manufacturerLookupKey}|${normalizeFilmLookupKey(normalized.film_name)}`;
     }),
   );
+  catalogKeySet.delete("");
 
   const canonicalTotals = new Map();
-  for (const row of normalizedRows) {
+  for (const row of scopedRows) {
     const key = `${row.manufacturer_lookup_key}|${row.film_lookup_key}`;
     canonicalTotals.set(key, Number(canonicalTotals.get(key) || 0) + row.box_count);
   }
 
   const directMappings = [];
   let securityGroupCounter = 0;
-  for (const row of normalizedRows) {
+  for (const row of scopedRows) {
     const oldKey = `${row.old_manufacturer_lookup_key}|${row.old_film_name_lookup_key}`;
     const canonicalKey = `${row.manufacturer_lookup_key}|${row.film_lookup_key}`;
     if (oldKey === canonicalKey) {
@@ -1260,6 +1490,7 @@ function buildSimilarityCandidates(source) {
       mapping_key: oldKey,
       group_id: `SR-${String(securityGroupCounter).padStart(4, "0")}`,
       reason_source: row.reason_source || "rule_review",
+      confidence: CONFIDENCE_HIGH,
       old_manufacturer: row.old_manufacturer,
       old_manufacturer_lookup_key: row.old_manufacturer_lookup_key,
       alias_film_name: row.old_film_name,
@@ -1274,7 +1505,7 @@ function buildSimilarityCandidates(source) {
   }
 
   const groupedByManufacturer = new Map();
-  for (const row of normalizedRows) {
+  for (const row of scopedRows) {
     const manufacturerTokens = new Set(tokenizeValue(row.manufacturer));
     if (!groupedByManufacturer.has(row.manufacturer_lookup_key)) {
       groupedByManufacturer.set(row.manufacturer_lookup_key, {
@@ -1356,10 +1587,12 @@ function buildSimilarityCandidates(source) {
       });
 
       for (const alias of aliases) {
+        const confidenceClass = classifyFuzzyConfidence(alias, canonical);
         fuzzyMappings.push({
           mapping_key: `${alias.old_manufacturer_lookup_key}|${alias.old_film_name_lookup_key}`,
           group_id: groupId,
-          reason_source: SECURITY_REASON_FUZZY_REVIEW,
+          reason_source: confidenceClass.reason_source,
+          confidence: confidenceClass.confidence,
           old_manufacturer: alias.old_manufacturer,
           old_manufacturer_lookup_key: alias.old_manufacturer_lookup_key,
           alias_film_name: alias.old_film_name,
@@ -1399,16 +1632,34 @@ function buildSimilarityCandidates(source) {
   });
 
   const reasonPriority = (reasonSource) => {
+    if (reasonSource === "pr_prestige_rule") return 1;
+    if (reasonSource === "s600_rule") return 2;
+    if (reasonSource === "mil_rule") return 3;
+    if (reasonSource === "s800_rule") return 4;
+    if (reasonSource === "s70_rule") return 5;
+    if (reasonSource === "s140_rule") return 6;
+    if (reasonSource === "ag_rule") return 7;
+    if (reasonSource === "catalog_exact_match") return 10;
+    if (reasonSource === "model_descriptor_overlap") return 20;
+    if (reasonSource === "loose_similarity") return 30;
     if (reasonSource === SECURITY_REASON_FUZZY_REVIEW) return 99;
-    if (reasonSource === "mil_rule") return 1;
-    if (reasonSource === "s800_rule") return 2;
-    if (reasonSource === "s70_rule") return 3;
-    if (reasonSource === "s140_rule") return 4;
-    if (reasonSource === "ag_rule") return 5;
-    return 10;
+    if (reasonSource === "mil_ambiguous_keep") return 120;
+    return 80;
+  };
+
+  const confidencePriority = (confidence) => {
+    if (confidence === CONFIDENCE_HIGH) return 1;
+    if (confidence === CONFIDENCE_MEDIUM) return 2;
+    if (confidence === CONFIDENCE_LOW) return 3;
+    return 4;
   };
 
   mappingRows.sort((left, right) => {
+    const confidenceOrder = confidencePriority(left.confidence) - confidencePriority(right.confidence);
+    if (confidenceOrder !== 0) {
+      return confidenceOrder;
+    }
+
     const reasonOrder = reasonPriority(left.reason_source) - reasonPriority(right.reason_source);
     if (reasonOrder !== 0) {
       return reasonOrder;
@@ -1427,12 +1678,20 @@ function buildSimilarityCandidates(source) {
     return left.alias_film_name.localeCompare(right.alias_film_name, undefined, { sensitivity: "base" });
   });
 
-  return { groups, mappingRows };
+  return {
+    groups,
+    mappingRows,
+    scope,
+    scoped_row_count: scopedRows.length,
+    total_row_count: normalizedRows.length,
+  };
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const apply = Boolean(args.apply);
+  const scope = normalizeScopeOption(args.scope || SCOPE_ALL);
+  const autoApproveHigh = parseBooleanOption(args["auto-approve-high"], true);
 
   if (!fs.existsSync(envPath)) {
     throw new Error(`Missing env file: ${envPath}`);
@@ -1468,11 +1727,16 @@ async function main() {
     await client.query("begin");
 
     const source = await loadSourceRows(client, orgId);
-    const { groups, mappingRows } = buildSimilarityCandidates(source);
+    const {
+      groups,
+      mappingRows,
+      scoped_row_count: scopedRowCount,
+      total_row_count: totalRowCount,
+    } = buildSimilarityCandidates(source, { scope });
     const dedupedMappingRows = dedupeMappingRows(mappingRows);
 
     const existingDecisionMap = parseExistingDecisionMap(decisionCsvPath);
-    const decisionRows = buildDecisionRows(dedupedMappingRows, existingDecisionMap);
+    const decisionRows = buildDecisionRows(dedupedMappingRows, existingDecisionMap, { autoApproveHigh });
     const decisionSummary = summarizeDecisions(decisionRows);
     const suggestedMappings = toMappingPayload(dedupedMappingRows);
 
@@ -1499,6 +1763,7 @@ async function main() {
       aliases_upserted: 0,
       boxes: 0,
       film_catalog: 0,
+      film_catalog_missing_upserts: 0,
       job_requirements: 0,
       film_orders: 0,
       roll_weight_log: 0,
@@ -1599,14 +1864,23 @@ async function main() {
       generated_at_utc: new Date().toISOString(),
       org_id: orgId,
       apply,
+      scope,
+      auto_approve_high: autoApproveHigh,
       report_dir: toPosixPath(path.relative(repoRoot, reportDir)),
       source_baseline: {
         distinct_box_labels: source.boxes.length,
         distinct_catalog_labels: source.catalog.length,
+        scoped_box_labels: scopedRowCount,
+        total_box_labels: totalRowCount,
       },
       grouping: {
         similarity_group_count: groups.length,
         mapping_row_count: dedupedMappingRows.length,
+      },
+      confidence_breakdown: {
+        high: decisionRows.filter((row) => row.confidence === CONFIDENCE_HIGH).length,
+        medium: decisionRows.filter((row) => row.confidence === CONFIDENCE_MEDIUM).length,
+        low: decisionRows.filter((row) => row.confidence === CONFIDENCE_LOW).length,
       },
       decisions: decisionSummary,
       approved_mapping_count: approvedMappings.length,
@@ -1638,6 +1912,8 @@ async function main() {
         {
           org_id: orgId,
           apply,
+          scope,
+          auto_approve_high: autoApproveHigh,
           similarity_group_count: groups.length,
           mapping_row_count: dedupedMappingRows.length,
           decision_summary: decisionSummary,

@@ -607,6 +607,25 @@ function stripLeadingSecurityToken(value) {
   return normalizeCollapsedCatalogLabel(value).replace(/^security\b[:\-\s]*/i, '').trim();
 }
 
+function isBareMilLabel(value) {
+  return /^\d+\s*mil$/i.test(normalizeCollapsedCatalogLabel(value));
+}
+
+function inferPrestigeCode(value) {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const directMatch = normalized.match(/\b(?:ultra\s+)?prestige\s+(\d{2,3})\b/i);
+  if (directMatch) {
+    return directMatch[1];
+  }
+
+  const prMatch = normalized.match(/\bpr\s*[-]?\s*(\d{2,3})\b/i);
+  if (prMatch && /\b(ultra|prestige)\b/i.test(normalized)) {
+    return prMatch[1];
+  }
+
+  return '';
+}
+
 function normalizeSecurityMakerPrefix(value) {
   const normalized = normalizeCollapsedCatalogLabel(value);
   const key = normalized.toLowerCase();
@@ -703,31 +722,56 @@ function inferSecurityMakerPrefixFromManufacturer(manufacturer) {
   return normalizeSecurityMakerPrefix(canonical);
 }
 
+function getDefaultMakerPrefixForSecurityFamily(family) {
+  if (family === 'prestige' || family === 's600') {
+    return '3M';
+  }
+  return '';
+}
+
 function detectSecurityFilmFamily(filmName) {
   const normalized = normalizeCollapsedCatalogLabel(filmName);
   const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const agMatch = normalized.match(/\bAG[-\s]*([0-9]+)\b/i);
+  const prestigeCode = inferPrestigeCode(normalized);
+
+  if (prestigeCode) {
+    return { isSecurity: true, family: 'prestige', agCode: '', modelCode: prestigeCode };
+  }
+
+  if (
+    /\bULTRA\s*S?600\b/i.test(normalized) ||
+    /\bS[-\s]*600\b/i.test(normalized) ||
+    squashedUpper.includes('ULTRAS600')
+  ) {
+    return { isSecurity: true, family: 's600', agCode: '', modelCode: '600' };
+  }
 
   if (agMatch || /\banti\s*graffiti\b/i.test(normalized)) {
-    return { isSecurity: true, family: 'ag', agCode: agMatch ? agMatch[1] : '' };
+    return { isSecurity: true, family: 'ag', agCode: agMatch ? agMatch[1] : '', modelCode: '' };
   }
   if (/\bS[-\s]*140\b/i.test(normalized)) {
-    return { isSecurity: true, family: 's140', agCode: '' };
+    return { isSecurity: true, family: 's140', agCode: '', modelCode: '140' };
   }
   if (/\bS[-\s]*70\b/i.test(normalized)) {
-    return { isSecurity: true, family: 's70', agCode: '' };
+    return { isSecurity: true, family: 's70', agCode: '', modelCode: '70' };
   }
   if (
     /\bULTRA\s*S?800\b/i.test(normalized) ||
     /\bS[-\s]*800\b/i.test(normalized) ||
     squashedUpper.includes('ULTRAS800')
   ) {
-    return { isSecurity: true, family: 's800', agCode: '' };
+    return { isSecurity: true, family: 's800', agCode: '', modelCode: '800' };
   }
+
+  if (isBareMilLabel(normalized)) {
+    return { isSecurity: false, family: '', agCode: '', modelCode: '' };
+  }
+
   if (/\b\d+\s*mil\b/i.test(normalized)) {
-    return { isSecurity: true, family: 'mil', agCode: '' };
+    return { isSecurity: true, family: 'mil', agCode: '', modelCode: '' };
   }
-  return { isSecurity: false, family: '', agCode: '' };
+  return { isSecurity: false, family: '', agCode: '', modelCode: '' };
 }
 
 function buildCanonicalSecurityFilmName(sourceFilmName, detection, makerPrefix) {
@@ -757,6 +801,13 @@ function buildCanonicalSecurityFilmName(sourceFilmName, detection, makerPrefix) 
     const code = detection.agCode ? `AG-${detection.agCode}` : 'AG';
     return withPrefix(code);
   }
+  if (detection.family === 's600') {
+    return withPrefix('Ultra S600');
+  }
+  if (detection.family === 'prestige') {
+    const prestigeCode = normalizeCollapsedCatalogLabel(detection.modelCode || '');
+    return withPrefix(prestigeCode ? `Ultra Prestige ${prestigeCode}` : 'Ultra Prestige');
+  }
 
   return withPrefix(cleanedSource);
 }
@@ -774,7 +825,8 @@ function normalizeSecurityManufacturerAndFilm(manufacturer, filmName) {
 
   const makerPrefix =
     normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromFilmName(normalizedFilmName)) ||
-    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer));
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer)) ||
+    normalizeSecurityMakerPrefix(getDefaultMakerPrefixForSecurityFamily(detection.family));
 
   return {
     manufacturer: SECURITY_MANUFACTURER_LABEL,
@@ -1473,6 +1525,10 @@ function mapCaulkStockRow(row) {
     return null;
   }
 
+  const tubesOnHand = Math.max(0, integerOrZero(row.tubes_on_hand));
+  const casesOnHand = Math.floor(tubesOnHand / 16);
+  const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
+
   return {
     warehouse: asTrimmedString(row.warehouse).toUpperCase(),
     productId: asTrimmedString(row.product_id),
@@ -1481,9 +1537,9 @@ function mapCaulkStockRow(row) {
     productName: asTrimmedString(row.product_name),
     productCode: asTrimmedString(row.product_code),
     tubesPerCase: integerOrZero(row.tubes_per_case),
-    tubesOnHand: integerOrZero(row.tubes_on_hand),
-    casesOnHand: integerOrZero(row.cases_on_hand),
-    looseTubes: integerOrZero(row.loose_tubes),
+    tubesOnHand,
+    casesOnHand,
+    looseTubes,
     updatedAt: formatTimestamp(row.updated_at),
     updatedBy: asTrimmedString(row.updated_by)
   };
@@ -1511,6 +1567,23 @@ function mapCaulkTransactionRow(row) {
     sourceBoxId: asTrimmedString(row.source_box_id),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by)
+  };
+}
+
+function normalizeCaulkCaseMath(result) {
+  if (!result || typeof result !== 'object') {
+    return result || {};
+  }
+
+  const tubesOnHand = Math.max(0, integerOrZero(result.tubesOnHand ?? result.tubes_on_hand));
+  const casesOnHand = Math.floor(tubesOnHand / 16);
+  const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
+
+  return {
+    ...result,
+    tubesOnHand,
+    casesOnHand,
+    looseTubes
   };
 }
 
@@ -2497,7 +2570,7 @@ async function applyCaulkDelta(
     [orgId, actor, productId, warehouse, action, deltaTubes, reason, transferId, sourceBoxId, notes]
   );
 
-  return row?.result || {};
+  return normalizeCaulkCaseMath(row?.result || {});
 }
 
 async function mutateCaulkStock(client, orgId, actor, payload) {

@@ -18,6 +18,7 @@ import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry
 import { useAuth } from '../../auth/AuthContext';
 
 type StockAction = 'RECEIVE' | 'USE' | 'ADJUST';
+const CAULK_TUBES_PER_CASE = 16;
 
 function formatDateTime(value: string) {
   if (!value) {
@@ -28,6 +29,11 @@ function formatDateTime(value: string) {
     return value;
   }
   return parsed.toLocaleString();
+}
+
+function toFullCasesFromTubes(totalTubes: number) {
+  const normalized = Number.isFinite(totalTubes) ? Math.max(0, Math.trunc(totalTubes)) : 0;
+  return Math.floor(normalized / CAULK_TUBES_PER_CASE);
 }
 
 export default function CaulkPage() {
@@ -175,7 +181,7 @@ export default function CaulkPage() {
         <div className="panel-title-row">
           <div>
             <h2>Caulk Inventory</h2>
-            <p className="muted-text">Track consumable tubes by warehouse using cases + tubes.</p>
+            <p className="muted-text">Track consumable tubes by warehouse with full-case counting (16 tubes per case).</p>
           </div>
         </div>
         <div className="filters-grid">
@@ -229,16 +235,14 @@ export default function CaulkPage() {
                   <th>Manufacturer</th>
                   <th>Product</th>
                   <th>Code</th>
-                  <th>Tubes/Case</th>
-                  <th>Tubes On Hand</th>
+                  <th>Tubes</th>
                   <th>Cases</th>
-                  <th>Loose</th>
                 </tr>
               </thead>
               <tbody>
                 {stockRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="muted-text">
+                    <td colSpan={6} className="muted-text">
                       No caulk rows matched the current filters.
                     </td>
                   </tr>
@@ -249,10 +253,8 @@ export default function CaulkPage() {
                       <td>{entry.manufacturer}</td>
                       <td>{entry.productName}</td>
                       <td>{entry.productCode || '-'}</td>
-                      <td>{entry.tubesPerCase}</td>
                       <td>{entry.tubesOnHand}</td>
-                      <td>{entry.casesOnHand}</td>
-                      <td>{entry.looseTubes}</td>
+                      <td>{toFullCasesFromTubes(entry.tubesOnHand)}</td>
                     </tr>
                   ))
                 )}
@@ -321,17 +323,20 @@ export default function CaulkPage() {
           <Button
             type="button"
             disabled={!canWriteInventory || !stockProductId || mutateStockMutation.isPending}
-            onClick={() =>
+            onClick={() => {
+              const casesValue = stockCases === '' ? 0 : Number(stockCases);
+              const tubesValue = stockTubes === '' ? 0 : Number(stockTubes);
               mutateStockMutation.mutate({
                 action: stockAction,
                 productId: stockProductId,
                 warehouse: stockWarehouse,
-                cases: stockCases === '' ? 0 : Number(stockCases),
-                tubes: stockTubes === '' ? 0 : Number(stockTubes),
+                cases: casesValue,
+                tubes: tubesValue,
+                deltaTubes: (casesValue * CAULK_TUBES_PER_CASE) + tubesValue,
                 reason: stockReason,
                 notes: stockNotes
-              })
-            }
+              });
+            }}
           >
             Save Stock Mutation
           </Button>
@@ -406,17 +411,20 @@ export default function CaulkPage() {
               !transferWarehouseTo ||
               transferStockMutation.isPending
             }
-            onClick={() =>
+            onClick={() => {
+              const casesValue = transferCases === '' ? 0 : Number(transferCases);
+              const tubesValue = transferTubes === '' ? 0 : Number(transferTubes);
               transferStockMutation.mutate({
                 productId: transferProductId,
                 fromWarehouse: transferWarehouseFrom,
                 toWarehouse: transferWarehouseTo,
-                cases: transferCases === '' ? 0 : Number(transferCases),
-                tubes: transferTubes === '' ? 0 : Number(transferTubes),
+                cases: casesValue,
+                tubes: tubesValue,
+                deltaTubes: (casesValue * CAULK_TUBES_PER_CASE) + tubesValue,
                 reason: transferReason,
                 notes: transferNotes
-              })
-            }
+              });
+            }}
           >
             Transfer
           </Button>

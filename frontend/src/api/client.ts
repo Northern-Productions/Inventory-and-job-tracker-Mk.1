@@ -83,6 +83,7 @@ let jobsApiAvailability: JobsApiAvailability = 'unknown';
 type JobsSearchApiAvailability = 'unknown' | 'available' | 'missing';
 let jobsSearchApiAvailability: JobsSearchApiAvailability = 'unknown';
 let cachedAccessContext: EffectiveAccessContext | null = null;
+const CAULK_FULL_CASE_TUBE_COUNT = 16;
 
 export function __resetJobsApiAvailabilityForTests() {
   jobsApiAvailability = 'unknown';
@@ -281,6 +282,11 @@ function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
     return null;
   }
 
+  const tubesOnHand = Number(source.tubesOnHand || 0) || 0;
+  const normalizedTubesOnHand = Math.max(0, Math.trunc(tubesOnHand));
+  const casesOnHand = Math.floor(normalizedTubesOnHand / CAULK_FULL_CASE_TUBE_COUNT);
+  const looseTubes = Math.max(0, normalizedTubesOnHand - (casesOnHand * CAULK_FULL_CASE_TUBE_COUNT));
+
   return {
     warehouse,
     productId,
@@ -289,9 +295,9 @@ function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
     productName: String(source.productName || '').trim(),
     productCode: String(source.productCode || '').trim(),
     tubesPerCase: Number(source.tubesPerCase || 0) || 0,
-    tubesOnHand: Number(source.tubesOnHand || 0) || 0,
-    casesOnHand: Number(source.casesOnHand || 0) || 0,
-    looseTubes: Number(source.looseTubes || 0) || 0,
+    tubesOnHand: normalizedTubesOnHand,
+    casesOnHand,
+    looseTubes,
     updatedAt: String(source.updatedAt || '').trim(),
     updatedBy: String(source.updatedBy || '').trim()
   };

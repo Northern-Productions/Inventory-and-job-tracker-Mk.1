@@ -183,6 +183,24 @@ function integerOrZero(value: unknown): number {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 }
 
+function normalizeCaulkCaseMath(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== "object") {
+    return {};
+  }
+
+  const source = result as Record<string, unknown>;
+  const tubesOnHand = Math.max(0, integerOrZero(source.tubesOnHand ?? source.tubes_on_hand));
+  const casesOnHand = Math.floor(tubesOnHand / 16);
+  const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
+
+  return {
+    ...source,
+    tubesOnHand,
+    casesOnHand,
+    looseTubes,
+  };
+}
+
 function integerOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -248,6 +266,25 @@ function normalizeMilTokenSpacing(value: unknown): string {
 
 function stripLeadingSecurityToken(value: unknown): string {
   return normalizeCollapsedCatalogLabel(value).replace(/^security\b[:\-\s]*/i, "").trim();
+}
+
+function isBareMilLabel(value: unknown): boolean {
+  return /^\d+\s*mil$/i.test(normalizeCollapsedCatalogLabel(value));
+}
+
+function inferPrestigeCode(value: unknown): string {
+  const normalized = normalizeCollapsedCatalogLabel(value);
+  const directMatch = normalized.match(/\b(?:ultra\s+)?prestige\s+(\d{2,3})\b/i);
+  if (directMatch) {
+    return directMatch[1];
+  }
+
+  const prMatch = normalized.match(/\bpr\s*[-]?\s*(\d{2,3})\b/i);
+  if (prMatch && /\b(ultra|prestige)\b/i.test(normalized)) {
+    return prMatch[1];
+  }
+
+  return "";
 }
 
 function normalizeSecurityMakerPrefix(value: unknown): string {
@@ -346,34 +383,63 @@ function inferSecurityMakerPrefixFromManufacturer(manufacturer: unknown): string
   return normalizeSecurityMakerPrefix(canonical);
 }
 
-function detectSecurityFilmFamily(filmName: unknown): { isSecurity: boolean; family: string; agCode: string } {
+function getDefaultMakerPrefixForSecurityFamily(family: string): string {
+  if (family === "prestige" || family === "s600") {
+    return "3M";
+  }
+  return "";
+}
+
+function detectSecurityFilmFamily(filmName: unknown): { isSecurity: boolean; family: string; agCode: string; modelCode: string } {
   const normalized = normalizeCollapsedCatalogLabel(filmName);
   const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const agMatch = normalized.match(/\bAG[-\s]*([0-9]+)\b/i);
+  const prestigeCode = inferPrestigeCode(normalized);
+
+  if (prestigeCode) {
+    return { isSecurity: true, family: "prestige", agCode: "", modelCode: prestigeCode };
+  }
+
+  if (
+    /\bULTRA\s*S?600\b/i.test(normalized) ||
+    /\bS[-\s]*600\b/i.test(normalized) ||
+    squashedUpper.includes("ULTRAS600")
+  ) {
+    return { isSecurity: true, family: "s600", agCode: "", modelCode: "600" };
+  }
 
   if (agMatch || /\banti\s*graffiti\b/i.test(normalized)) {
-    return { isSecurity: true, family: "ag", agCode: agMatch ? agMatch[1] : "" };
+    return { isSecurity: true, family: "ag", agCode: agMatch ? agMatch[1] : "", modelCode: "" };
   }
   if (/\bS[-\s]*140\b/i.test(normalized)) {
-    return { isSecurity: true, family: "s140", agCode: "" };
+    return { isSecurity: true, family: "s140", agCode: "", modelCode: "140" };
   }
   if (/\bS[-\s]*70\b/i.test(normalized)) {
-    return { isSecurity: true, family: "s70", agCode: "" };
+    return { isSecurity: true, family: "s70", agCode: "", modelCode: "70" };
   }
   if (
     /\bULTRA\s*S?800\b/i.test(normalized) ||
     /\bS[-\s]*800\b/i.test(normalized) ||
     squashedUpper.includes("ULTRAS800")
   ) {
-    return { isSecurity: true, family: "s800", agCode: "" };
+    return { isSecurity: true, family: "s800", agCode: "", modelCode: "800" };
+  }
+  if (isBareMilLabel(normalized)) {
+    return { isSecurity: false, family: "", agCode: "", modelCode: "" };
   }
   if (/\b\d+\s*mil\b/i.test(normalized)) {
-    return { isSecurity: true, family: "mil", agCode: "" };
+    return { isSecurity: true, family: "mil", agCode: "", modelCode: "" };
   }
-  return { isSecurity: false, family: "", agCode: "" };
+  return { isSecurity: false, family: "", agCode: "", modelCode: "" };
 }
 
-function buildCanonicalSecurityFilmName(sourceFilmName: unknown, family: string, agCode: string, makerPrefix: string): string {
+function buildCanonicalSecurityFilmName(
+  sourceFilmName: unknown,
+  family: string,
+  agCode: string,
+  modelCode: string,
+  makerPrefix: string,
+): string {
   const cleanedSource = normalizeMilTokenSpacing(stripLeadingSecurityToken(sourceFilmName));
   const normalizedPrefix = normalizeSecurityMakerPrefix(makerPrefix);
   const withPrefix = (baseName: string) => {
@@ -391,6 +457,11 @@ function buildCanonicalSecurityFilmName(sourceFilmName: unknown, family: string,
   if (family === "s70") return withPrefix("S70");
   if (family === "s140") return withPrefix("S140");
   if (family === "ag") return withPrefix(agCode ? `AG-${agCode}` : "AG");
+  if (family === "s600") return withPrefix("Ultra S600");
+  if (family === "prestige") {
+    const prestigeCode = normalizeCollapsedCatalogLabel(modelCode || "");
+    return withPrefix(prestigeCode ? `Ultra Prestige ${prestigeCode}` : "Ultra Prestige");
+  }
   return withPrefix(cleanedSource);
 }
 
@@ -404,11 +475,18 @@ function normalizeSecurityManufacturerAndFilm(manufacturer: unknown, filmName: u
 
   const makerPrefix =
     normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromFilmName(normalizedFilmName)) ||
-    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer));
+    normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer)) ||
+    normalizeSecurityMakerPrefix(getDefaultMakerPrefixForSecurityFamily(detection.family));
 
   return {
     manufacturer: SECURITY_MANUFACTURER_LABEL,
-    filmName: buildCanonicalSecurityFilmName(normalizedFilmName, detection.family, detection.agCode, makerPrefix),
+    filmName: buildCanonicalSecurityFilmName(
+      normalizedFilmName,
+      detection.family,
+      detection.agCode,
+      detection.modelCode,
+      makerPrefix,
+    ),
   };
 }
 
@@ -3435,20 +3513,25 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
         p_manufacturer: asTrimmedString(params.manufacturer),
         p_q: asTrimmedString(params.q),
       });
-      const entries = (entriesRaw || []).map((entry) => ({
-        warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
-        productId: asTrimmedString(entry.product_id),
-        manufacturerId: asTrimmedString(entry.manufacturer_id),
-        manufacturer: asTrimmedString(entry.manufacturer),
-        productName: asTrimmedString(entry.product_name),
-        productCode: asTrimmedString(entry.product_code),
-        tubesPerCase: integerOrZero(entry.tubes_per_case),
-        tubesOnHand: integerOrZero(entry.tubes_on_hand),
-        casesOnHand: integerOrZero(entry.cases_on_hand),
-        looseTubes: integerOrZero(entry.loose_tubes),
-        updatedAt: asTrimmedString(entry.updated_at),
-        updatedBy: asTrimmedString(entry.updated_by),
-      }));
+      const entries = (entriesRaw || []).map((entry) => {
+        const tubesOnHand = Math.max(0, integerOrZero(entry.tubes_on_hand));
+        const casesOnHand = Math.floor(tubesOnHand / 16);
+        const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
+        return {
+          warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
+          productId: asTrimmedString(entry.product_id),
+          manufacturerId: asTrimmedString(entry.manufacturer_id),
+          manufacturer: asTrimmedString(entry.manufacturer),
+          productName: asTrimmedString(entry.product_name),
+          productCode: asTrimmedString(entry.product_code),
+          tubesPerCase: integerOrZero(entry.tubes_per_case),
+          tubesOnHand,
+          casesOnHand,
+          looseTubes,
+          updatedAt: asTrimmedString(entry.updated_at),
+          updatedBy: asTrimmedString(entry.updated_by),
+        };
+      });
       return ok({ entries });
     }
     case "/caulk/transactions/list": {
@@ -3660,7 +3743,7 @@ async function dispatchMutation(
         actor,
         normalizedPayload,
       );
-      return ok(result);
+      return ok(normalizeCaulkCaseMath(result));
     }
     case "/caulk/transfer": {
       const result = await callMutationRpc(
@@ -3670,7 +3753,12 @@ async function dispatchMutation(
         actor,
         normalizedPayload,
       );
-      return ok(result);
+      const transfer = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+      return ok({
+        ...transfer,
+        from: normalizeCaulkCaseMath(transfer.from),
+        to: normalizeCaulkCaseMath(transfer.to),
+      });
     }
     case "/owner/warehouses/add": {
       const result = await callMutationRpc(client, "api_acl_add_warehouse", orgId, actor, normalizedPayload);
