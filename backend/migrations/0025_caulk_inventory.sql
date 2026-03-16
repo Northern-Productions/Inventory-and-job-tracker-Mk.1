@@ -1,4 +1,4 @@
-﻿-- Dedicated caulk inventory subsystem (separate from film boxes).
+-- Dedicated caulk inventory subsystem (separate from film boxes).
 -- Supports warehouse-level stock in tubes with case conversion metadata.
 
 create table if not exists app.caulk_manufacturers (
@@ -157,7 +157,10 @@ returns text
 language sql
 volatile
 as $$
-  select to_char(clock_timestamp(), 'YYYYMMDDHH24MISSMS') || '-' || substr(encode(gen_random_bytes(2), 'hex'), 1, 4);
+  select
+    to_char(clock_timestamp(), 'YYYYMMDDHH24MISSMS')
+    || '-'
+    || substr(md5(random()::text || clock_timestamp()::text), 1, 4);
 $$;
 
 create or replace function app_api.caulk_require_warehouse(
