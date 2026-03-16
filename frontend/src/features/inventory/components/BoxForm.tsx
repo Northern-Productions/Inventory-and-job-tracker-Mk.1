@@ -268,51 +268,40 @@ export function BoxForm({
             disabled={mode === 'edit'}
             required
           />
-          {mode === 'create' ? (
-            <>
-              <label className="field">
-                <span className="field-label">Manufacturer</span>
-                <select
-                  className="field-input"
-                  value={manufacturerSelectValue}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    if (nextValue === CUSTOM_MANUFACTURER_OPTION) {
-                      if (isKnownManufacturer) {
-                        updateField('manufacturer', '');
-                      }
-                      return;
-                    }
+          <label className="field">
+            <span className="field-label">Manufacturer</span>
+            <select
+              className="field-input"
+              value={manufacturerSelectValue}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                if (nextValue === CUSTOM_MANUFACTURER_OPTION) {
+                  if (isKnownManufacturer) {
+                    updateField('manufacturer', '');
+                  }
+                  return;
+                }
 
-                    updateField('manufacturer', nextValue);
-                  }}
-                  required
-                >
-                  {manufacturerOptions.map((manufacturer) => (
-                    <option key={manufacturer} value={manufacturer}>
-                      {manufacturer}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_MANUFACTURER_OPTION}>Enter New Manufacturer</option>
-                </select>
-              </label>
-              {isCustomManufacturerSelected ? (
-                <Input
-                  label="New Manufacturer"
-                  value={draft.manufacturer}
-                  onChange={(event) => updateField('manufacturer', event.target.value)}
-                  required
-                />
-              ) : null}
-            </>
-          ) : (
+                updateField('manufacturer', nextValue);
+              }}
+              required
+            >
+              {manufacturerOptions.map((manufacturer) => (
+                <option key={manufacturer} value={manufacturer}>
+                  {manufacturer}
+                </option>
+              ))}
+              <option value={CUSTOM_MANUFACTURER_OPTION}>Enter New Manufacturer</option>
+            </select>
+          </label>
+          {isCustomManufacturerSelected ? (
             <Input
-              label="Manufacturer"
+              label="New Manufacturer"
               value={draft.manufacturer}
               onChange={(event) => updateField('manufacturer', event.target.value)}
               required
             />
-          )}
+          ) : null}
           <FilmNameAutocompleteInput
             label="Film Name"
             value={draft.filmName}
