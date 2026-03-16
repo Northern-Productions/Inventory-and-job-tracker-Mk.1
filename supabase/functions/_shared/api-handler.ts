@@ -1,9 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { isOwnerOnlyRoute as isOwnerOnlyRouteContract, isReadRoute } from "../../../frontend/src/domain/runtimeContract.mjs";
+import { isReadRoute } from "../../../frontend/src/domain/runtimeContract.mjs";
 import {
   CACHE_TTL_MS,
   CORS_ALLOWED_ORIGINS,
-  DEFAULT_ORG_ID,
   FILM_NAME_ALIAS_CACHE_TTL_MS,
   MAX_CACHE_ENTRIES,
   RESEND_API_KEY,
@@ -13,28 +12,18 @@ import {
   SUPABASE_URL
 } from "./config.ts";
 import { HttpError, ok } from "./http.ts";
+import { ensureEffectiveRouteAccess } from "./acl.ts";
+import { resolveAuthContext as resolveAuthContextFromModule } from "./auth.ts";
+import { routeParams as routeParamsFromModule } from "./routes/params.ts";
+import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
+import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
+import type { AuthIdentity } from "./types.ts";
 
 type CacheEntry = {
   expiresAt: number;
   status: number;
   contentType: string;
   body: string;
-};
-
-type AuthIdentity = {
-  userId: string;
-  email: string;
-  name: string;
-  token: string;
-  orgId: string;
-  actor: string;
-  role: "owner" | "admin" | "member" | "";
-  accessStatus: "approved" | "pending" | "denied";
-  permissions: Record<string, { read: boolean; write: boolean }>;
-  isAdminConsoleAllowed: boolean;
-  pendingCount: number;
-  receivesInAppNotifications: boolean;
-  pendingRequestCreated: boolean;
 };
 
 const cache = new Map<string, CacheEntry>();
@@ -1308,145 +1297,21 @@ function mapDbRollHistoryRow(row: any) {
   };
 }
 
-async function fetchAuthIdentity(token: string): Promise<{ userId: string; email: string; name: string; token: string } | null> {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return null;
-  }
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: SUPABASE_ANON_KEY,
-    },
-  });
-  if (!response.ok) {
-    return null;
-  }
-  const payload = await response.json();
-  const email = asTrimmedString(payload.email);
-  const metadata = payload.user_metadata && typeof payload.user_metadata === "object" ? payload.user_metadata : {};
-  const name =
-    asTrimmedString(metadata.full_name) ||
-    asTrimmedString(metadata.name) ||
-    deriveNameFromEmail(email);
-  return {
-    userId: asTrimmedString(payload.id),
-    email,
-    name,
-    token,
-  };
-}
-
 async function resolveAuthContext(request: Request): Promise<{ identity: AuthIdentity; client: any }> {
-  const authorization = request.headers.get("authorization") || "";
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  if (!token) {
-    throw new HttpError(401, "Authenticated session is required.");
-  }
-
-  pruneAuthIdentityCache();
-  const cached = authIdentityCache.get(token);
-  if (cached && cached.expiresAt > Date.now()) {
-    return {
-      identity: cached.identity,
-      client: createUserScopedClient(token),
-    };
-  }
-
-  const user = await fetchAuthIdentity(token);
-  if (!user || !user.userId || !user.email) {
-    throw new HttpError(401, "Authenticated session is required.");
-  }
-
-  const client = createUserScopedClient(token);
-
-  let orgId = DEFAULT_ORG_ID;
-  if (!orgId) {
-    const memberships = await rpcOrThrow<Array<{ org_id: string }>>(client, "api_list_memberships");
-    if (!memberships.length) {
-      throw new HttpError(
-        500,
-        "DEFAULT_ORG_ID must be configured before handling pending approvals.",
-      );
-    }
-
-    if (memberships.length === 1) {
-      orgId = memberships[0].org_id;
-    } else {
-      throw new HttpError(
-        500,
-        "DEFAULT_ORG_ID is required because this user belongs to multiple organizations.",
-      );
-    }
-  }
-
-  const accessContext = await rpcOrThrow<Record<string, unknown>>(client, "api_get_auth_context", {
-    p_org_id: orgId,
+  return resolveAuthContextFromModule(request, {
+    asTrimmedString,
+    deriveNameFromEmail,
+    pruneAuthIdentityCache,
+    authIdentityCache,
+    createUserScopedClient,
+    rpcOrThrow,
+    parseFeaturePermissions,
+    sendNewAccessRequestNotification,
   });
-
-  const accessStatusRaw = asTrimmedString(accessContext.accessStatus || "pending").toLowerCase();
-  const roleRaw = asTrimmedString(accessContext.role).toLowerCase();
-  const identity: AuthIdentity = {
-    ...user,
-    orgId,
-    actor: `${user.name} <${user.email}>`,
-    accessStatus:
-      accessStatusRaw === "approved" || accessStatusRaw === "denied"
-        ? (accessStatusRaw as "approved" | "denied")
-        : "pending",
-    role:
-      roleRaw === "owner" || roleRaw === "admin" || roleRaw === "member"
-        ? (roleRaw as "owner" | "admin" | "member")
-        : "",
-    permissions: parseFeaturePermissions(accessContext.permissions),
-    isAdminConsoleAllowed:
-      accessContext.isAdminConsoleAllowed === true ||
-      String(accessContext.isAdminConsoleAllowed).toLowerCase() === "true",
-    pendingCount: Number(accessContext.pendingCount || 0) || 0,
-    receivesInAppNotifications:
-      accessContext.receivesInAppNotifications === true ||
-      String(accessContext.receivesInAppNotifications).toLowerCase() === "true",
-    pendingRequestCreated:
-      accessContext.pendingRequestCreated === true ||
-      String(accessContext.pendingRequestCreated).toLowerCase() === "true",
-  };
-
-  if (identity.accessStatus === "pending" && identity.pendingRequestCreated) {
-    try {
-      await sendNewAccessRequestNotification({
-        orgId,
-        requestedEmail: user.email,
-        requestedUserId: user.userId,
-      });
-    } catch {
-      // Non-fatal: pending state is still persisted in DB.
-    }
-  }
-
-  authIdentityCache.set(token, {
-    identity,
-    expiresAt: Date.now() + 60_000,
-  });
-
-  return { identity, client };
 }
 
 function routeParams(method: string, requestUrl: URL, bodyJson: Record<string, unknown> | null) {
-  if (method === "GET") {
-    const params: Record<string, unknown> = {};
-    for (const [key, value] of requestUrl.searchParams.entries()) {
-      if (key === "path") {
-        continue;
-      }
-      params[key] = value;
-    }
-    return params;
-  }
-
-  const next = bodyJson && typeof bodyJson === "object" ? { ...bodyJson } : {};
-  delete next.path;
-  delete next.authToken;
-  delete next.authUser;
-  return next;
+  return routeParamsFromModule(method, requestUrl, bodyJson);
 }
 
 async function listBoxes(client: any, orgId: string) {
@@ -3360,211 +3225,35 @@ async function callMutationRpc(client: any, fn: string, orgId: string, actor: st
 }
 
 async function dispatchRead(client: any, orgId: string, logicalPath: string, params: Record<string, unknown>) {
-  switch (logicalPath) {
-    case "/admin/access/requests": {
-      const status = asTrimmedString(params.status);
-      const entries = await rpcOrThrow<any[]>(client, "api_list_access_requests", {
-        p_org_id: orgId,
-        p_status: status,
-      });
-      return ok({ entries: Array.isArray(entries) ? entries : [] });
-    }
-    case "/admin/username-requests": {
-      const status = asTrimmedString(params.status);
-      const entries = await rpcOrThrow<any[]>(client, "api_list_username_change_requests", {
-        p_org_id: orgId,
-        p_status: status,
-      });
-      return ok({ entries: Array.isArray(entries) ? entries : [] });
-    }
-    case "/admin/member-permissions": {
-      const permissions = await rpcOrThrow<Record<string, unknown>>(client, "api_get_member_feature_permissions", {
-        p_org_id: orgId,
-      });
-      return ok({ permissions });
-    }
-    case "/admin/user-permissions": {
-      const permissions = await rpcOrThrow<Record<string, unknown>>(client, "api_get_user_feature_permissions", {
-        p_org_id: orgId,
-        p_user_id: requireString(params.userId, "userId"),
-      });
-      return ok({ permissions });
-    }
-    case "/owner/admin-permissions": {
-      const entriesRaw = await rpcOrThrow<any[]>(client, "api_get_admin_feature_permissions", {
-        p_org_id: orgId,
-      });
-      const entries = await enrichAdminPermissionEntries(Array.isArray(entriesRaw) ? entriesRaw : []);
-      return ok({ entries });
-    }
-    case "/owner/notification-preferences": {
-      const preferences = await rpcOrThrow<Record<string, unknown>>(client, "api_get_owner_notification_preferences", {
-        p_org_id: orgId,
-      });
-      return ok(preferences);
-    }
-    case "/warehouses/list": {
-      const entries = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
-        p_org_id: orgId,
-      });
-      return ok({
-        entries: (entries || []).map((entry) => ({
-          code: asTrimmedString(entry.code).toUpperCase(),
-          name: asTrimmedString(entry.name),
-          boxIdPrefix: asTrimmedString(entry.box_id_prefix).toUpperCase(),
-        })),
-      });
-    }
-    case "/caulk/manufacturers/list": {
-      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_manufacturers", {
-        p_org_id: orgId,
-      });
-      const entries = (entriesRaw || []).map((entry) => ({
-        manufacturerId: asTrimmedString(entry.manufacturer_id),
-        name: asTrimmedString(entry.name),
-        lookupKey: asTrimmedString(entry.lookup_key),
-        isActive: entry.is_active === true || String(entry.is_active).toLowerCase() === "true",
-        updatedAt: asTrimmedString(entry.updated_at),
-      }));
-      return ok({ entries });
-    }
-    case "/caulk/products/list": {
-      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_products", {
-        p_org_id: orgId,
-      });
-      const entries = (entriesRaw || []).map((entry) => ({
-        productId: asTrimmedString(entry.product_id),
-        manufacturerId: asTrimmedString(entry.manufacturer_id),
-        manufacturer: asTrimmedString(entry.manufacturer),
-        productName: asTrimmedString(entry.product_name),
-        productCode: asTrimmedString(entry.product_code),
-        lookupKey: asTrimmedString(entry.lookup_key),
-        tubesPerCase: integerOrZero(entry.tubes_per_case),
-        isActive: entry.is_active === true || String(entry.is_active).toLowerCase() === "true",
-        notes: asTrimmedString(entry.notes),
-        updatedAt: asTrimmedString(entry.updated_at),
-      }));
-      return ok({ entries });
-    }
-    case "/caulk/stock/list": {
-      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_stock", {
-        p_org_id: orgId,
-        p_warehouse: asTrimmedString(params.warehouse),
-        p_manufacturer: asTrimmedString(params.manufacturer),
-        p_q: asTrimmedString(params.q),
-      });
-      const entries = (entriesRaw || []).map((entry) => {
-        const tubesOnHand = Math.max(0, integerOrZero(entry.tubes_on_hand));
-        const casesOnHand = Math.floor(tubesOnHand / 16);
-        const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
-        return {
-          warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
-          productId: asTrimmedString(entry.product_id),
-          manufacturerId: asTrimmedString(entry.manufacturer_id),
-          manufacturer: asTrimmedString(entry.manufacturer),
-          productName: asTrimmedString(entry.product_name),
-          productCode: asTrimmedString(entry.product_code),
-          tubesPerCase: integerOrZero(entry.tubes_per_case),
-          tubesOnHand,
-          casesOnHand,
-          looseTubes,
-          updatedAt: asTrimmedString(entry.updated_at),
-          updatedBy: asTrimmedString(entry.updated_by),
-        };
-      });
-      return ok({ entries });
-    }
-    case "/caulk/transactions/list": {
-      const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_transactions", {
-        p_org_id: orgId,
-        p_warehouse: asTrimmedString(params.warehouse),
-        p_product_id: asTrimmedString(params.productId) || null,
-        p_limit: integerOrZero(params.limit) > 0 ? integerOrZero(params.limit) : 200,
-      });
-      const entries = (entriesRaw || []).map((entry) => ({
-        transactionId: asTrimmedString(entry.transaction_id),
-        productId: asTrimmedString(entry.product_id),
-        warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
-        manufacturer: asTrimmedString(entry.manufacturer),
-        productName: asTrimmedString(entry.product_name),
-        productCode: asTrimmedString(entry.product_code),
-        action: asTrimmedString(entry.action),
-        deltaTubes: integerOrZero(entry.delta_tubes),
-        resultingTubesOnHand: integerOrZero(entry.resulting_tubes_on_hand),
-        tubesPerCase: integerOrZero(entry.tubes_per_case),
-        reason: asTrimmedString(entry.reason),
-        notes: asTrimmedString(entry.notes),
-        transferId: asTrimmedString(entry.transfer_id),
-        sourceBoxId: asTrimmedString(entry.source_box_id),
-        createdAt: asTrimmedString(entry.created_at),
-        createdBy: asTrimmedString(entry.created_by),
-      }));
-      return ok({ entries });
-    }
-    case "/boxes/search":
-      return ok(await buildSearchBoxes(client, orgId, params));
-    case "/boxes/get": {
-      const found = await findBoxById(client, orgId, requireString(params.boxId, "boxId"));
-      if (!found) {
-        throw new HttpError(404, "Box not found.");
-      }
-      return ok(toPublicBox(found));
-    }
-    case "/audit/list":
-      return ok({ entries: await listAudit(client, orgId, params) });
-    case "/audit/by-box":
-      return ok({ entries: await listAuditEntriesByBox(client, orgId, requireString(params.boxId, "boxId")) });
-    case "/allocations/by-box":
-      return ok({
-        entries: (await listAllocationsByBox(client, orgId, requireString(params.boxId, "boxId"))).map(toPublicAllocation),
-      });
-    case "/allocations/jobs":
-      return ok({ entries: await buildAllocationJobList(client, orgId) });
-    case "/allocations/by-job":
-      return ok(await buildAllocationJobDetail(client, orgId, params.jobNumber));
-    case "/allocations/preview": {
-      const source = await findBoxById(client, orgId, requireString(params.boxId, "BoxID"));
-      if (!source) {
-        throw new HttpError(404, "Box not found.");
-      }
-      if (source.status !== "IN_STOCK") {
-        throw new HttpError(400, "Only in-stock boxes can be allocated.");
-      }
-      return ok(buildAllocationPreviewPlan(
-        source,
-        params.requestedFeet,
-        await resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader),
-        {
-          crossWarehouse: parseCrossWarehouseFlag(params.crossWarehouse),
-          minimumWidthIn: params.requestedWidthIn,
-          allBoxes: await listBoxes(client, orgId),
-          activeAllocationsByBox: buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId)),
-        },
-      ));
-    }
-    case "/jobs/list": {
-      const limitValue = Number(params.limit);
-      const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-      return ok({ entries: await buildJobsList(client, orgId, limit) });
-    }
-    case "/jobs/search": {
-      const limitValue = Number(params.limit);
-      const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-      return ok({ entries: await buildJobsSearchResults(client, orgId, params.query, limit) });
-    }
-    case "/jobs/get":
-      return ok(await buildJobDetail(client, orgId, params.jobNumber));
-    case "/film-orders/list":
-      return ok({ entries: await buildFilmOrdersList(client, orgId) });
-    case "/film-data/catalog":
-      return ok({ entries: await buildFilmCatalog(client, orgId) });
-    case "/roll-history/by-box":
-      return ok({ entries: await listRollHistoryByBox(client, orgId, requireString(params.boxId, "boxId")) });
-    case "/reports/summary":
-      return ok(await buildReportsSummary(client, orgId, params));
-    default:
-      throw new HttpError(404, `Route not found: ${logicalPath || "/"}`);
-  }
+  return dispatchReadWithHandlers(client, orgId, logicalPath, params, {
+    asTrimmedString,
+    requireString,
+    integerOrZero,
+    rpcOrThrow,
+    enrichAdminPermissionEntries,
+    buildSearchBoxes,
+    findBoxById,
+    toPublicBox,
+    listAudit,
+    listAuditEntriesByBox,
+    listAllocationsByBox,
+    toPublicAllocation,
+    buildAllocationJobList,
+    buildAllocationJobDetail,
+    buildAllocationPreviewPlan,
+    resolveJobContext,
+    parseCrossWarehouseFlag,
+    listBoxes,
+    buildActiveAllocationsByBoxIndex,
+    listActiveAllocations,
+    buildJobsList,
+    buildJobsSearchResults,
+    buildJobDetail,
+    buildFilmOrdersList,
+    buildFilmCatalog,
+    listRollHistoryByBox,
+    buildReportsSummary,
+  });
 }
 
 async function dispatchMutation(
@@ -3573,260 +3262,27 @@ async function dispatchMutation(
   logicalPath: string,
   payload: Record<string, unknown>,
 ) {
-  const orgId = identity.orgId;
-  const actor = identity.actor;
-  const normalizedPayload = await canonicalizeMutationPayloadForRoute(client, orgId, logicalPath, payload);
-  switch (logicalPath) {
-    case "/profile/username": {
-      const result = await callMutationRpc(client, "api_request_username_change", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/admin/access/requests/approve": {
-      const result = await callMutationRpc(client, "api_approve_access_request", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/admin/access/requests/deny": {
-      const result = await callMutationRpc(client, "api_deny_access_request", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/admin/username-requests/approve": {
-      const result = await callMutationRpc(
-        client,
-        "api_approve_username_change_request",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok(result);
-    }
-    case "/admin/username-requests/deny": {
-      const result = await callMutationRpc(client, "api_deny_username_change_request", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/admin/member-permissions": {
-      const permissions = await callMutationRpc(
-        client,
-        "api_update_member_feature_permissions",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok({ permissions });
-    }
-    case "/admin/user-permissions": {
-      const permissions = await callMutationRpc(
-        client,
-        "api_update_user_feature_permissions",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok({ permissions });
-    }
-    case "/owner/admin-permissions": {
-      const permissions = await callMutationRpc(
-        client,
-        "api_update_admin_feature_permissions",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok({ permissions });
-    }
-    case "/admin/roles/promote-member-to-admin": {
-      const result = await callMutationRpc(client, "api_promote_member_to_admin", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/owner/roles/demote-admin-to-member": {
-      const result = await callMutationRpc(client, "api_demote_admin_to_member", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/owner/roles/promote-admin-to-owner": {
-      const result = await callMutationRpc(client, "api_promote_admin_to_owner", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/owner/notification-preferences": {
-      const result = await callMutationRpc(
-        client,
-        "api_update_owner_notification_preferences",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok(result);
-    }
-    case "/owner/caulk/manufacturers/upsert": {
-      const result = await callMutationRpc(
-        client,
-        "api_acl_owner_upsert_caulk_manufacturer",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok(result);
-    }
-    case "/caulk/products/upsert": {
-      const result = await callMutationRpc(
-        client,
-        "api_acl_caulk_upsert_product",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok(result);
-    }
-    case "/caulk/mutate": {
-      const result = await callMutationRpc(
-        client,
-        "api_acl_caulk_mutate_stock",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      return ok(normalizeCaulkCaseMath(result));
-    }
-    case "/caulk/transfer": {
-      const result = await callMutationRpc(
-        client,
-        "api_acl_caulk_transfer_stock",
-        orgId,
-        actor,
-        normalizedPayload,
-      );
-      const transfer = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
-      return ok({
-        ...transfer,
-        from: normalizeCaulkCaseMath(transfer.from),
-        to: normalizeCaulkCaseMath(transfer.to),
-      });
-    }
-    case "/owner/warehouses/add": {
-      const result = await callMutationRpc(client, "api_acl_add_warehouse", orgId, actor, normalizedPayload);
-      return ok(result);
-    }
-    case "/boxes/add": {
-      const result = await callMutationRpc(client, "api_acl_boxes_add", orgId, actor, normalizedPayload);
-      const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
-      if (!box) {
-        throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
-      }
-      return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
-    }
-    case "/boxes/update": {
-      const result = await callMutationRpc(client, "api_acl_boxes_update", orgId, actor, normalizedPayload);
-      const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
-      if (!box) {
-        throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
-      }
-      return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
-    }
-    case "/boxes/set-status": {
-      const result = await callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, normalizedPayload);
-      const box = await findBoxById(client, orgId, asTrimmedString(result.boxId));
-      if (!box) {
-        throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
-      }
-      return ok({ box: toPublicBox(box), logId: asTrimmedString(result.logId) }, result.warnings || []);
-    }
-    case "/boxes/delete": {
-      const result = await callMutationRpc(client, "api_acl_boxes_delete", orgId, actor, normalizedPayload);
-      return ok(
-        {
-          boxId: asTrimmedString(result.boxId),
-          logId: asTrimmedString(result.logId),
-        },
-        result.warnings || [],
-      );
-    }
-    case "/allocations/add":
-    case "/allocations/apply": {
-      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
-      const existingJob = await findJobByNumber(client, orgId, jobNumber);
-      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
-        throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive allocations.`);
-      }
-
-      const result = await callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, normalizedPayload);
-      const allocationIds = Array.isArray(result.allocationIds)
-        ? result.allocationIds.map((value: unknown) => asTrimmedString(value)).filter(Boolean)
-        : [];
-      const allocations = allocationIds.length
-        ? (await listAllocationsByIds(client, orgId, allocationIds)).map(toPublicAllocation)
-        : [];
-      const filmOrderId = asTrimmedString(result.filmOrderId);
-      let filmOrder = null;
-      if (filmOrderId) {
-        const found = await findFilmOrderById(client, orgId, filmOrderId);
-        if (found) {
-          filmOrder = toPublicFilmOrder(found, await buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId));
-        }
-      }
-      return ok({
-        allocations,
-        filmOrder,
-        remainingUncoveredFeet: integerOrZero(result.remainingUncoveredFeet),
-      }, result.warnings || []);
-    }
-    case "/allocations/remove-box":
-      return removeJobBoxAllocation(client, identity, payload);
-    case "/jobs/create": {
-      const result = await callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
-      return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
-    }
-    case "/jobs/update": {
-      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
-      if (
-        normalizedPayload.lifecycleStatus !== undefined &&
-        normalizeJobLifecycleStatus(normalizedPayload.lifecycleStatus) !== "ACTIVE"
-      ) {
-        throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
-      }
-      const existingJob = await findJobByNumber(client, orgId, jobNumber);
-      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
-        throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
-      }
-
-      const result = await callMutationRpc(client, "api_acl_jobs_update", orgId, actor, normalizedPayload);
-      return ok(await buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
-    }
-    case "/jobs/complete":
-      return completeJob(client, identity, payload);
-    case "/jobs/reopen":
-      return reopenJob(client, identity, payload);
-    case "/film-orders/create": {
-      const jobNumber = requireString(normalizedPayload.jobNumber, "JobNumber");
-      const existingJob = await findJobByNumber(client, orgId, jobNumber);
-      if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
-        throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
-      }
-
-      const result = await callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, normalizedPayload);
-      const filmOrder = await findFilmOrderById(client, orgId, result.filmOrderId);
-      if (!filmOrder) {
-        throw new HttpError(500, "Film order was created but could not be reloaded.");
-      }
-      return ok(
-        toPublicFilmOrder(filmOrder, await buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrder.filmOrderId)),
-        result.warnings || [],
-      );
-    }
-    case "/film-orders/cancel": {
-      const result = await callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, normalizedPayload);
-      return ok({ jobNumber: asTrimmedString(result.jobNumber) }, result.warnings || []);
-    }
-    case "/film-orders/delete": {
-      const result = await callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, normalizedPayload);
-      return ok(result.filmOrder || null, result.warnings || []);
-    }
-    case "/audit/undo": {
-      const result = await callMutationRpc(client, "api_acl_audit_undo", orgId, actor, normalizedPayload);
-      const boxId = asTrimmedString(result.boxId);
-      const box = result.boxDeleted || !boxId ? null : await findBoxById(client, orgId, boxId);
-      return ok({ box: box ? toPublicBox(box) : null, logId: asTrimmedString(result.logId) }, result.warnings || []);
-    }
-    default:
-      throw new HttpError(404, `Route not found: ${logicalPath || "/"}`);
-  }
+  return dispatchMutationWithHandlers(client, identity, logicalPath, payload, {
+    asTrimmedString,
+    requireString,
+    integerOrZero,
+    normalizeCaulkCaseMath,
+    canonicalizeMutationPayloadForRoute,
+    callMutationRpc,
+    findBoxById,
+    toPublicBox,
+    findJobByNumber,
+    normalizeJobLifecycleStatus,
+    listAllocationsByIds,
+    toPublicAllocation,
+    findFilmOrderById,
+    toPublicFilmOrder,
+    buildPublicFilmOrderLinkedBoxes,
+    removeJobBoxAllocation,
+    buildJobDetail,
+    completeJob,
+    reopenJob,
+  });
 }
 
 export async function handleApiRequest(request: Request, canonicalName = "api"): Promise<Response> {
@@ -3902,18 +3358,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       return new Response(responseBody, { status: 200, headers });
     }
 
-    if (identity.accessStatus !== "approved" && logicalPath !== "/profile/username") {
-      throw new HttpError(
-        403,
-        identity.accessStatus === "denied"
-          ? "Your access request was denied. Contact an owner for help."
-          : "Your account is awaiting approval from an admin or owner.",
-      );
-    }
-
-    if (isOwnerOnlyRouteContract(logicalPath) && identity.role !== "owner") {
-      throw new HttpError(403, "Owner access is required.");
-    }
+    ensureEffectiveRouteAccess(identity, logicalPath);
 
     const params = routeParams(request.method, requestUrl, bodyJson);
     const payload = (request.method === "GET" || (request.method === "POST" && isReadRoute(logicalPath)))

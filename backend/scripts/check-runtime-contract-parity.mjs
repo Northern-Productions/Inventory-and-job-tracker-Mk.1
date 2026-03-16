@@ -16,6 +16,10 @@ function extractRoutesFromEdgeHandler(text) {
   for (const match of conditionalMatches) {
     routes.add(match[1]);
   }
+  const mapKeyMatches = text.matchAll(/["'](\/[^"']+)["']\s*:\s*async/g);
+  for (const match of mapKeyMatches) {
+    routes.add(match[1]);
+  }
   return routes;
 }
 
@@ -32,9 +36,12 @@ function extractRoutesFromFrontendClient(text) {
   return routes;
 }
 
-const edgePath = path.resolve('..', 'supabase/functions/_shared/api-handler.ts');
+const edgePaths = [
+  path.resolve('..', 'supabase/functions/_shared/api-handler.ts'),
+  path.resolve('..', 'supabase/functions/_shared/routes/readHandlers.ts'),
+  path.resolve('..', 'supabase/functions/_shared/routes/mutationHandlers.ts')
+];
 const frontendPath = path.resolve('..', 'frontend/src/api/client.ts');
-const edgeSource = fs.readFileSync(edgePath, 'utf8');
 const clientSource = fs.readFileSync(frontendPath, 'utf8');
 
 const contractRoutes = new Set([
@@ -46,7 +53,14 @@ const contractRoutes = new Set([
   '/profile/username'
 ]);
 
-const edgeRoutes = extractRoutesFromEdgeHandler(edgeSource);
+const edgeRoutes = new Set();
+for (const edgePath of edgePaths) {
+  const edgeSource = fs.readFileSync(edgePath, 'utf8');
+  const discovered = extractRoutesFromEdgeHandler(edgeSource);
+  for (const route of discovered) {
+    edgeRoutes.add(route);
+  }
+}
 const clientRoutes = extractRoutesFromFrontendClient(clientSource);
 
 const missingInEdge = [...contractRoutes].filter((route) => !edgeRoutes.has(route)).sort();
