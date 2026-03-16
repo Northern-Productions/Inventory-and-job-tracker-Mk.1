@@ -239,30 +239,9 @@ export default function FilmOrdersPage() {
                     <MobileField label="Warehouse" value={order.warehouse} />
                     <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
                     <MobileField label="Width" value={order.widthIn} />
-                    <MobileField label="Requested LF" value={order.requestedFeet} />
-                    <MobileField label="Covered LF" value={order.coveredFeet} />
-                    <MobileField label="On The Way LF" value={order.orderedFeet} />
-                    <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
+                    <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
                     <MobileField label="Job Date" value={formatDate(order.jobDate)} />
-                    <MobileField label="Crew" value={order.crewLeader || '--'} />
                     <MobileField label="Created" value={formatDate(order.createdAt)} />
-                    <MobileField
-                      label="Linked Boxes"
-                      value={
-                        (order.linkedBoxes || []).length ? (
-                          <div className="film-order-linked-boxes">
-                            {(order.linkedBoxes || []).map((link) => (
-                              <div key={`${order.filmOrderId}-${link.boxId}`}>
-                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
-                                {link.autoAllocatedFeet} LF allocated
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          '--'
-                        )
-                      }
-                    />
                   </MobileFieldList>
                   <MobileActionStack>
                     {order.status === 'FULFILLED' ? null : (
@@ -307,13 +286,8 @@ export default function FilmOrdersPage() {
                     <th>Warehouse</th>
                     <th>Film</th>
                     <th>Width</th>
-                    <th>Requested</th>
-                    <th>Covered</th>
-                    <th>On The Way</th>
-                    <th>Still Short</th>
+                    <th>Need To Order</th>
                     <th>Job Date</th>
-                    <th>Crew</th>
-                    <th>Linked Boxes</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -330,26 +304,8 @@ export default function FilmOrdersPage() {
                         {order.manufacturer} {order.filmName}
                       </td>
                       <td>{order.widthIn}</td>
-                      <td>{order.requestedFeet}</td>
-                      <td>{order.coveredFeet}</td>
-                      <td>{order.orderedFeet}</td>
                       <td>{order.remainingToOrderFeet}</td>
                       <td>{formatDate(order.jobDate)}</td>
-                      <td>{order.crewLeader || '--'}</td>
-                      <td>
-                        {(order.linkedBoxes || []).length ? (
-                          <div className="film-order-linked-boxes">
-                            {(order.linkedBoxes || []).map((link) => (
-                              <div key={`${order.filmOrderId}-${link.boxId}`}>
-                                <strong>{link.boxId}</strong>: {link.orderedFeet} LF ordered,{' '}
-                                {link.autoAllocatedFeet} LF allocated
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          '--'
-                        )}
-                      </td>
                       <td>{formatDate(order.createdAt)}</td>
                       <td>
                         <div className="film-order-actions">
