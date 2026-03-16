@@ -1,37 +1,41 @@
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOptimisticQueue } from '../../../components/OptimisticQueue';
 import {
-  applyAllocationPlan,
-  completeJob,
-  cancelJob,
-  createJob,
-  deleteBox,
-  deleteFilmOrder,
-  createFilmOrder,
+  getAllocationsByBox,
   getAllocationJob,
   getAllocationJobs,
+  previewAllocationPlan,
+  applyAllocationPlan,
+  removeJobBoxAllocations
+} from '../../../api/features/allocationsClient';
+import {
+  addBox,
+  allocateBox,
+  deleteBox,
+  getBox,
+  searchBoxes,
+  setBoxStatus,
+  syncAllOfflineInventorySnapshots,
+  updateBox
+} from '../../../api/features/inventoryClient';
+import {
+  completeJob,
+  createJob,
   getJob,
   getJobs,
-  searchJobsByNumber,
-  getAllocationsByBox,
-  getFilmCatalog,
-  getFilmOrders,
-  previewAllocationPlan,
-  removeJobBoxAllocations,
-  addBox,
-  getAuditByBox,
-  getBox,
-  getReportsSummary,
-  getRollHistoryByBox,
-  listAudit,
   reopenJob,
-  searchBoxes,
-  syncAllOfflineInventorySnapshots,
-  setBoxStatus,
-  undoAudit,
-  updateJob,
-  updateBox
-} from '../../../api/client';
+  searchJobsByNumber,
+  updateJob
+} from '../../../api/features/jobsClient';
+import {
+  cancelJob,
+  createFilmOrder,
+  deleteFilmOrder,
+  getFilmCatalog,
+  getFilmOrders
+} from '../../../api/features/filmOrdersClient';
+import { getReportsSummary } from '../../../api/features/reportsClient';
+import { getAuditByBox, getRollHistoryByBox, listAudit, undoAudit } from '../../../api/features/auditClient';
 import type {
   AllocationEntry,
   AllocationJobDetail,

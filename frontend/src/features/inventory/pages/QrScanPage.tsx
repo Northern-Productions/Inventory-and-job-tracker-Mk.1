@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBox } from '../../../api/client';
+import { getBox } from '../../../api/features/inventoryClient';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { addWarehouse } from '../../../api/client';
+import { addWarehouse } from '../../../api/features/warehouseClient';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';

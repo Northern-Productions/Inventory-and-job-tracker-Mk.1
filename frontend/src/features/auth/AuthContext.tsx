@@ -8,7 +8,11 @@ import type {
   FeatureArea
 } from '../../domain';
 import { createDefaultFeatureAccessMap } from '../../domain';
-import { getAuthContext, requestUsernameChange as requestUsernameChangeApi, setClientAccessContext } from '../../api/client';
+import {
+  getAuthContext,
+  requestUsernameChange as requestUsernameChangeApi,
+  setClientAccessContext
+} from '../../api/features/authClient';
 import { getStoredAuthSession, setStoredAuthSession } from '../../lib/storage';
 import { getSupabaseClient, isSupabaseAuthConfigured } from '../../lib/supabase';
 

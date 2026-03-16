@@ -5,7 +5,7 @@ import {
   getAdminFeaturePermissions,
   promoteAdminToOwner,
   updateAdminFeaturePermissions
-} from '../../../api/client';
+} from '../../../api/features/accessClient';
 import { Button } from '../../../components/Button';
 import { useToast } from '../../../components/Toast';
 import type { FeatureAccessMap, FeatureArea } from '../../../domain';

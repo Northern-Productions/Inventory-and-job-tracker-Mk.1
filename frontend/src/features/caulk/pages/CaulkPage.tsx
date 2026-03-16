@@ -13,7 +13,7 @@ import {
   ownerUpsertCaulkManufacturer,
   transferCaulkStock,
   upsertCaulkProduct
-} from '../../../api/client';
+} from '../../../api/features/caulkClient';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
 import { useAuth } from '../../auth/AuthContext';
 

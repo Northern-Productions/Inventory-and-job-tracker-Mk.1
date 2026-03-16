@@ -3,7 +3,7 @@ import { useQueries } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
-import { searchBoxes } from '../../../api/client';
+import { searchBoxes } from '../../../api/features/inventoryClient';
 import { useAuth } from '../../auth/AuthContext';
 import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {

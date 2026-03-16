@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { syncAllOfflineInventorySnapshots } from '../../../api/client';
+import { syncAllOfflineInventorySnapshots } from '../../../api/features/inventoryClient';
 import type { Warehouse } from '../../../domain';
 import {
   getOfflineInventorySyncMeta,

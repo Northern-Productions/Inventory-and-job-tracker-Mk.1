@@ -13,7 +13,7 @@ import {
   promoteMemberToAdmin,
   updateAdminFeaturePermissions,
   updateUserFeaturePermissions
-} from '../../../api/client';
+} from '../../../api/features/accessClient';
 import { Button } from '../../../components/Button';
 import { useToast } from '../../../components/Toast';
 import type { AccessRequestEntry, FeatureAccessMap, FeatureArea } from '../../../domain';

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { listWarehouses } from '../../../api/client';
+import { listWarehouses } from '../../../api/features/warehouseClient';
 import { WAREHOUSE_CODES, WAREHOUSE_LABELS, type WarehouseEntry } from '../../../domain';
 
 export const warehouseRegistryQueryKey = ['warehouses'] as const;

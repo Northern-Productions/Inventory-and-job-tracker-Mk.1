@@ -16,7 +16,7 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
   warehouseRegistryQueryKey: ['warehouses']
 }));
 
-vi.mock('../../../api/client', () => ({
+vi.mock('../../../api/features/warehouseClient', () => ({
   addWarehouse: vi.fn()
 }));
 
