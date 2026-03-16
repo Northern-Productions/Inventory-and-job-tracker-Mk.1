@@ -14,9 +14,11 @@ import {
 import { HttpError, ok } from "./http.ts";
 import { ensureEffectiveRouteAccess } from "./acl.ts";
 import { resolveAuthContext as resolveAuthContextFromModule } from "./auth.ts";
+import { createInventoryRepositories } from "./repositories/inventoryRepositories.ts";
 import { routeParams as routeParamsFromModule } from "./routes/params.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
+import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
 import type { AuthIdentity } from "./types.ts";
 
 type CacheEntry = {
@@ -1021,281 +1023,41 @@ async function resolveCanonicalFilmEntry(
   return normalizeSecurityManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
 }
 
-function mapDbBoxRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    boxId: asTrimmedString(row.box_id),
-    warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    widthIn: numericOrNull(row.width_in) ?? 0,
-    initialFeet: integerOrZero(row.initial_feet),
-    feetAvailable: integerOrZero(row.feet_available),
-    lotRun: asTrimmedString(row.lot_run),
-    status: asTrimmedString(row.status) || "ORDERED",
-    orderDate: formatDateValue(row.order_date),
-    receivedDate: formatDateValue(row.received_date),
-    initialWeightLbs: numericOrNull(row.initial_weight_lbs),
-    lastRollWeightLbs: numericOrNull(row.last_roll_weight_lbs),
-    lastWeighedDate: formatDateValue(row.last_weighed_date),
-    filmKey: asTrimmedString(row.film_key).toUpperCase(),
-    coreType: asTrimmedString(row.core_type),
-    coreWeightLbs: numericOrNull(row.core_weight_lbs),
-    lfWeightLbsPerFt: numericOrNull(row.lf_weight_lbs_per_ft),
-    purchaseCost: numericOrNull(row.purchase_cost),
-    notes: asTrimmedString(row.notes),
-    hasEverBeenCheckedOut: Boolean(row.has_ever_been_checked_out),
-    lastCheckoutJob: asTrimmedString(row.last_checkout_job),
-    lastCheckoutDate: formatDateValue(row.last_checkout_date),
-    zeroedDate: formatDateValue(row.zeroed_date),
-    zeroedReason: asTrimmedString(row.zeroed_reason),
-    zeroedBy: asTrimmedString(row.zeroed_by),
-    createdAt: formatTimestamp(row.created_at),
-    updatedAt: formatTimestamp(row.updated_at),
-  };
-}
-
-function toPublicBox(box: any) {
-  return {
-    boxId: box.boxId,
-    warehouse: box.warehouse,
-    manufacturer: box.manufacturer,
-    filmName: box.filmName,
-    widthIn: box.widthIn,
-    initialFeet: box.initialFeet,
-    feetAvailable: box.feetAvailable,
-    lotRun: box.lotRun,
-    status: box.status,
-    orderDate: box.orderDate,
-    receivedDate: box.receivedDate,
-    initialWeightLbs: box.initialWeightLbs,
-    lastRollWeightLbs: box.lastRollWeightLbs,
-    lastWeighedDate: box.lastWeighedDate,
-    filmKey: box.filmKey,
-    coreType: box.coreType,
-    coreWeightLbs: box.coreWeightLbs,
-    lfWeightLbsPerFt: box.lfWeightLbsPerFt,
-    purchaseCost: box.purchaseCost,
-    notes: box.notes,
-    hasEverBeenCheckedOut: box.hasEverBeenCheckedOut,
-    lastCheckoutJob: box.lastCheckoutJob,
-    lastCheckoutDate: box.lastCheckoutDate,
-    zeroedDate: box.zeroedDate,
-    zeroedReason: box.zeroedReason,
-    zeroedBy: box.zeroedBy,
-  };
-}
-
-function mapDbFilmCatalogRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    filmKey: asTrimmedString(row.film_key).toUpperCase(),
-    manufacturer: asTrimmedString(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    sqFtWeightLbsPerSqFt: numericOrNull(row.sq_ft_weight_lbs_per_sq_ft),
-    defaultCoreType: asTrimmedString(row.default_core_type),
-    sourceWidthIn: numericOrNull(row.source_width_in),
-    sourceInitialFeet: integerOrNull(row.source_initial_feet),
-    sourceInitialWeightLbs: numericOrNull(row.source_initial_weight_lbs),
-    sourceBoxId: asTrimmedString(row.source_box_id),
-    notes: asTrimmedString(row.notes),
-    updatedAt: formatTimestamp(row.updated_at),
-  };
-}
-
-function mapDbAllocationRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    allocationId: asTrimmedString(row.allocation_id),
-    boxId: asTrimmedString(row.box_id),
-    warehouse: asTrimmedString(row.warehouse),
-    jobId: row.job_id || null,
-    jobNumber: asTrimmedString(row.job_number),
-    jobDate: formatDateValue(row.job_date),
-    allocatedFeet: integerOrZero(row.allocated_feet),
-    status: asTrimmedString(row.status) || "ACTIVE",
-    createdAt: formatTimestamp(row.created_at),
-    createdBy: asTrimmedString(row.created_by),
-    resolvedAt: formatTimestamp(row.resolved_at),
-    resolvedBy: asTrimmedString(row.resolved_by),
-    notes: asTrimmedString(row.notes),
-    crewLeader: asTrimmedString(row.crew_leader),
-    filmOrderId: asTrimmedString(row.film_order_id),
-  };
-}
-
-function toPublicAllocation(entry: any) {
-  return {
-    allocationId: entry.allocationId,
-    boxId: entry.boxId,
-    warehouse: entry.warehouse,
-    jobNumber: entry.jobNumber,
-    jobDate: entry.jobDate,
-    crewLeader: entry.crewLeader,
-    allocatedFeet: entry.allocatedFeet,
-    status: entry.status,
-    createdAt: entry.createdAt,
-    createdBy: entry.createdBy,
-    resolvedAt: entry.resolvedAt,
-    resolvedBy: entry.resolvedBy,
-    filmOrderId: entry.filmOrderId,
-    notes: entry.notes,
-  };
-}
-
-function mapDbFilmOrderRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    filmOrderId: asTrimmedString(row.film_order_id),
-    jobId: row.job_id || null,
-    jobNumber: asTrimmedString(row.job_number),
-    warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    widthIn: numericOrNull(row.width_in) ?? 0,
-    requestedFeet: integerOrZero(row.requested_feet),
-    coveredFeet: integerOrZero(row.covered_feet),
-    orderedFeet: integerOrZero(row.ordered_feet),
-    remainingToOrderFeet: integerOrZero(row.remaining_to_order_feet),
-    jobDate: formatDateValue(row.job_date),
-    crewLeader: asTrimmedString(row.crew_leader),
-    status: asTrimmedString(row.status) || "FILM_ORDER",
-    sourceBoxId: asTrimmedString(row.source_box_id),
-    createdAt: formatTimestamp(row.created_at),
-    createdBy: asTrimmedString(row.created_by),
-    resolvedAt: formatTimestamp(row.resolved_at),
-    resolvedBy: asTrimmedString(row.resolved_by),
-    notes: asTrimmedString(row.notes),
-  };
-}
-
-function toPublicFilmOrder(entry: any, linkedBoxes: any[]) {
-  return {
-    filmOrderId: entry.filmOrderId,
-    jobNumber: entry.jobNumber,
-    warehouse: entry.warehouse,
-    manufacturer: entry.manufacturer,
-    filmName: entry.filmName,
-    widthIn: entry.widthIn,
-    requestedFeet: entry.requestedFeet,
-    coveredFeet: entry.coveredFeet,
-    orderedFeet: entry.orderedFeet,
-    remainingToOrderFeet: entry.remainingToOrderFeet,
-    jobDate: entry.jobDate,
-    crewLeader: entry.crewLeader,
-    status: entry.status,
-    sourceBoxId: entry.sourceBoxId,
-    createdAt: entry.createdAt,
-    createdBy: entry.createdBy,
-    resolvedAt: entry.resolvedAt,
-    resolvedBy: entry.resolvedBy,
-    notes: entry.notes,
-    linkedBoxes,
-  };
-}
-
-function mapDbJobRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    jobNumber: asTrimmedString(row.job_number),
-    warehouse: asTrimmedString(row.warehouse),
-    sections: asTrimmedString(row.sections) || null,
-    dueDate: formatDateValue(row.due_date),
-    crewLeader: asTrimmedString(row.crew_leader),
-    lifecycleStatus: asTrimmedString(row.lifecycle_status) || "ACTIVE",
-    notes: asTrimmedString(row.notes),
-    createdAt: formatTimestamp(row.created_at),
-    createdBy: asTrimmedString(row.created_by),
-    updatedAt: formatTimestamp(row.updated_at),
-    updatedBy: asTrimmedString(row.updated_by),
-  };
-}
-
-function mapDbRequirementRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    jobId: row.job_id,
-    jobNumber: asTrimmedString(row.job_number),
-    manufacturer: asTrimmedString(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    widthIn: numericOrNull(row.width_in) ?? 0,
-    requiredFeet: integerOrZero(row.required_feet),
-    notes: asTrimmedString(row.notes),
-    createdAt: formatTimestamp(row.created_at),
-    createdBy: asTrimmedString(row.created_by),
-    updatedAt: formatTimestamp(row.updated_at),
-    updatedBy: asTrimmedString(row.updated_by),
-  };
-}
-
-function mapDbAuditRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    logId: asTrimmedString(row.log_id),
-    date: formatTimestamp(row.created_at),
-    action: asTrimmedString(row.action),
-    boxId: asTrimmedString(row.box_id),
-    before: row.before_state || null,
-    after: row.after_state || null,
-    user: asTrimmedString(row.actor),
-    notes: asTrimmedString(row.notes),
-  };
-}
-
-function mapDbRollHistoryRow(row: any) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    orgId: row.org_id,
-    logId: asTrimmedString(row.log_id),
-    boxId: asTrimmedString(row.box_id),
-    warehouse: asTrimmedString(row.warehouse),
-    manufacturer: asTrimmedString(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    widthIn: numericOrNull(row.width_in) ?? 0,
-    jobNumber: asTrimmedString(row.job_number),
-    checkedOutAt: formatTimestamp(row.checked_out_at),
-    checkedOutBy: asTrimmedString(row.checked_out_by),
-    checkedOutWeightLbs: numericOrNull(row.checked_out_weight_lbs),
-    checkedInAt: formatTimestamp(row.checked_in_at),
-    checkedInBy: asTrimmedString(row.checked_in_by),
-    checkedInWeightLbs: numericOrNull(row.checked_in_weight_lbs),
-    weightDeltaLbs: numericOrNull(row.weight_delta_lbs),
-    feetBefore: integerOrZero(row.feet_before),
-    feetAfter: integerOrZero(row.feet_after),
-    notes: asTrimmedString(row.notes),
-  };
-}
+const inventoryRepositories = createInventoryRepositories({
+  rpcOrThrow,
+  asTrimmedString,
+  numericOrNull,
+  integerOrZero,
+  integerOrNull,
+  formatDateValue,
+  formatTimestamp,
+});
+const {
+  mapDbRollHistoryRow,
+  toPublicBox,
+  toPublicAllocation,
+  toPublicFilmOrder,
+  listBoxes,
+  findBoxById,
+  listFilmCatalog,
+  listAllocations,
+  listAllocationsByBox,
+  listAllocationsByJob,
+  listAllocationsByFilmOrderId,
+  listAllocationsByIds,
+  listActiveAllocations,
+  listFilmOrders,
+  listFilmOrdersByJob,
+  findFilmOrderById,
+  listFilmOrderLinksByFilmOrderId,
+  listJobs,
+  findJobByNumber,
+  listJobRequirements,
+  listJobRequirementsByJob,
+  listAuditEntries,
+  listAuditEntriesByBox,
+  listRollHistoryByBox,
+} = inventoryRepositories;
 
 async function resolveAuthContext(request: Request): Promise<{ identity: AuthIdentity; client: any }> {
   return resolveAuthContextFromModule(request, {
@@ -1313,331 +1075,20 @@ async function resolveAuthContext(request: Request): Promise<{ identity: AuthIde
 function routeParams(method: string, requestUrl: URL, bodyJson: Record<string, unknown> | null) {
   return routeParamsFromModule(method, requestUrl, bodyJson);
 }
-
-async function listBoxes(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_boxes", { p_org_id: orgId });
-  return rows.map(mapDbBoxRow);
-}
-
-async function findBoxById(client: any, orgId: string, boxId: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_acl_find_box_by_id", {
-    p_org_id: orgId,
-    p_box_id: boxId,
-  });
-  return mapDbBoxRow(row);
-}
-
-async function listFilmCatalog(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_catalog", { p_org_id: orgId });
-  return rows.map(mapDbFilmCatalogRow);
-}
-
-async function listAllocations(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations", { p_org_id: orgId });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listAllocationsByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_box", {
-    p_org_id: orgId,
-    p_box_id: boxId,
-  });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listAllocationsByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_job", {
-    p_org_id: orgId,
-    p_job_number: jobNumber,
-  });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listAllocationsByFilmOrderId(client: any, orgId: string, filmOrderId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_film_order_id", {
-    p_org_id: orgId,
-    p_film_order_id: filmOrderId,
-  });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listAllocationsByIds(client: any, orgId: string, allocationIds: string[]) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_allocations_by_ids", {
-    p_org_id: orgId,
-    p_allocation_ids: allocationIds,
-  });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listActiveAllocations(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_active_allocations", { p_org_id: orgId });
-  return rows.map(mapDbAllocationRow);
-}
-
-async function listFilmOrders(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_orders", { p_org_id: orgId });
-  return rows.map(mapDbFilmOrderRow);
-}
-
-async function listFilmOrdersByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_film_orders_by_job", {
-    p_org_id: orgId,
-    p_job_number: jobNumber,
-  });
-  return rows.map(mapDbFilmOrderRow);
-}
-
-async function findFilmOrderById(client: any, orgId: string, filmOrderId: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_acl_find_film_order_by_id", {
-    p_org_id: orgId,
-    p_film_order_id: filmOrderId,
-  });
-  return mapDbFilmOrderRow(row);
-}
-
-async function listFilmOrderLinksByFilmOrderId(client: any, orgId: string, filmOrderId: string) {
-  return await rpcOrThrow<any[]>(client, "api_acl_list_film_order_links_by_film_order_id", {
-    p_org_id: orgId,
-    p_film_order_id: filmOrderId,
-  });
-}
-
-async function listJobs(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_jobs", { p_org_id: orgId });
-  return rows.map(mapDbJobRow);
-}
-
-async function findJobByNumber(client: any, orgId: string, jobNumber: string) {
-  const row = await rpcOrThrow<any | null>(client, "api_acl_find_job_by_number", {
-    p_org_id: orgId,
-    p_job_number: jobNumber,
-  });
-  return mapDbJobRow(row);
-}
-
-async function listJobRequirements(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_job_requirements", { p_org_id: orgId });
-  return rows.map(mapDbRequirementRow);
-}
-
-async function listJobRequirementsByJob(client: any, orgId: string, jobNumber: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_job_requirements_by_job", {
-    p_org_id: orgId,
-    p_job_number: jobNumber,
-  });
-  return rows.map(mapDbRequirementRow);
-}
-
-async function listAuditEntries(client: any, orgId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_audit_entries", { p_org_id: orgId });
-  return rows.map(mapDbAuditRow);
-}
-
-async function listAuditEntriesByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_audit_entries_by_box", {
-    p_org_id: orgId,
-    p_box_id: boxId,
-  });
-  return rows.map(mapDbAuditRow);
-}
-
-async function listRollHistoryByBox(client: any, orgId: string, boxId: string) {
-  const rows = await rpcOrThrow<any[]>(client, "api_acl_list_roll_history_by_box", {
-    p_org_id: orgId,
-    p_box_id: boxId,
-  });
-  return rows.map(mapDbRollHistoryRow);
-}
-
-function isUnknownJobNumber(value: unknown): boolean {
-  const normalized = normalizeJobNumberKey(value);
-  return !normalized || normalized === "UNKNOWN";
-}
-
-function toTimestampMs(value: unknown): number | null {
-  const timestamp = asTrimmedString(value);
-  if (!timestamp) {
-    return null;
-  }
-  const parsed = Date.parse(timestamp);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function getRollHistoryActivityTimestamp(entry: any): string {
   return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || "";
 }
 
-function buildRollHistoryAllocationWindowsByBox(allocations: any[]) {
-  const grouped: Record<string, Array<{ startMs: number | null; endMs: number | null }>> = {};
-  const entries = Array.isArray(allocations) ? allocations : [];
-  for (const allocation of entries) {
-    const boxId = asTrimmedString(allocation && allocation.boxId);
-    if (!boxId) {
-      continue;
-    }
-    if (!grouped[boxId]) {
-      grouped[boxId] = [];
-    }
-    grouped[boxId].push({
-      startMs: toTimestampMs(allocation && allocation.createdAt),
-      endMs: toTimestampMs(allocation && allocation.resolvedAt),
-    });
-  }
-  return grouped;
-}
-
-function isTimestampInAllocationWindow(
-  timestampMs: number | null,
-  window: { startMs: number | null; endMs: number | null },
-): boolean {
-  if (timestampMs === null) {
-    return false;
-  }
-  if (window.startMs !== null && timestampMs < window.startMs) {
-    return false;
-  }
-  if (window.endMs !== null && timestampMs > window.endMs) {
-    return false;
-  }
-  return true;
-}
-
-function isRollHistoryEntryInAllocationWindow(entry: any, windows: Array<{ startMs: number | null; endMs: number | null }>) {
-  if (!Array.isArray(windows) || !windows.length) {
-    return false;
-  }
-  const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
-  return windows.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window));
-}
-
-function buildRollHistoryEntryDedupeKey(entry: any): string {
-  return `${asTrimmedString(entry && entry.logId)}|${asTrimmedString(entry && entry.boxId)}`;
-}
-
-function dedupeRollHistoryEntries(entries: any[]) {
-  const deduped: Record<string, any> = {};
-  const source = Array.isArray(entries) ? entries : [];
-  for (const entry of source) {
-    if (!entry || !entry.boxId) {
-      continue;
-    }
-    const key = buildRollHistoryEntryDedupeKey(entry);
-    if (!deduped[key]) {
-      deduped[key] = entry;
-    }
-  }
-  return Object.values(deduped);
-}
-
-function shouldIncludeRollHistoryEntryForJob(
-  entry: any,
-  normalizedJobNumberKey: string,
-  allocationWindowsByBox: Record<string, Array<{ startMs: number | null; endMs: number | null }>>,
-) {
-  if (!entry || !entry.boxId) {
-    return false;
-  }
-  if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumberKey) {
-    return true;
-  }
-  if (!isUnknownJobNumber(entry.jobNumber)) {
-    return false;
-  }
-  return isRollHistoryEntryInAllocationWindow(entry, allocationWindowsByBox[entry.boxId] || []);
-}
-
-function finalizeRollHistoryEntriesForJob(
-  entries: any[],
-  normalizedJobNumberKey: string,
-  allocationWindowsByBox: Record<string, Array<{ startMs: number | null; endMs: number | null }>>,
-) {
-  const deduped = dedupeRollHistoryEntries(entries);
-  const filtered = deduped.filter((entry) =>
-    shouldIncludeRollHistoryEntryForJob(entry, normalizedJobNumberKey, allocationWindowsByBox)
-  );
-  filtered.sort((left, right) => {
-    const leftDate = getRollHistoryActivityTimestamp(left);
-    const rightDate = getRollHistoryActivityTimestamp(right);
-    if (leftDate !== rightDate) {
-      return leftDate > rightDate ? -1 : 1;
-    }
-    const leftLogId = asTrimmedString(left.logId);
-    const rightLogId = asTrimmedString(right.logId);
-    return leftLogId < rightLogId ? 1 : leftLogId > rightLogId ? -1 : 0;
-  });
-  return filtered;
-}
-
-function chunkStringValues(values: string[], size: number): string[][] {
-  const source = Array.isArray(values) ? values : [];
-  const chunkSize = Number.isFinite(size) && size > 0 ? Math.floor(size) : 100;
-  const chunks: string[][] = [];
-  for (let index = 0; index < source.length; index += chunkSize) {
-    chunks.push(source.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
-
 async function listRollHistoryByJob(client: any, orgId: string, jobNumber: string, allocations: any[] = []) {
-  const normalizedJobNumber = asTrimmedString(jobNumber);
-  if (!normalizedJobNumber) {
-    return [];
-  }
-  const normalizedJobNumberKey = normalizeJobNumberKey(normalizedJobNumber);
-  const allocationWindowsByBox = buildRollHistoryAllocationWindowsByBox(allocations);
-  const allocatedBoxIds = Object.keys(allocationWindowsByBox);
-
-  const serviceClient = createServiceRoleClient();
-  if (serviceClient) {
-    const directQuery = await serviceClient
-      .schema("app")
-      .from("roll_weight_log")
-      .select("*")
-      .eq("org_id", orgId)
-      .eq("job_number", normalizedJobNumber)
-      .order("checked_in_at", { ascending: false, nullsFirst: false })
-      .order("checked_out_at", { ascending: false, nullsFirst: false })
-      .order("log_id", { ascending: false });
-
-    if (!directQuery.error) {
-      const mergedEntries = (Array.isArray(directQuery.data) ? directQuery.data : []).map(mapDbRollHistoryRow);
-      let canUseServiceRoleResults = true;
-      for (const boxIdChunk of chunkStringValues(allocatedBoxIds, 100)) {
-        if (!boxIdChunk.length) {
-          continue;
-        }
-        const allocatedQuery = await serviceClient
-          .schema("app")
-          .from("roll_weight_log")
-          .select("*")
-          .eq("org_id", orgId)
-          .in("box_id", boxIdChunk)
-          .order("checked_in_at", { ascending: false, nullsFirst: false })
-          .order("checked_out_at", { ascending: false, nullsFirst: false })
-          .order("log_id", { ascending: false });
-        if (allocatedQuery.error) {
-          canUseServiceRoleResults = false;
-          break;
-        }
-        mergedEntries.push(...(Array.isArray(allocatedQuery.data) ? allocatedQuery.data : []).map(mapDbRollHistoryRow));
-      }
-      if (canUseServiceRoleResults) {
-        return finalizeRollHistoryEntriesForJob(mergedEntries, normalizedJobNumberKey, allocationWindowsByBox);
-      }
-    }
-  }
-
-  const entries: any[] = [];
-  const boxes = await listBoxes(client, orgId);
-  for (const box of boxes) {
-    const boxEntries = await listRollHistoryByBox(client, orgId, box.boxId);
-    for (const entry of boxEntries) {
-      entries.push(entry);
-    }
-  }
-  return finalizeRollHistoryEntriesForJob(entries, normalizedJobNumberKey, allocationWindowsByBox);
+  return await listRollHistoryByJobFromService(client, orgId, jobNumber, allocations, {
+    asTrimmedString,
+    normalizeJobNumberKey,
+    createServiceRoleClient,
+    listBoxes,
+    listRollHistoryByBox,
+    mapDbRollHistoryRow,
+  });
 }
-
 function toUsageTimestampSortValue(entry: any) {
   return getRollHistoryActivityTimestamp(entry);
 }
@@ -3397,4 +2848,6 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     });
   }
 }
+
+
 
