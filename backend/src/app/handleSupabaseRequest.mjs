@@ -3,8 +3,14 @@ import { BOX_STATUSES, CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS, CORE_WEIGHT_REFERENCE
 import { ensureConfigured, queryRow, queryRows, withMutation, withReadClient } from '../db/client.mjs';
 import { HttpError, ok } from '../lib/http.mjs';
 import { routeParams } from '../routes/params.mjs';
-import { READ_PATHS } from '../routes/readPaths.mjs';
 import { authIdentityCache } from '../state/authIdentityCache.mjs';
+import {
+  WAREHOUSE_CODE_PATTERN,
+  inferAccessModeForRoute as inferAccessModeForRouteContract,
+  inferFeatureForRoute as inferFeatureForRouteContract,
+  isOwnerOnlyRoute as isOwnerOnlyRouteContract,
+  isReadRoute
+} from '../../../frontend/src/domain/runtimeContract.mjs';
 
 function asTrimmedString(value) {
   if (value === null || value === undefined) {
@@ -219,7 +225,7 @@ function roundToDecimals(value, decimals) {
 
 function normalizeWarehouseCodeFormat(value, fieldName) {
   const normalized = requireString(value, fieldName || 'Warehouse').toUpperCase();
-  if (!/^[A-Z]{2}[1-9][0-9]{0,6}$/.test(normalized)) {
+  if (!WAREHOUSE_CODE_PATTERN.test(normalized)) {
     throw new HttpError(
       400,
       `${fieldName || 'Warehouse'} must match AA1, AA2, ... with a 1-based index.`
@@ -1737,96 +1743,23 @@ async function getAdminFeaturePermissions(client, orgId, adminUserId) {
 }
 
 function inferFeatureForRoute(logicalPath) {
-  switch (logicalPath) {
-    case '/boxes/search':
-    case '/boxes/get':
-    case '/boxes/add':
-    case '/boxes/update':
-    case '/boxes/delete':
-    case '/boxes/set-status':
-    case '/film-data/catalog':
-    case '/inventory/add':
-    case '/inventory/scan':
-    case '/caulk/manufacturers/list':
-    case '/caulk/products/list':
-    case '/caulk/stock/list':
-    case '/caulk/transactions/list':
-    case '/caulk/products/upsert':
-    case '/caulk/mutate':
-    case '/caulk/transfer':
-    case '/owner/caulk/manufacturers/upsert':
-      return 'inventory';
-    case '/allocations/by-box':
-    case '/allocations/jobs':
-    case '/allocations/by-job':
-    case '/allocations/preview':
-    case '/allocations/add':
-    case '/allocations/apply':
-    case '/allocations/remove-box':
-      return 'allocations';
-    case '/jobs/list':
-    case '/jobs/search':
-    case '/jobs/get':
-    case '/jobs/create':
-    case '/jobs/update':
-    case '/jobs/complete':
-    case '/jobs/reopen':
-      return 'jobs';
-    case '/film-orders/list':
-    case '/film-orders/create':
-    case '/film-orders/cancel':
-    case '/film-orders/delete':
-      return 'film_orders';
-    case '/audit/list':
-    case '/audit/by-box':
-    case '/audit/undo':
-    case '/roll-history/by-box':
-    case '/checkout-history':
-      return 'activity_history';
-    case '/reports/summary':
-      return 'reports';
-    case '/admin/access/requests':
-    case '/admin/access/requests/approve':
-    case '/admin/access/requests/deny':
-    case '/admin/username-requests':
-    case '/admin/username-requests/approve':
-    case '/admin/username-requests/deny':
-    case '/admin/member-permissions':
-    case '/admin/user-permissions':
-    case '/admin/roles/promote-member-to-admin':
-      return 'access_management';
-    default:
-      return '';
+  const normalizedPath = asTrimmedString(logicalPath);
+  // Legacy compatibility routes retained by the Node fallback path.
+  if (normalizedPath === '/inventory/add' || normalizedPath === '/inventory/scan') {
+    return 'inventory';
   }
+  if (normalizedPath === '/checkout-history') {
+    return 'activity_history';
+  }
+  return inferFeatureForRouteContract(normalizedPath);
 }
 
 function inferAccessModeForRoute(method, logicalPath) {
-  const isReadRoute =
-    method === 'GET' ||
-    logicalPath === '/allocations/preview' ||
-    logicalPath === '/jobs/search' ||
-    logicalPath === '/admin/access/requests' ||
-    logicalPath === '/admin/username-requests' ||
-    logicalPath === '/admin/member-permissions' ||
-    logicalPath === '/admin/user-permissions' ||
-    logicalPath === '/owner/admin-permissions' ||
-    logicalPath === '/owner/notification-preferences' ||
-    logicalPath === '/caulk/manufacturers/list' ||
-    logicalPath === '/caulk/products/list' ||
-    logicalPath === '/caulk/stock/list' ||
-    logicalPath === '/caulk/transactions/list';
-  return isReadRoute ? 'read' : 'write';
+  return inferAccessModeForRouteContract(method, logicalPath);
 }
 
 function isOwnerOnlyRoute(logicalPath) {
-  return (
-    logicalPath === '/owner/admin-permissions' ||
-    logicalPath === '/owner/roles/demote-admin-to-member' ||
-    logicalPath === '/owner/roles/promote-admin-to-owner' ||
-    logicalPath === '/owner/notification-preferences' ||
-    logicalPath === '/owner/caulk/manufacturers/upsert' ||
-    logicalPath === '/jobs/reopen'
-  );
+  return isOwnerOnlyRouteContract(logicalPath);
 }
 
 function isAdminConsoleRoute(logicalPath) {
@@ -8430,7 +8363,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
 
     ensureEffectiveRouteAccess(authContext, method, logicalPath);
 
-    if (method === 'GET' || (method === 'POST' && READ_PATHS.has(logicalPath))) {
+    if (method === 'GET' || (method === 'POST' && isReadRoute(logicalPath))) {
       await runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext);
 
       const payload = await withReadClient(async (client) => {

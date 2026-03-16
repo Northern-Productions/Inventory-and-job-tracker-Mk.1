@@ -1,6 +1,10 @@
 // Purpose: Runtime environment constants and shared backend configuration.
 import '../../load-env.mjs';
 import { Pool } from 'pg';
+import {
+  BOX_STATUSES as CONTRACT_BOX_STATUSES,
+  FEATURE_AREAS as CONTRACT_FEATURE_AREAS
+} from '../../../frontend/src/domain/runtimeContract.mjs';
 
 export const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/g, '');
 export const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
@@ -20,19 +24,12 @@ export const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
   'SECURITY 1/4" Cardboard': 11.6
 };
 
-export const BOX_STATUSES = new Set(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
+export const BOX_STATUSES = new Set(CONTRACT_BOX_STATUSES);
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const MEMBER_FEATURE_AREAS = [
-  'inventory',
-  'allocations',
-  'jobs',
-  'film_orders',
-  'activity_history',
-  'reports'
-];
+export const MEMBER_FEATURE_AREAS = CONTRACT_FEATURE_AREAS.filter((feature) => feature !== 'access_management');
 
-export const ADMIN_FEATURE_AREAS = [...MEMBER_FEATURE_AREAS, 'access_management'];
+export const ADMIN_FEATURE_AREAS = [...CONTRACT_FEATURE_AREAS];
 
 export const pool =
   DATABASE_URL
