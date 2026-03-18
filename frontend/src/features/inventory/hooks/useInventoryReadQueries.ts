@@ -113,7 +113,13 @@ export function useAllocationJob(jobNumber: string) {
 export function useAllocationPreview(payload: AllocateBoxPayload | null) {
   return useQuery({
     queryKey: inventoryKeys.allocationPreview(payload),
-    queryFn: () => previewAllocationPlan(payload as AllocateBoxPayload),
+    queryFn: () => {
+      if (!payload) {
+        throw new Error('Allocation preview payload is required.');
+      }
+
+      return previewAllocationPlan(payload);
+    },
     enabled: Boolean(payload)
   });
 }

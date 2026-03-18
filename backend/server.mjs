@@ -4,7 +4,7 @@ import http from 'node:http';
 import { isReadRoute } from '../frontend/src/domain/runtimeContract.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
-const EDGE_API_BASE_URL = String(process.env.EDGE_API_BASE_URL || '').trim();
+const EDGE_API_BASE_URL = resolveEdgeApiBaseUrl_();
 const PORT = Number(process.env.PORT || 3000);
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 30000);
 const MAX_CACHE_ENTRIES = Number(process.env.MAX_CACHE_ENTRIES || 500);
@@ -14,6 +14,22 @@ const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
   .filter(Boolean);
 
 const cache = new Map();
+
+function resolveEdgeApiBaseUrl_() {
+  const explicit = String(process.env.EDGE_API_BASE_URL || '').trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const supabaseUrl = String(process.env.SUPABASE_URL || '')
+    .trim()
+    .replace(/\/+$/g, '');
+  if (!supabaseUrl) {
+    return '';
+  }
+
+  return `${supabaseUrl}/functions/v1/api`;
+}
 
 function normalizePath(value) {
   const trimmed = String(value || '').trim();
@@ -174,7 +190,7 @@ async function forwardToEdgeApi({ method, logicalPath, requestUrl, requestBody, 
       statusCode: 500,
       payload: {
         ok: false,
-        error: 'EDGE_API_BASE_URL is required when BACKEND_MODE=supabase'
+        error: 'Set EDGE_API_BASE_URL or SUPABASE_URL when BACKEND_MODE=supabase.'
       }
     };
   }
@@ -187,11 +203,35 @@ async function forwardToEdgeApi({ method, logicalPath, requestUrl, requestBody, 
     upstreamHeaders['Content-Type'] = 'text/plain;charset=utf-8';
   }
 
-  const upstreamResponse = await fetch(buildUpstreamUrl(requestUrl, logicalPath), {
-    method,
-    headers: upstreamHeaders,
-    body: method === 'POST' ? requestBody : undefined
-  });
+  let upstreamUrl;
+  try {
+    upstreamUrl = buildUpstreamUrl(requestUrl, logicalPath);
+  } catch (_error) {
+    return {
+      statusCode: 500,
+      payload: {
+        ok: false,
+        error: 'EDGE_API_BASE_URL must be a valid absolute URL.'
+      }
+    };
+  }
+
+  let upstreamResponse;
+  try {
+    upstreamResponse = await fetch(upstreamUrl, {
+      method,
+      headers: upstreamHeaders,
+      body: method === 'POST' ? requestBody : undefined
+    });
+  } catch (_error) {
+    return {
+      statusCode: 502,
+      payload: {
+        ok: false,
+        error: 'Unable to reach EDGE_API_BASE_URL. Check Supabase URL and network connectivity.'
+      }
+    };
+  }
 
   const raw = await upstreamResponse.text();
   let payload;

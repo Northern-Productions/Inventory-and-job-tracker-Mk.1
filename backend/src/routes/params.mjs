@@ -1,9 +1,17 @@
 // Purpose: Parse route parameters from query/body consistently for read and mutation routes.
 export function routeParams(method, requestUrl, bodyJson) {
-  if (method === 'GET') {
+  const normalizedMethod = String(method || '').toUpperCase();
+  if (normalizedMethod === 'GET') {
     const params = {};
-    for (const [key, value] of requestUrl.searchParams.entries()) {
-      if (key === 'path') {
+    const searchParams =
+      requestUrl && typeof requestUrl === 'object' ? requestUrl.searchParams : null;
+
+    if (!searchParams || typeof searchParams.entries !== 'function') {
+      return params;
+    }
+
+    for (const [key, value] of searchParams.entries()) {
+      if (key === 'path' || key === 'authToken' || key === 'authUser') {
         continue;
       }
 
@@ -13,7 +21,8 @@ export function routeParams(method, requestUrl, bodyJson) {
     return params;
   }
 
-  const next = bodyJson && typeof bodyJson === 'object' ? { ...bodyJson } : {};
+  const isPlainObject = Boolean(bodyJson) && typeof bodyJson === 'object' && !Array.isArray(bodyJson);
+  const next = isPlainObject ? { ...bodyJson } : {};
   delete next.path;
   delete next.authToken;
   delete next.authUser;

@@ -8,6 +8,7 @@ import { LoadingState } from '../../../components/LoadingState';
 import { useToast } from '../../../components/Toast';
 import { WAREHOUSE_CODES, getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
 import { formatDate } from '../../../lib/date';
+import { safeDecodePathParam } from '../../../lib/url';
 import { useAuth } from '../../auth/AuthContext';
 import { AllocateDialog } from '../components/AllocateDialog';
 import { AllocationsPanel } from '../components/AllocationsPanel';
@@ -127,7 +128,7 @@ export default function BoxDetailsPage() {
   const auth = useAuth();
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
-  const boxId = decodeURIComponent(params.boxId || '');
+  const boxId = safeDecodePathParam(params.boxId);
   const boxQuery = useBox(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
   const updateMutation = useUpdateBox();

@@ -1,0 +1,72 @@
+{
+  "applied_at_utc": "2026-03-18T11:27:14.621Z",
+  "before": {
+    "film_catalog": [
+      {
+        "manufacturer": "Solyx",
+        "count": 193
+      },
+      {
+        "manufacturer": "SOLYX",
+        "count": 3
+      }
+    ],
+    "boxes": [
+      {
+        "manufacturer": "Solyx",
+        "count": 411
+      },
+      {
+        "manufacturer": "SOLYX",
+        "count": 8
+      }
+    ],
+    "job_requirements": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 2
+      }
+    ],
+    "film_orders": [],
+    "roll_weight_log": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 1
+      }
+    ]
+  },
+  "updated": {
+    "film_catalog": 193,
+    "boxes": 411,
+    "job_requirements": 0,
+    "film_orders": 0,
+    "roll_weight_log": 0
+  },
+  "after": {
+    "film_catalog": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 196
+      }
+    ],
+    "boxes": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 419
+      }
+    ],
+    "job_requirements": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 2
+      }
+    ],
+    "film_orders": [],
+    "roll_weight_log": [
+      {
+        "manufacturer": "SOLYX",
+        "count": 1
+      }
+    ]
+  }
+}

@@ -590,7 +590,7 @@ function normalizeSecurityMakerPrefix(value) {
   if (key === 'solar guard' || key === 'solargard' || key === 'solar gard') return 'Solar Gard';
   if (key === 'avery' || key === 'avery dennison') return 'Avery Dennison';
   if (key === 'llumar vista' || key === 'llumarvista' || key === 'llumar') return 'Llumar';
-  if (key === 'solyx') return 'Solyx';
+  if (key === 'solyx') return 'SOLYX';
   if (key === 'aswfvkool') return 'ASWFVKOOL';
   if (key === 'madico') return 'Madico';
   if (key === 'sol') return 'SOL';
@@ -640,8 +640,8 @@ function normalizeLeadingMakerPrefix(baseName, makerPrefix) {
   if (normalizedPrefix === 'Llumar') {
     return normalizedBase.replace(/^llumar(?:\s+vista)?\b/i, 'Llumar');
   }
-  if (normalizedPrefix === 'Solyx') {
-    return normalizedBase.replace(/^solyx\b/i, 'Solyx');
+  if (normalizedPrefix === 'SOLYX') {
+    return normalizedBase.replace(/^solyx\b/i, 'SOLYX');
   }
   if (normalizedPrefix === 'ASWFVKOOL') {
     return normalizedBase.replace(/^aswfvkool\b/i, 'ASWFVKOOL');
@@ -664,7 +664,7 @@ function inferSecurityMakerPrefixFromFilmName(filmName) {
   if (/^solar\s*guard\b/i.test(cleaned) || /^solargard\b/i.test(cleaned)) return 'Solar Gard';
   if (/^avery(?:\s+dennison)?\b/i.test(cleaned)) return 'Avery Dennison';
   if (/^llumar(?:\s+vista)?\b/i.test(cleaned)) return 'Llumar';
-  if (/^solyx\b/i.test(cleaned)) return 'Solyx';
+  if (/^solyx\b/i.test(cleaned)) return 'SOLYX';
   if (/^aswfvkool\b/i.test(cleaned)) return 'ASWFVKOOL';
   if (/^sol\b/i.test(cleaned)) return 'SOL';
   return '';

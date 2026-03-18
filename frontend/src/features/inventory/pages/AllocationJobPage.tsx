@@ -13,6 +13,7 @@ import { useToast } from '../../../components/Toast';
 import type { AllocationJobDetailEntry, FilmOrderEntry, UpdateJobPayload } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
+import { safeDecodePathParam } from '../../../lib/url';
 import { useAuth } from '../../auth/AuthContext';
 import { JobAllocateDialog } from '../components/JobAllocateDialog';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
@@ -67,7 +68,7 @@ export default function AllocationJobPage() {
   const toast = useToast();
   const auth = useAuth();
   const params = useParams();
-  const jobNumber = decodeURIComponent(params.jobNumber || '');
+  const jobNumber = safeDecodePathParam(params.jobNumber);
   const jobQuery = useJob(jobNumber);
   const updateJobMutation = useUpdateJob();
   const completeJobMutation = useCompleteJob();

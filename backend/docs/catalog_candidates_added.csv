@@ -1,0 +1,260 @@
+org_id,manufacturer,film_name,film_key,source_count,source_manufacturer,source_film_name,has_film_signal
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 70,3M SOLAR|PR 70,68,3M Solar,3M PR 70,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,NV 15,3M SOLAR|NV 15,65,3M Solar,3M NV 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S140,SECURITY|3M S140,57,Security,3M S140,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 50,3M SOLAR|PR 50,48,3M Solar,3M PR 50,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,NV 25,3M SOLAR|NV 25,34,3M Solar,3M NV 25,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Avery Dennison,Optitune 05,AVERY DENNISON|OPTITUNE 05,31,Avery Dennison,Avery Optitune 05,false
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S70,SECURITY|3M S70,31,Security,3M S70,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S2400,SECURITY|3M S2400,25,Security,3M S2400,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 15,SOLAR GARD|TRUEVUE 15,25,Solar Gard,SG Truevue 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Glace SH2MAGL,3M FASARA|GLACE SH2MAGL,21,3M Fasara,3M Fasara Glace SH2MAGL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,NV 35,3M SOLAR|NV 35,21,3M Solar,3M NV 35,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 70 EXT,3M SOLAR|PR 70 EXT,21,3M Solar,3M PR 70 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,Affinity 15,3M SOLAR|AFFINITY 15,19,3M Solar,3M Affinity 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Slate 10,SOLAR GARD|SLATE 10,19,Solar Gard,SG Slate 10,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 40 EXT,3M SOLAR|PR 40 EXT,18,3M Solar,3M PR 40 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Slate 40,SOLAR GARD|SLATE 40,16,Solar Gard,SG Slate 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 20,3M SOLAR|PR 20,15,3M Solar,3M PR 20,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 20 EXT,3M SOLAR|PR 20 EXT,15,3M Solar,3M PR 20 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Slate 20,SOLAR GARD|SLATE 20,15,Solar Gard,SG Slate 20,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Slate 30,SOLAR GARD|SLATE 30,13,Solar Gard,SG Slate 30,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,White Matte SXWFWM,SOLYX|WHITE MATTE SXWFWM,13,Solyx,Solyx White Matte SXWFWM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 60,3M SOLAR|PR 60,11,3M Solar,3M PR 60,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Blackout SXWFBO,SOLYX|BLACKOUT SXWFBO,11,Solyx,Solyx Blackout SXWFBO,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 40,3M SOLAR|PR 40,10,3M Solar,3M PR 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,Vista 58 (v58),LLUMAR|VISTA 58 (V58),10,Llumar,Llumar Vista 58 (V58),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M SH2FGCN Cloud Narrow White,3M FASARA|3M SH2FGCN CLOUD NARROW WHITE,8,3M Fasara,3M SH2FGCN Cloud Narrow White,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fine Crystal SH2FNCR,3M FASARA|FINE CRYSTAL SH2FNCR,8,3M Fasara,3M Fasara Fine Crystal SH2FNCR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 30,SOLAR GARD|TRUEVUE 30,8,Solar Gard,SG Truevue 30,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Frost Opaque White SH2MAOW,3M FASARA|FROST OPAQUE WHITE SH2MAOW,7,3M Fasara,3M Fasara Frost Opaque White SH2MAOW,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Mat Crystal SH2MACR-I,3M FASARA|MAT CRYSTAL SH2MACR-I,7,3M Fasara,3M Fasara Mat Crystal SH2MACR-I,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,Thinsulate 75,3M SOLAR|THINSULATE 75,7,3M Solar,3M Thinsulate 75,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,V45,LLUMAR|V45,7,Llumar,V45,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 40,SOLAR GARD|TRUEVUE 40,7,Solar Gard,SG TrueVue 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Matte Crystal SH2MACR1,3M FASARA|3M MATTE CRYSTAL SH2MACR1,6,3M Fasara,3M Matte Crystal SH2MACR1,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Milky Crystal SH2MLCRX,3M FASARA|MILKY CRYSTAL SH2MLCRX,6,3M Fasara,3M Fasara Milky Crystal SH2MLCRX,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Shutie Vertical SH2FGST,3M FASARA|SHUTIE VERTICAL SH2FGST,6,3M Fasara,3M Fasara Shutie Vertical SH2FGST,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,Affinity 30,3M SOLAR|AFFINITY 30,6,3M Solar,3M Affinity 30,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Milky Frost SXMD8303,SOLYX|MILKY FROST SXMD8303,6,Solyx,Solyx Milky Frost SXMD8303,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Total Light Blockout White SXF-5050,SOLYX|TOTAL LIGHT BLOCKOUT WHITE SXF-5050,6,Solyx,Solyx Total Light Blockout White SXF-5050,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Border Leise Horiz. SH2FGLS,3M FASARA|BORDER LEISE HORIZ. SH2FGLS,5,3M Fasara,3M Fasara Border Leise Horiz. SH2FGLS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Mare SH2FGMR,3M FASARA|MARE SH2FGMR,5,3M Fasara,3M Fasara Mare SH2FGMR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Straight Washi SH2FGSW,3M FASARA|STRAIGHT WASHI SH2FGSW,5,3M Fasara,3M Fasara Straight Washi SH2FGSW,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,3036 3M PR40,3M SOLAR|3036 3M PR40,5,3M Solar,3036 3M PR40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,White Out NRMW PS3,LLUMAR|WHITE OUT NRMW PS3,5,Llumar,Llumar White Out NRMW PS3,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Panorama Slate 10,SOLAR GARD|PANORAMA SLATE 10,5,Solar Gard,SG Panorama Slate 10,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 5,SOLAR GARD|TRUEVUE 5,5,Solar Gard,SG TrueVue 5,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Fine Crystal Frost SX-1309,SOLYX|FINE CRYSTAL FROST SX-1309,5,Solyx,Solyx Fine Crystal Frost SX-1309,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SXGF-0500 Clear Frosted Safety Film,SOLYX|SOL SXGF-0500 CLEAR FROSTED SAFETY FILM,5,Solyx,SOL SXGF-0500 Clear Frosted Safety Film,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Fabric-sensai Linen Champagne Gold SH2CSSEC,3M FASARA|3M FABRIC-SENSAI LINEN CHAMPAGNE GOLD SH2CSSEC,4,3M Fasara,3M Fabric-Sensai Linen Champagne Gold SH2CSSEC,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 50 EXT,3M SOLAR|PR 50 EXT,4,3M Solar,3M PR 50 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,V28,LLUMAR|V28,4,Llumar,V28,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Slate 30 (panorama),SOLAR GARD|SLATE 30 (PANORAMA),4,Solar Gard,SG Slate 30 (Panorama),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dual Cloud Gradient SXJ0579,SOLYX|DUAL CLOUD GRADIENT SXJ0579,4,Solyx,Solyx Dual Cloud Gradient SXJ0579,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Fine Brushed SXL1017,SOLYX|FINE BRUSHED SXL1017,4,Solyx,Solyx Fine Brushed SXL1017,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Geometric SX3150,SOLYX|GEOMETRIC SX3150,4,Solyx,Solyx Geometric SX3150,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Oslo SH2EMOS,3M FASARA|3M OSLO SH2EMOS,3,3M Fasara,3M Oslo SH2EMOS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Aerina SH2FGAR,3M FASARA|AERINA SH2FGAR,3,3M Fasara,Aerina SH2FGAR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Lausanne SH2EMLA,3M FASARA|LAUSANNE SH2EMLA,3,3M Fasara,3M Fasara Lausanne SH2EMLA,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Luce SH2FGLU,3M FASARA|LUCE SH2FGLU,3,3M Fasara,3M Fasara Luce SH2FGLU,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Stripe Safari SH2PTSR,3M FASARA|STRIPE SAFARI SH2PTSR,3,3M Fasara,3M Fasara Stripe Safari SH2PTSR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,3795 3M NV35,3M SOLAR|3795 3M NV35,3,3M Solar,3795 3M NV35,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 90 EXT,3M SOLAR|PR 90 EXT,3,3M Solar,3M PR 90 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,S80,3M SOLAR|S80,3,3M Solar,3M S80,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,Etched Frost NRMV60FPS3,LLUMAR|ETCHED FROST NRMV60FPS3,3,Llumar,Llumar Etched Frost NRMV60FPS3,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Panaroma Slate 20,SOLAR GARD|PANAROMA SLATE 20,3,Solar Gard,Panaroma Slate 20,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Panaroma Slate 40,SOLAR GARD|PANAROMA SLATE 40,3,Solar Gard,Panaroma Slate 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Solar Gard Truevue 30,SOLAR GARD|SOLAR GARD TRUEVUE 30,3,Solar Gard,Solar Gard Truevue 30,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Clear Waters SX-9000,SOLYX|CLEAR WATERS SX-9000,3,Solyx,Solyx Clear Waters SX-9000,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dry Erase White For Glass SX2090,SOLYX|DRY ERASE WHITE FOR GLASS SX2090,3,Solyx,Solyx Dry Erase White For Glass SX2090,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dual Feather Gradient SXJ-0591,SOLYX|DUAL FEATHER GRADIENT SXJ-0591,3,Solyx,Solyx Dual Feather Gradient SXJ-0591,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dual Feather Gradient SXJ0548,SOLYX|DUAL FEATHER GRADIENT SXJ0548,3,Solyx,Solyx Dual Feather Gradient SXJ0548,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Rain Glass SX1544,SOLYX|RAIN GLASS SX1544,3,Solyx,Solyx Rain Glass SX1544,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Subsonic SX-5035,SOLYX|SUBSONIC SX-5035,3,Solyx,Solyx Subsonic SX-5035,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Thatch Frost SX1580,SOLYX|THATCH FROST SX1580,3,Solyx,Solyx Thatch Frost SX1580,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Arpa SH2FGAP,3M FASARA|3M ARPA SH2FGAP,2,3M Fasara,3M Arpa SH2FGAP,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Emboss-hairline Matte SH2HLMA,3M FASARA|3M EMBOSS-HAIRLINE MATTE SH2HLMA,2,3M Fasara,3M Emboss-Hairline Matte SH2HLMA,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Border Paracell Horizontal SH2FGPR,3M FASARA|BORDER PARACELL HORIZONTAL SH2FGPR,2,3M Fasara,3M Fasara Border Paracell Horizontal SH2FGPR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Essen SH2EMES,3M FASARA|ESSEN SH2EMES,2,3M Fasara,3M Fasara Essen SH2EMES,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fasara Illumina Glace Dots SH2FGIM,3M FASARA|FASARA ILLUMINA GLACE DOTS SH2FGIM,2,3M Fasara,Fasara Illumina Glace Dots SH2FGIM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fusion Pearl SH2CSFP,3M FASARA|FUSION PEARL SH2CSFP,2,3M Fasara,3M Fasara Fusion Pearl SH2CSFP,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Linen SH2FGLN,3M FASARA|LINEN SH2FGLN,2,3M Fasara,3M Fasara Linen SH2FGLN,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Slat Horizontal SH2FGSL,3M FASARA|SLAT HORIZONTAL SH2FGSL,2,3M Fasara,Slat Horizontal SH2FGSL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Wind SH2PTWD,3M FASARA|WIND SH2PTWD,2,3M Fasara,3M Fasara Wind SH2PTWD,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 60 EXT,3M SOLAR|PR 60 EXT,2,3M Solar,3M PR 60 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,Ultra NV25,3M SOLAR|ULTRA NV25,2,3M Solar,3M Ultra NV25,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,Glacier NRM55 PS4,LLUMAR|GLACIER NRM55 PS4,2,Llumar,Llumar Glacier NRM55 PS4,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Panorama Slate 40,SOLAR GARD|PANORAMA SLATE 40,2,Solar Gard,SG Panorama Slate 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Solar Gard Slate 40,SOLAR GARD|SOLAR GARD SLATE 40,2,Solar Gard,Solar Gard Slate 40,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,SX 50,SOLAR GARD|SX 50,2,Solar Gard,SG SX 50,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 15 PS HC,SOLAR GARD|TRUEVUE 15 PS HC,2,Solar Gard,Truevue 15 PS HC,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Acid Etch SOL SX3-314,SOLYX|ACID ETCH SOL SX3-314,2,Solyx,Acid Etch SOL SX3-314,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Acid Etch SX3314,SOLYX|ACID ETCH SX3314,2,Solyx,Solyx Acid Etch SX3314,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Alps SXC392,SOLYX|ALPS SXC392,2,Solyx,Solyx Alps SXC392,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Beach Grass SXJ-0545,SOLYX|BEACH GRASS SXJ-0545,2,Solyx,Beach Grass SXJ-0545,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Clear Luster SXWV0200,SOLYX|CLEAR LUSTER SXWV0200,2,Solyx,Solyx Clear Luster SXWV0200,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,DEEP ETCH SXGF-0097,SOLYX|DEEP ETCH SXGF-0097,2,Solyx,DEEP ETCH SXGF-0097,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dual Misty Fost SXJ-0598 GRADIANT,SOLYX|DUAL MISTY FOST SXJ-0598 GRADIANT,2,Solyx,Solyx Dual Misty Fost SXJ-0598 GRADIANT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Lineage Dual Frost. Grad. SXJ0599,SOLYX|LINEAGE DUAL FROST. GRAD. SXJ0599,2,Solyx,Solyx Lineage Dual Frost. Grad. SXJ0599,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,One Way Slv./gry SXSG09,SOLYX|ONE WAY SLV./GRY SXSG09,2,Solyx,Solyx One Way Slv./Gry SXSG09,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Shimera SX-3160,SOLYX|SHIMERA SX-3160,2,Solyx,Solyx Shimera SX-3160,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL CHARCOAL MATTE SXWF-CM,SOLYX|SOL CHARCOAL MATTE SXWF-CM,2,Solyx,SOL CHARCOAL MATTE SXWF-CM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL TRANSPARENT WHITE MATTE SXWF-TWM,SOLYX|SOL TRANSPARENT WHITE MATTE SXWF-TWM,2,Solyx,SOL TRANSPARENT WHITE MATTE SXWF-TWM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Static Cling Atlantis SXSC514,SOLYX|STATIC CLING ATLANTIS SXSC514,2,Solyx,Solyx Static Cling Atlantis SXSC514,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-C376 Etchnwhite Random Lines,SOLYX|SX-C376 ETCHNWHITE RANDOM LINES,2,Solyx,Solyx SX-C376 Etchnwhite Random Lines,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXHP-2411 Vertical Stripes,SOLYX|SXHP-2411 VERTICAL STRIPES,2,Solyx,Solyx SXHP-2411 Vertical Stripes,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXWF-BO-60 Black Out,SOLYX|SXWF-BO-60 BLACK OUT,2,Solyx,SXWF-BO-60 Black Out,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXWF-WM White Matte,SOLYX|SXWF-WM WHITE MATTE,2,Solyx,Solyx SXWF-WM WHite matte,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXWF-WMAX WHITE MATTE MAX,SOLYX|SXWF-WMAX WHITE MATTE MAX,2,Solyx,SXWF-WMAX WHITE MATTE MAX,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Triangle Gradient SXJ0594,SOLYX|TRIANGLE GRADIENT SXJ0594,2,Solyx,Solyx Triangle Gradient SXJ0594,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,VERTICAL STRIPES SX-9200,SOLYX|VERTICAL STRIPES SX-9200,2,Solyx,VERTICAL STRIPES SX-9200,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,White Black Opaque SXWFWB,SOLYX|WHITE BLACK OPAQUE SXWFWB,2,Solyx,Solyx White Black Opaque SXWFWB,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,White Matte Max SXWFWMAX,SOLYX|WHITE MATTE MAX SXWFWMAX,2,Solyx,Solyx White Matte Max SXWFWMAX,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Wht/blk Opq. Adh. On White SXWFWB,SOLYX|WHT/BLK OPQ. ADH. ON WHITE SXWFWB,2,Solyx,Solyx Wht/Blk Opq. Adh. on White SXWFWB,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,"""illumina BLACK (gradient) SH2BKIM","3M FASARA|""ILLUMINA BLACK (GRADIENT) SH2BKIM",1,3M Fasara,"3M FASARA ""ILLUMINA BLACK (GRADIENT) SH2BKIM",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Acid Etch SXC-314,3M FASARA|3M ACID ETCH SXC-314,1,3M Fasara,3M Acid Etch SXC-314,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Buck Pearl + Gray SH2FGBUG,3M FASARA|3M BUCK PEARL + GRAY SH2FGBUG,1,3M Fasara,3M Buck Pearl + Gray SH2FGBUG,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Cloud SH2FGCL,3M FASARA|3M CLOUD SH2FGCL,1,3M Fasara,3M Cloud SH2FGCL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Emboss Cross Hairline Matte Light Gray SH2CHMAL,3M FASARA|3M EMBOSS CROSS HAIRLINE MATTE LIGHT GRAY SH2CHMAL,1,3M Fasara,3M Emboss Cross Hairline Matte Light Gray SH2CHMAL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Frost Opaque Black SH2BKOP,3M FASARA|3M FROST OPAQUE BLACK SH2BKOP,1,3M Fasara,3M Frost Opaque Black SH2BKOP,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Gradient Sabrina SH2FGSB,3M FASARA|3M GRADIENT SABRINA SH2FGSB,1,3M Fasara,3M Gradient Sabrina SH2FGSB,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Grain Silver SH2CSGS,3M FASARA|3M GRAIN SILVER SH2CSGS,1,3M Fasara,3M Grain Silver SH2CSGS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Lontano SH2FGLO,3M FASARA|3M LONTANO SH2FGLO,1,3M Fasara,3M Lontano SH2FGLO,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M San Marino Milky Milky Dark Gray SH2MAMMD,3M FASARA|3M SAN MARINO MILKY MILKY DARK GRAY SH2MAMMD,1,3M Fasara,3M San Marino Milky Milky Dark Gray SH2MAMMD,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M SH2-MAMM San Marino Milky Milky,3M FASARA|3M SH2-MAMM SAN MARINO MILKY MILKY,1,3M Fasara,3M SH2-MAMM San Marino Milky Milky,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Stripe-fine Vertical SH2FGFN,3M FASARA|3M STRIPE-FINE VERTICAL SH2FGFN,1,3M Fasara,3M Stripe-Fine Vertical SH2FGFN,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Venetian SH2FGVN,3M FASARA|3M VENETIAN SH2FGVN,1,3M Fasara,3M Venetian SH2FGVN,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,3M Weave Pearl SH2EMWP,3M FASARA|3M WEAVE PEARL SH2EMWP,1,3M Fasara,3M Weave Pearl SH2EMWP,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,ALTAIR SH2FGAT,3M FASARA|ALTAIR SH2FGAT,1,3M Fasara,ALTAIR SH2FGAT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Arpa Crystal SH2APCR,3M FASARA|ARPA CRYSTAL SH2APCR,1,3M Fasara,3M Fasara Arpa Crystal SH2APCR,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,AURA 9 SH2PCA9,3M FASARA|AURA 9 SH2PCA9,1,3M Fasara,AURA 9 SH2PCA9,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Cielo SH2FGCE,3M FASARA|CIELO SH2FGCE,1,3M Fasara,Cielo SH2FGCE,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,CLOUD SH2FGL,3M FASARA|CLOUD SH2FGL,1,3M Fasara,CLOUD SH2FGL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Cross Hairline Sucre SH2CHSC,3M FASARA|CROSS HAIRLINE SUCRE SH2CHSC,1,3M Fasara,3M Fasara Cross Hairline Sucre SH2CHSC,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fabric Sagano SH2PTSA2,3M FASARA|FABRIC SAGANO SH2PTSA2,1,3M Fasara,3M Fasara Fabric Sagano SH2PTSA2,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fabric Weave Pearl Dk Gray SH2EMWG,3M FASARA|FABRIC WEAVE PEARL DK GRAY SH2EMWG,1,3M Fasara,3M Fasara Fabric Weave Pearl Dk Gray SH2EMWG,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fasara SH2EMOS,3M FASARA|FASARA SH2EMOS,1,3M Fasara,Fasara SH2EMOS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Fasara Yamato SH2PTYA,3M FASARA|FASARA YAMATO SH2PTYA,1,3M Fasara,Fasara Yamato SH2PTYA,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Frost Walnut Smoke SH2PTFWS,3M FASARA|FROST WALNUT SMOKE SH2PTFWS,1,3M Fasara,3M Fasara Frost Walnut Smoke SH2PTFWS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Matte Crystal SH2MACRX2,3M FASARA|MATTE CRYSTAL SH2MACRX2,1,3M Fasara,Matte Crystal SH2MACRX2,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,PRISM SILVER SH2CSPS,3M FASARA|PRISM SILVER SH2CSPS,1,3M Fasara,PRISM SILVER SH2CSPS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Rikyu SH2PTRK,3M FASARA|RIKYU SH2PTRK,1,3M Fasara,Rikyu SH2PTRK,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,RIKYU SH2TPTRK,3M FASARA|RIKYU SH2TPTRK,1,3M Fasara,RIKYU SH2TPTRK,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Fasara,Vista Dot SH2FGVI,3M FASARA|VISTA DOT SH2FGVI,1,3M Fasara,3M Fasara Vista Dot SH2FGVI,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,M209 3M PR60,3M SOLAR|M209 3M PR60,1,3M Solar,M209 3M PR60,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,M3369 3M NV 15,3M SOLAR|M3369 3M NV 15,1,3M Solar,M3369 3M NV 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,NV 15 F168325129,3M SOLAR|NV 15 F168325129,1,3M Solar,3M NV 15 F168325129,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,PR 20 Exterior,3M SOLAR|PR 20 EXTERIOR,1,3M Solar,3M PR 20 Exterior,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,"PR 50 60"" F2963235","3M SOLAR|PR 50 60"" F2963235",1,3M Solar,"3M PR 50 60"" F2963235",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,"PR 50 72"" Transfered To MS","3M SOLAR|PR 50 72"" TRANSFERED TO MS",1,3M Solar,"3M PR 50 72"" Transfered to MS",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,"PR 70 72"" B223557 - 3M PR 70 72"" B225324055 05324055 0","3M SOLAR|PR 70 72"" B223557 - 3M PR 70 72"" B225324055 05324055 0",1,3M Solar,"3M PR 70 72"" B223557 - 3M PR 70 72"" B225324055 05324055 0",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,3M Solar,S40 Clear,3M SOLAR|S40 CLEAR,1,3M Solar,3M S40 Clear,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Avery Dennison,XTRM Skylite SX20,AVERY DENNISON|XTRM SKYLITE SX20,1,Avery Dennison,XTRM SkyLite SX20,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,V28 SR CDF,LLUMAR|V28 SR CDF,1,Llumar,V28 SR CDF,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,V51,LLUMAR|V51,1,Llumar,V51,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Llumar,White NRMW PS,LLUMAR|WHITE NRMW PS,1,Llumar,White NRMW PS,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M 7 MIL Ext SH7CLARXL,SECURITY|3M 7 MIL EXT SH7CLARXL,1,Security,3M 7 MIL Ext SH7CLARXL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S20 Silver,SECURITY|3M S20 SILVER,1,Security,3M S20 Silver,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S40 Ext,SECURITY|3M S40 EXT,1,Security,3M S40 ext,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M S80 (sh8sclarl),SECURITY|3M S80 (SH8SCLARL),1,Security,3M S80 (SH8SCLARL),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M Safety S40 4 MIL,SECURITY|3M SAFETY S40 4 MIL,1,Security,3M Safety S40 4 MIL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M Safety S80,SECURITY|3M SAFETY S80,1,Security,3M Safety S80,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M SH4 CLARXL Exterior 4 MIL,SECURITY|3M SH4 CLARXL EXTERIOR 4 MIL,1,Security,3M SH4 CLARXL Exterior 4 MIL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,"3M SH7 Ext 72""- B","SECURITY|3M SH7 EXT 72""- B",1,Security,"3M SH7 Ext 72""- B",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,3M SH7 Interior,SECURITY|3M SH7 INTERIOR,1,Security,3M SH7 Interior,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,Silver S20 8 Mil,SECURITY|SILVER S20 8 MIL,1,Security,Silver S20 8 Mil,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Security,Ultra S15,SECURITY|ULTRA S15,1,Security,Ultra S15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,DR Slate 10,SOLAR GARD|DR SLATE 10,1,Solar Gard,DR Slate 10,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,DR TRUEVUE 05,SOLAR GARD|DR TRUEVUE 05,1,Solar Gard,SG DR TRUEVUE 05,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Panaroma Slate 30,SOLAR GARD|PANAROMA SLATE 30,1,Solar Gard,Panaroma Slate 30,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Sentinel Plus SX50 EXT,SOLAR GARD|SENTINEL PLUS SX50 EXT,1,Solar Gard,SG Sentinel Plus SX50 EXT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,"SLATE 40 36"" MISSING","SOLAR GARD|SLATE 40 36"" MISSING",1,Solar Gard,"SG SLATE 40 36"" MISSING",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,"Slate 40 72"" (box 1 Of 2)","SOLAR GARD|SLATE 40 72"" (BOX 1 OF 2)",1,Solar Gard,"SG Slate 40 72"" (Box 1 of 2)",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Solar Gard Truevue 15,SOLAR GARD|SOLAR GARD TRUEVUE 15,1,Solar Gard,Solar Gard Truevue 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,Truevue 30 PS HC,SOLAR GARD|TRUEVUE 30 PS HC,1,Solar Gard,Truevue 30 PS HC,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solar Gard,"Truevue 40 48"" (re-rolled A Partial To 15')","SOLAR GARD|TRUEVUE 40 48"" (RE-ROLLED A PARTIAL TO 15')",1,Solar Gard,"SG Truevue 40 48"" (re-rolled a partial to 15')",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,4003 Solyx SXWF-BO Blackout,SOLYX|4003 SOLYX SXWF-BO BLACKOUT,1,Solyx,4003 Solyx SXWF-BO blackout,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Antique Clear SX6020,SOLYX|ANTIQUE CLEAR SX6020,1,Solyx,Solyx Antique Clear SX6020,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Antique Slvr. Mirr. Opaque First Surfc. SX6040,SOLYX|ANTIQUE SLVR. MIRR. OPAQUE FIRST SURFC. SX6040,1,Solyx,Solyx Antique Slvr. Mirr. Opaque First Surfc. SX6040,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Big City Lights SX1523,SOLYX|BIG CITY LIGHTS SX1523,1,Solyx,Solyx Big City Lights SX1523,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Bird Safety Film Dot (sx-bsfd),SOLYX|BIRD SAFETY FILM DOT (SX-BSFD),1,Solyx,Solyx Bird Safety Film Dot (SX-BSFD),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,BRUSHED METAL SXS-M300,SOLYX|BRUSHED METAL SXS-M300,1,Solyx,BRUSHED METAL SXS-M300,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,CLEAR BRUSH SXHE-02,SOLYX|CLEAR BRUSH SXHE-02,1,Solyx,CLEAR BRUSH SXHE-02,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Cool Grey SX4500,SOLYX|COOL GREY SX4500,1,Solyx,Solyx Cool Grey SX4500,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Cracked Ice SX-SC540,SOLYX|CRACKED ICE SX-SC540,1,Solyx,Cracked Ice SX-SC540,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dove Stained Glass SXEG-1025,SOLYX|DOVE STAINED GLASS SXEG-1025,1,Solyx,Dove Stained Glass SXEG-1025,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Dual Motion Gradient SXJ-0585,SOLYX|DUAL MOTION GRADIENT SXJ-0585,1,Solyx,Dual Motion Gradient SXJ-0585,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Etched Dual Dot Gradient SXJ0583,SOLYX|ETCHED DUAL DOT GRADIENT SXJ0583,1,Solyx,SOLYX Etched Dual Dot Gradient SXJ0583,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Frosted Jacks SXW08,SOLYX|FROSTED JACKS SXW08,1,Solyx,Solyx Frosted Jacks SXW08,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Frosted Sparkle SX324,SOLYX|FROSTED SPARKLE SX324,1,Solyx,Solyx Frosted Sparkle SX324,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Frosted Stripes SXC3510,SOLYX|FROSTED STRIPES SXC3510,1,Solyx,Solyx Frosted Stripes SXC3510,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Frosted Summer SX1545,SOLYX|FROSTED SUMMER SX1545,1,Solyx,Solyx Frosted Summer SX1545,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,GLOSS BLACK VINYL SXV-9-1003,SOLYX|GLOSS BLACK VINYL SXV-9-1003,1,Solyx,GLOSS BLACK VINYL SXV-9-1003,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Gotham SX3148,SOLYX|GOTHAM SX3148,1,Solyx,SOLYX Gotham SX3148,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Light Etch SXGF0197,SOLYX|LIGHT ETCH SXGF0197,1,Solyx,Solyx Light Etch SXGF0197,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,LINEN SX-C387,SOLYX|LINEN SX-C387,1,Solyx,SOLYX LINEN SX-C387,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,MAGNETIC White Dry Erase For Glass SX2097,SOLYX|MAGNETIC WHITE DRY ERASE FOR GLASS SX2097,1,Solyx,SOLYX MAGNETIC White Dry Erase for Glass SX2097,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Matte Dual Fine Dots Grad. SXJ0581,SOLYX|MATTE DUAL FINE DOTS GRAD. SXJ0581,1,Solyx,Solyx Matte Dual Fine Dots Grad. SXJ0581,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Matte Linen SX5031,SOLYX|MATTE LINEN SX5031,1,Solyx,Solyx Matte Linen SX5031,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Olive/gold Dusted Leaf SX3145,SOLYX|OLIVE/GOLD DUSTED LEAF SX3145,1,Solyx,Solyx Olive/Gold Dusted Leaf SX3145,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,One Way Perf SX1940,SOLYX|ONE WAY PERF SX1940,1,Solyx,SOLYX one way perf SX1940,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Organic Cotton SX3146,SOLYX|ORGANIC COTTON SX3146,1,Solyx,Solyx Organic Cotton SX3146,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Organic Strie SX-5015,SOLYX|ORGANIC STRIE SX-5015,1,Solyx,Organic Strie SX-5015,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Pin Point SXC333,SOLYX|PIN POINT SXC333,1,Solyx,Solyx Pin Point SXC333,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Rhombus SX1730,SOLYX|RHOMBUS SX1730,1,Solyx,Solyx Rhombus SX1730,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Ribbed Glass Clear SX-9050,SOLYX|RIBBED GLASS CLEAR SX-9050,1,Solyx,Solyx Ribbed Glass Clear SX-9050,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Sambe SX5037,SOLYX|SAMBE SX5037,1,Solyx,Solyx Sambe SX5037,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Sand Blast Dark Gray SXB-73,SOLYX|SAND BLAST DARK GRAY SXB-73,1,Solyx,Solyx Sand Blast Dark Gray SXB-73,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,"Sand Blast Squares 1-1/8"" SX1700","SOLYX|SAND BLAST SQUARES 1-1/8"" SX1700",1,Solyx,"Solyx Sand Blast Squares 1-1/8"" SX1700",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Satin Silver Opaque SXWFSM,SOLYX|SATIN SILVER OPAQUE SXWFSM,1,Solyx,Solyx Satin Silver Opaque SXWFSM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Semi Transparent Clear Frost SX1325,SOLYX|SEMI TRANSPARENT CLEAR FROST SX1325,1,Solyx,Solyx Semi Transparent Clear Frost SX1325,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Silver Etch Stripe SX-2002,SOLYX|SILVER ETCH STRIPE SX-2002,1,Solyx,Solyx Silver Etch Stripe SX-2002,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Snow White Light Diffuser SXF-0600,SOLYX|SNOW WHITE LIGHT DIFFUSER SXF-0600,1,Solyx,Snow White Light Diffuser SXF-0600,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL Dark Gray Sandblast SXB-73,SOLYX|SOL DARK GRAY SANDBLAST SXB-73,1,Solyx,SOL Dark Gray Sandblast SXB-73,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL DUSTED WATERS (sx-3147),SOLYX|SOL DUSTED WATERS (SX-3147),1,Solyx,SOL DUSTED WATERS (SX-3147),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SILVER Ultracool-s3560,SOLYX|SOL SILVER ULTRACOOL-S3560,1,Solyx,SOL SILVER UltraCool-S3560,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL Steel Blue SXO-096,SOLYX|SOL STEEL BLUE SXO-096,1,Solyx,SOL Steel Blue SXO-096,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SX-1259 WAVY GLASS FILM,SOLYX|SOL SX-1259 WAVY GLASS FILM,1,Solyx,SOL SX-1259 WAVY GLASS FILM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SX-1305 BRONZE FROST,SOLYX|SOL SX-1305 BRONZE FROST,1,Solyx,SOL SX-1305 BRONZE FROST,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SXC-131 FROSTED SHORT STRIPE MINI BLIND-VERTICAL,SOLYX|SOL SXC-131 FROSTED SHORT STRIPE MINI BLIND-VERTICAL,1,Solyx,SOL SXC-131 FROSTED SHORT STRIPE MINI BLIND-VERTICAL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SXWF-BO,SOLYX|SOL SXWF-BO,1,Solyx,SOL SXWF-BO,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SOL SXWF-WB White/black Opaque,SOLYX|SOL SXWF-WB WHITE/BLACK OPAQUE,1,Solyx,SOL SXWF-WB White/Black Opaque,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Static Cling Blackout Sand SXSC-318,SOLYX|STATIC CLING BLACKOUT SAND SXSC-318,1,Solyx,Solyx Static Cling Blackout Sand SXSC-318,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Static Cling Mosaic Squares SX-SC513,SOLYX|STATIC CLING MOSAIC SQUARES SX-SC513,1,Solyx,Solyx Static Cling Mosaic Squares SX-SC513,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX 1,SOLYX|SX 1,1,Solyx,Solyx SX 1,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-052,SOLYX|SX-052,1,Solyx,Solyx SX-052,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-1461 CUT GLASS BAMBOO,SOLYX|SX-1461 CUT GLASS BAMBOO,1,Solyx,SX-1461 CUT GLASS BAMBOO,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-1516,SOLYX|SX-1516,1,Solyx,Solyx SX-1516,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-5038,SOLYX|SX-5038,1,Solyx,Solyx SX-5038,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-C373 Acid Etch Stripes,SOLYX|SX-C373 ACID ETCH STRIPES,1,Solyx,SOLYX SX-C373 Acid Etch Stripes,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-C384 ETCHED STRIPES,SOLYX|SX-C384 ETCHED STRIPES,1,Solyx,SX-C384 ETCHED STRIPES,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX-SC 684-48 Pyramid,SOLYX|SX-SC 684-48 PYRAMID,1,Solyx,SX-SC 684-48 Pyramid,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,"SX-SC555 Titanium Sand 35.5""","SOLYX|SX-SC555 TITANIUM SAND 35.5""",1,Solyx,"SOLYX SX-SC555 Titanium Sand 35.5""",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SX073 Dark Grey,SOLYX|SX073 DARK GREY,1,Solyx,Solyx SX073 Dark Grey,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXJ-0547 FEATHER GRADIENT,SOLYX|SXJ-0547 FEATHER GRADIENT,1,Solyx,SOLYX SXJ-0547 FEATHER GRADIENT,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-025 Brimestome Yellow,SOLYX|SXO-025 BRIMESTOME YELLOW,1,Solyx,Solyx SXO-025 Brimestome Yellow,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-031 (red),SOLYX|SXO-031 (RED),1,Solyx,SXO-031 (RED),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-034 Orange,SOLYX|SXO-034 ORANGE,1,Solyx,Solyx SXO-034 Orange,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-047 Orange/red,SOLYX|SXO-047 ORANGE/RED,1,Solyx,SXO-047 ORANGE/RED,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-056 Ice Blue,SOLYX|SXO-056 ICE BLUE,1,Solyx,Solyx SXO-056 Ice Blue,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXO-068 Grass Green,SOLYX|SXO-068 GRASS GREEN,1,Solyx,Solyx SXO-068 Grass Green,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXP-020UV Amber,SOLYX|SXP-020UV AMBER,1,Solyx,Solyx SXP-020UV Amber,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXP-039 Raspberry Red,SOLYX|SXP-039 RASPBERRY RED,1,Solyx,Solyx SXP-039 Raspberry Red,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Sxwf_wm White Matt,SOLYX|SXWF_WM WHITE MATT,1,Solyx,Solyx SXWF_WM White Matt,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Sxwf_wmax,SOLYX|SXWF_WMAX,1,Solyx,SXWF_WMAX,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXWF-WB 60 White/black OPAQUE,SOLYX|SXWF-WB 60 WHITE/BLACK OPAQUE,1,Solyx,SXWF-WB 60 WHITE/BLACK OPAQUE,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,SXWF-WM WHITE MATTE MAX,SOLYX|SXWF-WM WHITE MATTE MAX,1,Solyx,SOLYX SXWF-WM WHITE MATTE MAX,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,"SXWF-WMAX WHITE MATTE MAX 60"" 1 Of 2","SOLYX|SXWF-WMAX WHITE MATTE MAX 60"" 1 OF 2",1,Solyx,"SXWF-WMAX WHITE MATTE MAX 60"" 1 of 2",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,T2 Clear Fine Brush SXL,SOLYX|T2 CLEAR FINE BRUSH SXL,1,Solyx,T2 Clear Fine Brush SXL,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,"Traffic Blue 48"" SXO-","SOLYX|TRAFFIC BLUE 48"" SXO-",1,Solyx,"Traffic Blue 48"" SXO-",true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Transparent White Leaf SX-3142,SOLYX|TRANSPARENT WHITE LEAF SX-3142,1,Solyx,Solyx Transparent White Leaf SX-3142,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Transparent White Matte SXWFTWM,SOLYX|TRANSPARENT WHITE MATTE SXWFTWM,1,Solyx,Solyx Transparent White Matte SXWFTWM,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Ultracool-s1560 Silver 15,SOLYX|ULTRACOOL-S1560 SILVER 15,1,Solyx,SOLYX Ultracool-S1560 Silver 15,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,Violet SXO-040,SOLYX|VIOLET SXO-040,1,Solyx,Solyx Violet SXO-040,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,White Dry Erase For Glass SX2029,SOLYX|WHITE DRY ERASE FOR GLASS SX2029,1,Solyx,SOLYX White Dry Erase for Glass SX2029,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,White Matte Max Translucent ( Sxwfwmax),SOLYX|WHITE MATTE MAX TRANSLUCENT ( SXWFWMAX),1,Solyx,Solyx White Matte Max Translucent ( SXWFWMAX),true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,WHITE RICE PAPER SXG-0,SOLYX|WHITE RICE PAPER SXG-0,1,Solyx,WHITE RICE PAPER SXG-0,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Solyx,WHITE RICE PAPER SXG-001,SOLYX|WHITE RICE PAPER SXG-001,1,Solyx,WHITE RICE PAPER SXG-001,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Vinyl,PR 70,VINYL|PR 70,1,Vinyl,PR 70,true
+ecf4f1c5-f153-4072-b814-18a41c52fcdc,Vinyl,"S80 60"" (1of 2)","VINYL|S80 60"" (1OF 2)",1,Vinyl,"S80 60"" (1of 2)",true

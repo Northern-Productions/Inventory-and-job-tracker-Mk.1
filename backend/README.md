@@ -14,7 +14,8 @@ Recommended mode:
 
 ```env
 BACKEND_MODE=supabase
-EDGE_API_BASE_URL=https://[PROJECT-REF].supabase.co/functions/v1/api
+# Optional: defaults to ${SUPABASE_URL}/functions/v1/api when omitted
+EDGE_API_BASE_URL=
 DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
 SUPABASE_URL=https://[PROJECT-REF].supabase.co
 SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY

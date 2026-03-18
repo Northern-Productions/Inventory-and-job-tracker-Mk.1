@@ -1,0 +1,105 @@
+{
+  "applied_at_utc": "2026-03-18T10:58:58.642Z",
+  "unmatched_before": 17,
+  "non_film_rows_considered": 17,
+  "non_film_unique_keys": 15,
+  "upserted_rows": 15,
+  "coverage": {
+    "total_boxes": 2860,
+    "matched_boxes": 2860,
+    "unmatched_boxes": 0
+  },
+  "unmatched_distinct_after": 0,
+  "tagged_catalog_rows": [
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "Coastal Dow 995 Black",
+      "film_key": "VINYL|COASTAL DOW 995 BLACK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M Black IPA Caulk",
+      "film_key": "3M SOLAR|3M BLACK IPA CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M White IPA Caulk",
+      "film_key": "3M SOLAR|3M WHITE IPA CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "DOW 795 Black",
+      "film_key": "VINYL|DOW 795 BLACK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M BLACK CAULK",
+      "film_key": "3M SOLAR|3M BLACK CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M Bronze Caulk",
+      "film_key": "3M SOLAR|3M BRONZE CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M IPA Black",
+      "film_key": "3M SOLAR|3M IPA BLACK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "3M Solar",
+      "film_name": "3M IPA White",
+      "film_key": "3M SOLAR|3M IPA WHITE",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "Black Caulk",
+      "film_key": "VINYL|BLACK CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "CLEAR CAULK SPECTRUM",
+      "film_key": "VINYL|CLEAR CAULK SPECTRUM",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "Coastal Black Caulk",
+      "film_key": "VINYL|COASTAL BLACK CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "DOW 799 CORNING SILICONE",
+      "film_key": "VINYL|DOW 799 CORNING SILICONE",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "GREY CAULK - STONEY",
+      "film_key": "VINYL|GREY CAULK - STONEY",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "SPECTRUM BLACK CAULK",
+      "film_key": "VINYL|SPECTRUM BLACK CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    },
+    {
+      "manufacturer": "Vinyl",
+      "film_name": "WHITE CAULK",
+      "film_key": "VINYL|WHITE CAULK",
+      "notes": "non_film_consumable:auto_tagged_2026-03-18"
+    }
+  ]
+}

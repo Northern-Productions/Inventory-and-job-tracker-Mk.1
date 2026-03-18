@@ -1,0 +1,261 @@
+{
+  "applied_at_utc": "2026-03-18T10:32:05.129Z",
+  "coverage_before": {
+    "total_boxes": 2860,
+    "matched_boxes": 1805,
+    "unmatched_boxes": 1055
+  },
+  "coverage_after": {
+    "total_boxes": 2860,
+    "matched_boxes": 2089,
+    "unmatched_boxes": 771
+  },
+  "unmatched_distinct_after": 470,
+  "decision_count": 25,
+  "actionable_count": 22,
+  "skipped_count": 3,
+  "catalog_inserted": 16,
+  "total_rows_updated": 282,
+  "mapped": [
+    {
+      "rownum": 1,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG Truevue 15",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Truevue 15",
+      "action": "MAP_EXISTING",
+      "reason": "review_map_candidate",
+      "affected_rows": 25
+    },
+    {
+      "rownum": 2,
+      "source_manufacturer": "3M Solar",
+      "source_film_name": "3M NV 35",
+      "target_manufacturer": "3M Solar",
+      "target_film_name": "Night Vision 35",
+      "action": "MAP_EXISTING",
+      "reason": "user_override",
+      "affected_rows": 21
+    },
+    {
+      "rownum": 3,
+      "source_manufacturer": "Llumar",
+      "source_film_name": "Llumar Bronze 20 N1020B",
+      "target_manufacturer": "Llumar",
+      "target_film_name": "Bronze 20 N1020B",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 17
+    },
+    {
+      "rownum": 4,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG Slate 40",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Slate 40",
+      "action": "MAP_EXISTING",
+      "reason": "review_map_candidate",
+      "affected_rows": 16
+    },
+    {
+      "rownum": 5,
+      "source_manufacturer": "3M Solar",
+      "source_film_name": "3M PR 20 EXT",
+      "target_manufacturer": "3M Solar",
+      "target_film_name": "Prestige 20 Exterior",
+      "action": "MAP_EXISTING",
+      "reason": "user_override",
+      "affected_rows": 15
+    },
+    {
+      "rownum": 6,
+      "source_manufacturer": "3M Fasara",
+      "source_film_name": "3M Fasara Frosted Crystal 7725-324",
+      "target_manufacturer": "3M Fasara",
+      "target_film_name": "Frosted Crystal 7725-324",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 14
+    },
+    {
+      "rownum": 7,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG TrueVue 15",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Truevue 15",
+      "action": "MAP_EXISTING",
+      "reason": "review_map_candidate",
+      "affected_rows": 14
+    },
+    {
+      "rownum": 8,
+      "source_manufacturer": "3M Fasara",
+      "source_film_name": "3M Black Blockout Matte 3635-22B",
+      "target_manufacturer": "3M Fasara",
+      "target_film_name": "Black Blockout Matte 3635-22B",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 13
+    },
+    {
+      "rownum": 9,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG Slate 30",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Slate 30",
+      "action": "MAP_EXISTING",
+      "reason": "review_map_candidate",
+      "affected_rows": 13
+    },
+    {
+      "rownum": 10,
+      "source_manufacturer": "Avery Dennison",
+      "source_film_name": "Avery Natura 30",
+      "target_manufacturer": "Avery Dennison",
+      "target_film_name": "Natura 30",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 12
+    },
+    {
+      "rownum": 11,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG Sentinel Plus DX5 EXT",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Sentinel Plus DX5 EXT",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 12
+    },
+    {
+      "rownum": 12,
+      "source_manufacturer": "Solar Gard",
+      "source_film_name": "SG True Vue 30",
+      "target_manufacturer": "Solar Gard",
+      "target_film_name": "Truevue 30",
+      "action": "MAP_EXISTING",
+      "reason": "review_map_candidate",
+      "affected_rows": 11
+    },
+    {
+      "rownum": 14,
+      "source_manufacturer": "3M Fasara",
+      "source_film_name": "Feather Friendly Harmony",
+      "target_manufacturer": "3M Fasara",
+      "target_film_name": "Feather Friendly Harmony",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 15,
+      "source_manufacturer": "3M Solar",
+      "source_film_name": "3M PR 40",
+      "target_manufacturer": "3M Solar",
+      "target_film_name": "Prestige 40 Exterior",
+      "action": "MAP_EXISTING",
+      "reason": "user_override",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 16,
+      "source_manufacturer": "Avery Dennison",
+      "source_film_name": "Avery Optishade 25",
+      "target_manufacturer": "Avery Dennison",
+      "target_film_name": "Optishade 25",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 17,
+      "source_manufacturer": "Avery Dennison",
+      "source_film_name": "Avery Optitune 15",
+      "target_manufacturer": "Avery Dennison",
+      "target_film_name": "Optitune 15",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 18,
+      "source_manufacturer": "Avery Dennison",
+      "source_film_name": "Avery Perlite 70",
+      "target_manufacturer": "Avery Dennison",
+      "target_film_name": "Perlite 70",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 19,
+      "source_manufacturer": "Llumar",
+      "source_film_name": "Llumar Vista 58 (V58)",
+      "target_manufacturer": "Llumar",
+      "target_film_name": "V58",
+      "action": "MAP_EXISTING",
+      "reason": "user_override",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 20,
+      "source_manufacturer": "Security",
+      "source_film_name": "3M AG-4",
+      "target_manufacturer": "Security",
+      "target_film_name": "3M AG-4",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 21,
+      "source_manufacturer": "Solyx",
+      "source_film_name": "Solyx Total Light Blockout White",
+      "target_manufacturer": "Solyx",
+      "target_film_name": "Total Light Blockout White",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 22,
+      "source_manufacturer": "Vinyl",
+      "source_film_name": "Oracal 751 Silver Metallic",
+      "target_manufacturer": "Vinyl",
+      "target_film_name": "Oracal 751 White",
+      "action": "MAP_EXISTING",
+      "reason": "user_override",
+      "affected_rows": 10
+    },
+    {
+      "rownum": 25,
+      "source_manufacturer": "Vinyl",
+      "source_film_name": "Oracal 8500 Middle Gray",
+      "target_manufacturer": "Vinyl",
+      "target_film_name": "Oracal 8500 Middle Gray",
+      "action": "ADD_AND_MAP",
+      "reason": "add_to_catalog",
+      "affected_rows": 9
+    }
+  ],
+  "skipped": [
+    {
+      "rownum": 13,
+      "source_manufacturer": "Vinyl",
+      "source_film_name": "Coastal Dow 995 Black",
+      "reason": "ignore_non_film"
+    },
+    {
+      "rownum": 23,
+      "source_manufacturer": "3M Solar",
+      "source_film_name": "3M Black IPA Caulk",
+      "reason": "ignore_non_film"
+    },
+    {
+      "rownum": 24,
+      "source_manufacturer": "Vinyl",
+      "source_film_name": "3M 7125 Dark Grey 41",
+      "reason": "user_remove_from_list"
+    }
+  ]
+}

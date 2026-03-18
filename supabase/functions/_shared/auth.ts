@@ -54,11 +54,11 @@ export async function resolveAuthContext(
   request: Request,
   deps: ResolveAuthContextDeps,
 ): Promise<{ identity: AuthIdentity; client: any }> {
-  const authorization = request.headers.get("authorization") || "";
-  const token = authorization.replace(/^Bearer\s+/i, "").trim();
-  if (!token) {
+  const authorization = request.headers.get("authorization")?.trim() || "";
+  if (!/^Bearer\s+\S+$/i.test(authorization)) {
     throw new HttpError(401, "Authenticated session is required.");
   }
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
 
   deps.pruneAuthIdentityCache();
   const cached = deps.authIdentityCache.get(token);
