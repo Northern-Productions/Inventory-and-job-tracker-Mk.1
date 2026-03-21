@@ -179,6 +179,10 @@ function integerOrNull(value) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
+function normalizeAllocationKind(value) {
+  return asTrimmedString(value).toUpperCase() === 'EXTRA' ? 'EXTRA' : 'REQUIREMENT';
+}
+
 function parseIntegerInput(value, fieldName) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed) {
@@ -526,21 +530,16 @@ function canonicalizeManufacturerLabel(value) {
   const normalized = normalizeCollapsedCatalogLabel(value);
   const key = normalized.toLowerCase();
 
-  if (key === '3m') {
-    return '3M Solar';
-  }
-
-  if (key === 'fasara' || key === '3m fasara') {
-    return '3M Fasara';
-  }
-
-  if (key === 'avery') {
-    return 'Avery Dennison';
-  }
-
-  if (key === 'solar guard') {
-    return 'Solar Gard';
-  }
+  if (key === '3m' || key === '3m solar') return '3M Solar';
+  if (key === 'fasara' || key === '3m fasara') return '3M Fasara';
+  if (key === 'avery' || key === 'avery dennison') return 'Avery Dennison';
+  if (key === 'llumar vista' || key === 'llumarvista' || key === 'llumar') return 'Llumar';
+  if (key === 'solar guard' || key === 'solargard' || key === 'solar gard' || key === 'sg') return 'Solar Gard';
+  if (key === 'solyx' || key === 'sol') return 'SOLYX';
+  if (key === 'madico') return 'Madico';
+  if (key === 'v-kool' || key === 'vkool' || key === 'aswfvkool') return 'ASWFVKOOL';
+  if (key === 'di-noc' || key === 'dinoc') return 'Di-Noc';
+  if (key === 'vinyl') return 'Vinyl';
 
   return normalized;
 }
@@ -554,6 +553,103 @@ function normalizeCatalogManufacturerLookupKey(value) {
 }
 
 const SECURITY_MANUFACTURER_LABEL = 'Security';
+const PREFIX_POLICY_TARGET_MANUFACTURERS = new Set([
+  '3M Solar',
+  '3M Fasara',
+  'Madico',
+  'Avery Dennison',
+  'Llumar',
+  'Solar Gard',
+  'SOLYX'
+]);
+const PREFIX_POLICY_EXEMPT_MANUFACTURERS = new Set([SECURITY_MANUFACTURER_LABEL, 'Vinyl']);
+
+function manufacturerPrefixPatterns(manufacturer) {
+  if (manufacturer === '3M Solar') return [/^3m\s+/i];
+  if (manufacturer === '3M Fasara') return [/^3m\s+fasara\s+/i, /^fasara\s+/i, /^3m\s+/i];
+  if (manufacturer === 'Solar Gard') return [/^sg\s+/i, /^solar\s*guard\s+/i, /^solar\s+gard\s+/i, /^solarguard\s+/i, /^solargard\s+/i];
+  if (manufacturer === 'Llumar') return [/^llumar\s+vista\s+/i, /^llumarvista\s+/i, /^llumar\s+/i];
+  if (manufacturer === 'Avery Dennison') return [/^avery\s+dennison\s+/i, /^avery\s+/i, /^ad\s+/i];
+  if (manufacturer === 'SOLYX') return [/^solyx\s+/i, /^sol\s+/i];
+  if (manufacturer === 'Madico') return [/^madico\s+/i];
+  return [];
+}
+
+function stripManufacturerPrefixes(manufacturer, filmName) {
+  let value = normalizeCollapsedCatalogLabel(filmName);
+  const patterns = manufacturerPrefixPatterns(manufacturer);
+  if (!patterns.length || !value) {
+    return value;
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let index = 0; index < patterns.length; index += 1) {
+      const pattern = patterns[index];
+      const next = normalizeCollapsedCatalogLabel(value.replace(pattern, ''));
+      if (next && next !== value) {
+        value = next;
+        changed = true;
+      }
+    }
+  }
+
+  return value;
+}
+
+function normalizeManufacturerPrefixPolicyFilmName(manufacturer, filmName) {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) return normalizedFilmName;
+  if (PREFIX_POLICY_EXEMPT_MANUFACTURERS.has(canonicalManufacturer)) return normalizedFilmName;
+  if (!PREFIX_POLICY_TARGET_MANUFACTURERS.has(canonicalManufacturer)) return normalizedFilmName;
+
+  const stripped = stripManufacturerPrefixes(canonicalManufacturer, normalizedFilmName);
+  if (!stripped) return normalizedFilmName;
+  if (normalizeCatalogLookupKey(stripped) === normalizeCatalogLookupKey(normalizedFilmName)) {
+    return normalizedFilmName;
+  }
+  return stripped;
+}
+
+function isAveryDennisonManufacturer(value) {
+  return (
+    normalizeCatalogManufacturerLookupKey(canonicalizeManufacturerLabel(value))
+    === normalizeCatalogManufacturerLookupKey('Avery Dennison')
+  );
+}
+
+function normalizeAveryNaturaShadeFilmName(manufacturer, filmName) {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) return normalizedFilmName;
+  if (!isAveryDennisonManufacturer(canonicalManufacturer)) return normalizedFilmName;
+
+  const shadeMatch = normalizedFilmName.match(/^natura\s*0*([0-9]{1,3})(.*)$/i);
+  if (!shadeMatch) return normalizedFilmName;
+
+  const shadeDigits = canonicalizeNumericDigits(shadeMatch[1]);
+  const suffix = normalizeCollapsedCatalogLabel(shadeMatch[2] || '');
+  if (!suffix) {
+    return `Natura ${shadeDigits}`;
+  }
+  return `Natura ${shadeDigits}${suffix.startsWith('-') ? '' : ' '}${suffix}`;
+}
+
+function assertAveryNaturaShadeForWrite(manufacturer, filmName, fieldName) {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  if (!isAveryDennisonManufacturer(canonicalManufacturer)) return;
+
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!/^natura\b/i.test(normalizedFilmName)) return;
+  if (/^natura\s*0*[0-9]+/i.test(normalizedFilmName)) return;
+
+  throw new HttpError(
+    400,
+    `${fieldName || 'FilmName'} must include an Avery Natura shade number (for example, "Natura 5" or "Natura 30").`
+  );
+}
 
 function normalizeMilTokenSpacing(value) {
   return normalizeCollapsedCatalogLabel(value).replace(/\b(\d+)\s*mil\b/gi, (_match, digits) => `${digits} MIL`);
@@ -790,8 +886,23 @@ function normalizeSecurityManufacturerAndFilm(manufacturer, filmName) {
   };
 }
 
+function normalizeCanonicalManufacturerAndFilm(manufacturer, filmName) {
+  const securityNormalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+    securityNormalized.manufacturer,
+    securityNormalized.filmName
+  );
+  return {
+    manufacturer: securityNormalized.manufacturer,
+    filmName: normalizeAveryNaturaShadeFilmName(
+      securityNormalized.manufacturer,
+      prefixPolicyNormalizedFilmName
+    )
+  };
+}
+
 function normalizeFilmKeyInput(manufacturer, filmName, filmKeyInput) {
-  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   void filmKeyInput;
   return buildFilmKey(normalized.manufacturer, normalized.filmName);
 }
@@ -844,14 +955,14 @@ async function resolveCanonicalFilmNameAlias(client, orgId, manufacturer, filmNa
 }
 
 async function resolveCanonicalFilmEntry(client, orgId, manufacturer, filmName) {
-  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   const aliasResolvedFilmName = await resolveCanonicalFilmNameAlias(
     client,
     orgId,
     normalized.manufacturer,
     normalized.filmName
   );
-  return normalizeSecurityManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
+  return normalizeCanonicalManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
 }
 
 function dedupeNormalizedJobRequirements(requirements) {
@@ -893,6 +1004,11 @@ async function canonicalizeJobRequirementEntriesWithAliases(client, orgId, requi
   const normalized = [];
   for (let index = 0; index < requirements.length; index += 1) {
     const entry = requirements[index];
+    assertAveryNaturaShadeForWrite(
+      entry.manufacturer,
+      entry.filmName,
+      `Requirements[${index}].FilmName`
+    );
     const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
     normalized.push({
       ...entry,
@@ -1248,6 +1364,7 @@ function mapDbAllocationRow(row) {
     jobNumber: asTrimmedString(row.job_number),
     jobDate: formatDateValue(row.job_date),
     allocatedFeet: integerOrZero(row.allocated_feet),
+    allocationKind: normalizeAllocationKind(row.allocation_kind),
     status: asTrimmedString(row.status) || 'ACTIVE',
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
@@ -1268,6 +1385,7 @@ function toPublicAllocation(entry) {
     jobDate: entry.jobDate,
     crewLeader: entry.crewLeader,
     allocatedFeet: entry.allocatedFeet,
+    allocationKind: normalizeAllocationKind(entry.allocationKind),
     status: entry.status,
     createdAt: entry.createdAt,
     createdBy: entry.createdBy,
@@ -2858,7 +2976,8 @@ async function saveAllocationRecord(client, orgId, entry) {
         resolved_by,
         notes,
         crew_leader,
-        film_order_id
+        film_order_id,
+        allocation_kind
       )
       values (
         $1,$2,$3,$4,$5,$6,
@@ -2867,7 +2986,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         coalesce($10::timestamptz, now()),
         $11,
         nullif($12, '')::timestamptz,
-        $13,$14,$15,$16
+        $13,$14,$15,$16,$17
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
@@ -2883,7 +3002,8 @@ async function saveAllocationRecord(client, orgId, entry) {
         resolved_by = excluded.resolved_by,
         notes = excluded.notes,
         crew_leader = excluded.crew_leader,
-        film_order_id = excluded.film_order_id
+        film_order_id = excluded.film_order_id,
+        allocation_kind = excluded.allocation_kind
       returning *
     `,
     [
@@ -2902,7 +3022,8 @@ async function saveAllocationRecord(client, orgId, entry) {
       entry.resolvedBy,
       entry.notes,
       entry.crewLeader,
-      entry.filmOrderId
+      entry.filmOrderId,
+      normalizeAllocationKind(entry.allocationKind)
     ]
   );
 
@@ -3453,7 +3574,7 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
     const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
     const timestampSortValue = toUsageTimestampSortValue(entry);
     const box = boxById[entry.boxId] || null;
-    const rollEntryNormalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const rollEntryNormalized = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
 
     if (!grouped[entry.boxId]) {
       grouped[entry.boxId] = {
@@ -3498,7 +3619,7 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
 }
 
 async function appendRollHistoryEntry(client, orgId, entry) {
-  const normalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
+  const normalized = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
   const manufacturer = normalized.manufacturer;
   const filmName = normalized.filmName;
   await client.query(
@@ -3629,7 +3750,11 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
-    if (allocation.status === 'CANCELLED' || allocation.allocatedFeet <= 0) {
+    if (
+      allocation.status === 'CANCELLED' ||
+      allocation.allocatedFeet <= 0 ||
+      normalizeAllocationKind(allocation.allocationKind) === 'EXTRA'
+    ) {
       continue;
     }
 
@@ -4353,7 +4478,16 @@ async function getOrResolveJobId(client, orgId, jobNumber) {
   return header ? header.id : null;
 }
 
-async function createAllocationRecord(client, orgId, box, jobContext, allocatedFeet, user, filmOrderId) {
+async function createAllocationRecord(
+  client,
+  orgId,
+  box,
+  jobContext,
+  allocatedFeet,
+  user,
+  filmOrderId,
+  allocationKind = 'REQUIREMENT'
+) {
   const jobId = await getOrResolveJobId(client, orgId, jobContext.jobNumber);
   return saveAllocationRecord(client, orgId, {
     allocationId: createLogId(),
@@ -4370,7 +4504,8 @@ async function createAllocationRecord(client, orgId, box, jobContext, allocatedF
     resolvedBy: '',
     notes: '',
     crewLeader: jobContext.crewLeader,
-    filmOrderId: asTrimmedString(filmOrderId)
+    filmOrderId: asTrimmedString(filmOrderId),
+    allocationKind: normalizeAllocationKind(allocationKind)
   });
 }
 
@@ -5286,11 +5421,14 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
 
 async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox) {
   const boxId = existingBox ? existingBox.boxId : requireString(payload.boxId, 'BoxID');
+  const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
+  const sourceFilmName = requireString(payload.filmName, 'FilmName');
+  assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
   const canonical = await resolveCanonicalFilmEntry(
     client,
     orgId,
-    requireString(payload.manufacturer, 'Manufacturer'),
-    requireString(payload.filmName, 'FilmName')
+    sourceManufacturer,
+    sourceFilmName
   );
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
@@ -6888,8 +7026,12 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
   const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
   const jobNumber = requireString(payload.jobNumber, 'JobNumber');
-  const manufacturer = canonicalizeManufacturerLabel(requireString(payload.manufacturer, 'Manufacturer'));
-  const filmName = normalizeCollapsedCatalogLabel(requireString(payload.filmName, 'FilmName'));
+  const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
+  const sourceFilmName = requireString(payload.filmName, 'FilmName');
+  assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
+  const canonical = await resolveCanonicalFilmEntry(client, orgId, sourceManufacturer, sourceFilmName);
+  const manufacturer = canonical.manufacturer;
+  const filmName = canonical.filmName;
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const requestedFeet = coerceFeetValue(payload.requestedFeet, 'RequestedFeet', warnings, false);
 
@@ -7115,6 +7257,48 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(400, 'Only in-stock or checked-out boxes can be allocated.');
   }
 
+  const requestedFeet = coerceFeetValue(payload.requestedFeet ?? 0, 'RequestedFeet', warnings, false);
+  const minimumWidthValue = Number(payload.requestedWidthIn);
+  const minimumWidthIn =
+    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : source.widthIn;
+  if (source.widthIn < minimumWidthIn) {
+    throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
+  }
+
+  const extraAllocationsPayload = payload.extraAllocations;
+  if (extraAllocationsPayload !== undefined && !Array.isArray(extraAllocationsPayload)) {
+    throw new HttpError(400, 'extraAllocations must be an array.');
+  }
+
+  const requestedExtraAllocations = [];
+  const extraByBoxId = {};
+  for (let index = 0; index < (Array.isArray(extraAllocationsPayload) ? extraAllocationsPayload.length : 0); index += 1) {
+    const entry = extraAllocationsPayload[index];
+    if (!entry || typeof entry !== 'object') {
+      throw new HttpError(400, 'Each extra allocation entry must be an object.');
+    }
+
+    const extraBoxId = requireString(entry.boxId, 'extraAllocations[].boxId');
+    if (extraByBoxId[extraBoxId]) {
+      throw new HttpError(400, `Duplicate extra allocation entry for box ${extraBoxId}.`);
+    }
+
+    const extraFeet = coerceFeetValue(entry.allocatedFeet, `Extra LF for ${extraBoxId}`, warnings, false);
+    if (extraFeet <= 0) {
+      throw new HttpError(400, `Extra allocation for box ${extraBoxId} must be greater than zero.`);
+    }
+
+    extraByBoxId[extraBoxId] = true;
+    requestedExtraAllocations.push({
+      boxId: extraBoxId,
+      allocatedFeet: extraFeet
+    });
+  }
+
+  if (requestedFeet <= 0 && requestedExtraAllocations.length === 0) {
+    throw new HttpError(400, 'RequestedFeet must be greater than zero unless extraAllocations are provided.');
+  }
+
   const allBoxes = await listBoxes(client, orgId);
   const boxById = {};
   for (let index = 0; index < allBoxes.length; index += 1) {
@@ -7129,16 +7313,23 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     payload.jobDate,
     payload.crewLeader
   );
-  const plan = buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
-    crossWarehouse,
-    minimumWidthIn: payload.requestedWidthIn,
-    allBoxes,
-    activeAllocationsByBox
-  });
-  const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
-    ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))
-    : plan.suggestions.map((suggestion) => suggestion.boxId);
-  const selection = calculateSelectedSuggestionAllocations(plan, selectedSuggestionBoxIds);
+  let selection = {
+    allocations: [],
+    remainingFeet: 0
+  };
+  if (requestedFeet > 0) {
+    const plan = buildAllocationPreviewPlan(source, requestedFeet, jobContext, {
+      crossWarehouse,
+      minimumWidthIn,
+      allBoxes,
+      activeAllocationsByBox
+    });
+    const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
+      ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))
+      : plan.suggestions.map((suggestion) => suggestion.boxId);
+    selection = calculateSelectedSuggestionAllocations(plan, selectedSuggestionBoxIds);
+  }
+
   const createdAllocations = [];
 
   for (let index = 0; index < selection.allocations.length; index += 1) {
@@ -7167,21 +7358,63 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       jobContext,
       plannedAllocation.allocatedFeet,
       actor,
-      ''
+      '',
+      'REQUIREMENT'
     );
     currentBox.feetAvailable = Math.max(currentBox.feetAvailable - plannedAllocation.allocatedFeet, 0);
     boxById[currentBox.boxId] = await saveBoxRecord(client, orgId, currentBox);
     createdAllocations.push(toPublicAllocation(allocation));
   }
 
+  for (let index = 0; index < requestedExtraAllocations.length; index += 1) {
+    const plannedExtra = requestedExtraAllocations[index];
+    const currentBox = boxById[plannedExtra.boxId] || (await findBoxById(client, orgId, plannedExtra.boxId));
+    if (!currentBox) {
+      throw new HttpError(404, `Box not found: ${plannedExtra.boxId}`);
+    }
+
+    if (!isAllocatableBoxStatus(currentBox.status)) {
+      throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
+    }
+
+    if (currentBox.manufacturer !== source.manufacturer || currentBox.filmName !== source.filmName) {
+      throw new HttpError(
+        400,
+        `Extra box ${currentBox.boxId} must match the source box film (${source.manufacturer} ${source.filmName}).`
+      );
+    }
+
+    if (currentBox.widthIn < minimumWidthIn) {
+      throw new HttpError(400, `Extra box ${currentBox.boxId} must meet or exceed ${minimumWidthIn}" width.`);
+    }
+
+    if (currentBox.feetAvailable < plannedExtra.allocatedFeet) {
+      throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough available LF.`);
+    }
+
+    const allocation = await createAllocationRecord(
+      client,
+      orgId,
+      currentBox,
+      jobContext,
+      plannedExtra.allocatedFeet,
+      actor,
+      '',
+      'EXTRA'
+    );
+    currentBox.feetAvailable = Math.max(currentBox.feetAvailable - plannedExtra.allocatedFeet, 0);
+    boxById[currentBox.boxId] = await saveBoxRecord(client, orgId, currentBox);
+    createdAllocations.push(toPublicAllocation(allocation));
+  }
+
   let publicFilmOrder = null;
-  if (selection.remainingFeet > 0) {
+  if (requestedFeet > 0 && selection.remainingFeet > 0) {
     const filmOrder = await createFilmOrderForShortage(
       client,
       orgId,
       source,
       jobContext,
-      payload.requestedFeet,
+      requestedFeet,
       selection.remainingFeet,
       actor,
       normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
@@ -7385,7 +7618,7 @@ async function buildFilmCatalog(client, orgId) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const normalized = normalizeSecurityManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const normalized = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
     const manufacturer = normalized.manufacturer;
     const filmName = normalized.filmName;
     const manufacturerKey = normalizeCatalogManufacturerLookupKey(manufacturer);

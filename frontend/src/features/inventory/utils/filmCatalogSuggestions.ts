@@ -11,12 +11,59 @@ interface RankedSuggestion {
   lengthDelta: number;
 }
 
+const EXCLUDED_SUGGESTION_KEYS = new Set<string>([
+  '3m solar|prestige 20x 60" f254325'
+]);
+const SOLAR_MANUFACTURER_LOOKUP_KEY = normalizeManufacturerLookupKey('3M Solar');
+
 function normalizeLabel(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
 }
 
 function normalizeLookup(value: string): string {
   return normalizeLabel(value).toLowerCase();
+}
+
+function canonicalizeNumericDigits(value: string): string {
+  const digitsOnly = value.replace(/[^0-9]/g, '');
+  const withoutLeadingZeros = digitsOnly.replace(/^0+/, '');
+  return withoutLeadingZeros || '0';
+}
+
+function inferNightVisionCode(value: string): string {
+  const normalized = normalizeLabel(value);
+  const nightVisionMatch = normalized.match(/\bnight\s*vision\s*(\d{1,3})\b/i);
+  if (nightVisionMatch) {
+    return canonicalizeNumericDigits(nightVisionMatch[1]);
+  }
+
+  const nvMatch = normalized.match(/\bnv\s*[-]?\s*(\d{1,3})\b/i);
+  if (nvMatch) {
+    return canonicalizeNumericDigits(nvMatch[1]);
+  }
+
+  return '';
+}
+
+function canonicalizeSuggestionManufacturerAndFilmName(
+  manufacturer: string,
+  filmName: string
+): { manufacturer: string; filmName: string } {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeLabel(filmName);
+  if (normalizeManufacturerLookupKey(canonicalManufacturer) !== SOLAR_MANUFACTURER_LOOKUP_KEY) {
+    return { manufacturer: canonicalManufacturer, filmName: normalizedFilmName };
+  }
+
+  const nightVisionCode = inferNightVisionCode(normalizedFilmName);
+  if (!nightVisionCode) {
+    return { manufacturer: canonicalManufacturer, filmName: normalizedFilmName };
+  }
+
+  return {
+    manufacturer: canonicalManufacturer,
+    filmName: `Night Vision ${nightVisionCode}`
+  };
 }
 
 function isAlphaNumeric(char: string): boolean {
@@ -118,17 +165,22 @@ function dedupeCatalogEntries(entries: FilmCatalogEntry[]): FilmCatalogEntry[] {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const normalizedManufacturer = normalizeManufacturerLookupKey(entry.manufacturer);
-    const normalizedFilmName = normalizeLookup(entry.filmName);
+    const canonical = canonicalizeSuggestionManufacturerAndFilmName(entry.manufacturer, entry.filmName);
+    const normalizedManufacturer = normalizeManufacturerLookupKey(canonical.manufacturer);
+    const normalizedFilmName = normalizeLookup(canonical.filmName);
 
     if (!normalizedFilmName) {
       continue;
     }
 
+    if (EXCLUDED_SUGGESTION_KEYS.has(`${normalizedManufacturer}|${normalizedFilmName}`)) {
+      continue;
+    }
+
     dedupedByKey[`${normalizedManufacturer}|${normalizedFilmName}`] = {
       filmKey: entry.filmKey,
-      manufacturer: canonicalizeManufacturerLabel(entry.manufacturer),
-      filmName: normalizeLabel(entry.filmName),
+      manufacturer: canonical.manufacturer,
+      filmName: canonical.filmName,
       updatedAt: entry.updatedAt
     };
   }

@@ -182,23 +182,118 @@ function canonicalizeManufacturerLabel(value: unknown): string {
   const normalized = normalizeCollapsedCatalogLabel(value);
   const key = normalized.toLowerCase();
 
-  if (key === "3m") {
-    return "3M Solar";
-  }
-  if (key === "fasara" || key === "3m fasara") {
-    return "3M Fasara";
-  }
-  if (key === "avery") {
-    return "Avery Dennison";
-  }
-  if (key === "solar guard") {
-    return "Solar Gard";
-  }
+  if (key === "3m" || key === "3m solar") return "3M Solar";
+  if (key === "fasara" || key === "3m fasara") return "3M Fasara";
+  if (key === "avery" || key === "avery dennison") return "Avery Dennison";
+  if (key === "llumar vista" || key === "llumarvista" || key === "llumar") return "Llumar";
+  if (key === "solar guard" || key === "solargard" || key === "solar gard" || key === "sg") return "Solar Gard";
+  if (key === "solyx" || key === "sol") return "SOLYX";
+  if (key === "madico") return "Madico";
+  if (key === "v-kool" || key === "vkool" || key === "aswfvkool") return "ASWFVKOOL";
+  if (key === "di-noc" || key === "dinoc") return "Di-Noc";
+  if (key === "vinyl") return "Vinyl";
 
   return normalized;
 }
 
 const SECURITY_MANUFACTURER_LABEL = "Security";
+const SOLAR_MANUFACTURER_LABEL = "3M Solar";
+const PREFIX_POLICY_TARGET_MANUFACTURERS = new Set([
+  "3M Solar",
+  "3M Fasara",
+  "Madico",
+  "Avery Dennison",
+  "Llumar",
+  "Solar Gard",
+  "SOLYX",
+]);
+const PREFIX_POLICY_EXEMPT_MANUFACTURERS = new Set([SECURITY_MANUFACTURER_LABEL, "Vinyl"]);
+
+function manufacturerPrefixPatterns(manufacturer: string): RegExp[] {
+  if (manufacturer === "3M Solar") return [/^3m\s+/i];
+  if (manufacturer === "3M Fasara") return [/^3m\s+fasara\s+/i, /^fasara\s+/i, /^3m\s+/i];
+  if (manufacturer === "Solar Gard") return [/^sg\s+/i, /^solar\s*guard\s+/i, /^solar\s+gard\s+/i, /^solarguard\s+/i, /^solargard\s+/i];
+  if (manufacturer === "Llumar") return [/^llumar\s+vista\s+/i, /^llumarvista\s+/i, /^llumar\s+/i];
+  if (manufacturer === "Avery Dennison") return [/^avery\s+dennison\s+/i, /^avery\s+/i, /^ad\s+/i];
+  if (manufacturer === "SOLYX") return [/^solyx\s+/i, /^sol\s+/i];
+  if (manufacturer === "Madico") return [/^madico\s+/i];
+  return [];
+}
+
+function stripManufacturerPrefixes(manufacturer: string, filmName: unknown): string {
+  let value = normalizeCollapsedCatalogLabel(filmName);
+  const patterns = manufacturerPrefixPatterns(manufacturer);
+  if (!value || !patterns.length) {
+    return value;
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of patterns) {
+      const next = normalizeCollapsedCatalogLabel(value.replace(pattern, ""));
+      if (next && next !== value) {
+        value = next;
+        changed = true;
+      }
+    }
+  }
+
+  return value;
+}
+
+function normalizeManufacturerPrefixPolicyFilmName(manufacturer: unknown, filmName: unknown): string {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) return normalizedFilmName;
+  if (PREFIX_POLICY_EXEMPT_MANUFACTURERS.has(canonicalManufacturer)) return normalizedFilmName;
+  if (!PREFIX_POLICY_TARGET_MANUFACTURERS.has(canonicalManufacturer)) return normalizedFilmName;
+
+  const stripped = stripManufacturerPrefixes(canonicalManufacturer, normalizedFilmName);
+  if (!stripped) return normalizedFilmName;
+  if (normalizeCatalogLookupKey(stripped) === normalizeCatalogLookupKey(normalizedFilmName)) {
+    return normalizedFilmName;
+  }
+  return stripped;
+}
+
+function isAveryDennisonManufacturer(value: unknown): boolean {
+  return (
+    normalizeCatalogManufacturerLookupKey(canonicalizeManufacturerLabel(value))
+    === normalizeCatalogManufacturerLookupKey("Avery Dennison")
+  );
+}
+
+function normalizeAveryNaturaShadeFilmName(manufacturer: unknown, filmName: unknown): string {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!normalizedFilmName) return normalizedFilmName;
+  if (!isAveryDennisonManufacturer(canonicalManufacturer)) return normalizedFilmName;
+
+  const shadeMatch = normalizedFilmName.match(/^natura\s*0*([0-9]{1,3})(.*)$/i);
+  if (!shadeMatch) return normalizedFilmName;
+
+  const shadeDigits = canonicalizeNumericDigits(shadeMatch[1]);
+  const suffix = normalizeCollapsedCatalogLabel(shadeMatch[2] || "");
+  if (!suffix) {
+    return `Natura ${shadeDigits}`;
+  }
+  return `Natura ${shadeDigits}${suffix.startsWith("-") ? "" : " "}${suffix}`;
+}
+
+function assertAveryNaturaShadeForWrite(manufacturer: unknown, filmName: unknown, fieldName: string): void {
+  const canonicalManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  if (!isAveryDennisonManufacturer(canonicalManufacturer)) return;
+
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (!/^natura\b/i.test(normalizedFilmName)) return;
+  if (/^natura\s*0*[0-9]+/i.test(normalizedFilmName)) return;
+
+  throw new HttpError(
+    400,
+    `${fieldName || "FilmName"} must include an Avery Natura shade number (for example, "Natura 5" or "Natura 30").`,
+  );
+}
 
 function normalizeMilTokenSpacing(value: unknown): string {
   return normalizeCollapsedCatalogLabel(value).replace(/\b(\d+)\s*mil\b/gi, (_match, digits) => `${digits} MIL`);
@@ -330,6 +425,23 @@ function getDefaultMakerPrefixForSecurityFamily(family: string): string {
   return "";
 }
 
+function shouldTreatPrestigeAsSecurity(manufacturer: unknown, filmName: unknown): boolean {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  if (
+    normalizeCatalogManufacturerLookupKey(normalizedManufacturer) ===
+    normalizeCatalogManufacturerLookupKey(SECURITY_MANUFACTURER_LABEL)
+  ) {
+    return true;
+  }
+
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  return (
+    /^security\b/i.test(normalizedFilmName) ||
+    /\bultra\s+prestige\b/i.test(normalizedFilmName) ||
+    /\bpr\s*[-]?\s*\d{2,3}\b/i.test(normalizedFilmName)
+  );
+}
+
 function detectSecurityFilmFamily(filmName: unknown): { isSecurity: boolean; family: string; agCode: string; modelCode: string } {
   const normalized = normalizeCollapsedCatalogLabel(filmName);
   const squashedUpper = normalized.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -413,6 +525,10 @@ function normalizeSecurityManufacturerAndFilm(manufacturer: unknown, filmName: u
     return { manufacturer: normalizedManufacturer, filmName: normalizedFilmName };
   }
 
+  if (detection.family === "prestige" && !shouldTreatPrestigeAsSecurity(normalizedManufacturer, normalizedFilmName)) {
+    return { manufacturer: normalizedManufacturer, filmName: normalizedFilmName };
+  }
+
   const makerPrefix =
     normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromFilmName(normalizedFilmName)) ||
     normalizeSecurityMakerPrefix(inferSecurityMakerPrefixFromManufacturer(normalizedManufacturer)) ||
@@ -430,6 +546,67 @@ function normalizeSecurityManufacturerAndFilm(manufacturer: unknown, filmName: u
   };
 }
 
+function inferNightVisionCode(filmName: unknown): string {
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const nightVisionMatch = normalizedFilmName.match(/\bnight\s*vision\s*(\d{1,3})\b/i);
+  if (nightVisionMatch) {
+    return canonicalizeNumericDigits(nightVisionMatch[1]);
+  }
+
+  const nvMatch = normalizedFilmName.match(/\bnv\s*[-]?\s*(\d{1,3})\b/i);
+  if (nvMatch) {
+    return canonicalizeNumericDigits(nvMatch[1]);
+  }
+
+  return "";
+}
+
+function normalize3MSolarNightVisionManufacturerAndFilm(
+  manufacturer: unknown,
+  filmName: unknown,
+): { manufacturer: string; filmName: string } {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (
+    normalizeCatalogManufacturerLookupKey(normalizedManufacturer) !==
+    normalizeCatalogManufacturerLookupKey(SOLAR_MANUFACTURER_LABEL)
+  ) {
+    return { manufacturer: normalizedManufacturer, filmName: normalizedFilmName };
+  }
+
+  const nightVisionCode = inferNightVisionCode(normalizedFilmName);
+  if (!nightVisionCode) {
+    return { manufacturer: normalizedManufacturer, filmName: normalizedFilmName };
+  }
+
+  return {
+    manufacturer: SOLAR_MANUFACTURER_LABEL,
+    filmName: `Night Vision ${nightVisionCode}`,
+  };
+}
+
+function normalizeCanonicalManufacturerAndFilm(
+  manufacturer: unknown,
+  filmName: unknown,
+): { manufacturer: string; filmName: string } {
+  const securityNormalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const solarNormalized = normalize3MSolarNightVisionManufacturerAndFilm(
+    securityNormalized.manufacturer,
+    securityNormalized.filmName,
+  );
+  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+    solarNormalized.manufacturer,
+    solarNormalized.filmName,
+  );
+  return {
+    manufacturer: solarNormalized.manufacturer,
+    filmName: normalizeAveryNaturaShadeFilmName(
+      solarNormalized.manufacturer,
+      prefixPolicyNormalizedFilmName,
+    ),
+  };
+}
+
 function normalizeCatalogManufacturerLookupKey(value: unknown): string {
   return normalizeCatalogLookupKey(canonicalizeManufacturerLabel(value));
 }
@@ -439,7 +616,7 @@ function buildFilmKey(manufacturer: unknown, filmName: unknown): string {
 }
 
 function normalizeFilmKeyInput(manufacturer: unknown, filmName: unknown, filmKeyInput: unknown): string {
-  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   void filmKeyInput;
   return buildFilmKey(normalized.manufacturer, normalized.filmName);
 }
@@ -1013,14 +1190,14 @@ async function resolveCanonicalFilmEntry(
   manufacturer: unknown,
   filmName: unknown,
 ): Promise<{ manufacturer: string; filmName: string }> {
-  const normalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
+  const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   const aliasResolvedFilmName = await resolveCanonicalFilmNameAlias(
     client,
     orgId,
     normalized.manufacturer,
     normalized.filmName,
   );
-  return normalizeSecurityManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
+  return normalizeCanonicalManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
 }
 
 const inventoryRepositories = createInventoryRepositories({
@@ -1162,10 +1339,18 @@ function getActiveAllocationsForBox(boxId: string, activeAllocationsByBox: Recor
   return activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];
 }
 
+function normalizeAllocationKind(value: unknown): "REQUIREMENT" | "EXTRA" {
+  return asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
+}
+
 function buildAllocationCoverageByRequirementKey(allocations: any[], boxById: Record<string, any>) {
   const totals: Record<string, number> = {};
   for (const allocation of allocations) {
-    if (allocation.status === "CANCELLED" || allocation.allocatedFeet <= 0) {
+    if (
+      allocation.status === "CANCELLED" ||
+      allocation.allocatedFeet <= 0 ||
+      normalizeAllocationKind(allocation.allocationKind) === "EXTRA"
+    ) {
       continue;
     }
     const box = boxById[allocation.boxId];
@@ -2188,15 +2373,16 @@ async function buildFilmCatalog(client: any, orgId: string) {
   const entries = await listFilmCatalog(client, orgId);
   const dedupedByKey: Record<string, any> = {};
   for (const entry of entries) {
-    const manufacturer = normalizeCollapsedCatalogLabel(entry.manufacturer);
-    const filmName = normalizeCollapsedCatalogLabel(entry.filmName);
+    const canonical = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const manufacturer = normalizeCollapsedCatalogLabel(canonical.manufacturer);
+    const filmName = normalizeCollapsedCatalogLabel(canonical.filmName);
     const manufacturerKey = normalizeCatalogLookupKey(manufacturer);
     const filmNameKey = normalizeCatalogLookupKey(filmName);
     if (!manufacturerKey || !filmNameKey) {
       continue;
     }
     dedupedByKey[`${manufacturerKey}|${filmNameKey}`] = {
-      filmKey: asTrimmedString(entry.filmKey).toUpperCase(),
+      filmKey: buildFilmKey(manufacturer, filmName),
       manufacturer,
       filmName,
       updatedAt: asTrimmedString(entry.updatedAt),
@@ -2619,12 +2805,18 @@ async function canonicalizeRequirementPayloadEntries(
   }
 
   const normalized = [];
-  for (const entry of entriesRaw) {
+  for (let index = 0; index < entriesRaw.length; index += 1) {
+    const entry = entriesRaw[index];
     if (!entry || typeof entry !== "object") {
       normalized.push(entry);
       continue;
     }
     const source = entry as Record<string, unknown>;
+    assertAveryNaturaShadeForWrite(
+      source.manufacturer,
+      source.filmName,
+      `requirements[${index}].filmName`,
+    );
     const canonical = await resolveCanonicalFilmEntry(client, orgId, source.manufacturer, source.filmName);
     normalized.push({
       ...source,
@@ -2645,6 +2837,7 @@ async function canonicalizeMutationPayloadForRoute(
   const next = payload && typeof payload === "object" ? { ...payload } : {};
 
   if (logicalPath === "/boxes/add" || logicalPath === "/boxes/update") {
+    assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");
     const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
     next.manufacturer = canonical.manufacturer;
     next.filmName = canonical.filmName;
@@ -2653,6 +2846,7 @@ async function canonicalizeMutationPayloadForRoute(
   }
 
   if (logicalPath === "/film-orders/create") {
+    assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");
     const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
     next.manufacturer = canonical.manufacturer;
     next.filmName = canonical.filmName;

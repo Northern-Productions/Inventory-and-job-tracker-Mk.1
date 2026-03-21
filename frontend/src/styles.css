@@ -1069,6 +1069,25 @@ td.col-available-linear-ft {
   overflow-y: auto;
 }
 
+.dialog-job-allocate {
+  width: min(100%, 760px);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.dialog-job-allocate .allocation-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dialog-job-allocate .allocation-preview .table-wrap {
+  max-height: min(42vh, 24rem);
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
 .dialog-job-editor .dialog-actions:last-child {
   position: sticky;
   bottom: 0;
@@ -1615,6 +1634,14 @@ td.col-available-linear-ft {
 
   .dialog-job-editor {
     max-height: calc(100dvh - 1.5rem);
+  }
+
+  .dialog-job-allocate {
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .dialog-job-allocate .allocation-preview .table-wrap {
+    max-height: 42dvh;
   }
 
   .dialog-job-editor .dialog-actions:last-child {

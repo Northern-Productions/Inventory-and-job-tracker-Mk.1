@@ -8,12 +8,28 @@ export interface PlannedCandidateAllocation {
   allocatedFeet: number;
 }
 
+export interface BuildExtraAllocationsResult {
+  extraAllocations: PlannedCandidateAllocation[];
+  error: string;
+}
+
 function toRequestedFeet(requestedFeet: number) {
   if (!Number.isFinite(requestedFeet) || requestedFeet <= 0) {
     return 0;
   }
 
   return Math.floor(requestedFeet);
+}
+
+function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
+  const selected = new Set<string>();
+  for (const boxId of selectedBoxIds) {
+    const normalized = String(boxId || '').trim();
+    if (normalized) {
+      selected.add(normalized);
+    }
+  }
+  return selected;
 }
 
 export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
@@ -79,13 +95,7 @@ export function planSelectedCandidateAllocation(
   coveredFeet: number;
   remainingFeet: number;
 } {
-  const selected = new Set<string>();
-  for (const boxId of selectedBoxIds) {
-    const normalized = String(boxId || '').trim();
-    if (normalized) {
-      selected.add(normalized);
-    }
-  }
+  const selected = toNormalizedSelectedSet(selectedBoxIds);
 
   const requested = toRequestedFeet(requestedFeet);
   if (requested <= 0) {
@@ -127,4 +137,94 @@ export function planSelectedCandidateAllocation(
     coveredFeet: requested - remaining,
     remainingFeet: remaining
   };
+}
+
+export function getSelectedExtraBoxIds(
+  candidates: AllocationCandidateBox[],
+  requestedFeet: number,
+  selectedBoxIds: Iterable<string>
+): string[] {
+  const selected = toNormalizedSelectedSet(selectedBoxIds);
+  if (!selected.size) {
+    return [];
+  }
+
+  const planned = planSelectedCandidateAllocation(candidates, requestedFeet, selected);
+  const plannedByBoxId = new Set(planned.allocations.map((entry) => entry.boxId));
+  const extras: string[] = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    if (!selected.has(candidate.boxId) || plannedByBoxId.has(candidate.boxId)) {
+      continue;
+    }
+    extras.push(candidate.boxId);
+  }
+
+  return extras;
+}
+
+export function buildValidatedExtraAllocations(
+  candidates: AllocationCandidateBox[],
+  extraBoxIds: Iterable<string>,
+  extraFeetByBoxId: Record<string, string | number | null | undefined>
+): BuildExtraAllocationsResult {
+  const candidateById = new Map<string, AllocationCandidateBox>();
+  for (let index = 0; index < candidates.length; index += 1) {
+    candidateById.set(candidates[index].boxId, candidates[index]);
+  }
+
+  const extras: PlannedCandidateAllocation[] = [];
+  const seen = new Set<string>();
+  for (const rawBoxId of extraBoxIds) {
+    const boxId = String(rawBoxId || '').trim();
+    if (!boxId || seen.has(boxId)) {
+      continue;
+    }
+    seen.add(boxId);
+
+    const candidate = candidateById.get(boxId);
+    if (!candidate) {
+      return {
+        extraAllocations: [],
+        error: `Box ${boxId} is not a valid extra-allocation candidate.`
+      };
+    }
+
+    const rawFeet = String(extraFeetByBoxId[boxId] ?? '').trim();
+    if (!rawFeet) {
+      return {
+        extraAllocations: [],
+        error: `Enter Extra LF for box ${boxId}.`
+      };
+    }
+
+    const parsedFeet = Number(rawFeet);
+    if (!Number.isFinite(parsedFeet) || Math.floor(parsedFeet) !== parsedFeet || parsedFeet <= 0) {
+      return {
+        extraAllocations: [],
+        error: `Extra LF for box ${boxId} must be a whole number greater than zero.`
+      };
+    }
+
+    const allocatedFeet = Math.floor(parsedFeet);
+    const availableFeet = Math.max(0, Math.floor(Number(candidate.feetAvailable || 0)));
+    if (allocatedFeet > availableFeet) {
+      return {
+        extraAllocations: [],
+        error: `Extra LF for box ${boxId} cannot exceed ${availableFeet}.`
+      };
+    }
+
+    extras.push({ boxId, allocatedFeet });
+  }
+
+  return {
+    extraAllocations: extras,
+    error: ''
+  };
+}
+
+export function canSubmitAllocationRequest(requestedFeet: number, extraAllocationCount: number): boolean {
+  return toRequestedFeet(requestedFeet) > 0 || extraAllocationCount > 0;
 }

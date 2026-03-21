@@ -62,6 +62,8 @@ export type CoreType = (typeof CORE_TYPES)[number];
 export type BoxCoreType = CoreType | '';
 export const ALLOCATION_STATUSES = ['ACTIVE', 'FULFILLED', 'CANCELLED'] as const;
 export type AllocationStatus = (typeof ALLOCATION_STATUSES)[number];
+export const ALLOCATION_KINDS = ['REQUIREMENT', 'EXTRA'] as const;
+export type AllocationKind = (typeof ALLOCATION_KINDS)[number];
 export const FILM_ORDER_STATUSES = [...RUNTIME_FILM_ORDER_STATUSES] as const;
 export type FilmOrderStatus = (typeof FILM_ORDER_STATUSES)[number];
 export const ALLOCATION_JOB_STATUSES = [...RUNTIME_ALLOCATION_JOB_STATUSES] as const;
@@ -166,6 +168,10 @@ export interface AllocateBoxPayload {
 export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
   selectedSuggestionBoxIds?: string[];
   jobWarehouse?: Warehouse;
+  extraAllocations?: Array<{
+    boxId: string;
+    allocatedFeet: number;
+  }>;
 }
 
 export interface RemoveJobBoxAllocationsPayload {
@@ -242,6 +248,7 @@ export interface AllocationEntry {
   jobDate: string;
   crewLeader: string;
   allocatedFeet: number;
+  allocationKind: AllocationKind;
   status: AllocationStatus;
   createdAt: string;
   createdBy: string;

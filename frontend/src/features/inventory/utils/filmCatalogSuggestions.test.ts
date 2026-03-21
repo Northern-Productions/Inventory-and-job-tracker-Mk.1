@@ -136,6 +136,32 @@ describe('getFilmNameSuggestions', () => {
     ]);
   });
 
+  it('normalizes 3M Solar NV variants to Night Vision labels', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'NV 15'),
+      catalogEntry('3M Solar', 'NV 15 F168325129'),
+      catalogEntry('3M Solar', 'Night Vision 25'),
+      catalogEntry('3M Solar', 'NV35')
+    ];
+
+    expect(getFilmNameSuggestions(entries, '3M Solar', 'n').map((entry) => entry.filmName)).toEqual([
+      'Night Vision 15',
+      'Night Vision 25',
+      'Night Vision 35'
+    ]);
+  });
+
+  it('omits deprecated roll-specific film key variants from suggestions', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('3M Solar', 'Prestige 20 Exterior'),
+      catalogEntry('3M Solar', 'Prestige 20X 60" F254325')
+    ];
+
+    expect(getFilmNameSuggestions(entries, '3M Solar', 'prestige 20').map((entry) => entry.filmName)).toEqual([
+      'Prestige 20 Exterior'
+    ]);
+  });
+
   it('dedupes repeated manufacturer and film-name combinations using the latest entry', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('Madico', 'Graffiti Free 600 PS SR', 'OLD'),

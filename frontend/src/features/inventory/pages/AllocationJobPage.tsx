@@ -24,6 +24,7 @@ import {
   useJob,
   useReopenJob,
   useRemoveJobBoxAllocations,
+  useSetBoxStatus,
   useUpdateJob
 } from '../hooks/useInventoryQueries';
 
@@ -75,6 +76,7 @@ export default function AllocationJobPage() {
   const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
+  const setBoxStatusMutation = useSetBoxStatus();
   const filmCatalogQuery = useFilmCatalog();
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
@@ -97,8 +99,8 @@ export default function AllocationJobPage() {
   );
   const filmOrders = detail?.filmOrders || [];
   const canAllocate = useMemo(
-    () => !isReadOnlyJob && requirements.some((entry) => entry.remainingFeet > 0),
-    [isReadOnlyJob, requirements]
+    () => !isReadOnlyJob && requirements.length > 0,
+    [isReadOnlyJob, requirements.length]
   );
 
   async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
@@ -357,6 +359,73 @@ export default function AllocationJobPage() {
     }
   }
 
+  async function handleCheckoutAllocation(entry: AllocationJobDetailEntry) {
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${entry.jobNumber} is closed and allocations cannot be checked out.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (entry.checkedOutOnThisJob) {
+      return;
+    }
+
+    if (entry.boxStatus !== 'IN_STOCK') {
+      const detailText =
+        entry.boxStatus === 'CHECKED_OUT'
+          ? `Box ${entry.boxId} is already checked out on another job.`
+          : `Box ${entry.boxId} is ${entry.boxStatus || 'not in stock'} and cannot be checked out from this view.`;
+      toast.push({
+        title: 'Box is not actionable',
+        description: detailText,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.clientIdConfigured) {
+      toast.push({
+        title: 'Sign-in is not configured',
+        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before checking out boxes.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!auth.isAuthenticated) {
+      toast.push({
+        title: 'Sign-in required',
+        description: 'Sign in with email/password before checking out a box for this job.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const targetJobNumber = summary?.jobNumber || entry.jobNumber;
+    try {
+      const { warnings } = await setBoxStatusMutation.mutateAsync({
+        boxId: entry.boxId,
+        status: 'CHECKED_OUT',
+        auditNote: `Checked out for job ${targetJobNumber}`
+      });
+
+      toast.push({
+        title: `Checked out ${entry.boxId}`,
+        description: warnings.join(' ') || `Box ${entry.boxId} was checked out for job ${targetJobNumber}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to check out box',
+        description: error instanceof Error ? error.message : 'The checkout request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   if (jobQuery.isLoading) {
     return <LoadingState label="Loading job details..." />;
   }
@@ -515,7 +584,10 @@ export default function AllocationJobPage() {
                 />
                 <MobileFieldList>
                   <MobileField label="Width" value={entry.widthIn || '--'} />
-                  <MobileField label="Allocated LF" value={entry.allocatedFeet} />
+                  <MobileField
+                    label="Allocated LF"
+                    value={entry.allocationKind === 'EXTRA' ? 'EXTRA' : entry.allocatedFeet}
+                  />
                   <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
                   <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
                 </MobileFieldList>
@@ -525,14 +597,28 @@ export default function AllocationJobPage() {
                   ) : entry.checkedOutOnThisJob ? (
                     <span className="muted-text">Checked out on this job</span>
                   ) : (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      onClick={() => setAllocationToRemove(entry)}
-                      disabled={removeJobBoxAllocationsMutation.isPending}
-                    >
-                      Remove
-                    </Button>
+                    <>
+                      {entry.boxStatus === 'IN_STOCK' ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => void handleCheckoutAllocation(entry)}
+                          disabled={setBoxStatusMutation.isPending}
+                        >
+                          Check Out
+                        </Button>
+                      ) : (
+                        <span className="muted-text">Not in stock</span>
+                      )}
+                      <Button
+                        type="button"
+                        variant="danger"
+                        onClick={() => setAllocationToRemove(entry)}
+                        disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                      >
+                        Remove
+                      </Button>
+                    </>
                   )}
                 </div>
               </MobileRecordCard>
@@ -568,7 +654,7 @@ export default function AllocationJobPage() {
                       {entry.manufacturer} {entry.filmName}
                     </td>
                     <td>{entry.widthIn || '--'}</td>
-                    <td>{entry.allocatedFeet}</td>
+                    <td>{entry.allocationKind === 'EXTRA' ? 'EXTRA' : entry.allocatedFeet}</td>
                     <td>{renderDateTime(entry.createdAt)}</td>
                     <td>{renderDateTime(entry.resolvedAt)}</td>
                     <td>
@@ -577,14 +663,28 @@ export default function AllocationJobPage() {
                       ) : entry.checkedOutOnThisJob ? (
                         <span className="muted-text">Checked out on this job</span>
                       ) : (
-                        <Button
-                          type="button"
-                          variant="danger"
-                          onClick={() => setAllocationToRemove(entry)}
-                          disabled={removeJobBoxAllocationsMutation.isPending}
-                        >
-                          Remove
-                        </Button>
+                        <div className="film-order-actions">
+                          {entry.boxStatus === 'IN_STOCK' ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => void handleCheckoutAllocation(entry)}
+                              disabled={setBoxStatusMutation.isPending}
+                            >
+                              Check Out
+                            </Button>
+                          ) : (
+                            <span className="muted-text">Not in stock</span>
+                          )}
+                          <Button
+                            type="button"
+                            variant="danger"
+                            onClick={() => setAllocationToRemove(entry)}
+                            disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                          >
+                            Remove
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>

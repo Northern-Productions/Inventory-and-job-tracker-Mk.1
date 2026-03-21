@@ -10,6 +10,10 @@ type RepositoryDeps = {
 };
 
 export function createInventoryRepositories(deps: RepositoryDeps) {
+  function normalizeAllocationKind(value: unknown) {
+    return deps.asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
+  }
+
   function mapDbBoxRow(row: any) {
     if (!row) {
       return null;
@@ -114,6 +118,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       jobNumber: deps.asTrimmedString(row.job_number),
       jobDate: deps.formatDateValue(row.job_date),
       allocatedFeet: deps.integerOrZero(row.allocated_feet),
+      allocationKind: normalizeAllocationKind(row.allocation_kind),
       status: deps.asTrimmedString(row.status) || "ACTIVE",
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
@@ -134,6 +139,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       jobDate: entry.jobDate,
       crewLeader: entry.crewLeader,
       allocatedFeet: entry.allocatedFeet,
+      allocationKind: normalizeAllocationKind(entry.allocationKind),
       status: entry.status,
       createdAt: entry.createdAt,
       createdBy: entry.createdBy,

@@ -172,6 +172,7 @@ export function useAllocateBox() {
               jobDate: payload.jobDate || '',
               crewLeader: payload.crewLeader || '',
               allocatedFeet: sourceAllocatedFeet,
+              allocationKind: 'REQUIREMENT',
               status: 'ACTIVE',
               createdAt: now,
               createdBy: 'Pending...',
