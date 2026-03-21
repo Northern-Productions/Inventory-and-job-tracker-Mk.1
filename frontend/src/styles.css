@@ -263,6 +263,36 @@ textarea {
   color: #fff;
 }
 
+.inventory-view-toggle-wrap {
+  margin-left: auto;
+}
+
+.inventory-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #c6d2d6;
+  border-radius: 999px;
+  padding: 0.24rem;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.inventory-view-toggle-button {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.44rem 0.85rem;
+  background: transparent;
+  color: #2e4b53;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inventory-view-toggle-button-active {
+  border-color: #12343b;
+  background: #12343b;
+  color: #fff;
+}
+
 .app-main {
   display: grid;
   gap: 1rem;
@@ -1603,6 +1633,10 @@ td.col-available-linear-ft {
   gap: 0.5rem;
 }
 
+.permissions-feature-grid {
+  margin-top: 0.65rem;
+}
+
 .feature-row {
   display: grid;
   grid-template-columns: minmax(170px, 1fr) auto auto;
@@ -1612,6 +1646,10 @@ td.col-available-linear-ft {
   border-radius: 0.6rem;
   padding: 0.6rem 0.75rem;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.feature-row-read-only {
+  grid-template-columns: minmax(170px, 1fr) auto;
 }
 
 .feature-label {
@@ -1629,6 +1667,10 @@ td.col-available-linear-ft {
 .field-checkbox input[type='checkbox'] {
   width: 1rem;
   height: 1rem;
+}
+
+.permissions-dialog-actions {
+  margin-top: 0.9rem;
 }
 
 @media (max-width: 720px) {
@@ -1706,6 +1748,24 @@ td.col-available-linear-ft {
   .toolbar-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .inventory-view-toggle-wrap {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .inventory-view-toggle {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.35rem;
+    border-radius: 0.85rem;
+  }
+
+  .inventory-view-toggle-button {
+    width: 100%;
+    text-align: center;
   }
 
   .allocations-recent-title-row {

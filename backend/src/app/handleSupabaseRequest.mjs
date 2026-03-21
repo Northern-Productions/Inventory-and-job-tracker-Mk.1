@@ -8,8 +8,7 @@ import {
   WAREHOUSE_CODE_PATTERN,
   inferAccessModeForRoute as inferAccessModeForRouteContract,
   inferFeatureForRoute as inferFeatureForRouteContract,
-  isOwnerOnlyRoute as isOwnerOnlyRouteContract,
-  isReadRoute
+  isOwnerOnlyRoute as isOwnerOnlyRouteContract
 } from '../../../frontend/src/domain/runtimeContract.mjs';
 
 function asTrimmedString(value) {
@@ -1782,7 +1781,14 @@ async function getMemberEffectiveFeaturePermissionsForUser(client, orgId, userId
     }
     mapped[feature] = {
       read: Boolean(row.read_enabled),
-      write: Boolean(row.write_enabled)
+      write: false
+    };
+  });
+
+  MEMBER_FEATURE_AREAS.forEach((feature) => {
+    mapped[feature] = {
+      read: Boolean(mapped[feature]?.read),
+      write: false
     };
   });
 
@@ -1892,9 +1898,12 @@ function mapDatabaseBootstrapError(message) {
     normalized.includes('relation "app.access_requests" does not exist') ||
     normalized.includes('relation "app.username_change_requests" does not exist') ||
     normalized.includes('column "requested_by_name" does not exist') ||
-    (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist'))
+    (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_get_user_feature_permissions') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.member_permissions_for_user_json') && normalized.includes('does not exist'))
   ) {
-    return 'Database migrations 0006, 0007, 0008, and 0009 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, and 0009_user_feature_overrides.sql, then retry.';
+    return 'Database migrations 0006, 0007, 0008, 0009, 0027, and 0028 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql, then retry.';
   }
   return asTrimmedString(message) || 'Unexpected server error.';
 }
@@ -3080,6 +3089,7 @@ async function saveFilmOrderRecord(client, orgId, entry) {
   const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
+  const filmOrderId = asTrimmedString(entry.filmOrderId) || createLogId();
   const row = await queryRow(
     client,
     `
@@ -3139,7 +3149,7 @@ async function saveFilmOrderRecord(client, orgId, entry) {
     `,
     [
       orgId,
-      entry.filmOrderId,
+      filmOrderId,
       entry.jobId,
       entry.jobNumber,
       entry.warehouse,
@@ -4690,8 +4700,8 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
   const activeByBoxId = {};
   let activeCount = 0;
   const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
-  const resolvedAt = new Date().toISOString();
   const note = asTrimmedString(reason) || 'Job cancelled.';
+  let deletedFilmOrderCount = 0;
 
   for (let index = 0; index < allocations.length; index += 1) {
     const entry = cloneValue(allocations[index]);
@@ -4701,7 +4711,7 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
 
     activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + entry.allocatedFeet;
     entry.status = 'CANCELLED';
-    entry.resolvedAt = resolvedAt;
+    entry.resolvedAt = new Date().toISOString();
     entry.resolvedBy = asTrimmedString(user);
     entry.notes = note;
     await saveAllocationRecord(client, orgId, entry);
@@ -4719,21 +4729,20 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
   }
 
   for (let index = 0; index < filmOrders.length; index += 1) {
-    const order = cloneValue(filmOrders[index]);
-    if (order.status === 'CANCELLED') {
+    const order = filmOrders[index];
+    const filmOrderId = asTrimmedString(order.filmOrderId);
+    if (!filmOrderId) {
       continue;
     }
-
-    order.status = 'CANCELLED';
-    order.resolvedAt = resolvedAt;
-    order.resolvedBy = asTrimmedString(user);
-    order.notes = note;
-    await saveFilmOrderRecord(client, orgId, order);
+    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+    await deleteFilmOrderRecord(client, orgId, filmOrderId);
+    deletedFilmOrderCount += 1;
   }
 
   return {
     releasedAllocationCount: activeCount,
-    affectedBoxCount: Object.keys(activeByBoxId).length
+    affectedBoxCount: Object.keys(activeByBoxId).length,
+    deletedFilmOrderCount
   };
 }
 
@@ -7050,7 +7059,7 @@ async function createFilmOrder(client, orgId, payload, actor) {
 
   const jobId = await getOrResolveJobId(client, orgId, jobNumber);
   const entry = await saveFilmOrderRecord(client, orgId, {
-    filmOrderId: '',
+    filmOrderId: createLogId(),
     jobId,
     jobNumber,
     warehouse,
@@ -7089,7 +7098,7 @@ async function cancelJob(client, orgId, payload, actor) {
   }
 
   warnings.push(
-    `Cancelled job ${jobNumber}. Released ${result.releasedAllocationCount} active allocation${result.releasedAllocationCount === 1 ? '' : 's'} across ${result.affectedBoxCount} box${result.affectedBoxCount === 1 ? '' : 'es'}.`
+    `Cancelled job ${jobNumber}. Released ${result.releasedAllocationCount} active allocation${result.releasedAllocationCount === 1 ? '' : 's'} across ${result.affectedBoxCount} box${result.affectedBoxCount === 1 ? '' : 'es'} and deleted ${result.deletedFilmOrderCount} film order${result.deletedFilmOrderCount === 1 ? '' : 's'}.`
   );
 
   return ok({ jobNumber }, warnings);
@@ -8220,7 +8229,7 @@ async function updateUserFeaturePermissionsInternal(client, orgId, actor, payloa
           $2::uuid,
           $3,
           coalesce((select g.read_enabled from app.general_feature_permissions g where g.org_id = $1 and g.feature_area = $3), true),
-          coalesce((select g.write_enabled from app.general_feature_permissions g where g.org_id = $1 and g.feature_area = $3), true),
+          false,
           now(),
           $4
         )
@@ -8230,20 +8239,19 @@ async function updateUserFeaturePermissionsInternal(client, orgId, actor, payloa
     );
 
     const readValue = String(entry.read).toLowerCase();
-    const writeValue = String(entry.write).toLowerCase();
     await client.query(
       `
         update app.admin_feature_permissions
         set
           read_enabled = case when $4 in ('true', 'false') then $4::boolean else read_enabled end,
-          write_enabled = case when $5 in ('true', 'false') then $5::boolean else write_enabled end,
+          write_enabled = false,
           updated_at = now(),
-          updated_by = $6
+          updated_by = $5
         where org_id = $1
           and admin_user_id = $2::uuid
           and feature_area = $3
       `,
-      [orgId, userId, feature, readValue, writeValue, asTrimmedString(actor)]
+      [orgId, userId, feature, readValue, asTrimmedString(actor)]
     );
   }
 
@@ -8596,7 +8604,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
 
     ensureEffectiveRouteAccess(authContext, method, logicalPath);
 
-    if (method === 'GET' || (method === 'POST' && isReadRoute(logicalPath))) {
+    if (method === 'GET') {
       await runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext);
 
       const payload = await withReadClient(async (client) => {

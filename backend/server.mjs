@@ -1,7 +1,7 @@
 import './load-env.mjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { isReadRoute } from '../frontend/src/domain/runtimeContract.mjs';
+import { handleSupabaseRequest } from './supabase-backend.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
 const EDGE_API_BASE_URL = resolveEdgeApiBaseUrl_();
@@ -14,6 +14,12 @@ const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
   .filter(Boolean);
 
 const cache = new Map();
+const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
+  '/admin/member-permissions',
+  '/admin/user-permissions',
+  '/owner/admin-permissions',
+  '/owner/notification-preferences'
+]);
 
 function resolveEdgeApiBaseUrl_() {
   const explicit = String(process.env.EDGE_API_BASE_URL || '').trim();
@@ -66,19 +72,11 @@ function shouldUseCache(method, logicalPath) {
     return false;
   }
 
-  if (method === 'GET') {
-    return true;
-  }
-
-  if (method === 'POST') {
-    return isReadRoute(logicalPath);
-  }
-
-  return false;
+  return method === 'GET';
 }
 
 function isMutation(method, logicalPath) {
-  return method === 'POST' && logicalPath && !isReadRoute(logicalPath);
+  return method === 'POST' && Boolean(logicalPath);
 }
 
 function getCacheKey(method, routeKey, requestBody, authKey) {
@@ -308,13 +306,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const response = await forwardToEdgeApi({
-    method: req.method,
-    logicalPath,
-    requestUrl,
-    requestBody,
-    headers: req.headers
-  });
+  const response =
+    req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath)
+      ? await handleSupabaseRequest({
+          method: req.method,
+          logicalPath,
+          requestUrl,
+          bodyJson,
+          headers: req.headers
+        })
+      : await forwardToEdgeApi({
+          method: req.method,
+          logicalPath,
+          requestUrl,
+          requestBody,
+          headers: req.headers
+        });
   const responseBody = JSON.stringify(response.payload);
   const contentType = 'application/json; charset=utf-8';
 

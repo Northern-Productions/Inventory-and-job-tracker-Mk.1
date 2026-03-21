@@ -1,5 +1,4 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { isReadRoute } from "../../../frontend/src/domain/runtimeContract.mjs";
 import {
   CACHE_TTL_MS,
   CORS_ALLOWED_ORIGINS,
@@ -768,17 +767,11 @@ function shouldUseCache(method: string, logicalPath: string): boolean {
   if (logicalPath === "/auth/context") {
     return false;
   }
-  if (method === "GET") {
-    return true;
-  }
-  if (method === "POST") {
-    return isReadRoute(logicalPath);
-  }
-  return false;
+  return method === "GET";
 }
 
 function isMutation(method: string, logicalPath: string): boolean {
-  return method === "POST" && logicalPath !== "" && !isReadRoute(logicalPath);
+  return method === "POST" && logicalPath !== "";
 }
 
 function getCorsOrigin(request: Request): string {
@@ -1090,9 +1083,10 @@ function mapBackendBootstrapError(message: string): string {
     (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_request_username_change') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_get_user_feature_permissions') && normalized.includes('does not exist')) ||
-    (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist'))
+    (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.member_permissions_for_user_json') && normalized.includes('does not exist'))
   ) {
-    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, and 0009_user_feature_overrides.sql are required. Run all four, then retry.';
+    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql are required. Run all six, then retry.';
   }
   return message;
 }
@@ -3006,7 +3000,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     ensureEffectiveRouteAccess(identity, logicalPath);
 
     const params = routeParams(request.method, requestUrl, bodyJson);
-    const payload = (request.method === "GET" || (request.method === "POST" && isReadRoute(logicalPath)))
+    const payload = request.method === "GET"
       ? await dispatchRead(client, identity.orgId, logicalPath, params)
       : await dispatchMutation(client, identity, logicalPath, params);
 

@@ -17,7 +17,6 @@ import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
 import {
-  useCancelJob,
   useCreateFilmOrder,
   useDeleteFilmOrder,
   useFilmCatalog,
@@ -74,60 +73,14 @@ export default function FilmOrdersPage() {
   const filmOrdersQuery = useFilmOrders();
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
-  const cancelJobMutation = useCancelJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
-  const [jobToCancel, setJobToCancel] = useState<FilmOrderEntry | null>(null);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
 
   const orderedEntries = useMemo(
     () => sortFilmOrders(filmOrdersQuery.data || []),
     [filmOrdersQuery.data]
   );
-
-  async function handleCancelJob() {
-    if (!jobToCancel) {
-      return;
-    }
-
-    if (!auth.clientIdConfigured) {
-      toast.push({
-        title: 'Sign-in is not configured',
-        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before cancelling jobs.',
-        variant: 'error'
-      });
-      return;
-    }
-
-    if (!auth.isAuthenticated) {
-      toast.push({
-        title: 'Sign-in required',
-        description: 'Sign in with email/password before cancelling a job.',
-        variant: 'error'
-      });
-      return;
-    }
-
-    try {
-      const { warnings } = await cancelJobMutation.mutateAsync({
-        jobNumber: jobToCancel.jobNumber,
-        reason: `Cancelled from Film Orders (${jobToCancel.filmOrderId})`
-      });
-      toast.push({
-        title: `Cancelled job ${jobToCancel.jobNumber}`,
-        description:
-          warnings.join(' ') || `Released all active film reservations tied to ${jobToCancel.jobNumber}.`,
-        variant: 'success'
-      });
-      setJobToCancel(null);
-    } catch (error) {
-      toast.push({
-        title: 'Unable to cancel job',
-        description: error instanceof Error ? error.message : 'The cancel request failed.',
-        variant: 'error'
-      });
-    }
-  }
 
   async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
     if (!auth.clientIdConfigured) {
@@ -260,16 +213,6 @@ export default function FilmOrdersPage() {
                     >
                       Delete
                     </Button>
-                    {!isOpenFilmOrder(order) ? null : (
-                      <Button
-                        type="button"
-                        variant="danger"
-                        onClick={() => setJobToCancel(order)}
-                        disabled={cancelJobMutation.isPending}
-                      >
-                        Cancel
-                      </Button>
-                    )}
                   </MobileActionStack>
                 </MobileRecordCard>
               ))}
@@ -325,16 +268,6 @@ export default function FilmOrdersPage() {
                           >
                             Delete
                           </Button>
-                          {!isOpenFilmOrder(order) ? null : (
-                            <Button
-                              type="button"
-                              variant="danger"
-                              onClick={() => setJobToCancel(order)}
-                              disabled={cancelJobMutation.isPending}
-                            >
-                              Cancel
-                            </Button>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -366,20 +299,6 @@ export default function FilmOrdersPage() {
           setFilmOrderToDelete(null);
           void handleDeleteFilmOrder(order, reason);
         }}
-      />
-
-      <ConfirmDialog
-        open={Boolean(jobToCancel)}
-        title="Cancel Job"
-        message={
-          jobToCancel
-            ? `Cancel every active allocation and film order tied to job ${jobToCancel.jobNumber}? This releases reserved LF back into inventory.`
-            : ''
-        }
-        confirmLabel="Cancel Job"
-        cancelLabel="Keep Job"
-        onCancel={() => setJobToCancel(null)}
-        onConfirm={() => void handleCancelJob()}
       />
 
       <CreateFilmOrderDialog

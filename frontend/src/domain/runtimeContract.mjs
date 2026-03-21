@@ -141,5 +141,5 @@ export function inferFeatureForRoute(logicalPath) {
 }
 
 export function inferAccessModeForRoute(method, logicalPath) {
-  return method === 'GET' || isReadRoute(logicalPath) ? 'read' : 'write';
+  return method === 'GET' ? 'read' : 'write';
 }

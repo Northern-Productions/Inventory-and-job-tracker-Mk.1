@@ -75,6 +75,19 @@ function parseRequestTimestamp(value: string) {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+function sanitizeMemberPermissionsForReadOnly(source: FeatureAccessMap): FeatureAccessMap {
+  return {
+    ...source,
+    inventory: { read: Boolean(source.inventory?.read), write: false },
+    allocations: { read: Boolean(source.allocations?.read), write: false },
+    jobs: { read: Boolean(source.jobs?.read), write: false },
+    film_orders: { read: Boolean(source.film_orders?.read), write: false },
+    activity_history: { read: Boolean(source.activity_history?.read), write: false },
+    reports: { read: Boolean(source.reports?.read), write: false },
+    access_management: { read: false, write: false }
+  };
+}
+
 export default function AdminAccessPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -88,6 +101,7 @@ export default function AdminAccessPage() {
 
   const canWriteAccess = auth.isOwner || auth.hasFeatureAccess('access_management', 'write');
   const selectedPermissionsUserId = permissionsTarget?.userId || '';
+  const selectedPermissionsRole: 'member' | 'admin' = permissionsTarget?.currentRole === 'admin' ? 'admin' : 'member';
   const requestsSummary =
     statusFilter === 'pending'
       ? 'Pending requests stay in this queue until approved or denied.'
@@ -96,6 +110,19 @@ export default function AdminAccessPage() {
         : statusFilter === 'denied'
           ? 'Showing denied accounts.'
           : 'Showing all access requests. If Create Account says "User already registered", the user is usually in Approved or Denied.';
+
+  async function fetchPermissionsForRole(userId: string, role: 'member' | 'admin') {
+    if (role === 'admin') {
+      const entries = await getAdminFeaturePermissions();
+      const found = entries.find((entry) => entry.userId === userId);
+      if (!found) {
+        throw new Error('Admin permissions could not be loaded for this user.');
+      }
+      return found.permissions;
+    }
+
+    return getUserFeaturePermissions(userId);
+  }
 
   const requestsQuery = useQuery({
     queryKey: ['access', 'requests', statusFilter],
@@ -132,30 +159,26 @@ export default function AdminAccessPage() {
   }, [requestsQuery.data, statusFilter]);
 
   const userPermissionsQuery = useQuery({
-    queryKey: ['access', 'user-permissions', selectedPermissionsUserId, permissionsTarget?.currentRole || ''],
+    queryKey: ['access', 'user-permissions', selectedPermissionsUserId, selectedPermissionsRole],
     queryFn: async () => {
-      if (!permissionsTarget) {
+      if (!selectedPermissionsUserId) {
         throw new Error('No target user selected.');
       }
-      if (permissionsTarget.currentRole === 'admin') {
-        const entries = await getAdminFeaturePermissions();
-        const found = entries.find((entry) => entry.userId === selectedPermissionsUserId);
-        if (!found) {
-          throw new Error('Admin permissions could not be loaded for this user.');
-        }
-        return found.permissions;
-      }
-
-      return getUserFeaturePermissions(selectedPermissionsUserId);
+      return fetchPermissionsForRole(selectedPermissionsUserId, selectedPermissionsRole);
     },
-    enabled: auth.canAccessAdminConsole && Boolean(selectedPermissionsUserId)
+    enabled: auth.canAccessAdminConsole && Boolean(selectedPermissionsUserId),
+    refetchOnMount: 'always'
   });
 
   useEffect(() => {
     if (userPermissionsQuery.data) {
-      setUserPermissionsDraft(userPermissionsQuery.data);
+      setUserPermissionsDraft(
+        permissionsRoleDraft === 'member'
+          ? sanitizeMemberPermissionsForReadOnly(userPermissionsQuery.data)
+          : userPermissionsQuery.data
+      );
     }
-  }, [userPermissionsQuery.data]);
+  }, [permissionsRoleDraft, userPermissionsQuery.data]);
 
   const approveMutation = useMutation({
     mutationFn: approveAccessRequest,
@@ -218,6 +241,7 @@ export default function AdminAccessPage() {
   const promoteMutation = useMutation({
     mutationFn: promoteMemberToAdmin,
     onSuccess: async (_, payload) => {
+      closeUserPermissionsModal(true);
       toast.push({
         title: 'Member promoted',
         description: 'The user is now an admin.'
@@ -228,13 +252,13 @@ export default function AdminAccessPage() {
         queryClient.invalidateQueries({ queryKey: ['owner', 'admin-permissions'] }),
         auth.refreshAccessContext()
       ]);
-      closeUserPermissionsModal();
     }
   });
 
   const demoteMutation = useMutation({
     mutationFn: demoteAdminToMember,
     onSuccess: async (_, payload) => {
+      closeUserPermissionsModal(true);
       toast.push({
         title: 'Admin demoted',
         description: 'The user is now a regular member.'
@@ -245,42 +269,63 @@ export default function AdminAccessPage() {
         queryClient.invalidateQueries({ queryKey: ['owner', 'admin-permissions'] }),
         auth.refreshAccessContext()
       ]);
-      closeUserPermissionsModal();
     }
   });
 
   const updateUserPermissionsMutation = useMutation({
     mutationFn: updateUserFeaturePermissions,
     onSuccess: async (nextPermissions, payload) => {
-      setUserPermissionsDraft(nextPermissions);
+      const sanitizedPermissions = sanitizeMemberPermissionsForReadOnly(nextPermissions);
+      const memberQueryKey = ['access', 'user-permissions', payload.userId, 'member'] as const;
+      closeUserPermissionsModal(true);
+      setUserPermissionsDraft(sanitizedPermissions);
+      queryClient.setQueryData(memberQueryKey, sanitizedPermissions);
       toast.push({
         title: 'Permissions saved',
         description: 'Per-user member permissions were updated.'
       });
+      const refreshMemberPermissionsPromise = queryClient
+        .fetchQuery({
+          queryKey: memberQueryKey,
+          queryFn: () => fetchPermissionsForRole(payload.userId, 'member'),
+          staleTime: 0
+        })
+        .catch(() => undefined);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['access', 'requests'] }),
         queryClient.invalidateQueries({ queryKey: ['access', 'user-permissions', payload.userId] }),
         queryClient.invalidateQueries({ queryKey: ['owner', 'admin-permissions'] }),
+        refreshMemberPermissionsPromise,
         auth.refreshAccessContext()
       ]);
-      closeUserPermissionsModal();
     }
   });
 
   const updateAdminPermissionsMutation = useMutation({
     mutationFn: updateAdminFeaturePermissions,
-    onSuccess: async (_, payload) => {
+    onSuccess: async (nextPermissions, payload) => {
+      const adminQueryKey = ['access', 'user-permissions', payload.userId, 'admin'] as const;
+      closeUserPermissionsModal(true);
+      setUserPermissionsDraft(nextPermissions);
+      queryClient.setQueryData(adminQueryKey, nextPermissions);
       toast.push({
         title: 'Admin permissions saved',
         description: 'Per-admin feature overrides were updated.'
       });
+      const refreshAdminPermissionsPromise = queryClient
+        .fetchQuery({
+          queryKey: adminQueryKey,
+          queryFn: () => fetchPermissionsForRole(payload.userId, 'admin'),
+          staleTime: 0
+        })
+        .catch(() => undefined);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['access', 'requests'] }),
         queryClient.invalidateQueries({ queryKey: ['access', 'user-permissions', payload.userId] }),
         queryClient.invalidateQueries({ queryKey: ['owner', 'admin-permissions'] }),
+        refreshAdminPermissionsPromise,
         auth.refreshAccessContext()
       ]);
-      closeUserPermissionsModal();
     }
   });
 
@@ -303,14 +348,26 @@ export default function AdminAccessPage() {
     setPermissionsTarget(entry);
     setPermissionsRoleDraft(entry.currentRole === 'admin' ? 'admin' : 'member');
     setUserPermissionsDraft(null);
+    void queryClient.invalidateQueries({
+      queryKey: [
+        'access',
+        'user-permissions',
+        entry.userId,
+        entry.currentRole === 'admin' ? 'admin' : 'member'
+      ],
+      exact: true
+    });
   }
 
-  function closeUserPermissionsModal() {
+  function closeUserPermissionsModal(force = false) {
     if (
-      updateUserPermissionsMutation.isPending ||
-      updateAdminPermissionsMutation.isPending ||
-      promoteMutation.isPending ||
-      demoteMutation.isPending
+      !force &&
+      (
+        updateUserPermissionsMutation.isPending ||
+        updateAdminPermissionsMutation.isPending ||
+        promoteMutation.isPending ||
+        demoteMutation.isPending
+      )
     ) {
       return;
     }
@@ -398,7 +455,7 @@ export default function AdminAccessPage() {
 
     await updateUserPermissionsMutation.mutateAsync({
       userId: permissionsTarget.userId,
-      permissions: userPermissionsDraft
+      permissions: sanitizeMemberPermissionsForReadOnly(userPermissionsDraft)
     });
   }
 
@@ -595,7 +652,7 @@ export default function AdminAccessPage() {
       </section>
 
       {permissionsTarget ? (
-        <div className="dialog-backdrop" role="presentation" onClick={closeUserPermissionsModal}>
+        <div className="dialog-backdrop" role="presentation" onClick={() => closeUserPermissionsModal()}>
           <div
             className="dialog"
             role="dialog"
@@ -609,7 +666,7 @@ export default function AdminAccessPage() {
                 type="button"
                 className="dialog-close"
                 aria-label="Close"
-                onClick={closeUserPermissionsModal}
+                onClick={() => closeUserPermissionsModal()}
                 disabled={
                   updateUserPermissionsMutation.isPending ||
                   updateAdminPermissionsMutation.isPending ||
@@ -663,9 +720,12 @@ export default function AdminAccessPage() {
               </p>
             ) : null}
             {permissionsTarget.currentRole === permissionsRoleDraft && userPermissionsDraft ? (
-              <div className="feature-grid">
+              <div className="feature-grid permissions-feature-grid">
                 {(permissionsRoleDraft === 'admin' ? ADMIN_FEATURES : MEMBER_FEATURES).map((feature) => (
-                  <div key={`${permissionsTarget.userId}-${feature}`} className="feature-row">
+                  <div
+                    key={`${permissionsTarget.userId}-${feature}`}
+                    className={`feature-row ${permissionsRoleDraft === 'member' ? 'feature-row-read-only' : ''}`.trim()}
+                  >
                     <span className="feature-label">{formatFeatureLabel(feature)}</span>
                     <label className="field-checkbox">
                       <input
@@ -682,30 +742,32 @@ export default function AdminAccessPage() {
                       />
                       Read
                     </label>
-                    <label className="field-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(userPermissionsDraft[feature]?.write)}
-                        disabled={
-                          !auth.isOwner ||
-                          updateUserPermissionsMutation.isPending ||
-                          updateAdminPermissionsMutation.isPending ||
-                          promoteMutation.isPending ||
-                          demoteMutation.isPending
-                        }
-                        onChange={() => toggleUserPermission(feature, 'write')}
-                      />
-                      Write
-                    </label>
+                    {permissionsRoleDraft === 'admin' ? (
+                      <label className="field-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(userPermissionsDraft[feature]?.write)}
+                          disabled={
+                            !auth.isOwner ||
+                            updateUserPermissionsMutation.isPending ||
+                            updateAdminPermissionsMutation.isPending ||
+                            promoteMutation.isPending ||
+                            demoteMutation.isPending
+                          }
+                          onChange={() => toggleUserPermission(feature, 'write')}
+                        />
+                        Write
+                      </label>
+                    ) : null}
                   </div>
                 ))}
               </div>
             ) : null}
-            <div className="dialog-actions">
+            <div className="dialog-actions permissions-dialog-actions">
               <Button
                 type="button"
                 variant="ghost"
-                onClick={closeUserPermissionsModal}
+                onClick={() => closeUserPermissionsModal()}
                 disabled={
                   updateUserPermissionsMutation.isPending ||
                   updateAdminPermissionsMutation.isPending ||

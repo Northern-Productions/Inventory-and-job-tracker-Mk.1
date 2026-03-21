@@ -1,5 +1,5 @@
 import { Suspense, lazy, type ReactNode } from 'react';
-import { createHashRouter } from 'react-router-dom';
+import { Navigate, createHashRouter } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { LoadingState } from '../components/LoadingState';
 import { AccessRoute } from '../features/auth/AccessRoute';
@@ -17,7 +17,6 @@ const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage')
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
 );
-const CaulkPage = lazy(() => import('../features/caulk/pages/CaulkPage'));
 const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessPage'));
 const OwnerAdminPermissionsPage = lazy(
   () => import('../features/access/pages/OwnerAdminPermissionsPage')
@@ -89,7 +88,7 @@ export const router = createHashRouter([
       },
       {
         path: '/caulk',
-        element: withFeatureRoute(<CaulkPage />, 'inventory', 'read')
+        element: withFeatureRoute(<Navigate to="/?inventoryView=caulk" replace />, 'inventory', 'read')
       },
       {
         path: '/admin/access',

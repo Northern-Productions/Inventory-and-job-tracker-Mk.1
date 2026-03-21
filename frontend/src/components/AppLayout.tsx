@@ -32,50 +32,53 @@ const navItems: NavItem[] = [
     desktopLabel: 'Inventory',
     mobileLabel: 'Stock',
     desktopPlacement: 'primary',
-    mobilePlacement: 'primary'
+    mobilePlacement: 'primary',
+    feature: 'inventory',
+    mode: 'read'
   },
   {
     to: '/allocations',
     desktopLabel: 'Jobs',
     mobileLabel: 'Jobs',
     desktopPlacement: 'primary',
-    mobilePlacement: 'primary'
+    mobilePlacement: 'primary',
+    feature: 'allocations',
+    mode: 'read'
   },
   {
     to: '/inventory/add',
     desktopLabel: 'Add Box',
     mobileLabel: 'Add',
     desktopPlacement: 'primary',
-    mobilePlacement: 'primary'
+    mobilePlacement: 'primary',
+    feature: 'inventory',
+    mode: 'write'
   },
   {
     to: '/inventory/scan',
     desktopLabel: 'Scan',
     mobileLabel: 'Scan',
     desktopPlacement: 'primary',
-    mobilePlacement: 'primary'
+    mobilePlacement: 'primary',
+    feature: 'inventory',
+    mode: 'write'
   },
   {
     to: '/film-orders',
     desktopLabel: 'Film Orders',
     mobileLabel: 'Film Orders',
     desktopPlacement: 'primary',
-    mobilePlacement: 'more'
+    mobilePlacement: 'more',
+    feature: 'film_orders',
+    mode: 'read'
   },
   {
     to: '/reports',
     desktopLabel: 'Reports',
     mobileLabel: 'Reports',
     desktopPlacement: 'more',
-    mobilePlacement: 'more'
-  },
-  {
-    to: '/caulk',
-    desktopLabel: 'Caulk',
-    mobileLabel: 'Caulk',
-    desktopPlacement: 'more',
     mobilePlacement: 'more',
-    feature: 'inventory',
+    feature: 'reports',
     mode: 'read'
   },
   {
@@ -83,14 +86,18 @@ const navItems: NavItem[] = [
     desktopLabel: 'Checkout History',
     mobileLabel: 'Checkout History',
     desktopPlacement: 'more',
-    mobilePlacement: 'more'
+    mobilePlacement: 'more',
+    feature: 'activity_history',
+    mode: 'read'
   },
   {
     to: '/activity',
     desktopLabel: 'Activity',
     mobileLabel: 'Activity',
     desktopPlacement: 'more',
-    mobilePlacement: 'more'
+    mobilePlacement: 'more',
+    feature: 'activity_history',
+    mode: 'read'
   },
   {
     to: '/admin/access',

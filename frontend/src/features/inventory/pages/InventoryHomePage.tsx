@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
+import { CaulkInventoryContent } from '../../caulk/components/CaulkInventoryContent';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { useFilmCatalog } from '../hooks/useInventoryQueries';
@@ -16,6 +17,8 @@ import {
   parseWarehouseFilterValue,
   toWarehouseFilterOptionValue
 } from '../utils/warehouseOptions';
+
+type InventoryView = 'film' | 'caulk';
 
 function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
   return {
@@ -33,6 +36,7 @@ export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const filters = readFilters(searchParams);
+  const inventoryView = readInventoryView(searchParams.get('inventoryView'));
   const deferredFilters = useDeferredValue(filters);
   const boxesQuery = useOfflineInventorySearch(deferredFilters);
   const filmCatalogQuery = useFilmCatalog();
@@ -72,11 +76,35 @@ export default function InventoryHomePage() {
     setSearchParams(nextParams, { replace: true });
   }, [filters.warehouse, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    const rawInventoryView = searchParams.get('inventoryView');
+    if (!rawInventoryView || rawInventoryView === 'film' || rawInventoryView === 'caulk') {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('inventoryView');
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const setInventoryView = (nextView: InventoryView) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextView === 'caulk') {
+      nextParams.set('inventoryView', 'caulk');
+    } else {
+      nextParams.delete('inventoryView');
+    }
+    setSearchParams(nextParams);
+  };
+
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
     const merged = { ...filters, ...next, film: '' };
     const nextParams = new URLSearchParams();
 
     nextParams.set('warehouse', toWarehouseFilterOptionValue(merged.warehouse));
+    if (inventoryView === 'caulk') {
+      nextParams.set('inventoryView', 'caulk');
+    }
 
     if (merged.q) {
       nextParams.set('q', merged.q);
@@ -93,6 +121,31 @@ export default function InventoryHomePage() {
     setSearchParams(nextParams);
   };
 
+  const inventoryViewToggle = (
+    <div className="inventory-view-toggle" role="group" aria-label="Inventory view">
+      <button
+        type="button"
+        className={`inventory-view-toggle-button ${inventoryView === 'film' ? 'inventory-view-toggle-button-active' : ''}`.trim()}
+        onClick={() => setInventoryView('film')}
+        aria-pressed={inventoryView === 'film'}
+      >
+        Film Inventory
+      </button>
+      <button
+        type="button"
+        className={`inventory-view-toggle-button ${inventoryView === 'caulk' ? 'inventory-view-toggle-button-active' : ''}`.trim()}
+        onClick={() => setInventoryView('caulk')}
+        aria-pressed={inventoryView === 'caulk'}
+      >
+        Caulk Inventory
+      </button>
+    </div>
+  );
+
+  if (inventoryView === 'caulk') {
+    return <CaulkInventoryContent headerActions={inventoryViewToggle} />;
+  }
+
   return (
     <>
       <section className="panel">
@@ -103,6 +156,7 @@ export default function InventoryHomePage() {
               Search and manage boxes across every warehouse.
             </p>
           </div>
+          <div className="inventory-view-toggle-wrap">{inventoryViewToggle}</div>
         </div>
         <div className="toolbar-row">
           <span className="muted-text">
@@ -194,4 +248,8 @@ function formatSyncTimestamp(value: string): string {
   }
 
   return parsed.toLocaleString();
+}
+
+function readInventoryView(value: string | null): InventoryView {
+  return value === 'caulk' ? 'caulk' : 'film';
 }
