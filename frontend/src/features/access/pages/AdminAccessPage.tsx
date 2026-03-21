@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   approveAccessRequest,
@@ -70,6 +70,11 @@ function getRolePillClassName(role: string) {
   return 'access-role-pill';
 }
 
+function parseRequestTimestamp(value: string) {
+  const parsed = Date.parse(String(value || '').trim());
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
 export default function AdminAccessPage() {
   const auth = useAuth();
   const toast = useToast();
@@ -103,6 +108,28 @@ export default function AdminAccessPage() {
     queryFn: () => listUsernameChangeRequests('pending'),
     enabled: auth.canAccessAdminConsole
   });
+  const sortedAccessRequests = useMemo(() => {
+    const entries = [...(requestsQuery.data || [])];
+
+    entries.sort((left, right) => {
+      if (statusFilter === '') {
+        const leftPending = left.status === 'pending';
+        const rightPending = right.status === 'pending';
+        if (leftPending !== rightPending) {
+          return leftPending ? -1 : 1;
+        }
+      }
+
+      const requestedCompare = parseRequestTimestamp(left.requestedAt) - parseRequestTimestamp(right.requestedAt);
+      if (requestedCompare !== 0) {
+        return requestedCompare;
+      }
+
+      return left.userId.localeCompare(right.userId);
+    });
+
+    return entries;
+  }, [requestsQuery.data, statusFilter]);
 
   const userPermissionsQuery = useQuery({
     queryKey: ['access', 'user-permissions', selectedPermissionsUserId, permissionsTarget?.currentRole || ''],
@@ -426,10 +453,10 @@ export default function AdminAccessPage() {
 
         {!requestsQuery.isLoading && !requestsQuery.isError ? (
           <div className="stack access-requests-list">
-            {(requestsQuery.data || []).length === 0 ? (
+            {sortedAccessRequests.length === 0 ? (
               <p className="muted-text">No access requests found.</p>
             ) : (
-              (requestsQuery.data || []).map((entry) => {
+              sortedAccessRequests.map((entry) => {
                 const isPending = entry.status === 'pending';
                 const canChangePermissions =
                   auth.isOwner &&

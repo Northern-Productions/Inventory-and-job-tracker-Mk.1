@@ -21,6 +21,11 @@ interface NavItem {
   ownerOnly?: boolean;
 }
 
+interface ComputedNavItem extends NavItem {
+  active: boolean;
+  showAttentionDot: boolean;
+}
+
 const navItems: NavItem[] = [
   {
     to: '/',
@@ -168,46 +173,75 @@ export function AppLayout() {
       return true;
     });
   }, [auth]);
+  const hasPendingAccessApprovals =
+    auth.isOwner && Number(auth.accessContext?.pendingCount || 0) > 0;
+  const showAccessPendingAttention =
+    hasPendingAccessApprovals && visibleNavItems.some((item) => item.to === '/admin/access');
 
-  const primaryNavItems = useMemo(
+  const primaryNavItems = useMemo<ComputedNavItem[]>(
     () =>
       visibleNavItems
         .filter((item) => item.desktopPlacement === 'primary')
-        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname, visibleNavItems]
+        .map((item) => ({
+          ...item,
+          active: isNavItemActive(location.pathname, item.to),
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+        })),
+    [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
-  const moreDesktopNavItems = useMemo(
+  const moreDesktopNavItems = useMemo<ComputedNavItem[]>(
     () =>
       visibleNavItems
         .filter((item) => item.desktopPlacement === 'more')
-        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname, visibleNavItems]
+        .map((item) => ({
+          ...item,
+          active: isNavItemActive(location.pathname, item.to),
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+        })),
+    [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
-  const primaryMobileNavItems = useMemo(
+  const primaryMobileNavItems = useMemo<ComputedNavItem[]>(
     () =>
       visibleNavItems
         .filter((item) => item.mobilePlacement === 'primary')
-        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname, visibleNavItems]
+        .map((item) => ({
+          ...item,
+          active: isNavItemActive(location.pathname, item.to),
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+        })),
+    [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
-  const moreMobileNavItems = useMemo(
+  const moreMobileNavItems = useMemo<ComputedNavItem[]>(
     () =>
       visibleNavItems
         .filter((item) => item.mobilePlacement === 'more')
-        .map((item) => ({ ...item, active: isNavItemActive(location.pathname, item.to) })),
-    [location.pathname, visibleNavItems]
+        .map((item) => ({
+          ...item,
+          active: isNavItemActive(location.pathname, item.to),
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+        })),
+    [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
   const primaryMobileItems = useMemo<MobileNavItem[]>(
     () =>
       primaryMobileNavItems.map((item) => ({
         label: item.mobileLabel,
         to: item.to,
-        active: item.active
+        active: item.active,
+        showAttentionDot: item.showAttentionDot,
+        attentionAriaLabel: item.showAttentionDot ? `${item.mobileLabel} (pending approvals)` : undefined
       })),
     [primaryMobileNavItems]
   );
   const moreMobileItems = useMemo<MobileNavItem[]>(
-    () => moreMobileNavItems.map((item) => ({ label: item.mobileLabel, to: item.to, active: item.active })),
+    () =>
+      moreMobileNavItems.map((item) => ({
+        label: item.mobileLabel,
+        to: item.to,
+        active: item.active,
+        showAttentionDot: item.showAttentionDot,
+        attentionAriaLabel: item.showAttentionDot ? `${item.mobileLabel} (pending approvals)` : undefined
+      })),
     [moreMobileNavItems]
   );
   const isDesktopMoreActive = moreDesktopNavItems.some((item) => item.active);
@@ -276,8 +310,12 @@ export function AppLayout() {
                   onClick={toggleDesktopMoreMenu}
                   aria-haspopup="menu"
                   aria-expanded={isDesktopMoreOpen}
+                  aria-label={showAccessPendingAttention ? 'More (pending approvals)' : 'More'}
                 >
-                  More
+                  <span className="nav-attention-label">
+                    More
+                    {showAccessPendingAttention ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
+                  </span>
                 </button>
                 {isDesktopMoreOpen ? (
                   <div className="nav-more-menu" role="menu" aria-label="More pages">
@@ -288,8 +326,12 @@ export function AppLayout() {
                         className={`nav-more-item ${item.active ? 'nav-more-item-active' : ''}`.trim()}
                         role="menuitem"
                         onClick={closeDesktopMoreMenu}
+                        aria-label={item.showAttentionDot ? `${item.desktopLabel} (pending approvals)` : undefined}
                       >
-                        {item.desktopLabel}
+                        <span className="nav-attention-label">
+                          {item.desktopLabel}
+                          {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
+                        </span>
                       </NavLink>
                     ))}
                   </div>
@@ -310,6 +352,7 @@ export function AppLayout() {
             isMoreOpen={isMobileMoreOpen}
             onOpenMore={toggleMobileMoreSheet}
             moreButtonRef={mobileMoreButtonRef}
+            moreHasAttentionDot={showAccessPendingAttention}
           />
           <MobileMoreSheet
             open={isMobileMoreOpen}

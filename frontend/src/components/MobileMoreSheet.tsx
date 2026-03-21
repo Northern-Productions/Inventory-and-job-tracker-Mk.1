@@ -95,12 +95,16 @@ export function MobileMoreSheet({
               key={item.to}
               type="button"
               className={`mobile-more-link ${isActiveItem(activePath, item.to) ? 'mobile-more-link-active' : ''}`.trim()}
+              aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (pending approvals)` : undefined}
               onClick={() => {
                 navigate(item.to);
                 onClose();
               }}
             >
-              {item.label}
+              <span className="nav-attention-label">
+                {item.label}
+                {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
+              </span>
             </button>
           ))}
         </div>
