@@ -77,6 +77,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/roll-history/by-box': 'activity_history',
 
   '/reports/summary': 'reports',
+  '/owner/reports/asset-total-cost': 'reports',
 
   '/admin/access/requests': 'access_management',
   '/admin/access/requests/approve': 'access_management',
@@ -107,6 +108,7 @@ export const READ_PATHS = Object.freeze([
   '/film-data/catalog',
   '/roll-history/by-box',
   '/reports/summary',
+  '/owner/reports/asset-total-cost',
   '/warehouses/list',
   '/caulk/manufacturers/list',
   '/caulk/products/list',
@@ -125,6 +127,7 @@ export const OWNER_ONLY_ROUTES = Object.freeze([
   '/owner/roles/demote-admin-to-member',
   '/owner/roles/promote-admin-to-owner',
   '/owner/notification-preferences',
+  '/owner/reports/asset-total-cost',
   '/owner/warehouses/add',
   '/owner/caulk/manufacturers/upsert',
   '/jobs/reopen'

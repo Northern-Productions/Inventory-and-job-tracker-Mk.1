@@ -52,6 +52,11 @@ export type ReadHandlerDeps = {
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
   listRollHistoryByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
   buildReportsSummary: (client: any, orgId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  buildOwnerAssetTotalCost: (
+    client: any,
+    orgId: string,
+    params: Record<string, unknown>
+  ) => Promise<Record<string, unknown>>;
 };
 
 type ReadHandler = (
@@ -273,6 +278,9 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/reports/summary": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildReportsSummary(client, orgId, params));
+  },
+  "/owner/reports/asset-total-cost": async ({ client, orgId, params }, deps) => {
+    return ok(await deps.buildOwnerAssetTotalCost(client, orgId, params));
   },
 };
 

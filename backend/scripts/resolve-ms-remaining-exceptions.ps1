@@ -258,6 +258,7 @@ function New-BoxesRawRow {
     CoreType = ""
     CoreWeightLbs = ""
     LfWeightLbsPerFt = ""
+    PricePerLf = ""
     PurchaseCost = ""
     Notes = $Notes
     HasEverBeenCheckedOut = "false"

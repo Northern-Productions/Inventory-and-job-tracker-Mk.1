@@ -59,6 +59,7 @@ const addSchema = z.object({
   coreType: optionalCoreTypeString,
   coreWeightLbs: z.number().nullable(),
   lfWeightLbsPerFt: z.number().nullable(),
+  pricePerLf: z.number().nullable(),
   purchaseCost: z.number().nullable(),
   notes: optionalString
 });
@@ -125,6 +126,7 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
       draft.lfWeightLbsPerFt,
       'LF weight per foot'
     ),
+    pricePerLf: parseOptionalNonNegativeNumber(draft.pricePerLf, 'Price per LF'),
     purchaseCost: parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost'),
     notes: draft.notes
   }) as AddBoxPayload;
@@ -154,6 +156,7 @@ export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
       draft.lfWeightLbsPerFt,
       'LF weight per foot'
     ),
+    pricePerLf: parseOptionalNonNegativeNumber(draft.pricePerLf, 'Price per LF'),
     purchaseCost: parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost'),
     notes: draft.notes
   }) as UpdateBoxPayload;

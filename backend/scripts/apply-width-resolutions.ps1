@@ -75,10 +75,24 @@ if ([string]::IsNullOrWhiteSpace($OutputSummaryJsonPath)) {
   $OutputSummaryJsonPath = Join-Path -Path $RunDir -ChildPath "width_resolution_summary.json"
 }
 
+$seedResolvedPath = Join-Path -Path (Split-Path -Path $ResolvedCsvPath -Parent) -ChildPath "boxes_raw.csv"
 if (-not (Test-Path -LiteralPath $ResolvedCsvPath)) {
-  $seedResolvedPath = Join-Path -Path (Split-Path -Path $ResolvedCsvPath -Parent) -ChildPath "boxes_raw.csv"
   if (Test-Path -LiteralPath $seedResolvedPath) {
     Copy-Item -LiteralPath $seedResolvedPath -Destination $ResolvedCsvPath -Force
+  }
+} elseif (Test-Path -LiteralPath $seedResolvedPath) {
+  $seedInfo = Get-Item -LiteralPath $seedResolvedPath
+  $resolvedInfo = Get-Item -LiteralPath $ResolvedCsvPath
+  if ($seedInfo.LastWriteTimeUtc -gt $resolvedInfo.LastWriteTimeUtc) {
+    Copy-Item -LiteralPath $seedResolvedPath -Destination $ResolvedCsvPath -Force
+  }
+
+  $resolvedPreview = @(Import-Csv -LiteralPath $ResolvedCsvPath | Select-Object -First 1)
+  if ($resolvedPreview.Count -gt 0) {
+    $resolvedColumns = @($resolvedPreview[0].PSObject.Properties.Name)
+    if (-not ($resolvedColumns -contains "PricePerLf")) {
+      Copy-Item -LiteralPath $seedResolvedPath -Destination $ResolvedCsvPath -Force
+    }
   }
 }
 
@@ -254,6 +268,42 @@ function Build-FilmName {
 }
 
 $rows = Import-Csv -LiteralPath $ResolvedCsvPath
+$requiredResolvedColumns = @(
+  "BoxID",
+  "Manufacturer",
+  "FilmName",
+  "WidthIn",
+  "InitialFeet",
+  "FeetAvailable",
+  "LotRun",
+  "Status",
+  "OrderDate",
+  "ReceivedDate",
+  "InitialWeightLbs",
+  "LastRollWeightLbs",
+  "LastWeighedDate",
+  "FilmKey",
+  "CoreType",
+  "CoreWeightLbs",
+  "LfWeightLbsPerFt",
+  "PricePerLf",
+  "PurchaseCost",
+  "Notes",
+  "HasEverBeenCheckedOut",
+  "LastCheckoutJob",
+  "LastCheckoutDate",
+  "ZeroedDate",
+  "ZeroedReason",
+  "ZeroedBy"
+)
+if ($rows.Count -gt 0) {
+  $resolvedHeader = @($rows[0].PSObject.Properties.Name)
+  foreach ($col in $requiredResolvedColumns) {
+    if (-not ($resolvedHeader -contains $col)) {
+      throw "Resolved CSV missing required column: $col"
+    }
+  }
+}
 $exceptions = Import-Csv -LiteralPath $ExceptionsCsvPath
 $missingWidthExceptions = @($exceptions | Where-Object { $_.reason -eq "missing_width" })
 
@@ -425,6 +475,7 @@ foreach ($resolution in $allWidthResolutions) {
     CoreType = ""
     CoreWeightLbs = ""
     LfWeightLbsPerFt = ""
+    PricePerLf = ""
     PurchaseCost = ""
     Notes = "ExceptionResolved=missing_width; SourceSheet=$($exception.sheet); SourceRow=$($exception.row_number); WidthResolution=$($resolution.note); RawDescription=$($exception.raw_description)"
     HasEverBeenCheckedOut = "false"

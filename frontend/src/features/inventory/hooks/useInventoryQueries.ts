@@ -14,6 +14,7 @@ export {
   useJob,
   useJobsList,
   useJobsSearch,
+  useOwnerAssetTotalCostReport,
   useReportsSummary,
   useRollHistory,
   useSearchBoxes,

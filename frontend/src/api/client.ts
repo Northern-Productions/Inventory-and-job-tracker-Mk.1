@@ -77,4 +77,4 @@ export {
   getFilmOrders
 } from './features/filmOrdersClient';
 export { getAuditByBox, getRollHistoryByBox, listAudit, undoAudit } from './features/auditClient';
-export { getReportsSummary } from './features/reportsClient';
+export { getOwnerAssetTotalCostReport, getReportsSummary } from './features/reportsClient';

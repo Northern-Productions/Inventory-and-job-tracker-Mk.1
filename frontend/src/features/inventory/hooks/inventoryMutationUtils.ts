@@ -125,6 +125,7 @@ export function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
     coreType: payload.coreType || '',
     coreWeightLbs: payload.coreWeightLbs ?? null,
     lfWeightLbsPerFt: payload.lfWeightLbsPerFt ?? null,
+    pricePerLf: payload.pricePerLf ?? null,
     purchaseCost: payload.purchaseCost ?? null,
     notes: payload.notes || '',
     hasEverBeenCheckedOut: false,

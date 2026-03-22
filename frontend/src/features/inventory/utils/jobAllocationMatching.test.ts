@@ -22,6 +22,7 @@ function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' |
     coreType: overrides.coreType || '',
     coreWeightLbs: overrides.coreWeightLbs ?? null,
     lfWeightLbsPerFt: overrides.lfWeightLbsPerFt ?? null,
+    pricePerLf: overrides.pricePerLf ?? null,
     purchaseCost: overrides.purchaseCost ?? null,
     notes: overrides.notes || '',
     hasEverBeenCheckedOut: overrides.hasEverBeenCheckedOut ?? false,

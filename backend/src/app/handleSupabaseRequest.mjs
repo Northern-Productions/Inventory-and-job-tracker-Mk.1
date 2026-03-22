@@ -1282,6 +1282,7 @@ function mapDbBoxRow(row) {
     coreType: asTrimmedString(row.core_type),
     coreWeightLbs: numericOrNull(row.core_weight_lbs),
     lfWeightLbsPerFt: numericOrNull(row.lf_weight_lbs_per_ft),
+    pricePerLf: numericOrNull(row.price_per_lf),
     purchaseCost: numericOrNull(row.purchase_cost),
     notes: asTrimmedString(row.notes),
     hasEverBeenCheckedOut: Boolean(row.has_ever_been_checked_out),
@@ -1315,6 +1316,7 @@ function toPublicBox(box) {
     coreType: box.coreType,
     coreWeightLbs: box.coreWeightLbs,
     lfWeightLbsPerFt: box.lfWeightLbsPerFt,
+    pricePerLf: box.pricePerLf,
     purchaseCost: box.purchaseCost,
     notes: box.notes,
     hasEverBeenCheckedOut: box.hasEverBeenCheckedOut,
@@ -2680,6 +2682,7 @@ async function saveBoxRecord(client, orgId, box) {
         core_type,
         core_weight_lbs,
         lf_weight_lbs_per_ft,
+        price_per_lf,
         purchase_cost,
         notes,
         has_ever_been_checked_out,
@@ -2694,10 +2697,10 @@ async function saveBoxRecord(client, orgId, box) {
         nullif($12, '')::date,
         $13,$14,
         nullif($15, '')::date,
-        $16,$17,$18,$19,$20,$21,$22,$23,
-        nullif($24, '')::date,
+        $16,$17,$18,$19,$20,$21,$22,$23,$24,
         nullif($25, '')::date,
-        $26,$27
+        nullif($26, '')::date,
+        $27,$28
       )
       on conflict (org_id, box_id) do update set
         warehouse = excluded.warehouse,
@@ -2717,6 +2720,7 @@ async function saveBoxRecord(client, orgId, box) {
         core_type = excluded.core_type,
         core_weight_lbs = excluded.core_weight_lbs,
         lf_weight_lbs_per_ft = excluded.lf_weight_lbs_per_ft,
+        price_per_lf = excluded.price_per_lf,
         purchase_cost = excluded.purchase_cost,
         notes = excluded.notes,
         has_ever_been_checked_out = excluded.has_ever_been_checked_out,
@@ -2747,6 +2751,7 @@ async function saveBoxRecord(client, orgId, box) {
       box.coreType,
       box.coreWeightLbs,
       box.lfWeightLbsPerFt,
+      box.pricePerLf,
       box.purchaseCost,
       box.notes,
       box.hasEverBeenCheckedOut,
@@ -5713,6 +5718,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     coreType: resolvedCoreType,
     coreWeightLbs: resolvedCoreWeightLbs,
     lfWeightLbsPerFt: resolvedLfWeightLbsPerFt,
+    pricePerLf: coerceOptionalNonNegativeNumber(payload.pricePerLf, 'PricePerLf'),
     purchaseCost: coerceOptionalNonNegativeNumber(payload.purchaseCost, 'PurchaseCost'),
     notes: asTrimmedString(payload.notes),
     hasEverBeenCheckedOut: existingBox ? existingBox.hasEverBeenCheckedOut === true : false,
@@ -6301,6 +6307,64 @@ async function buildReportsSummary(client, orgId, params) {
     zeroedByMonth,
     completedJobs,
     cancelledJobs
+  };
+}
+
+async function buildOwnerAssetTotalCost(client, orgId, params) {
+  const warehouseFilter = asTrimmedString(params.warehouse).toUpperCase();
+  const boxes = await listBoxes(client, orgId);
+
+  let includedBoxCount = 0;
+  let includedFeet = 0;
+  let pricedBoxCount = 0;
+  let pricedFeet = 0;
+  let unpricedBoxCount = 0;
+  let unpricedFeet = 0;
+  let totalAssetCost = 0;
+
+  for (let index = 0; index < boxes.length; index += 1) {
+    const box = boxes[index];
+    const status = asTrimmedString(box.status).toUpperCase();
+    const warehouse = asTrimmedString(box.warehouse).toUpperCase();
+    const feetAvailable = Math.max(0, integerOrZero(box.feetAvailable));
+    const pricePerLf = numericOrNull(box.pricePerLf);
+
+    if (warehouseFilter && warehouse !== warehouseFilter) {
+      continue;
+    }
+
+    if (status === 'ZEROED' || status === 'RETIRED') {
+      continue;
+    }
+
+    if (feetAvailable <= 0) {
+      continue;
+    }
+
+    includedBoxCount += 1;
+    includedFeet += feetAvailable;
+
+    if (pricePerLf === null || pricePerLf < 0) {
+      unpricedBoxCount += 1;
+      unpricedFeet += feetAvailable;
+      continue;
+    }
+
+    pricedBoxCount += 1;
+    pricedFeet += feetAvailable;
+    totalAssetCost += feetAvailable * pricePerLf;
+  }
+
+  return {
+    warehouse: warehouseFilter,
+    includedBoxCount,
+    includedFeet,
+    pricedBoxCount,
+    pricedFeet,
+    unpricedBoxCount,
+    unpricedFeet,
+    coveragePercentByFeet: includedFeet > 0 ? roundToDecimals(pricedFeet / includedFeet, 6) : 0,
+    totalAssetCost: roundToDecimals(totalAssetCost, 2)
   };
 }
 
@@ -8678,6 +8742,8 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
             });
           case '/reports/summary':
             return ok(await buildReportsSummary(client, authContext.orgId, params));
+          case '/owner/reports/asset-total-cost':
+            return ok(await buildOwnerAssetTotalCost(client, authContext.orgId, params));
           case '/caulk/manufacturers/list':
             return ok({ entries: await listCaulkManufacturers(client, authContext.orgId) });
           case '/caulk/products/list':

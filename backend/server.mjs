@@ -20,6 +20,7 @@ const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/owner/admin-permissions',
   '/owner/notification-preferences'
 ]);
+const LOCAL_FALLBACK_READ_PATHS = new Set(['/owner/reports/asset-total-cost']);
 
 function resolveEdgeApiBaseUrl_() {
   const explicit = String(process.env.EDGE_API_BASE_URL || '').trim();
@@ -306,22 +307,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const response =
-    req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath)
-      ? await handleSupabaseRequest({
-          method: req.method,
-          logicalPath,
-          requestUrl,
-          bodyJson,
-          headers: req.headers
-        })
-      : await forwardToEdgeApi({
-          method: req.method,
-          logicalPath,
-          requestUrl,
-          requestBody,
-          headers: req.headers
-        });
+  const shouldUseLocalFallback =
+    (req.method === 'GET' && LOCAL_FALLBACK_READ_PATHS.has(logicalPath)) ||
+    (req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath));
+
+  const response = shouldUseLocalFallback
+    ? await handleSupabaseRequest({
+        method: req.method,
+        logicalPath,
+        requestUrl,
+        bodyJson,
+        headers: req.headers
+      })
+    : await forwardToEdgeApi({
+        method: req.method,
+        logicalPath,
+        requestUrl,
+        requestBody,
+        headers: req.headers
+      });
   const responseBody = JSON.stringify(response.payload);
   const contentType = 'application/json; charset=utf-8';
 

@@ -31,5 +31,8 @@ export const inventoryKeys = {
   activity: (params: AuditListParams) => ['inventory', 'activity', params] as const,
   rollHistory: (boxId: string) => ['inventory', 'roll-history', boxId] as const,
   reportsRoot: ['inventory', 'reports'] as const,
-  reports: (filters: ReportsSummaryFilters) => ['inventory', 'reports', filters] as const
+  reports: (filters: ReportsSummaryFilters) => ['inventory', 'reports', filters] as const,
+  ownerReportsRoot: ['inventory', 'owner-reports'] as const,
+  ownerAssetTotalCost: (filters: Pick<ReportsSummaryFilters, 'warehouse'>) =>
+    ['inventory', 'owner-reports', 'asset-total-cost', filters] as const
 };

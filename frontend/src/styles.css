@@ -331,6 +331,34 @@ textarea {
   box-shadow: 0 10px 30px rgba(25, 42, 46, 0.05);
 }
 
+.panel-collapsed {
+  padding: 0.45rem 0.7rem;
+}
+
+.panel-collapsed .panel-title-row {
+  margin: 0;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+}
+
+.panel-collapsed .panel-title-row h2 {
+  margin: 0;
+}
+
+.panel-collapsed .panel-header-toggle {
+  padding: 0.12rem 0.2rem 0.12rem 0.5rem;
+}
+
+.panel-collapsed .panel-header-toggle-metadata {
+  font-size: 0.88rem;
+}
+
+.panel-collapsed .panel-header-toggle-symbol {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.9rem;
+}
+
 .panel-title-row,
 .stack-row,
 .dialog-actions,
@@ -570,6 +598,43 @@ textarea {
 }
 
 .qr-code-toggle-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  border: 1px solid #c6d2d6;
+  background: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.panel-header-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  border: 1px solid #c6d2d6;
+  border-radius: 999px;
+  padding: 0.2rem 0.28rem 0.2rem 0.65rem;
+  background: #fff;
+  color: #12343b;
+  cursor: pointer;
+  text-align: left;
+}
+
+.panel-header-toggle:focus-visible {
+  outline: 2px solid rgba(42, 93, 103, 0.18);
+  border-color: #2a5d67;
+}
+
+.panel-header-toggle-metadata {
+  font-size: 0.95rem;
+}
+
+.panel-header-toggle-symbol {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1776,6 +1841,12 @@ td.col-available-linear-ft {
   .toolbar-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .panel-collapsed .panel-title-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .inventory-view-toggle-wrap {

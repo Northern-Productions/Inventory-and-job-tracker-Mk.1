@@ -2464,6 +2464,62 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
   };
 }
 
+async function buildOwnerAssetTotalCost(client: any, orgId: string, params: Record<string, unknown>) {
+  const warehouseFilter = asTrimmedString(params.warehouse).toUpperCase();
+  const boxes = await listBoxes(client, orgId);
+
+  let includedBoxCount = 0;
+  let includedFeet = 0;
+  let pricedBoxCount = 0;
+  let pricedFeet = 0;
+  let unpricedBoxCount = 0;
+  let unpricedFeet = 0;
+  let totalAssetCost = 0;
+
+  for (const box of boxes) {
+    const status = asTrimmedString(box.status).toUpperCase();
+    const warehouse = asTrimmedString(box.warehouse).toUpperCase();
+    const feetAvailable = Math.max(0, integerOrZero(box.feetAvailable));
+    const pricePerLf = numericOrNull(box.pricePerLf);
+
+    if (warehouseFilter && warehouse !== warehouseFilter) {
+      continue;
+    }
+    if (status === "ZEROED" || status === "RETIRED") {
+      continue;
+    }
+    if (feetAvailable <= 0) {
+      continue;
+    }
+
+    includedBoxCount += 1;
+    includedFeet += feetAvailable;
+
+    if (pricePerLf === null || pricePerLf < 0) {
+      unpricedBoxCount += 1;
+      unpricedFeet += feetAvailable;
+      continue;
+    }
+
+    pricedBoxCount += 1;
+    pricedFeet += feetAvailable;
+    totalAssetCost += feetAvailable * pricePerLf;
+  }
+
+  return {
+    warehouse: warehouseFilter,
+    includedBoxCount,
+    includedFeet,
+    pricedBoxCount,
+    pricedFeet,
+    unpricedBoxCount,
+    unpricedFeet,
+    coveragePercentByFeet:
+      includedFeet > 0 ? roundToDecimals(pricedFeet / includedFeet, 6) : 0,
+    totalAssetCost: roundToDecimals(totalAssetCost, 2),
+  };
+}
+
 async function listAudit(client: any, orgId: string, params: Record<string, unknown>) {
   const from = asTrimmedString(params.from);
   const to = asTrimmedString(params.to);
@@ -3068,6 +3124,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
     buildFilmCatalog,
     listRollHistoryByBox,
     buildReportsSummary,
+    buildOwnerAssetTotalCost,
   });
 }
 

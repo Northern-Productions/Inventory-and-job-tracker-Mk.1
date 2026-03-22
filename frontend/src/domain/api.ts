@@ -3,6 +3,7 @@ import type {
   AllocationJobDetail,
   AllocationJobSummary,
   AllocationPreview,
+  AssetTotalCostReport,
   AuditEntry,
   CaulkManufacturerEntry,
   CaulkJobAllocationMutationResult,
@@ -104,6 +105,8 @@ export interface ReportsSummary {
   completedJobs: ClosedJobReportRow[];
   cancelledJobs: ClosedJobReportRow[];
 }
+
+export interface OwnerAssetTotalCostResponse extends AssetTotalCostReport {}
 
 export interface AccessRequestsResponse {
   entries: AccessRequestEntry[];

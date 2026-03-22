@@ -15,7 +15,12 @@ import type { ReportsSummaryFilters } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { formatDate } from '../../../lib/date';
-import { useFilmCatalog, useReportsSummary } from '../hooks/useInventoryQueries';
+import { useAuth } from '../../auth/AuthContext';
+import {
+  useFilmCatalog,
+  useOwnerAssetTotalCostReport,
+  useReportsSummary
+} from '../hooks/useInventoryQueries';
 import {
   STANDARD_WIDTH_OPTIONS,
   getManufacturerOptionsWithCatalog,
@@ -29,20 +34,30 @@ import {
 import { parseWarehouseFilterValue } from '../utils/warehouseOptions';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 
-type ReportType = 'never_checked_out' | 'zeroed_boxes' | 'completed_jobs' | 'cancelled_jobs';
-
-const REPORT_TYPE_OPTIONS = [
+type ReportType =
+  | 'never_checked_out'
+  | 'zeroed_boxes'
+  | 'completed_jobs'
+  | 'cancelled_jobs'
+  | 'asset_total_cost';
+const BASE_REPORT_TYPE_OPTIONS = [
   { label: 'Received But Never Checked Out', value: 'never_checked_out' },
   { label: 'All Zeroed Boxes', value: 'zeroed_boxes' },
   { label: 'Completed Jobs', value: 'completed_jobs' },
   { label: 'Cancelled Jobs', value: 'cancelled_jobs' }
 ];
 
+const OWNER_REPORT_TYPE_OPTIONS = [
+  { label: 'Asset Total Cost', value: 'asset_total_cost' },
+  ...BASE_REPORT_TYPE_OPTIONS
+];
+
 const REPORT_TYPE_TITLES: Record<ReportType, string> = {
   never_checked_out: 'Received But Never Checked Out',
   zeroed_boxes: 'All Zeroed Boxes',
   completed_jobs: 'Completed Jobs',
-  cancelled_jobs: 'Cancelled Jobs'
+  cancelled_jobs: 'Cancelled Jobs',
+  asset_total_cost: 'Asset Total Cost'
 };
 
 const EMPTY_FILTERS: ReportsSummaryFilters = {
@@ -57,20 +72,38 @@ const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
 
 const ZEROED_WIDTH_OPTIONS = ['ALL', ...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 
+const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD'
+});
+
+function formatCurrency(value: number) {
+  return USD_CURRENCY_FORMATTER.format(value);
+}
+
 function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
 export default function ReportsPage() {
   const navigate = useNavigate();
+  const auth = useAuth();
   const isPhoneLayout = useIsPhoneLayout();
   const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
-  const [reportType, setReportType] = useState<ReportType>('never_checked_out');
+  const [reportType, setReportType] = useState<ReportType>(
+    auth.isOwner ? 'asset_total_cost' : 'never_checked_out'
+  );
   const [zeroedFilters, setZeroedFilters] = useState<ZeroedBoxesFilters>(EMPTY_ZEROED_FILTERS);
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
 
   const reportsQuery = useReportsSummary(filters);
+  const ownerAssetTotalCostQuery = useOwnerAssetTotalCostReport(
+    { warehouse: filters.warehouse || '' },
+    {
+      enabled: auth.isOwner && reportType === 'asset_total_cost'
+    }
+  );
   const filmCatalogQuery = useFilmCatalog();
   const zeroedFallbackQuery = useQuery({
     queryKey: ['reports', 'zeroed-fallback', filters.warehouse || 'ALL'],
@@ -92,6 +125,11 @@ export default function ReportsPage() {
   const neverCheckedOut = reportsQuery.data?.neverCheckedOut || [];
   const completedJobs = reportsQuery.data?.completedJobs || [];
   const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
+  const ownerAssetTotalCost = ownerAssetTotalCostQuery.data;
+  const reportTypeOptions = useMemo(
+    () => (auth.isOwner ? OWNER_REPORT_TYPE_OPTIONS : BASE_REPORT_TYPE_OPTIONS),
+    [auth.isOwner]
+  );
   const zeroedBoxes = useMemo(() => {
     const fromSummary = reportsQuery.data?.zeroedBoxes || [];
     if (fromSummary.length) {
@@ -127,6 +165,14 @@ export default function ReportsPage() {
     customWidthDraft.trim() !== '' &&
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
+  const reportLoading =
+    reportType === 'asset_total_cost'
+      ? ownerAssetTotalCostQuery.isLoading
+      : reportsQuery.isLoading;
+  const reportError =
+    reportType === 'asset_total_cost'
+      ? ownerAssetTotalCostQuery.error
+      : reportsQuery.error;
 
   useEffect(() => {
     if (reportType !== 'zeroed_boxes') {
@@ -134,6 +180,12 @@ export default function ReportsPage() {
       setCustomWidthDraft('');
     }
   }, [reportType]);
+
+  useEffect(() => {
+    if (!auth.isOwner && reportType === 'asset_total_cost') {
+      setReportType('never_checked_out');
+    }
+  }, [auth.isOwner, reportType]);
 
   function patchWarehouse(warehouse: string) {
     setFilters({ warehouse: parseWarehouseFilterValue(warehouse) });
@@ -182,7 +234,7 @@ export default function ReportsPage() {
             label="Report Type"
             value={reportType}
             onChange={(event) => setReportType(event.target.value as ReportType)}
-            options={REPORT_TYPE_OPTIONS}
+            options={reportTypeOptions}
           />
           <WarehouseSelectField
             value={filters.warehouse || ''}
@@ -253,10 +305,10 @@ export default function ReportsPage() {
           <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
         </div>
 
-        {reportsQuery.isLoading ? <LoadingState label="Loading reports..." /> : null}
-        {reportsQuery.isError ? <p className="error-text">{reportsQuery.error.message}</p> : null}
+        {reportLoading ? <LoadingState label="Loading reports..." /> : null}
+        {reportError ? <p className="error-text">{reportError.message}</p> : null}
 
-        {!reportsQuery.isLoading && !reportsQuery.isError ? (
+        {!reportLoading && !reportError ? (
           <>
             {reportType === 'never_checked_out' ? (
               !neverCheckedOut.length ? (
@@ -364,6 +416,49 @@ export default function ReportsPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )
+            ) : null}
+
+            {reportType === 'asset_total_cost' ? (
+              !auth.isOwner ? (
+                <div className="empty-state">Only owners can view this report.</div>
+              ) : !ownerAssetTotalCost ? (
+                <div className="empty-state">No asset cost data is available.</div>
+              ) : (
+                <div className="detail-grid">
+                  <div className="key-value">
+                    <dt className="detail-label-pill detail-label-pill-green">Total On-Hand Asset Cost</dt>
+                    <dd>{formatCurrency(ownerAssetTotalCost.totalAssetCost)}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Included Boxes</dt>
+                    <dd>{ownerAssetTotalCost.includedBoxCount}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Included LF</dt>
+                    <dd>{ownerAssetTotalCost.includedFeet}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Priced Boxes</dt>
+                    <dd>{ownerAssetTotalCost.pricedBoxCount}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Priced LF</dt>
+                    <dd>{ownerAssetTotalCost.pricedFeet}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Unpriced Boxes</dt>
+                    <dd>{ownerAssetTotalCost.unpricedBoxCount}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>Unpriced LF</dt>
+                    <dd>{ownerAssetTotalCost.unpricedFeet}</dd>
+                  </div>
+                  <div className="key-value">
+                    <dt>LF Coverage</dt>
+                    <dd>{(ownerAssetTotalCost.coveragePercentByFeet * 100).toFixed(1)}%</dd>
+                  </div>
                 </div>
               )
             ) : null}

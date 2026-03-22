@@ -52,6 +52,7 @@ export interface BoxDraft {
   coreType: string;
   coreWeightLbs: string;
   lfWeightLbsPerFt: string;
+  pricePerLf: string;
   purchaseCost: string;
   notes: string;
 }
@@ -301,6 +302,7 @@ export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
     coreType: '',
     coreWeightLbs: '',
     lfWeightLbsPerFt: '',
+    pricePerLf: '',
     purchaseCost: '',
     notes: ''
   };
@@ -317,14 +319,15 @@ export function createDraftFromBox(box: Box): BoxDraft {
     lotRun: box.lotRun,
     orderDate: toDateInputValue(box.orderDate),
     receivedDate: toDateInputValue(box.receivedDate),
-    initialWeightLbs: box.initialWeightLbs === null ? '' : String(box.initialWeightLbs),
-    lastRollWeightLbs: box.lastRollWeightLbs === null ? '' : String(box.lastRollWeightLbs),
+    initialWeightLbs: box.initialWeightLbs == null ? '' : String(box.initialWeightLbs),
+    lastRollWeightLbs: box.lastRollWeightLbs == null ? '' : String(box.lastRollWeightLbs),
     lastWeighedDate: toDateInputValue(box.lastWeighedDate),
     filmKey: box.filmKey,
     coreType: box.coreType,
-    coreWeightLbs: box.coreWeightLbs === null ? '' : String(box.coreWeightLbs),
-    lfWeightLbsPerFt: box.lfWeightLbsPerFt === null ? '' : String(box.lfWeightLbsPerFt),
-    purchaseCost: box.purchaseCost === null ? '' : String(box.purchaseCost),
+    coreWeightLbs: box.coreWeightLbs == null ? '' : String(box.coreWeightLbs),
+    lfWeightLbsPerFt: box.lfWeightLbsPerFt == null ? '' : String(box.lfWeightLbsPerFt),
+    pricePerLf: box.pricePerLf == null ? '' : String(box.pricePerLf),
+    purchaseCost: box.purchaseCost == null ? '' : String(box.purchaseCost),
     notes: box.notes
   };
 }

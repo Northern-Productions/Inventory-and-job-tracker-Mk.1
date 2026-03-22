@@ -326,6 +326,7 @@ foreach ($exception in $missingQuantityRows) {
     CoreType = ""
     CoreWeightLbs = ""
     LfWeightLbsPerFt = ""
+    PricePerLf = ""
     PurchaseCost = ""
     Notes = $notes
     HasEverBeenCheckedOut = "false"

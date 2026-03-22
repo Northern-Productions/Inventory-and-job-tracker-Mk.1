@@ -380,6 +380,14 @@ export function BoxForm({
             />
           ) : null}
           <Input
+            label="Price / LF"
+            type="number"
+            step="0.0001"
+            min="0"
+            value={draft.pricePerLf}
+            onChange={(event) => updateField('pricePerLf', event.target.value)}
+          />
+          <Input
             label="Purchase Cost"
             type="number"
             step="0.01"

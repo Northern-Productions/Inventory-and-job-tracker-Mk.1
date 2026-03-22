@@ -10,8 +10,17 @@ import { getAuditByBox, getRollHistoryByBox, listAudit } from '../../../api/feat
 import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersClient';
 import { getBox, searchBoxes } from '../../../api/features/inventoryClient';
 import { getJob, getJobs, searchJobsByNumber } from '../../../api/features/jobsClient';
-import { getReportsSummary } from '../../../api/features/reportsClient';
-import type { AddBoxPayload, AllocateBoxPayload, AuditListParams, ReportsSummaryFilters, SearchBoxesParams } from '../../../domain';
+import {
+  getOwnerAssetTotalCostReport,
+  getReportsSummary
+} from '../../../api/features/reportsClient';
+import type {
+  AddBoxPayload,
+  AllocateBoxPayload,
+  AuditListParams,
+  ReportsSummaryFilters,
+  SearchBoxesParams
+} from '../../../domain';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 export function useSearchBoxes(params: SearchBoxesParams) {
@@ -159,6 +168,17 @@ export function useReportsSummary(filters: ReportsSummaryFilters) {
   return useQuery({
     queryKey: inventoryKeys.reports(filters),
     queryFn: () => getReportsSummary(filters)
+  });
+}
+
+export function useOwnerAssetTotalCostReport(
+  filters: Pick<ReportsSummaryFilters, 'warehouse'>,
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: inventoryKeys.ownerAssetTotalCost(filters),
+    queryFn: () => getOwnerAssetTotalCostReport(filters),
+    enabled: options.enabled ?? true
   });
 }
 

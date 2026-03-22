@@ -90,6 +90,7 @@ export interface Box {
   coreType: BoxCoreType;
   coreWeightLbs: number | null;
   lfWeightLbsPerFt: number | null;
+  pricePerLf: number | null;
   purchaseCost: number | null;
   notes: string;
   hasEverBeenCheckedOut: boolean;
@@ -127,6 +128,7 @@ export interface AddBoxPayload {
   coreType?: BoxCoreType;
   coreWeightLbs?: number | null;
   lfWeightLbsPerFt?: number | null;
+  pricePerLf?: number | null;
   purchaseCost?: number | null;
   notes?: string;
   auditNote?: string;
@@ -593,6 +595,18 @@ export interface ReportsSummaryFilters {
   width?: string;
   from?: string;
   to?: string;
+}
+
+export interface AssetTotalCostReport {
+  warehouse: Warehouse | '';
+  includedBoxCount: number;
+  includedFeet: number;
+  pricedBoxCount: number;
+  pricedFeet: number;
+  unpricedBoxCount: number;
+  unpricedFeet: number;
+  coveragePercentByFeet: number;
+  totalAssetCost: number;
 }
 
 export interface CaulkManufacturerEntry {

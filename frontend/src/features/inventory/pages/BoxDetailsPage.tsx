@@ -90,6 +90,25 @@ function createStatusConfirmState(
   };
 }
 
+const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD'
+});
+
+function formatUsdAmount(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '--';
+  }
+  return USD_CURRENCY_FORMATTER.format(value);
+}
+
+function formatPricePerLf(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '--';
+  }
+  return `${USD_CURRENCY_FORMATTER.format(value)} / LF`;
+}
+
 async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -142,6 +161,9 @@ export default function BoxDetailsPage() {
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [isQrSectionOpen, setIsQrSectionOpen] = useState(false);
+  const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
+  const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
+  const [isRollHistorySectionCollapsed, setIsRollHistorySectionCollapsed] = useState(true);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCodeError, setQrCodeError] = useState('');
   const didHandleScanCheckIn = useRef(false);
@@ -150,6 +172,10 @@ export default function BoxDetailsPage() {
   const displayedAllocatedFeet = box
     ? getDisplayedAllocatedFeetForBox(box, allocationsQuery.data || [])
     : 0;
+  const onHandAssetCost =
+    box && typeof box.pricePerLf === 'number' && Number.isFinite(box.pricePerLf)
+      ? Math.max(box.feetAvailable, 0) * box.pricePerLf
+      : null;
   const checkoutJobOptions = useMemo(() => {
     const activeAllocations = (allocationsQuery.data || [])
       .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
@@ -206,6 +232,12 @@ export default function BoxDetailsPage() {
       : `/inventory/${encodeURIComponent(box.boxId)}`;
     navigate(nextUrl, { replace: true });
   }, [box, boxId, navigate, searchParams]);
+
+  useEffect(() => {
+    setIsAllocationsSectionCollapsed(true);
+    setIsHistorySectionCollapsed(true);
+    setIsRollHistorySectionCollapsed(true);
+  }, [boxId]);
 
   function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
     if (!auth.clientIdConfigured) {
@@ -766,7 +798,9 @@ export default function BoxDetailsPage() {
           <DetailField label="Core Type" value={box.coreType} />
           <DetailField label="Core Weight" value={box.coreWeightLbs} />
           <DetailField label="LF Weight / Ft" value={box.lfWeightLbsPerFt} />
-          <DetailField label="Purchase Cost" value={box.purchaseCost} />
+          <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
+          <DetailField label="Price / LF" value={formatPricePerLf(box.pricePerLf)} />
+          <DetailField label="On-Hand Asset Cost" value={formatUsdAmount(onHandAssetCost)} />
           <DetailField label="Last Checkout Job" value={box.lastCheckoutJob} />
           <DetailField label="Last Checkout Date" value={formatDate(box.lastCheckoutDate)} />
           <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />
@@ -910,9 +944,22 @@ export default function BoxDetailsPage() {
         ) : null}
       </section>
 
-      <AllocationsPanel boxId={box.boxId} feetAvailable={box.feetAvailable} />
-      <HistoryPanel boxId={box.boxId} />
-      <RollHistoryPanel boxId={box.boxId} />
+      <AllocationsPanel
+        boxId={box.boxId}
+        feetAvailable={box.feetAvailable}
+        collapsed={isAllocationsSectionCollapsed}
+        onToggle={() => setIsAllocationsSectionCollapsed((current) => !current)}
+      />
+      <HistoryPanel
+        boxId={box.boxId}
+        collapsed={isHistorySectionCollapsed}
+        onToggle={() => setIsHistorySectionCollapsed((current) => !current)}
+      />
+      <RollHistoryPanel
+        boxId={box.boxId}
+        collapsed={isRollHistorySectionCollapsed}
+        onToggle={() => setIsRollHistorySectionCollapsed((current) => !current)}
+      />
 
       <AllocateDialog
         open={isAllocateOpen}
@@ -1011,6 +1058,7 @@ function createFallbackBox(boxId: string): Box {
     coreType: '',
     coreWeightLbs: null,
     lfWeightLbsPerFt: null,
+    pricePerLf: null,
     purchaseCost: null,
     notes: '',
     hasEverBeenCheckedOut: false,

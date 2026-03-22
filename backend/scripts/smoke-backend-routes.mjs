@@ -109,7 +109,8 @@ async function main() {
       requiresAuth: true
     },
     { method: 'GET', path: '/owner/admin-permissions', expectedStatuses: [200, 403], requiresAuth: true },
-    { method: 'GET', path: '/owner/notification-preferences', expectedStatuses: [200, 403], requiresAuth: true }
+    { method: 'GET', path: '/owner/notification-preferences', expectedStatuses: [200, 403], requiresAuth: true },
+    { method: 'GET', path: '/owner/reports/asset-total-cost', expectedStatuses: [200, 403], requiresAuth: true }
   ];
 
   const mutationCases = [

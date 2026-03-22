@@ -20,87 +20,110 @@ function renderDateTime(value: string): string {
 
 export function AllocationsPanel({
   boxId,
-  feetAvailable
+  feetAvailable,
+  collapsed = false,
+  onToggle
 }: {
   boxId: string;
   feetAvailable: number;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   const isPhoneLayout = useIsPhoneLayout();
   const allocationsQuery = useBoxAllocations(boxId);
   const allocations = allocationsQuery.data || [];
   const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
+  const panelBodyId = `allocations-panel-body-${boxId}`;
 
   return (
-    <section className="panel">
+    <section className={`panel ${collapsed ? 'panel-collapsed' : ''}`.trim()}>
       <div className="panel-title-row">
         <h2>Allocations</h2>
-        <span className="muted-text">{boxId}</span>
-      </div>
-      <div className="stat-grid allocation-stat-grid">
-        <div className="key-value">
-          <dt>Active Reserved LF</dt>
-          <dd>{activeAllocatedFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Allocatable Now</dt>
-          <dd>{feetAvailable}</dd>
-        </div>
-      </div>
-      {allocationsQuery.isLoading ? <LoadingState label="Loading allocations..." /> : null}
-      {allocationsQuery.isError ? <p className="error-text">{allocationsQuery.error.message}</p> : null}
-      {!allocationsQuery.isLoading && !allocationsQuery.isError && !allocations.length ? (
-        <div className="empty-state">No allocations saved for this box yet.</div>
-      ) : null}
-      {allocations.length ? (
-        isPhoneLayout ? (
-          <div className="mobile-record-list">
-            {allocations.map((entry) => (
-              <MobileRecordCard key={entry.allocationId}>
-                <MobileRecordHeader
-                  title={entry.jobNumber}
-                  subtitle={renderDateTime(entry.createdAt)}
-                  badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
-                />
-                <MobileFieldList>
-                  <MobileField label="Job Date" value={renderDate(entry.jobDate)} />
-                  <MobileField label="Crew" value={entry.crewLeader || '--'} />
-                  <MobileField label="LF" value={entry.allocatedFeet} />
-                  <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
-                </MobileFieldList>
-              </MobileRecordCard>
-            ))}
-          </div>
+        {onToggle ? (
+          <button
+            type="button"
+            className="panel-header-toggle"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            aria-controls={panelBodyId}
+            aria-label={`${collapsed ? 'Expand' : 'Collapse'} allocations`}
+          >
+            <span className="muted-text panel-header-toggle-metadata">{boxId}</span>
+            <span className="panel-header-toggle-symbol" aria-hidden="true">
+              {collapsed ? '+' : '-'}
+            </span>
+          </button>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Created</th>
-                  <th>Job</th>
-                  <th>Job Date</th>
-                  <th>Crew</th>
-                  <th>LF</th>
-                  <th>Status</th>
-                  <th>Resolved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allocations.map((entry) => (
-                  <tr key={entry.allocationId}>
-                    <td>{renderDateTime(entry.createdAt)}</td>
-                    <td>{entry.jobNumber}</td>
-                    <td>{renderDate(entry.jobDate)}</td>
-                    <td>{entry.crewLeader || '--'}</td>
-                    <td>{entry.allocatedFeet}</td>
-                    <td>{entry.status}</td>
-                    <td>{renderDateTime(entry.resolvedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <span className="muted-text">{boxId}</span>
+        )}
+      </div>
+      <div id={panelBodyId} hidden={collapsed}>
+        <div className="stat-grid allocation-stat-grid">
+          <div className="key-value">
+            <dt>Active Reserved LF</dt>
+            <dd>{activeAllocatedFeet}</dd>
           </div>
-        )
-      ) : null}
+          <div className="key-value">
+            <dt>Allocatable Now</dt>
+            <dd>{feetAvailable}</dd>
+          </div>
+        </div>
+        {allocationsQuery.isLoading ? <LoadingState label="Loading allocations..." /> : null}
+        {allocationsQuery.isError ? <p className="error-text">{allocationsQuery.error.message}</p> : null}
+        {!allocationsQuery.isLoading && !allocationsQuery.isError && !allocations.length ? (
+          <div className="empty-state">No allocations saved for this box yet.</div>
+        ) : null}
+        {allocations.length ? (
+          isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {allocations.map((entry) => (
+                <MobileRecordCard key={entry.allocationId}>
+                  <MobileRecordHeader
+                    title={entry.jobNumber}
+                    subtitle={renderDateTime(entry.createdAt)}
+                    badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Job Date" value={renderDate(entry.jobDate)} />
+                    <MobileField label="Crew" value={entry.crewLeader || '--'} />
+                    <MobileField label="LF" value={entry.allocatedFeet} />
+                    <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Created</th>
+                    <th>Job</th>
+                    <th>Job Date</th>
+                    <th>Crew</th>
+                    <th>LF</th>
+                    <th>Status</th>
+                    <th>Resolved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allocations.map((entry) => (
+                    <tr key={entry.allocationId}>
+                      <td>{renderDateTime(entry.createdAt)}</td>
+                      <td>{entry.jobNumber}</td>
+                      <td>{renderDate(entry.jobDate)}</td>
+                      <td>{entry.crewLeader || '--'}</td>
+                      <td>{entry.allocatedFeet}</td>
+                      <td>{entry.status}</td>
+                      <td>{renderDateTime(entry.resolvedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : null}
+      </div>
     </section>
   );
 }

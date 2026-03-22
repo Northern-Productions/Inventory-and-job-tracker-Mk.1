@@ -402,7 +402,8 @@ export function useCompleteJob() {
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot })
+        queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.ownerReportsRoot })
       ]);
 
       return beginDelayedOptimisticMutation(
@@ -413,7 +414,8 @@ export function useCompleteJob() {
           inventoryKeys.jobs,
           inventoryKeys.job(payload.jobNumber),
           inventoryKeys.filmOrders,
-          inventoryKeys.reportsRoot
+          inventoryKeys.reportsRoot,
+          inventoryKeys.ownerReportsRoot
         ],
         () => {}
       );
@@ -639,7 +641,8 @@ export function useUpdateBox() {
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-          queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
         ]);
         queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
         void persistOfflineInventoryBox(queryClient, result.box);
@@ -656,7 +659,8 @@ export function useUpdateBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
       ]);
       void persistOfflineInventoryBox(queryClient, result.box);
     },
@@ -703,7 +707,8 @@ export function useDeleteBox() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
       ]);
 
       queryClient.removeQueries({ queryKey: inventoryKeys.box(result.boxId), exact: true });
@@ -778,7 +783,8 @@ export function useSetBoxStatus() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
       ]);
       queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
       void persistOfflineInventoryBox(queryClient, result.box);

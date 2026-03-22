@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
@@ -35,6 +35,7 @@ function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
 export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const hasMountedRef = useRef(false);
   const filters = readFilters(searchParams);
   const inventoryView = readInventoryView(searchParams.get('inventoryView'));
   const deferredFilters = useDeferredValue(filters);
@@ -86,6 +87,10 @@ export default function InventoryHomePage() {
     nextParams.delete('inventoryView');
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
 
   const setInventoryView = (nextView: InventoryView) => {
     const nextParams = new URLSearchParams(searchParams);
@@ -142,11 +147,7 @@ export default function InventoryHomePage() {
     </div>
   );
 
-  if (inventoryView === 'caulk') {
-    return <CaulkInventoryContent headerActions={inventoryViewToggle} />;
-  }
-
-  return (
+  const filmInventoryContent = (
     <>
       <section className="panel">
         <div className="panel-title-row">
@@ -210,6 +211,22 @@ export default function InventoryHomePage() {
         ) : null}
       </section>
     </>
+  );
+
+  const inventoryViewContent =
+    inventoryView === 'caulk' ? (
+      <CaulkInventoryContent headerActions={inventoryViewToggle} />
+    ) : (
+      filmInventoryContent
+    );
+
+  return (
+    <div
+      key={`inventory-view-${inventoryView}`}
+      className={`${hasMountedRef.current ? 'route-content-animate' : ''}`.trim()}
+    >
+      {inventoryViewContent}
+    </div>
   );
 }
 

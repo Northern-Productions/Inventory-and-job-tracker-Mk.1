@@ -22,6 +22,7 @@ function createBox(overrides: Partial<Box>): Box {
     coreType: '',
     coreWeightLbs: null,
     lfWeightLbsPerFt: null,
+    pricePerLf: null,
     purchaseCost: null,
     notes: '',
     hasEverBeenCheckedOut: false,

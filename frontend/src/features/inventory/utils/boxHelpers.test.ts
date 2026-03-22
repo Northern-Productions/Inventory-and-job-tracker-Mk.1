@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import {
   canonicalizeManufacturerLabel,
   createEmptyBoxDraft,
@@ -57,6 +57,7 @@ describe('boxHelpers', () => {
         coreType: '',
       coreWeightLbs: null,
       lfWeightLbsPerFt: null,
+      pricePerLf: null,
       purchaseCost: null,
       notes: '',
       hasEverBeenCheckedOut: false,
@@ -83,6 +84,7 @@ describe('boxHelpers', () => {
         coreType: '',
         coreWeightLbs: null,
         lfWeightLbsPerFt: null,
+        pricePerLf: null,
         purchaseCost: null,
         notes: ''
       }
@@ -114,6 +116,7 @@ describe('boxHelpers', () => {
             coreType: '',
             coreWeightLbs: null,
             lfWeightLbsPerFt: null,
+            pricePerLf: null,
             purchaseCost: null,
             notes: '',
             hasEverBeenCheckedOut: false,
@@ -151,6 +154,7 @@ describe('boxHelpers', () => {
             coreType: '',
             coreWeightLbs: null,
             lfWeightLbsPerFt: null,
+            pricePerLf: null,
             purchaseCost: null,
             notes: '',
             hasEverBeenCheckedOut: false,
@@ -224,6 +228,7 @@ describe('boxHelpers', () => {
       coreType: '',
       coreWeightLbs: null,
       lfWeightLbsPerFt: null,
+      pricePerLf: null,
       purchaseCost: null,
       notes: '',
       hasEverBeenCheckedOut: false,
@@ -258,6 +263,7 @@ describe('boxHelpers', () => {
       coreType: '',
       coreWeightLbs: null,
       lfWeightLbsPerFt: null,
+      pricePerLf: null,
       purchaseCost: null,
       notes: '',
       hasEverBeenCheckedOut: false,
@@ -408,3 +414,5 @@ describe('boxHelpers', () => {
     expect(displayed).toBe(37);
   });
 });
+
+

@@ -12,6 +12,7 @@ const envPath = path.join(backendDir, ".env");
 const migrationPaths = [
   path.join(backendDir, "migrations", "0019_import_boxes_merge_mode.sql"),
   path.join(backendDir, "migrations", "0020_warehouse_prefix_v2.sql"),
+  path.join(backendDir, "migrations", "0031_price_per_lf_asset_total_cost.sql"),
 ];
 
 function parseArgs(argv) {
@@ -59,6 +60,7 @@ const REQUIRED_COLUMNS = [
   "CoreType",
   "CoreWeightLbs",
   "LfWeightLbsPerFt",
+  "PricePerLf",
   "PurchaseCost",
   "Notes",
   "HasEverBeenCheckedOut",
@@ -223,7 +225,7 @@ async function main() {
   }
 
   const migrationSql = migrationPaths
-    .map((migrationPath) => fs.readFileSync(migrationPath, "utf8"))
+    .map((migrationPath) => fs.readFileSync(migrationPath, "utf8").replace(/^\uFEFF/, ""))
     .join("\n\n");
   const csvText = fs.readFileSync(csvPath, "utf8");
   const csvRows = parseCsv(csvText);

@@ -109,6 +109,7 @@ $boxesRawColumns = @(
   "CoreType",
   "CoreWeightLbs",
   "LfWeightLbsPerFt",
+  "PricePerLf",
   "PurchaseCost",
   "Notes",
   "HasEverBeenCheckedOut",
@@ -312,6 +313,155 @@ function Get-LotColumnIndex {
   }
 
   return -1
+}
+
+function Normalize-HeaderToken {
+  param(
+    [string]$Value
+  )
+
+  if ($null -eq $Value) {
+    return ""
+  }
+
+  $collapsed = [regex]::Replace($Value.Trim().ToLowerInvariant(), "[^a-z0-9]+", " ")
+  return [regex]::Replace($collapsed, "\s+", " ").Trim()
+}
+
+function Get-PricePerLfColumnIndex {
+  param(
+    [AllowEmptyCollection()]
+    [AllowEmptyString()]
+    [string[]]$Headers
+  )
+
+  $preferredIndex = -1
+  $preferredScore = -1
+  $fallbackIndex = -1
+  $fallbackScore = -1
+
+  for ($i = 0; $i -lt $Headers.Count; $i++) {
+    $token = Normalize-HeaderToken -Value $Headers[$i]
+    if ([string]::IsNullOrWhiteSpace($token)) {
+      continue
+    }
+
+    $mentionsPrice = $token -match "\bprice\b"
+    $mentionsCost = $token -match "\bcost\b"
+    if (-not $mentionsPrice -and -not $mentionsCost) {
+      continue
+    }
+
+    $mentionsRoll = $token -match "\broll\b"
+    $mentionsFt = $token -match "\bft\b|\blf\b|\blinear\b|\blineal\b|\bfoot\b|\bfeet\b"
+    $mentionsSqFt = $token -match "\bsf\b|\bsq\b|\bsquare\b"
+
+    $score = 0
+    if ($mentionsPrice) { $score += 3 }
+    if ($mentionsCost) { $score += 1 }
+    if ($mentionsRoll) { $score += 4 }
+    if ($mentionsFt) { $score += 10 }
+    if ($mentionsSqFt) { $score -= 6 }
+
+    if ($mentionsFt) {
+      if ($score -gt $preferredScore) {
+        $preferredScore = $score
+        $preferredIndex = $i
+      }
+      continue
+    }
+
+    if ($score -gt $fallbackScore) {
+      $fallbackScore = $score
+      $fallbackIndex = $i
+    }
+  }
+
+  if ($preferredIndex -ge 0) {
+    return $preferredIndex
+  }
+
+  return $fallbackIndex
+}
+
+function Parse-PricePerLf {
+  param(
+    [string]$RawValue
+  )
+
+  if ([string]::IsNullOrWhiteSpace($RawValue)) {
+    return ""
+  }
+
+  $trimmed = "$RawValue".Trim().Replace(",", "")
+  $allMatches = [regex]::Matches($trimmed, "-?\d+(?:\.\d+)?")
+  if ($allMatches.Count -eq 0) {
+    return ""
+  }
+
+  $candidate = ""
+
+  $dollarMatch = [regex]::Match($trimmed, '\$(?<num>-?\d+(?:\.\d+)?)')
+  if ($dollarMatch.Success) {
+    $candidate = $dollarMatch.Groups["num"].Value
+  }
+
+  if ([string]::IsNullOrWhiteSpace($candidate)) {
+    foreach ($match in $allMatches) {
+      if ($match.Value -match "\.") {
+        $candidate = $match.Value
+        break
+      }
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($candidate)) {
+    $candidate = $allMatches[$allMatches.Count - 1].Value
+  }
+
+  $parsed = 0.0
+  $parsedOk = [double]::TryParse(
+    $candidate,
+    [System.Globalization.NumberStyles]::Float,
+    [System.Globalization.CultureInfo]::InvariantCulture,
+    [ref]$parsed
+  )
+
+  if (-not $parsedOk -or $parsed -lt 0) {
+    return ""
+  }
+
+  return ([math]::Round($parsed, 4)).ToString("0.####", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Normalize-PricePerLfForSheet {
+  param(
+    [string]$SheetName,
+    [string]$ParsedPricePerLf,
+    [int]$Feet
+  )
+
+  if ([string]::IsNullOrWhiteSpace($ParsedPricePerLf)) {
+    return ""
+  }
+
+  $priceValue = 0.0
+  $parsedOk = [double]::TryParse(
+    $ParsedPricePerLf,
+    [System.Globalization.NumberStyles]::Float,
+    [System.Globalization.CultureInfo]::InvariantCulture,
+    [ref]$priceValue
+  )
+  if (-not $parsedOk -or $priceValue -lt 0) {
+    return ""
+  }
+
+  $sheetToken = [regex]::Replace("$SheetName".ToUpperInvariant(), "[^A-Z0-9]+", "")
+  if (($sheetToken -eq "DINOC" -or $sheetToken -eq "VINYL") -and $Feet -gt 0) {
+    $priceValue = $priceValue / [double]$Feet
+  }
+
+  return ([math]::Round($priceValue, 4)).ToString("0.####", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Test-LotLikeValue {
@@ -845,6 +995,9 @@ function New-BoxesRawRow {
     [Parameter(Mandatory = $true)]
     [string]$InventoryDate,
     [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
+    [string]$PricePerLf,
+    [Parameter(Mandatory = $true)]
     [string]$SourceSheet,
     [Parameter(Mandatory = $true)]
     [int]$SourceRow,
@@ -873,6 +1026,7 @@ function New-BoxesRawRow {
     CoreType = ""
     CoreWeightLbs = ""
     LfWeightLbsPerFt = ""
+    PricePerLf = $PricePerLf
     PurchaseCost = ""
     Notes = $notes
     HasEverBeenCheckedOut = "false"
@@ -1270,6 +1424,7 @@ try {
           inventory_date = $null
           quantity_column = $null
           lot_column = $null
+          price_per_lf_column = $null
           accepted_rows = 0
           skipped_rows = 0
           caulk_routed_rows = 0
@@ -1301,6 +1456,7 @@ try {
 
     $quantityColumnIndex = Get-QuantityColumnIndex -Headers $headers
     $lotColumnIndex = Get-LotColumnIndex -Headers $headers
+    $pricePerLfColumnIndex = Get-PricePerLfColumnIndex -Headers $headers
     $lotColumnSource = "header"
     if ($lotColumnIndex -lt 0) {
       $lotColumnIndex = Get-LotColumnIndexFallback -Rows $rows -SharedStrings $sharedStrings
@@ -1331,6 +1487,11 @@ try {
       $rawLot = ""
       if ($lotColumnIndex -ge 0 -and $valueMap.ContainsKey($lotColumnIndex)) {
         $rawLot = [string]$valueMap[$lotColumnIndex]
+      }
+
+      $rawPricePerLf = ""
+      if ($pricePerLfColumnIndex -ge 0 -and $valueMap.ContainsKey($pricePerLfColumnIndex)) {
+        $rawPricePerLf = [string]$valueMap[$pricePerLfColumnIndex]
       }
 
       if ([string]::IsNullOrWhiteSpace($rawDescription) -and [string]::IsNullOrWhiteSpace($rawQty)) {
@@ -1404,6 +1565,8 @@ try {
       $candidateBoxId = [string]$parsed.CandidateBoxId
       $manufacturer = Resolve-ManufacturerName -SheetName $sheetName -ManufacturerMap $manufacturerMap
       $lotRun = "$rawLot".Trim()
+      $pricePerLfRaw = Parse-PricePerLf -RawValue $rawPricePerLf
+      $pricePerLf = Normalize-PricePerLfForSheet -SheetName $sheetName -ParsedPricePerLf $pricePerLfRaw -Feet $feet
       $caulkSuggestion = Get-CaulkSuggestion -Manufacturer $manufacturer -FilmName $parsed.FilmName -RawDescription $rawDescription
       if ($caulkSuggestion.IsCaulkLike) {
         $quantityTubes = [int]($feet * $caulkSuggestion.SuggestedTubesPerCase)
@@ -1459,7 +1622,7 @@ try {
         raw_description = $rawDescription
       }
 
-      $boxesRow = New-BoxesRawRow -BoxId $candidateBoxId -Manufacturer $manufacturer -FilmName $parsed.FilmName -WidthIn $parsed.WidthIn -Feet $feet -LotRun $lotRun -InventoryDate $inventoryDate -SourceSheet $sheetName -SourceRow $rowNumber -RawDescription $rawDescription
+      $boxesRow = New-BoxesRawRow -BoxId $candidateBoxId -Manufacturer $manufacturer -FilmName $parsed.FilmName -WidthIn $parsed.WidthIn -Feet $feet -LotRun $lotRun -InventoryDate $inventoryDate -PricePerLf $pricePerLf -SourceSheet $sheetName -SourceRow $rowNumber -RawDescription $rawDescription
       $boxesRows.Add($boxesRow)
 
       $warehouseBucket = Get-WarehouseBucketFromBoxId -BoxId $candidateBoxId
@@ -1476,6 +1639,7 @@ try {
         inventory_date = $inventoryDate
         quantity_column = if ($quantityColumnIndex -ge 0 -and $quantityColumnIndex -lt $headers.Count) { $headers[$quantityColumnIndex] } else { $null }
         lot_column = if ($lotColumnIndex -ge 0 -and $lotColumnIndex -lt $headers.Count) { $headers[$lotColumnIndex] } else { $null }
+        price_per_lf_column = if ($pricePerLfColumnIndex -ge 0 -and $pricePerLfColumnIndex -lt $headers.Count) { $headers[$pricePerLfColumnIndex] } else { $null }
         lot_column_source = $lotColumnSource
         accepted_rows = $sheetAccepted
         skipped_rows = $sheetSkipped

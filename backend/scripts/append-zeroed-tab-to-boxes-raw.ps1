@@ -309,6 +309,7 @@ function New-ZeroedBoxesRawRow {
     CoreType = ""
     CoreWeightLbs = ""
     LfWeightLbsPerFt = ""
+    PricePerLf = ""
     PurchaseCost = ""
     Notes = $notes
     HasEverBeenCheckedOut = "false"
@@ -345,6 +346,7 @@ $requiredBaseColumns = @(
   "CoreType",
   "CoreWeightLbs",
   "LfWeightLbsPerFt",
+  "PricePerLf",
   "PurchaseCost",
   "Notes",
   "HasEverBeenCheckedOut",

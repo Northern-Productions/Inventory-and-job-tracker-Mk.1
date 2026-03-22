@@ -6,5 +6,6 @@ describe('inventory query keys', () => {
     expect(inventoryKeys.jobs).not.toEqual(inventoryKeys.allocationJobs);
     expect(inventoryKeys.jobsSearch).not.toEqual(inventoryKeys.jobs);
     expect(inventoryKeys.job('123456')).not.toEqual(inventoryKeys.allocationJob('123456'));
+    expect(inventoryKeys.ownerReportsRoot).not.toEqual(inventoryKeys.reportsRoot);
   });
 });

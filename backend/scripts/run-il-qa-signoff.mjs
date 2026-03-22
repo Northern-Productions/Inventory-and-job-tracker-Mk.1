@@ -61,6 +61,7 @@ const REQUIRED_COLUMNS = [
   "CoreType",
   "CoreWeightLbs",
   "LfWeightLbsPerFt",
+  "PricePerLf",
   "PurchaseCost",
   "Notes",
   "HasEverBeenCheckedOut",

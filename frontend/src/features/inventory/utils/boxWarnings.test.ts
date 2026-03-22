@@ -27,6 +27,7 @@ function createBox(overrides: Partial<Box> = {}): Box {
     coreType: 'White plastic',
     coreWeightLbs: 1,
     lfWeightLbsPerFt: 0.14,
+    pricePerLf: null,
     purchaseCost: 120,
     notes: '',
     hasEverBeenCheckedOut: true,
