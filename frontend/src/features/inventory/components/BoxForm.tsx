@@ -193,6 +193,23 @@ export function BoxForm({
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) >= 0;
   const canCaptureReceivingDetails = draft.receivedDate.trim() !== '';
+  const purchaseCostValue = Number(draft.purchaseCost);
+  const initialFeetValue = Number(draft.initialFeet);
+  const hasPurchaseCost = draft.purchaseCost.trim() !== '';
+  const shouldAutoDerivePricePerLf =
+    hasPurchaseCost &&
+    Number.isFinite(purchaseCostValue) &&
+    purchaseCostValue >= 0 &&
+    Number.isFinite(initialFeetValue) &&
+    initialFeetValue > 0;
+  const derivedPricePerLf = shouldAutoDerivePricePerLf
+    ? (Math.round((purchaseCostValue / initialFeetValue) * 10000) / 10000).toFixed(4)
+    : '';
+  const pricePerLfHint = shouldAutoDerivePricePerLf
+    ? 'Auto-calculated from Purchase Cost / Linear Feet.'
+    : hasPurchaseCost
+      ? 'Initial LF must be greater than 0 when Purchase Cost is set.'
+      : undefined;
   const manufacturerOptions = getManufacturerOptionsWithCatalog(filmCatalogEntries);
   const isKnownManufacturer = hasManufacturerOption(draft.manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
@@ -222,6 +239,21 @@ export function BoxForm({
     manufacturerOptions,
     mode
   ]);
+
+  useEffect(() => {
+    if (!shouldAutoDerivePricePerLf) {
+      return;
+    }
+
+    setDraft((current) =>
+      current.pricePerLf === derivedPricePerLf
+        ? current
+        : {
+            ...current,
+            pricePerLf: derivedPricePerLf
+          }
+    );
+  }, [derivedPricePerLf, shouldAutoDerivePricePerLf]);
 
   const handleWidthButtonClick = (value: (typeof widthButtonValues)[number]) => {
     if (value === 'CUSTOM') {
@@ -386,6 +418,9 @@ export function BoxForm({
             min="0"
             value={draft.pricePerLf}
             onChange={(event) => updateField('pricePerLf', event.target.value)}
+            readOnly={shouldAutoDerivePricePerLf}
+            disabled={shouldAutoDerivePricePerLf}
+            hint={pricePerLfHint}
           />
           <Input
             label="Purchase Cost"

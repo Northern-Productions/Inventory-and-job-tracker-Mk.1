@@ -96,12 +96,35 @@ function parseOptionalNonNegativeNumber(value: string, fieldLabel: string): numb
   return parsed;
 }
 
+function roundToDecimals(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function resolvePricePerLfForDraft(
+  initialFeet: number,
+  purchaseCost: number | null,
+  submittedPricePerLfRaw: string
+): number | null {
+  if (purchaseCost !== null) {
+    if (initialFeet <= 0) {
+      throw new Error('PurchaseCost requires InitialFeet > 0 to derive PricePerLf.');
+    }
+
+    return roundToDecimals(purchaseCost / initialFeet, 4);
+  }
+
+  return parseOptionalNonNegativeNumber(submittedPricePerLfRaw, 'Price per LF');
+}
+
 function parseCoreType(value: string): AddBoxPayload['coreType'] {
   return value.trim() as AddBoxPayload['coreType'];
 }
 
 export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
   const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
+  const purchaseCost = parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost');
+  const resolvedPricePerLf = resolvePricePerLfForDraft(initialFeet, purchaseCost, draft.pricePerLf);
 
   return addSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
@@ -126,19 +149,23 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
       draft.lfWeightLbsPerFt,
       'LF weight per foot'
     ),
-    pricePerLf: parseOptionalNonNegativeNumber(draft.pricePerLf, 'Price per LF'),
-    purchaseCost: parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost'),
+    pricePerLf: resolvedPricePerLf,
+    purchaseCost,
     notes: draft.notes
   }) as AddBoxPayload;
 }
 
 export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
+  const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
+  const purchaseCost = parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost');
+  const resolvedPricePerLf = resolvePricePerLfForDraft(initialFeet, purchaseCost, draft.pricePerLf);
+
   return updateSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
-    initialFeet: parseRequiredNumber(draft.initialFeet, 'Linear feet'),
+    initialFeet,
     feetAvailable: parseRequiredNumber(draft.feetAvailable, 'Feet available'),
     lotRun: draft.lotRun,
     orderDate: draft.orderDate,
@@ -156,8 +183,8 @@ export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
       draft.lfWeightLbsPerFt,
       'LF weight per foot'
     ),
-    pricePerLf: parseOptionalNonNegativeNumber(draft.pricePerLf, 'Price per LF'),
-    purchaseCost: parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost'),
+    pricePerLf: resolvedPricePerLf,
+    purchaseCost,
     notes: draft.notes
   }) as UpdateBoxPayload;
 }

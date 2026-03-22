@@ -5693,6 +5693,21 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     }
   }
 
+  const hasSubmittedPricePerLf = Object.prototype.hasOwnProperty.call(payload, 'pricePerLf');
+  const submittedPurchaseCost = coerceOptionalNonNegativeNumber(payload.purchaseCost, 'PurchaseCost');
+  let resolvedPricePerLf = null;
+
+  if (submittedPurchaseCost !== null) {
+    if (initialFeet <= 0) {
+      throw new HttpError(400, 'PurchaseCost requires InitialFeet > 0 to derive PricePerLf.');
+    }
+    resolvedPricePerLf = roundToDecimals(submittedPurchaseCost / initialFeet, 4);
+  } else if (hasSubmittedPricePerLf) {
+    resolvedPricePerLf = coerceOptionalNonNegativeNumber(payload.pricePerLf, 'PricePerLf');
+  } else if (existingBox) {
+    resolvedPricePerLf = existingBox.pricePerLf;
+  }
+
   return {
     boxId,
     warehouse: await resolveWarehouseFromBoxId(client, orgId, boxId),
@@ -5718,8 +5733,8 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     coreType: resolvedCoreType,
     coreWeightLbs: resolvedCoreWeightLbs,
     lfWeightLbsPerFt: resolvedLfWeightLbsPerFt,
-    pricePerLf: coerceOptionalNonNegativeNumber(payload.pricePerLf, 'PricePerLf'),
-    purchaseCost: coerceOptionalNonNegativeNumber(payload.purchaseCost, 'PurchaseCost'),
+    pricePerLf: resolvedPricePerLf,
+    purchaseCost: submittedPurchaseCost,
     notes: asTrimmedString(payload.notes),
     hasEverBeenCheckedOut: existingBox ? existingBox.hasEverBeenCheckedOut === true : false,
     lastCheckoutJob: existingBox ? existingBox.lastCheckoutJob : '',

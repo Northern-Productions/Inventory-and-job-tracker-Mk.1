@@ -13,6 +13,7 @@ const migrationPaths = [
   path.join(backendDir, "migrations", "0019_import_boxes_merge_mode.sql"),
   path.join(backendDir, "migrations", "0020_warehouse_prefix_v2.sql"),
   path.join(backendDir, "migrations", "0031_price_per_lf_asset_total_cost.sql"),
+  path.join(backendDir, "migrations", "0032_purchase_cost_derives_price_per_lf.sql"),
 ];
 
 function parseArgs(argv) {
