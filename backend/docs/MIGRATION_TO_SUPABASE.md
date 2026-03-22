@@ -64,6 +64,56 @@ Optional cleanup:
 select import.clear_staging();
 ```
 
+### 2a. Workbook migration path for IL/MS (including Caulk tab)
+
+If migrating from the legacy IL/MS workbook flow (`transform-il-assigned-inventory.ps1`), run this sequence per profile:
+
+1. Transform workbook:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\transform-il-assigned-inventory.ps1 -Profile IL
+```
+
+For MS:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\transform-il-assigned-inventory.ps1 -Profile MS
+```
+
+2. Import `boxes_raw.csv` and run the normal box load path (`import.load_inventory_from_staging(...)` or merge mode as needed).
+3. Review `caulk_review_decisions.csv`, set `decision` per row, and re-run the transform so approved rows land in `caulk_raw_final.csv`.
+4. Dry-run caulk import:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile IL --mode dry-run --actor "<your_name>"
+```
+
+MS variant:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile MS --mode dry-run --actor "<your_name>"
+```
+
+5. Apply approved caulk rows:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile IL --mode apply --actor "<your_name>"
+```
+
+MS variant:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile MS --mode apply --actor "<your_name>"
+```
+
+Caulk import behavior:
+
+1. Uses approved `caulk_raw_final.csv` rows only.
+2. Upserts into `app.caulk_*` via `app_api.caulk_upsert_*`.
+3. Applies tube stock via `app_api.caulk_apply_stock_delta(..., 'BACKFILL_MIGRATE', ..., 'CAULK_SHEET_IMPORT', ...)`.
+4. Records idempotency mapping in `app.caulk_backfill_map` and skips already mapped source IDs on reruns.
+5. Does not mutate or retire `app.boxes` rows.
+
 ## 3. Deploy the live backend
 
 The live backend is now the Supabase Edge Function:

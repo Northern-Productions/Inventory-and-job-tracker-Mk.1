@@ -1,6 +1,6 @@
 # IL Workbook Dry-Run Migration Checklist
 
-This checklist is for transforming `IL Assigned Inventory.xlsx` into `import.boxes_raw` CSV for staged loading.
+This checklist is for transforming `IL Assigned Inventory.xlsx` into `import.boxes_raw` CSV for staged loading, then loading approved `Caulk` tab rows into the caulk subsystem.
 
 ## 1) Run dry-run transform
 
@@ -16,6 +16,10 @@ Artifacts are written to:
 - `backend/migration-dry-runs/il-assigned/boxes_exceptions.csv`
 - `backend/migration-dry-runs/il-assigned/id_collisions.csv`
 - `backend/migration-dry-runs/il-assigned/summary.json`
+- `backend/migration-dry-runs/il-assigned/caulk_raw_candidates.csv`
+- `backend/migration-dry-runs/il-assigned/caulk_review_decisions.csv`
+- `backend/migration-dry-runs/il-assigned/caulk_raw_final.csv`
+- `backend/migration-dry-runs/il-assigned/caulk_summary.json`
 
 ## 2) Mandatory review gate
 
@@ -94,7 +98,35 @@ group by warehouse
 order by warehouse;
 ```
 
-## 5) UI spot check
+## 5) Caulk review + apply (after box import)
+
+1. Open `backend/migration-dry-runs/il-assigned/caulk_review_decisions.csv`.
+2. Set `decision` to `approve`/`reject` for each candidate row and adjust canonical fields as needed.
+3. Re-run the transform to regenerate approved-only `caulk_raw_final.csv`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\transform-il-assigned-inventory.ps1 -Profile IL
+```
+
+4. Validate caulk load with dry-run:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile IL --mode dry-run --actor "<your_name>"
+```
+
+5. Apply approved caulk rows:
+
+```bash
+node backend/scripts/import-caulk-sheet-inventory.mjs --profile IL --mode apply --actor "<your_name>"
+```
+
+Operational notes:
+
+1. Loader skips already mapped `(org_id, source_box_id)` rows, so reruns are idempotent.
+2. Loader does not retire or mutate `app.boxes`; it only writes caulk manufacturers/products/stock/transactions and `app.caulk_backfill_map`.
+3. `caulk_raw_final.csv` is the required handoff artifact for caulk loading and includes canonical source ID, warehouse code, manufacturer/product fields, tubes-per-case, and quantity in tubes.
+
+## 6) UI spot check
 
 In the app:
 

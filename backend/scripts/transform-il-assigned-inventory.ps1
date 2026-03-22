@@ -27,6 +27,7 @@ $profileConfigs = @{
       "Vinyl",
       "ASWFVKOOL"
     )
+    caulk_sheet = "Caulk"
     default_prefix = "IL1"
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $false
@@ -52,6 +53,7 @@ $profileConfigs = @{
       "Di-Noc",
       "Vinyl"
     )
+    caulk_sheet = "Caulk"
     default_prefix = "MS1"
     legacy_m_prefix = "MS1"
     allow_optional_hyphen = $true
@@ -84,6 +86,7 @@ if ($PSBoundParameters.ContainsKey("AllowOptionalHyphenDescriptions")) {
 }
 
 $targetSheetNames = [string[]]$config.target_sheets
+$caulkSheetName = [string]$config.caulk_sheet
 $defaultPrefix = [string]$config.default_prefix
 $legacyMPrefix = [string]$config.legacy_m_prefix
 $manufacturerMap = [hashtable]$config.manufacturer_map
@@ -263,6 +266,30 @@ function Get-QuantityColumnIndex {
   for ($i = 0; $i -lt $Headers.Count; $i++) {
     $normalized = Normalize-HeaderText -Value $Headers[$i]
     if ($normalized -match "initial amount|start amount|amount") {
+      return $i
+    }
+  }
+
+  return -1
+}
+
+function Get-CaulkTubesColumnIndex {
+  param(
+    [AllowEmptyCollection()]
+    [AllowEmptyString()]
+    [string[]]$Headers
+  )
+
+  for ($i = 0; $i -lt $Headers.Count; $i++) {
+    $normalized = Normalize-HeaderText -Value $Headers[$i]
+    if ($normalized -eq "tubes") {
+      return $i
+    }
+  }
+
+  for ($i = 0; $i -lt $Headers.Count; $i++) {
+    $normalized = Normalize-HeaderText -Value $Headers[$i]
+    if ($normalized -match "\btubes\b") {
       return $i
     }
   }
@@ -687,6 +714,119 @@ function Parse-Description {
   }
 }
 
+function Parse-CaulkDescription {
+  param(
+    [string]$RawDescription,
+    [string]$DefaultPrefix,
+    [string]$LegacyMPrefix,
+    [bool]$AllowOptionalHyphenDescriptions = $false
+  )
+
+  $description = "$RawDescription".Trim()
+  if ([string]::IsNullOrWhiteSpace($description)) {
+    return [pscustomobject]@{
+      Success = $false
+      Reason = "malformed_caulk_description"
+      IdToken = ""
+      CandidateBoxId = ""
+      ProductName = ""
+    }
+  }
+
+  $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z]{2}[1-9][0-9]*-[A-Za-z0-9]+)\s*-\s*(?<rest>.+)$")
+  if (-not $idMatch.Success) {
+    $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z0-9]{2,16})\s*-\s*(?<rest>.+)$")
+  }
+  if (-not $idMatch.Success -and $AllowOptionalHyphenDescriptions) {
+    $idMatch = [regex]::Match($description, "^(?<id>[A-Za-z0-9]{2,16})\s+(?<rest>.+)$")
+  }
+
+  if (-not $idMatch.Success) {
+    return [pscustomobject]@{
+      Success = $false
+      Reason = "malformed_caulk_description"
+      IdToken = ""
+      CandidateBoxId = ""
+      ProductName = ""
+    }
+  }
+
+  $idToken = $idMatch.Groups["id"].Value.ToUpperInvariant()
+  $productName = [regex]::Replace($idMatch.Groups["rest"].Value.Trim(), "\s+", " ")
+  if ([string]::IsNullOrWhiteSpace($productName)) {
+    return [pscustomobject]@{
+      Success = $false
+      Reason = "missing_caulk_product_name"
+      IdToken = $idToken
+      CandidateBoxId = ""
+      ProductName = ""
+    }
+  }
+
+  $boxId = Build-CanonicalBoxIdFromIdToken -IdToken $idToken -DefaultPrefix $DefaultPrefix -LegacyMPrefix $LegacyMPrefix
+  if ([string]::IsNullOrWhiteSpace($boxId)) {
+    return [pscustomobject]@{
+      Success = $false
+      Reason = "invalid_caulk_box_id"
+      IdToken = $idToken
+      CandidateBoxId = ""
+      ProductName = $productName
+    }
+  }
+
+  return [pscustomobject]@{
+    Success = $true
+    Reason = ""
+    IdToken = $idToken
+    CandidateBoxId = $boxId
+    ProductName = $productName
+  }
+}
+
+function Resolve-CaulkManufacturerFromProduct {
+  param(
+    [string]$ProductName,
+    [string]$FallbackManufacturer = "Caulk"
+  )
+
+  $normalized = [regex]::Replace("$ProductName".Trim(), "\s+", " ")
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return "$FallbackManufacturer".Trim()
+  }
+
+  $brandMatch = [regex]::Match($normalized, "(?i)\b(3M|DOW|TREMCO|GE)\b")
+  if ($brandMatch.Success) {
+    $token = $brandMatch.Groups[1].Value.ToUpperInvariant()
+    switch ($token) {
+      "3M" { return "3M" }
+      "DOW" { return "DOW" }
+      "TREMCO" { return "Tremco" }
+      "GE" { return "GE" }
+      default { return $token }
+    }
+  }
+
+  $tokenMatch = [regex]::Match($normalized, "(?i)\b(?<token>[A-Z0-9][A-Z0-9\.\-]*)\b")
+  if ($tokenMatch.Success) {
+    return $tokenMatch.Groups["token"].Value
+  }
+
+  return "$FallbackManufacturer".Trim()
+}
+
+function Get-WarehouseCodeFromBoxId {
+  param(
+    [string]$BoxId
+  )
+
+  $normalized = "$BoxId".Trim().ToUpperInvariant()
+  $match = [regex]::Match($normalized, "^(?<code>[A-Z]{2}[1-9][0-9]*)-")
+  if (-not $match.Success) {
+    return ""
+  }
+  return $match.Groups["code"].Value
+}
+
 function New-BoxesRawRow {
   param(
     [Parameter(Mandatory = $true)]
@@ -808,10 +948,9 @@ function Get-CaulkSuggestion {
   if ([string]::IsNullOrWhiteSpace($suggestedProductName)) {
     $suggestedProductName = "$RawDescription".Trim()
   }
-
-  if ($detectionReason -like "dow_*") {
-    $suggestedManufacturer = "3M"
-  }
+  $suggestedManufacturer = Resolve-CaulkManufacturerFromProduct `
+    -ProductName $suggestedProductName `
+    -FallbackManufacturer $suggestedManufacturer
 
   if ($suggestedProductName -match "(?i)\bdow\s*(?<code>995|795)\b") {
     $suggestedProductCode = "DOW-$($matches["code"])"
@@ -836,7 +975,7 @@ function New-CaulkCandidateRow {
     [string]$Manufacturer,
     [string]$FilmName,
     [int]$WidthIn,
-    [int]$QuantityCases,
+    [int]$QuantityTubes,
     [string]$LotRun,
     [string]$RawDescription,
     [string]$DetectionReason,
@@ -850,12 +989,14 @@ function New-CaulkCandidateRow {
     source_sheet = $Sheet
     row_number = $RowNumber
     inventory_date = $InventoryDate
+    source_box_id = $BoxIdCandidate
     box_id_candidate = $BoxIdCandidate
-    warehouse_candidate = (Get-WarehouseBucketFromBoxId -BoxId $BoxIdCandidate)
+    warehouse_code = (Get-WarehouseCodeFromBoxId -BoxId $BoxIdCandidate)
+    warehouse_bucket = (Get-WarehouseBucketFromBoxId -BoxId $BoxIdCandidate)
     source_manufacturer = $Manufacturer
     source_film_name = $FilmName
     width_in = $WidthIn
-    quantity_cases = $QuantityCases
+    quantity_tubes = $QuantityTubes
     lot_run = $LotRun
     raw_description = $RawDescription
     detection_reason = $DetectionReason
@@ -924,6 +1065,30 @@ function New-CaulkReviewRow {
   }
 }
 
+function Export-CsvWithHeader {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+    [Parameter(Mandatory = $true)]
+    [string[]]$Columns,
+    [Parameter(Mandatory = $false)]
+    [AllowEmptyCollection()]
+    [System.Collections.IEnumerable]$Rows
+  )
+
+  $materializedRows = @()
+  if ($null -ne $Rows) {
+    $materializedRows = @($Rows)
+  }
+
+  if ($materializedRows.Count -eq 0) {
+    Set-Content -LiteralPath $Path -Value ($Columns -join ",") -Encoding UTF8
+    return
+  }
+
+  $materializedRows | Select-Object $Columns | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding UTF8
+}
+
 function Get-WarehouseBucketFromBoxId {
   param(
     [string]$BoxId
@@ -952,6 +1117,55 @@ $caulkCandidatesCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_raw_cand
 $caulkReviewCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_review_decisions.csv"
 $caulkFinalCsvPath = Join-Path -Path $outputPath -ChildPath "caulk_raw_final.csv"
 $caulkSummaryJsonPath = Join-Path -Path $outputPath -ChildPath "caulk_summary.json"
+$caulkCandidateColumns = @(
+  "source_sheet",
+  "row_number",
+  "inventory_date",
+  "source_box_id",
+  "box_id_candidate",
+  "warehouse_code",
+  "warehouse_bucket",
+  "source_manufacturer",
+  "source_film_name",
+  "width_in",
+  "quantity_tubes",
+  "lot_run",
+  "raw_description",
+  "detection_reason",
+  "suggested_manufacturer",
+  "suggested_product_name",
+  "suggested_product_code",
+  "suggested_tubes_per_case"
+)
+$caulkReviewColumns = @(
+  "source_sheet",
+  "row_number",
+  "box_id_candidate",
+  "decision",
+  "canonical_manufacturer",
+  "canonical_product_name",
+  "canonical_product_code",
+  "canonical_tubes_per_case",
+  "notes"
+)
+$caulkFinalColumns = @(
+  "source_sheet",
+  "row_number",
+  "source_box_id",
+  "box_id_candidate",
+  "warehouse_code",
+  "warehouse",
+  "warehouse_bucket",
+  "manufacturer",
+  "product_name",
+  "product_code",
+  "tubes_per_case",
+  "quantity_cases",
+  "quantity_tubes",
+  "inventory_date",
+  "lot_run",
+  "raw_description"
+)
 
 foreach ($path in @(
     $boxesCsvPath,
@@ -1016,8 +1230,14 @@ try {
     }
   }
 
+  $requiredSheetNames = @($targetSheetNames)
+  if (-not [string]::IsNullOrWhiteSpace($caulkSheetName)) {
+    $requiredSheetNames += $caulkSheetName
+  }
+  $requiredSheetNames = @($requiredSheetNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+
   $missingSheets = @()
-  foreach ($sheetName in $targetSheetNames) {
+  foreach ($sheetName in $requiredSheetNames) {
     if (-not $sheetNodeMap.ContainsKey($sheetName)) {
       $missingSheets += $sheetName
     }
@@ -1186,6 +1406,7 @@ try {
       $lotRun = "$rawLot".Trim()
       $caulkSuggestion = Get-CaulkSuggestion -Manufacturer $manufacturer -FilmName $parsed.FilmName -RawDescription $rawDescription
       if ($caulkSuggestion.IsCaulkLike) {
+        $quantityTubes = [int]($feet * $caulkSuggestion.SuggestedTubesPerCase)
         $caulkCandidateRows.Add((New-CaulkCandidateRow `
               -Sheet $sheetName `
               -RowNumber $rowNumber `
@@ -1194,7 +1415,7 @@ try {
               -Manufacturer $manufacturer `
               -FilmName $parsed.FilmName `
               -WidthIn $parsed.WidthIn `
-              -QuantityCases $feet `
+              -QuantityTubes $quantityTubes `
               -LotRun $lotRun `
               -RawDescription $rawDescription `
               -DetectionReason $caulkSuggestion.DetectionReason `
@@ -1263,6 +1484,156 @@ try {
       })
   }
 
+  $caulkSheetMeta = $sheetNodeMap[$caulkSheetName]
+  [xml]$caulkSheetXml = Get-ZipEntryText -Archive $archive -EntryPath $caulkSheetMeta.Target
+  if (-not $caulkSheetXml) {
+    throw "Failed to read worksheet XML for '$caulkSheetName'"
+  }
+
+  $caulkRows = $caulkSheetXml.SelectNodes('/*[local-name()="worksheet"]/*[local-name()="sheetData"]/*[local-name()="row"]')
+  $caulkHeaders = @()
+  if ($caulkRows -and $caulkRows.Count -gt 0) {
+    $caulkHeaderRow = $caulkRows | Where-Object { [string]$_.GetAttribute("r") -eq "1" } | Select-Object -First 1
+    if ($caulkHeaderRow) {
+      $caulkHeaderMap = Get-RowValueMap -Row $caulkHeaderRow -SharedStrings $sharedStrings
+      if ($caulkHeaderMap.Count -gt 0) {
+        $maxHeaderIndex = [int](($caulkHeaderMap.Keys | Measure-Object -Maximum).Maximum)
+        for ($i = 0; $i -le $maxHeaderIndex; $i++) {
+          if ($caulkHeaderMap.ContainsKey($i)) {
+            $caulkHeaders += [string]$caulkHeaderMap[$i]
+          } else {
+            $caulkHeaders += ""
+          }
+        }
+      }
+    }
+  }
+
+  $caulkInventoryDate = Get-InventoryDateFromHeaders -Headers $caulkHeaders
+  $caulkTubesColumnIndex = Get-CaulkTubesColumnIndex -Headers $caulkHeaders
+  $caulkSheetAccepted = 0
+  $caulkSheetSkipped = 0
+  $caulkSheetReasonCounts = @{}
+
+  foreach ($row in ($caulkRows | Where-Object { [int]$_.GetAttribute("r") -gt 1 })) {
+    $rowNumber = [int]$row.GetAttribute("r")
+    $valueMap = Get-RowValueMap -Row $row -SharedStrings $sharedStrings
+
+    $rawDescription = ""
+    if ($valueMap.ContainsKey(0)) {
+      $rawDescription = [string]$valueMap[0]
+    }
+
+    $rawTubes = ""
+    if ($caulkTubesColumnIndex -ge 0 -and $valueMap.ContainsKey($caulkTubesColumnIndex)) {
+      $rawTubes = [string]$valueMap[$caulkTubesColumnIndex]
+    }
+
+    if ([string]::IsNullOrWhiteSpace($rawDescription) -and [string]::IsNullOrWhiteSpace($rawTubes)) {
+      continue
+    }
+
+    if ([string]::IsNullOrWhiteSpace($caulkInventoryDate)) {
+      $reason = "missing_caulk_inventory_date"
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    if ($caulkTubesColumnIndex -lt 0) {
+      $reason = "missing_caulk_tubes_column"
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    $parsedCaulk = Parse-CaulkDescription `
+      -RawDescription $rawDescription `
+      -DefaultPrefix $defaultPrefix `
+      -LegacyMPrefix $legacyMPrefix `
+      -AllowOptionalHyphenDescriptions $allowOptionalHyphen
+    if (-not $parsedCaulk.Success) {
+      $reason = [string]$parsedCaulk.Reason
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    $tubesValue = Parse-Quantity -RawValue $rawTubes
+    if ($null -eq $tubesValue) {
+      $reason = "missing_caulk_tubes"
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    if ($tubesValue -le 0) {
+      $reason = "non_positive_caulk_tubes"
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    $tubesRounded = [math]::Round($tubesValue)
+    $fractionalDelta = [math]::Abs($tubesValue - $tubesRounded)
+    if ($fractionalDelta -gt 0.000001) {
+      $reason = "fractional_caulk_tubes_not_supported"
+      $caulkSheetSkipped++
+      if (-not $caulkSheetReasonCounts.ContainsKey($reason)) { $caulkSheetReasonCounts[$reason] = 0 }
+      $caulkSheetReasonCounts[$reason]++
+      continue
+    }
+
+    $quantityTubes = [int]$tubesRounded
+    $canonicalManufacturer = Resolve-CaulkManufacturerFromProduct `
+      -ProductName $parsedCaulk.ProductName `
+      -FallbackManufacturer "Caulk"
+    $productCode = ""
+    if ($parsedCaulk.ProductName -match "(?i)\bdow\s*(?<code>995|795)\b") {
+      $productCode = "DOW-$($matches["code"])"
+    }
+
+    $caulkCandidateRows.Add((New-CaulkCandidateRow `
+          -Sheet $caulkSheetName `
+          -RowNumber $rowNumber `
+          -InventoryDate $caulkInventoryDate `
+          -BoxIdCandidate ([string]$parsedCaulk.CandidateBoxId) `
+          -Manufacturer $canonicalManufacturer `
+          -FilmName ([string]$parsedCaulk.ProductName) `
+          -WidthIn 0 `
+          -QuantityTubes $quantityTubes `
+          -LotRun "" `
+          -RawDescription $rawDescription `
+          -DetectionReason "caulk_sheet_row" `
+          -SuggestedManufacturer $canonicalManufacturer `
+          -SuggestedProductName ([string]$parsedCaulk.ProductName) `
+          -SuggestedProductCode $productCode `
+          -SuggestedTubesPerCase 16))
+    $caulkSheetAccepted++
+    if (-not $caulkReasonCounts.ContainsKey("caulk_sheet_row")) {
+      $caulkReasonCounts["caulk_sheet_row"] = 0
+    }
+    $caulkReasonCounts["caulk_sheet_row"]++
+  }
+
+  $perSheetSummary.Add([pscustomobject]@{
+      sheet = $caulkSheetName
+      inventory_date = $caulkInventoryDate
+      quantity_column = if ($caulkTubesColumnIndex -ge 0 -and $caulkTubesColumnIndex -lt $caulkHeaders.Count) { $caulkHeaders[$caulkTubesColumnIndex] } else { $null }
+      lot_column = $null
+      lot_column_source = $null
+      accepted_rows = 0
+      skipped_rows = 0
+      caulk_routed_rows = $caulkSheetAccepted
+      caulk_sheet_skipped_rows = $caulkSheetSkipped
+      reasons = $caulkSheetReasonCounts
+    })
+
   # Validation checks before write.
   $boxIds = @($boxesRows | ForEach-Object { $_.BoxID })
   $duplicateOutputIds = @($boxIds | Group-Object | Where-Object { $_.Count -gt 1 })
@@ -1294,7 +1665,7 @@ try {
   $boxesRows | Select-Object $boxesRawColumns | Export-Csv -LiteralPath $boxesCsvPath -NoTypeInformation -Encoding UTF8
   $exceptionsRows | Export-Csv -LiteralPath $exceptionsCsvPath -NoTypeInformation -Encoding UTF8
   $collisionsRows | Export-Csv -LiteralPath $collisionsCsvPath -NoTypeInformation -Encoding UTF8
-  $caulkCandidateRows | Export-Csv -LiteralPath $caulkCandidatesCsvPath -NoTypeInformation -Encoding UTF8
+  Export-CsvWithHeader -Path $caulkCandidatesCsvPath -Columns $caulkCandidateColumns -Rows $caulkCandidateRows
 
   $candidateByKey = @{}
   foreach ($candidate in $caulkCandidateRows) {
@@ -1322,7 +1693,7 @@ try {
     }
     $reviewRows.Add((New-CaulkReviewRow -Candidate $candidate -Existing $existingRow))
   }
-  $reviewRows | Export-Csv -LiteralPath $caulkReviewCsvPath -NoTypeInformation -Encoding UTF8
+  Export-CsvWithHeader -Path $caulkReviewCsvPath -Columns $caulkReviewColumns -Rows $reviewRows
 
   $caulkFinalRows = New-Object System.Collections.Generic.List[object]
   $approvedCount = 0
@@ -1370,24 +1741,38 @@ try {
       $canonicalTubesPerCase = 16
     }
 
+    $candidateQuantityTubes = 0
+    [void][int]::TryParse([string]$candidate.quantity_tubes, [ref]$candidateQuantityTubes)
+    if ($candidateQuantityTubes -le 0) {
+      $legacyQuantityCases = 0
+      [void][int]::TryParse([string]$candidate.quantity_cases, [ref]$legacyQuantityCases)
+      if ($legacyQuantityCases -gt 0) {
+        $candidateQuantityTubes = $legacyQuantityCases * $canonicalTubesPerCase
+      }
+    }
+    $quantityCases = [math]::Floor($candidateQuantityTubes / $canonicalTubesPerCase)
+
     $caulkFinalRows.Add([pscustomobject][ordered]@{
         source_sheet = [string]$candidate.source_sheet
         row_number = [int]$candidate.row_number
+        source_box_id = if ([string]::IsNullOrWhiteSpace([string]$candidate.source_box_id)) { [string]$candidate.box_id_candidate } else { [string]$candidate.source_box_id }
         box_id_candidate = [string]$candidate.box_id_candidate
-        warehouse = [string]$candidate.warehouse_candidate
+        warehouse_code = [string]$candidate.warehouse_code
+        warehouse = [string]$candidate.warehouse_code
+        warehouse_bucket = [string]$candidate.warehouse_bucket
         manufacturer = $canonicalManufacturer
         product_name = $canonicalProductName
         product_code = $canonicalProductCode
         tubes_per_case = $canonicalTubesPerCase
-        quantity_cases = [int]$candidate.quantity_cases
-        quantity_tubes = ([int]$candidate.quantity_cases * $canonicalTubesPerCase)
+        quantity_cases = $quantityCases
+        quantity_tubes = $candidateQuantityTubes
         inventory_date = [string]$candidate.inventory_date
         lot_run = [string]$candidate.lot_run
         raw_description = [string]$candidate.raw_description
       })
   }
 
-  $caulkFinalRows | Export-Csv -LiteralPath $caulkFinalCsvPath -NoTypeInformation -Encoding UTF8
+  Export-CsvWithHeader -Path $caulkFinalCsvPath -Columns $caulkFinalColumns -Rows $caulkFinalRows
 
   $acceptedCount = $boxesRows.Count
   $skippedCount = $exceptionsRows.Count
