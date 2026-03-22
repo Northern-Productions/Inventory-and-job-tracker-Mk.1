@@ -1225,6 +1225,9 @@ const {
   findJobByNumber,
   listJobRequirements,
   listJobRequirementsByJob,
+  listJobCaulkRequirementsByJob,
+  listCaulkJobAllocationsByJob,
+  listCaulkJobCheckoutsByJob,
   listAuditEntries,
   listAuditEntriesByBox,
   listRollHistoryByBox,
@@ -1311,6 +1314,122 @@ function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<s
       return left.lastActivityAt > right.lastActivityAt ? -1 : 1;
     }
     return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
+  });
+  return response;
+}
+
+function buildCaulkCoverageByProductId(caulkAllocations: any[]) {
+  const totals: Record<string, number> = {};
+  for (const entry of caulkAllocations) {
+    const productId = asTrimmedString(entry.productId);
+    if (!productId || asTrimmedString(entry.status).toUpperCase() === "CANCELLED") {
+      continue;
+    }
+    totals[productId] = (totals[productId] || 0) + Math.max(0, integerOrZero(entry.allocatedTubes));
+  }
+  return totals;
+}
+
+function buildPublicCaulkRequirementEntries(caulkRequirements: any[], caulkAllocations: any[]) {
+  const coverageByProductId = buildCaulkCoverageByProductId(caulkAllocations);
+  const response = (Array.isArray(caulkRequirements) ? caulkRequirements : []).map((entry) => {
+    const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
+    const allocatedTubes = Math.max(0, integerOrZero(coverageByProductId[asTrimmedString(entry.productId)] || 0));
+    const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
+    return {
+      requirementId: asTrimmedString(entry.requirementId),
+      jobNumber: asTrimmedString(entry.jobNumber),
+      productId: asTrimmedString(entry.productId),
+      manufacturerId: asTrimmedString(entry.manufacturerId),
+      manufacturer: asTrimmedString(entry.manufacturer),
+      productName: asTrimmedString(entry.productName),
+      productCode: asTrimmedString(entry.productCode),
+      tubesPerCase: integerOrZero(entry.tubesPerCase),
+      requiredTubes,
+      allocatedTubes,
+      remainingTubes,
+      notes: asTrimmedString(entry.notes),
+      updatedAt: asTrimmedString(entry.updatedAt),
+    };
+  });
+
+  response.sort((left, right) => {
+    const manufacturerCompare = compareCatalogStrings(left.manufacturer, right.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+    const productCompare = compareCatalogStrings(left.productName, right.productName);
+    if (productCompare !== 0) {
+      return productCompare;
+    }
+    return compareCatalogStrings(left.productCode, right.productCode);
+  });
+  return response;
+}
+
+function buildPublicJobUsageTimelineEntries(
+  rollHistoryEntries: any[],
+  boxById: Record<string, any>,
+  caulkCheckouts: any[],
+) {
+  const response: any[] = [];
+  for (const entry of Array.isArray(rollHistoryEntries) ? rollHistoryEntries : []) {
+    if (!entry || !entry.boxId) {
+      continue;
+    }
+    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const occurredAt = asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt);
+    if (!occurredAt) {
+      continue;
+    }
+    const box = boxById[entry.boxId] || null;
+    response.push({
+      usageType: "FILM",
+      occurredAt,
+      actor: asTrimmedString(entry.checkedInBy) || asTrimmedString(entry.checkedOutBy),
+      warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(entry.warehouse),
+      referenceId: asTrimmedString(entry.boxId),
+      manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(entry.manufacturer),
+      itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(entry.filmName),
+      itemCode: "",
+      unit: "LF",
+      checkedOutQuantity: integerOrZero(entry.feetBefore),
+      returnedQuantity: integerOrZero(entry.feetAfter),
+      usedQuantity: usedFeet,
+      notes: asTrimmedString(entry.notes),
+    });
+  }
+
+  for (const entry of Array.isArray(caulkCheckouts) ? caulkCheckouts : []) {
+    if (!entry || asTrimmedString(entry.status).toUpperCase() !== "CLOSED") {
+      continue;
+    }
+    const occurredAt = asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt);
+    if (!occurredAt) {
+      continue;
+    }
+    response.push({
+      usageType: "CAULK",
+      occurredAt,
+      actor: asTrimmedString(entry.checkedInBy) || asTrimmedString(entry.checkedOutBy),
+      warehouse: asTrimmedString(entry.warehouse),
+      referenceId: asTrimmedString(entry.caulkCheckoutId),
+      manufacturer: asTrimmedString(entry.manufacturer),
+      itemName: asTrimmedString(entry.productName),
+      itemCode: asTrimmedString(entry.productCode),
+      unit: "TUBES",
+      checkedOutQuantity: integerOrZero(entry.checkoutTubes),
+      returnedQuantity: integerOrZero(entry.unusedTubes),
+      usedQuantity: integerOrZero(entry.usedTubes),
+      notes: asTrimmedString(entry.notes),
+    });
+  }
+
+  response.sort((left, right) => {
+    if (left.occurredAt !== right.occurredAt) {
+      return left.occurredAt > right.occurredAt ? -1 : 1;
+    }
+    return compareCatalogStrings(left.referenceId, right.referenceId);
   });
   return response;
 }
@@ -1967,11 +2086,18 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
 }
 
 async function buildAllocationJobList(client: any, orgId: string) {
+  const jobs = await listJobs(client, orgId);
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const jobNumbers: Record<string, boolean> = {};
+
+  for (const job of jobs) {
+    if (asTrimmedString(job.jobNumber)) {
+      jobNumbers[job.jobNumber] = true;
+    }
+  }
 
   for (const allocation of allAllocations) {
     if (allocation.jobNumber) {
@@ -2004,16 +2130,24 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
+  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
   const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
-  if (!allocations.length && !filmOrders.length) {
+  if (!allocations.length && !filmOrders.length && !caulkRequirements.length && !caulkAllocations.length) {
     throw new HttpError(404, "Job not found.");
   }
   const boxes = await listBoxes(client, orgId);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
   return {
     summary: buildAllocationJobSummary(normalizedJobNumber, allocations, filmOrders),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
+    usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
+    caulkRequirements: publicCaulkRequirements,
+    caulkAllocations: caulkAllocations,
+    caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
   };
 }
@@ -2147,9 +2281,19 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
+  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
   const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
 
-  if (!header && !allocations.length && !filmOrders.length && !requirements.length) {
+  if (
+    !header &&
+    !allocations.length &&
+    !filmOrders.length &&
+    !requirements.length &&
+    !caulkRequirements.length &&
+    !caulkAllocations.length
+  ) {
     throw new HttpError(404, "Job not found.");
   }
   if (!header) {
@@ -2158,11 +2302,16 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const boxes = await listBoxes(client, orgId);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
   return {
     summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
+    usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
+    caulkRequirements: publicCaulkRequirements,
+    caulkAllocations: caulkAllocations,
+    caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
   };
 }
@@ -2461,6 +2610,22 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     );
   }
 
+  const { data: openCaulkCheckoutRows, error: openCaulkCheckoutError } = await serviceClient
+    .schema("app")
+    .from("caulk_job_checkouts")
+    .select("caulk_checkout_id")
+    .eq("org_id", orgId)
+    .eq("status", "OPEN")
+    .eq("job_number", jobNumber);
+  throwOnSupabaseError(openCaulkCheckoutError, "Unable to load open caulk checkouts");
+  const openCaulkCheckoutCount = Array.isArray(openCaulkCheckoutRows) ? openCaulkCheckoutRows.length : 0;
+  if (openCaulkCheckoutCount > 0) {
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be completed while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? "" : "s"} remain open.`,
+    );
+  }
+
   const nowIso = new Date().toISOString();
   const cancelNote = asTrimmedString(payload.reason) || `Cancelled because job ${jobNumber} was marked completed.`;
   const { data: activeAllocations, error: activeAllocationsError } = await serviceClient
@@ -2557,6 +2722,17 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     cancelledFilmOrderCount += 1;
   }
 
+  const caulkCancelResult = await rpcOrThrow<any>(client, "api_acl_jobs_cancel_caulk_allocations", {
+    p_org_id: orgId,
+    p_actor: actor,
+    p_payload: {
+      jobNumber,
+      reason: cancelNote,
+    },
+  });
+  const cancelledCaulkAllocationCount = integerOrZero((caulkCancelResult || {}).cancelledAllocationCount);
+  const releasedReservedCaulkTubes = integerOrZero((caulkCancelResult || {}).releasedReservedTubes);
+
   const { error: completeJobError } = await serviceClient
     .schema("app")
     .from("jobs")
@@ -2570,7 +2746,7 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   throwOnSupabaseError(completeJobError, "Unable to mark job completed");
 
   warnings.push(
-    `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? "" : "s"} and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? "" : "s"}.`,
+    `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active film allocation${cancelledAllocationCount === 1 ? "" : "s"}, ${cancelledCaulkAllocationCount} active caulk allocation${cancelledCaulkAllocationCount === 1 ? "" : "s"}, released ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? "" : "s"}, and cancelled ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? "" : "s"}.`,
   );
 
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);

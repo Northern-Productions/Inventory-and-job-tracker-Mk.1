@@ -81,13 +81,17 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
-  it('loads one job through GET /jobs/get and normalizes usage', async () => {
+  it('loads one job through GET /jobs/get and normalizes usage fields', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
         summary: buildJobListEntry(),
         requirements: [],
         allocations: [],
         usage: undefined,
+        usageTimeline: undefined,
+        caulkRequirements: undefined,
+        caulkAllocations: undefined,
+        caulkCheckouts: undefined,
         filmOrders: []
       },
       warnings: []
@@ -97,6 +101,10 @@ describe('jobs API client canonical routes', () => {
 
     expect(detail.summary.jobNumber).toBe('000123');
     expect(detail.usage).toEqual([]);
+    expect(detail.usageTimeline).toEqual([]);
+    expect(detail.caulkRequirements).toEqual([]);
+    expect(detail.caulkAllocations).toEqual([]);
+    expect(detail.caulkCheckouts).toEqual([]);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/get', {
       query: { jobNumber: '000123' }
     });

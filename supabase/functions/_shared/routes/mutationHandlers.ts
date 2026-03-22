@@ -271,6 +271,56 @@ const mutationHandlers: Record<string, MutationHandler> = {
   "/allocations/remove-box": async ({ client, identity, payload }, deps) => {
     return await deps.removeJobBoxAllocation(client, identity, payload);
   },
+  "/allocations/caulk/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_caulk_add",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
+  "/allocations/caulk/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_caulk_update",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
+  "/allocations/caulk/checkout": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_caulk_checkout",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
+  "/allocations/caulk/checkin": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_caulk_checkin",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
+  "/allocations/caulk/remove": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_caulk_remove",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
   "/jobs/create": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);

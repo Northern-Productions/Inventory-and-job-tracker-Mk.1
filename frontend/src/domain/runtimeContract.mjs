@@ -52,6 +52,11 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/allocations/add': 'allocations',
   '/allocations/apply': 'allocations',
   '/allocations/remove-box': 'allocations',
+  '/allocations/caulk/add': 'allocations',
+  '/allocations/caulk/update': 'allocations',
+  '/allocations/caulk/checkout': 'allocations',
+  '/allocations/caulk/checkin': 'allocations',
+  '/allocations/caulk/remove': 'allocations',
 
   '/jobs/list': 'jobs',
   '/jobs/search': 'jobs',

@@ -1,5 +1,6 @@
 // Purpose: Allocation planning and assignment API surface.
 import type {
+  AddCaulkJobAllocationPayload,
   AllocationEntry,
   AllocationJobDetail,
   AllocationJobDetailResponse,
@@ -10,8 +11,15 @@ import type {
   AllocateBoxPayload,
   ApplyAllocationPlanPayload,
   ApplyAllocationPlanResult,
+  CaulkJobAllocationMutationResult,
+  CaulkJobCheckoutMutationResult,
+  CheckinCaulkJobAllocationPayload,
+  CheckoutCaulkJobAllocationPayload,
   RemoveJobBoxAllocationsPayload,
-  RemoveJobBoxAllocationsResult
+  RemoveJobBoxAllocationsResult,
+  RemoveCaulkJobAllocationPayload,
+  RemoveCaulkJobAllocationResult,
+  UpdateCaulkJobAllocationPayload
 } from '../../domain';
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
@@ -42,7 +50,11 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
   );
   return {
     ...detail,
-    usage: detail.usage || []
+    usage: detail.usage || [],
+    usageTimeline: detail.usageTimeline || [],
+    caulkRequirements: detail.caulkRequirements || [],
+    caulkAllocations: detail.caulkAllocations || [],
+    caulkCheckouts: detail.caulkCheckouts || []
   };
 }
 
@@ -80,6 +92,76 @@ export async function removeJobBoxAllocations(
 ): Promise<{ result: RemoveJobBoxAllocationsResult; warnings: string[] }> {
   assertFeatureAccess('allocations', 'write');
   const response = await request<RemoveJobBoxAllocationsResult>('POST', '/allocations/remove-box', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function addCaulkJobAllocation(
+  payload: AddCaulkJobAllocationPayload
+): Promise<{ result: CaulkJobAllocationMutationResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<CaulkJobAllocationMutationResult>('POST', '/allocations/caulk/add', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function updateCaulkJobAllocation(
+  payload: UpdateCaulkJobAllocationPayload
+): Promise<{ result: CaulkJobAllocationMutationResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<CaulkJobAllocationMutationResult>('POST', '/allocations/caulk/update', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function checkoutCaulkJobAllocation(
+  payload: CheckoutCaulkJobAllocationPayload
+): Promise<{ result: CaulkJobCheckoutMutationResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<CaulkJobCheckoutMutationResult>('POST', '/allocations/caulk/checkout', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function checkinCaulkJobAllocation(
+  payload: CheckinCaulkJobAllocationPayload
+): Promise<{ result: CaulkJobCheckoutMutationResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<CaulkJobCheckoutMutationResult>('POST', '/allocations/caulk/checkin', {
+    body: payload
+  });
+
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function removeCaulkJobAllocation(
+  payload: RemoveCaulkJobAllocationPayload
+): Promise<{ result: RemoveCaulkJobAllocationResult; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<RemoveCaulkJobAllocationResult>('POST', '/allocations/caulk/remove', {
     body: payload
   });
 

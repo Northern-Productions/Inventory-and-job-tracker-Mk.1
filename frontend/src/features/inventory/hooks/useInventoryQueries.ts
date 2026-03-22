@@ -22,16 +22,21 @@ export {
 export {
   useAddBox,
   useAllocateBox,
+  useAddCaulkJobAllocation,
   useCancelJob,
+  useCheckinCaulkJobAllocation,
+  useCheckoutCaulkJobAllocation,
   useCompleteJob,
   useCreateFilmOrder,
   useCreateJob,
   useDeleteBox,
   useDeleteFilmOrder,
+  useRemoveCaulkJobAllocation,
   useRemoveJobBoxAllocations,
   useReopenJob,
   useSetBoxStatus,
   useUndoAudit,
+  useUpdateCaulkJobAllocation,
   useUpdateBox,
   useUpdateJob
 } from './useInventoryMutationHooks';

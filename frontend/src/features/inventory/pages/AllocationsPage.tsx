@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
@@ -9,6 +10,7 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
+import { listCaulkProducts } from '../../../api/features/caulkClient';
 import type { CreateJobPayload } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
@@ -40,6 +42,10 @@ export default function AllocationsPage() {
   const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, 25, { enabled: isSearchingJobs });
   const createJobMutation = useCreateJob();
   const filmCatalogQuery = useFilmCatalog();
+  const caulkProductsQuery = useQuery({
+    queryKey: ['caulk', 'products'],
+    queryFn: () => listCaulkProducts()
+  });
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
   const activeJobs = useMemo(
     () => (jobsQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE'),
@@ -80,7 +86,8 @@ export default function AllocationsPage() {
       sections: submitPayload.sections,
       dueDate: submitPayload.dueDate,
       crewLeader: submitPayload.crewLeader,
-      requirements: submitPayload.requirements
+      requirements: submitPayload.requirements,
+      caulkRequirements: submitPayload.caulkRequirements
     };
 
     try {
@@ -232,6 +239,9 @@ export default function AllocationsPage() {
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
         filmCatalogError={filmCatalogQuery.error}
+        caulkProductEntries={caulkProductsQuery.data}
+        caulkProductLoading={caulkProductsQuery.isLoading}
+        caulkProductError={caulkProductsQuery.error}
         onCancel={() => setIsNewJobOpen(false)}
         onSubmit={(payload) => void handleCreateJob(payload)}
       />

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
-import type { FilmCatalogEntry, Warehouse } from '../../../domain';
+import type { CaulkProductEntry, FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   STANDARD_WIDTH_OPTIONS,
   canonicalizeManufacturerLabel,
@@ -27,6 +27,13 @@ export interface JobEditorSubmitPayload {
   dueDate: string;
   crewLeader: string;
   requirements: JobRequirementEditorLine[];
+  caulkRequirements: JobCaulkRequirementEditorLine[];
+}
+
+export interface JobCaulkRequirementEditorLine {
+  requirementId?: string;
+  productId: string;
+  requiredTubes: number;
 }
 
 interface JobEditorDialogProps {
@@ -41,14 +48,19 @@ interface JobEditorDialogProps {
   initialDueDate?: string;
   initialCrewLeader?: string;
   initialRequirements?: JobRequirementEditorLine[];
+  initialCaulkRequirements?: JobCaulkRequirementEditorLine[];
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
   filmCatalogError?: unknown;
+  caulkProductEntries?: CaulkProductEntry[];
+  caulkProductLoading?: boolean;
+  caulkProductError?: unknown;
   onCancel: () => void;
   onSubmit: (payload: JobEditorSubmitPayload) => void;
 }
 
 const EMPTY_REQUIREMENT_LINES: JobRequirementEditorLine[] = [];
+const EMPTY_CAULK_REQUIREMENT_LINES: JobCaulkRequirementEditorLine[] = [];
 const WIDTH_BUTTON_VALUES = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 type WidthButtonValue = (typeof WIDTH_BUTTON_VALUES)[number];
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
@@ -60,6 +72,13 @@ interface RequirementDraftLine {
   filmName: string;
   widthIn: string;
   requiredFeet: string;
+}
+
+interface CaulkRequirementDraftLine {
+  id: string;
+  requirementId: string;
+  productId: string;
+  requiredTubes: string;
 }
 
 function makeRequirementLineId() {
@@ -74,6 +93,15 @@ function createDraftLine(entry?: JobRequirementEditorLine): RequirementDraftLine
     filmName: entry?.filmName || '',
     widthIn: entry ? String(entry.widthIn) : '',
     requiredFeet: entry ? String(entry.requiredFeet) : ''
+  };
+}
+
+function createCaulkDraftLine(entry?: JobCaulkRequirementEditorLine): CaulkRequirementDraftLine {
+  return {
+    id: makeRequirementLineId(),
+    requirementId: entry?.requirementId || '',
+    productId: entry?.productId || '',
+    requiredTubes: entry ? String(entry.requiredTubes) : ''
   };
 }
 
@@ -123,9 +151,13 @@ export function JobEditorDialog({
   initialDueDate = '',
   initialCrewLeader = '',
   initialRequirements = EMPTY_REQUIREMENT_LINES,
+  initialCaulkRequirements = EMPTY_CAULK_REQUIREMENT_LINES,
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
+  caulkProductEntries = [],
+  caulkProductLoading = false,
+  caulkProductError,
   onCancel,
   onSubmit
 }: JobEditorDialogProps) {
@@ -135,6 +167,19 @@ export function JobEditorDialog({
     () => getManufacturerOptionsWithCatalog(filmCatalogEntries),
     [filmCatalogEntries]
   );
+  const caulkProductOptions = useMemo(
+    () =>
+      caulkProductEntries.map((entry) => ({
+        value: entry.productId,
+        label: `${entry.manufacturer} ${entry.productName}${entry.productCode ? ` (${entry.productCode})` : ''}`
+      })),
+    [caulkProductEntries]
+  );
+  const caulkProductLabelById = useMemo(
+    () =>
+      Object.fromEntries(caulkProductOptions.map((entry) => [entry.value, entry.label])) as Record<string, string>,
+    [caulkProductOptions]
+  );
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
   const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse || defaultWarehouse);
   const [sections, setSections] = useState(getSectionsInputValue(initialSections));
@@ -143,10 +188,15 @@ export function JobEditorDialog({
   const [requirements, setRequirements] = useState<RequirementDraftLine[]>(
     initialRequirements.map((entry) => createDraftLine(entry))
   );
+  const [caulkRequirements, setCaulkRequirements] = useState<CaulkRequirementDraftLine[]>(
+    initialCaulkRequirements.map((entry) => createCaulkDraftLine(entry))
+  );
   const [manufacturer, setManufacturer] = useState(manufacturerOptions[0] || '');
   const [filmName, setFilmName] = useState('');
   const [widthIn, setWidthIn] = useState('');
   const [requiredFeet, setRequiredFeet] = useState('');
+  const [caulkProductId, setCaulkProductId] = useState(caulkProductEntries[0]?.productId || '');
+  const [caulkRequiredTubes, setCaulkRequiredTubes] = useState('');
   const [error, setError] = useState('');
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
@@ -172,15 +222,20 @@ export function JobEditorDialog({
     setDueDate(initialDueDate);
     setCrewLeader(initialCrewLeader);
     setRequirements(initialRequirements.map((entry) => createDraftLine(entry)));
+    setCaulkRequirements(initialCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
     setManufacturer(manufacturerOptions[0] || '');
     setFilmName('');
     setWidthIn('');
     setRequiredFeet('');
+    setCaulkProductId(caulkProductEntries[0]?.productId || '');
+    setCaulkRequiredTubes('');
     setCustomWidthDraft('');
     setIsCustomWidthOpen(false);
     setError('');
   }, [
+    caulkProductEntries,
     initialDueDate,
+    initialCaulkRequirements,
     initialCrewLeader,
     initialJobNumber,
     initialRequirements,
@@ -189,6 +244,12 @@ export function JobEditorDialog({
     initialWarehouse,
     open
   ]);
+
+  useEffect(() => {
+    if (!caulkProductId && caulkProductOptions.length > 0) {
+      setCaulkProductId(caulkProductOptions[0].value);
+    }
+  }, [caulkProductId, caulkProductOptions]);
 
   if (!open) {
     return null;
@@ -200,8 +261,18 @@ export function JobEditorDialog({
     );
   }
 
+  function updateCaulkRequirementLine(id: string, patch: Partial<CaulkRequirementDraftLine>) {
+    setCaulkRequirements((current) =>
+      current.map((line) => (line.id === id ? { ...line, ...patch } : line))
+    );
+  }
+
   function removeRequirementLine(id: string) {
     setRequirements((current) => current.filter((line) => line.id !== id));
+  }
+
+  function removeCaulkRequirementLine(id: string) {
+    setCaulkRequirements((current) => current.filter((line) => line.id !== id));
   }
 
   function handleAddRequirement() {
@@ -269,6 +340,45 @@ export function JobEditorDialog({
     setRequiredFeet('');
   }
 
+  function handleAddCaulkRequirement() {
+    const parsedRequiredTubes = Number(caulkRequiredTubes);
+    if (!caulkProductId.trim()) {
+      setError('Select a caulk product first.');
+      return;
+    }
+    if (!Number.isFinite(parsedRequiredTubes) || parsedRequiredTubes <= 0) {
+      setError('Caulk required tubes must be greater than zero.');
+      return;
+    }
+
+    setCaulkRequirements((current) => {
+      const existingIndex = current.findIndex((line) => line.productId === caulkProductId);
+      if (existingIndex === -1) {
+        return [
+          ...current,
+          {
+            id: makeRequirementLineId(),
+            requirementId: '',
+            productId: caulkProductId,
+            requiredTubes: String(Math.floor(parsedRequiredTubes))
+          }
+        ];
+      }
+
+      const next = [...current];
+      const existing = next[existingIndex];
+      const mergedRequired = Math.floor(Number(existing.requiredTubes || 0)) + Math.floor(parsedRequiredTubes);
+      next[existingIndex] = {
+        ...existing,
+        requiredTubes: String(mergedRequired)
+      };
+      return next;
+    });
+
+    setCaulkRequiredTubes('');
+    setError('');
+  }
+
   function handleWidthButtonClick(value: WidthButtonValue) {
     if (value === 'CUSTOM') {
       setCustomWidthDraft(hasCustomWidth ? widthIn : '');
@@ -329,6 +439,24 @@ export function JobEditorDialog({
     }
 
     const mergedLines = mergeRequirementLines(normalizedLines);
+    const normalizedCaulkLines: JobCaulkRequirementEditorLine[] = [];
+    for (let index = 0; index < caulkRequirements.length; index += 1) {
+      const line = caulkRequirements[index];
+      const parsedRequiredTubes = Number(line.requiredTubes);
+      if (!line.productId.trim()) {
+        setError(`Caulk line ${index + 1}: product is required.`);
+        return;
+      }
+      if (!Number.isFinite(parsedRequiredTubes) || parsedRequiredTubes <= 0) {
+        setError(`Caulk line ${index + 1}: required tubes must be greater than zero.`);
+        return;
+      }
+      normalizedCaulkLines.push({
+        requirementId: line.requirementId || undefined,
+        productId: line.productId,
+        requiredTubes: Math.floor(parsedRequiredTubes)
+      });
+    }
     setError('');
     onSubmit({
       jobNumber: mode === 'edit' ? initialJobNumber : normalizedJobNumber,
@@ -336,7 +464,8 @@ export function JobEditorDialog({
       sections,
       dueDate,
       crewLeader: crewLeader.trim(),
-      requirements: mergedLines
+      requirements: mergedLines,
+      caulkRequirements: normalizedCaulkLines
     });
   }
 
@@ -590,6 +719,101 @@ export function JobEditorDialog({
           </div>
         ) : (
           <p className="muted-text">No film requirements added yet. You can still save an empty job.</p>
+        )}
+
+        <div className="form-grid">
+          <label className="field">
+            <span className="field-label">Caulk Product</span>
+            <select
+              className="field-input"
+              value={caulkProductId}
+              onChange={(event) => {
+                setCaulkProductId(event.target.value);
+                setError('');
+              }}
+              disabled={caulkProductLoading || !caulkProductOptions.length}
+            >
+              {caulkProductOptions.map((entry) => (
+                <option key={entry.value} value={entry.value}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Input
+            label="Caulk Required Tubes"
+            value={caulkRequiredTubes}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            onChange={(event) => {
+              setCaulkRequiredTubes(event.target.value.replace(/[^0-9]/g, ''));
+              setError('');
+            }}
+          />
+        </div>
+
+        <div className="dialog-actions">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleAddCaulkRequirement}
+            disabled={submitting || caulkProductLoading || !caulkProductOptions.length}
+          >
+            Add Caulk Requirement
+          </Button>
+        </div>
+
+        {caulkProductError ? (
+          <p className="error-text">
+            {caulkProductError instanceof Error ? caulkProductError.message : 'Caulk products failed to load.'}
+          </p>
+        ) : null}
+
+        {caulkRequirements.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Caulk Product</th>
+                  <th>Required Tubes</th>
+                  <th>Remove</th>
+                </tr>
+              </thead>
+              <tbody>
+                {caulkRequirements.map((line) => (
+                  <tr key={line.id}>
+                    <td>{caulkProductLabelById[line.productId] || line.productId}</td>
+                    <td>
+                      <input
+                        className="field-input"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={line.requiredTubes}
+                        onChange={(event) => {
+                          updateCaulkRequirementLine(line.id, {
+                            requiredTubes: event.target.value.replace(/[^0-9]/g, '')
+                          });
+                          setError('');
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => removeCaulkRequirementLine(line.id)}
+                        disabled={submitting}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted-text">No caulk requirements added yet.</p>
         )}
 
         {error ? <p className="error-text">{error}</p> : null}

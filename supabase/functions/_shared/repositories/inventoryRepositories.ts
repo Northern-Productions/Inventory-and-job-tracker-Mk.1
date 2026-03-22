@@ -247,6 +247,85 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     };
   }
 
+  function mapDbCaulkJobRequirementRow(row: any) {
+    if (!row) {
+      return null;
+    }
+    return {
+      requirementId: deps.asTrimmedString(row.requirement_id),
+      jobNumber: deps.asTrimmedString(row.job_number),
+      productId: deps.asTrimmedString(row.product_id),
+      manufacturerId: deps.asTrimmedString(row.manufacturer_id),
+      manufacturer: deps.asTrimmedString(row.manufacturer),
+      productName: deps.asTrimmedString(row.product_name),
+      productCode: deps.asTrimmedString(row.product_code),
+      tubesPerCase: deps.integerOrZero(row.tubes_per_case),
+      requiredTubes: deps.integerOrZero(row.required_tubes),
+      notes: deps.asTrimmedString(row.notes),
+      updatedAt: deps.formatTimestamp(row.updated_at),
+    };
+  }
+
+  function mapDbCaulkJobAllocationRow(row: any) {
+    if (!row) {
+      return null;
+    }
+    return {
+      caulkAllocationId: deps.asTrimmedString(row.caulk_allocation_id),
+      requirementId: deps.asTrimmedString(row.requirement_id),
+      productId: deps.asTrimmedString(row.product_id),
+      manufacturerId: deps.asTrimmedString(row.manufacturer_id),
+      manufacturer: deps.asTrimmedString(row.manufacturer),
+      productName: deps.asTrimmedString(row.product_name),
+      productCode: deps.asTrimmedString(row.product_code),
+      tubesPerCase: deps.integerOrZero(row.tubes_per_case),
+      warehouse: deps.asTrimmedString(row.warehouse),
+      allocatedTubes: deps.integerOrZero(row.allocated_tubes),
+      reservedTubesRemaining: deps.integerOrZero(row.reserved_tubes_remaining),
+      checkedOutTubesTotal: deps.integerOrZero(row.checked_out_tubes_total),
+      returnedUnusedTubesTotal: deps.integerOrZero(row.returned_unused_tubes_total),
+      usedTubesTotal: deps.integerOrZero(row.used_tubes_total),
+      overageTubesTotal: deps.integerOrZero(row.overage_tubes_total),
+      outstandingCheckoutTubes: deps.integerOrZero(row.outstanding_checkout_tubes),
+      openCheckoutCount: deps.integerOrZero(row.open_checkout_count),
+      status: deps.asTrimmedString(row.status) || "ACTIVE",
+      createdAt: deps.formatTimestamp(row.created_at),
+      createdBy: deps.asTrimmedString(row.created_by),
+      updatedAt: deps.formatTimestamp(row.updated_at),
+      updatedBy: deps.asTrimmedString(row.updated_by),
+      resolvedAt: deps.formatTimestamp(row.resolved_at),
+      resolvedBy: deps.asTrimmedString(row.resolved_by),
+      notes: deps.asTrimmedString(row.notes),
+    };
+  }
+
+  function mapDbCaulkJobCheckoutRow(row: any) {
+    if (!row) {
+      return null;
+    }
+    return {
+      caulkCheckoutId: deps.asTrimmedString(row.caulk_checkout_id),
+      caulkAllocationId: deps.asTrimmedString(row.caulk_allocation_id),
+      productId: deps.asTrimmedString(row.product_id),
+      manufacturerId: deps.asTrimmedString(row.manufacturer_id),
+      manufacturer: deps.asTrimmedString(row.manufacturer),
+      productName: deps.asTrimmedString(row.product_name),
+      productCode: deps.asTrimmedString(row.product_code),
+      tubesPerCase: deps.integerOrZero(row.tubes_per_case),
+      warehouse: deps.asTrimmedString(row.warehouse),
+      checkoutTubes: deps.integerOrZero(row.checkout_tubes),
+      overageTubes: deps.integerOrZero(row.overage_tubes),
+      status: deps.asTrimmedString(row.status) || "OPEN",
+      checkedOutAt: deps.formatTimestamp(row.checked_out_at),
+      checkedOutBy: deps.asTrimmedString(row.checked_out_by),
+      checkedInAt: deps.formatTimestamp(row.checked_in_at),
+      checkedInBy: deps.asTrimmedString(row.checked_in_by),
+      unusedTubes: deps.integerOrZero(row.unused_tubes),
+      usedTubes: deps.integerOrZero(row.used_tubes),
+      notes: deps.asTrimmedString(row.notes),
+    };
+  }
+
   function mapDbAuditRow(row: any) {
     if (!row) {
       return null;
@@ -406,6 +485,30 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return rows.map(mapDbRequirementRow);
   }
 
+  async function listJobCaulkRequirementsByJob(client: any, orgId: string, jobNumber: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_caulk_requirements_by_job", {
+      p_org_id: orgId,
+      p_job_number: jobNumber,
+    });
+    return rows.map(mapDbCaulkJobRequirementRow);
+  }
+
+  async function listCaulkJobAllocationsByJob(client: any, orgId: string, jobNumber: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_job_allocations_by_job", {
+      p_org_id: orgId,
+      p_job_number: jobNumber,
+    });
+    return rows.map(mapDbCaulkJobAllocationRow);
+  }
+
+  async function listCaulkJobCheckoutsByJob(client: any, orgId: string, jobNumber: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_job_checkouts_by_job", {
+      p_org_id: orgId,
+      p_job_number: jobNumber,
+    });
+    return rows.map(mapDbCaulkJobCheckoutRow);
+  }
+
   async function listAuditEntries(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_audit_entries", { p_org_id: orgId });
     return rows.map(mapDbAuditRow);
@@ -437,6 +540,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     toPublicFilmOrder,
     mapDbJobRow,
     mapDbRequirementRow,
+    mapDbCaulkJobRequirementRow,
+    mapDbCaulkJobAllocationRow,
+    mapDbCaulkJobCheckoutRow,
     mapDbAuditRow,
     mapDbRollHistoryRow,
     listBoxes,
@@ -456,6 +562,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     findJobByNumber,
     listJobRequirements,
     listJobRequirementsByJob,
+    listJobCaulkRequirementsByJob,
+    listCaulkJobAllocationsByJob,
+    listCaulkJobCheckoutsByJob,
     listAuditEntries,
     listAuditEntriesByBox,
     listRollHistoryByBox,

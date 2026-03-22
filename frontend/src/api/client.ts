@@ -48,12 +48,17 @@ export {
   updateBox
 } from './features/inventoryClient';
 export {
+  addCaulkJobAllocation,
   applyAllocationPlan,
+  checkinCaulkJobAllocation,
+  checkoutCaulkJobAllocation,
   getAllocationJob,
   getAllocationJobs,
   getAllocationsByBox,
   previewAllocationPlan,
-  removeJobBoxAllocations
+  removeCaulkJobAllocation,
+  removeJobBoxAllocations,
+  updateCaulkJobAllocation
 } from './features/allocationsClient';
 export {
   completeJob,

@@ -353,6 +353,10 @@ export interface AllocationJobDetail {
   summary: AllocationJobSummary;
   allocations: AllocationJobDetailEntry[];
   usage: JobUsageEntry[];
+  usageTimeline: JobUsageTimelineEntry[];
+  caulkRequirements: JobCaulkRequirementLine[];
+  caulkAllocations: CaulkJobAllocationEntry[];
+  caulkCheckouts: CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
 }
 
@@ -366,6 +370,88 @@ export interface JobUsageEntry {
   latestCheckedInAt: string;
   latestCheckedOutAt: string;
   lastActivityAt: string;
+}
+
+export interface JobUsageTimelineEntry {
+  usageType: 'FILM' | 'CAULK';
+  occurredAt: string;
+  actor: string;
+  warehouse: Warehouse;
+  referenceId: string;
+  manufacturer: string;
+  itemName: string;
+  itemCode: string;
+  unit: 'LF' | 'TUBES';
+  checkedOutQuantity: number;
+  returnedQuantity: number;
+  usedQuantity: number;
+  notes: string;
+}
+
+export interface JobCaulkRequirementLine {
+  requirementId: string;
+  jobNumber: string;
+  productId: string;
+  manufacturerId: string;
+  manufacturer: string;
+  productName: string;
+  productCode: string;
+  tubesPerCase: number;
+  requiredTubes: number;
+  allocatedTubes: number;
+  remainingTubes: number;
+  notes: string;
+  updatedAt: string;
+}
+
+export interface CaulkJobAllocationEntry {
+  caulkAllocationId: string;
+  requirementId: string;
+  productId: string;
+  manufacturerId: string;
+  manufacturer: string;
+  productName: string;
+  productCode: string;
+  tubesPerCase: number;
+  warehouse: Warehouse;
+  allocatedTubes: number;
+  reservedTubesRemaining: number;
+  checkedOutTubesTotal: number;
+  returnedUnusedTubesTotal: number;
+  usedTubesTotal: number;
+  overageTubesTotal: number;
+  outstandingCheckoutTubes: number;
+  openCheckoutCount: number;
+  status: 'ACTIVE' | 'CANCELLED' | string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  resolvedAt: string;
+  resolvedBy: string;
+  notes: string;
+}
+
+export interface CaulkJobCheckoutEntry {
+  caulkCheckoutId: string;
+  caulkAllocationId: string;
+  productId: string;
+  manufacturerId: string;
+  manufacturer: string;
+  productName: string;
+  productCode: string;
+  tubesPerCase: number;
+  warehouse: Warehouse;
+  checkoutTubes: number;
+  overageTubes: number;
+  status: 'OPEN' | 'CLOSED' | string;
+  checkedOutAt: string;
+  checkedOutBy: string;
+  checkedInAt: string;
+  checkedInBy: string;
+  unusedTubes: number;
+  usedTubes: number;
+  notes: string;
 }
 
 export interface JobRequirementLine {
@@ -401,6 +487,10 @@ export interface JobDetail {
   requirements: JobRequirementLine[];
   allocations: AllocationJobDetailEntry[];
   usage: JobUsageEntry[];
+  usageTimeline: JobUsageTimelineEntry[];
+  caulkRequirements: JobCaulkRequirementLine[];
+  caulkAllocations: CaulkJobAllocationEntry[];
+  caulkCheckouts: CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
 }
 
@@ -418,6 +508,11 @@ export interface CreateJobPayload {
     widthIn: number;
     requiredFeet: number;
   }>;
+  caulkRequirements?: Array<{
+    requirementId?: string;
+    productId: string;
+    requiredTubes: number;
+  }>;
 }
 
 export interface UpdateJobPayload {
@@ -433,6 +528,11 @@ export interface UpdateJobPayload {
     filmName: string;
     widthIn: number;
     requiredFeet: number;
+  }>;
+  caulkRequirements?: Array<{
+    requirementId?: string;
+    productId: string;
+    requiredTubes: number;
   }>;
 }
 
@@ -620,4 +720,51 @@ export interface CaulkTransferResult {
   movedTubes: number;
   from: CaulkMutationResult;
   to: CaulkMutationResult;
+}
+
+export interface AddCaulkJobAllocationPayload {
+  jobNumber: string;
+  requirementId?: string;
+  productId: string;
+  warehouse: Warehouse;
+  allocatedTubes: number;
+  notes?: string;
+}
+
+export interface UpdateCaulkJobAllocationPayload {
+  caulkAllocationId: string;
+  productId?: string;
+  warehouse?: Warehouse;
+  allocatedTubes?: number;
+  notes?: string;
+}
+
+export interface CheckoutCaulkJobAllocationPayload {
+  caulkAllocationId: string;
+  checkoutTubes: number;
+  notes?: string;
+}
+
+export interface CheckinCaulkJobAllocationPayload {
+  caulkCheckoutId: string;
+  unusedTubes: number;
+  notes?: string;
+}
+
+export interface RemoveCaulkJobAllocationPayload {
+  caulkAllocationId: string;
+  reason?: string;
+}
+
+export interface CaulkJobAllocationMutationResult {
+  jobNumber: string;
+  caulkAllocationId: string;
+}
+
+export interface CaulkJobCheckoutMutationResult extends CaulkJobAllocationMutationResult {
+  caulkCheckoutId: string;
+}
+
+export interface RemoveCaulkJobAllocationResult extends CaulkJobAllocationMutationResult {
+  releasedReservedTubes: number;
 }

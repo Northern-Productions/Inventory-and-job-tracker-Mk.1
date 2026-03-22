@@ -2,7 +2,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptimisticQueue } from '../../../components/OptimisticQueue';
 import {
+  addCaulkJobAllocation,
   applyAllocationPlan,
+  checkinCaulkJobAllocation,
+  checkoutCaulkJobAllocation,
+  removeCaulkJobAllocation,
+  updateCaulkJobAllocation,
   removeJobBoxAllocations
 } from '../../../api/features/allocationsClient';
 import { undoAudit } from '../../../api/features/auditClient';
@@ -27,9 +32,12 @@ import type {
   AllocationEntry,
   AllocationJobDetail,
   AllocationJobSummary,
+  AddCaulkJobAllocationPayload,
   AddBoxPayload,
   ApplyAllocationPlanPayload,
   Box,
+  CheckinCaulkJobAllocationPayload,
+  CheckoutCaulkJobAllocationPayload,
   CreateFilmOrderPayload,
   CreateJobPayload,
   DeleteBoxPayload,
@@ -37,8 +45,10 @@ import type {
   JobDetail,
   JobListEntry,
   RemoveJobBoxAllocationsPayload,
+  RemoveCaulkJobAllocationPayload,
   SetBoxStatusPayload,
   UndoAuditPayload,
+  UpdateCaulkJobAllocationPayload,
   UpdateBoxPayload,
   UpdateJobPayload
 } from '../../../domain';
@@ -256,6 +266,83 @@ export function useRemoveJobBoxAllocations() {
       ]);
 
       void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useAddCaulkJobAllocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: AddCaulkJobAllocationPayload) => addCaulkJobAllocation(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: ['caulk'] })
+      ]);
+    }
+  });
+}
+
+export function useUpdateCaulkJobAllocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: UpdateCaulkJobAllocationPayload) => updateCaulkJobAllocation(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: ['caulk'] })
+      ]);
+    }
+  });
+}
+
+export function useCheckoutCaulkJobAllocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CheckoutCaulkJobAllocationPayload) => checkoutCaulkJobAllocation(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: ['caulk'] })
+      ]);
+    }
+  });
+}
+
+export function useCheckinCaulkJobAllocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: CheckinCaulkJobAllocationPayload) => checkinCaulkJobAllocation(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: ['caulk'] })
+      ]);
+    }
+  });
+}
+
+export function useRemoveCaulkJobAllocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: RemoveCaulkJobAllocationPayload) => removeCaulkJobAllocation(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: ['caulk'] })
+      ]);
     }
   });
 }

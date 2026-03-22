@@ -5,6 +5,8 @@ import type {
   AllocationPreview,
   AuditEntry,
   CaulkManufacturerEntry,
+  CaulkJobAllocationMutationResult,
+  CaulkJobCheckoutMutationResult,
   CaulkMutationResult,
   CaulkProductEntry,
   CaulkStockEntry,
@@ -16,6 +18,7 @@ import type {
   FilmCatalogEntry,
   FilmOrderEntry,
   JobDetail,
+  RemoveCaulkJobAllocationResult,
   JobListEntry,
   NeverCheckedOutBoxRow,
   RollHistoryEntry,
@@ -137,3 +140,9 @@ export interface CaulkTransactionsResponse {
 export interface CaulkMutationResponse extends CaulkMutationResult {}
 
 export interface CaulkTransferResponse extends CaulkTransferResult {}
+
+export interface CaulkJobAllocationMutationResponse extends CaulkJobAllocationMutationResult {}
+
+export interface CaulkJobCheckoutMutationResponse extends CaulkJobCheckoutMutationResult {}
+
+export interface RemoveCaulkJobAllocationResponse extends RemoveCaulkJobAllocationResult {}

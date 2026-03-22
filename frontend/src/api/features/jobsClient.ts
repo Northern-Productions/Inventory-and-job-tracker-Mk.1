@@ -13,7 +13,11 @@ import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
-    usage: detail.usage || []
+    usage: detail.usage || [],
+    usageTimeline: detail.usageTimeline || [],
+    caulkRequirements: detail.caulkRequirements || [],
+    caulkAllocations: detail.caulkAllocations || [],
+    caulkCheckouts: detail.caulkCheckouts || []
   };
 }
 
