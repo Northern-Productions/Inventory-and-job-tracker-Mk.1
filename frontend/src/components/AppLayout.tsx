@@ -151,6 +151,7 @@ export function AppLayout() {
   const auth = useAuth();
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
+  const hasMountedRef = useRef(false);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
   const mobileMoreButtonRef = useRef<HTMLButtonElement>(null);
@@ -260,6 +261,10 @@ export function AppLayout() {
   }, [closeDesktopMoreMenu, closeMobileMoreSheet, location.pathname]);
 
   useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
+
+  useEffect(() => {
     if (isPhoneLayout || !isDesktopMoreOpen) {
       return;
     }
@@ -286,6 +291,8 @@ export function AppLayout() {
       document.removeEventListener('keydown', handleEscape);
     };
   }, [closeDesktopMoreMenu, isDesktopMoreOpen, isPhoneLayout]);
+
+  const shouldAnimateRouteContent = hasMountedRef.current;
 
   return (
     <div className={`app-shell ${isPhoneLayout ? 'app-shell-phone' : ''}`.trim()}>
@@ -349,7 +356,12 @@ export function AppLayout() {
         </div>
       </header>
       <main className={`app-main ${isPhoneLayout ? 'app-main-phone' : ''}`.trim()}>
-        <Outlet />
+        <div
+          key={location.pathname}
+          className={`route-content ${shouldAnimateRouteContent ? 'route-content-animate' : ''}`.trim()}
+        >
+          <Outlet />
+        </div>
       </main>
       {isPhoneLayout ? (
         <>

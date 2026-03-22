@@ -298,6 +298,27 @@ textarea {
   gap: 1rem;
 }
 
+.route-content {
+  min-width: 0;
+}
+
+.route-content-animate {
+  animation: route-content-fade-lift 220ms ease-in-out both;
+  will-change: opacity, transform;
+}
+
+@keyframes route-content-fade-lift {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .app-main-phone {
   padding-bottom: calc(var(--mobile-nav-offset) + 1rem);
 }
@@ -1366,6 +1387,13 @@ td.col-available-linear-ft {
 
 .delete-dialog-actions {
   margin-top: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-content-animate {
+    animation: none;
+    will-change: auto;
+  }
 }
 
 .delete-dialog .button-ghost {
