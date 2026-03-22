@@ -105,9 +105,75 @@ textarea {
 }
 
 .app-shell {
+  --app-shell-bg-start: #f3efea;
+  --app-shell-bg-end: #f8f6f3;
+  --app-shell-glow-primary: rgba(206, 160, 110, 0.16);
+  --app-shell-glow-secondary: rgba(214, 188, 154, 0.18);
+  --app-shell-glow-size: 36%;
+  position: relative;
+  z-index: 0;
   max-width: 1200px;
   margin: 0 auto;
   padding: 1.5rem;
+}
+
+.app-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at top right,
+      var(--app-shell-glow-primary),
+      transparent var(--app-shell-glow-size)
+    ),
+    radial-gradient(circle at bottom left, var(--app-shell-glow-secondary), transparent 32%),
+    linear-gradient(180deg, var(--app-shell-bg-start) 0%, var(--app-shell-bg-end) 100%);
+  transition: background 360ms ease-in-out;
+}
+
+.app-shell-theme-inventory {
+  --app-shell-bg-start: #f3efea;
+  --app-shell-bg-end: #f8f6f3;
+  --app-shell-glow-primary: rgba(206, 160, 110, 0.16);
+  --app-shell-glow-secondary: rgba(214, 188, 154, 0.18);
+}
+
+.app-shell-theme-jobs {
+  --app-shell-bg-start: #edf2f5;
+  --app-shell-bg-end: #f7f9fb;
+  --app-shell-glow-primary: rgba(120, 152, 179, 0.14);
+  --app-shell-glow-secondary: rgba(173, 198, 221, 0.16);
+}
+
+.app-shell-theme-add-box {
+  --app-shell-bg-start: #edf3f0;
+  --app-shell-bg-end: #f7faf8;
+  --app-shell-glow-primary: rgba(118, 163, 136, 0.14);
+  --app-shell-glow-secondary: rgba(182, 213, 193, 0.16);
+}
+
+.app-shell-theme-scan {
+  --app-shell-bg-start: #eef4f4;
+  --app-shell-bg-end: #f8fbfb;
+  --app-shell-glow-primary: rgba(119, 163, 165, 0.14);
+  --app-shell-glow-secondary: rgba(173, 205, 206, 0.16);
+}
+
+.app-shell-theme-film-orders {
+  --app-shell-bg-start: #f4f1ea;
+  --app-shell-bg-end: #faf8f3;
+  --app-shell-glow-primary: rgba(190, 156, 104, 0.14);
+  --app-shell-glow-secondary: rgba(221, 199, 160, 0.17);
+}
+
+.app-shell-theme-more {
+  --app-shell-bg-start: #f3f0ef;
+  --app-shell-bg-end: #faf8f7;
+  --app-shell-glow-primary: rgba(171, 138, 126, 0.12);
+  --app-shell-glow-secondary: rgba(212, 189, 181, 0.15);
 }
 
 .app-shell-phone {

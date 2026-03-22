@@ -8,6 +8,7 @@ import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
 type NavPlacement = 'primary' | 'more';
+type AppShellTheme = 'inventory' | 'jobs' | 'add-box' | 'scan' | 'film-orders' | 'more';
 
 interface NavItem {
   to: string;
@@ -147,10 +148,54 @@ function isNavItemActive(pathname: string, to: string) {
   return pathname === to;
 }
 
+function resolveAppShellTheme(pathname: string): AppShellTheme {
+  const normalizedPath = pathname || '/';
+
+  if (normalizedPath === '/inventory/add') {
+    return 'add-box';
+  }
+
+  if (normalizedPath === '/inventory/scan') {
+    return 'scan';
+  }
+
+  if (normalizedPath === '/film-orders') {
+    return 'film-orders';
+  }
+
+  if (normalizedPath === '/caulk') {
+    return 'inventory';
+  }
+
+  if (normalizedPath === '/' || normalizedPath.startsWith('/inventory/')) {
+    return 'inventory';
+  }
+
+  if (normalizedPath === '/allocations' || normalizedPath.startsWith('/allocations/')) {
+    return 'jobs';
+  }
+
+  if (
+    normalizedPath.startsWith('/reports') ||
+    normalizedPath.startsWith('/activity') ||
+    normalizedPath.startsWith('/checkout-history') ||
+    normalizedPath.startsWith('/admin/') ||
+    normalizedPath.startsWith('/owner/')
+  ) {
+    return 'more';
+  }
+
+  return 'more';
+}
+
 export function AppLayout() {
   const auth = useAuth();
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
+  const appShellTheme = useMemo(
+    () => resolveAppShellTheme(location.pathname),
+    [location.pathname]
+  );
   const hasMountedRef = useRef(false);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
@@ -295,7 +340,11 @@ export function AppLayout() {
   const shouldAnimateRouteContent = hasMountedRef.current;
 
   return (
-    <div className={`app-shell ${isPhoneLayout ? 'app-shell-phone' : ''}`.trim()}>
+    <div
+      className={`app-shell app-shell-theme-${appShellTheme} ${
+        isPhoneLayout ? 'app-shell-phone' : ''
+      }`.trim()}
+    >
       <header className="app-header">
         <div>
           <p className="eyebrow">Phase 1</p>
