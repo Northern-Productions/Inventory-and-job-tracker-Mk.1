@@ -17,6 +17,7 @@ export const BOX_STATUSES = Object.freeze(['ORDERED', 'IN_STOCK', 'CHECKED_OUT',
 export const FILM_ORDER_STATUSES = Object.freeze(['FILM_ORDER', 'FILM_ON_THE_WAY', 'FULFILLED', 'CANCELLED']);
 export const JOB_STATUSES = Object.freeze(['ALLOCATE', 'CONFLICT', 'READY', 'COMPLETED', 'CANCELLED']);
 export const ALLOCATION_JOB_STATUSES = Object.freeze([
+  'ALLOCATE',
   'READY',
   'ON_ORDER',
   'FILM_ORDER',

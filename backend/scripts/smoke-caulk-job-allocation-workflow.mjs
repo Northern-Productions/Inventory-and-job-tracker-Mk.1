@@ -176,6 +176,8 @@ async function main() {
     const manufacturerName = `Smoke Manufacturer ${suffix}`;
     const productName = `Smoke Product ${suffix}`;
     const productCode = `SMK-${suffix.slice(-6)}`;
+    const secondProductName = `Smoke Product Secondary ${suffix}`;
+    const secondProductCode = `SMS-${suffix.slice(-6)}`;
 
     let step = "begin";
     await client.query("begin");
@@ -199,6 +201,16 @@ async function main() {
       );
       const productId = String(productRes.rows[0]?.product_id || "").trim();
       assertOk(productId, "Unable to upsert caulk product for smoke test.");
+
+      step = "upsert second product";
+      const secondProductRes = await client.query(
+        `
+          select (app_api.caulk_upsert_product($1::uuid, $2::text, null::uuid, $3::uuid, $4::text, $5::text, $6::integer, true, $7::text)).id as product_id
+        `,
+        [orgId, actor, manufacturerId, secondProductName, secondProductCode, 12, "Smoke test secondary product"],
+      );
+      const secondProductId = String(secondProductRes.rows[0]?.product_id || "").trim();
+      assertOk(secondProductId, "Unable to upsert second caulk product for smoke test.");
 
       step = "seed stock";
       await client.query(
@@ -232,10 +244,43 @@ async function main() {
       const requirementId = String(requirementRes.rows[0]?.requirement_id || "").trim();
       assertOk(requirementId, "Caulk requirement row was not created.");
 
+      step = "update job caulk requirements";
+      const updateJobPayload = {
+        jobNumber,
+        warehouse,
+        dueDate: "2026-03-24",
+        crewLeader: "Smoke Test Updated",
+        requirements: [],
+        caulkRequirements: [
+          { productId, requiredTubes: 26 },
+          { productId: secondProductId, requiredTubes: 8 },
+        ],
+      };
+      await client.query("select public.api_acl_jobs_update($1::uuid, $2::text, $3::jsonb)", [
+        orgId,
+        actor,
+        JSON.stringify(updateJobPayload),
+      ]);
+
+      step = "relist updated caulk requirements";
+      const updatedRequirementRes = await client.query(
+        "select * from public.api_acl_list_job_caulk_requirements_by_job($1::uuid, $2::text)",
+        [orgId, jobNumber],
+      );
+      assertOk(updatedRequirementRes.rows.length === 2, `Expected 2 caulk requirement rows after update, found ${updatedRequirementRes.rows.length}.`);
+      const updatedPrimaryRequirement = updatedRequirementRes.rows.find((row) => String(row.product_id || "").trim() === productId);
+      const updatedSecondaryRequirement = updatedRequirementRes.rows.find((row) => String(row.product_id || "").trim() === secondProductId);
+      assertOk(Boolean(updatedPrimaryRequirement), "Updated primary caulk requirement row was not found.");
+      assertOk(Boolean(updatedSecondaryRequirement), "Updated secondary caulk requirement row was not found.");
+      assertOk(Number(updatedPrimaryRequirement?.required_tubes ?? 0) === 26, `Expected updated primary requirement to be 26 tubes, received ${updatedPrimaryRequirement?.required_tubes}.`);
+      assertOk(Number(updatedSecondaryRequirement?.required_tubes ?? 0) === 8, `Expected updated secondary requirement to be 8 tubes, received ${updatedSecondaryRequirement?.required_tubes}.`);
+      const updatedRequirementId = String(updatedPrimaryRequirement?.requirement_id || "").trim();
+      assertOk(updatedRequirementId, "Updated primary requirement id was not found.");
+
       step = "add allocation";
       const addAllocationRes = await client.query(
         "select public.api_acl_allocations_caulk_add($1::uuid, $2::text, $3::jsonb) as result",
-        [orgId, actor, JSON.stringify({ jobNumber, requirementId, productId, warehouse, allocatedTubes: 10 })],
+        [orgId, actor, JSON.stringify({ jobNumber, requirementId: updatedRequirementId, productId, warehouse, allocatedTubes: 10 })],
       );
       const allocationId = String(addAllocationRes.rows[0]?.result?.caulkAllocationId || "").trim();
       assertOk(allocationId, "Caulk allocation add did not return caulkAllocationId.");

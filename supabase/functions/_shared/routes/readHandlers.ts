@@ -151,6 +151,7 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok({ entries });
   },
   "/caulk/stock/list": async ({ client, orgId, params }, deps) => {
+    const productIdFilter = deps.asTrimmedString(params.productId).toLowerCase();
     const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_stock", {
       p_org_id: orgId,
       p_warehouse: deps.asTrimmedString(params.warehouse),
@@ -175,6 +176,12 @@ const readHandlers: Record<string, ReadHandler> = {
         updatedAt: deps.asTrimmedString(entry.updated_at),
         updatedBy: deps.asTrimmedString(entry.updated_by),
       };
+    }).filter((entry) => {
+      if (!productIdFilter) {
+        return true;
+      }
+
+      return entry.productId.toLowerCase() === productIdFilter;
     });
     return ok({ entries });
   },

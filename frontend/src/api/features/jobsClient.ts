@@ -12,9 +12,19 @@ import type {
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
+function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
+  return {
+    ...entry,
+    requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(entry.remainingTubes || 0))
+  };
+}
+
 function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
+    summary: normalizeJobListEntry(detail.summary),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],
@@ -27,7 +37,7 @@ export async function getJobs(limit = 25): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
   const params = { limit };
   const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
-  return data.entries;
+  return (data.entries || []).map(normalizeJobListEntry);
 }
 
 export async function searchJobsByNumber(query: string, limit = 25): Promise<JobListEntry[]> {
@@ -40,7 +50,7 @@ export async function searchJobsByNumber(query: string, limit = 25): Promise<Job
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const params = { query: normalizedQuery, limit: normalizedLimit };
   const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
-  return data.entries;
+  return (data.entries || []).map(normalizeJobListEntry);
 }
 
 export async function getJob(jobNumber: string): Promise<JobDetail> {

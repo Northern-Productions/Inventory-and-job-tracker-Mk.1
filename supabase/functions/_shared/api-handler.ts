@@ -1367,6 +1367,24 @@ function buildPublicCaulkRequirementEntries(caulkRequirements: any[], caulkAlloc
   return response;
 }
 
+function summarizeCaulkRequirementCoverage(caulkRequirements: any[]) {
+  let requiredTubes = 0;
+  let allocatedTubes = 0;
+  let remainingTubes = 0;
+
+  for (const entry of Array.isArray(caulkRequirements) ? caulkRequirements : []) {
+    requiredTubes += Math.max(0, integerOrZero(entry.requiredTubes));
+    allocatedTubes += Math.max(0, integerOrZero(entry.allocatedTubes));
+    remainingTubes += Math.max(0, integerOrZero(entry.remainingTubes));
+  }
+
+  return {
+    requiredTubes,
+    allocatedTubes,
+    remainingTubes,
+  };
+}
+
 function buildPublicJobUsageTimelineEntries(
   rollHistoryEntries: any[],
   boxById: Record<string, any>,
@@ -1456,6 +1474,14 @@ function normalizeAllocationKind(value: unknown): "REQUIREMENT" | "EXTRA" {
   return asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
 }
 
+function shouldIgnoreAllocationCoverageForBoxStatus(allocation: any, box: any) {
+  if (!box || allocation.status !== "ACTIVE") {
+    return false;
+  }
+
+  return box.status === "ZEROED" || box.status === "RETIRED";
+}
+
 function buildAllocationCoverageByRequirementKey(allocations: any[], boxById: Record<string, any>) {
   const totals: Record<string, number> = {};
   for (const allocation of allocations) {
@@ -1468,6 +1494,9 @@ function buildAllocationCoverageByRequirementKey(allocations: any[], boxById: Re
     }
     const box = boxById[allocation.boxId];
     if (!box) {
+      continue;
+    }
+    if (shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
       continue;
     }
     const key = normalizeJobRequirementLookupKey(box.manufacturer, box.filmName, box.widthIn);
@@ -1536,7 +1565,16 @@ function resolveAllocationJobMetadata(allocations: any[], filmOrders: any[]) {
   return { jobDate, crewLeader };
 }
 
-function buildAllocationJobSummary(jobNumber: string, allocations: any[], filmOrders: any[]) {
+function buildAllocationJobSummary(
+  jobNumber: string,
+  allocations: any[],
+  filmOrders: any[],
+  requirements: any[] = [],
+  caulkRequirements: any[] = [],
+  lifecycleStatus = "ACTIVE",
+  fallbackJobDate = "",
+  fallbackCrewLeader = "",
+) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
   let hasFilmOnTheWay = false;
@@ -1547,6 +1585,8 @@ function buildAllocationJobSummary(jobNumber: string, allocations: any[], filmOr
   let fulfilledAllocatedFeet = 0;
   let openFilmOrderCount = 0;
   const distinctBoxes: Record<string, boolean> = {};
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
+  const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
 
   for (const allocation of allocations) {
     if (allocation.boxId) {
@@ -1578,10 +1618,18 @@ function buildAllocationJobSummary(jobNumber: string, allocations: any[], filmOr
   }
 
   let status = "READY";
-  if (hasFilmOrder) {
+  if (normalizedLifecycleStatus === "CANCELLED") {
+    status = "CANCELLED";
+  } else if (normalizedLifecycleStatus === "COMPLETED") {
+    status = "COMPLETED";
+  } else if (hasFilmOrder) {
     status = "FILM_ORDER";
   } else if (hasFilmOnTheWay) {
     status = "ON_ORDER";
+  } else if (requirements.length || caulkRequirements.length) {
+    const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
+    const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
+    status = hasRemainingFilm || hasRemainingCaulk ? "ALLOCATE" : "READY";
   } else if (hasActiveAllocation) {
     status = "READY";
   } else if (hasCancelledRecord) {
@@ -1592,11 +1640,14 @@ function buildAllocationJobSummary(jobNumber: string, allocations: any[], filmOr
 
   return {
     jobNumber,
-    jobDate: metadata.jobDate,
-    crewLeader: metadata.crewLeader,
+    jobDate: metadata.jobDate || fallbackJobDate,
+    crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
     activeAllocatedFeet,
     fulfilledAllocatedFeet,
+    requiredTubes: caulkTotals.requiredTubes,
+    allocatedTubes: caulkTotals.allocatedTubes,
+    remainingTubes: caulkTotals.remainingTubes,
     openFilmOrderCount,
     boxCount: Object.keys(distinctBoxes).length,
   };
@@ -1664,6 +1715,7 @@ function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders:
 function computeJobStatusFromRequirements(
   lifecycleStatus: string,
   requirements: any[],
+  caulkRequirements: any[],
   allocations: any[],
   filmOrders: any[],
 ) {
@@ -1674,7 +1726,7 @@ function computeJobStatusFromRequirements(
   if (normalizedLifecycleStatus === "COMPLETED") {
     return "COMPLETED";
   }
-  if (!requirements.length) {
+  if (!requirements.length && !caulkRequirements.length) {
     if (!allocations.length && !filmOrders.length) {
       return "ALLOCATE";
     }
@@ -1685,10 +1737,21 @@ function computeJobStatusFromRequirements(
       return "ALLOCATE";
     }
   }
+  for (const requirement of caulkRequirements) {
+    if (requirement.remainingTubes > 0) {
+      return "ALLOCATE";
+    }
+  }
   return "READY";
 }
 
-function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any[], filmOrders: any[]) {
+function buildJobListEntry(
+  jobHeader: any,
+  requirements: any[],
+  allocations: any[],
+  filmOrders: any[],
+  caulkRequirements: any[] = [],
+) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
   if (!dueDate) {
@@ -1698,6 +1761,7 @@ function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any
   let requiredFeet = 0;
   let allocatedFeet = 0;
   let remainingFeet = 0;
+  const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   for (const requirement of requirements) {
     requiredFeet += requirement.requiredFeet;
     allocatedFeet += requirement.allocatedFeet;
@@ -1709,11 +1773,20 @@ function buildJobListEntry(jobHeader: any, requirements: any[], allocations: any
     sections: jobHeader.sections,
     dueDate,
     crewLeader,
-    status: computeJobStatusFromRequirements(jobHeader.lifecycleStatus, requirements, allocations, filmOrders),
+    status: computeJobStatusFromRequirements(
+      jobHeader.lifecycleStatus,
+      requirements,
+      caulkRequirements,
+      allocations,
+      filmOrders,
+    ),
     lifecycleStatus: normalizeJobLifecycleStatus(jobHeader.lifecycleStatus),
     requiredFeet,
     allocatedFeet,
     remainingFeet,
+    requiredTubes: caulkTotals.requiredTubes,
+    allocatedTubes: caulkTotals.allocatedTubes,
+    remainingTubes: caulkTotals.remainingTubes,
     requirementCount: requirements.length,
     allocationCount: allocations.length,
     filmOrderCount: filmOrders.length,
@@ -2089,13 +2162,19 @@ async function buildAllocationJobList(client: any, orgId: string) {
   const jobs = await listJobs(client, orgId);
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
+  const allRequirements = await listJobRequirements(client, orgId);
+  const allBoxes = await listBoxes(client, orgId);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
+  const groupedRequirements: Record<string, any[]> = {};
   const jobNumbers: Record<string, boolean> = {};
+  const jobHeadersByNumber: Record<string, any> = {};
+  const boxById = Object.fromEntries(allBoxes.map((box) => [box.boxId, box]));
 
   for (const job of jobs) {
     if (asTrimmedString(job.jobNumber)) {
       jobNumbers[job.jobNumber] = true;
+      jobHeadersByNumber[job.jobNumber] = job;
     }
   }
 
@@ -2118,30 +2197,75 @@ async function buildAllocationJobList(client: any, orgId: string) {
       groupedFilmOrders[filmOrder.jobNumber].push(filmOrder);
     }
   }
+  for (const requirement of allRequirements) {
+    if (!groupedRequirements[requirement.jobNumber]) {
+      groupedRequirements[requirement.jobNumber] = [];
+    }
+    groupedRequirements[requirement.jobNumber].push(requirement);
+  }
+  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(jobNumbers));
 
-  const response = Object.keys(jobNumbers).map((jobNumber) =>
-    buildAllocationJobSummary(jobNumber, groupedAllocations[jobNumber] || [], groupedFilmOrders[jobNumber] || [])
-  );
+  const response = Object.keys(jobNumbers)
+    .map((jobNumber) => {
+      const allocations = groupedAllocations[jobNumber] || [];
+      const filmOrders = groupedFilmOrders[jobNumber] || [];
+      const requirements = buildPublicJobRequirementEntries(
+        groupedRequirements[jobNumber] || [],
+        allocations,
+        boxById,
+      );
+      const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
+      const header = jobHeadersByNumber[jobNumber];
+
+      if (!allocations.length && !filmOrders.length && !requirements.length && !publicCaulkRequirements.length) {
+        return null;
+      }
+
+      return buildAllocationJobSummary(
+        jobNumber,
+        allocations,
+        filmOrders,
+        requirements,
+        publicCaulkRequirements,
+        header?.lifecycleStatus || "ACTIVE",
+        header?.dueDate || "",
+        header?.crewLeader || "",
+      );
+    })
+    .filter((entry): entry is any => Boolean(entry));
   response.sort(compareAllocationJobSummaries);
   return response;
 }
 
 async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
+  const header = await findJobByNumber(client, orgId, normalizedJobNumber);
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
   const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
   const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
   const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
-  if (!allocations.length && !filmOrders.length && !caulkRequirements.length && !caulkAllocations.length) {
+  if (!header && !allocations.length && !filmOrders.length && !caulkRequirements.length && !caulkAllocations.length) {
     throw new HttpError(404, "Job not found.");
   }
   const boxes = await listBoxes(client, orgId);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const publicRequirements = header
+    ? buildPublicJobRequirementEntries(await listJobRequirementsByJob(client, orgId, normalizedJobNumber), allocations, boxById)
+    : [];
   return {
-    summary: buildAllocationJobSummary(normalizedJobNumber, allocations, filmOrders),
+    summary: buildAllocationJobSummary(
+      normalizedJobNumber,
+      allocations,
+      filmOrders,
+      publicRequirements,
+      publicCaulkRequirements,
+      header?.lifecycleStatus || "ACTIVE",
+      header?.dueDate || "",
+      header?.crewLeader || "",
+    ),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
@@ -2149,6 +2273,28 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+  };
+}
+
+async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumbers: string[]) {
+  const requirementsByJob: Record<string, any[]> = {};
+  const allocationsByJob: Record<string, any[]> = {};
+  const normalizedJobNumbers = Array.from(new Set(jobNumbers.filter((entry) => asTrimmedString(entry))));
+
+  await Promise.all(
+    normalizedJobNumbers.map(async (jobNumber) => {
+      const [caulkRequirements, caulkAllocations] = await Promise.all([
+        listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+        listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+      ]);
+      requirementsByJob[jobNumber] = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+      allocationsByJob[jobNumber] = caulkAllocations;
+    }),
+  );
+
+  return {
+    requirementsByJob,
+    allocationsByJob,
   };
 }
 
@@ -2191,6 +2337,7 @@ async function buildJobsList(client: any, orgId: string, limit: number) {
     }
     groupedRequirements[requirement.jobNumber].push(requirement);
   }
+  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(byJobNumber));
 
   const response = Object.keys(byJobNumber).map((jobNumber) => {
     const allocations = groupedAllocations[jobNumber] || [];
@@ -2200,8 +2347,9 @@ async function buildJobsList(client: any, orgId: string, limit: number) {
       allocations,
       boxById,
     );
+    const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
-    return buildJobListEntry(header, requirements, allocations, filmOrders);
+    return buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements);
   });
 
   response.sort(compareJobsListEntries);
@@ -2304,7 +2452,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
   return {
-    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders),
+    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),

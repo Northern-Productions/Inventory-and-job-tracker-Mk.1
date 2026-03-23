@@ -62,13 +62,14 @@ export function useBoxAllocations(boxId: string) {
   });
 }
 
-export function useJobsList(limit = 25) {
+export function useJobsList(limit = 25, options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
   return useQuery({
     queryKey: [...inventoryKeys.jobs, { limit }],
     queryFn: () => getJobs(limit),
+    enabled: options.enabled ?? true,
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
   });
 }
 

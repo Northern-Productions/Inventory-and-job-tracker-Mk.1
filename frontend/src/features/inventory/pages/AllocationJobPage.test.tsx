@@ -20,6 +20,7 @@ const useReopenJobMock = vi.fn();
 const useDeleteFilmOrderMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
+const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
 const useCreateFilmOrderMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
@@ -51,7 +52,8 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
 }));
 
 vi.mock('../../../api/features/caulkClient', () => ({
-  listCaulkProducts: vi.fn()
+  listCaulkProducts: vi.fn(),
+  listCaulkStock: vi.fn()
 }));
 
 vi.mock('../hooks/useInventoryQueries', () => ({
@@ -68,6 +70,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
   useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
+  useBox: () => useBoxMock(),
   useAllocateBox: () => useAllocateBoxMock(),
   useCreateFilmOrder: () => useCreateFilmOrderMock(),
   useFilmCatalog: () => useFilmCatalogMock()
@@ -85,6 +88,9 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
     requiredFeet: 0,
     allocatedFeet: 0,
     remainingFeet: 0,
+    requiredTubes: 0,
+    allocatedTubes: 0,
+    remainingTubes: 0,
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
@@ -179,6 +185,12 @@ describe('AllocationJobPage', () => {
     useDeleteFilmOrderMock.mockReturnValue(buildMutationState());
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
+    useBoxMock.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+      error: null
+    });
     useAllocateBoxMock.mockReturnValue(buildMutationState());
     useCreateFilmOrderMock.mockReturnValue(buildMutationState());
     useFilmCatalogMock.mockReturnValue({
@@ -312,6 +324,9 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('CAULK');
     expect(html).toContain('125 LF');
     expect(html).toContain('10 TUBES');
+    expect(html).toContain('30 tubes | 2 full cases | 6 loose tubes');
+    expect(html).toContain('6 tubes | 0 full cases | 6 loose tubes');
+    expect(html).toContain('24 tubes | 2 full cases | 0 loose tubes');
   });
 
   it('enforces closed-job read-only behavior for caulk allocation actions', () => {
@@ -389,5 +404,70 @@ describe('AllocationJobPage', () => {
     expect(html).not.toContain('Delete');
     expect(html).toContain('Allocate Film');
     expect(html).toContain('Allocate Caulk');
+  });
+
+  it('shows Check In for boxes already checked out on this job and keeps Check Out for in-stock rows', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-checked-out',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 50,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        },
+        {
+          allocationId: 'alloc-in-stock',
+          boxId: 'IL1-101',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 60,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Check In');
+    expect(html).toContain('Check Out');
   });
 });

@@ -38,6 +38,9 @@ function buildAllocationJobSummary(overrides: Record<string, unknown> = {}) {
     status: 'ALLOCATE',
     activeAllocatedFeet: 0,
     fulfilledAllocatedFeet: 0,
+    requiredTubes: 0,
+    allocatedTubes: 0,
+    remainingTubes: 0,
     openFilmOrderCount: 0,
     boxCount: 0,
     ...overrides

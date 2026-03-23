@@ -17,6 +17,7 @@ import {
   getOfflineBox,
   replaceOfflineInventoryBoxes,
   searchOfflineBoxes,
+  upsertOfflineInventoryBox,
   type OfflineInventorySyncMeta
 } from '../../lib/offlineInventory';
 import { APIError, request } from '../http';
@@ -60,7 +61,15 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
 export async function getBox(boxId: string): Promise<Box> {
   assertFeatureAccess('inventory', 'read');
   try {
-    return await requestReadWithFallback<Box>('/boxes/get', { boxId }, { boxId });
+    const box = await requestReadWithFallback<Box>('/boxes/get', { boxId }, { boxId });
+
+    try {
+      await upsertOfflineInventoryBox(box);
+    } catch {
+      // Keep the live box read successful even if the offline cache write fails.
+    }
+
+    return box;
   } catch (error) {
     if (shouldUseOfflineInventoryFallback(error)) {
       const offlineBox = await getOfflineBox(boxId);

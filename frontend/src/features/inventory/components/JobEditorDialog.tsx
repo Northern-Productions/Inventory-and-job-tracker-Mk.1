@@ -11,6 +11,10 @@ import {
 } from '../utils/boxHelpers';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
 import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
+import {
+  buildPendingJobEditorDraftMessage,
+  getPendingJobEditorDrafts
+} from '../utils/jobEditorDrafts';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
@@ -415,6 +419,18 @@ export function JobEditorDialog({
       return;
     }
 
+    const pendingDrafts = getPendingJobEditorDrafts({
+      filmName,
+      widthIn,
+      requiredFeet,
+      caulkRequiredTubes
+    });
+    const pendingDraftMessage = buildPendingJobEditorDraftMessage(pendingDrafts);
+    if (pendingDraftMessage) {
+      setError(pendingDraftMessage);
+      return;
+    }
+
     const normalizedLines: JobRequirementEditorLine[] = [];
 
     for (let index = 0; index < requirements.length; index += 1) {
@@ -740,7 +756,7 @@ export function JobEditorDialog({
       <div className="dialog-section">
         <div className="dialog-section-header">
           <h3>Caulk Requirements</h3>
-          <p className="muted-text">Track secondary material pulls here without changing the existing save behavior.</p>
+          <p className="muted-text">Add each caulk draft to the list before saving the job.</p>
         </div>
 
         <div className="form-grid">

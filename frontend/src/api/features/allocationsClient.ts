@@ -24,6 +24,15 @@ import type {
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
+function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
+  return {
+    ...summary,
+    requiredTubes: Math.max(0, Number(summary.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(summary.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(summary.remainingTubes || 0))
+  };
+}
+
 export async function getAllocationsByBox(boxId: string): Promise<AllocationEntry[]> {
   assertFeatureAccess('allocations', 'read');
   const data = await requestReadWithFallback<AllocationListResponse>(
@@ -38,7 +47,7 @@ export async function getAllocationsByBox(boxId: string): Promise<AllocationEntr
 export async function getAllocationJobs(): Promise<AllocationJobSummary[]> {
   assertFeatureAccess('allocations', 'read');
   const data = await requestReadWithFallback<AllocationJobListResponse>('/allocations/jobs', {}, {});
-  return data.entries;
+  return (data.entries || []).map(normalizeAllocationJobSummary);
 }
 
 export async function getAllocationJob(jobNumber: string): Promise<AllocationJobDetail> {
@@ -50,6 +59,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
   );
   return {
     ...detail,
+    summary: normalizeAllocationJobSummary(detail.summary),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],

@@ -4,6 +4,7 @@ import type { FeatureAccessMode, FeatureArea } from '../domain';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountMenuTrigger, AccountSummary } from '../features/auth/AccountControl';
 import { useAuth } from '../features/auth/AuthContext';
+import { useJobsList } from '../features/inventory/hooks/useInventoryReadQueries';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
@@ -25,6 +26,7 @@ interface NavItem {
 interface ComputedNavItem extends NavItem {
   active: boolean;
   showAttentionDot: boolean;
+  attentionAriaLabel?: string;
 }
 
 const navItems: NavItem[] = [
@@ -192,6 +194,11 @@ export function AppLayout() {
   const auth = useAuth();
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
+  const canReadJobs = auth.hasFeatureAccess('allocations', 'read');
+  const jobsAttentionQuery = useJobsList(0, {
+    enabled: canReadJobs,
+    refetchOnWindowFocus: true
+  });
   const appShellTheme = useMemo(
     () => resolveAppShellTheme(location.pathname),
     [location.pathname]
@@ -230,6 +237,13 @@ export function AppLayout() {
     auth.isOwner && Number(auth.accessContext?.pendingCount || 0) > 0;
   const showAccessPendingAttention =
     hasPendingAccessApprovals && visibleNavItems.some((item) => item.to === '/admin/access');
+  const showJobsNeedingAllocationAttention =
+    canReadJobs &&
+    (jobsAttentionQuery.data || []).some(
+      (entry) =>
+        entry.lifecycleStatus === 'ACTIVE' &&
+        (Number(entry.remainingFeet || 0) > 0 || Number(entry.remainingTubes || 0) > 0)
+    );
 
   const primaryNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -238,9 +252,13 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+          showAttentionDot: item.to === '/allocations' ? showJobsNeedingAllocationAttention : false,
+          attentionAriaLabel:
+            item.to === '/allocations' && showJobsNeedingAllocationAttention
+              ? `${item.desktopLabel} (jobs need allocations)`
+              : undefined
         })),
-    [location.pathname, showAccessPendingAttention, visibleNavItems]
+    [location.pathname, showJobsNeedingAllocationAttention, visibleNavItems]
   );
   const moreDesktopNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -249,7 +267,11 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access',
+          attentionAriaLabel:
+            showAccessPendingAttention && item.to === '/admin/access'
+              ? `${item.desktopLabel} (pending approvals)`
+              : undefined
         })),
     [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
@@ -260,9 +282,13 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+          showAttentionDot: item.to === '/allocations' ? showJobsNeedingAllocationAttention : false,
+          attentionAriaLabel:
+            item.to === '/allocations' && showJobsNeedingAllocationAttention
+              ? `${item.mobileLabel} (jobs need allocations)`
+              : undefined
         })),
-    [location.pathname, showAccessPendingAttention, visibleNavItems]
+    [location.pathname, showJobsNeedingAllocationAttention, visibleNavItems]
   );
   const moreMobileNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -271,7 +297,11 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access'
+          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access',
+          attentionAriaLabel:
+            showAccessPendingAttention && item.to === '/admin/access'
+              ? `${item.mobileLabel} (pending approvals)`
+              : undefined
         })),
     [location.pathname, showAccessPendingAttention, visibleNavItems]
   );
@@ -282,7 +312,7 @@ export function AppLayout() {
         to: item.to,
         active: item.active,
         showAttentionDot: item.showAttentionDot,
-        attentionAriaLabel: item.showAttentionDot ? `${item.mobileLabel} (pending approvals)` : undefined
+        attentionAriaLabel: item.attentionAriaLabel
       })),
     [primaryMobileNavItems]
   );
@@ -293,7 +323,7 @@ export function AppLayout() {
         to: item.to,
         active: item.active,
         showAttentionDot: item.showAttentionDot,
-        attentionAriaLabel: item.showAttentionDot ? `${item.mobileLabel} (pending approvals)` : undefined
+        attentionAriaLabel: item.attentionAriaLabel
       })),
     [moreMobileNavItems]
   );
@@ -379,8 +409,12 @@ export function AppLayout() {
                   to={item.to}
                   end={item.to === '/'}
                   className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`.trim()}
+                  aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
                 >
-                  {item.desktopLabel}
+                  <span className="nav-attention-label">
+                    {item.desktopLabel}
+                    {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
+                  </span>
                 </NavLink>
               ))}
               <div className="app-nav-more-wrap" ref={desktopMoreRef}>
@@ -408,7 +442,7 @@ export function AppLayout() {
                         className={`nav-more-item ${item.active ? 'nav-more-item-active' : ''}`.trim()}
                         role="menuitem"
                         onClick={closeDesktopMoreMenu}
-                        aria-label={item.showAttentionDot ? `${item.desktopLabel} (pending approvals)` : undefined}
+                        aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
                       >
                         <span className="nav-attention-label">
                           {item.desktopLabel}

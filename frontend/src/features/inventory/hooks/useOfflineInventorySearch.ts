@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncAllOfflineInventorySnapshots } from '../../../api/features/inventoryClient';
 import type { Warehouse } from '../../../domain';
@@ -40,6 +40,7 @@ function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
 
 export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
   const queryClient = useQueryClient();
+  const isSyncingRef = useRef(false);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
   );
@@ -71,6 +72,35 @@ export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
       metaQuery.isFetching ||
       isSyncing);
 
+  const syncNow = useCallback(async () => {
+    const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+
+    if (isSyncingRef.current) {
+      return;
+    }
+
+    if (!currentlyOnline) {
+      setSyncError(null);
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
+      return;
+    }
+
+    isSyncingRef.current = true;
+    setIsSyncing(true);
+    setSyncError(null);
+
+    try {
+      await syncAllOfflineInventorySnapshots();
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
+    } catch (error) {
+      setSyncError(error instanceof Error ? error : new Error('Unable to sync the offline inventory copy.'));
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
+    } finally {
+      isSyncingRef.current = false;
+      setIsSyncing(false);
+    }
+  }, [queryClient]);
+
   useEffect(() => {
     function handleStatusChange() {
       setIsOnline(navigator.onLine);
@@ -91,32 +121,45 @@ export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
     }
 
     void syncNow();
-  }, [isOnline]);
+  }, [isOnline, syncNow]);
 
-  async function syncNow() {
-    if (isSyncing) {
-      return;
+  useEffect(() => {
+    function handleWindowFocus() {
+      if (typeof navigator !== 'undefined') {
+        setIsOnline(navigator.onLine);
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return;
+      }
+
+      void syncNow();
     }
 
-    if (!isOnline) {
-      setSyncError(null);
-      await Promise.all([boxesQuery.refetch(), metaQuery.refetch()]);
-      return;
+    function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      if (typeof navigator !== 'undefined') {
+        setIsOnline(navigator.onLine);
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return;
+      }
+
+      void syncNow();
     }
 
-    setIsSyncing(true);
-    setSyncError(null);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    try {
-      await syncAllOfflineInventorySnapshots();
-      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
-    } catch (error) {
-      setSyncError(error instanceof Error ? error : new Error('Unable to sync the offline inventory copy.'));
-      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
-    } finally {
-      setIsSyncing(false);
-    }
-  }
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [syncNow]);
 
   return {
     data: boxesQuery.data || [],

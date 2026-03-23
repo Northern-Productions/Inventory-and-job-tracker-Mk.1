@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { listCaulkProducts } from '../../../api/features/caulkClient';
+import { listCaulkProducts, listCaulkStock } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeleteConfirmDialog } from '../../../components/DeleteConfirmDialog';
@@ -38,6 +38,7 @@ import {
   useDeleteJob,
   useDeleteFilmOrder,
   useFilmCatalog,
+  useBox,
   useJob,
   useRemoveCaulkJobAllocation,
   useReopenJob,
@@ -46,6 +47,14 @@ import {
   useUpdateCaulkJobAllocation,
   useUpdateJob
 } from '../hooks/useInventoryQueries';
+import { confirmWarnings, getCheckInWarnings } from '../utils/boxWarnings';
+import {
+  buildCaulkAllocationBreakdownMessage,
+  buildAddCaulkAllocationDefaults,
+  buildCaulkAllocationValuesForRequirement,
+  formatCaulkTubeBreakdown,
+  sortCaulkStockEntriesForAllocation
+} from '../utils/caulkAllocationPlanning';
 import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
@@ -151,6 +160,7 @@ export default function AllocationJobPage() {
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
   const [allocationToRemove, setAllocationToRemove] = useState<AllocationJobDetailEntry | null>(null);
+  const [filmCheckinEntry, setFilmCheckinEntry] = useState<AllocationJobDetailEntry | null>(null);
   const [caulkAllocationToRemove, setCaulkAllocationToRemove] = useState<CaulkJobAllocationEntry | null>(
     null
   );
@@ -164,6 +174,7 @@ export default function AllocationJobPage() {
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
+  const filmCheckinBoxQuery = useBox(filmCheckinEntry?.boxId || '');
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
   const usageTimeline = detail?.usageTimeline || [];
@@ -204,6 +215,96 @@ export default function AllocationJobPage() {
       ) as Record<string, string>,
     [caulkProducts]
   );
+  const selectedCaulkRequirement = useMemo(() => {
+    if (!caulkAllocationEditor?.requirementId) {
+      return null;
+    }
+
+    return caulkRequirementById[caulkAllocationEditor.requirementId] || null;
+  }, [caulkAllocationEditor?.requirementId, caulkRequirementById]);
+  const selectedCaulkAllocationRow = useMemo(() => {
+    if (!caulkAllocationEditor || caulkAllocationEditor.mode !== 'edit') {
+      return null;
+    }
+
+    return (
+      caulkAllocations.find((entry) => entry.caulkAllocationId === caulkAllocationEditor.caulkAllocationId) ||
+      null
+    );
+  }, [caulkAllocationEditor, caulkAllocations]);
+  const selectedCaulkProduct = useMemo(() => {
+    if (!caulkAllocationEditor?.productId) {
+      return null;
+    }
+
+    return caulkProducts.find((entry) => entry.productId === caulkAllocationEditor.productId) || null;
+  }, [caulkAllocationEditor?.productId, caulkProducts]);
+  const selectedCaulkAllocationProductId = selectedCaulkRequirement?.productId || caulkAllocationEditor?.productId || '';
+  const selectedCaulkAllocationProductLabel =
+    (selectedCaulkAllocationProductId && caulkProductLabelById[selectedCaulkAllocationProductId]) ||
+    (selectedCaulkRequirement
+      ? buildCaulkProductLabel(
+          selectedCaulkRequirement.manufacturer,
+          selectedCaulkRequirement.productName,
+          selectedCaulkRequirement.productCode
+        )
+      : selectedCaulkAllocationRow
+        ? buildCaulkProductLabel(
+            selectedCaulkAllocationRow.manufacturer,
+            selectedCaulkAllocationRow.productName,
+            selectedCaulkAllocationRow.productCode
+          )
+        : '');
+  const caulkAllocationStockQuery = useQuery({
+    queryKey: ['caulk', 'stock', 'allocation-dialog', selectedCaulkAllocationProductId],
+    queryFn: () =>
+      listCaulkStock({
+        warehouse: 'ALL',
+        productId: selectedCaulkAllocationProductId
+      }),
+    enabled: Boolean(caulkAllocationEditor && selectedCaulkAllocationProductId)
+  });
+  const caulkAllocationStockRows = useMemo(() => {
+    const rows = caulkAllocationStockQuery.data || [];
+    if (!selectedCaulkAllocationProductId) {
+      return [];
+    }
+
+    return sortCaulkStockEntriesForAllocation(
+      rows.filter((entry) => entry.productId === selectedCaulkAllocationProductId),
+      caulkAllocationEditor?.warehouse || ''
+    );
+  }, [
+    caulkAllocationEditor?.warehouse,
+    caulkAllocationStockQuery.data,
+    selectedCaulkAllocationProductId
+  ]);
+  const caulkAllocationEditorTubesPerCase =
+    selectedCaulkRequirement?.tubesPerCase ??
+    selectedCaulkProduct?.tubesPerCase ??
+    selectedCaulkAllocationRow?.tubesPerCase ??
+    0;
+  const caulkAllocationEditorTubeCount = caulkAllocationEditor?.allocatedTubes
+    ? Math.max(Math.floor(Number(caulkAllocationEditor.allocatedTubes)), 0)
+    : 0;
+  const caulkAllocationBreakdownMessage = selectedCaulkAllocationProductId
+    ? buildCaulkAllocationBreakdownMessage({
+        selectedRequirementRemainingTubes:
+          selectedCaulkRequirement && caulkAllocationEditor?.mode === 'add'
+            ? selectedCaulkRequirement.remainingTubes
+            : null,
+        allocationTubeCount: caulkAllocationEditorTubeCount,
+        tubesPerCase: caulkAllocationEditorTubesPerCase
+      })
+    : '';
+  const filmCheckinDialogMessage = filmCheckinEntry
+    ? [
+        `Enter the latest roll weight in pounds to complete the check-in for box ${filmCheckinEntry.boxId}.`,
+        filmCheckinBoxQuery.isLoading ? 'Loading the latest box details for warning checks.' : ''
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : '';
   const caulkCheckoutsByAllocationId = useMemo(() => {
     const grouped: Record<string, CaulkJobCheckoutEntry[]> = {};
     for (const checkout of caulkCheckouts) {
@@ -554,6 +655,88 @@ export default function AllocationJobPage() {
     }
   }
 
+  function openFilmCheckinDialog(entry: AllocationJobDetailEntry) {
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${entry.jobNumber} is closed and allocations cannot be checked in.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!entry.checkedOutOnThisJob || entry.boxStatus !== 'CHECKED_OUT') {
+      toast.push({
+        title: 'Box is not actionable',
+        description: `Box ${entry.boxId} is not currently checked out on job ${entry.jobNumber}.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    setFilmCheckinEntry(entry);
+  }
+
+  async function handleFilmCheckinConfirm(reason: string) {
+    if (!filmCheckinEntry) {
+      return;
+    }
+
+    if (!ensureSignedIn('checking in boxes')) {
+      return;
+    }
+
+    const box = filmCheckinBoxQuery.data;
+    if (!box) {
+      toast.push({
+        title: 'Box details are still loading',
+        description: `The latest box record for ${filmCheckinEntry.boxId} is not ready yet. Try again in a moment.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    const parsedWeight = Number(reason);
+    if (!Number.isFinite(parsedWeight) || parsedWeight < 0) {
+      toast.push({
+        title: 'Roll weight required',
+        description: 'Enter a valid non-negative roll weight in pounds before checking the box in.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const checkInWarnings = getCheckInWarnings(box, parsedWeight);
+    if (!confirmWarnings(checkInWarnings)) {
+      return;
+    }
+
+    try {
+      const entry = filmCheckinEntry;
+      const { warnings } = await setBoxStatusMutation.mutateAsync({
+        boxId: entry.boxId,
+        status: 'IN_STOCK',
+        lastRollWeightLbs: parsedWeight,
+        auditNote: `Checked in at ${parsedWeight} lbs`
+      });
+
+      setFilmCheckinEntry(null);
+      toast.push({
+        title: `Checked in ${entry.boxId}`,
+        description:
+          warnings.join(' ') ||
+          `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to check in box',
+        description: error instanceof Error ? error.message : 'The check-in request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   function openAddCaulkAllocationDialog() {
     if (!summary) {
       return;
@@ -561,8 +744,13 @@ export default function AllocationJobPage() {
 
     const defaultProductId = getPreferredCaulkProductId(caulkProducts) || caulkRequirements[0]?.productId || '';
     const defaultWarehouse = summary.warehouse || warehouseOptions[0] || '';
+    const defaultAllocation = buildAddCaulkAllocationDefaults({
+      requirements: caulkRequirements,
+      fallbackProductId: defaultProductId,
+      defaultWarehouse
+    });
 
-    if (!defaultProductId) {
+    if (!defaultAllocation.productId) {
       toast.push({
         title: 'No caulk products available',
         description: 'Create a caulk product before adding allocations.',
@@ -574,10 +762,10 @@ export default function AllocationJobPage() {
     setCaulkAllocationEditor({
       mode: 'add',
       caulkAllocationId: '',
-      requirementId: '',
-      productId: defaultProductId,
-      warehouse: defaultWarehouse,
-      allocatedTubes: '1',
+      requirementId: defaultAllocation.requirementId,
+      productId: defaultAllocation.productId,
+      warehouse: defaultAllocation.warehouse,
+      allocatedTubes: defaultAllocation.allocatedTubes,
       notes: '',
       lockProductWarehouse: false,
       minAllocatedTubes: 1
@@ -1058,8 +1246,16 @@ export default function AllocationJobPage() {
                 />
                 <MobileFieldList>
                   <MobileField label="Required Tubes" value={entry.requiredTubes} />
+                  <MobileField
+                    label="Required Breakdown"
+                    value={formatCaulkTubeBreakdown(entry.requiredTubes, entry.tubesPerCase)}
+                  />
                   <MobileField label="Allocated Tubes" value={entry.allocatedTubes} />
                   <MobileField label="Remaining Tubes" value={entry.remainingTubes} />
+                  <MobileField
+                    label="Remaining Breakdown"
+                    value={formatCaulkTubeBreakdown(entry.remainingTubes, entry.tubesPerCase)}
+                  />
                 </MobileFieldList>
               </MobileRecordCard>
             ))}
@@ -1074,8 +1270,10 @@ export default function AllocationJobPage() {
                   <th>Code</th>
                   <th>Tubes/Case</th>
                   <th>Required Tubes</th>
+                  <th>Required Breakdown</th>
                   <th>Allocated Tubes</th>
                   <th>Remaining Tubes</th>
+                  <th>Remaining Breakdown</th>
                 </tr>
               </thead>
               <tbody>
@@ -1086,8 +1284,10 @@ export default function AllocationJobPage() {
                     <td>{entry.productCode || '--'}</td>
                     <td>{entry.tubesPerCase}</td>
                     <td>{entry.requiredTubes}</td>
+                    <td>{formatCaulkTubeBreakdown(entry.requiredTubes, entry.tubesPerCase)}</td>
                     <td>{entry.allocatedTubes}</td>
                     <td>{entry.remainingTubes}</td>
+                    <td>{formatCaulkTubeBreakdown(entry.remainingTubes, entry.tubesPerCase)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1134,11 +1334,18 @@ export default function AllocationJobPage() {
                 <div className="film-order-actions">
                   {isReadOnlyJob ? (
                     <span className="muted-text">Read-only</span>
-                  ) : entry.checkedOutOnThisJob ? (
-                    <span className="muted-text">Checked out on this job</span>
                   ) : (
                     <>
-                      {entry.boxStatus === 'IN_STOCK' ? (
+                      {entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT' ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => openFilmCheckinDialog(entry)}
+                          disabled={setBoxStatusMutation.isPending}
+                        >
+                          Check In
+                        </Button>
+                      ) : entry.boxStatus === 'IN_STOCK' ? (
                         <Button
                           type="button"
                           variant="secondary"
@@ -1150,14 +1357,16 @@ export default function AllocationJobPage() {
                       ) : (
                         <span className="muted-text">Not in stock</span>
                       )}
-                      <Button
-                        type="button"
-                        variant="danger"
-                        onClick={() => setAllocationToRemove(entry)}
-                        disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
-                      >
-                        Remove
-                      </Button>
+                      {!entry.checkedOutOnThisJob ? (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => setAllocationToRemove(entry)}
+                          disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -1200,11 +1409,18 @@ export default function AllocationJobPage() {
                     <td>
                       {isReadOnlyJob ? (
                         <span className="muted-text">Read-only</span>
-                      ) : entry.checkedOutOnThisJob ? (
-                        <span className="muted-text">Checked out on this job</span>
                       ) : (
                         <div className="film-order-actions">
-                          {entry.boxStatus === 'IN_STOCK' ? (
+                          {entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT' ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => openFilmCheckinDialog(entry)}
+                              disabled={setBoxStatusMutation.isPending}
+                            >
+                              Check In
+                            </Button>
+                          ) : entry.boxStatus === 'IN_STOCK' ? (
                             <Button
                               type="button"
                               variant="secondary"
@@ -1216,14 +1432,16 @@ export default function AllocationJobPage() {
                           ) : (
                             <span className="muted-text">Not in stock</span>
                           )}
-                          <Button
-                            type="button"
-                            variant="danger"
-                            onClick={() => setAllocationToRemove(entry)}
-                            disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
-                          >
-                            Remove
-                          </Button>
+                          {!entry.checkedOutOnThisJob ? (
+                            <Button
+                              type="button"
+                              variant="danger"
+                              onClick={() => setAllocationToRemove(entry)}
+                              disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
                         </div>
                       )}
                     </td>
@@ -1278,6 +1496,10 @@ export default function AllocationJobPage() {
                   />
                   <MobileFieldList>
                     <MobileField label="Allocated Tubes" value={entry.allocatedTubes} />
+                    <MobileField
+                      label="Allocated Breakdown"
+                      value={formatCaulkTubeBreakdown(entry.allocatedTubes, entry.tubesPerCase)}
+                    />
                     <MobileField label="Reserved Tubes" value={entry.reservedTubesRemaining} />
                     <MobileField label="Checked Out" value={entry.checkedOutTubesTotal} />
                     <MobileField label="Returned Unused" value={entry.returnedUnusedTubesTotal} />
@@ -1338,6 +1560,7 @@ export default function AllocationJobPage() {
                   <th>Product</th>
                   <th>Warehouse</th>
                   <th>Allocated</th>
+                  <th>Allocated Breakdown</th>
                   <th>Reserved</th>
                   <th>Checked Out</th>
                   <th>Returned</th>
@@ -1356,6 +1579,7 @@ export default function AllocationJobPage() {
                       <td>{buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode)}</td>
                       <td>{entry.warehouse}</td>
                       <td>{entry.allocatedTubes}</td>
+                      <td>{formatCaulkTubeBreakdown(entry.allocatedTubes, entry.tubesPerCase)}</td>
                       <td>{entry.reservedTubesRemaining}</td>
                       <td>{entry.checkedOutTubesTotal}</td>
                       <td>{entry.returnedUnusedTubesTotal}</td>
@@ -1813,6 +2037,23 @@ export default function AllocationJobPage() {
       />
 
       <ConfirmDialog
+        open={Boolean(filmCheckinEntry)}
+        title={filmCheckinEntry ? `Check In ${filmCheckinEntry.boxId}` : 'Check In Box'}
+        message={filmCheckinDialogMessage}
+        confirmLabel="Check In"
+        cancelLabel="Keep Checked Out"
+        requireReason
+        reasonLabel="Last Roll Weight (lbs)"
+        reasonPlaceholder="Required"
+        reasonField="input"
+        reasonInputType="number"
+        reasonInputStep="0.01"
+        reasonInputMin="0"
+        onCancel={() => setFilmCheckinEntry(null)}
+        onConfirm={(reason) => void handleFilmCheckinConfirm(reason)}
+      />
+
+      <ConfirmDialog
         open={Boolean(caulkAllocationToRemove)}
         title="Remove Caulk Allocation"
         message={
@@ -1898,7 +2139,7 @@ export default function AllocationJobPage() {
             <div className="form-grid">
               {caulkAllocationEditor.mode === 'add' ? (
                 <label className="field">
-                  <span className="field-label">Requirement (Optional)</span>
+                  <span className="field-label">Job Requirement</span>
                   <select
                     className="field-input"
                     value={caulkAllocationEditor.requirementId}
@@ -1907,12 +2148,16 @@ export default function AllocationJobPage() {
                       const requirement = nextRequirementId
                         ? caulkRequirementById[nextRequirementId]
                         : null;
+                      const nextValues = requirement
+                        ? buildCaulkAllocationValuesForRequirement(requirement)
+                        : null;
                       setCaulkAllocationEditor((current) =>
                         current
                           ? {
                               ...current,
                               requirementId: nextRequirementId,
-                              productId: requirement?.productId || current.productId
+                              productId: nextValues?.productId || current.productId,
+                              allocatedTubes: nextValues?.allocatedTubes || current.allocatedTubes
                             }
                           : current
                       );
@@ -1998,6 +2243,65 @@ export default function AllocationJobPage() {
                     : undefined
                 }
               />
+              {selectedCaulkAllocationProductId ? (
+                <div className="caulk-allocation-helper-block">
+                  <p className="muted-text">{caulkAllocationBreakdownMessage}</p>
+                </div>
+              ) : null}
+
+              {selectedCaulkAllocationProductId ? (
+                <section className="caulk-allocation-stock-section" aria-label="Available Caulk Stock">
+                  <div className="caulk-allocation-stock-header">
+                    <div>
+                      <h3>Available Stock</h3>
+                      {selectedCaulkAllocationProductLabel ? (
+                        <p className="muted-text">{selectedCaulkAllocationProductLabel}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {caulkAllocationStockQuery.isLoading || caulkAllocationStockQuery.isFetching ? (
+                    <p className="muted-text">Loading available stock...</p>
+                  ) : caulkAllocationStockQuery.isError ? (
+                    <p className="error-text">
+                      {caulkAllocationStockQuery.error instanceof Error
+                        ? caulkAllocationStockQuery.error.message
+                        : 'Available stock failed to load.'}
+                    </p>
+                  ) : !caulkAllocationStockRows.length ? (
+                    <p className="muted-text">No available stock was found for this caulk product.</p>
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Warehouse</th>
+                            <th>Available Tubes</th>
+                            <th>Full Cases</th>
+                            <th>Loose Tubes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {caulkAllocationStockRows.map((entry) => {
+                            const isSelectedWarehouse = entry.warehouse === caulkAllocationEditor.warehouse;
+
+                            return (
+                              <tr
+                                key={`${entry.warehouse}:${entry.productId}`}
+                                className={isSelectedWarehouse ? 'caulk-stock-row-selected' : undefined}
+                              >
+                                <td>{entry.warehouse}</td>
+                                <td>{entry.tubesOnHand}</td>
+                                <td>{entry.casesOnHand}</td>
+                                <td>{entry.looseTubes}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              ) : null}
 
               <label className="field caulk-allocation-notes-field">
                 <span className="field-label">Notes</span>

@@ -49,6 +49,7 @@ export async function listCaulkStock(params: ListCaulkStockParams): Promise<Caul
   const body = {
     warehouse: params.warehouse || 'ALL',
     manufacturer: params.manufacturer || '',
+    productId: params.productId || '',
     q: params.q || ''
   };
   const query = { ...body };

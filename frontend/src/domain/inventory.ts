@@ -339,6 +339,9 @@ export interface AllocationJobSummary {
   status: AllocationJobStatus;
   activeAllocatedFeet: number;
   fulfilledAllocatedFeet: number;
+  requiredTubes: number;
+  allocatedTubes: number;
+  remainingTubes: number;
   openFilmOrderCount: number;
   boxCount: number;
 }
@@ -477,6 +480,9 @@ export interface JobListEntry {
   requiredFeet: number;
   allocatedFeet: number;
   remainingFeet: number;
+  requiredTubes: number;
+  allocatedTubes: number;
+  remainingTubes: number;
   requirementCount: number;
   allocationCount: number;
   filmOrderCount: number;
@@ -673,6 +679,7 @@ export interface CaulkStockEntry {
 export interface ListCaulkStockParams {
   warehouse?: Warehouse | 'ALL' | '';
   manufacturer?: string;
+  productId?: string;
   q?: string;
 }
 
