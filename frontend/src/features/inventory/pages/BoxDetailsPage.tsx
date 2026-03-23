@@ -39,6 +39,11 @@ import {
   getCheckInWarnings,
   getCheckoutWarnings
 } from '../utils/boxWarnings';
+import {
+  buildZeroedInventoryWarningMessage,
+  getIncompleteBoxHistoryFieldsForZeroedEdit,
+  shouldPromptZeroedInventoryWarningOnEdit
+} from '../utils/boxZeroedTransition';
 
 type ConfirmState =
   | {
@@ -57,6 +62,11 @@ type ConfirmState =
       message: string;
     }
   | null;
+
+interface PendingZeroedEditState {
+  payload: UpdateBoxPayload;
+  missingFields: string[];
+}
 
 function DetailField({
   label,
@@ -160,6 +170,7 @@ export default function BoxDetailsPage() {
   const [isDeletingBox, setIsDeletingBox] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
   const [isQrSectionOpen, setIsQrSectionOpen] = useState(() => searchParams.get('showQr') === '1');
   const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
@@ -234,6 +245,7 @@ export default function BoxDetailsPage() {
   }, [box, boxId, navigate, searchParams]);
 
   useEffect(() => {
+    setPendingZeroedEditState(null);
     setIsAllocationsSectionCollapsed(true);
     setIsHistorySectionCollapsed(true);
     setIsRollHistorySectionCollapsed(true);
@@ -520,8 +532,12 @@ export default function BoxDetailsPage() {
       return;
     }
 
-    payload.auditNote = 'Inventory metadata update';
-    await submitUpdate(payload);
+    await submitUpdate({
+      ...payload,
+      auditNote: payload.moveToZeroed
+        ? 'Confirmed zero Last Roll Weight edit save'
+        : 'Inventory metadata update'
+    });
   }
 
   async function handleEditSubmit(draft: BoxDraft) {
@@ -531,6 +547,18 @@ export default function BoxDetailsPage() {
 
     try {
       const payload = parseUpdateBoxDraft(draft);
+
+      if (shouldPromptZeroedInventoryWarningOnEdit(box, payload)) {
+        setPendingZeroedEditState({
+          payload: {
+            ...payload,
+            moveToZeroed: true
+          },
+          missingFields: getIncompleteBoxHistoryFieldsForZeroedEdit(box, payload)
+        });
+        return;
+      }
+
       await runStandardUpdateFlow(payload);
     } catch (error) {
       toast.push({
@@ -746,7 +774,10 @@ export default function BoxDetailsPage() {
           filmCatalogLoading={filmCatalogQuery.isLoading}
           filmCatalogError={filmCatalogQuery.error}
           onSubmit={handleEditSubmit}
-          onCancel={() => setIsEditing(false)}
+          onCancel={() => {
+            setPendingZeroedEditState(null);
+            setIsEditing(false);
+          }}
           onDelete={() => void handleDeleteBox()}
         />
       ) : null}
@@ -983,6 +1014,27 @@ export default function BoxDetailsPage() {
         open={isAllocateOpen}
         box={box}
         onCancel={() => setIsAllocateOpen(false)}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingZeroedEditState)}
+        title="Move Box To Zeroed Inventory?"
+        message={
+          pendingZeroedEditState
+            ? buildZeroedInventoryWarningMessage(pendingZeroedEditState.missingFields)
+            : ''
+        }
+        confirmLabel="Move To Zeroed"
+        cancelLabel="Keep Active"
+        onCancel={() => setPendingZeroedEditState(null)}
+        onConfirm={() => {
+          if (!pendingZeroedEditState) {
+            return;
+          }
+
+          const payload = pendingZeroedEditState.payload;
+          setPendingZeroedEditState(null);
+          void runStandardUpdateFlow(payload);
+        }}
       />
       <ConfirmDialog
         open={Boolean(confirmState)}

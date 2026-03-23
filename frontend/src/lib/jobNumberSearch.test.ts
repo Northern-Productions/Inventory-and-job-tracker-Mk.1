@@ -17,6 +17,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     requirementCount: overrides.requirementCount || 0,
     allocationCount: overrides.allocationCount || 0,
     filmOrderCount: overrides.filmOrderCount || 0,
+    createdAt: overrides.createdAt || '',
     updatedAt: overrides.updatedAt || '',
     notes: overrides.notes || ''
   };

@@ -63,6 +63,7 @@ export {
 export {
   completeJob,
   createJob,
+  deleteJob,
   getJob,
   getJobs,
   reopenJob,

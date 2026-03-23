@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest';
+import type { Box, UpdateBoxPayload } from '../../../domain';
+import {
+  buildZeroedInventoryWarningMessage,
+  getIncompleteBoxHistoryFieldsForZeroedEdit,
+  shouldPromptZeroedInventoryWarningOnEdit
+} from './boxZeroedTransition';
+
+function createBox(overrides: Partial<Box> = {}): Box {
+  return {
+    boxId: 'IL1-1234',
+    warehouse: 'IL1',
+    manufacturer: '3M',
+    filmName: 'Ultra 70',
+    widthIn: 30,
+    initialFeet: 500,
+    feetAvailable: 420,
+    lotRun: 'LR-1',
+    status: 'IN_STOCK',
+    orderDate: '2026-03-20',
+    receivedDate: '2026-03-21',
+    initialWeightLbs: 12.5,
+    lastRollWeightLbs: 11.9,
+    lastWeighedDate: '2026-03-22',
+    filmKey: '3m-ultra-70',
+    coreType: 'Cardboard 1/8"',
+    coreWeightLbs: 1.2,
+    lfWeightLbsPerFt: 0.08,
+    pricePerLf: 1.25,
+    purchaseCost: 625,
+    notes: 'Keep dry',
+    hasEverBeenCheckedOut: true,
+    lastCheckoutJob: '000123',
+    lastCheckoutDate: '2026-03-22',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: '',
+    ...overrides
+  };
+}
+
+function createPayload(overrides: Partial<UpdateBoxPayload> = {}): UpdateBoxPayload {
+  return {
+    boxId: 'IL1-1234',
+    manufacturer: '3M',
+    filmName: 'Ultra 70',
+    widthIn: 30,
+    initialFeet: 500,
+    feetAvailable: 420,
+    lotRun: 'LR-1',
+    orderDate: '2026-03-20',
+    receivedDate: '2026-03-21',
+    initialWeightLbs: 12.5,
+    lastRollWeightLbs: 0,
+    lastWeighedDate: '2026-03-22',
+    filmKey: '',
+    coreType: 'Cardboard 1/8"',
+    coreWeightLbs: 1.2,
+    lfWeightLbsPerFt: 0.08,
+    pricePerLf: 1.25,
+    purchaseCost: 625,
+    notes: 'Keep dry',
+    ...overrides
+  };
+}
+
+describe('boxZeroedTransition', () => {
+  it('prompts when Last Roll Weight is 0 and any required history field is missing', () => {
+    const currentBox = createBox({ receivedDate: '' });
+    const payload = createPayload();
+
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
+    expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain('Received Date');
+  });
+
+  it('prompts when the current saved box is incomplete even if the submitted values fill the gap', () => {
+    const currentBox = createBox({ coreWeightLbs: null });
+    const payload = createPayload({ coreWeightLbs: 1.2 });
+
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
+    expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain('Core Weight');
+  });
+
+  it('prompts when the submitted values remain incomplete even if the current box is complete', () => {
+    const currentBox = createBox();
+    const payload = createPayload({ lastWeighedDate: '' });
+
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
+    expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain(
+      'Last Weighed Date'
+    );
+  });
+
+  it('does not prompt for blank, null, or non-zero Last Roll Weight values', () => {
+    const currentBox = createBox({ receivedDate: '' });
+
+    expect(
+      shouldPromptZeroedInventoryWarningOnEdit(currentBox, createPayload({ lastRollWeightLbs: null }))
+    ).toBe(false);
+    expect(
+      shouldPromptZeroedInventoryWarningOnEdit(currentBox, createPayload({ lastRollWeightLbs: 1 }))
+    ).toBe(false);
+  });
+
+  it('does not prompt when both current and submitted history are complete, and builds the warning copy', () => {
+    const currentBox = createBox();
+    const payload = createPayload();
+    const message = buildZeroedInventoryWarningMessage(['Received Date', 'Core Weight']);
+
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
+    expect(message).toContain('Received Date and Core Weight');
+    expect(message).toContain('move the box to zeroed inventory');
+    expect(message).toContain('cancel any active allocations');
+  });
+});

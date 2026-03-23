@@ -25,6 +25,7 @@ import {
 import {
   completeJob,
   createJob,
+  deleteJob,
   reopenJob,
   updateJob
 } from '../../../api/features/jobsClient';
@@ -40,6 +41,7 @@ import type {
   CheckoutCaulkJobAllocationPayload,
   CreateFilmOrderPayload,
   CreateJobPayload,
+  DeleteJobPayload,
   DeleteBoxPayload,
   FilmOrderEntry,
   JobDetail,
@@ -446,6 +448,28 @@ export function useReopenJob() {
     mutationFn: (payload: { jobNumber: string; reason?: string }) => reopenJob(payload),
     onSuccess: async (_data, variables) => {
       await invalidateJobLifecycleQueries(queryClient, variables.jobNumber);
+    }
+  });
+}
+
+export function useDeleteJob() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: DeleteJobPayload) => deleteJob(payload),
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
+      ]);
+
+      queryClient.removeQueries({ queryKey: inventoryKeys.job(result.jobNumber), exact: true });
+      queryClient.removeQueries({
+        queryKey: inventoryKeys.allocationJob(result.jobNumber),
+        exact: true
+      });
+
+      void syncOfflineInventoryQueries(queryClient);
     }
   });
 }

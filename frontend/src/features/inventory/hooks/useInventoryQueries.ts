@@ -30,6 +30,7 @@ export {
   useCompleteJob,
   useCreateFilmOrder,
   useCreateJob,
+  useDeleteJob,
   useDeleteBox,
   useDeleteFilmOrder,
   useRemoveCaulkJobAllocation,

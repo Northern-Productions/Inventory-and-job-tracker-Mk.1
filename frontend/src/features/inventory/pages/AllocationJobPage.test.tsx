@@ -15,6 +15,7 @@ const useCheckoutCaulkJobAllocationMock = vi.fn();
 const useCheckinCaulkJobAllocationMock = vi.fn();
 const useRemoveCaulkJobAllocationMock = vi.fn();
 const useCompleteJobMock = vi.fn();
+const useDeleteJobMock = vi.fn();
 const useReopenJobMock = vi.fn();
 const useDeleteFilmOrderMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
@@ -62,6 +63,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useCheckinCaulkJobAllocation: () => useCheckinCaulkJobAllocationMock(),
   useRemoveCaulkJobAllocation: () => useRemoveCaulkJobAllocationMock(),
   useCompleteJob: () => useCompleteJobMock(),
+  useDeleteJob: () => useDeleteJobMock(),
   useReopenJob: () => useReopenJobMock(),
   useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
   useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
@@ -86,6 +88,7 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
+    createdAt: '2026-03-20T00:00:00Z',
     updatedAt: '2026-03-20T00:00:00Z',
     notes: '',
     ...overrides
@@ -155,7 +158,8 @@ describe('AllocationJobPage', () => {
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
-      isOwner: true
+      isOwner: true,
+      isAdmin: false
     });
     useJobMock.mockReturnValue({
       isLoading: false,
@@ -170,6 +174,7 @@ describe('AllocationJobPage', () => {
     useCheckinCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useRemoveCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useCompleteJobMock.mockReturnValue(buildMutationState());
+    useDeleteJobMock.mockReturnValue(buildMutationState());
     useReopenJobMock.mockReturnValue(buildMutationState());
     useDeleteFilmOrderMock.mockReturnValue(buildMutationState());
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
@@ -358,5 +363,31 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Read-only');
     expect(html).not.toContain('Add Caulk Allocation');
+  });
+
+  it('shows delete plus specific allocation labels for owners and admins', () => {
+    const html = renderPage(baseDetail);
+
+    expect(html).toContain('Allocate Film');
+    expect(html).toContain('Allocate Caulk');
+    expect(html).toContain('Delete');
+    expect(html).toContain('Job Completed');
+    expect(html).not.toContain('>Allocate<');
+    expect(html).not.toContain('Add Caulk Allocation');
+  });
+
+  it('hides the delete action for non-admin members', () => {
+    useAuthMock.mockReturnValueOnce({
+      clientIdConfigured: true,
+      isAuthenticated: true,
+      isOwner: false,
+      isAdmin: false
+    });
+
+    const html = renderPage(baseDetail);
+
+    expect(html).not.toContain('Delete');
+    expect(html).toContain('Allocate Film');
+    expect(html).toContain('Allocate Caulk');
   });
 });

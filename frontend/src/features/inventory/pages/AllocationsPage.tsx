@@ -9,6 +9,7 @@ import {
   MobileRecordCard,
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
+import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
 import { listCaulkProducts } from '../../../api/features/caulkClient';
 import type { CreateJobPayload } from '../../../domain';
@@ -17,17 +18,16 @@ import { formatDate } from '../../../lib/date';
 import { useAuth } from '../../auth/AuthContext';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
 import { useCreateJob, useFilmCatalog, useJobsList, useJobsSearch } from '../hooks/useInventoryQueries';
+import {
+  describeJobSort,
+  getJobListDisplayStatus,
+  JOB_SORT_OPTIONS,
+  sortJobs,
+  type JobSortOption
+} from '../utils/jobSorts';
 
 function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
-}
-
-function getJobListDisplayStatus(status: string, filmOrderCount: number) {
-  if (status === 'ALLOCATE' && filmOrderCount > 0) {
-    return 'FILM_ORDER';
-  }
-
-  return status;
 }
 
 export default function AllocationsPage() {
@@ -37,6 +37,7 @@ export default function AllocationsPage() {
   const auth = useAuth();
   const jobsQuery = useJobsList(25);
   const [jobSearchInput, setJobSearchInput] = useState('');
+  const [jobSort, setJobSort] = useState<JobSortOption>('install_date');
   const deferredJobSearchInput = useDeferredValue(jobSearchInput);
   const isSearchingJobs = Boolean(deferredJobSearchInput.trim());
   const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, 25, { enabled: isSearchingJobs });
@@ -52,11 +53,14 @@ export default function AllocationsPage() {
     [jobsQuery.data]
   );
   const jobs = useMemo(
-    () =>
-      isSearchingJobs
+    () => {
+      const visibleJobs = isSearchingJobs
         ? (jobsSearchQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE')
-        : activeJobs,
-    [activeJobs, isSearchingJobs, jobsSearchQuery.data]
+        : activeJobs;
+
+      return sortJobs(visibleJobs, jobSort);
+    },
+    [activeJobs, isSearchingJobs, jobsSearchQuery.data, jobSort]
   );
   const jobsLoading = isSearchingJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading;
   const jobsError = isSearchingJobs ? jobsSearchQuery.error : jobsQuery.error;
@@ -121,20 +125,29 @@ export default function AllocationsPage() {
           <div className="page-hero-copy">
             <h2>Jobs</h2>
             <p className="muted-text">
-              Showing active jobs only (up to 25), sorted by install date.
+              Showing active jobs only (up to 25), sorted by {describeJobSort(jobSort)}.
             </p>
-            <label className="field jobs-search-field">
-              <span className="field-label">Search Job ID Number</span>
-              <input
-                className="field-input"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={jobSearchInput}
-                onChange={(event) => setJobSearchInput(event.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Enter job number"
+            <div className="jobs-toolbar-grid">
+              <label className="field jobs-search-field">
+                <span className="field-label">Search Job ID Number</span>
+                <input
+                  className="field-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={jobSearchInput}
+                  onChange={(event) => setJobSearchInput(event.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="Enter job number"
+                />
+              </label>
+              <Select
+                label="Sort Jobs"
+                className="jobs-sort-select"
+                options={JOB_SORT_OPTIONS}
+                value={jobSort}
+                onChange={(event) => setJobSort(event.target.value as JobSortOption)}
               />
-            </label>
+            </div>
           </div>
           <div className="page-hero-actions">
             <Button

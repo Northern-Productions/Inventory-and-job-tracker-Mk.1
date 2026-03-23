@@ -1,6 +1,8 @@
 // Purpose: Job lifecycle and requirement API surface.
 import type {
   CreateJobPayload,
+  DeleteJobPayload,
+  DeleteJobResult,
   JobDetail,
   JobDetailResponse,
   JobListEntry,
@@ -91,6 +93,17 @@ export async function reopenJob(
   const response = await request<JobDetail>('POST', '/jobs/reopen', { body: payload });
   return {
     result: normalizeJobDetail(response.data),
+    warnings: response.warnings
+  };
+}
+
+export async function deleteJob(
+  payload: DeleteJobPayload
+): Promise<{ result: DeleteJobResult; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
+  const response = await request<DeleteJobResult>('POST', '/jobs/delete', { body: payload });
+  return {
+    result: response.data,
     warnings: response.warnings
   };
 }

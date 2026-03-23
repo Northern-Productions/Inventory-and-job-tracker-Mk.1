@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { listCaulkProducts } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
+import { DeleteConfirmDialog } from '../../../components/DeleteConfirmDialog';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
 import {
@@ -33,6 +34,7 @@ import {
   useCheckinCaulkJobAllocation,
   useCheckoutCaulkJobAllocation,
   useCompleteJob,
+  useDeleteJob,
   useDeleteFilmOrder,
   useFilmCatalog,
   useJob,
@@ -131,6 +133,7 @@ export default function AllocationJobPage() {
   const checkinCaulkAllocationMutation = useCheckinCaulkJobAllocation();
   const removeCaulkAllocationMutation = useRemoveCaulkJobAllocation();
   const completeJobMutation = useCompleteJob();
+  const deleteJobMutation = useDeleteJob();
   const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
@@ -143,6 +146,7 @@ export default function AllocationJobPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
+  const [isDeleteJobConfirmOpen, setIsDeleteJobConfirmOpen] = useState(false);
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
   const [allocationToRemove, setAllocationToRemove] = useState<AllocationJobDetailEntry | null>(null);
@@ -232,6 +236,7 @@ export default function AllocationJobPage() {
     [caulkAllocations]
   );
   const totalRemainingCaulkTubes = Math.max(totalRequiredCaulkTubes - totalAllocatedCaulkTubes, 0);
+  const canDeleteJob = auth.clientIdConfigured && auth.isAuthenticated && (auth.isOwner || auth.isAdmin);
   const warehouseOptions = useMemo(() => {
     const options = warehouseRegistry.entries.map((entry) => entry.code);
     if (summary?.warehouse) {
@@ -335,6 +340,43 @@ export default function AllocationJobPage() {
       toast.push({
         title: 'Unable to complete job',
         description: error instanceof Error ? error.message : 'The completion request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleDeleteJob() {
+    if (!summary) {
+      return;
+    }
+
+    if (!ensureSignedIn('deleting jobs')) {
+      return;
+    }
+
+    if (!auth.isOwner && !auth.isAdmin) {
+      toast.push({
+        title: 'Admin or owner access required',
+        description: 'Only admins and owners can delete jobs.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { warnings } = await deleteJobMutation.mutateAsync({
+        jobNumber: summary.jobNumber
+      });
+      toast.push({
+        title: `Deleted job ${summary.jobNumber}`,
+        description: warnings.join(' ') || `Job ${summary.jobNumber} was deleted.`,
+        variant: 'success'
+      });
+      navigate('/allocations');
+    } catch (error) {
+      toast.push({
+        title: 'Unable to delete job',
+        description: error instanceof Error ? error.message : 'The delete request failed.',
         variant: 'error'
       });
     }
@@ -1063,7 +1105,7 @@ export default function AllocationJobPage() {
                 onClick={() => setIsAllocateOpen(true)}
                 disabled={!canAllocate || !auth.isAuthenticated || !auth.clientIdConfigured}
               >
-                Allocate
+                Allocate Film
               </Button>
             ) : null}
           </div>
@@ -1207,7 +1249,7 @@ export default function AllocationJobPage() {
                   pendingCaulkMutation
                 }
               >
-                Add Caulk Allocation
+                Allocate Caulk
               </Button>
             ) : null}
           </div>
@@ -1670,25 +1712,60 @@ export default function AllocationJobPage() {
         )}
       </section>
 
-      {!isReadOnlyJob ? (
+      {!isReadOnlyJob || canDeleteJob ? (
         <section className="panel panel-subtle">
-          <div className="page-actions allocation-complete-footer">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsCompleteConfirmOpen(true)}
-              disabled={
-                completeJobMutation.isPending ||
-                pendingCaulkMutation ||
-                !auth.isAuthenticated ||
-                !auth.clientIdConfigured
-              }
-            >
-              Job Completed
-            </Button>
+          <div
+            className={`page-actions allocation-complete-footer ${
+              !isReadOnlyJob && canDeleteJob ? 'allocation-complete-footer-with-delete' : ''
+            }`.trim()}
+          >
+            {canDeleteJob ? (
+              <Button
+                type="button"
+                variant="danger"
+                className="job-delete-button"
+                onClick={() => setIsDeleteJobConfirmOpen(true)}
+                disabled={deleteJobMutation.isPending || completeJobMutation.isPending || pendingCaulkMutation}
+              >
+                Delete
+              </Button>
+            ) : null}
+            {!isReadOnlyJob ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setIsCompleteConfirmOpen(true)}
+                disabled={
+                  deleteJobMutation.isPending ||
+                  completeJobMutation.isPending ||
+                  pendingCaulkMutation ||
+                  !auth.isAuthenticated ||
+                  !auth.clientIdConfigured
+                }
+              >
+                Job Completed
+              </Button>
+            ) : null}
           </div>
         </section>
       ) : null}
+
+      <DeleteConfirmDialog
+        open={isDeleteJobConfirmOpen}
+        title="Delete Job"
+        message={
+          summary
+            ? `Delete job ${summary.jobNumber}? This action cannot be undone. Active allocations will be cancelled and released, film orders will be removed, and any checked-out boxes must be returned first.`
+            : ''
+        }
+        cancelLabel="Keep Job"
+        pending={deleteJobMutation.isPending}
+        onCancel={() => setIsDeleteJobConfirmOpen(false)}
+        onConfirm={() => {
+          setIsDeleteJobConfirmOpen(false);
+          void handleDeleteJob();
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(filmOrderToDelete)}

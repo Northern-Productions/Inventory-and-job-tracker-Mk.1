@@ -392,6 +392,19 @@ function hasPositivePhysicalFeet(box) {
   return box.initialFeet > 0;
 }
 
+function hasIncompleteBoxHistoryForZeroedEdit(box) {
+  if (!box) {
+    return false;
+  }
+
+  return (
+    !asTrimmedString(box.receivedDate) ||
+    box.initialWeightLbs === null ||
+    box.coreWeightLbs === null ||
+    !asTrimmedString(box.lastWeighedDate)
+  );
+}
+
 function shouldAutoMoveToZeroed(existingBox, nextBox) {
   return (
     Boolean(nextBox.receivedDate) &&
@@ -3460,6 +3473,28 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
   }
 }
 
+async function deleteJobRequirementsByJobId(client, orgId, jobId) {
+  await client.query(
+    `
+      delete from app.job_requirements
+      where org_id = $1
+        and job_id = $2
+    `,
+    [orgId, jobId]
+  );
+}
+
+async function deleteJobRecord(client, orgId, jobNumber) {
+  await client.query(
+    `
+      delete from app.jobs
+      where org_id = $1
+        and upper(trim(job_number)) = upper(trim($2))
+    `,
+    [orgId, jobNumber]
+  );
+}
+
 async function listAuditEntries(client, orgId) {
   const rows = await queryRows(
     client,
@@ -4174,6 +4209,7 @@ function buildJobListEntry(jobHeader, requirements, allocations, filmOrders, all
     requirementCount: requirements.length,
     allocationCount: allocations.length,
     filmOrderCount: filmOrders.length,
+    createdAt: jobHeader.createdAt || '',
     updatedAt: jobHeader.updatedAt || '',
     notes: jobHeader.notes || ''
   };
@@ -6455,13 +6491,17 @@ async function updateBox(client, orgId, payload, actor) {
 
   let auditAction = 'UPDATE_BOX';
   const autoMoveToZeroed = shouldAutoMoveToZeroed(existing, updatedBox);
-  const moveToZeroed = requestedMoveToZeroed || autoMoveToZeroed;
+  const confirmedIncompleteHistoryMoveToZeroed =
+    requestedMoveToZeroed &&
+    updatedBox.lastRollWeightLbs === 0 &&
+    (hasIncompleteBoxHistoryForZeroedEdit(existing) || hasIncompleteBoxHistoryForZeroedEdit(updatedBox));
+  const moveToZeroed = confirmedIncompleteHistoryMoveToZeroed || autoMoveToZeroed;
   const reachedZeroState =
     Boolean(updatedBox.receivedDate) &&
     (updatedBox.feetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
 
   if (moveToZeroed) {
-    if (!autoMoveToZeroed) {
+    if (!autoMoveToZeroed && !confirmedIncompleteHistoryMoveToZeroed) {
       throw new HttpError(
         400,
         'Received boxes move to zeroed out inventory only after they have had Available Feet above 0 and then reach 0 Available Feet or 0 Last Roll Weight.'
@@ -6478,7 +6518,11 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     auditAction = 'ZERO_OUT_BOX';
 
-    if (autoMoveToZeroed && !requestedMoveToZeroed) {
+    if (confirmedIncompleteHistoryMoveToZeroed) {
+      warnings.push(
+        'Box was moved to zeroed out inventory after confirming a 0 Last Roll Weight save on a box with incomplete history.'
+      );
+    } else if (autoMoveToZeroed && !requestedMoveToZeroed) {
       warnings.push(
         'Box was automatically moved to zeroed out inventory because Available Feet or Last Roll Weight reached 0.'
       );
@@ -7108,6 +7152,54 @@ async function reopenJob(client, orgId, payload, actor) {
   warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);
 
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
+async function deleteJob(client, orgId, payload, actor, role) {
+  const warnings = [];
+  if (role !== 'owner' && role !== 'admin') {
+    throw new HttpError(403, 'Admin or owner access is required.');
+  }
+
+  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
+    (box) =>
+      box.status === 'CHECKED_OUT' &&
+      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber)
+  );
+  if (checkedOutBoxes.length) {
+    const listedBoxes = checkedOutBoxes
+      .slice(0, 5)
+      .map((box) => box.boxId)
+      .join(', ');
+    const suffix = checkedOutBoxes.length > 5 ? ', ...' : '';
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be deleted while boxes are still checked out: ${listedBoxes}${suffix}.`
+    );
+  }
+
+  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const deleteResult = await cancelJobAndReleaseAllocations(
+    client,
+    orgId,
+    jobNumber,
+    actor,
+    asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`
+  );
+
+  await deleteJobRequirementsByJobId(client, orgId, existingJob.id);
+  await deleteJobRecord(client, orgId, jobNumber);
+
+  warnings.push(
+    `Deleted job ${jobNumber}. Removed ${existingRequirements.length} requirement${existingRequirements.length === 1 ? '' : 's'}, released ${deleteResult.releasedAllocationCount} active allocation${deleteResult.releasedAllocationCount === 1 ? '' : 's'} across ${deleteResult.affectedBoxCount} box${deleteResult.affectedBoxCount === 1 ? '' : 'es'}, and deleted ${deleteResult.deletedFilmOrderCount} film order${deleteResult.deletedFilmOrderCount === 1 ? '' : 's'}.`
+  );
+
+  return ok({ jobNumber }, warnings);
 }
 
 async function createFilmOrder(client, orgId, payload, actor) {
@@ -8901,6 +8993,14 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           return updateJob(client, authContext.orgId, params, authContext.actor);
         case '/jobs/complete':
           return completeJob(client, authContext.orgId, params, authContext.actor);
+        case '/jobs/delete':
+          return deleteJob(
+            client,
+            authContext.orgId,
+            params,
+            authContext.actor,
+            authContext.role
+          );
         case '/jobs/reopen':
           return reopenJob(client, authContext.orgId, params, authContext.actor);
         case '/film-orders/create':

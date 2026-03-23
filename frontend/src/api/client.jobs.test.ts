@@ -23,7 +23,14 @@ vi.mock('../lib/offlineInventory', () => ({
   searchOfflineBoxes: vi.fn()
 }));
 
-import { __resetJobsApiAvailabilityForTests, createJob, getJob, getJobs, searchJobsByNumber } from './client';
+import {
+  __resetJobsApiAvailabilityForTests,
+  createJob,
+  deleteJob,
+  getJob,
+  getJobs,
+  searchJobsByNumber
+} from './client';
 import { APIError, request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -43,6 +50,7 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
+    createdAt: '',
     updatedAt: '',
     notes: '',
     ...overrides
@@ -146,6 +154,26 @@ describe('jobs API client canonical routes', () => {
         jobNumber: '000123',
         warehouse: 'IL1',
         requirements: []
+      }
+    });
+  });
+
+  it('deletes a job through POST /jobs/delete', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobNumber: '000123'
+      },
+      warnings: []
+    });
+
+    const result = await deleteJob({
+      jobNumber: '000123'
+    });
+
+    expect(result.result.jobNumber).toBe('000123');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/delete', {
+      body: {
+        jobNumber: '000123'
       }
     });
   });

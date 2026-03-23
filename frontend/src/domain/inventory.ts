@@ -480,6 +480,7 @@ export interface JobListEntry {
   requirementCount: number;
   allocationCount: number;
   filmOrderCount: number;
+  createdAt: string;
   updatedAt: string;
   notes: string;
 }
@@ -536,6 +537,15 @@ export interface UpdateJobPayload {
     productId: string;
     requiredTubes: number;
   }>;
+}
+
+export interface DeleteJobPayload {
+  jobNumber: string;
+  reason?: string;
+}
+
+export interface DeleteJobResult {
+  jobNumber: string;
 }
 
 export interface FilmOrderLinkedBox {
