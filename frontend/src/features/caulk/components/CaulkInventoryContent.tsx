@@ -58,12 +58,15 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
   return (
     <>
       <section className="panel">
-        <div className="panel-title-row">
-          <div>
+        <div className="page-hero-topline">
+          <span className="eyebrow">Consumables</span>
+          {headerActions ? <div className="inventory-view-toggle-wrap">{headerActions}</div> : null}
+        </div>
+        <div className="page-hero-title-row">
+          <div className="page-hero-copy">
             <h2>Caulk Inventory</h2>
             <p className="muted-text">Track consumable tubes by warehouse with full-case counting (16 tubes per case).</p>
           </div>
-          {headerActions ? <div className="inventory-view-toggle-wrap">{headerActions}</div> : null}
         </div>
         <div className="filters-grid">
           <Select

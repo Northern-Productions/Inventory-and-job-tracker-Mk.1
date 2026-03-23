@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import {
   MobileField,
@@ -200,15 +201,21 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="allocate-dialog-title">
+    <DialogSurface open={open} onClose={onCancel} titleId="allocate-dialog-title">
+      <div className="dialog-header">
         <h2 id="allocate-dialog-title">Allocate Film</h2>
+        <button type="button" className="dialog-close" aria-label="Close allocation dialog" onClick={onCancel}>
+          x
+        </button>
+      </div>
+      <div className="dialog-copy">
         <p className="muted-text">
           Request LF for a job, then review matching boxes in the same warehouse before saving.
         </p>
         <p className="muted-text">
           This source box currently has {box.feetAvailable} LF available to allocate.
         </p>
+      </div>
         <div className="form-grid">
           <Input
             label="Job Number"
@@ -390,7 +397,6 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                 : 'Find Coverage'}
           </Button>
         </div>
-      </div>
-    </div>
+    </DialogSurface>
   );
 }

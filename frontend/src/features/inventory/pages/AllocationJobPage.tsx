@@ -43,7 +43,9 @@ import {
   useUpdateCaulkJobAllocation,
   useUpdateJob
 } from '../hooks/useInventoryQueries';
+import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
+import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
 
 interface CaulkAllocationEditorState {
   mode: 'add' | 'edit';
@@ -92,15 +94,6 @@ function formatFilmOrderStatusLabel(value: string) {
   }
 
   return formatBadgeLabel(value);
-}
-
-function buildCaulkProductLabel(
-  manufacturer: string,
-  productName: string,
-  productCode: string
-) {
-  const title = `${manufacturer} ${productName}`.trim();
-  return productCode ? `${title} (${productCode})` : title;
 }
 
 function formatUsageQuantity(quantity: number, unit: 'LF' | 'TUBES') {
@@ -523,7 +516,7 @@ export default function AllocationJobPage() {
       return;
     }
 
-    const defaultProductId = caulkProducts[0]?.productId || caulkRequirements[0]?.productId || '';
+    const defaultProductId = getPreferredCaulkProductId(caulkProducts) || caulkRequirements[0]?.productId || '';
     const defaultWarehouse = summary.warehouse || warehouseOptions[0] || '';
 
     if (!defaultProductId) {
@@ -877,7 +870,11 @@ export default function AllocationJobPage() {
 
   return (
     <>
-      <section className="panel">
+      <section className="panel job-detail-hero">
+        <div className="page-hero-topline">
+          <span className="eyebrow">Job Overview</span>
+          {isReadOnlyJob ? <span className="muted-text">Read-only workflow</span> : null}
+        </div>
         <div className="panel-title-row">
           <div>
             <h2>JOB ID {summary.jobNumber}</h2>
@@ -1370,7 +1367,7 @@ export default function AllocationJobPage() {
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel panel-subtle">
         <div className="panel-title-row">
           <h2>Caulk Checkout Cycles</h2>
         </div>
@@ -1470,7 +1467,7 @@ export default function AllocationJobPage() {
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel panel-subtle">
         <div className="panel-title-row">
           <h2>Job Usage History</h2>
         </div>
@@ -1551,7 +1548,7 @@ export default function AllocationJobPage() {
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel panel-subtle">
         <div className="panel-title-row">
           <h2>Related Film Orders</h2>
         </div>
@@ -1674,7 +1671,7 @@ export default function AllocationJobPage() {
       </section>
 
       {!isReadOnlyJob ? (
-        <section className="panel">
+        <section className="panel panel-subtle">
           <div className="page-actions allocation-complete-footer">
             <Button
               type="button"
@@ -1916,15 +1913,19 @@ export default function AllocationJobPage() {
                 }
               />
 
-              <Input
-                label="Notes"
-                value={caulkAllocationEditor.notes}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setCaulkAllocationEditor((current) => (current ? { ...current, notes: value } : current));
-                  setCaulkAllocationEditorError('');
-                }}
-              />
+              <label className="field caulk-allocation-notes-field">
+                <span className="field-label">Notes</span>
+                <textarea
+                  className="field-input field-textarea caulk-allocation-notes-input"
+                  value={caulkAllocationEditor.notes}
+                  rows={3}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setCaulkAllocationEditor((current) => (current ? { ...current, notes: value } : current));
+                    setCaulkAllocationEditorError('');
+                  }}
+                />
+              </label>
             </div>
 
             {caulkAllocationEditor.lockProductWarehouse ? (

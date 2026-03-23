@@ -3,11 +3,12 @@ import {
   canonicalizeManufacturerLabel,
   normalizeManufacturerLookupKey
 } from '../../../lib/manufacturerCanonicalization';
+import { matchesSelectedWidths, normalizeSelectedWidths } from './widthFilters';
 
 export interface ZeroedBoxesFilters {
   manufacturer: string;
   q: string;
-  width: string;
+  widths: string[];
 }
 
 function normalizeText(value: unknown): string {
@@ -20,15 +21,6 @@ function normalizeLookup(value: unknown): string {
 
 function normalizeManufacturerLookup(value: unknown): string {
   return normalizeManufacturerLookupKey(normalizeText(value));
-}
-
-function parseWidth(value: unknown): number | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) {
-    return null;
-  }
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function matchesManufacturer(row: ZeroedBoxRow, manufacturer: string): boolean {
@@ -59,16 +51,8 @@ function matchesSearchQuery(row: ZeroedBoxRow, query: string): boolean {
   return canonicalQuery !== rawQuery ? haystack.includes(canonicalQuery) : false;
 }
 
-function matchesWidth(row: ZeroedBoxRow, width: string): boolean {
-  const targetWidth = parseWidth(width);
-  if (targetWidth === null) {
-    return true;
-  }
-  const rowWidth = parseWidth(row.widthIn);
-  if (rowWidth === null) {
-    return false;
-  }
-  return rowWidth === targetWidth;
+function matchesWidth(row: ZeroedBoxRow, normalizedWidths: string[]): boolean {
+  return matchesSelectedWidths(row.widthIn, normalizedWidths);
 }
 
 function compareZeroedRows(left: ZeroedBoxRow, right: ZeroedBoxRow): number {
@@ -80,6 +64,7 @@ function compareZeroedRows(left: ZeroedBoxRow, right: ZeroedBoxRow): number {
 
 export function filterZeroedBoxes(rows: ZeroedBoxRow[], filters: ZeroedBoxesFilters): ZeroedBoxRow[] {
   const source = Array.isArray(rows) ? rows : [];
+  const normalizedWidths = normalizeSelectedWidths(filters.widths);
   const filtered = source.filter((row) => {
     if (!matchesManufacturer(row, filters.manufacturer)) {
       return false;
@@ -87,7 +72,7 @@ export function filterZeroedBoxes(rows: ZeroedBoxRow[], filters: ZeroedBoxesFilt
     if (!matchesSearchQuery(row, filters.q)) {
       return false;
     }
-    if (!matchesWidth(row, filters.width)) {
+    if (!matchesWidth(row, normalizedWidths)) {
       return false;
     }
     return true;

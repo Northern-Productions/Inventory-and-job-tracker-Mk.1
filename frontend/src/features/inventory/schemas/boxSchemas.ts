@@ -19,7 +19,7 @@ export interface InventoryFilterValues {
   q: string;
   status: SearchBoxesParams['status'];
   film: string;
-  width: string;
+  widths: string[];
   showRetired: boolean;
 }
 

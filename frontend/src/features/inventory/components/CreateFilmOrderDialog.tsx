@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
@@ -111,12 +112,18 @@ export function CreateFilmOrderDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="create-film-order-title">
+    <DialogSurface open={open} onClose={onCancel} titleId="create-film-order-title">
+      <div className="dialog-header">
         <h2 id="create-film-order-title">Order Film</h2>
+        <button type="button" className="dialog-close" aria-label="Close film order dialog" onClick={onCancel}>
+          x
+        </button>
+      </div>
+      <div className="dialog-copy">
         <p className="muted-text">
           Save the film order first, then you will be sent to Add Box to create the incoming box records.
         </p>
+      </div>
         <div className="form-grid">
           <WarehouseSelectField
             label="Warehouse"
@@ -218,7 +225,6 @@ export function CreateFilmOrderDialog({
             {submitting ? 'Saving...' : 'Save And Continue'}
           </Button>
         </div>
-      </div>
-    </div>
+    </DialogSurface>
   );
 }

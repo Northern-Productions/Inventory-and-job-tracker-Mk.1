@@ -25,7 +25,7 @@ describe('filterZeroedBoxes', () => {
       filterZeroedBoxes(rows, {
         manufacturer: '',
         q: '2002',
-        width: ''
+        widths: []
       }).map((entry) => entry.boxId)
     ).toEqual(['Z-2002']);
 
@@ -33,7 +33,7 @@ describe('filterZeroedBoxes', () => {
       filterZeroedBoxes(rows, {
         manufacturer: '',
         q: 'madico',
-        width: ''
+        widths: []
       }).map((entry) => entry.boxId)
     ).toEqual(['Z-2002']);
 
@@ -41,7 +41,7 @@ describe('filterZeroedBoxes', () => {
       filterZeroedBoxes(rows, {
         manufacturer: '',
         q: 'prestige',
-        width: ''
+        widths: []
       }).map((entry) => entry.boxId)
     ).toEqual(['Z-3003']);
   });
@@ -56,7 +56,7 @@ describe('filterZeroedBoxes', () => {
     const filtered = filterZeroedBoxes(rows, {
       manufacturer: '  LLUMAR ',
       q: '',
-      width: ''
+      widths: []
     });
 
     expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-1001', 'Z-3003']);
@@ -71,7 +71,7 @@ describe('filterZeroedBoxes', () => {
     const filtered = filterZeroedBoxes(rows, {
       manufacturer: 'Solar Guard',
       q: '',
-      width: ''
+      widths: []
     });
 
     expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-1001']);
@@ -87,10 +87,32 @@ describe('filterZeroedBoxes', () => {
     const filtered = filterZeroedBoxes(rows, {
       manufacturer: '',
       q: '',
-      width: '72.5'
+      widths: ['72.5']
     });
 
     expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-2002']);
+  });
+
+  it('matches any selected width and treats no selected widths as all widths', () => {
+    const rows = [
+      row({ boxId: 'Z-1001', widthIn: 36 }),
+      row({ boxId: 'Z-2002', widthIn: 48 }),
+      row({ boxId: 'Z-3003', widthIn: 60 })
+    ];
+
+    const multiWidth = filterZeroedBoxes(rows, {
+      manufacturer: '',
+      q: '',
+      widths: ['48', '36', '48']
+    });
+    const allWidths = filterZeroedBoxes(rows, {
+      manufacturer: '',
+      q: '',
+      widths: []
+    });
+
+    expect(multiWidth.map((entry) => entry.boxId)).toEqual(['Z-1001', 'Z-2002']);
+    expect(allWidths.map((entry) => entry.boxId)).toEqual(['Z-1001', 'Z-2002', 'Z-3003']);
   });
 
   it('sorts by zeroed date newest-first with box id tie-breaker', () => {
@@ -103,7 +125,7 @@ describe('filterZeroedBoxes', () => {
     const filtered = filterZeroedBoxes(rows, {
       manufacturer: '',
       q: '',
-      width: ''
+      widths: []
     });
 
     expect(filtered.map((entry) => entry.boxId)).toEqual(['Z-1001', 'Z-2002', 'Z-3003']);

@@ -111,8 +111,14 @@ export default function AllocationsPage() {
   return (
     <>
       <section className="panel">
-        <div className="panel-title-row">
-          <div>
+        <div className="page-hero-topline">
+          <span className="eyebrow">Job Planning</span>
+          <span className="muted-text">
+            {isSearchingJobs ? 'Search mode' : 'Active workflow'}
+          </span>
+        </div>
+        <div className="page-hero-title-row">
+          <div className="page-hero-copy">
             <h2>Jobs</h2>
             <p className="muted-text">
               Showing active jobs only (up to 25), sorted by install date.
@@ -130,13 +136,27 @@ export default function AllocationsPage() {
               />
             </label>
           </div>
-          <Button
-            type="button"
-            className="button-job-new"
-            onClick={() => setIsNewJobOpen(true)}
-          >
-            New Job +
-          </Button>
+          <div className="page-hero-actions">
+            <Button
+              type="button"
+              className="button-job-new"
+              size="lg"
+              onClick={() => setIsNewJobOpen(true)}
+            >
+              New Job +
+            </Button>
+          </div>
+        </div>
+        <div className="page-hero-summary inventory-hero-summary">
+          <div className="hero-metric">
+            <div className="hero-metric-line inventory-summary-line">
+              <span className="hero-metric-label">Showing</span>
+              <strong className="hero-metric-value inventory-summary-value">{jobs.length}</strong>
+              <span className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy">
+                {isSearchingJobs ? 'matching jobs' : 'active jobs'}
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 

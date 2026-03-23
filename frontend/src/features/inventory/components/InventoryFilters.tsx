@@ -1,46 +1,24 @@
-import { useState } from 'react';
-import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
-import { STANDARD_WIDTH_OPTIONS, getWidthMode } from '../utils/boxHelpers';
 import { WarehouseSelectField } from './WarehouseSelectField';
+import { WidthFilterField } from './WidthFilterField';
 
 interface InventoryFiltersProps {
   values: InventoryFilterValues;
   manufacturerOptions: string[];
+  rememberedCustomWidth: string;
+  onRememberedCustomWidthChange: (value: string) => void;
   onChange: (next: Partial<InventoryFilterValues>) => void;
 }
 
-export function InventoryFilters({ values, manufacturerOptions, onChange }: InventoryFiltersProps) {
-  const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
-  const [customWidthDraft, setCustomWidthDraft] = useState('');
-  const widthMode = values.width ? getWidthMode(values.width) : '';
-  const widthButtonValues = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
-  const isCustomWidthValid =
-    customWidthDraft.trim() !== '' &&
-    Number.isFinite(Number(customWidthDraft)) &&
-    Number(customWidthDraft) >= 0;
-
-  function handleWidthButtonClick(value: (typeof widthButtonValues)[number]) {
-    if (value === 'CUSTOM') {
-      setCustomWidthDraft(widthMode === 'CUSTOM' ? values.width : '');
-      setIsCustomWidthOpen(true);
-      return;
-    }
-
-    onChange({ width: value });
-  }
-
-  function saveCustomWidth() {
-    if (!isCustomWidthValid) {
-      return;
-    }
-
-    onChange({ width: customWidthDraft.trim() });
-    setIsCustomWidthOpen(false);
-  }
-
+export function InventoryFilters({
+  values,
+  manufacturerOptions,
+  rememberedCustomWidth,
+  onRememberedCustomWidthChange,
+  onChange
+}: InventoryFiltersProps) {
   return (
     <>
       <div className="filters-grid">
@@ -84,85 +62,16 @@ export function InventoryFilters({ values, manufacturerOptions, onChange }: Inve
             { label: 'Zeroed', value: 'ZEROED' }
           ]}
         />
-        <div className="field width-selector inventory-width-selector">
-          <span className="field-label">Width</span>
-          <div className="width-button-grid">
-            {widthButtonValues.map((value) => {
-              const isActive = value === 'CUSTOM' ? widthMode === 'CUSTOM' : widthMode === value;
-              const buttonLabel =
-                value === 'CUSTOM' && widthMode === 'CUSTOM' && values.width
-                  ? values.width
-                  : value === 'CUSTOM'
-                    ? 'Cust.'
-                    : value;
-
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  className={`width-chip ${isActive ? 'width-chip-active' : ''}`.trim()}
-                  onClick={() => handleWidthButtonClick(value)}
-                >
-                  {buttonLabel}
-                </button>
-              );
-            })}
-          </div>
-          {values.width ? (
-            <Button type="button" variant="ghost" className="width-clear-button" onClick={() => onChange({ width: '' })}>
-              All Widths
-            </Button>
-          ) : null}
-        </div>
+        <WidthFilterField
+          widths={values.widths}
+          rememberedCustomWidth={rememberedCustomWidth}
+          onWidthsChange={(widths) => onChange({ widths })}
+          onRememberedCustomWidthChange={onRememberedCustomWidthChange}
+          className="inventory-width-selector"
+          dialogTitle="Custom Width"
+          dialogTitleId="inventory-custom-width-title"
+        />
       </div>
-
-      {isCustomWidthOpen ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onClick={() => setIsCustomWidthOpen(false)}
-        >
-          <div
-            className="dialog width-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inventory-custom-width-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-header">
-              <h2 id="inventory-custom-width-title">Custom Width</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close custom width dialog"
-                onClick={() => setIsCustomWidthOpen(false)}
-              >
-                X
-              </button>
-            </div>
-            <Input
-              label="Width In"
-              type="number"
-              step="0.01"
-              min="0"
-              value={customWidthDraft}
-              onChange={(event) => setCustomWidthDraft(event.target.value)}
-              autoFocus
-            />
-            <div className="dialog-actions dialog-actions-center">
-              <Button
-                type="button"
-                variant="primary"
-                className="custom-width-save"
-                onClick={saveCustomWidth}
-                disabled={!isCustomWidthValid}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

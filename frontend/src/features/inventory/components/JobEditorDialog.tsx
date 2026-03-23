@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import type { CaulkProductEntry, FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
@@ -8,6 +9,8 @@ import {
   getManufacturerOptionsWithCatalog,
   hasManufacturerOption
 } from '../utils/boxHelpers';
+import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
+import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
@@ -171,7 +174,7 @@ export function JobEditorDialog({
     () =>
       caulkProductEntries.map((entry) => ({
         value: entry.productId,
-        label: `${entry.manufacturer} ${entry.productName}${entry.productCode ? ` (${entry.productCode})` : ''}`
+        label: buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode)
       })),
     [caulkProductEntries]
   );
@@ -179,6 +182,10 @@ export function JobEditorDialog({
     () =>
       Object.fromEntries(caulkProductOptions.map((entry) => [entry.value, entry.label])) as Record<string, string>,
     [caulkProductOptions]
+  );
+  const preferredCaulkProductId = useMemo(
+    () => getPreferredCaulkProductId(caulkProductEntries),
+    [caulkProductEntries]
   );
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
   const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse || defaultWarehouse);
@@ -195,7 +202,7 @@ export function JobEditorDialog({
   const [filmName, setFilmName] = useState('');
   const [widthIn, setWidthIn] = useState('');
   const [requiredFeet, setRequiredFeet] = useState('');
-  const [caulkProductId, setCaulkProductId] = useState(caulkProductEntries[0]?.productId || '');
+  const [caulkProductId, setCaulkProductId] = useState(preferredCaulkProductId);
   const [caulkRequiredTubes, setCaulkRequiredTubes] = useState('');
   const [error, setError] = useState('');
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
@@ -227,7 +234,7 @@ export function JobEditorDialog({
     setFilmName('');
     setWidthIn('');
     setRequiredFeet('');
-    setCaulkProductId(caulkProductEntries[0]?.productId || '');
+    setCaulkProductId(preferredCaulkProductId);
     setCaulkRequiredTubes('');
     setCustomWidthDraft('');
     setIsCustomWidthOpen(false);
@@ -242,14 +249,15 @@ export function JobEditorDialog({
     initialSections,
     defaultWarehouse,
     initialWarehouse,
-    open
+    open,
+    preferredCaulkProductId
   ]);
 
   useEffect(() => {
     if (!caulkProductId && caulkProductOptions.length > 0) {
-      setCaulkProductId(caulkProductOptions[0].value);
+      setCaulkProductId(preferredCaulkProductId || caulkProductOptions[0].value);
     }
-  }, [caulkProductId, caulkProductOptions]);
+  }, [caulkProductId, caulkProductOptions, preferredCaulkProductId]);
 
   if (!open) {
     return null;
@@ -472,23 +480,27 @@ export function JobEditorDialog({
   const disableJobNumber = mode === 'edit';
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog-job-editor"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="job-editor-title"
-      >
-        <div className="dialog-header">
-          <h2 id="job-editor-title">{title}</h2>
-          <button
-            type="button"
-            className="dialog-close"
-            aria-label="Close job editor dialog"
-            onClick={onCancel}
-          >
-            X
-          </button>
+    <DialogSurface open={open} onClose={onCancel} className="dialog-job-editor" titleId="job-editor-title">
+      <div className="dialog-header">
+        <h2 id="job-editor-title">{title}</h2>
+        <button
+          type="button"
+          className="dialog-close"
+          aria-label="Close job editor dialog"
+          onClick={onCancel}
+        >
+          x
+        </button>
+      </div>
+
+      <div className="dialog-copy">
+        <p>Set the core job details first, then add any film and caulk requirements the crew should pull against.</p>
+      </div>
+
+      <div className="dialog-section">
+        <div className="dialog-section-header">
+          <h3>Job Basics</h3>
+          <p className="muted-text">Keep the current create and edit flow intact while making the first fields easier to scan.</p>
         </div>
 
         <div className="form-grid">
@@ -540,6 +552,13 @@ export function JobEditorDialog({
             value={warehouse}
             onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
           />
+        </div>
+      </div>
+
+      <div className="dialog-section">
+        <div className="dialog-section-header">
+          <h3>Film Requirements</h3>
+          <p className="muted-text">Add the film lines the job needs, then fine-tune the table if anything changes.</p>
         </div>
 
         <div className="form-grid">
@@ -630,12 +649,7 @@ export function JobEditorDialog({
         </div>
 
         <div className="dialog-actions">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleAddRequirement}
-            disabled={submitting}
-          >
+          <Button type="button" variant="secondary" onClick={handleAddRequirement} disabled={submitting}>
             Add
           </Button>
         </div>
@@ -706,6 +720,7 @@ export function JobEditorDialog({
                       <Button
                         type="button"
                         variant="ghost"
+                        size="sm"
                         onClick={() => removeRequirementLine(line.id)}
                         disabled={submitting}
                       >
@@ -720,6 +735,13 @@ export function JobEditorDialog({
         ) : (
           <p className="muted-text">No film requirements added yet. You can still save an empty job.</p>
         )}
+      </div>
+
+      <div className="dialog-section">
+        <div className="dialog-section-header">
+          <h3>Caulk Requirements</h3>
+          <p className="muted-text">Track secondary material pulls here without changing the existing save behavior.</p>
+        </div>
 
         <div className="form-grid">
           <label className="field">
@@ -801,6 +823,7 @@ export function JobEditorDialog({
                       <Button
                         type="button"
                         variant="ghost"
+                        size="sm"
                         onClick={() => removeCaulkRequirementLine(line.id)}
                         disabled={submitting}
                       >
@@ -815,6 +838,7 @@ export function JobEditorDialog({
         ) : (
           <p className="muted-text">No caulk requirements added yet.</p>
         )}
+      </div>
 
         {error ? <p className="error-text">{error}</p> : null}
 
@@ -826,55 +850,48 @@ export function JobEditorDialog({
             {submitting ? 'Saving...' : submitLabel}
           </Button>
         </div>
-      </div>
 
       {isCustomWidthOpen ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onClick={() => setIsCustomWidthOpen(false)}
+        <DialogSurface
+          open={isCustomWidthOpen}
+          onClose={() => setIsCustomWidthOpen(false)}
+          className="width-dialog"
+          titleId="job-custom-width-title"
+          closeOnBackdrop
         >
-          <div
-            className="dialog width-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="job-custom-width-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-header">
-              <h2 id="job-custom-width-title">Custom Width</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close custom width dialog"
-                onClick={() => setIsCustomWidthOpen(false)}
-              >
-                X
-              </button>
-            </div>
-            <Input
-              label="Width In"
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={customWidthDraft}
-              onChange={(event) => setCustomWidthDraft(event.target.value)}
-              autoFocus
-            />
-            <div className="dialog-actions dialog-actions-center">
-              <Button
-                type="button"
-                variant="primary"
-                className="custom-width-save"
-                onClick={saveCustomWidth}
-                disabled={!isCustomWidthValid}
-              >
-                Save
-              </Button>
-            </div>
+          <div className="dialog-header">
+            <h2 id="job-custom-width-title">Custom Width</h2>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close custom width dialog"
+              onClick={() => setIsCustomWidthOpen(false)}
+            >
+              x
+            </button>
           </div>
-        </div>
+          <Input
+            label="Width In"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={customWidthDraft}
+            onChange={(event) => setCustomWidthDraft(event.target.value)}
+            autoFocus
+          />
+          <div className="dialog-actions dialog-actions-center">
+            <Button
+              type="button"
+              variant="primary"
+              className="custom-width-save"
+              onClick={saveCustomWidth}
+              disabled={!isCustomWidthValid}
+            >
+              Save
+            </Button>
+          </div>
+        </DialogSurface>
       ) : null}
-    </div>
+    </DialogSurface>
   );
 }

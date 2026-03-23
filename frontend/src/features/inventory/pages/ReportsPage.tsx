@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
 import {
@@ -11,6 +10,7 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { Select } from '../../../components/Select';
+import { WidthFilterField } from '../components/WidthFilterField';
 import type { ReportsSummaryFilters } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { searchOfflineBoxes } from '../../../lib/offlineInventory';
@@ -22,15 +22,14 @@ import {
   useReportsSummary
 } from '../hooks/useInventoryQueries';
 import {
-  STANDARD_WIDTH_OPTIONS,
-  getManufacturerOptionsWithCatalog,
-  getWidthMode
+  getManufacturerOptionsWithCatalog
 } from '../utils/boxHelpers';
 import {
   buildZeroedManufacturerOptions,
   filterZeroedBoxes,
   type ZeroedBoxesFilters
 } from '../utils/reportsZeroedFilters';
+import { normalizeSelectedWidths } from '../utils/widthFilters';
 import { parseWarehouseFilterValue } from '../utils/warehouseOptions';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 
@@ -67,10 +66,8 @@ const EMPTY_FILTERS: ReportsSummaryFilters = {
 const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
   manufacturer: '',
   q: '',
-  width: ''
+  widths: []
 };
-
-const ZEROED_WIDTH_OPTIONS = ['ALL', ...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 
 const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -94,8 +91,7 @@ export default function ReportsPage() {
     auth.isOwner ? 'asset_total_cost' : 'never_checked_out'
   );
   const [zeroedFilters, setZeroedFilters] = useState<ZeroedBoxesFilters>(EMPTY_ZEROED_FILTERS);
-  const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
-  const [customWidthDraft, setCustomWidthDraft] = useState('');
+  const [rememberedCustomWidth, setRememberedCustomWidth] = useState('');
 
   const reportsQuery = useReportsSummary(filters);
   const ownerAssetTotalCostQuery = useOwnerAssetTotalCostReport(
@@ -114,7 +110,6 @@ export default function ReportsPage() {
         q: '',
         status: 'ZEROED',
         film: '',
-        width: '',
         showRetired: true
       })
   });
@@ -160,11 +155,6 @@ export default function ReportsPage() {
     () => filterZeroedBoxes(zeroedBoxes, zeroedFilters),
     [zeroedBoxes, zeroedFilters]
   );
-  const zeroedWidthMode = zeroedFilters.width ? getWidthMode(zeroedFilters.width) : '';
-  const isCustomWidthValid =
-    customWidthDraft.trim() !== '' &&
-    Number.isFinite(Number(customWidthDraft)) &&
-    Number(customWidthDraft) >= 0;
   const reportLoading =
     reportType === 'asset_total_cost'
       ? ownerAssetTotalCostQuery.isLoading
@@ -173,13 +163,6 @@ export default function ReportsPage() {
     reportType === 'asset_total_cost'
       ? ownerAssetTotalCostQuery.error
       : reportsQuery.error;
-
-  useEffect(() => {
-    if (reportType !== 'zeroed_boxes') {
-      setIsCustomWidthOpen(false);
-      setCustomWidthDraft('');
-    }
-  }, [reportType]);
 
   useEffect(() => {
     if (!auth.isOwner && reportType === 'asset_total_cost') {
@@ -192,31 +175,11 @@ export default function ReportsPage() {
   }
 
   function patchZeroedFilters(next: Partial<ZeroedBoxesFilters>) {
-    setZeroedFilters((current) => ({ ...current, ...next }));
-  }
-
-  function handleZeroedWidthClick(value: (typeof ZEROED_WIDTH_OPTIONS)[number]) {
-    if (value === 'ALL') {
-      patchZeroedFilters({ width: '' });
-      return;
-    }
-
-    if (value === 'CUSTOM') {
-      setCustomWidthDraft(zeroedWidthMode === 'CUSTOM' ? zeroedFilters.width : '');
-      setIsCustomWidthOpen(true);
-      return;
-    }
-
-    patchZeroedFilters({ width: value });
-  }
-
-  function saveCustomWidth() {
-    if (!isCustomWidthValid) {
-      return;
-    }
-
-    patchZeroedFilters({ width: customWidthDraft.trim() });
-    setIsCustomWidthOpen(false);
+    setZeroedFilters((current) => ({
+      ...current,
+      ...next,
+      widths: normalizeSelectedWidths(next.widths ?? current.widths)
+    }));
   }
 
   return (
@@ -266,36 +229,15 @@ export default function ReportsPage() {
               onChange={(event) => patchZeroedFilters({ q: event.target.value })}
               placeholder="BoxID, manufacturer, film"
             />
-            <div className="field width-selector reports-width-selector">
-              <span className="field-label">Width</span>
-              <div className="width-button-grid">
-                {ZEROED_WIDTH_OPTIONS.map((value) => {
-                  const isActive =
-                    value === 'ALL'
-                      ? !zeroedFilters.width
-                      : value === 'CUSTOM'
-                        ? zeroedWidthMode === 'CUSTOM' && Boolean(zeroedFilters.width)
-                        : zeroedWidthMode === value;
-                  const buttonLabel =
-                    value === 'CUSTOM' && zeroedWidthMode === 'CUSTOM' && zeroedFilters.width
-                      ? zeroedFilters.width
-                      : value === 'CUSTOM'
-                        ? 'Cust.'
-                        : value;
-
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`width-chip ${isActive ? 'width-chip-active' : ''}`.trim()}
-                      onClick={() => handleZeroedWidthClick(value)}
-                    >
-                      {buttonLabel}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <WidthFilterField
+              widths={zeroedFilters.widths}
+              rememberedCustomWidth={rememberedCustomWidth}
+              onWidthsChange={(widths) => patchZeroedFilters({ widths })}
+              onRememberedCustomWidthChange={setRememberedCustomWidth}
+              className="reports-width-selector"
+              dialogTitle="Custom Width"
+              dialogTitleId="reports-custom-width-title"
+            />
           </div>
         ) : null}
       </section>
@@ -593,50 +535,6 @@ export default function ReportsPage() {
           </>
         ) : null}
       </section>
-
-      {isCustomWidthOpen ? (
-        <div className="dialog-backdrop" role="presentation" onClick={() => setIsCustomWidthOpen(false)}>
-          <div
-            className="dialog width-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="reports-custom-width-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-header">
-              <h2 id="reports-custom-width-title">Custom Width</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close custom width dialog"
-                onClick={() => setIsCustomWidthOpen(false)}
-              >
-                X
-              </button>
-            </div>
-            <Input
-              label="Width In"
-              type="number"
-              step="0.01"
-              min="0"
-              value={customWidthDraft}
-              onChange={(event) => setCustomWidthDraft(event.target.value)}
-              autoFocus
-            />
-            <div className="dialog-actions dialog-actions-center">
-              <Button
-                type="button"
-                variant="primary"
-                className="custom-width-save"
-                onClick={saveCustomWidth}
-                disabled={!isCustomWidthValid}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

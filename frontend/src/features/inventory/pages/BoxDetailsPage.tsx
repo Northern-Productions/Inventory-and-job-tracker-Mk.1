@@ -160,7 +160,7 @@ export default function BoxDetailsPage() {
   const [isDeletingBox, setIsDeletingBox] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
-  const [isQrSectionOpen, setIsQrSectionOpen] = useState(false);
+  const [isQrSectionOpen, setIsQrSectionOpen] = useState(() => searchParams.get('showQr') === '1');
   const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
   const [isRollHistorySectionCollapsed, setIsRollHistorySectionCollapsed] = useState(true);
@@ -238,6 +238,16 @@ export default function BoxDetailsPage() {
     setIsHistorySectionCollapsed(true);
     setIsRollHistorySectionCollapsed(true);
   }, [boxId]);
+
+  useEffect(() => {
+    if (!box?.boxId) {
+      return;
+    }
+
+    if (searchParams.get('showQr') === '1') {
+      setIsQrSectionOpen(true);
+    }
+  }, [box?.boxId, searchParams]);
 
   function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
     if (!auth.clientIdConfigured) {
@@ -741,7 +751,8 @@ export default function BoxDetailsPage() {
         />
       ) : null}
 
-      <section className="panel">
+      <section className="panel detail-hero">
+        <p className="eyebrow">Box Details</p>
         <div className="panel-title-row detail-title-row">
           <div>
             <h2>{box.boxId}</h2>
@@ -770,7 +781,26 @@ export default function BoxDetailsPage() {
           </div>
         </div>
 
-        <div className="detail-grid">
+        <div className="detail-highlight-grid stat-grid">
+          <div className="key-value">
+            <dt className="detail-label-pill detail-label-pill-green">Available Feet</dt>
+            <dd>{box.feetAvailable}</dd>
+          </div>
+          <div className="key-value">
+            <dt className="detail-label-pill detail-label-pill-red">Allocated Feet</dt>
+            <dd>{allocationsQuery.isLoading ? '...' : displayedAllocatedFeet}</dd>
+          </div>
+          <div className="key-value">
+            <dt className="detail-label-pill detail-label-pill-orange">Price / LF</dt>
+            <dd>{formatPricePerLf(box.pricePerLf)}</dd>
+          </div>
+          <div className="key-value">
+            <dt>On-Hand Asset Cost</dt>
+            <dd>{formatUsdAmount(onHandAssetCost)}</dd>
+          </div>
+        </div>
+
+        <div className="detail-grid detail-grid-secondary">
           <DetailField label="Manufacturer" value={box.manufacturer} />
           <DetailField label="Film Name" value={box.filmName} />
           <DetailField
@@ -779,16 +809,6 @@ export default function BoxDetailsPage() {
             labelClassName="detail-label-pill detail-label-pill-orange"
           />
           <DetailField label="Initial Feet" value={box.initialFeet} />
-          <DetailField
-            label="Available Feet"
-            value={box.feetAvailable}
-            labelClassName="detail-label-pill detail-label-pill-green"
-          />
-          <DetailField
-            label="Allocated Feet"
-            value={allocationsQuery.isLoading ? '...' : displayedAllocatedFeet}
-            labelClassName="detail-label-pill detail-label-pill-red"
-          />
           <DetailField label="Lot Run" value={box.lotRun} />
           <DetailField label="Order Date" value={formatDate(box.orderDate)} />
           <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
@@ -799,8 +819,6 @@ export default function BoxDetailsPage() {
           <DetailField label="Core Weight" value={box.coreWeightLbs} />
           <DetailField label="LF Weight / Ft" value={box.lfWeightLbsPerFt} />
           <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
-          <DetailField label="Price / LF" value={formatPricePerLf(box.pricePerLf)} />
-          <DetailField label="On-Hand Asset Cost" value={formatUsdAmount(onHandAssetCost)} />
           <DetailField label="Last Checkout Job" value={box.lastCheckoutJob} />
           <DetailField label="Last Checkout Date" value={formatDate(box.lastCheckoutDate)} />
           <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />

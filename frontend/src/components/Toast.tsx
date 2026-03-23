@@ -35,6 +35,18 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
+function getToastSymbol(variant: ToastVariant) {
+  if (variant === 'success') {
+    return 'OK';
+  }
+
+  if (variant === 'warning') {
+    return '!';
+  }
+
+  return 'X';
+}
+
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -69,15 +81,21 @@ export function ToastProvider({ children }: PropsWithChildren) {
       <div className="toast-stack" aria-live="polite">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast-${toast.variant}`}>
-            <div>
-              <strong>{toast.title}</strong>
-              {toast.description ? <p>{toast.description}</p> : null}
+            <div className="toast-body">
+              <span className="toast-symbol" aria-hidden="true">
+                {getToastSymbol(toast.variant)}
+              </span>
+              <div>
+                <strong>{toast.title}</strong>
+                {toast.description ? <p>{toast.description}</p> : null}
+              </div>
             </div>
             <div className="toast-actions">
               {toast.actionLabel && toast.onAction ? (
                 <Button
                   type="button"
                   variant="ghost"
+                  size="sm"
                   onClick={async () => {
                     await toast.onAction?.();
                     dismiss(toast.id);
@@ -86,8 +104,13 @@ export function ToastProvider({ children }: PropsWithChildren) {
                   {toast.actionLabel}
                 </Button>
               ) : null}
-              <button className="toast-close" type="button" onClick={() => dismiss(toast.id)}>
-                ×
+              <button
+                className="toast-close"
+                type="button"
+                aria-label="Dismiss notification"
+                onClick={() => dismiss(toast.id)}
+              >
+                x
               </button>
             </div>
           </div>

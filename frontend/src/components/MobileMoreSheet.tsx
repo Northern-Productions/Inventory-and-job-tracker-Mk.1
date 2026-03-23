@@ -29,6 +29,8 @@ export function MobileMoreSheet({
       return;
     }
 
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const sheet = sheetRef.current;
     const focusable = sheet?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [];
     const firstButton = focusable[0];
@@ -64,6 +66,7 @@ export function MobileMoreSheet({
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      document.body.style.overflow = originalOverflow;
       document.removeEventListener('keydown', handleKeyDown);
       anchorRef.current?.focus();
     };

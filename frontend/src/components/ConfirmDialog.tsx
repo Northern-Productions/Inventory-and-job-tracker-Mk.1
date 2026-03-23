@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type InputHTMLAttributes } from 'react';
+import { useEffect, useId, useMemo, useState, type InputHTMLAttributes } from 'react';
 import { Button } from './Button';
+import { DialogSurface } from './DialogSurface';
 import { Input, TextArea } from './Input';
 import { Select } from './Select';
 
@@ -61,6 +62,8 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const [reason, setReason] = useState('');
   const [selectedReasonOption, setSelectedReasonOption] = useState('');
+  const titleId = useId();
+  const messageId = useId();
 
   const selectOptions = useMemo(() => {
     if (!reasonOptions?.length) {
@@ -113,10 +116,16 @@ export function ConfirmDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <h2 id="dialog-title">{title}</h2>
-        <p className="muted-text">{message}</p>
+    <DialogSurface open={open} onClose={onCancel} titleId={titleId} descriptionId={message ? messageId : undefined}>
+      <div className="dialog-header">
+        <h2 id={titleId}>{title}</h2>
+        <button type="button" className="dialog-close" aria-label="Close dialog" onClick={onCancel}>
+          x
+        </button>
+      </div>
+      <p id={messageId} className="muted-text dialog-message">
+        {message}
+      </p>
         {requireReason ? (
           usesReasonOptions ? (
             <>
@@ -178,7 +187,6 @@ export function ConfirmDialog({
             {confirmLabel}
           </Button>
         </div>
-      </div>
-    </div>
+    </DialogSurface>
   );
 }

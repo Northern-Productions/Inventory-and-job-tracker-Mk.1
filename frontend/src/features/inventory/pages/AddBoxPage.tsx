@@ -245,6 +245,21 @@ export default function AddBoxPage() {
 
   return (
     <>
+      {!filmOrderPrefill.filmOrderId ? (
+        <section className="panel">
+          <div className="page-hero-topline">
+            <span className="eyebrow">Receiving Intake</span>
+          </div>
+          <div className="page-hero-title-row">
+            <div className="page-hero-copy">
+              <h2>Add Box</h2>
+              <p className="muted-text">
+                Create a warehouse-ready box record with pricing, dates, and roll tracking details.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
       {filmOrderPrefill.filmOrderId ? (
         <section className="panel">
           <div className="panel-title-row">
@@ -278,12 +293,12 @@ export default function AddBoxPage() {
         </section>
       ) : null}
       {!auth.isAuthenticated ? (
-        <section className="panel">
+        <section className="panel panel-subtle">
           <p className="muted-text">Sign in with email/password before creating boxes.</p>
         </section>
       ) : null}
       {auth.isAuthenticated && !canWriteInventory ? (
-        <section className="panel">
+        <section className="panel panel-subtle">
           <p className="muted-text">Your role does not allow creating new boxes.</p>
         </section>
       ) : null}

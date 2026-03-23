@@ -6,6 +6,7 @@ const OFFLINE_DB_VERSION = 1;
 const BOX_STORE = 'boxes';
 const SYNC_META_STORE = 'sync-meta';
 const LOW_STOCK_THRESHOLD_LF = 10;
+const STANDARD_OFFLINE_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
 
 export interface OfflineInventorySyncMeta {
   warehouse: Warehouse;
@@ -16,6 +17,7 @@ export interface OfflineInventorySyncMeta {
 export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse'> {
   warehouse: Warehouse | '';
   manufacturer?: string;
+  widths?: string[];
 }
 
 export function isOfflineInventorySupported(): boolean {
@@ -27,8 +29,11 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
   const query = (params.q || '').trim().toLowerCase();
   const film = (params.film || '').trim().toLowerCase();
   const status = params.status || '';
-  const width = (params.width || '').trim();
   const showRetired = params.showRetired ?? false;
+  const selectedWidths = normalizeOfflineSelectedWidths([
+    ...(params.widths || []),
+    params.width || ''
+  ]);
   const filtered: Box[] = [];
 
   for (let index = 0; index < boxes.length; index += 1) {
@@ -50,7 +55,7 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
       continue;
     }
 
-    if (width && String(box.widthIn) !== width) {
+    if (!matchesOfflineSelectedWidths(box.widthIn, selectedWidths)) {
       continue;
     }
 
@@ -292,6 +297,63 @@ async function getAllOfflineBoxes(): Promise<Box[]> {
 
 function isLowStockBox(box: Box): boolean {
   return box.status === 'IN_STOCK' && box.feetAvailable > 0 && box.feetAvailable < LOW_STOCK_THRESHOLD_LF;
+}
+
+function normalizeOfflineWidthToken(value: unknown): string {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return '';
+  }
+
+  return String(parsed);
+}
+
+function normalizeOfflineSelectedWidths(values: readonly unknown[]): string[] {
+  const selectedStandardWidths = new Set<string>();
+  let selectedCustomWidth = '';
+
+  for (const value of values) {
+    const normalizedWidth = normalizeOfflineWidthToken(value);
+    if (!normalizedWidth) {
+      continue;
+    }
+
+    if (STANDARD_OFFLINE_WIDTH_OPTIONS.includes(normalizedWidth as (typeof STANDARD_OFFLINE_WIDTH_OPTIONS)[number])) {
+      selectedStandardWidths.add(normalizedWidth);
+      continue;
+    }
+
+    if (!selectedCustomWidth) {
+      selectedCustomWidth = normalizedWidth;
+    }
+  }
+
+  const orderedStandardWidths = STANDARD_OFFLINE_WIDTH_OPTIONS.filter((value) =>
+    selectedStandardWidths.has(value)
+  );
+
+  return selectedCustomWidth
+    ? [...orderedStandardWidths, selectedCustomWidth]
+    : orderedStandardWidths;
+}
+
+function matchesOfflineSelectedWidths(widthIn: unknown, selectedWidths: readonly unknown[]): boolean {
+  const normalizedSelectedWidths = normalizeOfflineSelectedWidths(selectedWidths);
+  if (!normalizedSelectedWidths.length) {
+    return true;
+  }
+
+  const normalizedWidth = normalizeOfflineWidthToken(widthIn);
+  if (!normalizedWidth) {
+    return false;
+  }
+
+  return normalizedSelectedWidths.includes(normalizedWidth);
 }
 
 function normalizeManufacturerLookup(value: string): string {

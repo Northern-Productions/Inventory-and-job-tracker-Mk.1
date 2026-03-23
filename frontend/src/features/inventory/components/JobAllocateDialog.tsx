@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
 import { searchBoxes } from '../../../api/features/inventoryClient';
@@ -410,17 +411,11 @@ export function JobAllocateDialog({
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div
-        className="dialog dialog-job-allocate"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="job-allocate-dialog-title"
-      >
+    <DialogSurface open={open} onClose={onCancel} className="dialog-job-allocate" titleId="job-allocate-dialog-title">
         <div className="dialog-header">
           <h2 id="job-allocate-dialog-title">Allocate Job Film</h2>
           <button type="button" className="dialog-close" aria-label="Close allocation dialog" onClick={onCancel}>
-            X
+            x
           </button>
         </div>
 
@@ -572,7 +567,6 @@ export function JobAllocateDialog({
                 : 'Allocate'}
           </Button>
         </div>
-      </div>
-    </div>
+    </DialogSurface>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ButtonHTMLAttributes, type MouseEvent } from 'react';
 import { Button } from '../../components/Button';
 import { useToast } from '../../components/Toast';
 import { useAuth } from './AuthContext';
@@ -8,11 +8,15 @@ type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 interface UsernameChangeControlProps {
   buttonVariant?: ButtonVariant;
   buttonClassName?: string;
+  onOpen?: () => void;
+  buttonProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }
 
 export function UsernameChangeControl({
   buttonVariant = 'ghost',
-  buttonClassName = ''
+  buttonClassName = '',
+  onOpen,
+  buttonProps
 }: UsernameChangeControlProps) {
   const auth = useAuth();
   const toast = useToast();
@@ -25,6 +29,16 @@ export function UsernameChangeControl({
     setDraft(auth.session?.user?.name || '');
     setError('');
     setOpen(true);
+    onOpen?.();
+  }
+
+  function handleButtonClick(event: MouseEvent<HTMLButtonElement>) {
+    buttonProps?.onClick?.(event);
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    openDialog();
   }
 
   function closeDialog() {
@@ -76,7 +90,8 @@ export function UsernameChangeControl({
         type="button"
         variant={buttonVariant}
         className={buttonClassName}
-        onClick={openDialog}
+        {...buttonProps}
+        onClick={handleButtonClick}
       >
         Change Username
       </Button>

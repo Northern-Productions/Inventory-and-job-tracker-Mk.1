@@ -346,14 +346,26 @@ export function AppLayout() {
       }`.trim()}
     >
       <header className="app-header">
-        <div>
-          <p className="eyebrow">Phase 1</p>
-          <h1>Window Film Inventory</h1>
+        <div className="app-header-topline">
+          <div className="app-brand-block">
+            <div className="app-brand-row">
+              <div>
+                <p className="eyebrow">Operations Workspace</p>
+                <h1>Window Film Inventory</h1>
+              </div>
+            </div>
+          </div>
+          <div className="header-actions">
+            <AccountControl />
+          </div>
         </div>
-        <div className="header-actions">
-          <AccountControl />
-          {!isPhoneLayout ? (
-            <nav className="app-nav" aria-label="Primary">
+        {!isPhoneLayout ? (
+          <div className="app-nav-shell">
+            <nav
+              className="app-nav"
+              aria-label="Primary"
+              style={{ gridTemplateColumns: `repeat(${primaryNavItems.length + 1}, minmax(0, 1fr))` }}
+            >
               {primaryNavItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -401,8 +413,8 @@ export function AppLayout() {
                 ) : null}
               </div>
             </nav>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </header>
       <main className={`app-main ${isPhoneLayout ? 'app-main-phone' : ''}`.trim()}>
         <div

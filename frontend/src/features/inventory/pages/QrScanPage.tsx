@@ -44,10 +44,27 @@ export default function QrScanPage() {
 
   return (
     <>
-      <QrScanner onResolved={goToBox} />
       <section className="panel">
+        <div className="page-hero-topline">
+          <span className="eyebrow">Scan Workflow</span>
+        </div>
+        <div className="page-hero-title-row">
+          <div className="page-hero-copy">
+            <h2>Scan And Open Boxes</h2>
+            <p className="muted-text">
+              Use the camera for fast field lookups, or fall back to BoxID entry when a label is damaged.
+            </p>
+          </div>
+        </div>
+      </section>
+      <div className="scan-workspace">
+        <QrScanner onResolved={goToBox} />
+        <section className="panel scan-manual-panel">
         <div className="panel-title-row">
-          <h2>Manual Lookup</h2>
+          <div>
+            <h2>Manual Lookup</h2>
+            <p className="muted-text">Use this when camera access is blocked or the label is unreadable.</p>
+          </div>
         </div>
         {lookupError ? <p className="error-text">{lookupError}</p> : null}
         <div className="toolbar-grid">
@@ -61,6 +78,7 @@ export default function QrScanPage() {
             <Button
               type="button"
               fullWidth={isPhoneLayout}
+              loading={isResolving}
               onClick={() => void goToBox(manualBoxId)}
               disabled={isResolving}
             >
@@ -68,7 +86,8 @@ export default function QrScanPage() {
             </Button>
           </div>
         </div>
-      </section>
+        </section>
+      </div>
     </>
   );
 }

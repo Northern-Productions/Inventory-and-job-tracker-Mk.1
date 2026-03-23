@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input, TextArea } from '../../../components/Input';
 import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
@@ -316,7 +317,18 @@ export function BoxForm({
             </Button>
           ) : null}
         </div>
-        <div className="form-grid">
+        <p className="muted-text form-intro">
+          {mode === 'create'
+            ? 'Create a box with warehouse-aware IDs, pricing details, and roll tracking in one place.'
+            : 'Update the box record without changing its workflow logic or warehouse rules.'}
+        </p>
+
+        <div className="form-section">
+          <div className="form-section-header">
+            <h3>Box Identity</h3>
+            <p className="muted-text">Set the label, product, width, and starting footage.</p>
+          </div>
+          <div className="form-grid">
           <Input
             label="BoxID"
             value={draft.boxId}
@@ -411,6 +423,15 @@ export function BoxForm({
               onChange={(event) => updateField('lotRun', event.target.value)}
             />
           ) : null}
+          </div>
+        </div>
+
+        <div className="form-section">
+          <div className="form-section-header">
+            <h3>Dates And Costing</h3>
+            <p className="muted-text">Capture order timing, purchase cost, and derived pricing.</p>
+          </div>
+          <div className="form-grid">
           <Input
             label="Price / LF"
             type="number"
@@ -443,6 +464,15 @@ export function BoxForm({
             value={draft.receivedDate}
             onChange={(event) => updateField('receivedDate', event.target.value)}
           />
+          </div>
+        </div>
+
+        <div className="form-section">
+          <div className="form-section-header">
+            <h3>Roll Tracking</h3>
+            <p className="muted-text">Store the physical roll details used for check-in and stock math.</p>
+          </div>
+          <div className="form-grid">
           <Input
             label="Initial Weight (lbs)"
             type="number"
@@ -500,12 +530,20 @@ export function BoxForm({
               onChange={(event) => updateField('lastWeighedDate', event.target.value)}
             />
           ) : null}
+          </div>
         </div>
-        <TextArea
-          label="Notes"
-          value={draft.notes}
-          onChange={(event) => updateField('notes', event.target.value)}
-        />
+
+        <div className="form-section">
+          <div className="form-section-header">
+            <h3>Notes</h3>
+            <p className="muted-text">Capture anything installers or coordinators should see later.</p>
+          </div>
+          <TextArea
+            label="Notes"
+            value={draft.notes}
+            onChange={(event) => updateField('notes', event.target.value)}
+          />
+        </div>
         <div className="page-actions form-actions">
           {mode === 'edit' && onDelete ? (
             <Button
@@ -575,18 +613,13 @@ export function BoxForm({
       ) : null}
 
       {isCustomWidthOpen ? (
-        <div
-          className="dialog-backdrop"
-          role="presentation"
-          onClick={() => setIsCustomWidthOpen(false)}
+        <DialogSurface
+          open={isCustomWidthOpen}
+          onClose={() => setIsCustomWidthOpen(false)}
+          className="width-dialog"
+          titleId="custom-width-title"
+          closeOnBackdrop
         >
-          <div
-            className="dialog width-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="custom-width-title"
-            onClick={(event) => event.stopPropagation()}
-          >
             <div className="dialog-header">
               <h2 id="custom-width-title">Custom Width</h2>
               <button
@@ -595,7 +628,7 @@ export function BoxForm({
                 aria-label="Close custom width dialog"
                 onClick={() => setIsCustomWidthOpen(false)}
               >
-                X
+                x
               </button>
             </div>
             <Input
@@ -618,8 +651,7 @@ export function BoxForm({
                 Save
               </Button>
             </div>
-          </div>
-        </div>
+        </DialogSurface>
       ) : null}
     </>
   );

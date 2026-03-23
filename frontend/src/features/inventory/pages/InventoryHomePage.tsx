@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { LoadingState } from '../../../components/LoadingState';
@@ -14,6 +14,12 @@ import {
   getManufacturerOptionsWithCatalog
 } from '../utils/boxHelpers';
 import {
+  getActiveCustomWidth,
+  normalizeSelectedWidths,
+  readSelectedWidths,
+  writeSelectedWidths
+} from '../utils/widthFilters';
+import {
   parseWarehouseFilterValue,
   toWarehouseFilterOptionValue
 } from '../utils/warehouseOptions';
@@ -27,7 +33,7 @@ function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
     film: '',
-    width: searchParams.get('width') || '',
+    widths: readSelectedWidths(searchParams),
     showRetired: false
   };
 }
@@ -37,6 +43,9 @@ export default function InventoryHomePage() {
   const navigate = useNavigate();
   const hasMountedRef = useRef(false);
   const filters = readFilters(searchParams);
+  const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
+    getActiveCustomWidth(filters.widths)
+  );
   const inventoryView = readInventoryView(searchParams.get('inventoryView'));
   const deferredFilters = useDeferredValue(filters);
   const boxesQuery = useOfflineInventorySearch(deferredFilters);
@@ -66,6 +75,12 @@ export default function InventoryHomePage() {
       left.localeCompare(right, undefined, { sensitivity: 'base' })
     );
   }, [filmCatalogQuery.data, filters.manufacturer]);
+  const offlineStatusLabel = getOfflineInventoryStatusLabel(
+    boxesQuery.isOffline,
+    boxesQuery.isSyncing,
+    boxesQuery.hasSnapshot,
+    boxesQuery.lastSyncedAt
+  );
 
   useEffect(() => {
     if (searchParams.get('warehouse')) {
@@ -103,7 +118,12 @@ export default function InventoryHomePage() {
   };
 
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
-    const merged = { ...filters, ...next, film: '' };
+    const merged = {
+      ...filters,
+      ...next,
+      film: '',
+      widths: normalizeSelectedWidths(next.widths ?? filters.widths)
+    };
     const nextParams = new URLSearchParams();
 
     nextParams.set('warehouse', toWarehouseFilterOptionValue(merged.warehouse));
@@ -120,9 +140,7 @@ export default function InventoryHomePage() {
     if (merged.status) {
       nextParams.set('status', merged.status);
     }
-    if (merged.width) {
-      nextParams.set('width', merged.width);
-    }
+    writeSelectedWidths(nextParams, merged.widths);
     setSearchParams(nextParams);
   };
 
@@ -150,46 +168,69 @@ export default function InventoryHomePage() {
   const filmInventoryContent = (
     <>
       <section className="panel">
-        <div className="panel-title-row">
-          <div>
+        <div className="page-hero-topline">
+          <span className="eyebrow">Inventory Control</span>
+          <div className="inventory-view-toggle-wrap">{inventoryViewToggle}</div>
+        </div>
+        <div className="page-hero-title-row">
+          <div className="page-hero-copy">
             <h2>Inventory</h2>
             <p className="muted-text">
               Search and manage boxes across every warehouse.
             </p>
           </div>
-          <div className="inventory-view-toggle-wrap">{inventoryViewToggle}</div>
         </div>
-        <div className="toolbar-row">
-          <span className="muted-text">
-            {boxesQuery.isLoading && !boxesQuery.hasSnapshot
-              ? 'Loading...'
-              : `${boxesQuery.data.length} result(s)`}
-          </span>
-        </div>
-        <div className="toolbar-row">
-          <span className={boxesQuery.syncError ? 'error-text' : 'muted-text'}>
-            {getOfflineInventoryStatusLabel(
-              boxesQuery.isOffline,
-              boxesQuery.isSyncing,
-              boxesQuery.hasSnapshot,
-              boxesQuery.lastSyncedAt
-            )}
-          </span>
-          {boxesQuery.syncError ? (
-            <span className="error-text">
-              The latest sync failed. Using the last saved copy.
-              {boxesQuery.syncError.message ? ` (${boxesQuery.syncError.message})` : ''}
-            </span>
-          ) : null}
+        <div className="page-hero-summary inventory-hero-summary">
+          <div className="hero-metric">
+            <div className="hero-metric-line inventory-summary-line">
+              <span className="hero-metric-label">Results</span>
+              <strong className="hero-metric-value inventory-summary-value">
+                {boxesQuery.isLoading && !boxesQuery.hasSnapshot ? 'Loading' : boxesQuery.data.length}
+              </strong>
+              <span className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy">
+                {boxesQuery.isLoading && !boxesQuery.hasSnapshot ? 'Building inventory view' : 'Matching boxes'}
+              </span>
+            </div>
+          </div>
+          <div className={`hero-metric hero-metric-wide ${boxesQuery.syncError ? 'hero-metric-error' : ''}`.trim()}>
+            <div className="hero-metric-line inventory-summary-line">
+              <span className="hero-metric-label">Offline Copy</span>
+              <strong
+                className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy"
+                title={offlineStatusLabel}
+              >
+                {offlineStatusLabel}
+              </strong>
+            </div>
+            {boxesQuery.syncError ? (
+              <span className="field-error">
+                Latest sync failed. Using the last saved copy.
+                {boxesQuery.syncError.message ? ` (${boxesQuery.syncError.message})` : ''}
+              </span>
+            ) : null}
+          </div>
         </div>
         <InventoryFilters
           values={filters}
           manufacturerOptions={manufacturerOptions}
+          rememberedCustomWidth={rememberedCustomWidth}
+          onRememberedCustomWidthChange={setRememberedCustomWidth}
           onChange={patchFilters}
         />
       </section>
 
-      <section className="panel">
+      <section className="panel inventory-results-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Matching Boxes</h2>
+            <p className="muted-text">
+              Open a box to update stock, review history, or print the QR label.
+            </p>
+          </div>
+          {!boxesQuery.isLoading && !boxesQuery.isError ? (
+            <span className="muted-text">{boxesQuery.data.length} box(es)</span>
+          ) : null}
+        </div>
         {boxesQuery.isLoading ? <LoadingState label="Loading inventory..." /> : null}
         {boxesQuery.isError ? (
           <div className="error-text">

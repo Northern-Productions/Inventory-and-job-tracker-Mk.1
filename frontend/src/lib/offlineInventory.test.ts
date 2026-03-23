@@ -74,6 +74,35 @@ describe('offline inventory filters', () => {
     ).toEqual(['IL1-1003']);
   });
 
+  it('matches any selected width when multiple widths are active', () => {
+    const boxes = [
+      createBox({ boxId: 'IL1-1001', widthIn: 36 }),
+      createBox({ boxId: 'IL1-1002', widthIn: 48 }),
+      createBox({ boxId: 'IL1-1003', widthIn: 60 })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: 'IL1',
+      widths: ['48', '36', '48']
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-1001', 'IL1-1002']);
+  });
+
+  it('treats an empty or invalid multi-width filter as all widths', () => {
+    const boxes = [
+      createBox({ boxId: 'IL1-1001', widthIn: 36 }),
+      createBox({ boxId: 'IL1-1002', widthIn: 48 })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: 'IL1',
+      widths: ['', 'not-a-number']
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-1001', 'IL1-1002']);
+  });
+
   it('matches manufacturers exactly after normalizing case and whitespace', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1001', manufacturer: '3M Fasara' }),

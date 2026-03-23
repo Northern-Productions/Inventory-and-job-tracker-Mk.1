@@ -15,6 +15,7 @@ export function QrScanner({ onResolved }: QrScannerProps) {
   useEffect(() => {
     let active = true;
     let scanner: Html5Qrcode | null = null;
+    let didStartScanner = false;
 
     async function startScanner() {
       try {
@@ -42,6 +43,18 @@ export function QrScanner({ onResolved }: QrScannerProps) {
           },
           () => undefined
         );
+
+        if (!active) {
+          await nextScanner.stop().catch(() => undefined);
+          try {
+            nextScanner.clear();
+          } catch (_error) {
+            // Ignore cleanup issues when navigation wins the race with scanner startup.
+          }
+          return;
+        }
+
+        didStartScanner = true;
       } catch (_error) {
         setError('Camera access failed. Use the manual fallback below.');
       }
@@ -51,21 +64,31 @@ export function QrScanner({ onResolved }: QrScannerProps) {
 
     return () => {
       active = false;
-      if (scanner) {
+      if (scanner && didStartScanner) {
         const currentScanner = scanner;
         void scanner
           .stop()
           .catch(() => undefined)
           .then(() => {
-            currentScanner.clear();
+            try {
+              currentScanner.clear();
+            } catch (_error) {
+              // Ignore cleanup issues when the camera stream is already gone.
+            }
           });
       }
     };
   }, [elementId, isPhoneLayout, onResolved]);
 
   return (
-    <div className="panel">
-      <h2>Scan QR</h2>
+    <div className="panel scanner-panel">
+      <div className="panel-title-row">
+        <div>
+          <span className="eyebrow">Camera Scan</span>
+          <h2>Scan QR</h2>
+          <p className="muted-text">Point the device at a label to open that box instantly.</p>
+        </div>
+      </div>
       <div id={elementId} className="scanner-frame" />
       {error ? <p className="error-text">{error}</p> : null}
       <p className="muted-text">The QR code should contain only the BoxID text.</p>
