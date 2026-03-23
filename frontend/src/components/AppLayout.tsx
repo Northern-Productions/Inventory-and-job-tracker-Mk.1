@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { FeatureAccessMode, FeatureArea } from '../domain';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
-import { AccountControl } from '../features/auth/AccountControl';
+import { AccountMenuTrigger, AccountSummary } from '../features/auth/AccountControl';
 import { useAuth } from '../features/auth/AuthContext';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
@@ -346,17 +346,24 @@ export function AppLayout() {
       }`.trim()}
     >
       <header className="app-header">
-        <div className="app-header-topline">
-          <div className="app-brand-block">
-            <div className="app-brand-row">
-              <div>
-                <p className="eyebrow">Operations Workspace</p>
-                <h1>Window Film Inventory</h1>
+        <div className="app-header-band">
+          <div className="app-header-band-inner">
+            <div className="app-header-topline">
+              <div className="app-brand-block">
+                <div className="app-brand-row">
+                  <div>
+                    <p className="eyebrow">Operations Workspace</p>
+                    <h1>Window Film Inventory</h1>
+                  </div>
+                </div>
+              </div>
+              <div className="app-header-corner">
+                <AccountMenuTrigger />
+              </div>
+              <div className="header-actions">
+                <AccountSummary />
               </div>
             </div>
-          </div>
-          <div className="header-actions">
-            <AccountControl />
           </div>
         </div>
         {!isPhoneLayout ? (

@@ -7,6 +7,8 @@
     "pg": "^8.16.3"
   },
   "scripts": {
+    "catalog:fasara:apply": "node scripts/apply-fasara-catalog-curation.mjs --apply",
+    "catalog:fasara:dry": "node scripts/apply-fasara-catalog-curation.mjs",
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",

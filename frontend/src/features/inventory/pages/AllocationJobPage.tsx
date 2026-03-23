@@ -5,6 +5,7 @@ import { listCaulkProducts } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeleteConfirmDialog } from '../../../components/DeleteConfirmDialog';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import { LoadingState } from '../../../components/LoadingState';
 import {
@@ -1868,8 +1869,16 @@ export default function AllocationJobPage() {
       />
 
       {caulkAllocationEditor ? (
-        <div className="dialog-backdrop" role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="caulk-allocation-dialog-title">
+        <DialogSurface
+          open={Boolean(caulkAllocationEditor)}
+          onClose={() => {
+            setCaulkAllocationEditor(null);
+            setCaulkAllocationEditorError('');
+          }}
+          className="dialog-caulk-allocation"
+          backdropClassName="dialog-backdrop-centered"
+          titleId="caulk-allocation-dialog-title"
+        >
             <div className="dialog-header">
               <h2 id="caulk-allocation-dialog-title">
                 {caulkAllocationEditor.mode === 'add' ? 'Add Caulk Allocation' : 'Edit Caulk Allocation'}
@@ -2036,8 +2045,7 @@ export default function AllocationJobPage() {
                     : 'Save Allocation'}
               </Button>
             </div>
-          </div>
-        </div>
+        </DialogSurface>
       ) : null}
 
       {caulkCheckoutDraft ? (

@@ -66,18 +66,17 @@ th,
 
 .app-header-topline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(18rem, 20rem);
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+  grid-template-areas:
+    "brand menu"
+    "brand account";
   align-items: flex-start;
-  gap: 1rem;
-  padding: 1.25rem 1.4rem;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86) 0%, rgba(252, 251, 249, 0.7) 100%);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(18px);
+  column-gap: 1rem;
+  row-gap: 0.75rem;
 }
 
 .app-brand-block {
+  grid-area: brand;
   display: grid;
   gap: 0.55rem;
   min-width: 0;
@@ -763,6 +762,10 @@ textarea {
 }
 
 .app-shell {
+  --app-shell-max-width: 1200px;
+  --app-shell-inline-padding: 1.5rem;
+  --app-shell-block-start-padding: 1.5rem;
+  --app-shell-block-end-padding: 1.5rem;
   --app-shell-bg-start: #f3efea;
   --app-shell-bg-end: #f8f6f3;
   --app-shell-glow-primary: rgba(206, 160, 110, 0.16);
@@ -770,9 +773,12 @@ textarea {
   --app-shell-glow-size: 36%;
   position: relative;
   z-index: 0;
-  max-width: 1200px;
+  max-width: var(--app-shell-max-width);
   margin: 0 auto;
-  padding: 1.5rem;
+  padding:
+    var(--app-shell-block-start-padding)
+    var(--app-shell-inline-padding)
+    var(--app-shell-block-end-padding);
 }
 
 .app-shell::before {
@@ -835,7 +841,7 @@ textarea {
 }
 
 .app-shell-phone {
-  padding-bottom: 1rem;
+  --app-shell-block-end-padding: 1rem;
 }
 
 .app-header {
@@ -847,16 +853,48 @@ textarea {
   margin-bottom: 1.5rem;
 }
 
+.app-header-band {
+  margin-top: calc(var(--app-shell-block-start-padding) * -1);
+  margin-inline: calc(50% - 50vw);
+  border-bottom: 1px solid var(--color-border-soft);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(252, 251, 249, 0.72) 100%);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+}
+
+.app-header-band-inner {
+  width: min(100%, var(--app-shell-max-width));
+  margin-inline: auto;
+  padding:
+    calc(1.25rem + var(--app-shell-block-start-padding))
+    var(--app-shell-inline-padding)
+    1.15rem;
+  box-sizing: border-box;
+}
+
 .header-actions {
   display: grid;
   gap: 0.75rem;
-  align-self: flex-start;
+  grid-area: account;
+  align-self: start;
   justify-self: end;
   justify-items: end;
   position: relative;
   z-index: 40;
-  width: auto;
+  width: min(100%, 20rem);
+  min-width: 0;
   margin-left: auto;
+}
+
+.app-header-corner {
+  grid-area: menu;
+  display: flex;
+  justify-content: flex-end;
+  justify-self: end;
+  align-self: start;
+  min-height: 2.7rem;
+  position: relative;
+  z-index: 45;
 }
 
 .app-header h1 {
@@ -889,17 +927,9 @@ textarea {
   display: grid;
   gap: 0.35rem;
   align-self: start;
-  justify-items: end;
+  justify-items: stretch;
   min-width: 0;
-  width: auto;
-}
-
-.auth-panel-signed-in {
-  grid-template-columns: max-content auto;
-  align-items: start;
-  gap: 0.85rem;
-  justify-content: end;
-  width: auto;
+  width: 100%;
 }
 
 .auth-panel-actions {
@@ -914,7 +944,7 @@ textarea {
   align-items: end;
   gap: 0.2rem;
   min-width: 0;
-  width: max-content;
+  width: 100%;
   justify-items: end;
   text-align: right;
 }
@@ -933,6 +963,8 @@ textarea {
 
 .account-menu-wrap {
   position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
   z-index: 40;
 }
 
@@ -2106,6 +2138,17 @@ td.col-available-linear-ft {
   overflow-y: auto;
 }
 
+.dialog-caulk-allocation {
+  width: min(100%, 560px);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.dialog-backdrop-centered {
+  place-items: center;
+}
+
 .dialog-job-allocate .allocation-preview {
   display: flex;
   flex-direction: column;
@@ -2356,6 +2399,13 @@ td.col-available-linear-ft {
 }
 
 @media (max-width: 860px) {
+  .app-header-topline {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand menu"
+      "account account";
+  }
+
   .app-header {
     align-items: stretch;
     flex-direction: column;
@@ -2367,6 +2417,12 @@ td.col-available-linear-ft {
   .auth-panel-actions {
     justify-items: start;
     text-align: left;
+  }
+
+  .header-actions {
+    justify-self: stretch;
+    width: 100%;
+    margin-left: 0;
   }
 }
 
@@ -2669,6 +2725,14 @@ td.col-available-linear-ft {
     max-height: calc(100dvh - 1.5rem);
   }
 
+  .dialog-caulk-allocation {
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .dialog-backdrop-centered {
+    place-items: center;
+  }
+
   .dialog-job-allocate .allocation-preview .table-wrap {
     max-height: 42dvh;
   }
@@ -2681,14 +2745,12 @@ td.col-available-linear-ft {
   }
 
   .app-shell {
-    padding:
-      calc(1rem + env(safe-area-inset-top))
-      1rem
-      1rem;
+    --app-shell-inline-padding: 1rem;
+    --app-shell-block-start-padding: calc(1rem + env(safe-area-inset-top));
   }
 
   .app-header {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
   }
 
@@ -2699,18 +2761,8 @@ td.col-available-linear-ft {
     text-align: left;
   }
 
-  .header-actions {
-    justify-self: start;
-    margin-left: 0;
-  }
-
   .auth-panel-actions {
     justify-content: flex-start;
-  }
-
-  .auth-panel-signed-in {
-    grid-template-columns: 1fr;
-    justify-items: start;
   }
 
   .account-menu {
