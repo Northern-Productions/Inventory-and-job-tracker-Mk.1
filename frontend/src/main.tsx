@@ -5,6 +5,7 @@ import App from './App';
 import { OptimisticQueueProvider } from './components/OptimisticQueue';
 import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './features/auth/AuthContext';
+import { PwaInstallProvider } from './features/pwa/PwaInstallContext';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -22,9 +23,11 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <OptimisticQueueProvider>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <PwaInstallProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </PwaInstallProvider>
         </OptimisticQueueProvider>
       </ToastProvider>
     </QueryClientProvider>

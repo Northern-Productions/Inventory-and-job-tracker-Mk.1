@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '../../components/Button';
+import { DialogSurface } from '../../components/DialogSurface';
+import { usePwaInstall } from '../pwa/PwaInstallContext';
+import type { ManualInstallMode } from '../pwa/installUtils';
 import { useAuth } from './AuthContext';
 import { UsernameChangeControl } from './UsernameChangeControl';
 
@@ -43,7 +46,10 @@ export function AccountSummary() {
 
 export function AccountMenuTrigger() {
   const auth = useAuth();
+  const installState = usePwaInstall();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isInstallHelpOpen, setIsInstallHelpOpen] = useState(false);
+  const [isOpeningInstallPrompt, setIsOpeningInstallPrompt] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const menuSurfaceRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -115,6 +121,25 @@ export function AccountMenuTrigger() {
     return null;
   }
 
+  const handleInstallClick = async () => {
+    closeMenu();
+
+    if (installState.canInstall) {
+      setIsOpeningInstallPrompt(true);
+      try {
+        const outcome = await installState.install();
+        if (outcome === 'unavailable') {
+          setIsInstallHelpOpen(true);
+        }
+      } finally {
+        setIsOpeningInstallPrompt(false);
+      }
+      return;
+    }
+
+    setIsInstallHelpOpen(true);
+  };
+
   const accountMenu = isMenuOpen ? (
     <div
       ref={menuSurfaceRef}
@@ -132,6 +157,24 @@ export function AccountMenuTrigger() {
         onOpen={closeMenu}
         buttonProps={{ role: 'menuitem' }}
       />
+      {installState.isInstalled ? (
+        <div className="account-menu-meta account-menu-meta-installed" role="status" aria-live="polite">
+          App installed on this device
+        </div>
+      ) : installState.isInstallSupported ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="account-menu-item"
+          role="menuitem"
+          disabled={isOpeningInstallPrompt}
+          onClick={() => {
+            void handleInstallClick();
+          }}
+        >
+          Install App
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="ghost"
@@ -172,6 +215,98 @@ export function AccountMenuTrigger() {
         </button>
       </div>
       {accountMenu && typeof document !== 'undefined' ? createPortal(accountMenu, document.body) : accountMenu}
+      <InstallAppHelpDialog
+        open={isInstallHelpOpen}
+        manualInstallMode={installState.manualInstallMode}
+        onClose={() => setIsInstallHelpOpen(false)}
+      />
     </>
   );
+}
+
+function InstallAppHelpDialog({
+  manualInstallMode,
+  onClose,
+  open
+}: {
+  manualInstallMode: ManualInstallMode;
+  onClose: () => void;
+  open: boolean;
+}) {
+  const copy = getInstallHelpCopy(manualInstallMode);
+
+  return (
+    <DialogSurface
+      open={open}
+      onClose={onClose}
+      className="install-dialog"
+      closeOnBackdrop
+      titleId="install-app-dialog-title"
+      descriptionId="install-app-dialog-description"
+    >
+      <div className="dialog-header">
+        <h2 id="install-app-dialog-title">{copy.title}</h2>
+        <button type="button" className="dialog-close" onClick={onClose} aria-label="Close install help">
+          X
+        </button>
+      </div>
+      <div className="dialog-copy">
+        <p id="install-app-dialog-description">{copy.message}</p>
+        <p>{copy.supportingNote}</p>
+      </div>
+      <ol className="install-steps">
+        {copy.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <div className="dialog-actions">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </DialogSurface>
+  );
+}
+
+function getInstallHelpCopy(manualInstallMode: ManualInstallMode) {
+  if (manualInstallMode === 'ios') {
+    return {
+      title: 'Add To Home Screen',
+      message:
+        'Install this app from Safari so it opens from your home screen like a dedicated app instead of a regular browser tab.',
+      steps: [
+        'Open this site in Safari.',
+        'Tap the Share button in the browser toolbar.',
+        'Choose Add to Home Screen.',
+        'Tap Add to place the app icon on your home screen.'
+      ],
+      supportingNote: 'After that, you can launch it from the home screen just like any other app.'
+    };
+  }
+
+  if (manualInstallMode === 'android') {
+    return {
+      title: 'Install On This Phone',
+      message:
+        'Android browsers can pin this app to your home screen and open it in a standalone app window.',
+      steps: [
+        'Open the browser menu.',
+        'Tap Install app or Add to Home screen.',
+        'Confirm the install when your browser asks.'
+      ],
+      supportingNote: 'If the prompt does not appear, Chrome usually gives the cleanest install experience.'
+    };
+  }
+
+  return {
+    title: 'Install On Your Computer',
+    message:
+      'Desktop Chrome and Edge can install this site as its own app window with a start-menu or desktop icon.',
+    steps: [
+      'Open the browser menu.',
+      'Choose Install App, Install Window Film Inventory, or Apps > Install this site as an app.',
+      'Confirm the install when prompted.'
+    ],
+    supportingNote: 'If your current browser does not show an install option, open the app in Chrome or Edge.'
+  };
 }

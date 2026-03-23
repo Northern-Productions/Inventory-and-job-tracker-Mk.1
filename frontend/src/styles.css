@@ -1060,6 +1060,21 @@ textarea {
   background: rgba(18, 52, 59, 0.06);
 }
 
+.account-menu-meta {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  color: #56727a;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.account-menu-meta-installed {
+  border-radius: 0.65rem;
+  background: rgba(18, 52, 59, 0.06);
+  color: #26474f;
+  font-weight: 600;
+}
+
 .nav-link {
   display: inline-flex;
   align-items: center;
@@ -2147,6 +2162,22 @@ td.col-available-linear-ft {
 
 .dialog-backdrop-centered {
   place-items: center;
+}
+
+.install-dialog {
+  width: min(100%, 32rem);
+}
+
+.install-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #3d565d;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.install-steps li {
+  padding-left: 0.2rem;
 }
 
 .dialog-job-allocate .allocation-preview {

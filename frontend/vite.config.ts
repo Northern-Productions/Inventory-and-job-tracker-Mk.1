@@ -12,15 +12,43 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'prompt',
-        includeAssets: ['icon.svg', 'icon-maskable.svg'],
+        includeAssets: [
+          'icon.svg',
+          'icon-maskable.svg',
+          'icon-192.png',
+          'icon-512.png',
+          'icon-maskable-512.png',
+          'apple-touch-icon.png'
+        ],
         manifest: {
+          id: '/',
           name: 'Window Film Inventory',
           short_name: 'FilmInventory',
+          description: 'Window film inventory, jobs, and allocation workspace.',
           theme_color: '#12343b',
           background_color: '#f3f5f7',
           display: 'standalone',
-          start_url: './',
+          scope: '/',
+          start_url: '/',
           icons: [
+            {
+              src: 'icon-192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: 'icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: 'icon-maskable-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
+            },
             {
               src: 'icon.svg',
               sizes: 'any',
