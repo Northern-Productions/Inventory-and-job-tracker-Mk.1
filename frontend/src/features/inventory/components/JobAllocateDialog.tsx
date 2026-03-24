@@ -15,12 +15,10 @@ import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
 import {
   autoSelectCandidateBoxIds,
-  buildValidatedExtraAllocations,
-  canSubmitAllocationRequest,
-  getSelectedExtraBoxIds,
   planSelectedCandidateAllocation,
   prioritizeCandidateBoxes
 } from '../utils/jobAllocationSelection';
+import { buildJobPlanningFilmKey } from '../utils/jobPlanningFilmIdentity';
 
 interface JobAllocateDialogProps {
   open: boolean;
@@ -33,10 +31,6 @@ interface JobAllocateDialogProps {
   onCancel: () => void;
 }
 
-function normalizeLookup(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
 function collectPreferredLinkedBoxIds(
   requirement: JobRequirementLine | null,
   filmOrders: FilmOrderEntry[]
@@ -45,8 +39,7 @@ function collectPreferredLinkedBoxIds(
     return new Set<string>();
   }
 
-  const targetManufacturer = normalizeLookup(requirement.manufacturer);
-  const targetFilmName = normalizeLookup(requirement.filmName);
+  const targetFilmKey = buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName);
   const preferred = new Set<string>();
 
   for (let index = 0; index < filmOrders.length; index += 1) {
@@ -55,11 +48,7 @@ function collectPreferredLinkedBoxIds(
       continue;
     }
 
-    if (normalizeLookup(order.manufacturer) !== targetManufacturer) {
-      continue;
-    }
-
-    if (normalizeLookup(order.filmName) !== targetFilmName) {
+    if (buildJobPlanningFilmKey(order.manufacturer, order.filmName) !== targetFilmKey) {
       continue;
     }
 
@@ -95,7 +84,6 @@ export function JobAllocateDialog({
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [requestedFeet, setRequestedFeet] = useState('');
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
-  const [extraFeetByBoxId, setExtraFeetByBoxId] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const autoSelectionKeyRef = useRef('');
   const selectedRequirement = useMemo(
@@ -173,7 +161,6 @@ export function JobAllocateDialog({
       setSelectedRequirementId('');
       setRequestedFeet('');
       setSelectedBoxIds([]);
-      setExtraFeetByBoxId({});
       setError('');
       autoSelectionKeyRef.current = '';
       return;
@@ -192,13 +179,11 @@ export function JobAllocateDialog({
     if (!selectedRequirement) {
       setRequestedFeet('');
       setSelectedBoxIds([]);
-      setExtraFeetByBoxId({});
       return;
     }
 
     setRequestedFeet(String(Math.max(selectedRequirement.remainingFeet, 0)));
     setSelectedBoxIds([]);
-    setExtraFeetByBoxId({});
     autoSelectionKeyRef.current = '';
     setError('');
   }, [selectedRequirement?.requirementId]);
@@ -221,39 +206,6 @@ export function JobAllocateDialog({
     );
   }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setExtraFeetByBoxId((current) => {
-      const selected = new Set(selectedBoxIds);
-      const next: Record<string, string> = {};
-      let changed = false;
-      const keys = Object.keys(current);
-
-      for (let index = 0; index < keys.length; index += 1) {
-        const boxId = keys[index];
-        if (selected.has(boxId)) {
-          next[boxId] = current[boxId];
-        } else {
-          changed = true;
-        }
-      }
-
-      if (!changed && keys.length === Object.keys(next).length) {
-        return current;
-      }
-
-      return next;
-    });
-  }, [open, selectedBoxIds]);
-
-  const selectedExtraBoxIds = useMemo(
-    () => getSelectedExtraBoxIds(prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds),
-    [prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds]
-  );
-
   if (!open) {
     return null;
   }
@@ -262,15 +214,6 @@ export function JobAllocateDialog({
     setSelectedBoxIds((current) =>
       current.includes(boxId) ? current.filter((value) => value !== boxId) : [...current, boxId]
     );
-    setExtraFeetByBoxId((current) => {
-      if (!current[boxId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[boxId];
-      return next;
-    });
     setError('');
   }
 
@@ -297,18 +240,8 @@ export function JobAllocateDialog({
       return;
     }
 
-    const { extraAllocations, error: extraValidationError } = buildValidatedExtraAllocations(
-      prioritizedMatchingBoxes,
-      selectedExtraBoxIds,
-      extraFeetByBoxId
-    );
-    if (extraValidationError) {
-      setError(extraValidationError);
-      return;
-    }
-
-    if (!canSubmitAllocationRequest(requestedFeetValue, extraAllocations.length)) {
-      setError('Requested LF must be greater than zero unless at least one Extra LF box is entered.');
+    if (requestedFeetValue <= 0) {
+      setError('Requested LF must be greater than zero.');
       return;
     }
 
@@ -321,7 +254,7 @@ export function JobAllocateDialog({
         requestedFeet: requestedFeetValue,
         requestedWidthIn: selectedRequirement.widthIn,
         selectedSuggestionBoxIds: orderedSelectedBoxes.slice(1).map((entry) => entry.boxId),
-        extraAllocations,
+        extraAllocations: [],
         crossWarehouse: true,
         jobWarehouse: warehouse
       });
@@ -380,23 +313,15 @@ export function JobAllocateDialog({
     }
 
     try {
-      const { result, warnings } = await createFilmOrderMutation.mutateAsync({
+      onCancel();
+
+      await createFilmOrderMutation.mutateAsync({
         jobNumber,
         warehouse,
         manufacturer: selectedRequirement.manufacturer,
         filmName: selectedRequirement.filmName,
         widthIn: selectedRequirement.widthIn,
         requestedFeet: requestedFeetValue
-      });
-
-      onCancel();
-
-      toast.push({
-        title: `Film Order ${result.filmOrderId} created`,
-        description:
-          warnings.join(' ') ||
-          `${result.manufacturer} ${result.filmName} ${result.widthIn}" needs ${result.requestedFeet} LF for job ${result.jobNumber}.`,
-        variant: 'success'
       });
     } catch (submitError) {
       toast.push({
@@ -442,7 +367,6 @@ export function JobAllocateDialog({
             onChange={(event) => {
               setRequestedFeet(event.target.value.replace(/[^0-9]/g, ''));
               setSelectedBoxIds([]);
-              setExtraFeetByBoxId({});
               autoSelectionKeyRef.current = '';
               setError('');
             }}
@@ -483,23 +407,17 @@ export function JobAllocateDialog({
                 <dd>{plannedSelection.remainingFeet}</dd>
               </div>
             </div>
-            {selectedExtraBoxIds.length ? (
-              <p className="muted-text">
-                Enter Extra LF for selected boxes that go beyond the requested requirement coverage.
-              </p>
-            ) : null}
-
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Use</th>
                     <th>Box</th>
-                    <th>Warehouse</th>
+                    <th>Manufacturer</th>
+                    <th>Film Name</th>
                     <th>Width</th>
                     <th>Avail LF</th>
-                    <th>Planned LF</th>
-                    <th>Extra LF</th>
+                    <th>Allocated LF</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -513,32 +431,11 @@ export function JobAllocateDialog({
                         />
                       </td>
                       <td>{box.boxId}</td>
-                      <td>{box.warehouse}</td>
+                      <td>{box.manufacturer}</td>
+                      <td>{box.filmName}</td>
                       <td>{box.widthIn}</td>
                       <td>{box.feetAvailable}</td>
                       <td>{plannedFeetByBox.get(box.boxId) || 0}</td>
-                      <td>
-                        {selectedExtraBoxIds.includes(box.boxId) ? (
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            className="field-input"
-                            value={extraFeetByBoxId[box.boxId] || ''}
-                            placeholder="Extra LF"
-                            onChange={(event) => {
-                              const sanitized = event.target.value.replace(/[^0-9]/g, '');
-                              setExtraFeetByBoxId((current) => ({
-                                ...current,
-                                [box.boxId]: sanitized
-                              }));
-                              setError('');
-                            }}
-                          />
-                        ) : (
-                          '--'
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>

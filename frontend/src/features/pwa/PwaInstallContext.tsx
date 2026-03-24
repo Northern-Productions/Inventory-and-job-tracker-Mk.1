@@ -10,7 +10,9 @@ import {
 import {
   detectInstallPlatform,
   isStandaloneDisplayMode,
+  resolveInstallAvailability,
   resolveManualInstallMode,
+  type InstallAvailability,
   type ManualInstallMode
 } from './installUtils';
 
@@ -23,18 +25,18 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 interface PwaInstallContextValue {
-  canInstall: boolean;
   install: () => Promise<'accepted' | 'dismissed' | 'unavailable'>;
+  installAvailability: InstallAvailability;
   isAndroid: boolean;
-  isInstallSupported: boolean;
   isInstalled: boolean;
   isIos: boolean;
   isSafari: boolean;
+  isInstallStatusReady: boolean;
   manualInstallMode: ManualInstallMode;
-  needsManualInstall: boolean;
 }
 
 const PwaInstallContext = createContext<PwaInstallContextValue | null>(null);
+const INITIAL_INSTALL_STATUS_SETTLE_MS = 900;
 
 function readStandaloneState() {
   if (typeof window === 'undefined') {
@@ -51,6 +53,7 @@ function readStandaloneState() {
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(() => readStandaloneState());
+  const [isInstallStatusReady, setIsInstallStatusReady] = useState(() => readStandaloneState());
   const platform = useMemo(() => {
     if (typeof navigator === 'undefined') {
       return {
@@ -72,23 +75,54 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    let settleTimer: number | null = null;
+    const clearSettleTimer = () => {
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+    };
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
+      clearSettleTimer();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
+      setIsInstallStatusReady(true);
       refreshStandaloneState();
     };
 
     const handleAppInstalled = () => {
+      clearSettleTimer();
       setDeferredPrompt(null);
       setIsInstalled(true);
+      setIsInstallStatusReady(true);
     };
 
-    refreshStandaloneState();
+    const syncInstallState = () => {
+      const nextIsInstalled = readStandaloneState();
+      setIsInstalled(nextIsInstalled);
+      if (nextIsInstalled) {
+        clearSettleTimer();
+        setIsInstallStatusReady(true);
+        return;
+      }
+
+      settleTimer = window.setTimeout(() => {
+        refreshStandaloneState();
+        setIsInstallStatusReady(true);
+      }, INITIAL_INSTALL_STATUS_SETTLE_MS);
+    };
+
+    syncInstallState();
 
     const mediaQuery =
       typeof window.matchMedia === 'function' ? window.matchMedia('(display-mode: standalone)') : null;
     const handleDisplayModeChange = () => {
       refreshStandaloneState();
+      if (readStandaloneState()) {
+        clearSettleTimer();
+        setIsInstallStatusReady(true);
+      }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
@@ -102,6 +136,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
     }
 
     return () => {
+      clearSettleTimer();
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt as EventListener);
       window.removeEventListener('appinstalled', handleAppInstalled);
       if (mediaQuery) {
@@ -134,19 +169,22 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
   }, [deferredPrompt, isInstalled, refreshStandaloneState]);
 
   const value = useMemo<PwaInstallContextValue>(() => {
-    const canInstall = Boolean(deferredPrompt) && !isInstalled;
+    const installAvailability = resolveInstallAvailability({
+      hasDeferredPrompt: Boolean(deferredPrompt),
+      isInstalled
+    });
+
     return {
-      canInstall,
       install,
+      installAvailability,
       isAndroid: platform.isAndroid,
-      isInstallSupported: !isInstalled,
       isInstalled,
       isIos: platform.isIos,
       isSafari: platform.isSafari,
-      manualInstallMode: resolveManualInstallMode(platform),
-      needsManualInstall: !isInstalled && !canInstall
+      isInstallStatusReady,
+      manualInstallMode: resolveManualInstallMode(platform)
     };
-  }, [deferredPrompt, install, isInstalled, platform]);
+  }, [deferredPrompt, install, isInstalled, isInstallStatusReady, platform]);
 
   return <PwaInstallContext.Provider value={value}>{children}</PwaInstallContext.Provider>;
 }

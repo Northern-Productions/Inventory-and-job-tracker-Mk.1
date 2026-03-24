@@ -124,7 +124,7 @@ export function AccountMenuTrigger() {
   const handleInstallClick = async () => {
     closeMenu();
 
-    if (installState.canInstall) {
+    if (installState.installAvailability === 'native_prompt_available') {
       setIsOpeningInstallPrompt(true);
       try {
         const outcome = await installState.install();
@@ -157,11 +157,11 @@ export function AccountMenuTrigger() {
         onOpen={closeMenu}
         buttonProps={{ role: 'menuitem' }}
       />
-      {installState.isInstalled ? (
+      {installState.installAvailability === 'already_installed' ? (
         <div className="account-menu-meta account-menu-meta-installed" role="status" aria-live="polite">
           App installed on this device
         </div>
-      ) : installState.isInstallSupported ? (
+      ) : installState.isInstallStatusReady && installState.installAvailability === 'native_prompt_available' ? (
         <Button
           type="button"
           variant="ghost"
@@ -173,6 +173,18 @@ export function AccountMenuTrigger() {
           }}
         >
           Install App
+        </Button>
+      ) : installState.isInstallStatusReady && installState.installAvailability === 'manual_only' ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="account-menu-item account-menu-item-help"
+          role="menuitem"
+          onClick={() => {
+            void handleInstallClick();
+          }}
+        >
+          Install Help
         </Button>
       ) : null}
       <Button
@@ -244,23 +256,37 @@ function InstallAppHelpDialog({
       titleId="install-app-dialog-title"
       descriptionId="install-app-dialog-description"
     >
-      <div className="dialog-header">
-        <h2 id="install-app-dialog-title">{copy.title}</h2>
+      <div className="dialog-header install-dialog-header">
+        <div className="install-dialog-heading">
+          <p className="install-dialog-eyebrow">Install App</p>
+          <h2 id="install-app-dialog-title">{copy.title}</h2>
+        </div>
         <button type="button" className="dialog-close" onClick={onClose} aria-label="Close install help">
           X
         </button>
       </div>
-      <div className="dialog-copy">
-        <p id="install-app-dialog-description">{copy.message}</p>
-        <p>{copy.supportingNote}</p>
+      <div className="install-dialog-body">
+        <div className="install-dialog-intro-card">
+          {copy.statusLine ? <p className="install-dialog-status">{copy.statusLine}</p> : null}
+          <p id="install-app-dialog-description" className="install-dialog-lead">
+            {copy.message}
+          </p>
+          <div className="install-dialog-note">
+            <span className="install-dialog-note-label">Tip</span>
+            <p>{copy.supportingNote}</p>
+          </div>
+        </div>
+        <div className="install-dialog-section">
+          <p className="install-dialog-section-label">Quick Steps</p>
+          <ol className="install-steps">
+            {copy.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </div>
       </div>
-      <ol className="install-steps">
-        {copy.steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ol>
-      <div className="dialog-actions">
-        <Button type="button" variant="ghost" onClick={onClose}>
+      <div className="dialog-actions install-dialog-actions">
+        <Button type="button" variant="primary" onClick={onClose}>
           Close
         </Button>
       </div>
@@ -272,6 +298,7 @@ function getInstallHelpCopy(manualInstallMode: ManualInstallMode) {
   if (manualInstallMode === 'ios') {
     return {
       title: 'Add To Home Screen',
+      statusLine: 'Safari uses Add to Home Screen instead of one-click install.',
       message:
         'Install this app from Safari so it opens from your home screen like a dedicated app instead of a regular browser tab.',
       steps: [
@@ -287,12 +314,13 @@ function getInstallHelpCopy(manualInstallMode: ManualInstallMode) {
   if (manualInstallMode === 'android') {
     return {
       title: 'Install On This Phone',
+      statusLine: 'One-click install is not available in this browser session right now.',
       message:
-        'Android browsers can pin this app to your home screen and open it in a standalone app window.',
+        'You can still add this app to your home screen and launch it like a dedicated app.',
       steps: [
         'Open the browser menu.',
         'Tap Install app or Add to Home screen.',
-        'Confirm the install when your browser asks.'
+        'Confirm the install.'
       ],
       supportingNote: 'If the prompt does not appear, Chrome usually gives the cleanest install experience.'
     };
@@ -300,13 +328,14 @@ function getInstallHelpCopy(manualInstallMode: ManualInstallMode) {
 
   return {
     title: 'Install On Your Computer',
+    statusLine: 'One-click install is not available in this browser session right now.',
     message:
-      'Desktop Chrome and Edge can install this site as its own app window with a start-menu or desktop icon.',
+      'You can still install this site as its own app window with a start-menu or desktop icon.',
     steps: [
       'Open the browser menu.',
       'Choose Install App, Install Window Film Inventory, or Apps > Install this site as an app.',
-      'Confirm the install when prompted.'
+      'Confirm the install.'
     ],
-    supportingNote: 'If your current browser does not show an install option, open the app in Chrome or Edge.'
+    supportingNote: 'Chrome or Edge usually gives the cleanest desktop install experience.'
   };
 }

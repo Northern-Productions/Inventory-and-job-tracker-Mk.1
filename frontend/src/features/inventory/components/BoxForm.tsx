@@ -14,7 +14,6 @@ import {
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { getWarehousePrefix } from '../utils/warehouseOptions';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
-import { WarehouseSelectField } from './WarehouseSelectField';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 const DELETE_DIALOG_FADE_MS = 180;
@@ -33,7 +32,6 @@ interface BoxFormProps {
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
   filmCatalogError?: unknown;
-  onCreateWarehouseChange?: (warehouse: Warehouse) => void;
   onSubmit: (draft: BoxDraft) => void;
   onCancel?: () => void;
   onDelete?: () => void;
@@ -52,7 +50,6 @@ export function BoxForm({
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
-  onCreateWarehouseChange,
   onSubmit,
   onCancel,
   onDelete
@@ -302,28 +299,23 @@ export function BoxForm({
           onSubmit(draft);
         }}
       >
-        <div className="panel-title-row">
-          <h2>{mode === 'create' ? 'Add Box' : 'Edit Box'}</h2>
-          {mode === 'create' && createWarehouse && onCreateWarehouseChange ? (
-            <WarehouseSelectField
-              label="Warehouse"
-              value={createWarehouse}
-              onChange={(warehouse) => onCreateWarehouseChange(warehouse as Warehouse)}
-            />
-          ) : null}
-          {mode === 'edit' && onCancel ? (
-            <Button type="button" variant="ghost" onClick={onCancel}>
-              Cancel
-            </Button>
-          ) : null}
-        </div>
-        <p className="muted-text form-intro">
-          {mode === 'create'
-            ? 'Create a box with warehouse-aware IDs, pricing details, and roll tracking in one place.'
-            : 'Update the box record without changing its workflow logic or warehouse rules.'}
-        </p>
+        {mode === 'edit' ? (
+          <>
+            <div className="panel-title-row">
+              <h2>Edit Box</h2>
+              {onCancel ? (
+                <Button type="button" variant="ghost" onClick={onCancel}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+            <p className="muted-text form-intro">
+              Update the box record without changing its workflow logic or warehouse rules.
+            </p>
+          </>
+        ) : null}
 
-        <div className="form-section">
+        <div className={`form-section ${mode === 'create' ? 'form-section-first' : ''}`.trim()}>
           <div className="form-section-header">
             <h3>Box Identity</h3>
             <p className="muted-text">Set the label, product, width, and starting footage.</p>

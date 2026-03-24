@@ -56,7 +56,7 @@ export function QrScanner({ onResolved }: QrScannerProps) {
 
         didStartScanner = true;
       } catch (_error) {
-        setError('Camera access failed. Use the manual fallback below.');
+        setError('Camera access failed. Check browser camera permissions and try again.');
       }
     }
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
   MobileField,
   MobileFieldList,
@@ -23,6 +23,8 @@ export default function ActivityPage() {
     action: ''
   });
   const activityQuery = useAuditList(filters);
+  const hasActivityEntries = Array.isArray(activityQuery.data) && activityQuery.data.length > 0;
+  const showActivityLoading = activityQuery.isLoading && !hasActivityEntries;
 
   const updateField = (key: keyof typeof filters, value: string) => {
     setFilters((current) => ({
@@ -72,12 +74,12 @@ export default function ActivityPage() {
       </section>
 
       <section className="panel">
-        {activityQuery.isLoading ? <LoadingState label="Loading activity..." /> : null}
+        <DeferredLoadingState when={showActivityLoading} label="Loading activity..." />
         {activityQuery.isError ? <p className="error-text">{activityQuery.error.message}</p> : null}
-        {activityQuery.data?.length ? (
+        {hasActivityEntries ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
-              {activityQuery.data.map((entry) => (
+              {activityQuery.data?.map((entry) => (
                 <MobileRecordCard key={entry.logId}>
                   <MobileRecordHeader
                     title={entry.boxId}
@@ -106,7 +108,7 @@ export default function ActivityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {activityQuery.data.map((entry) => (
+                  {activityQuery.data?.map((entry) => (
                     <tr key={entry.logId}>
                       <td>{formatDateTime(entry.date)}</td>
                       <td>{entry.action}</td>
@@ -128,7 +130,7 @@ export default function ActivityPage() {
             </div>
           )
         ) : null}
-        {!activityQuery.isLoading && !activityQuery.data?.length ? (
+        {!showActivityLoading && !hasActivityEntries ? (
           <div className="empty-state">No audit entries matched the current filters.</div>
         ) : null}
       </section>

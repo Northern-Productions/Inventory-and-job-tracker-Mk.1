@@ -1,7 +1,7 @@
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { RouterProvider } from 'react-router-dom';
 import { Button } from './components/Button';
-import { LoadingState } from './components/LoadingState';
+import { DeferredLoadingState } from './components/DeferredLoadingState';
 import { useAuth } from './features/auth/AuthContext';
 import { AccessSplash } from './features/auth/AccessSplash';
 import { AuthGate } from './features/auth/AuthGate';
@@ -42,7 +42,10 @@ export default function App() {
         <PwaUpdateBanner />
         <div className="auth-gate">
           <section className="auth-gate-card" aria-label="Loading access context">
-            <LoadingState label="Loading your access permissions..." />
+            <DeferredLoadingState
+              when
+              label="Loading your access permissions..."
+            />
           </section>
         </div>
       </>

@@ -206,6 +206,12 @@ th,
   justify-content: flex-end;
 }
 
+.add-box-hero-copy .field {
+  min-width: 0;
+  margin-top: 0.85rem;
+  max-width: 260px;
+}
+
 .page-hero-summary {
   margin-top: 1rem;
   display: grid;
@@ -576,6 +582,12 @@ th {
   border-top: 1px solid rgba(18, 52, 59, 0.08);
 }
 
+.form-section-first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .form-section-header {
   display: grid;
   gap: 0.2rem;
@@ -588,16 +600,24 @@ th {
 
 .scan-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  justify-items: center;
   gap: 1rem;
 }
 
 .scanner-panel,
-.scan-manual-panel,
 .inventory-results-panel,
 .detail-hero,
 .job-detail-hero {
   box-shadow: var(--shadow-md);
+}
+
+.scan-workspace .scanner-panel {
+  width: 100%;
+}
+
+.scan-lookup-error {
+  width: 100%;
+  margin: 0;
 }
 
 .detail-highlight-grid {
@@ -1060,6 +1080,10 @@ textarea {
   background: rgba(18, 52, 59, 0.06);
 }
 
+.account-menu-item-help {
+  color: #4c6670;
+}
+
 .account-menu-meta {
   margin: 0;
   padding: 0.55rem 0.65rem;
@@ -1456,20 +1480,8 @@ textarea {
   grid-column: 1 / -1;
 }
 
-.caulk-allocation-helper-block,
 .caulk-allocation-stock-section {
   grid-column: 1 / -1;
-}
-
-.caulk-allocation-helper-block {
-  border: 1px solid #d7e4e7;
-  border-radius: 1rem;
-  padding: 0.85rem 1rem;
-  background: #f7fbfb;
-}
-
-.caulk-allocation-helper-block .muted-text {
-  margin: 0;
 }
 
 .caulk-allocation-stock-section {
@@ -2213,19 +2225,163 @@ td.col-available-linear-ft {
 }
 
 .install-dialog {
-  width: min(100%, 32rem);
+  width: min(100%, 35rem);
+  border: 1px solid rgba(18, 52, 59, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(251, 248, 244, 0.98) 100%);
+  box-shadow:
+    0 24px 60px rgba(18, 52, 59, 0.2),
+    0 2px 12px rgba(18, 52, 59, 0.08);
+}
+
+.install-dialog-header {
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+}
+
+.install-dialog-heading {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.install-dialog-eyebrow {
+  margin: 0;
+  color: #58757d;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.install-dialog h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.35rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.install-dialog .dialog-close {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid rgba(18, 52, 59, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.install-dialog-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.install-dialog-intro-card {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(18, 52, 59, 0.08);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(247, 251, 251, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.install-dialog-lead {
+  margin: 0;
+  color: #213840;
+  font-size: 1.04rem;
+  line-height: 1.55;
+}
+
+.install-dialog-status {
+  margin: 0;
+  color: #5f7980;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.install-dialog-note {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.95rem;
+  background: rgba(220, 139, 88, 0.1);
+  border: 1px solid rgba(211, 127, 74, 0.18);
+}
+
+.install-dialog-note-label {
+  color: #91552e;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.install-dialog-note p {
+  margin: 0;
+  color: #5f5248;
+}
+
+.install-dialog-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.install-dialog-section-label {
+  margin: 0;
+  color: #5f7980;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .install-steps {
   margin: 0;
-  padding-left: 1.25rem;
+  padding: 0;
+  list-style: none;
+  counter-reset: install-step;
   color: #3d565d;
   display: grid;
-  gap: 0.55rem;
+  gap: 0.7rem;
 }
 
 .install-steps li {
-  padding-left: 0.2rem;
+  counter-increment: install-step;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.8rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(18, 52, 59, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  line-height: 1.5;
+}
+
+.install-steps li::before {
+  content: counter(install-step);
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #173b43 0%, #12343b 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.install-dialog-actions {
+  margin-top: 1.25rem;
+}
+
+.install-dialog-actions .button {
+  min-width: 9rem;
 }
 
 .dialog-job-allocate .allocation-preview {

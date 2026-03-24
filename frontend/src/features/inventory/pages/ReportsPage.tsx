@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Input } from '../../../components/Input';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
   MobileField,
   MobileFieldList,
@@ -163,6 +163,8 @@ export default function ReportsPage() {
     reportType === 'asset_total_cost'
       ? ownerAssetTotalCostQuery.error
       : reportsQuery.error;
+  const showReportLoading =
+    reportLoading && !reportsQuery.data && !ownerAssetTotalCostQuery.data;
 
   useEffect(() => {
     if (!auth.isOwner && reportType === 'asset_total_cost') {
@@ -247,10 +249,10 @@ export default function ReportsPage() {
           <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
         </div>
 
-        {reportLoading ? <LoadingState label="Loading reports..." /> : null}
+        <DeferredLoadingState when={showReportLoading} label="Loading reports..." />
         {reportError ? <p className="error-text">{reportError.message}</p> : null}
 
-        {!reportLoading && !reportError ? (
+        {!showReportLoading && !reportError ? (
           <>
             {reportType === 'never_checked_out' ? (
               !neverCheckedOut.length ? (

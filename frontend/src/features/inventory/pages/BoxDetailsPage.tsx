@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
 import { WAREHOUSE_CODES, getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
 import { formatDate } from '../../../lib/date';
@@ -167,7 +167,6 @@ export default function BoxDetailsPage() {
   const filmCatalogQuery = useFilmCatalog();
   const allocationsQuery = useBoxAllocations(boxId);
   const [isEditing, setIsEditing] = useState(false);
-  const [isDeletingBox, setIsDeletingBox] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
@@ -451,32 +450,15 @@ export default function BoxDetailsPage() {
       return;
     }
 
-    setIsDeletingBox(true);
-
     try {
-      const { result, warnings } = await deleteMutation.mutateAsync({
+      const deletePromise = deleteMutation.mutateAsync({
         boxId: box.boxId,
         reason: 'Deleted from box details.'
       });
-
-      await pushUndoToast(
-        result.logId,
-        'Box deleted',
-        box.boxId,
-        warnings,
-        `${box.boxId} was deleted.`,
-        (restoredBox) => {
-          if (!restoredBox) {
-            return;
-          }
-
-          navigate(`/inventory/${encodeURIComponent(restoredBox.boxId)}`, { replace: true });
-        }
-      );
-
       navigate('/', { replace: true });
+      await deletePromise;
     } catch (error) {
-      setIsDeletingBox(false);
+      navigate(`/inventory/${encodeURIComponent(box.boxId)}`, { replace: true });
       toast.push({
         title: 'Delete failed',
         description:
@@ -735,11 +717,7 @@ export default function BoxDetailsPage() {
   }, [box, searchParams]);
 
   if (boxQuery.isLoading && !box) {
-    return <LoadingState label="Loading box details..." />;
-  }
-
-  if (isDeletingBox) {
-    return <LoadingState label="Deleting box..." />;
+    return <DeferredLoadingState when label="Loading box details..." />;
   }
 
   if (!box) {

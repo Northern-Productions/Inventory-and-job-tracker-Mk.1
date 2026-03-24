@@ -1,7 +1,7 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, createHashRouter } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
-import { LoadingState } from '../components/LoadingState';
+import { DeferredLoadingState } from '../components/DeferredLoadingState';
 import { AccessRoute } from '../features/auth/AccessRoute';
 import type { FeatureAccessMode, FeatureArea } from '../domain';
 
@@ -26,7 +26,7 @@ const OwnerNotificationPreferencesPage = lazy(
 );
 
 function withSuspense(element: ReactNode) {
-  return <Suspense fallback={<LoadingState />}>{element}</Suspense>;
+  return <Suspense fallback={<DeferredLoadingState when />}>{element}</Suspense>;
 }
 
 function withFeatureRoute(

@@ -9,6 +9,10 @@
   "scripts": {
     "catalog:fasara:apply": "node scripts/apply-fasara-catalog-curation.mjs --apply",
     "catalog:fasara:dry": "node scripts/apply-fasara-catalog-curation.mjs",
+    "catalog:3m-solar:apply": "node scripts/apply-3m-solar-prestige-cleanup.mjs --apply",
+    "catalog:3m-solar:dry": "node scripts/apply-3m-solar-prestige-cleanup.mjs",
+    "catalog:3m-solar:night-vision:apply": "node scripts/apply-3m-solar-night-vision-cleanup.mjs --apply",
+    "catalog:3m-solar:night-vision:dry": "node scripts/apply-3m-solar-night-vision-cleanup.mjs",
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",

@@ -4,6 +4,7 @@ export interface InstallPlatformInfo {
   isSafari: boolean;
 }
 
+export type InstallAvailability = 'native_prompt_available' | 'manual_only' | 'already_installed';
 export type ManualInstallMode = 'android' | 'desktop' | 'ios';
 
 export function detectInstallPlatform(userAgent: string, maxTouchPoints = 0): InstallPlatformInfo {
@@ -36,6 +37,24 @@ export function isStandaloneDisplayMode(
   navigatorStandalone: boolean | undefined
 ) {
   return displayModeStandalone || navigatorStandalone === true;
+}
+
+export function resolveInstallAvailability({
+  hasDeferredPrompt,
+  isInstalled
+}: {
+  hasDeferredPrompt: boolean;
+  isInstalled: boolean;
+}): InstallAvailability {
+  if (isInstalled) {
+    return 'already_installed';
+  }
+
+  if (hasDeferredPrompt) {
+    return 'native_prompt_available';
+  }
+
+  return 'manual_only';
 }
 
 export function resolveManualInstallMode(platform: InstallPlatformInfo): ManualInstallMode {

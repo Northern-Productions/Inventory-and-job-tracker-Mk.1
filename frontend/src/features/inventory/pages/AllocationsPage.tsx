@@ -2,7 +2,7 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
   MobileField,
   MobileFieldList,
@@ -19,7 +19,6 @@ import { useAuth } from '../../auth/AuthContext';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
 import { useCreateJob, useFilmCatalog, useJobsList, useJobsSearch } from '../hooks/useInventoryQueries';
 import {
-  describeJobSort,
   getJobListDisplayStatus,
   JOB_SORT_OPTIONS,
   sortJobs,
@@ -64,6 +63,7 @@ export default function AllocationsPage() {
   );
   const jobsLoading = isSearchingJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading;
   const jobsError = isSearchingJobs ? jobsSearchQuery.error : jobsQuery.error;
+  const showJobsLoading = jobsLoading && !jobs.length;
 
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
@@ -95,15 +95,14 @@ export default function AllocationsPage() {
     };
 
     try {
-      const { result, warnings } = await createJobMutation.mutateAsync(payload);
       setIsNewJobOpen(false);
-      toast.push({
-        title: `Saved job ${result.summary.jobNumber}`,
-        description: warnings.join(' ') || `Job ${result.summary.jobNumber} is ready for allocation.`,
-        variant: 'success'
-      });
-      navigate(`/allocations/${encodeURIComponent(result.summary.jobNumber)}`);
+      const destination = `/allocations/${encodeURIComponent(payload.jobNumber)}`;
+      const savePromise = createJobMutation.mutateAsync(payload);
+      navigate(destination);
+      const { result } = await savePromise;
+      navigate(`/allocations/${encodeURIComponent(result.summary.jobNumber)}`, { replace: true });
     } catch (error) {
+      navigate('/allocations', { replace: true });
       toast.push({
         title: 'Unable to save job',
         description: error instanceof Error ? error.message : 'The job could not be saved.',
@@ -124,9 +123,7 @@ export default function AllocationsPage() {
         <div className="page-hero-title-row">
           <div className="page-hero-copy">
             <h2>Jobs</h2>
-            <p className="muted-text">
-              Showing active jobs only (up to 25), sorted by {describeJobSort(jobSort)}.
-            </p>
+            <p className="muted-text">Showing active jobs only (up to 25).</p>
             <div className="jobs-toolbar-grid">
               <label className="field jobs-search-field">
                 <span className="field-label">Search Job ID Number</span>
@@ -178,13 +175,16 @@ export default function AllocationsPage() {
           <h2>Recent Jobs</h2>
           <span className="muted-text allocations-recent-count">{jobs.length} job(s)</span>
         </div>
-        {jobsLoading ? <LoadingState label={isSearchingJobs ? 'Searching jobs...' : 'Loading jobs...'} /> : null}
+        <DeferredLoadingState
+          when={showJobsLoading}
+          label={isSearchingJobs ? 'Searching jobs...' : 'Loading jobs...'}
+        />
         {jobsError ? (
           <p className="error-text">
             {jobsError instanceof Error ? jobsError.message : 'Jobs could not be loaded.'}
           </p>
         ) : null}
-        {!jobsLoading && !jobsError && !jobs.length ? (
+        {!showJobsLoading && !jobsError && !jobs.length ? (
           <div className="empty-state">
             {isSearchingJobs
               ? `No active jobs match ${deferredJobSearchInput}.`

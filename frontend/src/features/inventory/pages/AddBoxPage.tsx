@@ -5,7 +5,8 @@ import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm } from '../components/BoxForm';
-import { useAddBox, useFilmCatalog, useSearchBoxes, useUndoAudit } from '../hooks/useInventoryQueries';
+import { WarehouseSelectField } from '../components/WarehouseSelectField';
+import { useAddBox, useFilmCatalog, useSearchBoxes } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
@@ -41,7 +42,6 @@ export default function AddBoxPage() {
   const toast = useToast();
   const auth = useAuth();
   const addBoxMutation = useAddBox();
-  const undoMutation = useUndoAudit();
   const filmCatalogQuery = useFilmCatalog();
   const warehouseRegistry = useWarehouseRegistry();
   const prefillToken = searchParams.toString();
@@ -189,39 +189,7 @@ export default function AddBoxPage() {
       const savePromise = addBoxMutation.mutateAsync(payload);
       navigate(destination);
 
-      const { result, warnings } = await savePromise;
-
-      toast.push({
-        title: `Saved ${result.box.boxId}`,
-        description:
-          warnings.length > 0
-            ? `${warnings.join(' ')} QR image and export actions are ready on the box details page.`
-            : `${result.box.boxId} was created and stored in ${result.box.warehouse}. QR image and export actions are ready on the box details page.`,
-        actionLabel: 'Undo',
-        onAction: async () => {
-          try {
-            const undone = await undoMutation.mutateAsync({
-              logId: result.logId,
-              reason: 'Undo add from success toast'
-            });
-
-            toast.push({
-              title: 'Undo completed',
-              description:
-                undone.warnings.join(' ') ||
-                `${result.box.boxId} was reverted using the latest audit log.`
-            });
-          } catch (error) {
-            toast.push({
-              title: 'Undo failed',
-              description:
-                error instanceof Error ? error.message : 'The undo request could not be completed.',
-              variant: 'error'
-            });
-          }
-        }
-      });
-
+      const { result } = await savePromise;
       navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`, { replace: true });
     } catch (error) {
       navigate('/inventory/add', {
@@ -251,11 +219,16 @@ export default function AddBoxPage() {
             <span className="eyebrow">Receiving Intake</span>
           </div>
           <div className="page-hero-title-row">
-            <div className="page-hero-copy">
+            <div className="page-hero-copy add-box-hero-copy">
               <h2>Add Box</h2>
               <p className="muted-text">
                 Create a warehouse-ready box record with pricing, dates, and roll tracking details.
               </p>
+              <WarehouseSelectField
+                label="Warehouse"
+                value={warehouse}
+                onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
+              />
             </div>
           </div>
         </section>
@@ -314,7 +287,6 @@ export default function AddBoxPage() {
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
         filmCatalogError={filmCatalogQuery.error}
-        onCreateWarehouseChange={setWarehouse}
         onSubmit={handleSubmit}
       />
     </>

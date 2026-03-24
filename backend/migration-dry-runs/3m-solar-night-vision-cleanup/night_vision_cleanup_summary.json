@@ -1,0 +1,22 @@
+{
+  "apply": true,
+  "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+  "actor": "3m-solar-night-vision-cleanup-script",
+  "mappings": 5,
+  "canonicalGroups": [
+    "Night Vision 15",
+    "Night Vision 25",
+    "Night Vision 35"
+  ],
+  "catalogInserted": 0,
+  "catalogUpdated": 3,
+  "catalogDeleted": 0,
+  "aliasUpserted": 21,
+  "aliasUpdated": 3,
+  "tableUpdates": {
+    "boxes": 137,
+    "job_requirements": 0,
+    "film_orders": 0,
+    "roll_weight_log": 0
+  }
+}

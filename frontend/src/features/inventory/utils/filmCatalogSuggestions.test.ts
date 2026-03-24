@@ -140,8 +140,10 @@ describe('getFilmNameSuggestions', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('3M Solar', 'NV 15'),
       catalogEntry('3M Solar', 'NV 15 F168325129'),
+      catalogEntry('3M Solar', 'Ultra SNV25'),
       catalogEntry('3M Solar', 'Night Vision 25'),
-      catalogEntry('3M Solar', 'NV35')
+      catalogEntry('3M Solar', 'NV35'),
+      catalogEntry('3M Solar', 'Security 3M S35NV')
     ];
 
     expect(getFilmNameSuggestions(entries, '3M Solar', 'n').map((entry) => entry.filmName)).toEqual([

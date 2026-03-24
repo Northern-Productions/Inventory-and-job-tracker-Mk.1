@@ -552,9 +552,14 @@ function inferNightVisionCode(filmName: unknown): string {
     return canonicalizeNumericDigits(nightVisionMatch[1]);
   }
 
-  const nvMatch = normalizedFilmName.match(/\bnv\s*[-]?\s*(\d{1,3})\b/i);
-  if (nvMatch) {
-    return canonicalizeNumericDigits(nvMatch[1]);
+  const snvMatch = normalizedFilmName.match(/\bs?nv\s*[-]?\s*(\d{1,3})\b/i);
+  if (snvMatch) {
+    return canonicalizeNumericDigits(snvMatch[1]);
+  }
+
+  const securityNvMatch = normalizedFilmName.match(/\bs\s*(\d{1,3})\s*nv\b/i);
+  if (securityNvMatch) {
+    return canonicalizeNumericDigits(securityNvMatch[1]);
   }
 
   return "";
@@ -641,10 +646,19 @@ function normalizeJobRequirementLookupKey(
   filmName: unknown,
   widthIn: unknown,
 ): string {
+  const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   return [
-    normalizeCatalogLookupKey(manufacturer),
-    normalizeCatalogLookupKey(filmName),
+    normalizeCatalogLookupKey(canonical.manufacturer),
+    normalizeCatalogLookupKey(canonical.filmName),
     normalizeRequirementWidthKey(widthIn),
+  ].join("|");
+}
+
+function normalizePlanningFilmKey(manufacturer: unknown, filmName: unknown): string {
+  const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
+  return [
+    normalizeCatalogLookupKey(canonical.manufacturer),
+    normalizeCatalogLookupKey(canonical.filmName),
   ].join("|");
 }
 
@@ -1986,12 +2000,12 @@ function buildAllocationPreviewPlan(
   const candidateBoxes = options.crossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
+  const sourcePlanningFilmKey = normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName);
   const filteredCandidates = candidateBoxes.filter((candidate) =>
     candidate.boxId !== sourceBox.boxId &&
     candidate.status === "IN_STOCK" &&
     candidate.feetAvailable > 0 &&
-    candidate.manufacturer === sourceBox.manufacturer &&
-    candidate.filmName === sourceBox.filmName &&
+    normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) === sourcePlanningFilmKey &&
     candidate.widthIn >= minimumWidthIn
   );
   filteredCandidates.sort((left, right) => {
@@ -2956,6 +2970,86 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
+async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const warnings: string[] = [];
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const role = asTrimmedString(identity.role).toLowerCase();
+  if (role !== "owner" && role !== "admin") {
+    throw new HttpError(403, "Admin or owner access is required.");
+  }
+
+  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, "Job ID number");
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const existingAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
+    (box) =>
+      box.status === "CHECKED_OUT" &&
+      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber),
+  );
+  if (checkedOutBoxes.length) {
+    const listedBoxes = checkedOutBoxes
+      .slice(0, 5)
+      .map((box) => box.boxId)
+      .join(", ");
+    const suffix = checkedOutBoxes.length > 5 ? ", ..." : "";
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be deleted while boxes are still checked out: ${listedBoxes}${suffix}.`,
+    );
+  }
+
+  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
+  const activeFilmAllocations = existingAllocations.filter((entry) => entry.status === "ACTIVE");
+  const activeFilmBoxCount = Object.keys(
+    Object.fromEntries(activeFilmAllocations.map((entry) => [entry.boxId, true])),
+  ).length;
+  const activeCaulkAllocations = existingCaulkAllocations.filter((entry) => entry.status === "ACTIVE");
+  const releasedReservedCaulkTubes = activeCaulkAllocations.reduce(
+    (sum, entry) => sum + Math.max(0, integerOrZero(entry.reservedTubesRemaining)),
+    0,
+  );
+  const serviceClient = requireServiceRoleClientForJobs();
+  const cancelReason = asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`;
+  await rpcOrThrow<any>(client, "api_film_orders_cancel", {
+    p_org_id: orgId,
+    p_actor: actor,
+    p_payload: {
+      jobNumber,
+      reason: cancelReason,
+    },
+  });
+
+  const { error: deleteRequirementsError } = await serviceClient
+    .schema("app")
+    .from("job_requirements")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("job_id", existingJob.id);
+  throwOnSupabaseError(deleteRequirementsError, `Unable to delete job requirements for job ${jobNumber}`);
+
+  const { error: deleteJobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("id", existingJob.id);
+  throwOnSupabaseError(deleteJobError, `Unable to delete job ${jobNumber}`);
+
+  warnings.push(
+    `Deleted job ${jobNumber}. Removed ${existingRequirements.length} film requirement${existingRequirements.length === 1 ? "" : "s"}, ${existingCaulkRequirements.length} caulk requirement${existingCaulkRequirements.length === 1 ? "" : "s"}, released ${activeFilmAllocations.length} active film allocation${activeFilmAllocations.length === 1 ? "" : "s"} across ${activeFilmBoxCount} box${activeFilmBoxCount === 1 ? "" : "es"}, released ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? "" : "s"} across ${activeCaulkAllocations.length} caulk allocation${activeCaulkAllocations.length === 1 ? "" : "s"}, and deleted ${existingFilmOrders.length} film order${existingFilmOrders.length === 1 ? "" : "s"}.`,
+  );
+
+  return ok({ jobNumber }, warnings);
+}
+
 async function recalculateFilmOrderAfterAllocationMutation(
   client: any,
   serviceClient: any,
@@ -3302,6 +3396,7 @@ async function dispatchMutation(
     buildJobDetail,
     completeJob,
     reopenJob,
+    deleteJob,
   });
 }
 

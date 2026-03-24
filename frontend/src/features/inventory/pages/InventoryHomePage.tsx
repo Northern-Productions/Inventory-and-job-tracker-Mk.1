@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 import { CaulkInventoryContent } from '../../caulk/components/CaulkInventoryContent';
 import { InventoryFilters } from '../components/InventoryFilters';
@@ -231,7 +231,7 @@ export default function InventoryHomePage() {
             <span className="muted-text">{boxesQuery.data.length} box(es)</span>
           ) : null}
         </div>
-        {boxesQuery.isLoading ? <LoadingState label="Loading inventory..." /> : null}
+        <DeferredLoadingState when={boxesQuery.isLoading} label="Loading inventory..." />
         {boxesQuery.isError ? (
           <div className="error-text">
             {boxesQuery.error instanceof Error

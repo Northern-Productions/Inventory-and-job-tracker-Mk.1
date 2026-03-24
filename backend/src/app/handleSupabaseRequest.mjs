@@ -565,6 +565,7 @@ function normalizeCatalogManufacturerLookupKey(value) {
 }
 
 const SECURITY_MANUFACTURER_LABEL = 'Security';
+const SOLAR_MANUFACTURER_LABEL = '3M Solar';
 const PREFIX_POLICY_TARGET_MANUFACTURERS = new Set([
   '3M Solar',
   '3M Fasara',
@@ -898,16 +899,67 @@ function normalizeSecurityManufacturerAndFilm(manufacturer, filmName) {
   };
 }
 
+function inferNightVisionCode(filmName) {
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const nightVisionMatch = normalizedFilmName.match(/\bnight\s*vision\s*(\d{1,3})\b/i);
+  if (nightVisionMatch) {
+    return canonicalizeNumericDigits(nightVisionMatch[1]);
+  }
+
+  const snvMatch = normalizedFilmName.match(/\bs?nv\s*[-]?\s*(\d{1,3})\b/i);
+  if (snvMatch) {
+    return canonicalizeNumericDigits(snvMatch[1]);
+  }
+
+  const securityNvMatch = normalizedFilmName.match(/\bs\s*(\d{1,3})\s*nv\b/i);
+  if (securityNvMatch) {
+    return canonicalizeNumericDigits(securityNvMatch[1]);
+  }
+
+  return '';
+}
+
+function normalize3MSolarNightVisionManufacturerAndFilm(manufacturer, filmName) {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  if (
+    normalizeCatalogManufacturerLookupKey(normalizedManufacturer)
+    !== normalizeCatalogManufacturerLookupKey(SOLAR_MANUFACTURER_LABEL)
+  ) {
+    return {
+      manufacturer: normalizedManufacturer,
+      filmName: normalizedFilmName
+    };
+  }
+
+  const nightVisionCode = inferNightVisionCode(normalizedFilmName);
+  if (!nightVisionCode) {
+    return {
+      manufacturer: normalizedManufacturer,
+      filmName: normalizedFilmName
+    };
+  }
+
+  return {
+    manufacturer: SOLAR_MANUFACTURER_LABEL,
+    filmName: `Night Vision ${nightVisionCode}`
+  };
+}
+
 function normalizeCanonicalManufacturerAndFilm(manufacturer, filmName) {
   const securityNormalized = normalizeSecurityManufacturerAndFilm(manufacturer, filmName);
-  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+  const solarNormalized = normalize3MSolarNightVisionManufacturerAndFilm(
     securityNormalized.manufacturer,
     securityNormalized.filmName
   );
+  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+    solarNormalized.manufacturer,
+    solarNormalized.filmName
+  );
   return {
-    manufacturer: securityNormalized.manufacturer,
+    manufacturer: solarNormalized.manufacturer,
     filmName: normalizeAveryNaturaShadeFilmName(
-      securityNormalized.manufacturer,
+      solarNormalized.manufacturer,
       prefixPolicyNormalizedFilmName
     )
   };
@@ -1106,9 +1158,10 @@ function normalizeRequirementWidthKey(value) {
 }
 
 function normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn) {
+  const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   return [
-    normalizeCatalogManufacturerLookupKey(manufacturer),
-    normalizeCatalogLookupKey(filmName),
+    normalizeCatalogManufacturerLookupKey(canonical.manufacturer),
+    normalizeCatalogLookupKey(canonical.filmName),
     normalizeRequirementWidthKey(widthIn)
   ].join('|');
 }
@@ -4163,7 +4216,8 @@ function buildJobRequirementsByLookupKey(entries) {
 }
 
 function normalizeRequirementFilmKey(manufacturer, filmName) {
-  return `${normalizeCatalogManufacturerLookupKey(manufacturer)}|${normalizeCatalogLookupKey(filmName)}`;
+  const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
+  return `${normalizeCatalogManufacturerLookupKey(canonical.manufacturer)}|${normalizeCatalogLookupKey(canonical.filmName)}`;
 }
 
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
@@ -4956,6 +5010,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   const candidateBoxes = useCrossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
+  const sourcePlanningFilmKey = normalizeRequirementFilmKey(sourceBox.manufacturer, sourceBox.filmName);
   const filteredCandidates = [];
 
   for (let index = 0; index < candidateBoxes.length; index += 1) {
@@ -4964,8 +5019,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       candidate.boxId === sourceBox.boxId ||
       !isAllocatableBoxStatus(candidate.status) ||
       candidate.feetAvailable <= 0 ||
-      candidate.manufacturer !== sourceBox.manufacturer ||
-      candidate.filmName !== sourceBox.filmName ||
+      normalizeRequirementFilmKey(candidate.manufacturer, candidate.filmName) !== sourcePlanningFilmKey ||
       candidate.widthIn < minimumWidthIn
     ) {
       continue;

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { Input } from '../../../components/Input';
-import { LoadingState } from '../../../components/LoadingState';
 import { Select } from '../../../components/Select';
 import {
   listCaulkManufacturers,
@@ -54,6 +54,8 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
   }, [manufacturers]);
 
   const isBusy = manufacturersQuery.isLoading || stockQuery.isLoading;
+  const showCaulkInventoryLoading =
+    isBusy && !manufacturersQuery.data && !stockQuery.data;
 
   return (
     <>
@@ -109,8 +111,8 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
           <h2>Stock</h2>
           <span className="muted-text">{stockRows.length} product rows</span>
         </div>
-        {isBusy ? <LoadingState label="Loading caulk inventory..." /> : null}
-        {!isBusy ? (
+        <DeferredLoadingState when={showCaulkInventoryLoading} label="Loading caulk inventory..." />
+        {!showCaulkInventoryLoading ? (
           <div className="table-wrap">
             <table className="inventory-table">
               <thead>

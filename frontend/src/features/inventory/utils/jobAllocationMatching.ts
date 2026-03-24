@@ -1,13 +1,5 @@
 import type { Box, JobRequirementLine } from '../../../domain';
-import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
-
-function normalizeLookup(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function normalizeManufacturer(value: string) {
-  return normalizeManufacturerLookupKey(value);
-}
+import { buildJobPlanningFilmKey } from './jobPlanningFilmIdentity';
 
 function compareDates(leftDate: string, rightDate: string) {
   if (leftDate === rightDate) {
@@ -41,8 +33,7 @@ function compareBoxesByClosestCompatibleWidth(left: Box, right: Box, minimumWidt
 }
 
 export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRequirementLine): Box[] {
-  const requiredManufacturerKey = normalizeManufacturer(requirement.manufacturer);
-  const requiredFilmKey = normalizeLookup(requirement.filmName);
+  const requiredPlanningFilmKey = buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName);
   const requiredWidth = requirement.widthIn;
   const dedupedByBoxId = new Map<string, Box>();
 
@@ -64,11 +55,7 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
       return false;
     }
 
-    if (normalizeManufacturer(box.manufacturer) !== requiredManufacturerKey) {
-      return false;
-    }
-
-    if (normalizeLookup(box.filmName) !== requiredFilmKey) {
+    if (buildJobPlanningFilmKey(box.manufacturer, box.filmName) !== requiredPlanningFilmKey) {
       return false;
     }
 

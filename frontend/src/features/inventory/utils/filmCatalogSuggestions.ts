@@ -37,9 +37,14 @@ function inferNightVisionCode(value: string): string {
     return canonicalizeNumericDigits(nightVisionMatch[1]);
   }
 
-  const nvMatch = normalized.match(/\bnv\s*[-]?\s*(\d{1,3})\b/i);
-  if (nvMatch) {
-    return canonicalizeNumericDigits(nvMatch[1]);
+  const snvMatch = normalized.match(/\bs?nv\s*[-]?\s*(\d{1,3})\b/i);
+  if (snvMatch) {
+    return canonicalizeNumericDigits(snvMatch[1]);
+  }
+
+  const securityNvMatch = normalized.match(/\bs\s*(\d{1,3})\s*nv\b/i);
+  if (securityNvMatch) {
+    return canonicalizeNumericDigits(securityNvMatch[1]);
   }
 
   return '';

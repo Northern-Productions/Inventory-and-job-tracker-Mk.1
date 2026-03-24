@@ -37,6 +37,7 @@ import type {
   AddBoxPayload,
   ApplyAllocationPlanPayload,
   Box,
+  CaulkProductEntry,
   CheckinCaulkJobAllocationPayload,
   CheckoutCaulkJobAllocationPayload,
   CreateFilmOrderPayload,
@@ -60,9 +61,18 @@ import { inventoryKeys } from './inventoryQueryKeys';
 import {
   beginDelayedOptimisticMutation,
   beginImmediateOptimisticMutation,
+  createOptimisticAllocationJobSummaryFromJobDetail,
   createOptimisticBoxFromAddPayload,
+  createOptimisticFilmOrderFromPayload,
+  createOptimisticJobDetailFromCreatePayload,
   removeBoxCaches,
+  removeAllocationJobSummaryCaches,
+  removeJobListCaches,
+  replaceFilmOrderInCaches,
   restoreSnapshots,
+  upsertAllocationJobSummaryCaches,
+  upsertFilmOrdersCache,
+  upsertJobListCaches,
   updateBoxCaches
 } from './inventoryMutationUtils';
 import {
@@ -82,7 +92,152 @@ export function useCreateFilmOrder() {
 
   return useMutation({
     mutationFn: (payload: CreateFilmOrderPayload) => createFilmOrder(payload),
-    onSuccess: async (_data, variables) => {
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+      ]);
+
+      const optimisticFilmOrder = createOptimisticFilmOrderFromPayload(payload);
+      const context = beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.filmOrders,
+          inventoryKeys.jobs,
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJob(payload.jobNumber)
+        ],
+        () => {
+          upsertFilmOrdersCache(queryClient, optimisticFilmOrder);
+
+          upsertJobListCaches(queryClient, {
+            ...(queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber))?.summary || {
+              jobNumber: payload.jobNumber,
+              warehouse: payload.warehouse,
+              sections: null,
+              dueDate: '',
+              crewLeader: '',
+              status: 'ALLOCATE',
+              lifecycleStatus: 'ACTIVE',
+              requiredFeet: 0,
+              allocatedFeet: 0,
+              remainingFeet: 0,
+              requiredTubes: 0,
+              allocatedTubes: 0,
+              remainingTubes: 0,
+              requirementCount: 0,
+              allocationCount: 0,
+              filmOrderCount: 0,
+              createdAt: optimisticFilmOrder.createdAt,
+              updatedAt: optimisticFilmOrder.createdAt,
+              notes: ''
+            }),
+            status: 'FILM_ORDER',
+            filmOrderCount:
+              Number(
+                queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber))?.summary
+                  .filmOrderCount || 0
+              ) + 1,
+            updatedAt: optimisticFilmOrder.createdAt
+          });
+
+          queryClient.setQueryData<JobDetail | undefined>(
+            inventoryKeys.job(payload.jobNumber),
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    summary: {
+                      ...current.summary,
+                      status: 'FILM_ORDER',
+                      filmOrderCount: current.summary.filmOrderCount + 1,
+                      updatedAt: optimisticFilmOrder.createdAt
+                    },
+                    filmOrders: [optimisticFilmOrder, ...current.filmOrders]
+                  }
+                : current
+          );
+
+          upsertAllocationJobSummaryCaches(queryClient, {
+            ...(queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(payload.jobNumber))
+              ?.summary || {
+              jobNumber: payload.jobNumber,
+              jobDate: '',
+              crewLeader: '',
+              status: 'ALLOCATE',
+              activeAllocatedFeet: 0,
+              fulfilledAllocatedFeet: 0,
+              requiredTubes: 0,
+              allocatedTubes: 0,
+              remainingTubes: 0,
+              openFilmOrderCount: 0,
+              boxCount: 0
+            }),
+            status: 'FILM_ORDER',
+            openFilmOrderCount:
+              Number(
+                queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(payload.jobNumber))
+                  ?.summary.openFilmOrderCount || 0
+              ) + 1
+          });
+
+          queryClient.setQueryData<AllocationJobDetail | undefined>(
+            inventoryKeys.allocationJob(payload.jobNumber),
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    summary: {
+                      ...current.summary,
+                      status: 'FILM_ORDER',
+                      openFilmOrderCount: current.summary.openFilmOrderCount + 1
+                    },
+                    filmOrders: [optimisticFilmOrder, ...current.filmOrders]
+                  }
+                : current
+          );
+        }
+      );
+
+      return {
+        ...context,
+        pendingFilmOrderId: optimisticFilmOrder.filmOrderId
+      };
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, variables, context) => {
+      if (context?.pendingFilmOrderId) {
+        replaceFilmOrderInCaches(queryClient, context.pendingFilmOrderId, result);
+        queryClient.setQueryData<JobDetail | undefined>(inventoryKeys.job(variables.jobNumber), (current) =>
+          current
+            ? {
+                ...current,
+                filmOrders: current.filmOrders.map((entry) =>
+                  entry.filmOrderId === context.pendingFilmOrderId ? result : entry
+                )
+              }
+            : current
+        );
+        queryClient.setQueryData<AllocationJobDetail | undefined>(
+          inventoryKeys.allocationJob(variables.jobNumber),
+          (current) =>
+            current
+              ? {
+                  ...current,
+                  filmOrders: current.filmOrders.map((entry) =>
+                    entry.filmOrderId === context.pendingFilmOrderId ? result : entry
+                  )
+                }
+              : current
+        );
+      }
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
@@ -97,7 +252,83 @@ export function useCreateJob() {
 
   return useMutation({
     mutationFn: (payload: CreateJobPayload) => createJob(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+      ]);
+
+      const optimisticDetail = createOptimisticJobDetailFromCreatePayload(
+        payload,
+        queryClient.getQueryData<CaulkProductEntry[]>(['caulk', 'products']) || []
+      );
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJob(payload.jobNumber)
+        ],
+        () => {
+          queryClient.setQueryData(inventoryKeys.job(payload.jobNumber), optimisticDetail);
+          queryClient.setQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(payload.jobNumber), {
+            summary: createOptimisticAllocationJobSummaryFromJobDetail(optimisticDetail),
+            allocations: [],
+            usage: [],
+            usageTimeline: [],
+            caulkRequirements: optimisticDetail.caulkRequirements,
+            caulkAllocations: [],
+            caulkCheckouts: [],
+            filmOrders: []
+          });
+          upsertJobListCaches(queryClient, optimisticDetail.summary);
+          upsertAllocationJobSummaryCaches(
+            queryClient,
+            createOptimisticAllocationJobSummaryFromJobDetail(optimisticDetail)
+          );
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
     onSuccess: async ({ result }) => {
+      queryClient.setQueryData(inventoryKeys.job(result.summary.jobNumber), result);
+      upsertJobListCaches(queryClient, result.summary);
+      upsertAllocationJobSummaryCaches(queryClient, {
+        ...(queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(result.summary.jobNumber))
+          ?.summary || createOptimisticAllocationJobSummaryFromJobDetail(result)),
+        jobDate: result.summary.dueDate,
+        crewLeader: result.summary.crewLeader,
+        status: result.summary.status,
+        requiredTubes: result.summary.requiredTubes,
+        allocatedTubes: result.summary.allocatedTubes,
+        remainingTubes: result.summary.remainingTubes
+      });
+      queryClient.setQueryData<AllocationJobDetail | undefined>(
+        inventoryKeys.allocationJob(result.summary.jobNumber),
+        (current) =>
+          current
+            ? {
+                ...current,
+                summary: {
+                  ...current.summary,
+                  jobDate: result.summary.dueDate,
+                  crewLeader: result.summary.crewLeader,
+                  status: result.summary.status,
+                  requiredTubes: result.summary.requiredTubes,
+                  allocatedTubes: result.summary.allocatedTubes,
+                  remainingTubes: result.summary.remainingTubes
+                },
+                caulkRequirements: result.caulkRequirements,
+                filmOrders: result.filmOrders
+              }
+            : current
+      );
       await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
@@ -457,6 +688,38 @@ export function useDeleteJob() {
 
   return useMutation({
     mutationFn: (payload: DeleteJobPayload) => deleteJob(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
+      ]);
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJob(payload.jobNumber),
+          inventoryKeys.filmOrders
+        ],
+        () => {
+          removeJobListCaches(queryClient, payload.jobNumber);
+          removeAllocationJobSummaryCaches(queryClient, payload.jobNumber);
+          queryClient.setQueryData(inventoryKeys.job(payload.jobNumber), undefined);
+          queryClient.setQueryData(inventoryKeys.allocationJob(payload.jobNumber), undefined);
+          queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
+            current ? current.filter((entry) => entry.jobNumber !== payload.jobNumber) : current
+          );
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
     onSuccess: async ({ result }) => {
       await Promise.all([
         invalidateGlobalPlanningQueries(queryClient),

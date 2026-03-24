@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
   MobileActionStack,
   MobileField,
@@ -81,6 +81,7 @@ export default function FilmOrdersPage() {
     () => sortFilmOrders(filmOrdersQuery.data || []),
     [filmOrdersQuery.data]
   );
+  const showFilmOrdersLoading = filmOrdersQuery.isLoading && !orderedEntries.length;
 
   async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
     if (!auth.clientIdConfigured) {
@@ -141,14 +142,8 @@ export default function FilmOrdersPage() {
     }
 
     try {
-      const { result, warnings } = await createFilmOrderMutation.mutateAsync(payload);
       setIsCreateFilmOrderOpen(false);
-      toast.push({
-        title: `Film Order ${result.filmOrderId} created`,
-        description:
-          warnings.join(' ') || `Continue in Add Box to create the incoming box records for job ${result.jobNumber}.`,
-        variant: 'success'
-      });
+      const { result } = await createFilmOrderMutation.mutateAsync(payload);
       navigate(buildAddBoxTarget(result));
     } catch (error) {
       toast.push({
@@ -171,9 +166,9 @@ export default function FilmOrdersPage() {
         <p className="muted-text">
           Shortage alerts stay at the top. Use FILM ORDERED to add an incoming box tied to the job.
         </p>
-        {filmOrdersQuery.isLoading ? <LoadingState label="Loading film orders..." /> : null}
+        <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
-        {!filmOrdersQuery.isLoading && !filmOrdersQuery.isError && !orderedEntries.length ? (
+        {!showFilmOrdersLoading && !filmOrdersQuery.isError && !orderedEntries.length ? (
           <div className="empty-state">No film order alerts have been created yet.</div>
         ) : null}
         {orderedEntries.length ? (

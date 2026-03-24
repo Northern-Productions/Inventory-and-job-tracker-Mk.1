@@ -43,6 +43,7 @@ export type MutationHandlerDeps = {
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
 };
 
 type MutationHandler = (
@@ -346,6 +347,9 @@ const mutationHandlers: Record<string, MutationHandler> = {
   },
   "/jobs/reopen": async ({ client, identity, payload }, deps) => {
     return await deps.reopenJob(client, identity, payload);
+  },
+  "/jobs/delete": async ({ client, identity, payload }, deps) => {
+    return await deps.deleteJob(client, identity, payload);
   },
   "/film-orders/create": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");

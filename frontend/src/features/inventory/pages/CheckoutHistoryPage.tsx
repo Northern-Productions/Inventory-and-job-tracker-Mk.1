@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
-import { LoadingState } from '../../../components/LoadingState';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
   MobileField,
   MobileFieldList,
@@ -39,6 +39,7 @@ export default function CheckoutHistoryPage() {
       }),
     [checkoutQuery.data]
   );
+  const showCheckoutLoading = checkoutQuery.isLoading && !checkoutQuery.data;
 
   return (
     <>
@@ -55,7 +56,7 @@ export default function CheckoutHistoryPage() {
       </section>
 
       <section className="panel">
-        {checkoutQuery.isLoading ? <LoadingState label="Loading checkout history..." /> : null}
+        <DeferredLoadingState when={showCheckoutLoading} label="Loading checkout history..." />
         {checkoutQuery.isError ? <p className="error-text">{checkoutQuery.error.message}</p> : null}
         {checkoutEntries.length ? (
           isPhoneLayout ? (
@@ -107,7 +108,7 @@ export default function CheckoutHistoryPage() {
             </div>
           )
         ) : null}
-        {!checkoutQuery.isLoading && !checkoutEntries.length ? (
+        {!showCheckoutLoading && !checkoutEntries.length ? (
           <div className="empty-state">No checkout history yet.</div>
         ) : null}
       </section>

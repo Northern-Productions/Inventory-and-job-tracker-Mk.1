@@ -4,10 +4,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { listCaulkProducts, listCaulkStock } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { DeleteConfirmDialog } from '../../../components/DeleteConfirmDialog';
 import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
-import { LoadingState } from '../../../components/LoadingState';
 import {
   MobileField,
   MobileFieldList,
@@ -49,7 +49,6 @@ import {
 } from '../hooks/useInventoryQueries';
 import { confirmWarnings, getCheckInWarnings } from '../utils/boxWarnings';
 import {
-  buildCaulkAllocationBreakdownMessage,
   buildAddCaulkAllocationDefaults,
   buildCaulkAllocationValuesForRequirement,
   formatCaulkTubeBreakdown,
@@ -279,24 +278,6 @@ export default function AllocationJobPage() {
     caulkAllocationStockQuery.data,
     selectedCaulkAllocationProductId
   ]);
-  const caulkAllocationEditorTubesPerCase =
-    selectedCaulkRequirement?.tubesPerCase ??
-    selectedCaulkProduct?.tubesPerCase ??
-    selectedCaulkAllocationRow?.tubesPerCase ??
-    0;
-  const caulkAllocationEditorTubeCount = caulkAllocationEditor?.allocatedTubes
-    ? Math.max(Math.floor(Number(caulkAllocationEditor.allocatedTubes)), 0)
-    : 0;
-  const caulkAllocationBreakdownMessage = selectedCaulkAllocationProductId
-    ? buildCaulkAllocationBreakdownMessage({
-        selectedRequirementRemainingTubes:
-          selectedCaulkRequirement && caulkAllocationEditor?.mode === 'add'
-            ? selectedCaulkRequirement.remainingTubes
-            : null,
-        allocationTubeCount: caulkAllocationEditorTubeCount,
-        tubesPerCase: caulkAllocationEditorTubesPerCase
-      })
-    : '';
   const filmCheckinDialogMessage = filmCheckinEntry
     ? [
         `Enter the latest roll weight in pounds to complete the check-in for box ${filmCheckinEntry.boxId}.`,
@@ -466,16 +447,13 @@ export default function AllocationJobPage() {
     }
 
     try {
-      const { warnings } = await deleteJobMutation.mutateAsync({
+      const deletePromise = deleteJobMutation.mutateAsync({
         jobNumber: summary.jobNumber
       });
-      toast.push({
-        title: `Deleted job ${summary.jobNumber}`,
-        description: warnings.join(' ') || `Job ${summary.jobNumber} was deleted.`,
-        variant: 'success'
-      });
-      navigate('/allocations');
+      navigate('/allocations', { replace: true });
+      await deletePromise;
     } catch (error) {
+      navigate(`/allocations/${encodeURIComponent(summary.jobNumber)}`, { replace: true });
       toast.push({
         title: 'Unable to delete job',
         description: error instanceof Error ? error.message : 'The delete request failed.',
@@ -1084,8 +1062,8 @@ export default function AllocationJobPage() {
     }
   }
 
-  if (jobQuery.isLoading) {
-    return <LoadingState label="Loading job details..." />;
+  if (jobQuery.isLoading && !detail) {
+    return <DeferredLoadingState when label="Loading job details..." />;
   }
 
   if (jobQuery.isError || !detail || !summary) {
@@ -2243,12 +2221,6 @@ export default function AllocationJobPage() {
                     : undefined
                 }
               />
-              {selectedCaulkAllocationProductId ? (
-                <div className="caulk-allocation-helper-block">
-                  <p className="muted-text">{caulkAllocationBreakdownMessage}</p>
-                </div>
-              ) : null}
-
               {selectedCaulkAllocationProductId ? (
                 <section className="caulk-allocation-stock-section" aria-label="Available Caulk Stock">
                   <div className="caulk-allocation-stock-header">

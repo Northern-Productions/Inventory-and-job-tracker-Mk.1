@@ -87,6 +87,33 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-3M']);
   });
 
+  it('treats Night Vision family variants as the same planning film', () => {
+    const requirement = buildRequirement({
+      manufacturer: '3M Solar',
+      filmName: 'Night Vision 15',
+      widthIn: 36
+    });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-NV15',
+          manufacturer: '3M Solar',
+          filmName: 'Night Vision 15 (NV15)',
+          widthIn: 36
+        }),
+        buildBox({
+          boxId: 'IL1-SNV25',
+          manufacturer: '3M Solar',
+          filmName: 'Ultra SNV25',
+          widthIn: 36
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-NV15']);
+  });
+
   it('excludes checked-out rolls when available LF is 0', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(

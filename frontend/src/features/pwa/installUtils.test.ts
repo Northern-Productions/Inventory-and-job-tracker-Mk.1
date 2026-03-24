@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { detectInstallPlatform, isStandaloneDisplayMode, resolveManualInstallMode } from './installUtils';
+import {
+  detectInstallPlatform,
+  isStandaloneDisplayMode,
+  resolveInstallAvailability,
+  resolveManualInstallMode
+} from './installUtils';
 
 describe('detectInstallPlatform', () => {
   it('detects iPhone Safari correctly', () => {
@@ -71,5 +76,34 @@ describe('resolveManualInstallMode', () => {
         isSafari: false
       })
     ).toBe('desktop');
+  });
+});
+
+describe('resolveInstallAvailability', () => {
+  it('prefers installed state over any prompt availability', () => {
+    expect(
+      resolveInstallAvailability({
+        hasDeferredPrompt: true,
+        isInstalled: true
+      })
+    ).toBe('already_installed');
+  });
+
+  it('returns native prompt availability when a deferred prompt exists', () => {
+    expect(
+      resolveInstallAvailability({
+        hasDeferredPrompt: true,
+        isInstalled: false
+      })
+    ).toBe('native_prompt_available');
+  });
+
+  it('falls back to manual-only when no native prompt is available', () => {
+    expect(
+      resolveInstallAvailability({
+        hasDeferredPrompt: false,
+        isInstalled: false
+      })
+    ).toBe('manual_only');
   });
 });
