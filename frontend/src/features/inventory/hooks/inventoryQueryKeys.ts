@@ -5,6 +5,8 @@ import type {
   SearchBoxesParams
 } from '../../../domain';
 
+type JobLifecycleFilter = 'ACTIVE' | 'COMPLETED';
+
 // Purpose: Centralized React Query keys for inventory feature queries/mutations.
 export const inventoryKeys = {
   root: ['inventory'] as const,
@@ -17,7 +19,15 @@ export const inventoryKeys = {
   allocationsRoot: ['inventory', 'allocations'] as const,
   allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
   jobs: ['inventory', 'jobs'] as const,
-  jobsSearch: ['inventory', 'jobs-search'] as const,
+  jobsListRoot: ['inventory', 'jobs', 'list'] as const,
+  jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter }) =>
+    ['inventory', 'jobs', 'list', params] as const,
+  jobsSearch: ['inventory', 'jobs', 'search'] as const,
+  jobsSearchResults: (params: {
+    query: string;
+    limit: number;
+    lifecycleStatus?: JobLifecycleFilter;
+  }) => ['inventory', 'jobs', 'search', params] as const,
   jobRoot: ['inventory', 'job'] as const,
   job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
   allocationJobs: ['inventory', 'allocation-jobs'] as const,

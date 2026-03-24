@@ -78,6 +78,20 @@ describe('jobs API client canonical routes', () => {
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', { query: { limit: 25 } });
   });
 
+  it('passes lifecycleStatus to GET /jobs/list when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123', lifecycleStatus: 'COMPLETED' })] },
+      warnings: []
+    });
+
+    const entries = await getJobs(25, { lifecycleStatus: 'COMPLETED' });
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
+      query: { limit: 25, lifecycleStatus: 'COMPLETED' }
+    });
+  });
+
   it('loads jobs search through GET /jobs/search', async () => {
     requestMock.mockResolvedValueOnce({
       data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
@@ -89,6 +103,20 @@ describe('jobs API client canonical routes', () => {
     expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
       query: { query: '00123', limit: 25 }
+    });
+  });
+
+  it('passes lifecycleStatus to GET /jobs/search when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123', lifecycleStatus: 'COMPLETED' })] },
+      warnings: []
+    });
+
+    const entries = await searchJobsByNumber('00123', 25, { lifecycleStatus: 'COMPLETED' });
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
+      query: { query: '00123', limit: 25, lifecycleStatus: 'COMPLETED' }
     });
   });
 

@@ -45,8 +45,14 @@ export type ReadHandlerDeps = {
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
-  buildJobsList: (client: any, orgId: string, limit: number) => Promise<unknown[]>;
-  buildJobsSearchResults: (client: any, orgId: string, query: unknown, limit: number) => Promise<unknown[]>;
+  buildJobsList: (client: any, orgId: string, limit: number, lifecycleStatus?: unknown) => Promise<unknown[]>;
+  buildJobsSearchResults: (
+    client: any,
+    orgId: string,
+    query: unknown,
+    limit: number,
+    lifecycleStatus?: unknown
+  ) => Promise<unknown[]>;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
@@ -264,12 +270,20 @@ const readHandlers: Record<string, ReadHandler> = {
   "/jobs/list": async ({ client, orgId, params }, deps) => {
     const limitValue = Number(params.limit);
     const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-    return ok({ entries: await deps.buildJobsList(client, orgId, limit) });
+    return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus) });
   },
   "/jobs/search": async ({ client, orgId, params }, deps) => {
     const limitValue = Number(params.limit);
     const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-    return ok({ entries: await deps.buildJobsSearchResults(client, orgId, params.query, limit) });
+    return ok({
+      entries: await deps.buildJobsSearchResults(
+        client,
+        orgId,
+        params.query,
+        limit,
+        params.lifecycleStatus
+      )
+    });
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildJobDetail(client, orgId, params.jobNumber));

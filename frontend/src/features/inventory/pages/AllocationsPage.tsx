@@ -12,6 +12,7 @@ import {
 import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
 import { listCaulkProducts } from '../../../api/features/caulkClient';
+import type { JobLifecycleFilter } from '../../../api/features/jobsClient';
 import type { CreateJobPayload } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
@@ -29,17 +30,35 @@ function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
-export default function AllocationsPage() {
+type AllocationsPageProps = {
+  initialWorkflowView?: 'active' | 'completed';
+  initialJobSearchInput?: string;
+  initialJobSort?: JobSortOption;
+};
+
+export default function AllocationsPage({
+  initialWorkflowView = 'active',
+  initialJobSearchInput = '',
+  initialJobSort = 'install_date'
+}: AllocationsPageProps = {}) {
   const navigate = useNavigate();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
-  const jobsQuery = useJobsList(25);
-  const [jobSearchInput, setJobSearchInput] = useState('');
-  const [jobSort, setJobSort] = useState<JobSortOption>('install_date');
+  const [jobsWorkflowView, setJobsWorkflowView] = useState<'active' | 'completed'>(
+    initialWorkflowView
+  );
+  const selectedLifecycleStatus: JobLifecycleFilter =
+    jobsWorkflowView === 'completed' ? 'COMPLETED' : 'ACTIVE';
+  const jobsQuery = useJobsList(25, { lifecycleStatus: selectedLifecycleStatus });
+  const [jobSearchInput, setJobSearchInput] = useState(initialJobSearchInput);
+  const [jobSort, setJobSort] = useState<JobSortOption>(initialJobSort);
   const deferredJobSearchInput = useDeferredValue(jobSearchInput);
   const isSearchingJobs = Boolean(deferredJobSearchInput.trim());
-  const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, 25, { enabled: isSearchingJobs });
+  const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, 25, {
+    enabled: isSearchingJobs,
+    lifecycleStatus: selectedLifecycleStatus
+  });
   const createJobMutation = useCreateJob();
   const filmCatalogQuery = useFilmCatalog();
   const caulkProductsQuery = useQuery({
@@ -47,23 +66,34 @@ export default function AllocationsPage() {
     queryFn: () => listCaulkProducts()
   });
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
-  const activeJobs = useMemo(
-    () => (jobsQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE'),
-    [jobsQuery.data]
-  );
+  const isCompletedWorkflow = jobsWorkflowView === 'completed';
+  const jobsSource = isSearchingJobs ? jobsSearchQuery.data || [] : jobsQuery.data || [];
   const jobs = useMemo(
-    () => {
-      const visibleJobs = isSearchingJobs
-        ? (jobsSearchQuery.data || []).filter((entry) => entry.lifecycleStatus === 'ACTIVE')
-        : activeJobs;
-
-      return sortJobs(visibleJobs, jobSort);
-    },
-    [activeJobs, isSearchingJobs, jobsSearchQuery.data, jobSort]
+    () =>
+      sortJobs(
+        isCompletedWorkflow
+          ? jobsSource.filter((entry) => entry.status === 'COMPLETED')
+          : jobsSource,
+        jobSort
+      ),
+    [isCompletedWorkflow, jobsSource, jobSort]
   );
   const jobsLoading = isSearchingJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading;
   const jobsError = isSearchingJobs ? jobsSearchQuery.error : jobsQuery.error;
   const showJobsLoading = jobsLoading && !jobs.length;
+  const workflowSummaryLabel = isCompletedWorkflow ? 'completed jobs' : 'active jobs';
+  const workflowTitle = isCompletedWorkflow ? 'Completed Job History' : 'Recent Jobs';
+  const workflowDescription = isCompletedWorkflow
+    ? 'Showing completed job history (up to 25).'
+    : 'Showing active jobs only (up to 25).';
+  const jobsLoadingLabel = isSearchingJobs
+    ? `Searching ${workflowSummaryLabel}...`
+    : `Loading ${workflowSummaryLabel}...`;
+  const jobsEmptyState = isSearchingJobs
+    ? `No ${workflowSummaryLabel} match ${deferredJobSearchInput}.`
+    : isCompletedWorkflow
+      ? 'No completed job history yet.'
+      : 'No active jobs found yet.';
 
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
     if (!auth.clientIdConfigured) {
@@ -116,14 +146,31 @@ export default function AllocationsPage() {
       <section className="panel">
         <div className="page-hero-topline">
           <span className="eyebrow">Job Planning</span>
-          <span className="muted-text">
-            {isSearchingJobs ? 'Search mode' : 'Active workflow'}
-          </span>
+          <div className="inventory-view-toggle-wrap">
+            <div className="inventory-view-toggle" role="group" aria-label="Jobs workflow view">
+              <button
+                type="button"
+                className={`inventory-view-toggle-button ${!isCompletedWorkflow ? 'inventory-view-toggle-button-active' : ''}`.trim()}
+                onClick={() => setJobsWorkflowView('active')}
+                aria-pressed={!isCompletedWorkflow}
+              >
+                Active workflow
+              </button>
+              <button
+                type="button"
+                className={`inventory-view-toggle-button ${isCompletedWorkflow ? 'inventory-view-toggle-button-active' : ''}`.trim()}
+                onClick={() => setJobsWorkflowView('completed')}
+                aria-pressed={isCompletedWorkflow}
+              >
+                Completed jobs
+              </button>
+            </div>
+          </div>
         </div>
         <div className="page-hero-title-row">
           <div className="page-hero-copy">
             <h2>Jobs</h2>
-            <p className="muted-text">Showing active jobs only (up to 25).</p>
+            <p className="muted-text">{workflowDescription}</p>
             <div className="jobs-toolbar-grid">
               <label className="field jobs-search-field">
                 <span className="field-label">Search Job ID Number</span>
@@ -163,7 +210,7 @@ export default function AllocationsPage() {
               <span className="hero-metric-label">Showing</span>
               <strong className="hero-metric-value inventory-summary-value">{jobs.length}</strong>
               <span className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy">
-                {isSearchingJobs ? 'matching jobs' : 'active jobs'}
+                {isSearchingJobs ? `matching ${workflowSummaryLabel}` : workflowSummaryLabel}
               </span>
             </div>
           </div>
@@ -172,24 +219,17 @@ export default function AllocationsPage() {
 
       <section className="panel">
         <div className="panel-title-row allocations-recent-title-row">
-          <h2>Recent Jobs</h2>
+          <h2>{workflowTitle}</h2>
           <span className="muted-text allocations-recent-count">{jobs.length} job(s)</span>
         </div>
-        <DeferredLoadingState
-          when={showJobsLoading}
-          label={isSearchingJobs ? 'Searching jobs...' : 'Loading jobs...'}
-        />
+        <DeferredLoadingState when={showJobsLoading} label={jobsLoadingLabel} />
         {jobsError ? (
           <p className="error-text">
             {jobsError instanceof Error ? jobsError.message : 'Jobs could not be loaded.'}
           </p>
         ) : null}
         {!showJobsLoading && !jobsError && !jobs.length ? (
-          <div className="empty-state">
-            {isSearchingJobs
-              ? `No active jobs match ${deferredJobSearchInput}.`
-              : 'No jobs found yet.'}
-          </div>
+          <div className="empty-state">{jobsEmptyState}</div>
         ) : null}
         {jobs.length ? (
           isPhoneLayout ? (

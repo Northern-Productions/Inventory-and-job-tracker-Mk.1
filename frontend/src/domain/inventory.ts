@@ -778,7 +778,9 @@ export interface CheckoutCaulkJobAllocationPayload {
 
 export interface CheckinCaulkJobAllocationPayload {
   caulkCheckoutId: string;
-  unusedTubes: number;
+  unusedLooseTubes?: number;
+  unusedCases?: number;
+  unusedTubes?: number;
   notes?: string;
 }
 

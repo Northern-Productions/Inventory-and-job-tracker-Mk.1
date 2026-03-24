@@ -314,10 +314,25 @@ export function createOptimisticFilmOrderFromPayload(
 }
 
 export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntry) {
-  const jobQueries = queryClient.getQueriesData<JobListEntry[]>({ queryKey: inventoryKeys.jobs });
+  const jobQueries = queryClient.getQueriesData<JobListEntry[]>({
+    queryKey: inventoryKeys.jobsListRoot
+  });
   for (let index = 0; index < jobQueries.length; index += 1) {
     const [queryKey, current] = jobQueries[index];
     if (!current) {
+      continue;
+    }
+
+    const queryParams =
+      Array.isArray(queryKey) && queryKey.length > 0
+        ? (queryKey[queryKey.length - 1] as { lifecycleStatus?: string } | undefined)
+        : undefined;
+    const lifecycleFilter = String(queryParams?.lifecycleStatus || '').toUpperCase();
+    if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
+      queryClient.setQueryData<JobListEntry[]>(
+        queryKey,
+        current.filter((job) => job.jobNumber !== entry.jobNumber)
+      );
       continue;
     }
 
@@ -331,7 +346,9 @@ export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntr
 }
 
 export function removeJobListCaches(queryClient: QueryClient, jobNumber: string) {
-  const jobQueries = queryClient.getQueriesData<JobListEntry[]>({ queryKey: inventoryKeys.jobs });
+  const jobQueries = queryClient.getQueriesData<JobListEntry[]>({
+    queryKey: inventoryKeys.jobsListRoot
+  });
   for (let index = 0; index < jobQueries.length; index += 1) {
     const [queryKey, current] = jobQueries[index];
     if (!current) {

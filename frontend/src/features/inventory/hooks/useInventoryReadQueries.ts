@@ -9,7 +9,12 @@ import {
 import { getAuditByBox, getRollHistoryByBox, listAudit } from '../../../api/features/auditClient';
 import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersClient';
 import { getBox, searchBoxes } from '../../../api/features/inventoryClient';
-import { getJob, getJobs, searchJobsByNumber } from '../../../api/features/jobsClient';
+import {
+  getJob,
+  getJobs,
+  searchJobsByNumber,
+  type JobLifecycleFilter
+} from '../../../api/features/jobsClient';
 import {
   getOwnerAssetTotalCostReport,
   getReportsSummary
@@ -62,10 +67,20 @@ export function useBoxAllocations(boxId: string) {
   });
 }
 
-export function useJobsList(limit = 25, options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
+export function useJobsList(
+  limit = 25,
+  options: {
+    enabled?: boolean;
+    refetchOnWindowFocus?: boolean;
+    lifecycleStatus?: JobLifecycleFilter;
+  } = {}
+) {
   return useQuery({
-    queryKey: [...inventoryKeys.jobs, { limit }],
-    queryFn: () => getJobs(limit),
+    queryKey: inventoryKeys.jobsList({
+      limit,
+      lifecycleStatus: options.lifecycleStatus
+    }),
+    queryFn: () => getJobs(limit, { lifecycleStatus: options.lifecycleStatus }),
     enabled: options.enabled ?? true,
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -76,11 +91,15 @@ export function useJobsList(limit = 25, options: { enabled?: boolean; refetchOnW
 export function useJobsSearch(
   query: string,
   limit = 25,
-  options: { enabled?: boolean } = {}
+  options: { enabled?: boolean; lifecycleStatus?: JobLifecycleFilter } = {}
 ) {
   return useQuery({
-    queryKey: [...inventoryKeys.jobsSearch, { query, limit }],
-    queryFn: () => searchJobsByNumber(query, limit),
+    queryKey: inventoryKeys.jobsSearchResults({
+      query,
+      limit,
+      lifecycleStatus: options.lifecycleStatus
+    }),
+    queryFn: () => searchJobsByNumber(query, limit, { lifecycleStatus: options.lifecycleStatus }),
     enabled: (options.enabled ?? true) && Boolean(query.trim()),
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,

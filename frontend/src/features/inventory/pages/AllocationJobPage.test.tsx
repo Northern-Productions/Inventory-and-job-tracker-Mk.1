@@ -470,4 +470,144 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('Check In');
     expect(html).toContain('Check Out');
   });
+
+  it('disables manual job completion while returned materials are still outstanding', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-checked-out',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 50,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }
+      ],
+      caulkCheckouts: [
+        {
+          caulkCheckoutId: 'checkout1',
+          caulkAllocationId: 'alloc1',
+          productId: 'p1',
+          manufacturerId: 'm1',
+          manufacturer: 'DOW',
+          productName: '790 Black',
+          productCode: '790-BLK',
+          tubesPerCase: 12,
+          warehouse: 'IL1',
+          checkoutTubes: 12,
+          overageTubes: 0,
+          status: 'OPEN',
+          checkedOutAt: '2026-03-20T10:00:00Z',
+          checkedOutBy: 'crew',
+          checkedInAt: '',
+          checkedInBy: '',
+          unusedTubes: 0,
+          usedTubes: 0,
+          notes: ''
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain(
+      'Return 1 checked-out box and 1 open caulk checkout before completing this job.'
+    );
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Job Completed<\/button>/);
+  });
+
+  it('shows row-level caulk Check In when an allocation has an open checkout cycle', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      caulkAllocations: [
+        {
+          caulkAllocationId: 'alloc1',
+          requirementId: 'req1',
+          productId: 'p1',
+          manufacturerId: 'm1',
+          manufacturer: 'DOW',
+          productName: '790 Black',
+          productCode: '790-BLK',
+          tubesPerCase: 12,
+          warehouse: 'IL1',
+          allocatedTubes: 24,
+          reservedTubesRemaining: 12,
+          checkedOutTubesTotal: 12,
+          returnedUnusedTubesTotal: 0,
+          usedTubesTotal: 0,
+          overageTubesTotal: 0,
+          outstandingCheckoutTubes: 12,
+          openCheckoutCount: 1,
+          status: 'ACTIVE',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          updatedAt: '2026-03-20T00:00:00Z',
+          updatedBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: ''
+        }
+      ],
+      caulkCheckouts: [
+        {
+          caulkCheckoutId: 'checkout1',
+          caulkAllocationId: 'alloc1',
+          productId: 'p1',
+          manufacturerId: 'm1',
+          manufacturer: 'DOW',
+          productName: '790 Black',
+          productCode: '790-BLK',
+          tubesPerCase: 12,
+          warehouse: 'IL1',
+          checkoutTubes: 12,
+          overageTubes: 0,
+          status: 'OPEN',
+          checkedOutAt: '2026-03-20T10:00:00Z',
+          checkedOutBy: 'crew',
+          checkedInAt: '',
+          checkedInBy: '',
+          unusedTubes: 0,
+          usedTubes: 0,
+          notes: ''
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Caulk Allocations');
+    expect(html).toContain('Check In');
+    expect(html).toContain('Locked after checkout');
+  });
 });

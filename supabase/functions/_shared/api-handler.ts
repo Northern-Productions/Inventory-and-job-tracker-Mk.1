@@ -681,6 +681,17 @@ function normalizeJobLifecycleStatus(value: unknown): "ACTIVE" | "COMPLETED" | "
   return "ACTIVE";
 }
 
+function normalizeJobLifecycleFilter(value: unknown): "ACTIVE" | "COMPLETED" | "" {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "ACTIVE" || normalized === "COMPLETED") {
+    return normalized;
+  }
+  throw new HttpError(400, "lifecycleStatus must be ACTIVE or COMPLETED.");
+}
+
 function compareBoxesByOldestStock(left: any, right: any): number {
   const leftDate = left.receivedDate || left.orderDate || "9999-12-31";
   const rightDate = right.receivedDate || right.orderDate || "9999-12-31";
@@ -1715,6 +1726,31 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
   };
 }
 
+function deriveLegacyLifecycleStatus(allocations: any[], filmOrders: any[]) {
+  const legacyStatus = buildAllocationJobSummary("", allocations || [], filmOrders || []).status;
+  if (legacyStatus === "CANCELLED") {
+    return "CANCELLED";
+  }
+  if (legacyStatus === "COMPLETED") {
+    return "COMPLETED";
+  }
+  return "ACTIVE";
+}
+
+function resolveEffectiveJobLifecycleStatus(
+  lifecycleStatus: unknown,
+  allocations: any[],
+  filmOrders: any[],
+) {
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
+  if (normalizedLifecycleStatus === "COMPLETED" || normalizedLifecycleStatus === "CANCELLED") {
+    return normalizedLifecycleStatus;
+  }
+  return deriveLegacyLifecycleStatus(allocations, filmOrders) === "COMPLETED"
+    ? "COMPLETED"
+    : normalizedLifecycleStatus;
+}
+
 function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders: any[]) {
   const legacySummary = buildAllocationJobSummary("", allocations || [], filmOrders || []);
   if (legacySummary.status === "CANCELLED") {
@@ -1781,6 +1817,10 @@ function buildJobListEntry(
     allocatedFeet += requirement.allocatedFeet;
     remainingFeet += requirement.remainingFeet;
   }
+  const effectiveLifecycleStatus =
+    jobHeader && jobHeader.id
+      ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
+      : deriveLegacyLifecycleStatus(allocations, filmOrders);
   return {
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || "",
@@ -1788,13 +1828,13 @@ function buildJobListEntry(
     dueDate,
     crewLeader,
     status: computeJobStatusFromRequirements(
-      jobHeader.lifecycleStatus,
+      effectiveLifecycleStatus,
       requirements,
       caulkRequirements,
       allocations,
       filmOrders,
     ),
-    lifecycleStatus: normalizeJobLifecycleStatus(jobHeader.lifecycleStatus),
+    lifecycleStatus: effectiveLifecycleStatus,
     requiredFeet,
     allocatedFeet,
     remainingFeet,
@@ -2312,7 +2352,8 @@ async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumb
   };
 }
 
-async function buildJobsList(client: any, orgId: string, limit: number) {
+async function buildJobsList(client: any, orgId: string, limit: number, lifecycleStatus?: unknown) {
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const jobs = await listJobs(client, orgId);
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
@@ -2353,7 +2394,7 @@ async function buildJobsList(client: any, orgId: string, limit: number) {
   }
   const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(byJobNumber));
 
-  const response = Object.keys(byJobNumber).map((jobNumber) => {
+  const response = Object.keys(byJobNumber).reduce<any[]>((entries, jobNumber) => {
     const allocations = groupedAllocations[jobNumber] || [];
     const filmOrders = groupedFilmOrders[jobNumber] || [];
     const requirements = buildPublicJobRequirementEntries(
@@ -2363,19 +2404,34 @@ async function buildJobsList(client: any, orgId: string, limit: number) {
     );
     const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
-    return buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements);
-  });
+    const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements);
+    if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
+      return entries;
+    }
+    if (lifecycleFilter === "COMPLETED" && entry.status !== "COMPLETED") {
+      return entries;
+    }
+    entries.push(entry);
+    return entries;
+  }, []);
 
   response.sort(compareJobsListEntries);
   return limit > 0 && response.length > limit ? response.slice(0, limit) : response;
 }
 
-async function buildJobsSearchResults(client: any, orgId: string, query: unknown, limit: number) {
+async function buildJobsSearchResults(
+  client: any,
+  orgId: string,
+  query: unknown,
+  limit: number,
+  lifecycleStatus?: unknown
+) {
   const normalizedQueryDigits = normalizeJobNumberDigits(query);
   if (!normalizedQueryDigits) {
     return [];
   }
 
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
   const queryValue = BigInt(queryCanonical);
@@ -2386,11 +2442,14 @@ async function buildJobsSearchResults(client: any, orgId: string, query: unknown
     distance: bigint;
     lengthDelta: number;
   }> = [];
-  const entries = await buildJobsList(client, orgId, 0);
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
 
   for (const entry of entries) {
     const lifecycle = asTrimmedString((entry as Record<string, unknown>).lifecycleStatus || "ACTIVE").toUpperCase();
-    if (lifecycle !== "ACTIVE") {
+    if (lifecycle !== lifecycleFilter) {
+      continue;
+    }
+    if (lifecycleFilter === "COMPLETED" && entry.status !== "COMPLETED") {
       continue;
     }
 
@@ -2840,7 +2899,7 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   if (openCaulkCheckoutCount > 0) {
     throw new HttpError(
       400,
-      `Job ${jobNumber} cannot be completed while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? "" : "s"} remain open.`,
+      `Job ${jobNumber} cannot be completed while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? " remains" : "s remain"} open.`,
     );
   }
 

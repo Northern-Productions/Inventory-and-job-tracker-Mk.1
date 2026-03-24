@@ -12,6 +12,7 @@ const useBoxAllocationsMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useIsAddBoxPendingMock = vi.fn();
 const useDeleteBoxMock = vi.fn();
+const useCompleteJobMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
@@ -40,6 +41,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useFilmCatalog: () => useFilmCatalogMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
   useDeleteBox: () => useDeleteBoxMock(),
+  useCompleteJob: () => useCompleteJobMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpdateBox: () => useUpdateBoxMock()
@@ -154,6 +156,7 @@ describe('BoxDetailsPage', () => {
     });
     useIsAddBoxPendingMock.mockReturnValue(false);
     useDeleteBoxMock.mockReturnValue(buildMutationState());
+    useCompleteJobMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
@@ -177,5 +180,23 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('qr-code-card qr-code-card-open');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-hidden="false"');
+  });
+
+  it('renders the last checkout job as a clickable button while the box is checked out', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: '000123'
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Last Checkout Job');
+    expect(html).toContain('class="row-button"');
+    expect(html).toContain('>000123</button>');
   });
 });

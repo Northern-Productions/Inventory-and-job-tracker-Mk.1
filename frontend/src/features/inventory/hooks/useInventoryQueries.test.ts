@@ -4,7 +4,19 @@ import { inventoryKeys } from './useInventoryQueries';
 describe('inventory query keys', () => {
   it('keeps jobs and allocation query keys distinct', () => {
     expect(inventoryKeys.jobs).not.toEqual(inventoryKeys.allocationJobs);
-    expect(inventoryKeys.jobsSearch).not.toEqual(inventoryKeys.jobs);
+    expect(inventoryKeys.jobsListRoot).not.toEqual(inventoryKeys.jobsSearch);
+    expect(
+      inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' })
+    ).not.toEqual(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'COMPLETED' }));
+    expect(
+      inventoryKeys.jobsSearchResults({ query: '123', limit: 25, lifecycleStatus: 'ACTIVE' })
+    ).not.toEqual(
+      inventoryKeys.jobsSearchResults({
+        query: '123',
+        limit: 25,
+        lifecycleStatus: 'COMPLETED'
+      })
+    );
     expect(inventoryKeys.job('123456')).not.toEqual(inventoryKeys.allocationJob('123456'));
     expect(inventoryKeys.ownerReportsRoot).not.toEqual(inventoryKeys.reportsRoot);
   });

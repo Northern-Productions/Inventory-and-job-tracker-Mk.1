@@ -657,8 +657,14 @@ export function useCompleteJob() {
       context?.operation?.cancel();
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async (_data, variables, context) => {
+    onSuccess: async ({ result }, variables, context) => {
       await context?.operation?.waitForApply();
+      queryClient.setQueryData<JobDetail>(inventoryKeys.job(result.summary.jobNumber), result);
+      upsertJobListCaches(queryClient, result.summary);
+      upsertAllocationJobSummaryCaches(
+        queryClient,
+        createOptimisticAllocationJobSummaryFromJobDetail(result)
+      );
       await Promise.all([
         invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),

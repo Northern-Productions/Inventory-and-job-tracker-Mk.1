@@ -16,6 +16,8 @@
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
+    "jobs:completed:backfill:apply": "node scripts/backfill-completed-jobs.mjs --apply",
+    "jobs:completed:backfill:dry": "node scripts/backfill-completed-jobs.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
     "start": "npm run check:schema:0006 && node server.mjs",
     "start:unsafe": "node server.mjs",

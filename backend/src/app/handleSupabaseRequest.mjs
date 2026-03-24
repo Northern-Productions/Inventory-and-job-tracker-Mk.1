@@ -1153,6 +1153,19 @@ function normalizeJobLifecycleStatus(value) {
   return 'ACTIVE';
 }
 
+function normalizeJobLifecycleFilter(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized === 'ACTIVE' || normalized === 'COMPLETED') {
+    return normalized;
+  }
+
+  throw new HttpError(400, 'lifecycleStatus must be ACTIVE or COMPLETED.');
+}
+
 function normalizeRequirementWidthKey(value) {
   return String(roundToDecimals(Number(value), 4));
 }
@@ -4646,6 +4659,17 @@ function deriveLegacyLifecycleStatus(allocations, filmOrders) {
   return 'ACTIVE';
 }
 
+function resolveEffectiveJobLifecycleStatus(lifecycleStatus, allocations, filmOrders) {
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
+  if (normalizedLifecycleStatus === 'COMPLETED' || normalizedLifecycleStatus === 'CANCELLED') {
+    return normalizedLifecycleStatus;
+  }
+
+  return deriveLegacyLifecycleStatus(allocations, filmOrders) === 'COMPLETED'
+    ? 'COMPLETED'
+    : normalizedLifecycleStatus;
+}
+
 function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
   const legacySummary = buildAllocationJobSummary('', allocations || [], filmOrders || []);
   if (legacySummary.status === 'CANCELLED') {
@@ -4776,8 +4800,12 @@ function buildJobListEntry(
     remainingFeet += requirements[index].remainingFeet;
   }
 
+  const lifecycleStatus =
+    jobHeader && jobHeader.id
+      ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
+      : deriveLegacyLifecycleStatus(allocations, filmOrders);
   const baseStatus = computeJobStatusFromRequirements(
-    jobHeader.lifecycleStatus,
+    lifecycleStatus,
     requirements,
     caulkRequirements,
     allocations,
@@ -4788,11 +4816,6 @@ function buildJobListEntry(
     hasSharedActiveBoxConflict(jobHeader.jobNumber, dueDate, crewLeader, allocations, allAllocations)
       ? 'CONFLICT'
       : baseStatus;
-
-  const lifecycleStatus =
-    jobHeader && jobHeader.id
-      ? normalizeJobLifecycleStatus(jobHeader.lifecycleStatus)
-      : deriveLegacyLifecycleStatus(allocations, filmOrders);
 
   return {
     jobNumber: jobHeader.jobNumber,
@@ -6600,7 +6623,8 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
   };
 }
 
-async function buildJobsList(client, orgId, limit) {
+async function buildJobsList(client, orgId, limit, lifecycleStatus) {
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const jobs = await listJobs(client, orgId);
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
@@ -6669,16 +6693,23 @@ async function buildJobsList(client, orgId, limit) {
     );
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
 
-    response.push(
-      buildJobListEntry(
-        header,
-        requirements,
-        allocations,
-        filmOrders,
-        allAllocations,
-        publicCaulkRequirements
-      )
+    const entry = buildJobListEntry(
+      header,
+      requirements,
+      allocations,
+      filmOrders,
+      allAllocations,
+      publicCaulkRequirements
     );
+
+    if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
+      continue;
+    }
+    if (lifecycleFilter === 'COMPLETED' && entry.status !== 'COMPLETED') {
+      continue;
+    }
+
+    response.push(entry);
   }
 
   response.sort(compareJobsListEntries);
@@ -6690,22 +6721,26 @@ async function buildJobsList(client, orgId, limit) {
   return response;
 }
 
-async function buildJobsSearchResults(client, orgId, query, limit) {
+async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStatus) {
   const normalizedQueryDigits = extractJobNumberDigitsForSearch(query);
   if (!normalizedQueryDigits) {
     return [];
   }
 
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
   const queryValue = BigInt(queryCanonical);
   const ranked = [];
-  const entries = await buildJobsList(client, orgId, 0);
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const lifecycle = asTrimmedString(entry.lifecycleStatus || 'ACTIVE').toUpperCase();
-    if (lifecycle !== 'ACTIVE') {
+    if (lifecycle !== lifecycleFilter) {
+      continue;
+    }
+    if (lifecycleFilter === 'COMPLETED' && entry.status !== 'COMPLETED') {
       continue;
     }
 
@@ -7797,6 +7832,16 @@ async function completeJob(client, orgId, payload, actor) {
     throw new HttpError(
       400,
       `Job ${jobNumber} cannot be completed while boxes are still checked out: ${listedBoxes}${suffix}.`
+    );
+  }
+
+  const openCaulkCheckoutCount = (await listCaulkJobCheckoutsByJob(client, orgId, jobNumber)).filter(
+    (entry) => entry.status === 'OPEN'
+  ).length;
+  if (openCaulkCheckoutCount > 0) {
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be completed while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? ' remains' : 's remain'} open.`
     );
   }
 
@@ -9558,13 +9603,26 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           case '/jobs/list': {
             const limitValue = Number(params && params.limit);
             const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-            return ok({ entries: await buildJobsList(client, authContext.orgId, limit) });
+            return ok({
+              entries: await buildJobsList(
+                client,
+                authContext.orgId,
+                limit,
+                params && params.lifecycleStatus
+              )
+            });
           }
           case '/jobs/search': {
             const limitValue = Number(params && params.limit);
             const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
             return ok({
-              entries: await buildJobsSearchResults(client, authContext.orgId, params && params.query, limit)
+              entries: await buildJobsSearchResults(
+                client,
+                authContext.orgId,
+                params && params.query,
+                limit,
+                params && params.lifecycleStatus
+              )
             });
           }
           case '/jobs/get':

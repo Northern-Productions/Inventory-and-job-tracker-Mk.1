@@ -147,7 +147,8 @@ describe('allocations API client caulk routes', () => {
 
     const payload = {
       caulkCheckoutId: 'checkout-1',
-      unusedTubes: 2
+      unusedLooseTubes: 2,
+      unusedCases: 1
     };
     const result = await checkinCaulkJobAllocation(payload);
 

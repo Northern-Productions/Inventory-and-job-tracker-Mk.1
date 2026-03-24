@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
+import { getJob } from '../../../api/features/jobsClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
@@ -21,6 +22,7 @@ import {
   useIsAddBoxPending,
   useBox,
   useDeleteBox,
+  useCompleteJob,
   useSetBoxStatus,
   useUndoAudit,
   useUpdateBox
@@ -44,6 +46,7 @@ import {
   getIncompleteBoxHistoryFieldsForZeroedEdit,
   shouldPromptZeroedInventoryWarningOnEdit
 } from '../utils/boxZeroedTransition';
+import { summarizeReturnedMaterials } from '../utils/jobReturnedMaterials';
 
 type ConfirmState =
   | {
@@ -68,13 +71,24 @@ interface PendingZeroedEditState {
   missingFields: string[];
 }
 
+type ReturnedMaterialsPromptState =
+  | {
+      type: 'go_to_job';
+      jobNumber: string;
+    }
+  | {
+      type: 'complete_job';
+      jobNumber: string;
+    }
+  | null;
+
 function DetailField({
   label,
   value,
   labelClassName = ''
 }: {
   label: string;
-  value: string | number | null;
+  value: ReactNode;
   labelClassName?: string;
 }) {
   return (
@@ -164,6 +178,7 @@ export default function BoxDetailsPage() {
   const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();
   const undoMutation = useUndoAudit();
+  const completeJobMutation = useCompleteJob();
   const filmCatalogQuery = useFilmCatalog();
   const allocationsQuery = useBoxAllocations(boxId);
   const [isEditing, setIsEditing] = useState(false);
@@ -176,6 +191,8 @@ export default function BoxDetailsPage() {
   const [isRollHistorySectionCollapsed, setIsRollHistorySectionCollapsed] = useState(true);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCodeError, setQrCodeError] = useState('');
+  const [returnedMaterialsPrompt, setReturnedMaterialsPrompt] =
+    useState<ReturnedMaterialsPromptState>(null);
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
@@ -586,6 +603,62 @@ export default function BoxDetailsPage() {
     setConfirmState(null);
   }
 
+  async function handleReturnedMaterialsFollowUp(jobNumber: string) {
+    const nextDetail = await getJob(jobNumber);
+    if (nextDetail.summary.lifecycleStatus !== 'ACTIVE') {
+      return;
+    }
+
+    setReturnedMaterialsPrompt(
+      summarizeReturnedMaterials(nextDetail).hasOutstandingMaterials
+        ? {
+            type: 'go_to_job',
+            jobNumber
+          }
+        : {
+            type: 'complete_job',
+            jobNumber
+          }
+    );
+  }
+
+  async function handleReturnedMaterialsPromptConfirm() {
+    if (!returnedMaterialsPrompt) {
+      return;
+    }
+
+    if (returnedMaterialsPrompt.type === 'go_to_job') {
+      navigate(`/allocations/${encodeURIComponent(returnedMaterialsPrompt.jobNumber)}`);
+      setReturnedMaterialsPrompt(null);
+      return;
+    }
+
+    const { jobNumber } = returnedMaterialsPrompt;
+    setReturnedMaterialsPrompt(null);
+
+    if (!ensureSignedIn('complete jobs', 'allocations')) {
+      return;
+    }
+
+    try {
+      const { warnings } = await completeJobMutation.mutateAsync({
+        jobNumber,
+        reason: `Marked job ${jobNumber} completed after all materials were returned.`
+      });
+      toast.push({
+        title: `Completed job ${jobNumber}`,
+        description: warnings.join(' ') || `Job ${jobNumber} was completed.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to complete job',
+        description: error instanceof Error ? error.message : 'The completion request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleConfirm(reason: string) {
     if (!confirmState) {
       return;
@@ -656,6 +729,7 @@ export default function BoxDetailsPage() {
     };
 
     try {
+      const priorCheckoutJobNumber = box.lastCheckoutJob.trim();
       setConfirmState(null);
 
       const { result, warnings } = await statusMutation.mutateAsync(payload);
@@ -691,7 +765,20 @@ export default function BoxDetailsPage() {
         didMoveToZeroed ? `${result.box.boxId} was moved to zeroed out inventory.` : undefined
       );
 
-      if (didMoveToZeroed) {
+      if (priorCheckoutJobNumber) {
+        try {
+          await handleReturnedMaterialsFollowUp(priorCheckoutJobNumber);
+        } catch (followupError) {
+          toast.push({
+            title: 'Box checked in',
+            description:
+              followupError instanceof Error
+                ? followupError.message
+                : 'The box was checked in, but the related job follow-up could not be loaded.',
+            variant: 'warning'
+          });
+        }
+      } else if (didMoveToZeroed) {
         navigate('/');
       }
     } catch (error) {
@@ -828,7 +915,22 @@ export default function BoxDetailsPage() {
           <DetailField label="Core Weight" value={box.coreWeightLbs} />
           <DetailField label="LF Weight / Ft" value={box.lfWeightLbsPerFt} />
           <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
-          <DetailField label="Last Checkout Job" value={box.lastCheckoutJob} />
+          <DetailField
+            label="Last Checkout Job"
+            value={
+              box.status === 'CHECKED_OUT' && box.lastCheckoutJob ? (
+                <button
+                  type="button"
+                  className="row-button"
+                  onClick={() => navigate(`/allocations/${encodeURIComponent(box.lastCheckoutJob)}`)}
+                >
+                  {box.lastCheckoutJob}
+                </button>
+              ) : (
+                box.lastCheckoutJob
+              )
+            }
+          />
           <DetailField label="Last Checkout Date" value={formatDate(box.lastCheckoutDate)} />
           <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />
           <DetailField label="Zeroed Reason" value={box.zeroedReason} />
@@ -1081,6 +1183,27 @@ export default function BoxDetailsPage() {
         customReasonLabel={confirmState?.type === 'checkout' ? 'New Job Number' : undefined}
         onCancel={handleCancelConfirm}
         onConfirm={(reason) => void handleConfirm(reason)}
+      />
+      <ConfirmDialog
+        open={Boolean(returnedMaterialsPrompt)}
+        title={
+          returnedMaterialsPrompt?.type === 'go_to_job'
+            ? 'Open Job Details'
+            : 'Complete Job'
+        }
+        message={
+          returnedMaterialsPrompt
+            ? returnedMaterialsPrompt.type === 'go_to_job'
+              ? 'There are other materials checked out for this same job, go to the job details page?'
+              : `All materials for job ${returnedMaterialsPrompt.jobNumber} have been returned, would you like to change job status to completed?`
+            : ''
+        }
+        confirmLabel={
+          returnedMaterialsPrompt?.type === 'go_to_job' ? 'Go To Job' : 'Complete Job'
+        }
+        cancelLabel={returnedMaterialsPrompt?.type === 'go_to_job' ? 'Stay Here' : 'Not Yet'}
+        onCancel={() => setReturnedMaterialsPrompt(null)}
+        onConfirm={() => void handleReturnedMaterialsPromptConfirm()}
       />
     </>
   );

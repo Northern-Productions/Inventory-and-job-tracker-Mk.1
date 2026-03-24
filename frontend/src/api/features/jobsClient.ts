@@ -12,6 +12,8 @@ import type {
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
+export type JobLifecycleFilter = 'ACTIVE' | 'COMPLETED';
+
 function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
   return {
     ...entry,
@@ -33,14 +35,29 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
   };
 }
 
-export async function getJobs(limit = 25): Promise<JobListEntry[]> {
+function buildJobsQuery(limit: number, lifecycleStatus?: JobLifecycleFilter) {
+  const params: Record<string, number | JobLifecycleFilter> = { limit };
+  if (lifecycleStatus) {
+    params.lifecycleStatus = lifecycleStatus;
+  }
+  return params;
+}
+
+export async function getJobs(
+  limit = 25,
+  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
-  const params = { limit };
+  const params = buildJobsQuery(limit, options.lifecycleStatus);
   const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
   return (data.entries || []).map(normalizeJobListEntry);
 }
 
-export async function searchJobsByNumber(query: string, limit = 25): Promise<JobListEntry[]> {
+export async function searchJobsByNumber(
+  query: string,
+  limit = 25,
+  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
   const normalizedQuery = String(query || '').replace(/[^0-9]/g, '');
   if (!normalizedQuery) {
@@ -48,7 +65,10 @@ export async function searchJobsByNumber(query: string, limit = 25): Promise<Job
   }
 
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const params = { query: normalizedQuery, limit: normalizedLimit };
+  const params = {
+    query: normalizedQuery,
+    ...buildJobsQuery(normalizedLimit, options.lifecycleStatus)
+  };
   const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
   return (data.entries || []).map(normalizeJobListEntry);
 }
