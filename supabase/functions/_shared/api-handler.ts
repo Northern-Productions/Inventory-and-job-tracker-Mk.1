@@ -1686,6 +1686,7 @@ function buildAllocationJobSummary(
   caulkRequirements: any[] = [],
   lifecycleStatus = "ACTIVE",
   isLaborOnly = false,
+  isStagedForPickup = false,
   fallbackJobDate = "",
   fallbackCrewLeader = "",
 ) {
@@ -1745,7 +1746,7 @@ function buildAllocationJobSummary(
   } else if (requirements.length || caulkRequirements.length) {
     const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
     const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
-    status = hasRemainingFilm || hasRemainingCaulk ? "ALLOCATE" : "READY";
+    status = hasRemainingFilm || hasRemainingCaulk ? "ALLOCATE" : isStagedForPickup ? "READY" : "ALLOCATE";
   } else if (hasActiveAllocation) {
     status = "READY";
   } else if (hasCancelledRecord) {
@@ -1835,13 +1836,7 @@ function resolveEffectiveJobLifecycleStatus(
   allocations: any[],
   filmOrders: any[],
 ) {
-  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
-  if (normalizedLifecycleStatus === "COMPLETED" || normalizedLifecycleStatus === "CANCELLED") {
-    return normalizedLifecycleStatus;
-  }
-  return deriveLegacyLifecycleStatus(allocations, filmOrders) === "COMPLETED"
-    ? "COMPLETED"
-    : normalizedLifecycleStatus;
+  return normalizeJobLifecycleStatus(lifecycleStatus);
 }
 
 function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders: any[]) {
@@ -1858,6 +1853,7 @@ function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders:
 function computeJobStatusFromRequirements(
   lifecycleStatus: string,
   isLaborOnly: boolean,
+  isStagedForPickup: boolean,
   requirements: any[],
   caulkRequirements: any[],
   allocations: any[],
@@ -1890,7 +1886,62 @@ function computeJobStatusFromRequirements(
       return "ALLOCATE";
     }
   }
-  return "READY";
+  return isStagedForPickup ? "READY" : "ALLOCATE";
+}
+
+function hasOpenFilmOrders(filmOrders: any[]) {
+  return filmOrders.some((entry) => {
+    const status = asTrimmedString(entry.status).toUpperCase();
+    return status === "FILM_ORDER" || status === "FILM_ON_THE_WAY";
+  });
+}
+
+function hasUncheckedOutFilmRequirementAllocations(allocations: any[]) {
+  return allocations.some(
+    (entry) =>
+      asTrimmedString(entry.status).toUpperCase() === "ACTIVE" &&
+      normalizeAllocationKind(entry.allocationKind) !== "EXTRA" &&
+      integerOrZero(entry.allocatedFeet) > 0,
+  );
+}
+
+function hasUncheckedOutCaulkAllocations(caulkAllocations: any[]) {
+  return caulkAllocations.some(
+    (entry) =>
+      asTrimmedString(entry.status).toUpperCase() === "ACTIVE" &&
+      integerOrZero(entry.allocatedTubes) > 0 &&
+      integerOrZero(entry.reservedTubesRemaining) > 0,
+  );
+}
+
+function getJobStagingBlockingReason(
+  requirements: any[],
+  caulkRequirements: any[],
+  allocations: any[],
+  filmOrders: any[],
+  caulkAllocations: any[],
+) {
+  const hasMaterialRequirements =
+    requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
+    caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
+  if (!hasMaterialRequirements) {
+    return "";
+  }
+  if (hasOpenFilmOrders(filmOrders)) {
+    return "Open film orders must be resolved before staging this job.";
+  }
+  const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
+  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  if (hasRemainingFilm || hasRemainingCaulk) {
+    return "All required film and caulk must be fully allocated before staging this job.";
+  }
+  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
+    return "All required film must be checked out before staging this job.";
+  }
+  if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
+    return "All required caulk must be checked out before staging this job.";
+  }
+  return "";
 }
 
 function buildJobListEntry(
@@ -1930,6 +1981,7 @@ function buildJobListEntry(
     status: computeJobStatusFromRequirements(
       effectiveLifecycleStatus,
       Boolean(jobHeader.isLaborOnly),
+      Boolean(jobHeader.isStagedForPickup),
       requirements,
       caulkRequirements,
       allocations,
@@ -1948,6 +2000,72 @@ function buildJobListEntry(
     updatedAt: jobHeader.updatedAt || "",
     notes: jobHeader.notes || "",
   };
+}
+
+async function buildJobContextForCheckedOutBox(client: any, orgId: string, jobNumber: string) {
+  const normalizedJobNumber = requireString(jobNumber, "JobNumber");
+  const [header, allocations, filmOrders] = await Promise.all([
+    findJobByNumber(client, orgId, normalizedJobNumber),
+    listAllocationsByJob(client, orgId, normalizedJobNumber),
+    listFilmOrdersByJob(client, orgId, normalizedJobNumber),
+  ]);
+  const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
+  return {
+    jobNumber: normalizedJobNumber,
+    crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || "",
+  };
+}
+
+function getCheckoutCrewConflictJobs(targetJobNumber: string, targetCrewLeader: string, allocations: any[]) {
+  const normalizedTargetJobNumber = normalizeJobNumberKey(targetJobNumber);
+  const normalizedTargetCrewLeader = normalizeCrewLeaderKey(targetCrewLeader);
+  const conflicts: string[] = [];
+  const seen: Record<string, boolean> = {};
+
+  for (const entry of allocations) {
+    if (asTrimmedString(entry.status).toUpperCase() !== "ACTIVE") {
+      continue;
+    }
+    if (normalizeJobNumberKey(entry.jobNumber) === normalizedTargetJobNumber) {
+      continue;
+    }
+    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedTargetCrewLeader) {
+      continue;
+    }
+    if (!seen[entry.jobNumber]) {
+      seen[entry.jobNumber] = true;
+      conflicts.push(entry.jobNumber);
+    }
+  }
+
+  return conflicts;
+}
+
+async function ensureBoxCheckoutCrewCompatibility(client: any, orgId: string, payload: Record<string, unknown>) {
+  const status = asTrimmedString(payload.status).toUpperCase();
+  if (status !== "CHECKED_OUT") {
+    return;
+  }
+
+  const boxId = requireString(payload.boxId, "BoxId");
+  const auditNote = asTrimmedString(payload.auditNote || payload.audit_note);
+  const checkoutMatch = auditNote.match(/^Checked out for job\s+(.+)$/i);
+  const jobNumber = checkoutMatch ? asTrimmedString(checkoutMatch[1]) : "";
+  if (!jobNumber) {
+    return;
+  }
+
+  const [boxAllocations, targetJobContext] = await Promise.all([
+    listAllocationsByBox(client, orgId, boxId),
+    buildJobContextForCheckedOutBox(client, orgId, jobNumber),
+  ]);
+  const conflicts = getCheckoutCrewConflictJobs(jobNumber, targetJobContext.crewLeader, boxAllocations);
+  if (conflicts.length > 0) {
+    throw new HttpError(
+      400,
+      `Box ${boxId} is still allocated to ${conflicts.join(", ")} with a different crew leader. Clear those allocations before checkout.`,
+    );
+  }
 }
 
 function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<string, any>) {
@@ -2384,6 +2502,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         publicCaulkRequirements,
         header?.lifecycleStatus || "ACTIVE",
         Boolean(header?.isLaborOnly),
+        Boolean(header?.isStagedForPickup),
         header?.dueDate || "",
         header?.crewLeader || "",
       );
@@ -2420,6 +2539,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
       publicCaulkRequirements,
       header?.lifecycleStatus || "ACTIVE",
       Boolean(header?.isLaborOnly),
+      Boolean(header?.isStagedForPickup),
       header?.dueDate || "",
       header?.crewLeader || "",
     ),
@@ -2964,6 +3084,82 @@ function requireServiceRoleClientForJobs() {
     throw new HttpError(500, "SUPABASE_SERVICE_ROLE_KEY is required for job lifecycle close-out operations.");
   }
   return serviceClient;
+}
+
+async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const normalizedFlag = typeof payload.isStagedForPickup === "boolean"
+    ? String(payload.isStagedForPickup)
+    : asTrimmedString(payload.isStagedForPickup).toLowerCase();
+  let nextIsStaged: boolean | null = null;
+
+  if (["true", "t", "1", "yes", "on"].includes(normalizedFlag)) {
+    nextIsStaged = true;
+  } else if (["false", "f", "0", "no", "off"].includes(normalizedFlag)) {
+    nextIsStaged = false;
+  }
+
+  if (nextIsStaged === null) {
+    throw new HttpError(400, "isStagedForPickup must be true or false.");
+  }
+
+  const serviceClient = requireServiceRoleClientForJobs();
+  const { data: jobRow, error: jobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .select("id, lifecycle_status")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+  throwOnSupabaseError(jobError, "Unable to load job");
+  if (!jobRow) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  if (lifecycleStatus !== "ACTIVE") {
+    throw new HttpError(400, `Job ${jobNumber} is closed and staged pickup cannot be changed.`);
+  }
+
+  if (nextIsStaged) {
+    const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
+      listAllocationsByJob(client, orgId, jobNumber),
+      listFilmOrdersByJob(client, orgId, jobNumber),
+      listJobRequirementsByJob(client, orgId, jobNumber),
+      listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+      listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+    ]);
+    const boxes = await listBoxes(client, orgId);
+    const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+    const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
+    const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+    const blockingReason = getJobStagingBlockingReason(
+      publicRequirements,
+      publicCaulkRequirements,
+      allocations,
+      filmOrders,
+      caulkAllocations,
+    );
+    if (blockingReason) {
+      throw new HttpError(400, blockingReason);
+    }
+  }
+
+  const { error: updateError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .update({
+      is_staged_for_pickup: nextIsStaged,
+      updated_at: new Date().toISOString(),
+      updated_by: actor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", (jobRow as Record<string, unknown>).id);
+  throwOnSupabaseError(updateError, "Unable to update staged pickup");
+
+  return ok(await buildJobDetail(client, orgId, jobNumber), []);
 }
 
 async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
@@ -3573,6 +3769,7 @@ async function dispatchMutation(
     callMutationRpc,
     findBoxById,
     toPublicBox,
+    ensureBoxCheckoutCrewCompatibility,
     findJobByNumber,
     normalizeJobLifecycleStatus,
     listAllocationsByIds,
@@ -3582,6 +3779,7 @@ async function dispatchMutation(
     buildPublicFilmOrderLinkedBoxes,
     removeJobBoxAllocation,
     buildJobDetail,
+    setJobStagedPickup,
     completeJob,
     reopenJob,
     deleteJob,

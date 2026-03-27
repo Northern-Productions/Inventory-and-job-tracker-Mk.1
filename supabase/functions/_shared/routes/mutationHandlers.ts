@@ -32,6 +32,7 @@ export type MutationHandlerDeps = {
   ) => Promise<any>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
   toPublicBox: (box: any) => Record<string, unknown>;
+  ensureBoxCheckoutCrewCompatibility: (client: any, orgId: string, payload: Record<string, unknown>) => Promise<void>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
   normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
   listAllocationsByIds: (client: any, orgId: string, allocationIds: string[]) => Promise<any[]>;
@@ -41,6 +42,7 @@ export type MutationHandlerDeps = {
   buildPublicFilmOrderLinkedBoxes: (client: any, orgId: string, filmOrderId: string) => Promise<any[]>;
   removeJobBoxAllocation: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
+  setJobStagedPickup: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -196,6 +198,7 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok({ box: deps.toPublicBox(box), logId: deps.asTrimmedString(result.logId) }, result.warnings || []);
   },
   "/boxes/set-status": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    await deps.ensureBoxCheckoutCrewCompatibility(client, orgId, normalizedPayload);
     const result = await deps.callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, normalizedPayload);
     const box = await deps.findBoxById(client, orgId, deps.asTrimmedString(result.boxId));
     if (!box) {
@@ -342,16 +345,8 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, normalizedPayload);
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
   },
-  "/jobs/set-staged-pickup": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
-    const result = await deps.callMutationRpc(
-      client,
-      "api_acl_jobs_set_staged_pickup",
-      orgId,
-      actor,
-      normalizedPayload,
-    );
-    return ok(await deps.buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+  "/jobs/set-staged-pickup": async ({ client, identity, normalizedPayload }, deps) => {
+    return await deps.setJobStagedPickup(client, identity, normalizedPayload);
   },
   "/jobs/complete": async ({ client, identity, payload }, deps) => {
     return await deps.completeJob(client, identity, payload);

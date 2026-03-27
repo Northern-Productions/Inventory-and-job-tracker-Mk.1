@@ -398,6 +398,64 @@ describe('AllocationJobPage', () => {
     expect(closedHtml).not.toContain('Mark Staged for Pickup');
   });
 
+  it('disables staged pickup until allocated material has been checked out', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
+      }) as JobDetail['summary'],
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 60,
+          requiredFeet: 8,
+          allocatedFeet: 8,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 8,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Check out the allocated film before staging this job.');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Mark Staged for Pickup<\/button>/);
+  });
+
   it('enforces closed-job read-only behavior for caulk allocation actions', () => {
     const detail: JobDetail = {
       ...baseDetail,

@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { listCaulkProducts, listCaulkStock } from '../../../api/features/caulkClient';
-import { getJob } from '../../../api/features/jobsClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
@@ -63,6 +62,7 @@ import {
   summarizeReturnedMaterials
 } from '../utils/jobReturnedMaterials';
 import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
+import { canMarkJobStagedForPickup, getJobStagingBlockingMessage } from '../utils/jobStaging';
 import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
@@ -169,7 +169,7 @@ export default function AllocationJobPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [pendingLaborOnlyUpdate, setPendingLaborOnlyUpdate] = useState<JobEditorSubmitPayload | null>(null);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
-  const [completePromptMode, setCompletePromptMode] = useState<'manual' | 'returned_materials' | null>(null);
+  const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
   const [isDeleteJobConfirmOpen, setIsDeleteJobConfirmOpen] = useState(false);
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
@@ -199,6 +199,8 @@ export default function AllocationJobPage() {
   const isClosedJob =
     summary?.lifecycleStatus === 'COMPLETED' || summary?.lifecycleStatus === 'CANCELLED';
   const isReadOnlyJob = isClosedJob;
+  const stagingBlockingMessage = useMemo(() => getJobStagingBlockingMessage(detail), [detail]);
+  const canMarkStagedPickup = useMemo(() => canMarkJobStagedForPickup(detail), [detail]);
   const visibleAllocations = useMemo(
     () => allocations.filter((entry) => entry.status === 'ACTIVE' || entry.checkedOutOnThisJob),
     [allocations]
@@ -386,21 +388,6 @@ export default function AllocationJobPage() {
     return ensureActionAccess({
       actionLabel
     });
-  }
-
-  async function loadLatestJobDetail(targetJobNumber: string) {
-    return await getJob(targetJobNumber);
-  }
-
-  async function maybePromptForReturnedMaterialsCompletion(targetJobNumber: string) {
-    const nextDetail = await loadLatestJobDetail(targetJobNumber);
-    if (nextDetail.summary.lifecycleStatus !== 'ACTIVE') {
-      return;
-    }
-
-    if (!summarizeReturnedMaterials(nextDetail).hasOutstandingMaterials) {
-      setCompletePromptMode('returned_materials');
-    }
   }
 
   function buildUpdateJobPayload(
@@ -713,6 +700,15 @@ export default function AllocationJobPage() {
       return;
     }
 
+    if (nextIsStaged && stagingBlockingMessage) {
+      toast.push({
+        title: 'Unable to update staged pickup',
+        description: stagingBlockingMessage,
+        variant: 'error'
+      });
+      return;
+    }
+
     try {
       const { warnings } = await setJobStagedForPickupMutation.mutateAsync({
         jobNumber: summary.jobNumber,
@@ -809,18 +805,6 @@ export default function AllocationJobPage() {
           `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
         variant: 'success'
       });
-      try {
-        await maybePromptForReturnedMaterialsCompletion(entry.jobNumber);
-      } catch (followupError) {
-        toast.push({
-          title: 'Box checked in',
-          description:
-            followupError instanceof Error
-              ? followupError.message
-              : 'The box was checked in, but the job follow-up could not be loaded.',
-          variant: 'warning'
-        });
-      }
     } catch (error) {
       toast.push({
         title: 'Unable to check in box',
@@ -1125,20 +1109,6 @@ export default function AllocationJobPage() {
       });
       setCaulkCheckinDraft(null);
       setCaulkCheckinError('');
-      if (summary?.jobNumber) {
-        try {
-          await maybePromptForReturnedMaterialsCompletion(summary.jobNumber);
-        } catch (followupError) {
-          toast.push({
-            title: 'Caulk checked in',
-            description:
-              followupError instanceof Error
-                ? followupError.message
-                : 'The caulk checkout was closed, but the job follow-up could not be loaded.',
-            variant: 'warning'
-          });
-        }
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The check-in request failed.';
       setCaulkCheckinError(message);
@@ -1302,7 +1272,7 @@ export default function AllocationJobPage() {
             <p className="muted-text job-detail-staged-description">
               {summary.isStagedForPickup
                 ? 'Installers can pick up material for this job.'
-                : 'Mark this once the film is staged and ready for installer pickup.'}
+                : stagingBlockingMessage || 'Mark this once the film is staged and ready for installer pickup.'}
             </p>
           </div>
           <div className="detail-actions job-detail-staged-actions">
@@ -1311,6 +1281,7 @@ export default function AllocationJobPage() {
                 type="button"
                 variant={summary.isStagedForPickup ? 'secondary' : 'primary'}
                 onClick={() => void handleSetStagedPickup(!summary.isStagedForPickup)}
+                disabled={!summary.isStagedForPickup && !canMarkStagedPickup}
                 loading={setJobStagedForPickupMutation.isPending}
                 loadingLabel={summary.isStagedForPickup ? 'Saving...' : 'Saving...'}
               >
@@ -2118,7 +2089,7 @@ export default function AllocationJobPage() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setCompletePromptMode('manual')}
+                onClick={() => setIsCompleteConfirmOpen(true)}
                 disabled={
                   deleteJobMutation.isPending ||
                   completeJobMutation.isPending ||
@@ -2239,24 +2210,18 @@ export default function AllocationJobPage() {
       />
 
       <ConfirmDialog
-        open={Boolean(completePromptMode)}
-        title={
-          completePromptMode === 'returned_materials'
-            ? 'Complete Job'
-            : 'Mark Job Completed'
-        }
+        open={isCompleteConfirmOpen}
+        title="Mark Job Completed"
         message={
           summary
-            ? completePromptMode === 'returned_materials'
-              ? `All materials for job ${summary.jobNumber} have been returned, would you like to change job status to completed?`
-              : `Mark job ${summary.jobNumber} completed? This cancels active film allocations, active caulk allocations, and open film orders.`
+            ? `Mark job ${summary.jobNumber} completed? This cancels active film allocations, active caulk allocations, and open film orders.`
             : ''
         }
         confirmLabel="Complete Job"
-        cancelLabel={completePromptMode === 'returned_materials' ? 'Not Yet' : 'Keep Open'}
-        onCancel={() => setCompletePromptMode(null)}
+        cancelLabel="Keep Open"
+        onCancel={() => setIsCompleteConfirmOpen(false)}
         onConfirm={(reason) => {
-          setCompletePromptMode(null);
+          setIsCompleteConfirmOpen(false);
           void handleCompleteJob(reason);
         }}
       />

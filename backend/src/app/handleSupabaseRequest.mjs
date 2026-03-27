@@ -428,6 +428,20 @@ function hasIncompleteBoxHistoryForZeroedEdit(box) {
   );
 }
 
+function hasExplicitZeroFeetAvailableInput(payload) {
+  if (!payload || payload.feetAvailable === undefined || payload.feetAvailable === null) {
+    return false;
+  }
+
+  const rawValue = asTrimmedString(payload.feetAvailable);
+  if (!rawValue) {
+    return false;
+  }
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue <= 0;
+}
+
 function shouldAutoMoveToZeroed(existingBox, nextBox) {
   return (
     Boolean(nextBox.receivedDate) &&
@@ -1588,6 +1602,7 @@ function mapDbJobRow(row) {
     crewLeader: asTrimmedString(row.crew_leader),
     lifecycleStatus: asTrimmedString(row.lifecycle_status) || 'ACTIVE',
     isLaborOnly: row.is_labor_only === true,
+    isLaborAssigned: row.is_labor_assigned === true,
     isStagedForPickup: row.is_staged_for_pickup === true,
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
@@ -3525,6 +3540,7 @@ async function saveJobRecord(client, orgId, job) {
         crew_leader,
         lifecycle_status,
         is_labor_only,
+        is_labor_assigned,
         is_staged_for_pickup,
         notes,
         created_at,
@@ -3535,11 +3551,11 @@ async function saveJobRecord(client, orgId, job) {
       values (
         $1,$2,$3,$4,
         nullif($5, '')::date,
-        $6,$7,$8,$9,$10,
-        coalesce($11::timestamptz, now()),
-        $12,
-        coalesce($13::timestamptz, now()),
-        $14
+        $6,$7,$8,$9,$10,$11,
+        coalesce($12::timestamptz, now()),
+        $13,
+        coalesce($14::timestamptz, now()),
+        $15
       )
       on conflict (org_id, job_number) do update set
         warehouse = excluded.warehouse,
@@ -3548,6 +3564,7 @@ async function saveJobRecord(client, orgId, job) {
         crew_leader = excluded.crew_leader,
         lifecycle_status = excluded.lifecycle_status,
         is_labor_only = excluded.is_labor_only,
+        is_labor_assigned = excluded.is_labor_assigned,
         is_staged_for_pickup = excluded.is_staged_for_pickup,
         notes = excluded.notes,
         updated_at = excluded.updated_at,
@@ -3563,6 +3580,7 @@ async function saveJobRecord(client, orgId, job) {
       job.crewLeader,
       job.lifecycleStatus,
       Boolean(job.isLaborOnly),
+      Boolean(job.isLaborAssigned),
       Boolean(job.isStagedForPickup),
       job.notes,
       job.createdAt,
@@ -4022,23 +4040,30 @@ function hasJobMaterialRequirements(requirements, caulkRequirements) {
 function derivePersistedJobMaterialFlags(existingHeader, payload, requirements, caulkRequirements) {
   const explicitLaborOnly = parseExplicitJobLaborOnlyValue(payload);
   const previouslyLaborOnly = Boolean(existingHeader?.isLaborOnly);
+  const previouslyLaborAssigned = Boolean(existingHeader?.isLaborAssigned);
   const hasMaterials = hasJobMaterialRequirements(requirements, caulkRequirements);
   let isLaborOnly = explicitLaborOnly.hasValue ? explicitLaborOnly.value : previouslyLaborOnly;
+  let isLaborAssigned = previouslyLaborAssigned;
   let isStagedForPickup = Boolean(existingHeader?.isStagedForPickup);
 
   if (hasMaterials) {
     isLaborOnly = false;
+    isLaborAssigned = false;
     if (previouslyLaborOnly) {
       isStagedForPickup = false;
     }
-  } else if (isLaborOnly) {
-    isStagedForPickup = true;
-  } else if (explicitLaborOnly.hasValue && !explicitLaborOnly.value && previouslyLaborOnly) {
+  } else {
     isStagedForPickup = false;
+    if (isLaborOnly) {
+      isLaborAssigned = previouslyLaborOnly ? previouslyLaborAssigned : false;
+    } else {
+      isLaborAssigned = false;
+    }
   }
 
   return {
     isLaborOnly,
+    isLaborAssigned,
     isStagedForPickup
   };
 }
@@ -4681,6 +4706,8 @@ function buildAllocationJobSummary(
   caulkRequirements = [],
   lifecycleStatus = 'ACTIVE',
   isLaborOnly = false,
+  isLaborAssigned = false,
+  isStagedForPickup = false,
   fallbackJobDate = '',
   fallbackCrewLeader = ''
 ) {
@@ -4735,7 +4762,7 @@ function buildAllocationJobSummary(
   } else if (normalizedLifecycleStatus === 'COMPLETED') {
     status = 'COMPLETED';
   } else if (isLaborOnly && !requirements.length && !caulkRequirements.length) {
-    status = 'READY';
+    status = isLaborAssigned ? 'READY' : 'ALLOCATE';
   } else if (hasFilmOrder) {
     status = 'FILM_ORDER';
   } else if (hasFilmOnTheWay) {
@@ -4757,7 +4784,7 @@ function buildAllocationJobSummary(
       }
     }
 
-    status = hasRemainingFilm || hasRemainingCaulk ? 'ALLOCATE' : 'READY';
+    status = hasRemainingFilm || hasRemainingCaulk ? 'ALLOCATE' : isStagedForPickup ? 'READY' : 'ALLOCATE';
   } else if (hasActiveAllocation) {
     status = 'READY';
   } else if (hasCancelledRecord) {
@@ -4829,6 +4856,7 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     crewLeader: metadata.crewLeader,
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
+    isLaborAssigned: false,
     isStagedForPickup: false,
     notes: '',
     createdAt,
@@ -4852,14 +4880,7 @@ function deriveLegacyLifecycleStatus(allocations, filmOrders) {
 }
 
 function resolveEffectiveJobLifecycleStatus(lifecycleStatus, allocations, filmOrders) {
-  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
-  if (normalizedLifecycleStatus === 'COMPLETED' || normalizedLifecycleStatus === 'CANCELLED') {
-    return normalizedLifecycleStatus;
-  }
-
-  return deriveLegacyLifecycleStatus(allocations, filmOrders) === 'COMPLETED'
-    ? 'COMPLETED'
-    : normalizedLifecycleStatus;
+  return normalizeJobLifecycleStatus(lifecycleStatus);
 }
 
 function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
@@ -4878,6 +4899,8 @@ function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
 function computeJobStatusFromRequirements(
   lifecycleStatus,
   isLaborOnly,
+  isLaborAssigned,
+  isStagedForPickup,
   requirements,
   caulkRequirements,
   allocations,
@@ -4894,14 +4917,10 @@ function computeJobStatusFromRequirements(
 
   if (!requirements.length && !caulkRequirements.length) {
     if (isLaborOnly) {
-      return 'READY';
+      return isLaborAssigned ? 'READY' : 'ALLOCATE';
     }
 
-    if (!allocations.length && !filmOrders.length) {
-      return 'ALLOCATE';
-    }
-
-    return deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
+    return 'ALLOCATE';
   }
 
   for (let index = 0; index < requirements.length; index += 1) {
@@ -4916,7 +4935,77 @@ function computeJobStatusFromRequirements(
     }
   }
 
-  return 'READY';
+  return isStagedForPickup ? 'READY' : 'ALLOCATE';
+}
+
+function hasOpenFilmOrders(filmOrders) {
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const status = asTrimmedString(filmOrders[index].status).toUpperCase();
+    if (status === 'FILM_ORDER' || status === 'FILM_ON_THE_WAY') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasUncheckedOutFilmRequirementAllocations(allocations) {
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = allocations[index];
+    if (
+      asTrimmedString(entry.status).toUpperCase() === 'ACTIVE' &&
+      normalizeAllocationKind(entry.allocationKind) !== 'EXTRA' &&
+      integerOrZero(entry.allocatedFeet) > 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasUncheckedOutCaulkAllocations(caulkAllocations) {
+  for (let index = 0; index < caulkAllocations.length; index += 1) {
+    const entry = caulkAllocations[index];
+    if (
+      asTrimmedString(entry.status).toUpperCase() === 'ACTIVE' &&
+      integerOrZero(entry.allocatedTubes) > 0 &&
+      integerOrZero(entry.reservedTubesRemaining) > 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getJobStagingBlockingReason(requirements, caulkRequirements, allocations, filmOrders, caulkAllocations) {
+  const hasMaterialRequirements =
+    requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
+    caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
+  if (!hasMaterialRequirements) {
+    return '';
+  }
+
+  if (hasOpenFilmOrders(filmOrders)) {
+    return 'Open film orders must be resolved before staging this job.';
+  }
+
+  const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
+  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  if (hasRemainingFilm || hasRemainingCaulk) {
+    return 'All required film and caulk must be fully allocated before staging this job.';
+  }
+
+  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
+    return 'All required film must be checked out before staging this job.';
+  }
+
+  if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
+    return 'All required caulk must be checked out before staging this job.';
+  }
+
+  return '';
 }
 
 function hasSharedActiveBoxConflict(jobNumber, dueDate, crewLeader, jobAllocations, allAllocations) {
@@ -5004,6 +5093,8 @@ function buildJobListEntry(
   const baseStatus = computeJobStatusFromRequirements(
     lifecycleStatus,
     Boolean(jobHeader.isLaborOnly),
+    Boolean(jobHeader.isLaborAssigned),
+    Boolean(jobHeader.isStagedForPickup),
     requirements,
     caulkRequirements,
     allocations,
@@ -5024,6 +5115,7 @@ function buildJobListEntry(
     status,
     lifecycleStatus,
     isLaborOnly: Boolean(jobHeader.isLaborOnly),
+    isLaborAssigned: Boolean(jobHeader.isLaborAssigned),
     isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
     requiredFeet,
     allocatedFeet,
@@ -5855,6 +5947,52 @@ async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, 
     jobDate: asTrimmedString(header?.dueDate) || metadata.jobDate || '',
     crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || ''
   };
+}
+
+function getCheckoutCrewConflictJobs(targetJobNumber, targetCrewLeader, allocations) {
+  const normalizedTargetJobNumber = normalizeJobNumberKey(targetJobNumber);
+  const normalizedTargetCrewLeader = normalizeCrewLeaderKey(targetCrewLeader);
+  const conflicts = [];
+  const seen = {};
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = allocations[index];
+    if (asTrimmedString(entry.status).toUpperCase() !== 'ACTIVE') {
+      continue;
+    }
+
+    if (normalizeJobNumberKey(entry.jobNumber) === normalizedTargetJobNumber) {
+      continue;
+    }
+
+    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedTargetCrewLeader) {
+      continue;
+    }
+
+    if (!seen[entry.jobNumber]) {
+      seen[entry.jobNumber] = true;
+      conflicts.push(entry.jobNumber);
+    }
+  }
+
+  return conflicts;
+}
+
+async function listCheckoutCrewConflictJobsForBox(client, orgId, boxId, jobNumber) {
+  const boxAllocations = await listAllocationsByBox(client, orgId, boxId);
+  if (!boxAllocations.length) {
+    return [];
+  }
+
+  const targetJobAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const targetJobContext = await buildJobContextForAutoLinkedAllocation(
+    client,
+    orgId,
+    jobNumber,
+    targetJobAllocations
+  );
+
+  return getCheckoutCrewConflictJobs(jobNumber, targetJobContext.crewLeader, boxAllocations);
 }
 
 async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNumber, user, mode = 'checkout') {
@@ -6766,12 +6904,14 @@ async function buildAllocationJobList(client, orgId) {
         allocations,
         filmOrders,
         requirements,
-        publicCaulkRequirements,
-        header?.lifecycleStatus || 'ACTIVE',
-        Boolean(header?.isLaborOnly),
-        header?.dueDate || '',
-        header?.crewLeader || ''
-      )
+      publicCaulkRequirements,
+      header?.lifecycleStatus || 'ACTIVE',
+      Boolean(header?.isLaborOnly),
+      Boolean(header?.isLaborAssigned),
+      Boolean(header?.isStagedForPickup),
+      header?.dueDate || '',
+      header?.crewLeader || ''
+    )
     );
   }
 
@@ -6812,6 +6952,8 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
       publicCaulkRequirements,
       header?.lifecycleStatus || 'ACTIVE',
       Boolean(header?.isLaborOnly),
+      Boolean(header?.isLaborAssigned),
+      Boolean(header?.isStagedForPickup),
       header?.dueDate || '',
       header?.crewLeader || ''
     ),
@@ -7187,6 +7329,34 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
     throw new HttpError(400, `Job ${normalizedJobNumber} is closed and staged pickup cannot be changed.`);
   }
 
+  if (nextIsStaged) {
+    const allocations = resolvedContext.allocations || (await listAllocationsByJob(client, orgId, normalizedJobNumber));
+    const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, normalizedJobNumber));
+    const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+    const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+    const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
+    const boxes = await listBoxes(client, orgId);
+    const boxById = {};
+
+    for (let index = 0; index < boxes.length; index += 1) {
+      boxById[boxes[index].boxId] = boxes[index];
+    }
+
+    const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
+    const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+    const blockingReason = getJobStagingBlockingReason(
+      publicRequirements,
+      publicCaulkRequirements,
+      allocations,
+      filmOrders,
+      caulkAllocations
+    );
+
+    if (blockingReason) {
+      throw new HttpError(400, blockingReason);
+    }
+  }
+
   const row = await queryRow(
     client,
     `
@@ -7221,6 +7391,76 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
   };
 }
 
+async function setJobLaborAssigned(client, orgId, jobNumber, isLaborAssigned, actor) {
+  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+  const normalizedFlag = typeof isLaborAssigned === 'boolean'
+    ? String(isLaborAssigned)
+    : asTrimmedString(isLaborAssigned).toLowerCase();
+  let nextIsLaborAssigned = null;
+
+  if (
+    normalizedFlag === 'true' ||
+    normalizedFlag === 't' ||
+    normalizedFlag === '1' ||
+    normalizedFlag === 'yes' ||
+    normalizedFlag === 'on'
+  ) {
+    nextIsLaborAssigned = true;
+  } else if (
+    normalizedFlag === 'false' ||
+    normalizedFlag === 'f' ||
+    normalizedFlag === '0' ||
+    normalizedFlag === 'no' ||
+    normalizedFlag === 'off'
+  ) {
+    nextIsLaborAssigned = false;
+  }
+
+  if (nextIsLaborAssigned === null) {
+    throw new HttpError(400, 'isLaborAssigned must be true or false.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
+  const existingJob = resolvedContext.header;
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
+  }
+
+  if (normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and labor cannot be changed.`);
+  }
+
+  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+  if (hasJobMaterialRequirements(requirements, caulkRequirements)) {
+    throw new HttpError(400, `Job ${normalizedJobNumber} has film or caulk requirements. Labor can only be set on zero-material jobs.`);
+  }
+
+  const nextHeader = {
+    ...cloneValue(existingJob),
+    isLaborOnly: true,
+    isLaborAssigned: nextIsLaborAssigned,
+    isStagedForPickup: false,
+    updatedAt: nowIso,
+    updatedBy: actor
+  };
+
+  const savedJob = await saveJobRecord(client, orgId, nextHeader);
+  const warnings = [];
+  if (!existingJob.isLaborOnly) {
+    warnings.push(`Job ${normalizedJobNumber} was automatically marked labor only because it has no film or caulk requirements.`);
+  }
+
+  return {
+    jobNumber: savedJob.jobNumber,
+    isLaborOnly: savedJob.isLaborOnly,
+    isLaborAssigned: savedJob.isLaborAssigned,
+    updatedAt: savedJob.updatedAt,
+    warnings
+  };
+}
+
 async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user, nowIso) {
   const existing = await findJobByNumber(client, orgId, jobNumber);
   if (existing) {
@@ -7242,6 +7482,7 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   derived.updatedAt = nowIso;
   derived.updatedBy = user;
   derived.isLaborOnly = false;
+  derived.isLaborAssigned = false;
   derived.isStagedForPickup = false;
   derived.notes = asTrimmedString(payload.notes || derived.notes);
 
@@ -7283,6 +7524,7 @@ async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor,
   derived.updatedAt = nowIso;
   derived.updatedBy = actor;
   derived.isLaborOnly = false;
+  derived.isLaborAssigned = false;
   derived.isStagedForPickup = false;
 
   return {
@@ -7638,18 +7880,31 @@ async function updateBox(client, orgId, payload, actor) {
   applyAddOrEditWarnings(warnings, existing, updatedBox);
 
   let auditAction = 'UPDATE_BOX';
+  const confirmedExplicitFeetMoveToZeroed =
+    requestedMoveToZeroed &&
+    Boolean(existing.receivedDate) &&
+    hasPositivePhysicalFeet(existing) &&
+    hasExplicitZeroFeetAvailableInput(payload);
+
+  if (confirmedExplicitFeetMoveToZeroed) {
+    updatedBox.feetAvailable = 0;
+  }
+
   const autoMoveToZeroed = shouldAutoMoveToZeroed(existing, updatedBox);
   const confirmedIncompleteHistoryMoveToZeroed =
     requestedMoveToZeroed &&
     updatedBox.lastRollWeightLbs === 0 &&
     (hasIncompleteBoxHistoryForZeroedEdit(existing) || hasIncompleteBoxHistoryForZeroedEdit(updatedBox));
-  const moveToZeroed = confirmedIncompleteHistoryMoveToZeroed || autoMoveToZeroed;
+  const moveToZeroed =
+    confirmedIncompleteHistoryMoveToZeroed ||
+    confirmedExplicitFeetMoveToZeroed ||
+    autoMoveToZeroed;
   const reachedZeroState =
     Boolean(updatedBox.receivedDate) &&
     (updatedBox.feetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
 
   if (moveToZeroed) {
-    if (!autoMoveToZeroed && !confirmedIncompleteHistoryMoveToZeroed) {
+    if (!autoMoveToZeroed && !confirmedIncompleteHistoryMoveToZeroed && !confirmedExplicitFeetMoveToZeroed) {
       throw new HttpError(
         400,
         'Received boxes move to zeroed out inventory only after they have had Available Feet above 0 and then reach 0 Available Feet or 0 Last Roll Weight.'
@@ -7669,6 +7924,10 @@ async function updateBox(client, orgId, payload, actor) {
     if (confirmedIncompleteHistoryMoveToZeroed) {
       warnings.push(
         'Box was moved to zeroed out inventory after confirming a 0 Last Roll Weight save on a box with incomplete history.'
+      );
+    } else if (confirmedExplicitFeetMoveToZeroed) {
+      warnings.push(
+        'Box was moved to zeroed out inventory after confirming an Available Feet value of 0 on a received box with recorded physical feet.'
       );
     } else if (autoMoveToZeroed && !requestedMoveToZeroed) {
       warnings.push(
@@ -7746,6 +8005,19 @@ async function setBoxStatus(client, orgId, payload, actor) {
     const jobNumber = getCheckoutJobNumberFromAuditNotes(payload.auditNote);
     if (!jobNumber) {
       throw new HttpError(400, 'A checkout job number is required.');
+    }
+
+    const crewConflictJobs = await listCheckoutCrewConflictJobsForBox(
+      client,
+      orgId,
+      existing.boxId,
+      jobNumber
+    );
+    if (crewConflictJobs.length > 0) {
+      throw new HttpError(
+        400,
+        `Box ${existing.boxId} is still allocated to ${crewConflictJobs.join(', ')} with a different crew leader. Clear those allocations before checkout.`
+      );
     }
 
     updatedBox.status = 'CHECKED_OUT';
@@ -7979,6 +8251,7 @@ async function createJob(client, orgId, payload, actor) {
       crewLeader,
       lifecycleStatus,
       isLaborOnly: false,
+      isLaborAssigned: false,
       isStagedForPickup: false,
       notes,
       createdAt: nowIso,
@@ -7996,6 +8269,7 @@ async function createJob(client, orgId, payload, actor) {
       crewLeader,
       lifecycleStatus,
       isLaborOnly: existingHeader.isLaborOnly,
+      isLaborAssigned: existingHeader.isLaborAssigned,
       isStagedForPickup: existingHeader.isStagedForPickup,
       updatedAt: nowIso,
       updatedBy: actor,
@@ -8010,6 +8284,7 @@ async function createJob(client, orgId, payload, actor) {
     normalizedCaulkRequirements
   );
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
+  nextHeader.isLaborAssigned = materialFlags.isLaborAssigned;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
   nextHeader = await saveJobRecord(client, orgId, nextHeader);
@@ -8180,6 +8455,7 @@ async function updateJob(client, orgId, payload, actor) {
     normalizedCaulkRequirements
   );
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
+  nextHeader.isLaborAssigned = materialFlags.isLaborAssigned;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
   nextHeader.updatedAt = nowIso;
@@ -10233,6 +10509,21 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
             );
             if (!result) {
               throw new HttpError(500, 'Job staged pickup update failed.');
+            }
+            return ok(await buildJobDetail(client, authContext.orgId, jobNumber), result.warnings || []);
+          })();
+        case '/jobs/set-labor-assigned':
+          return (async () => {
+            const jobNumber = requireString(params.jobNumber, 'JobNumber');
+            const result = await setJobLaborAssigned(
+              client,
+              authContext.orgId,
+              jobNumber,
+              params && params.isLaborAssigned,
+              authContext.actor
+            );
+            if (!result) {
+              throw new HttpError(500, 'Job labor assignment update failed.');
             }
             return ok(await buildJobDetail(client, authContext.orgId, jobNumber), result.warnings || []);
           })();

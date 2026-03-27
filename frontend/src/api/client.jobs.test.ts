@@ -31,6 +31,7 @@ import {
   getJobsCalendarEntries,
   getJobsCalendarMonth,
   getJobs,
+  reopenJob,
   searchJobsByNumber,
   setJobStagedForPickup,
   updateJob
@@ -308,6 +309,40 @@ describe('jobs API client canonical routes', () => {
     expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/delete', {
       body: {
         jobNumber: '000123'
+      }
+    });
+  });
+
+  it('reopens a job through POST /jobs/reopen', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobNumber: '000123',
+          lifecycleStatus: 'ACTIVE',
+          status: 'ALLOCATE'
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const result = await reopenJob({
+      jobNumber: '000123',
+      reason: 'Reopened after staging correction.'
+    });
+
+    expect(result.result.summary.lifecycleStatus).toBe('ACTIVE');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/reopen', {
+      body: {
+        jobNumber: '000123',
+        reason: 'Reopened after staging correction.'
       }
     });
   });

@@ -19,7 +19,8 @@ const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/admin/user-permissions',
   '/owner/admin-permissions',
   '/owner/notification-preferences',
-  '/jobs/set-staged-pickup'
+  '/jobs/set-staged-pickup',
+  '/jobs/set-labor-assigned'
 ]);
 const LOCAL_FALLBACK_READ_PATHS = new Set([
   '/owner/reports/asset-total-cost',
