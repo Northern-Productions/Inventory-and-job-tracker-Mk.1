@@ -4,7 +4,7 @@ vi.mock('../lib/storage', () => ({
   getStoredAuthSession: vi.fn(() => null)
 }));
 
-import { request } from './http';
+import { request, resolveApiBaseUrlFromConfig } from './http';
 
 function setWindowLocation() {
   Object.defineProperty(globalThis, 'window', {
@@ -78,5 +78,40 @@ describe('http request envelope parsing', () => {
       name: 'APIError',
       message: expect.stringContaining('The API returned HTML instead of JSON.')
     });
+  });
+});
+
+describe('resolveApiBaseUrlFromConfig', () => {
+  it('keeps the local proxy path on localhost when a proxy target is configured', () => {
+    expect(
+      resolveApiBaseUrlFromConfig({
+        configuredApiBaseUrl: '/api',
+        proxyTarget: 'http://localhost:3000',
+        supabaseUrl: 'https://example.supabase.co',
+        hostname: 'localhost'
+      })
+    ).toBe('/api');
+  });
+
+  it('falls back to the Supabase edge function on non-local hosts when api base is blank', () => {
+    expect(
+      resolveApiBaseUrlFromConfig({
+        configuredApiBaseUrl: '',
+        proxyTarget: '',
+        supabaseUrl: 'https://example.supabase.co/',
+        hostname: 'inventorymk1.vercel.app'
+      })
+    ).toBe('https://example.supabase.co/functions/v1/api');
+  });
+
+  it('falls back to the Supabase edge function on non-local hosts when api base is still /api', () => {
+    expect(
+      resolveApiBaseUrlFromConfig({
+        configuredApiBaseUrl: '/api',
+        proxyTarget: '',
+        supabaseUrl: 'https://example.supabase.co',
+        hostname: 'inventorymk1.vercel.app'
+      })
+    ).toBe('https://example.supabase.co/functions/v1/api');
   });
 });

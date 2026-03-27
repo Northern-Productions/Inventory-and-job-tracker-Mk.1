@@ -66,6 +66,7 @@ import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
 import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
+import { useActionAccess } from '../hooks/useActionAccess';
 
 interface CaulkAllocationEditorState {
   mode: 'add' | 'edit';
@@ -142,6 +143,7 @@ export default function AllocationJobPage() {
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
+  const ensureActionAccess = useActionAccess();
   const warehouseRegistry = useWarehouseRegistry();
   const params = useParams();
   const jobNumber = safeDecodePathParam(params.jobNumber);
@@ -381,25 +383,9 @@ export default function AllocationJobPage() {
     : null;
 
   function ensureSignedIn(actionLabel: string) {
-    if (!auth.clientIdConfigured) {
-      toast.push({
-        title: 'Sign-in is not configured',
-        description: `Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before ${actionLabel}.`,
-        variant: 'error'
-      });
-      return false;
-    }
-
-    if (!auth.isAuthenticated) {
-      toast.push({
-        title: 'Sign-in required',
-        description: `Sign in with email/password before ${actionLabel}.`,
-        variant: 'error'
-      });
-      return false;
-    }
-
-    return true;
+    return ensureActionAccess({
+      actionLabel
+    });
   }
 
   async function loadLatestJobDetail(targetJobNumber: string) {

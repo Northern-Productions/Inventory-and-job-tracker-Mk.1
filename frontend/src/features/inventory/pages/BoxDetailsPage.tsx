@@ -27,6 +27,7 @@ import {
   useUndoAudit,
   useUpdateBox
 } from '../hooks/useInventoryQueries';
+import { useActionAccess } from '../hooks/useActionAccess';
 import { parseUpdateBoxDraft } from '../schemas/boxSchemas';
 import {
   createDraftFromBox,
@@ -169,6 +170,7 @@ export default function BoxDetailsPage() {
   const [searchParams] = useSearchParams();
   const toast = useToast();
   const auth = useAuth();
+  const ensureActionAccess = useActionAccess();
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
   const boxId = safeDecodePathParam(params.boxId);
@@ -278,34 +280,14 @@ export default function BoxDetailsPage() {
   }, [box?.boxId, searchParams]);
 
   function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
-    if (!auth.clientIdConfigured) {
-      toast.push({
-        title: 'Sign-in is not configured',
-        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before trying to change inventory.',
-        variant: 'error'
-      });
-      return false;
-    }
-
-    if (!auth.isAuthenticated) {
-      toast.push({
-        title: 'Sign-in required',
-        description: `Sign in with email/password before you ${actionLabel}.`,
-        variant: 'error'
-      });
-      return false;
-    }
-
-    if (!auth.hasFeatureAccess(feature, 'write')) {
-      toast.push({
-        title: 'Permission denied',
-        description: `Your account cannot ${actionLabel}.`,
-        variant: 'error'
-      });
-      return false;
-    }
-
-    return true;
+    return ensureActionAccess({
+      actionLabel,
+      feature,
+      requireWriteAccess: true,
+      notConfiguredDescription:
+        'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before trying to change inventory.',
+      signInDescription: `Sign in with email/password before you ${actionLabel}.`
+    });
   }
 
   useEffect(() => {

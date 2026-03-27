@@ -7,6 +7,7 @@ import {
   createOptimisticFilmOrderFromPayload,
   createOptimisticJobDetailFromCreatePayload,
   restoreSnapshots,
+  syncJobDetailCaches,
   upsertJobsCalendarCaches,
   upsertFilmOrdersCache
 } from './inventoryMutationUtils';
@@ -202,5 +203,118 @@ describe('inventoryMutationUtils', () => {
         updatedAt: '2026-03-27T12:23:01Z'
       }
     ]);
+  });
+
+  it('syncs job detail summaries into job and allocation caches', () => {
+    const queryClient = createQueryClient();
+    const detail = createOptimisticJobDetailFromCreatePayload(
+      {
+        jobNumber: '18798',
+        warehouse: 'IL1',
+        sections: '99',
+        dueDate: '2026-03-30',
+        crewLeader: 'Napo',
+        requirements: [],
+        caulkRequirements: [
+          {
+            productId: 'dow-995',
+            requiredTubes: 44
+          }
+        ]
+      },
+      [
+        {
+          productId: 'dow-995',
+          manufacturerId: 'dow',
+          manufacturer: 'DOW',
+          productName: '995 Black',
+          productCode: 'DOW-995',
+          lookupKey: 'dow-995-black',
+          tubesPerCase: 16,
+          isActive: true,
+          notes: '',
+          updatedAt: '2026-03-23T00:00:00Z'
+        }
+      ]
+    );
+
+    queryClient.setQueryData(inventoryKeys.allocationJob('18798'), {
+      summary: {
+        jobNumber: '18798',
+        jobDate: '',
+        crewLeader: '',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+    queryClient.setQueryData(inventoryKeys.allocationJobs, []);
+
+    syncJobDetailCaches(queryClient, {
+      ...detail,
+      summary: {
+        ...detail.summary,
+        status: 'READY',
+        allocatedTubes: 44,
+        remainingTubes: 0
+      },
+      caulkRequirements: detail.caulkRequirements.map((entry) => ({
+        ...entry,
+        allocatedTubes: 44,
+        remainingTubes: 0
+      }))
+    }, { syncAllocationJobDetail: true });
+
+    expect(queryClient.getQueryData(inventoryKeys.job('18798'))).toMatchObject({
+      summary: {
+        jobNumber: '18798',
+        status: 'READY',
+        allocatedTubes: 44,
+        remainingTubes: 0
+      }
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      {
+        jobNumber: '18798',
+        jobDate: '2026-03-30',
+        crewLeader: 'Napo',
+        status: 'READY',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 44,
+        allocatedTubes: 44,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      }
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('18798'))).toMatchObject({
+      summary: {
+        jobDate: '2026-03-30',
+        crewLeader: 'Napo',
+        status: 'READY',
+        requiredTubes: 44,
+        allocatedTubes: 44,
+        remainingTubes: 0
+      },
+      caulkRequirements: [
+        expect.objectContaining({
+          allocatedTubes: 44,
+          remainingTubes: 0
+        })
+      ]
+    });
   });
 });

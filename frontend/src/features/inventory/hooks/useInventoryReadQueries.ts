@@ -31,6 +31,38 @@ import type {
 } from '../../../domain';
 import { inventoryKeys } from './inventoryQueryKeys';
 
+const DEFAULT_READ_STALE_TIME_MS = 2 * 60 * 1000;
+const DEFAULT_READ_GC_TIME_MS = 60 * 60 * 1000;
+
+interface InventoryReadQueryOptions<TData> {
+  queryKey: readonly unknown[];
+  queryFn: () => Promise<TData>;
+  enabled?: boolean;
+}
+
+interface CachedInventoryReadQueryOptions<TData> extends InventoryReadQueryOptions<TData> {
+  staleTime?: number;
+  gcTime?: number;
+  refetchOnWindowFocus?: boolean;
+}
+
+function useInventoryReadQuery<TData>(options: InventoryReadQueryOptions<TData>) {
+  return useQuery({
+    ...options,
+    enabled: options.enabled ?? true
+  });
+}
+
+function useCachedInventoryReadQuery<TData>(options: CachedInventoryReadQueryOptions<TData>) {
+  return useQuery({
+    ...options,
+    enabled: options.enabled ?? true,
+    staleTime: options.staleTime ?? DEFAULT_READ_STALE_TIME_MS,
+    gcTime: options.gcTime ?? DEFAULT_READ_GC_TIME_MS,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
+  });
+}
+
 export function useSearchBoxes(params: SearchBoxesParams) {
   return useSearchBoxesWithOptions(params, { enabled: true });
 }
@@ -39,7 +71,7 @@ export function useSearchBoxesWithOptions(
   params: SearchBoxesParams,
   options: { enabled?: boolean } = {}
 ) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.list(params),
     queryFn: () => searchBoxes(params),
     enabled: options.enabled ?? true
@@ -47,7 +79,7 @@ export function useSearchBoxesWithOptions(
 }
 
 export function useBox(boxId: string) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.box(boxId),
     queryFn: () => getBox(boxId),
     enabled: Boolean(boxId)
@@ -55,7 +87,7 @@ export function useBox(boxId: string) {
 }
 
 export function useBoxHistory(boxId: string) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.history(boxId),
     queryFn: () => getAuditByBox(boxId),
     enabled: Boolean(boxId)
@@ -63,7 +95,7 @@ export function useBoxHistory(boxId: string) {
 }
 
 export function useBoxAllocations(boxId: string) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.allocations(boxId),
     queryFn: () => getAllocationsByBox(boxId),
     enabled: Boolean(boxId)
@@ -78,7 +110,7 @@ export function useJobsList(
     lifecycleStatus?: JobLifecycleFilter;
   } = {}
 ) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.jobsList({
       limit,
       lifecycleStatus: options.lifecycleStatus
@@ -96,7 +128,7 @@ export function useJobsSearch(
   limit = 25,
   options: { enabled?: boolean; lifecycleStatus?: JobLifecycleFilter } = {}
 ) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.jobsSearchResults({
       query,
       limit,
@@ -114,7 +146,7 @@ export function useJobsCalendarMonth(
   month: string,
   options: { enabled?: boolean; lifecycleStatus?: JobLifecycleFilter } = {}
 ) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.jobsCalendarMonth({
       month,
       lifecycleStatus: options.lifecycleStatus
@@ -135,7 +167,7 @@ export function useJobsCalendarEntries(
     view: JobsCalendarView;
   }
 ) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.jobsCalendarPeriod({
       view: options.view,
       anchorDate,
@@ -155,7 +187,7 @@ export function useJobsCalendarEntries(
 }
 
 export function useJob(jobNumber: string) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.job(jobNumber),
     queryFn: () => getJob(jobNumber),
     enabled: Boolean(jobNumber),
@@ -166,7 +198,7 @@ export function useJob(jobNumber: string) {
 }
 
 export function useAllocationJobs() {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.allocationJobs,
     queryFn: () => getAllocationJobs(),
     staleTime: 2 * 60 * 1000,
@@ -176,7 +208,7 @@ export function useAllocationJobs() {
 }
 
 export function useAllocationJob(jobNumber: string) {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.allocationJob(jobNumber),
     queryFn: () => getAllocationJob(jobNumber),
     enabled: Boolean(jobNumber),
@@ -187,7 +219,7 @@ export function useAllocationJob(jobNumber: string) {
 }
 
 export function useAllocationPreview(payload: AllocateBoxPayload | null) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.allocationPreview(payload),
     queryFn: () => {
       if (!payload) {
@@ -201,14 +233,14 @@ export function useAllocationPreview(payload: AllocateBoxPayload | null) {
 }
 
 export function useFilmOrders() {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.filmOrders,
     queryFn: () => getFilmOrders()
   });
 }
 
 export function useFilmCatalog() {
-  return useQuery({
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.filmCatalog,
     queryFn: () => getFilmCatalog(),
     staleTime: 10 * 60 * 1000,
@@ -217,14 +249,14 @@ export function useFilmCatalog() {
 }
 
 export function useAuditList(params: AuditListParams) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.activity(params),
     queryFn: () => listAudit(params)
   });
 }
 
 export function useRollHistory(boxId: string) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.rollHistory(boxId),
     queryFn: () => getRollHistoryByBox(boxId),
     enabled: Boolean(boxId)
@@ -232,7 +264,7 @@ export function useRollHistory(boxId: string) {
 }
 
 export function useReportsSummary(filters: ReportsSummaryFilters) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.reports(filters),
     queryFn: () => getReportsSummary(filters)
   });
@@ -242,7 +274,7 @@ export function useOwnerAssetTotalCostReport(
   filters: Pick<ReportsSummaryFilters, 'warehouse'>,
   options: { enabled?: boolean } = {}
 ) {
-  return useQuery({
+  return useInventoryReadQuery({
     queryKey: inventoryKeys.ownerAssetTotalCost(filters),
     queryFn: () => getOwnerAssetTotalCostReport(filters),
     enabled: options.enabled ?? true

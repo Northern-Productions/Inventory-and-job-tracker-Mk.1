@@ -4,6 +4,7 @@ import { getSupabaseClient } from '../lib/supabase';
 
 const CONFIGURED_API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || '';
 const PROXY_TARGET = import.meta.env.VITE_PROXY_TARGET?.trim() || '';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
 const LOCAL_PROXY_HOSTS = new Set(['localhost', '127.0.0.1']);
 const SHOULD_FORWARD_SUPABASE_APIKEY = looksLikeLegacyJwtKey_(SUPABASE_ANON_KEY);
@@ -11,16 +12,41 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const AUTH_CONTEXT_TIMEOUT_MS = 10_000;
 const SUPABASE_AUTH_TIMEOUT_MS = 10_000;
 
-function isLocalProxyEnabled(): boolean {
-  return Boolean(PROXY_TARGET) && LOCAL_PROXY_HOSTS.has(window.location.hostname);
+function trimTrailingSlashes_(value: string): string {
+  return value.replace(/\/+$/g, '');
 }
 
-function resolveApiBaseUrl(): string {
-  if (isLocalProxyEnabled()) {
+export function resolveApiBaseUrlFromConfig(options: {
+  configuredApiBaseUrl?: string;
+  proxyTarget?: string;
+  supabaseUrl?: string;
+  hostname?: string;
+}): string {
+  const hostname = String(options.hostname || '').trim().toLowerCase();
+  if (options.proxyTarget?.trim() && LOCAL_PROXY_HOSTS.has(hostname)) {
     return '/api';
   }
 
-  return CONFIGURED_API_BASE_URL || '/api';
+  const configuredApiBaseUrl = trimTrailingSlashes_(String(options.configuredApiBaseUrl || '').trim());
+  const supabaseUrl = trimTrailingSlashes_(String(options.supabaseUrl || '').trim());
+  if (configuredApiBaseUrl && configuredApiBaseUrl !== '/api') {
+    return configuredApiBaseUrl;
+  }
+
+  if (supabaseUrl) {
+    return `${supabaseUrl}/functions/v1/api`;
+  }
+
+  return configuredApiBaseUrl || '/api';
+}
+
+function resolveApiBaseUrl(): string {
+  return resolveApiBaseUrlFromConfig({
+    configuredApiBaseUrl: CONFIGURED_API_BASE_URL,
+    proxyTarget: PROXY_TARGET,
+    supabaseUrl: SUPABASE_URL,
+    hostname: window.location.hostname
+  });
 }
 
 export class APIError extends Error {

@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { OptimisticOperationController } from '../../../components/OptimisticQueue';
 import type {
   AddBoxPayload,
+  AllocationJobDetail,
   AllocationJobSummary,
   Box,
   CaulkProductEntry,
@@ -291,6 +292,21 @@ export function createOptimisticAllocationJobSummaryFromJobDetail(
   };
 }
 
+function buildAllocationJobSummaryFromJobDetail(
+  detail: JobDetail,
+  currentSummary?: AllocationJobSummary
+): AllocationJobSummary {
+  return {
+    ...(currentSummary || createOptimisticAllocationJobSummaryFromJobDetail(detail)),
+    jobDate: detail.summary.dueDate,
+    crewLeader: detail.summary.crewLeader,
+    status: detail.summary.status,
+    requiredTubes: detail.summary.requiredTubes,
+    allocatedTubes: detail.summary.allocatedTubes,
+    remainingTubes: detail.summary.remainingTubes
+  };
+}
+
 export function createOptimisticFilmOrderFromPayload(
   payload: CreateFilmOrderPayload
 ): FilmOrderEntry {
@@ -320,6 +336,15 @@ export function createOptimisticFilmOrderFromPayload(
   };
 }
 
+function extractLifecycleFilterFromQueryKey(queryKey: readonly unknown[]) {
+  const queryParams =
+    Array.isArray(queryKey) && queryKey.length > 0
+      ? (queryKey[queryKey.length - 1] as { lifecycleStatus?: string } | undefined)
+      : undefined;
+
+  return String(queryParams?.lifecycleStatus || '').toUpperCase();
+}
+
 export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntry) {
   const jobQueries = queryClient.getQueriesData<JobListEntry[]>({
     queryKey: inventoryKeys.jobsListRoot
@@ -330,11 +355,7 @@ export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntr
       continue;
     }
 
-    const queryParams =
-      Array.isArray(queryKey) && queryKey.length > 0
-        ? (queryKey[queryKey.length - 1] as { lifecycleStatus?: string } | undefined)
-        : undefined;
-    const lifecycleFilter = String(queryParams?.lifecycleStatus || '').toUpperCase();
+    const lifecycleFilter = extractLifecycleFilterFromQueryKey(queryKey);
     if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
       queryClient.setQueryData<JobListEntry[]>(
         queryKey,
@@ -363,11 +384,7 @@ export function upsertJobsCalendarCaches(queryClient: QueryClient, entry: JobLis
       continue;
     }
 
-    const queryParams =
-      Array.isArray(queryKey) && queryKey.length > 0
-        ? (queryKey[queryKey.length - 1] as { lifecycleStatus?: string } | undefined)
-        : undefined;
-    const lifecycleFilter = String(queryParams?.lifecycleStatus || '').toUpperCase();
+    const lifecycleFilter = extractLifecycleFilterFromQueryKey(queryKey);
     if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
       queryClient.setQueryData<JobListEntry[]>(
         queryKey,
@@ -426,6 +443,43 @@ export function upsertAllocationJobSummaryCaches(
 export function removeAllocationJobSummaryCaches(queryClient: QueryClient, jobNumber: string) {
   queryClient.setQueryData<AllocationJobSummary[] | undefined>(inventoryKeys.allocationJobs, (current) =>
     current ? current.filter((entry) => entry.jobNumber !== jobNumber) : current
+  );
+}
+
+export function syncJobDetailCaches(
+  queryClient: QueryClient,
+  detail: JobDetail,
+  options: { syncAllocationJobDetail?: boolean } = {}
+) {
+  const jobNumber = detail.summary.jobNumber;
+  const currentAllocationJob = queryClient.getQueryData<AllocationJobDetail>(
+    inventoryKeys.allocationJob(jobNumber)
+  );
+  const nextAllocationSummary = buildAllocationJobSummaryFromJobDetail(
+    detail,
+    currentAllocationJob?.summary
+  );
+
+  queryClient.setQueryData<JobDetail>(inventoryKeys.job(jobNumber), detail);
+  upsertJobListCaches(queryClient, detail.summary);
+  upsertJobsCalendarCaches(queryClient, detail.summary);
+  upsertAllocationJobSummaryCaches(queryClient, nextAllocationSummary);
+
+  if (!options.syncAllocationJobDetail) {
+    return;
+  }
+
+  queryClient.setQueryData<AllocationJobDetail | undefined>(
+    inventoryKeys.allocationJob(jobNumber),
+    (current) =>
+      current
+        ? {
+            ...current,
+            summary: buildAllocationJobSummaryFromJobDetail(detail, current.summary),
+            caulkRequirements: detail.caulkRequirements,
+            filmOrders: detail.filmOrders
+          }
+        : current
   );
 }
 

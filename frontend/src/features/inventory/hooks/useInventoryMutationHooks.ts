@@ -72,6 +72,7 @@ import {
   removeJobListCaches,
   replaceFilmOrderInCaches,
   restoreSnapshots,
+  syncJobDetailCaches,
   upsertJobsCalendarCaches,
   upsertAllocationJobSummaryCaches,
   upsertFilmOrdersCache,
@@ -79,6 +80,7 @@ import {
   updateBoxCaches
 } from './inventoryMutationUtils';
 import {
+  invalidateCaulkJobQueries,
   invalidateGlobalPlanningQueries,
   invalidateJobAndFilmOrderQueries,
   invalidateJobLifecycleQueries
@@ -302,38 +304,7 @@ export function useCreateJob() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      queryClient.setQueryData(inventoryKeys.job(result.summary.jobNumber), result);
-      upsertJobListCaches(queryClient, result.summary);
-      upsertAllocationJobSummaryCaches(queryClient, {
-        ...(queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(result.summary.jobNumber))
-          ?.summary || createOptimisticAllocationJobSummaryFromJobDetail(result)),
-        jobDate: result.summary.dueDate,
-        crewLeader: result.summary.crewLeader,
-        status: result.summary.status,
-        requiredTubes: result.summary.requiredTubes,
-        allocatedTubes: result.summary.allocatedTubes,
-        remainingTubes: result.summary.remainingTubes
-      });
-      queryClient.setQueryData<AllocationJobDetail | undefined>(
-        inventoryKeys.allocationJob(result.summary.jobNumber),
-        (current) =>
-          current
-            ? {
-                ...current,
-                summary: {
-                  ...current.summary,
-                  jobDate: result.summary.dueDate,
-                  crewLeader: result.summary.crewLeader,
-                  status: result.summary.status,
-                  requiredTubes: result.summary.requiredTubes,
-                  allocatedTubes: result.summary.allocatedTubes,
-                  remainingTubes: result.summary.remainingTubes
-                },
-                caulkRequirements: result.caulkRequirements,
-                filmOrders: result.filmOrders
-              }
-            : current
-      );
+      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
       await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
@@ -356,9 +327,7 @@ export function useSetJobStagedForPickup() {
   return useMutation({
     mutationFn: (payload: SetJobStagedForPickupPayload) => setJobStagedForPickup(payload),
     onSuccess: async ({ result }) => {
-      queryClient.setQueryData<JobDetail>(inventoryKeys.job(result.summary.jobNumber), result);
-      upsertJobListCaches(queryClient, result.summary);
-      upsertJobsCalendarCaches(queryClient, result.summary);
+      syncJobDetailCaches(queryClient, result);
       await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
@@ -528,13 +497,7 @@ export function useAddCaulkJobAllocation() {
   return useMutation({
     mutationFn: (payload: AddCaulkJobAllocationPayload) => addCaulkJobAllocation(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: ['caulk'] })
-      ]);
+      await invalidateCaulkJobQueries(queryClient, result.jobNumber, { includeJobCollections: true });
     }
   });
 }
@@ -545,11 +508,7 @@ export function useUpdateCaulkJobAllocation() {
   return useMutation({
     mutationFn: (payload: UpdateCaulkJobAllocationPayload) => updateCaulkJobAllocation(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: ['caulk'] })
-      ]);
+      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }
   });
 }
@@ -560,11 +519,7 @@ export function useCheckoutCaulkJobAllocation() {
   return useMutation({
     mutationFn: (payload: CheckoutCaulkJobAllocationPayload) => checkoutCaulkJobAllocation(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: ['caulk'] })
-      ]);
+      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }
   });
 }
@@ -575,11 +530,7 @@ export function useCheckinCaulkJobAllocation() {
   return useMutation({
     mutationFn: (payload: CheckinCaulkJobAllocationPayload) => checkinCaulkJobAllocation(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: ['caulk'] })
-      ]);
+      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }
   });
 }
@@ -590,11 +541,7 @@ export function useRemoveCaulkJobAllocation() {
   return useMutation({
     mutationFn: (payload: RemoveCaulkJobAllocationPayload) => removeCaulkJobAllocation(payload),
     onSuccess: async ({ result }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: ['caulk'] })
-      ]);
+      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }
   });
 }
@@ -678,12 +625,7 @@ export function useCompleteJob() {
     },
     onSuccess: async ({ result }, variables, context) => {
       await context?.operation?.waitForApply();
-      queryClient.setQueryData<JobDetail>(inventoryKeys.job(result.summary.jobNumber), result);
-      upsertJobListCaches(queryClient, result.summary);
-      upsertAllocationJobSummaryCaches(
-        queryClient,
-        createOptimisticAllocationJobSummaryFromJobDetail(result)
-      );
+      syncJobDetailCaches(queryClient, result);
       await Promise.all([
         invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
