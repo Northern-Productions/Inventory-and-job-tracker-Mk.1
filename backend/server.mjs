@@ -305,8 +305,11 @@ const server = http.createServer(async (req, res) => {
   const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
   const effectiveHeaders = buildEffectiveHeaders(req.headers, bodyJson);
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
+  const shouldUseLocalFallback =
+    (req.method === 'GET' && LOCAL_FALLBACK_READ_PATHS.has(logicalPath)) ||
+    (req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath));
   const authKey = hashBody(String(effectiveHeaders.authorization || effectiveHeaders.Authorization || ''));
-  const useCache = shouldUseCache(req.method, logicalPath);
+  const useCache = shouldUseCache(req.method, logicalPath) && !shouldUseLocalFallback;
   const cacheRouteKey =
     req.method === 'POST' ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
   const cacheKey = getCacheKey(req.method, cacheRouteKey, requestBody, authKey);
@@ -329,10 +332,6 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
-
-  const shouldUseLocalFallback =
-    (req.method === 'GET' && LOCAL_FALLBACK_READ_PATHS.has(logicalPath)) ||
-    (req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath));
 
   const response = shouldUseLocalFallback
     ? await handleSupabaseRequest({
