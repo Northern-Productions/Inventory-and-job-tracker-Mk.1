@@ -1,6 +1,6 @@
+import { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { RouterProvider } from 'react-router-dom';
-import { Button } from './components/Button';
 import { DeferredLoadingState } from './components/DeferredLoadingState';
 import { useAuth } from './features/auth/AuthContext';
 import { AccessSplash } from './features/auth/AccessSplash';
@@ -8,7 +8,17 @@ import { AuthGate } from './features/auth/AuthGate';
 import { router } from './routes';
 
 function PwaUpdateBanner() {
-  const { needRefresh, updateServiceWorker } = useRegisterSW();
+  const { needRefresh, updateServiceWorker } = useRegisterSW({
+    immediate: true
+  });
+
+  useEffect(() => {
+    if (!needRefresh[0]) {
+      return;
+    }
+
+    void updateServiceWorker(true);
+  }, [needRefresh, updateServiceWorker]);
 
   if (!needRefresh[0]) {
     return null;
@@ -16,10 +26,7 @@ function PwaUpdateBanner() {
 
   return (
     <div className="update-banner">
-      <span>A new version is ready.</span>
-      <Button type="button" variant="secondary" onClick={() => updateServiceWorker(true)}>
-        Refresh
-      </Button>
+      <span>Updating to the latest version...</span>
     </div>
   );
 }

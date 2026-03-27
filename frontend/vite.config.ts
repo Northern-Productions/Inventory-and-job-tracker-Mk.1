@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'prompt',
+        registerType: 'autoUpdate',
         includeAssets: [
           'icon.svg',
           'icon-maskable.svg',
@@ -64,7 +64,10 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+          skipWaiting: true,
           runtimeCaching: [
             {
               urlPattern: ({ request }) => request.destination === 'image',
