@@ -27,6 +27,7 @@ import {
   createJob,
   deleteJob,
   reopenJob,
+  setJobStagedForPickup,
   updateJob
 } from '../../../api/features/jobsClient';
 import type {
@@ -47,6 +48,7 @@ import type {
   FilmOrderEntry,
   JobDetail,
   JobListEntry,
+  SetJobStagedForPickupPayload,
   RemoveJobBoxAllocationsPayload,
   RemoveCaulkJobAllocationPayload,
   SetBoxStatusPayload,
@@ -70,6 +72,7 @@ import {
   removeJobListCaches,
   replaceFilmOrderInCaches,
   restoreSnapshots,
+  upsertJobsCalendarCaches,
   upsertAllocationJobSummaryCaches,
   upsertFilmOrdersCache,
   upsertJobListCaches,
@@ -123,6 +126,8 @@ export function useCreateFilmOrder() {
               crewLeader: '',
               status: 'ALLOCATE',
               lifecycleStatus: 'ACTIVE',
+              isLaborOnly: false,
+              isStagedForPickup: false,
               requiredFeet: 0,
               allocatedFeet: 0,
               remainingFeet: 0,
@@ -340,6 +345,20 @@ export function useUpdateJob() {
   return useMutation({
     mutationFn: (payload: UpdateJobPayload) => updateJob(payload),
     onSuccess: async ({ result }) => {
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
+    }
+  });
+}
+
+export function useSetJobStagedForPickup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: SetJobStagedForPickupPayload) => setJobStagedForPickup(payload),
+    onSuccess: async ({ result }) => {
+      queryClient.setQueryData<JobDetail>(inventoryKeys.job(result.summary.jobNumber), result);
+      upsertJobListCaches(queryClient, result.summary);
+      upsertJobsCalendarCaches(queryClient, result.summary);
       await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });

@@ -3,9 +3,11 @@ import { QueryClient } from '@tanstack/react-query';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
   beginDelayedOptimisticMutation,
+  computeOptimisticJobStatus,
   createOptimisticFilmOrderFromPayload,
   createOptimisticJobDetailFromCreatePayload,
   restoreSnapshots,
+  upsertJobsCalendarCaches,
   upsertFilmOrdersCache
 } from './inventoryMutationUtils';
 
@@ -99,6 +101,26 @@ describe('inventoryMutationUtils', () => {
     expect(detail.caulkRequirements[0].tubesPerCase).toBe(16);
   });
 
+  it('only treats zero-material optimistic jobs as ready when labor-only is explicit', () => {
+    expect(computeOptimisticJobStatus(0, 0)).toBe('ALLOCATE');
+    expect(computeOptimisticJobStatus(0, 0, 0, true)).toBe('READY');
+
+    const detail = createOptimisticJobDetailFromCreatePayload({
+      jobNumber: '4644',
+      warehouse: 'IL1',
+      sections: '1',
+      dueDate: '2026-03-31',
+      crewLeader: 'Napo',
+      requirements: [],
+      caulkRequirements: [],
+      isLaborOnly: true
+    });
+
+    expect(detail.summary.isLaborOnly).toBe(true);
+    expect(detail.summary.isStagedForPickup).toBe(true);
+    expect(detail.summary.status).toBe('READY');
+  });
+
   it('creates and stores optimistic film orders for immediate UI updates', () => {
     const queryClient = createQueryClient();
     const optimisticFilmOrder = createOptimisticFilmOrderFromPayload({
@@ -116,5 +138,69 @@ describe('inventoryMutationUtils', () => {
     expect(optimisticFilmOrder.status).toBe('FILM_ORDER');
     expect(optimisticFilmOrder.remainingToOrderFeet).toBe(120);
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([optimisticFilmOrder]);
+  });
+
+  it('updates matching calendar caches with the latest job summary', () => {
+    const queryClient = createQueryClient();
+    const existingEntry = {
+      jobNumber: '18798',
+      warehouse: 'IL1',
+      sections: '99',
+      dueDate: '2026-03-30',
+      crewLeader: 'Napo',
+      status: 'ALLOCATE' as const,
+      lifecycleStatus: 'ACTIVE' as const,
+      isLaborOnly: false,
+      isStagedForPickup: false,
+      requiredFeet: 0,
+      allocatedFeet: 0,
+      remainingFeet: 0,
+      requiredTubes: 44,
+      allocatedTubes: 0,
+      remainingTubes: 44,
+      requirementCount: 0,
+      allocationCount: 0,
+      filmOrderCount: 0,
+      createdAt: '2026-03-23T00:00:00Z',
+      updatedAt: '2026-03-23T00:00:00Z',
+      notes: ''
+    };
+
+    queryClient.setQueryData(
+      inventoryKeys.jobsCalendarPeriod({
+        view: 'week',
+        anchorDate: '2026-03-29',
+        lifecycleStatus: 'ACTIVE'
+      }),
+      [existingEntry]
+    );
+
+    upsertJobsCalendarCaches(queryClient, {
+      ...existingEntry,
+      status: 'READY',
+      isStagedForPickup: true,
+      allocatedTubes: 44,
+      remainingTubes: 0,
+      updatedAt: '2026-03-27T12:23:01Z'
+    });
+
+    expect(
+      queryClient.getQueryData(
+        inventoryKeys.jobsCalendarPeriod({
+          view: 'week',
+          anchorDate: '2026-03-29',
+          lifecycleStatus: 'ACTIVE'
+        })
+      )
+    ).toEqual([
+      {
+        ...existingEntry,
+        status: 'READY',
+        isStagedForPickup: true,
+        allocatedTubes: 44,
+        remainingTubes: 0,
+        updatedAt: '2026-03-27T12:23:01Z'
+      }
+    ]);
   });
 });

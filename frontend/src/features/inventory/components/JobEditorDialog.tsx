@@ -519,55 +519,60 @@ export function JobEditorDialog({
           <p className="muted-text">Keep the current create and edit flow intact while making the first fields easier to scan.</p>
         </div>
 
-        <div className="form-grid">
-          <Input
-            label="Job ID number"
-            value={jobNumber}
-            hint="Numbers only. Leading zeros are kept."
-            placeholder="000123"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            onChange={(event) => {
-              setJobNumber(event.target.value.replace(/[^0-9]/g, ''));
-              setError('');
-            }}
-            required
-            autoFocus={mode === 'create'}
-            disabled={disableJobNumber}
-          />
-          <Input
-            label="Sections"
-            value={sections}
-            hint='Optional. Comma-separated section numbers (example: "2, 4, 5").'
-            inputMode="text"
-            pattern="[0-9, ]*"
-            onChange={(event) => {
-              setSections(event.target.value.replace(/[^0-9,\s]/g, ''));
-              setError('');
-            }}
-          />
-          <Input
-            label="Install Date"
-            type="date"
-            value={dueDate}
-            onChange={(event) => {
-              setDueDate(event.target.value);
-              setError('');
-            }}
-          />
-          <Input
-            label="Crew Leader"
-            value={crewLeader}
-            onChange={(event) => {
-              setCrewLeader(event.target.value);
-              setError('');
-            }}
-          />
-          <WarehouseSelectField
-            label="Warehouse"
-            value={warehouse}
-            onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
-          />
+        <div className="job-editor-basics-layout">
+          <div className="job-editor-basics-primary-grid">
+            <Input
+              label="Job ID number"
+              value={jobNumber}
+              hint="Numbers only. Leading zeros are kept."
+              placeholder="000123"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              onChange={(event) => {
+                setJobNumber(event.target.value.replace(/[^0-9]/g, ''));
+                setError('');
+              }}
+              required
+              autoFocus={mode === 'create'}
+              disabled={disableJobNumber}
+            />
+            <Input
+              label="Sections"
+              value={sections}
+              hint='Optional. Comma-separated section numbers (example: "2, 4, 5").'
+              inputMode="text"
+              pattern="[0-9, ]*"
+              onChange={(event) => {
+                setSections(event.target.value.replace(/[^0-9,\s]/g, ''));
+                setError('');
+              }}
+            />
+            <Input
+              label="Install Date"
+              type="date"
+              value={dueDate}
+              onChange={(event) => {
+                setDueDate(event.target.value);
+                setError('');
+              }}
+            />
+          </div>
+
+          <div className="job-editor-basics-secondary-grid">
+            <Input
+              label="Crew Leader"
+              value={crewLeader}
+              onChange={(event) => {
+                setCrewLeader(event.target.value);
+                setError('');
+              }}
+            />
+            <WarehouseSelectField
+              label="Warehouse"
+              value={warehouse}
+              onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
+            />
+          </div>
         </div>
       </div>
 

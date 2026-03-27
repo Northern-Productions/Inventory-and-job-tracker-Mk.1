@@ -477,6 +477,8 @@ export interface JobListEntry {
   crewLeader: string;
   status: JobStatus;
   lifecycleStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  isLaborOnly: boolean;
+  isStagedForPickup: boolean;
   requiredFeet: number;
   allocatedFeet: number;
   remainingFeet: number;
@@ -510,6 +512,7 @@ export interface CreateJobPayload {
   dueDate?: string;
   crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  isLaborOnly?: boolean;
   notes?: string;
   requirements?: Array<{
     manufacturer: string;
@@ -531,6 +534,7 @@ export interface UpdateJobPayload {
   dueDate?: string;
   crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  isLaborOnly?: boolean;
   notes?: string;
   requirements?: Array<{
     manufacturer: string;
@@ -543,6 +547,11 @@ export interface UpdateJobPayload {
     productId: string;
     requiredTubes: number;
   }>;
+}
+
+export interface SetJobStagedForPickupPayload {
+  jobNumber: string;
+  isStagedForPickup: boolean;
 }
 
 export interface DeleteJobPayload {

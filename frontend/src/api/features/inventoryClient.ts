@@ -13,6 +13,7 @@ import type {
   Warehouse
 } from '../../domain';
 import { WAREHOUSE_CODES } from '../../domain';
+import { dedupeBoxesByDisplayBoxId } from '../../lib/boxIds';
 import {
   getOfflineBox,
   replaceOfflineInventoryBoxes,
@@ -42,7 +43,7 @@ function shouldUseOfflineInventoryFallback(error: unknown): error is APIError {
 
 async function fetchRemoteBoxes(params: SearchBoxesParams): Promise<Box[]> {
   const filters = buildSearchBoxFilters(params);
-  return requestReadWithFallback<Box[]>('/boxes/search', filters, filters);
+  return dedupeBoxesByDisplayBoxId(await requestReadWithFallback<Box[]>('/boxes/search', filters, filters));
 }
 
 export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
@@ -51,7 +52,7 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
     return await fetchRemoteBoxes(params);
   } catch (error) {
     if (shouldUseOfflineInventoryFallback(error)) {
-      return searchOfflineBoxes(params);
+      return dedupeBoxesByDisplayBoxId(await searchOfflineBoxes(params));
     }
 
     throw error;

@@ -1,24 +1,27 @@
 import { useEffect, useState } from 'react';
 
-const PHONE_LAYOUT_QUERY = '(max-width: 720px)';
+function buildPhoneLayoutQuery(maxWidth: number) {
+  return `(max-width: ${maxWidth}px)`;
+}
 
-function getInitialMatch() {
+function getInitialMatch(query: string) {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return false;
   }
 
-  return window.matchMedia(PHONE_LAYOUT_QUERY).matches;
+  return window.matchMedia(query).matches;
 }
 
-export function useIsPhoneLayout() {
-  const [isPhoneLayout, setIsPhoneLayout] = useState(getInitialMatch);
+export function useIsPhoneLayout(maxWidth = 720) {
+  const phoneLayoutQuery = buildPhoneLayoutQuery(maxWidth);
+  const [isPhoneLayout, setIsPhoneLayout] = useState(() => getInitialMatch(phoneLayoutQuery));
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return;
     }
 
-    const mediaQuery = window.matchMedia(PHONE_LAYOUT_QUERY);
+    const mediaQuery = window.matchMedia(phoneLayoutQuery);
     const handleChange = (event: MediaQueryListEvent) => {
       setIsPhoneLayout(event.matches);
     };
@@ -32,7 +35,7 @@ export function useIsPhoneLayout() {
 
     mediaQuery.addListener(handleChange);
     return () => mediaQuery.removeListener(handleChange);
-  }, []);
+  }, [phoneLayoutQuery]);
 
   return isPhoneLayout;
 }

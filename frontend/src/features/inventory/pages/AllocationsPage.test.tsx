@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { PropsWithChildren } from 'react';
 import AllocationsPage from './AllocationsPage';
 import type { JobSortOption } from '../utils/jobSorts';
 
@@ -9,10 +10,16 @@ const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobsListMock = vi.fn();
 const useJobsSearchMock = vi.fn();
+const useJobsCalendarEntriesMock = vi.fn();
 const useCreateJobMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
+  Link: ({ to, children, ...props }: PropsWithChildren<{ to: string }>) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
   useNavigate: () => navigateMock
 }));
 
@@ -35,6 +42,7 @@ vi.mock('../../../api/features/caulkClient', () => ({
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJobsList: (...args: unknown[]) => useJobsListMock(...args),
   useJobsSearch: (...args: unknown[]) => useJobsSearchMock(...args),
+  useJobsCalendarEntries: (...args: unknown[]) => useJobsCalendarEntriesMock(...args),
   useCreateJob: (...args: unknown[]) => useCreateJobMock(...args),
   useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args)
 }));
@@ -55,6 +63,8 @@ function buildJob(overrides: Record<string, unknown> = {}) {
     crewLeader: '',
     status: 'READY',
     lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    isStagedForPickup: false,
     requiredFeet: 12,
     allocatedFeet: 12,
     remainingFeet: 0,
@@ -71,10 +81,29 @@ function buildJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildCalendarQueryState(
+  entries: ReturnType<typeof buildJob>[],
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    data: entries,
+    isLoading: false,
+    isFetching: false,
+    isSuccess: true,
+    fetchStatus: 'idle',
+    error: null,
+    ...overrides
+  };
+}
+
 function renderPage(props: {
   initialWorkflowView?: 'active' | 'completed';
+  initialJobsViewMode?: 'list' | 'calendar';
+  initialCalendarGranularity?: 'week' | 'month';
   initialJobSearchInput?: string;
   initialJobSort?: JobSortOption;
+  initialCalendarAnchorDate?: string;
+  initialCalendarMonth?: string;
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -91,8 +120,12 @@ function renderPage(props: {
     <QueryClientProvider client={queryClient}>
       <AllocationsPage
         initialWorkflowView={props.initialWorkflowView}
+        initialJobsViewMode={props.initialJobsViewMode}
+        initialCalendarGranularity={props.initialCalendarGranularity}
         initialJobSearchInput={props.initialJobSearchInput}
         initialJobSort={props.initialJobSort}
+        initialCalendarAnchorDate={props.initialCalendarAnchorDate ?? '2026-03-26'}
+        initialCalendarMonth={props.initialCalendarMonth}
       />
     </QueryClientProvider>
   );
@@ -135,6 +168,16 @@ describe('AllocationsPage', () => {
         error: null
       })
     );
+    useJobsCalendarEntriesMock.mockImplementation(
+      (_anchorDate?: unknown, options?: { lifecycleStatus?: string; view?: string }) =>
+        buildCalendarQueryState([
+          buildJob({
+            jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '32345' : '12345',
+            lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+            status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+          })
+        ])
+    );
     useCreateJobMock.mockReturnValue(buildMutationState());
     useFilmCatalogMock.mockReturnValue({
       data: [],
@@ -143,19 +186,24 @@ describe('AllocationsPage', () => {
     });
   });
 
-  it('defaults to the active workflow view and keeps the job controls visible', () => {
+  it('defaults to calendar week mode and uses the period query', () => {
     const html = renderPage();
 
-    expect(html).toContain('Active workflow');
-    expect(html).toContain('Showing active jobs only (up to 25).');
-    expect(html).toContain('Recent Jobs');
-    expect(html).toContain('New Job +');
-    expect(html).toContain('aria-pressed="true">Active workflow</button>');
-    expect(useJobsListMock).toHaveBeenCalledWith(25, { lifecycleStatus: 'ACTIVE' });
+    expect(html).toContain('aria-pressed="true">Calendar</button>');
+    expect(html).toContain('option value="week" selected=""');
+    expect(html).toContain('Browse active install dates by week.');
+    expect(html).toContain('Install Calendar');
+    expect(html).toContain('Mar 22 - Mar 28, 2026');
+    expect(useJobsListMock).toHaveBeenCalledWith(25, { enabled: false, lifecycleStatus: 'ACTIVE' });
+    expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-26', {
+      enabled: true,
+      lifecycleStatus: 'ACTIVE',
+      view: 'week'
+    });
   });
 
-  it('renders the jobs sort dropdown with the requested options', () => {
-    const html = renderPage();
+  it('renders list mode with the jobs sort dropdown when requested', () => {
+    const html = renderPage({ initialJobsViewMode: 'list' });
 
     expect(html).toContain('Sort Jobs');
     expect(html).toContain('Install Date');
@@ -165,24 +213,29 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Date Added: Oldest First');
     expect(html).toContain('Status: Allocate First');
     expect(html).toContain('Status: Film Order First');
+    expect(useJobsListMock).toHaveBeenCalledWith(25, { enabled: true, lifecycleStatus: 'ACTIVE' });
   });
 
-  it('renders the completed workflow copy and data when that toggle is selected', () => {
-    const html = renderPage({ initialWorkflowView: 'completed' });
+  it('renders the completed workflow copy and data when list mode is selected', () => {
+    const html = renderPage({ initialWorkflowView: 'completed', initialJobsViewMode: 'list' });
 
     expect(html).toContain('Showing completed job history (up to 25).');
     expect(html).toContain('Completed Job History');
     expect(html).toContain('aria-pressed="true">Completed jobs</button>');
-    expect(useJobsListMock).toHaveBeenCalledWith(25, { lifecycleStatus: 'COMPLETED' });
+    expect(useJobsListMock).toHaveBeenCalledWith(25, {
+      enabled: true,
+      lifecycleStatus: 'COMPLETED'
+    });
     expect(useJobsSearchMock).toHaveBeenCalledWith('', 25, {
       enabled: false,
       lifecycleStatus: 'COMPLETED'
     });
   });
 
-  it('keeps the shared search and sort controls when viewing completed job history', () => {
+  it('keeps the shared search and sort controls when viewing completed list history', () => {
     const html = renderPage({
       initialWorkflowView: 'completed',
+      initialJobsViewMode: 'list',
       initialJobSearchInput: '2345',
       initialJobSort: 'job_number_desc'
     });
@@ -196,19 +249,19 @@ describe('AllocationsPage', () => {
     });
   });
 
-  it('shows the completed-history empty state when no completed jobs are returned', () => {
+  it('shows the completed-history empty state when no completed list jobs are returned', () => {
     useJobsListMock.mockReturnValue({
       data: [],
       isLoading: false,
       error: null
     });
-    const html = renderPage({ initialWorkflowView: 'completed' });
+    const html = renderPage({ initialWorkflowView: 'completed', initialJobsViewMode: 'list' });
 
     expect(html).toContain('Completed Job History');
     expect(html).toContain('No completed job history yet.');
   });
 
-  it('renders only completed-status rows in completed job history', () => {
+  it('renders only completed-status rows in completed list history', () => {
     useJobsListMock.mockImplementation((_limit?: unknown, options?: { lifecycleStatus?: string }) => ({
       data:
         options?.lifecycleStatus === 'COMPLETED'
@@ -229,11 +282,58 @@ describe('AllocationsPage', () => {
       error: null
     }));
 
-    const html = renderPage({ initialWorkflowView: 'completed' });
+    const html = renderPage({ initialWorkflowView: 'completed', initialJobsViewMode: 'list' });
 
     expect(html).toContain('Showing completed job history (up to 25).');
     expect(html).toContain('Showing</span><strong class="hero-metric-value inventory-summary-value">1</strong>');
     expect(html).toContain('19339');
     expect(html).not.toContain('16961');
+  });
+
+  it('renders calendar week mode with highlighted search matches and period-scoped jobs', () => {
+    const html = renderPage({
+      initialJobsViewMode: 'calendar',
+      initialCalendarGranularity: 'week',
+      initialCalendarAnchorDate: '2026-03-24',
+      initialJobSearchInput: '12345'
+    });
+
+    expect(html).toContain('aria-pressed="true">Calendar</button>');
+    expect(html).toContain('option value="week" selected=""');
+    expect(html).toContain('The exact job match is glowing for Mar 22 - Mar 28, 2026.');
+    expect(html).toContain('job-calendar-job-link-highlight');
+    expect(html).toContain('href="/allocations/12345"');
+    expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
+      enabled: true,
+      lifecycleStatus: 'ACTIVE',
+      view: 'week'
+    });
+    expect(useJobsSearchMock).toHaveBeenCalledWith('12345', 3, {
+      enabled: true,
+      lifecycleStatus: 'ACTIVE'
+    });
+  });
+
+  it('supports month calendar mode and completed lifecycle filters too', () => {
+    const html = renderPage({
+      initialWorkflowView: 'completed',
+      initialJobsViewMode: 'calendar',
+      initialCalendarGranularity: 'month',
+      initialCalendarAnchorDate: '2026-03-24',
+      initialJobSearchInput: '22345'
+    });
+
+    expect(html).toContain('option value="month" selected=""');
+    expect(html).toContain('March 2026');
+    expect(html).toContain('Browse completed install dates by month.');
+    expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
+      enabled: true,
+      lifecycleStatus: 'COMPLETED',
+      view: 'month'
+    });
+    expect(useJobsSearchMock).toHaveBeenCalledWith('22345', 3, {
+      enabled: true,
+      lifecycleStatus: 'COMPLETED'
+    });
   });
 });

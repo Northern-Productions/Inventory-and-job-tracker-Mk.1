@@ -6,6 +6,7 @@ export async function invalidateJobAndFilmOrderQueries(queryClient: QueryClient,
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.job(jobNumber) }),
+    queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
   ]);
@@ -15,6 +16,7 @@ export async function invalidateJobLifecycleQueries(queryClient: QueryClient, jo
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.job(jobNumber) }),
+    queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(jobNumber) }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
@@ -28,6 +30,7 @@ export async function invalidateGlobalPlanningQueries(queryClient: QueryClient) 
     queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+    queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
     queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),

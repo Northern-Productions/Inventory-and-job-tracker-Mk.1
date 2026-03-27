@@ -18,9 +18,14 @@ const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/admin/member-permissions',
   '/admin/user-permissions',
   '/owner/admin-permissions',
-  '/owner/notification-preferences'
+  '/owner/notification-preferences',
+  '/jobs/set-staged-pickup'
 ]);
-const LOCAL_FALLBACK_READ_PATHS = new Set(['/owner/reports/asset-total-cost']);
+const LOCAL_FALLBACK_READ_PATHS = new Set([
+  '/owner/reports/asset-total-cost',
+  '/jobs/calendar',
+  '/jobs/get'
+]);
 
 function resolveEdgeApiBaseUrl_() {
   const explicit = String(process.env.EDGE_API_BASE_URL || '').trim();
@@ -113,6 +118,22 @@ function copyHeader(sourceHeaders, targetHeaders, name) {
   if (typeof value === 'string' && value.trim()) {
     targetHeaders[name] = value;
   }
+}
+
+function buildEffectiveHeaders(headers, bodyJson) {
+  const effectiveHeaders = { ...headers };
+  const existingAuthorization =
+    effectiveHeaders.authorization || effectiveHeaders.Authorization || '';
+  const bodyToken =
+    bodyJson && typeof bodyJson.authToken === 'string'
+      ? bodyJson.authToken.trim()
+      : '';
+
+  if (!existingAuthorization && bodyToken) {
+    effectiveHeaders.authorization = `Bearer ${bodyToken}`;
+  }
+
+  return effectiveHeaders;
 }
 
 async function readBody(req) {
@@ -281,8 +302,9 @@ const server = http.createServer(async (req, res) => {
 
   const requestBody = req.method === 'POST' ? await readBody(req) : '';
   const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
+  const effectiveHeaders = buildEffectiveHeaders(req.headers, bodyJson);
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
-  const authKey = hashBody(String(req.headers.authorization || ''));
+  const authKey = hashBody(String(effectiveHeaders.authorization || effectiveHeaders.Authorization || ''));
   const useCache = shouldUseCache(req.method, logicalPath);
   const cacheRouteKey =
     req.method === 'POST' ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
@@ -317,14 +339,14 @@ const server = http.createServer(async (req, res) => {
         logicalPath,
         requestUrl,
         bodyJson,
-        headers: req.headers
+        headers: effectiveHeaders
       })
     : await forwardToEdgeApi({
         method: req.method,
         logicalPath,
         requestUrl,
         requestBody,
-        headers: req.headers
+        headers: effectiveHeaders
       });
   const responseBody = JSON.stringify(response.payload);
   const contentType = 'application/json; charset=utf-8';

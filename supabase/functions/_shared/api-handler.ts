@@ -692,6 +692,94 @@ function normalizeJobLifecycleFilter(value: unknown): "ACTIVE" | "COMPLETED" | "
   throw new HttpError(400, "lifecycleStatus must be ACTIVE or COMPLETED.");
 }
 
+function normalizeCalendarMonth(value: unknown): string {
+  const month = asTrimmedString(value);
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new HttpError(400, "month must use yyyy-mm.");
+  }
+  return month;
+}
+
+function normalizeCalendarView(value: unknown): "week" | "month" {
+  const normalized = asTrimmedString(value).toLowerCase();
+  if (!normalized || normalized === "month") {
+    return "month";
+  }
+  if (normalized === "week") {
+    return "week";
+  }
+  throw new HttpError(400, "view must be week or month.");
+}
+
+function parseCalendarDate(value: unknown): Date | null {
+  const match = asTrimmedString(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const dayOfMonth = Number(match[3]);
+  const parsed = new Date(year, monthIndex, dayOfMonth);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== dayOfMonth
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function formatCalendarDate(date: Date): string {
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeCalendarAnchorDate(anchorDate: unknown, monthFallback?: unknown): string {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (parsedAnchorDate) {
+    return formatCalendarDate(parsedAnchorDate);
+  }
+
+  const month = asTrimmedString(monthFallback);
+  if (month) {
+    return `${normalizeCalendarMonth(month)}-01`;
+  }
+
+  throw new HttpError(400, "anchorDate must use yyyy-mm-dd.");
+}
+
+function shiftCalendarDate(anchorDate: string, deltaDays: number): string {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (!parsedAnchorDate) {
+    throw new HttpError(400, "anchorDate must use yyyy-mm-dd.");
+  }
+
+  return formatCalendarDate(
+    new Date(
+      parsedAnchorDate.getFullYear(),
+      parsedAnchorDate.getMonth(),
+      parsedAnchorDate.getDate() + deltaDays,
+    ),
+  );
+}
+
+function getCalendarWeekStart(anchorDate: string): string {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (!parsedAnchorDate) {
+    throw new HttpError(400, "anchorDate must use yyyy-mm-dd.");
+  }
+
+  return formatCalendarDate(
+    new Date(
+      parsedAnchorDate.getFullYear(),
+      parsedAnchorDate.getMonth(),
+      parsedAnchorDate.getDate() - parsedAnchorDate.getDay(),
+    ),
+  );
+}
+
 function compareBoxesByOldestStock(left: any, right: any): number {
   const leftDate = left.receivedDate || left.orderDate || "9999-12-31";
   const rightDate = right.receivedDate || right.orderDate || "9999-12-31";
@@ -1597,6 +1685,7 @@ function buildAllocationJobSummary(
   requirements: any[] = [],
   caulkRequirements: any[] = [],
   lifecycleStatus = "ACTIVE",
+  isLaborOnly = false,
   fallbackJobDate = "",
   fallbackCrewLeader = "",
 ) {
@@ -1647,6 +1736,8 @@ function buildAllocationJobSummary(
     status = "CANCELLED";
   } else if (normalizedLifecycleStatus === "COMPLETED") {
     status = "COMPLETED";
+  } else if (isLaborOnly && !requirements.length && !caulkRequirements.length) {
+    status = "READY";
   } else if (hasFilmOrder) {
     status = "FILM_ORDER";
   } else if (hasFilmOnTheWay) {
@@ -1718,6 +1809,8 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
     dueDate: metadata.jobDate,
     crewLeader: metadata.crewLeader,
     lifecycleStatus: "ACTIVE",
+    isLaborOnly: false,
+    isStagedForPickup: false,
     notes: "",
     createdAt,
     createdBy: "",
@@ -1764,6 +1857,7 @@ function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders:
 
 function computeJobStatusFromRequirements(
   lifecycleStatus: string,
+  isLaborOnly: boolean,
   requirements: any[],
   caulkRequirements: any[],
   allocations: any[],
@@ -1777,6 +1871,10 @@ function computeJobStatusFromRequirements(
     return "COMPLETED";
   }
   if (!requirements.length && !caulkRequirements.length) {
+    if (isLaborOnly) {
+      return "READY";
+    }
+
     if (!allocations.length && !filmOrders.length) {
       return "ALLOCATE";
     }
@@ -1827,8 +1925,11 @@ function buildJobListEntry(
     sections: jobHeader.sections,
     dueDate,
     crewLeader,
+    isLaborOnly: Boolean(jobHeader.isLaborOnly),
+    isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
     status: computeJobStatusFromRequirements(
       effectiveLifecycleStatus,
+      Boolean(jobHeader.isLaborOnly),
       requirements,
       caulkRequirements,
       allocations,
@@ -2282,6 +2383,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         requirements,
         publicCaulkRequirements,
         header?.lifecycleStatus || "ACTIVE",
+        Boolean(header?.isLaborOnly),
         header?.dueDate || "",
         header?.crewLeader || "",
       );
@@ -2317,6 +2419,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
       publicRequirements,
       publicCaulkRequirements,
       header?.lifecycleStatus || "ACTIVE",
+      Boolean(header?.isLaborOnly),
       header?.dueDate || "",
       header?.crewLeader || "",
     ),
@@ -2494,6 +2597,31 @@ async function buildJobsSearchResults(
   });
 
   return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
+}
+
+async function buildJobsCalendar(
+  client: any,
+  orgId: string,
+  view: unknown,
+  anchorDate: unknown,
+  month: unknown,
+  lifecycleStatus?: unknown
+) {
+  const normalizedView = normalizeCalendarView(view);
+  const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  if (normalizedView === "week") {
+    const weekStart = getCalendarWeekStart(normalizedAnchorDate);
+    const weekEnd = shiftCalendarDate(weekStart, 6);
+    return entries.filter((entry) => {
+      const dueDate = asTrimmedString((entry as Record<string, unknown>).dueDate);
+      return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= weekStart && dueDate <= weekEnd;
+    });
+  }
+
+  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
+  return entries.filter((entry) => asTrimmedString((entry as Record<string, unknown>).dueDate).slice(0, 7) === normalizedMonth);
 }
 
 async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
@@ -3419,6 +3547,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
     buildActiveAllocationsByBoxIndex,
     listActiveAllocations,
     buildJobsList,
+    buildJobsCalendar,
     buildJobsSearchResults,
     buildJobDetail,
     buildFilmOrdersList,

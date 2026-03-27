@@ -220,6 +220,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       dueDate: deps.formatDateValue(row.due_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       lifecycleStatus: deps.asTrimmedString(row.lifecycle_status) || "ACTIVE",
+      isLaborOnly: row.is_labor_only === true,
+      isStagedForPickup: row.is_staged_for_pickup === true,
       notes: deps.asTrimmedString(row.notes),
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
@@ -466,6 +468,15 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return rows.map(mapDbJobRow);
   }
 
+  async function listJobsCalendar(client: any, orgId: string, month: string, lifecycleStatus?: unknown) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_calendar", {
+      p_org_id: orgId,
+      p_month: month,
+      p_lifecycle_status: lifecycleStatus ?? null,
+    });
+    return rows.map(mapDbJobRow);
+  }
+
   async function findJobByNumber(client: any, orgId: string, jobNumber: string) {
     const row = await deps.rpcOrThrow<any | null>(client, "api_acl_find_job_by_number", {
       p_org_id: orgId,
@@ -561,6 +572,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     findFilmOrderById,
     listFilmOrderLinksByFilmOrderId,
     listJobs,
+    listJobsCalendar,
     findJobByNumber,
     listJobRequirements,
     listJobRequirementsByJob,

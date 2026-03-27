@@ -11,9 +11,12 @@ import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersC
 import { getBox, searchBoxes } from '../../../api/features/inventoryClient';
 import {
   getJob,
+  getJobsCalendarEntries,
+  getJobsCalendarMonth,
   getJobs,
   searchJobsByNumber,
-  type JobLifecycleFilter
+  type JobLifecycleFilter,
+  type JobsCalendarView
 } from '../../../api/features/jobsClient';
 import {
   getOwnerAssetTotalCostReport,
@@ -101,6 +104,50 @@ export function useJobsSearch(
     }),
     queryFn: () => searchJobsByNumber(query, limit, { lifecycleStatus: options.lifecycleStatus }),
     enabled: (options.enabled ?? true) && Boolean(query.trim()),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+}
+
+export function useJobsCalendarMonth(
+  month: string,
+  options: { enabled?: boolean; lifecycleStatus?: JobLifecycleFilter } = {}
+) {
+  return useQuery({
+    queryKey: inventoryKeys.jobsCalendarMonth({
+      month,
+      lifecycleStatus: options.lifecycleStatus
+    }),
+    queryFn: () => getJobsCalendarMonth(month, { lifecycleStatus: options.lifecycleStatus }),
+    enabled: (options.enabled ?? true) && Boolean(month.trim()),
+    staleTime: 2 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+}
+
+export function useJobsCalendarEntries(
+  anchorDate: string,
+  options: {
+    enabled?: boolean;
+    lifecycleStatus?: JobLifecycleFilter;
+    view: JobsCalendarView;
+  }
+) {
+  return useQuery({
+    queryKey: inventoryKeys.jobsCalendarPeriod({
+      view: options.view,
+      anchorDate,
+      lifecycleStatus: options.lifecycleStatus
+    }),
+    queryFn: () =>
+      getJobsCalendarEntries({
+        view: options.view,
+        anchorDate,
+        lifecycleStatus: options.lifecycleStatus
+      }),
+    enabled: (options.enabled ?? true) && Boolean(anchorDate.trim()),
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false

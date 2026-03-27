@@ -28,8 +28,12 @@ import {
   createJob,
   deleteJob,
   getJob,
+  getJobsCalendarEntries,
+  getJobsCalendarMonth,
   getJobs,
-  searchJobsByNumber
+  searchJobsByNumber,
+  setJobStagedForPickup,
+  updateJob
 } from './client';
 import { APIError, request } from './http';
 
@@ -44,6 +48,8 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
     crewLeader: '',
     status: 'ALLOCATE',
     lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    isStagedForPickup: false,
     requiredFeet: 0,
     allocatedFeet: 0,
     remainingFeet: 0,
@@ -103,6 +109,37 @@ describe('jobs API client canonical routes', () => {
     expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
       query: { query: '00123', limit: 25 }
+    });
+  });
+
+  it('loads week calendar jobs through GET /jobs/calendar', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
+      warnings: []
+    });
+
+    const entries = await getJobsCalendarEntries({
+      view: 'week',
+      anchorDate: '2026-04-15'
+    });
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/calendar', {
+      query: { view: 'week', anchorDate: '2026-04-15' }
+    });
+  });
+
+  it('keeps the month helper aligned with the new anchorDate calendar contract', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
+      warnings: []
+    });
+
+    const entries = await getJobsCalendarMonth('2026-04');
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/calendar', {
+      query: { view: 'month', anchorDate: '2026-04-01' }
     });
   });
 
@@ -189,6 +226,72 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('passes labor-only flags through create and update job requests', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', isLaborOnly: true, isStagedForPickup: true }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', isLaborOnly: false, isStagedForPickup: false }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const created = await createJob({
+      jobNumber: '000123',
+      warehouse: 'IL1',
+      requirements: [],
+      caulkRequirements: [],
+      isLaborOnly: true
+    });
+    const updated = await updateJob({
+      jobNumber: '000123',
+      requirements: [],
+      caulkRequirements: [],
+      isLaborOnly: false
+    });
+
+    expect(created.result.summary.isLaborOnly).toBe(true);
+    expect(created.result.summary.isStagedForPickup).toBe(true);
+    expect(updated.result.summary.isLaborOnly).toBe(false);
+    expect(requestMock).toHaveBeenNthCalledWith(1, 'POST', '/jobs/create', {
+      body: {
+        jobNumber: '000123',
+        warehouse: 'IL1',
+        requirements: [],
+        caulkRequirements: [],
+        isLaborOnly: true
+      }
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(2, 'POST', '/jobs/update', {
+      body: {
+        jobNumber: '000123',
+        requirements: [],
+        caulkRequirements: [],
+        isLaborOnly: false
+      }
+    });
+  });
+
   it('deletes a job through POST /jobs/delete', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
@@ -205,6 +308,36 @@ describe('jobs API client canonical routes', () => {
     expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/delete', {
       body: {
         jobNumber: '000123'
+      }
+    });
+  });
+
+  it('sets the staged-for-pickup flag through POST /jobs/set-staged-pickup', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', isStagedForPickup: true }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const result = await setJobStagedForPickup({
+      jobNumber: '000123',
+      isStagedForPickup: true
+    });
+
+    expect(result.result.summary.isStagedForPickup).toBe(true);
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/set-staged-pickup', {
+      body: {
+        jobNumber: '000123',
+        isStagedForPickup: true
       }
     });
   });

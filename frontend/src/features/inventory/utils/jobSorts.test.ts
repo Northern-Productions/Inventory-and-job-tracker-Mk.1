@@ -3,6 +3,8 @@ import type { JobListEntry } from '../../../domain';
 import { sortJobs } from './jobSorts';
 
 function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
+  const { jobNumber: overrideJobNumber, ...rest } = overrides;
+
   return {
     jobNumber: '1000',
     warehouse: 'IL1',
@@ -11,6 +13,8 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     crewLeader: '',
     status: 'ALLOCATE',
     lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    isStagedForPickup: false,
     requiredFeet: 0,
     allocatedFeet: 0,
     remainingFeet: 0,
@@ -23,7 +27,8 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     createdAt: '2026-03-20T00:00:00Z',
     updatedAt: '2026-03-20T00:00:00Z',
     notes: '',
-    ...overrides
+    ...rest,
+    ...(overrideJobNumber ? { jobNumber: overrideJobNumber } : {})
   };
 }
 

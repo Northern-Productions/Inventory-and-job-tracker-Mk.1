@@ -46,6 +46,12 @@ export type ReadHandlerDeps = {
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
   buildJobsList: (client: any, orgId: string, limit: number, lifecycleStatus?: unknown) => Promise<unknown[]>;
+  buildJobsCalendar: (
+    client: any,
+    orgId: string,
+    month: unknown,
+    lifecycleStatus?: unknown
+  ) => Promise<unknown[]>;
   buildJobsSearchResults: (
     client: any,
     orgId: string,
@@ -271,6 +277,18 @@ const readHandlers: Record<string, ReadHandler> = {
     const limitValue = Number(params.limit);
     const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
     return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus) });
+  },
+  "/jobs/calendar": async ({ client, orgId, params }, deps) => {
+    return ok({
+      entries: await deps.buildJobsCalendar(
+        client,
+        orgId,
+        params.view,
+        params.anchorDate,
+        params.month,
+        params.lifecycleStatus
+      )
+    });
   },
   "/jobs/search": async ({ client, orgId, params }, deps) => {
     const limitValue = Number(params.limit);

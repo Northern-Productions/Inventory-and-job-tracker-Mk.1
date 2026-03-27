@@ -1,0 +1,495 @@
+import type { JobListEntry } from '../../../domain';
+import { todayDateString } from '../../../lib/date';
+import { getJobListDisplayStatus } from './jobSorts';
+
+export type CalendarJob = JobListEntry;
+export type JobCalendarView = 'week' | 'month';
+
+export interface JobCalendarDay {
+  dateKey: string;
+  date: string;
+  dayOfMonth: number;
+  inCurrentMonth: boolean;
+  isToday: boolean;
+  jobs: CalendarJob[];
+}
+
+export interface JobCalendarPeriod {
+  view: JobCalendarView;
+  anchorDate: string;
+  periodLabel: string;
+  monthKey: string;
+  monthLabel: string;
+  days: JobCalendarDay[];
+  weeks: JobCalendarDay[][];
+  unscheduledJobs: CalendarJob[];
+  rangeStart: string;
+  rangeEnd: string;
+}
+
+export type JobCalendarMonth = JobCalendarPeriod;
+
+const MONTH_KEY_PATTERN = /^(\d{4})-(\d{2})$/;
+const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function parseMonthKey(monthKey: string) {
+  const match = String(monthKey || '').trim().match(MONTH_KEY_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  if (!Number.isInteger(year) || !Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    return null;
+  }
+
+  return { year, monthIndex };
+}
+
+function parseDateKey(dateKey: string) {
+  const match = String(dateKey || '').trim().match(DATE_KEY_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(year, monthIndex, day);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day) ||
+    monthIndex < 0 ||
+    monthIndex > 11 ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== monthIndex ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, monthIndex, day, date };
+}
+
+function formatMonthKey(year: number, monthIndex: number) {
+  return `${String(year).padStart(4, '0')}-${String(monthIndex + 1).padStart(2, '0')}`;
+}
+
+function formatDateKey(date: Date) {
+  return `${formatMonthKey(date.getFullYear(), date.getMonth())}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeAnchorDate(anchorDate: string) {
+  const parsed = parseDateKey(anchorDate);
+  if (!parsed) {
+    return todayDateString();
+  }
+
+  return formatDateKey(parsed.date);
+}
+
+function createDateFromKey(dateKey: string) {
+  const parsed = parseDateKey(dateKey);
+  if (!parsed) {
+    return parseDateKey(todayDateString())?.date || new Date();
+  }
+
+  return parsed.date;
+}
+
+function addDays(date: Date, delta: number) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + delta);
+}
+
+function getLastDayOfMonth(year: number, monthIndex: number) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function shiftDateByMonths(date: Date, delta: number) {
+  const targetMonthIndex = date.getMonth() + delta;
+  const targetYear = date.getFullYear() + Math.floor(targetMonthIndex / 12);
+  const normalizedMonthIndex = ((targetMonthIndex % 12) + 12) % 12;
+  const day = Math.min(date.getDate(), getLastDayOfMonth(targetYear, normalizedMonthIndex));
+  return new Date(targetYear, normalizedMonthIndex, day);
+}
+
+function extractDigits(value: string) {
+  return String(value || '').replace(/[^0-9]/g, '');
+}
+
+function canonicalizeDigits(value: string) {
+  const withoutLeadingZeros = value.replace(/^0+/, '');
+  return withoutLeadingZeros || '0';
+}
+
+function compareJobNumbers(left: CalendarJob, right: CalendarJob) {
+  return left.jobNumber.localeCompare(right.jobNumber, undefined, {
+    numeric: true,
+    sensitivity: 'base'
+  });
+}
+
+function compareBigInt(left: bigint, right: bigint) {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
+function absoluteBigInt(value: bigint) {
+  return value < 0n ? -value : value;
+}
+
+function chunkDays(days: JobCalendarDay[]) {
+  const weeks: JobCalendarDay[][] = [];
+  for (let index = 0; index < days.length; index += 7) {
+    weeks.push(days.slice(index, index + 7));
+  }
+  return weeks;
+}
+
+function formatWeekRangeSegment(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric'
+  }).format(date);
+}
+
+function formatWeekRangeFull(date: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(date);
+}
+
+function buildJobsByDate(jobs: CalendarJob[], rangeStart: string, rangeEnd: string) {
+  const jobsByDate = new Map<string, CalendarJob[]>();
+  const unscheduledJobs: CalendarJob[] = [];
+
+  for (let index = 0; index < jobs.length; index += 1) {
+    const job = jobs[index];
+    const dueDate = String(job.dueDate || '').trim().slice(0, 10);
+    if (!dueDate) {
+      unscheduledJobs.push(job);
+      continue;
+    }
+
+    if (dueDate < rangeStart || dueDate > rangeEnd) {
+      continue;
+    }
+
+    if (!jobsByDate.has(dueDate)) {
+      jobsByDate.set(dueDate, []);
+    }
+    jobsByDate.get(dueDate)?.push(job);
+  }
+
+  return {
+    jobsByDate,
+    unscheduledJobs: sortCalendarJobsWithinDay(unscheduledJobs)
+  };
+}
+
+export function getCurrentMonthKey(today = todayDateString()) {
+  return getMonthKeyFromDate(today) || formatMonthKey(new Date().getFullYear(), new Date().getMonth());
+}
+
+export const getCurrentJobCalendarMonth = getCurrentMonthKey;
+
+export function getCurrentCalendarAnchorDate(today = todayDateString()) {
+  return normalizeAnchorDate(today);
+}
+
+export function getMonthKeyFromDate(dateValue: string) {
+  const normalized = String(dateValue || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(normalized)) {
+    return '';
+  }
+
+  return normalized.slice(0, 7);
+}
+
+export function shiftMonthKey(monthKey: string, delta: number) {
+  const parsed = parseMonthKey(monthKey) || parseMonthKey(getCurrentMonthKey());
+  if (!parsed) {
+    return getCurrentMonthKey();
+  }
+
+  return getMonthKeyFromDate(
+    shiftCalendarAnchorDate(`${formatMonthKey(parsed.year, parsed.monthIndex)}-01`, 'month', delta)
+  );
+}
+
+export const shiftJobCalendarMonth = shiftMonthKey;
+
+export function formatMonthKeyLabel(monthKey: string) {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) {
+    return monthKey;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date(parsed.year, parsed.monthIndex, 1));
+}
+
+export const formatJobCalendarMonthLabel = formatMonthKeyLabel;
+
+export function getWeekStartDate(anchorDate: string) {
+  const date = createDateFromKey(normalizeAnchorDate(anchorDate));
+  return formatDateKey(addDays(date, -date.getDay()));
+}
+
+export function getCalendarPeriodRange(view: JobCalendarView, anchorDate: string) {
+  const normalizedAnchorDate = normalizeAnchorDate(anchorDate);
+  if (view === 'week') {
+    const startDate = getWeekStartDate(normalizedAnchorDate);
+    return {
+      startDate,
+      endDate: formatDateKey(addDays(createDateFromKey(startDate), 6))
+    };
+  }
+
+  const monthKey = getMonthKeyFromDate(normalizedAnchorDate) || getCurrentMonthKey();
+  const parsed = parseMonthKey(monthKey) || parseMonthKey(getCurrentMonthKey());
+  if (!parsed) {
+    const today = getCurrentCalendarAnchorDate();
+    return {
+      startDate: `${getMonthKeyFromDate(today)}-01`,
+      endDate: today
+    };
+  }
+
+  return {
+    startDate: `${formatMonthKey(parsed.year, parsed.monthIndex)}-01`,
+    endDate: formatDateKey(new Date(parsed.year, parsed.monthIndex + 1, 0))
+  };
+}
+
+export function isDateInCalendarPeriod(view: JobCalendarView, anchorDate: string, dateValue: string) {
+  const candidateDate = String(dateValue || '').trim().slice(0, 10);
+  if (!parseDateKey(candidateDate)) {
+    return false;
+  }
+
+  const range = getCalendarPeriodRange(view, anchorDate);
+  return candidateDate >= range.startDate && candidateDate <= range.endDate;
+}
+
+export function shiftCalendarAnchorDate(anchorDate: string, view: JobCalendarView, delta: number) {
+  const normalizedAnchorDate = normalizeAnchorDate(anchorDate);
+  const date = createDateFromKey(normalizedAnchorDate);
+  return formatDateKey(view === 'week' ? addDays(date, delta * 7) : shiftDateByMonths(date, delta));
+}
+
+export function formatWeekRangeLabel(anchorDate: string) {
+  const startDate = createDateFromKey(getWeekStartDate(anchorDate));
+  const endDate = addDays(startDate, 6);
+  if (startDate.getFullYear() === endDate.getFullYear()) {
+    return `${formatWeekRangeSegment(startDate)} - ${formatWeekRangeSegment(endDate)}, ${startDate.getFullYear()}`;
+  }
+
+  return `${formatWeekRangeFull(startDate)} - ${formatWeekRangeFull(endDate)}`;
+}
+
+export function formatCalendarPeriodLabel(view: JobCalendarView, anchorDate: string) {
+  return view === 'week'
+    ? formatWeekRangeLabel(anchorDate)
+    : formatMonthKeyLabel(getMonthKeyFromDate(normalizeAnchorDate(anchorDate)) || getCurrentMonthKey());
+}
+
+export function getCalendarJobStatusClass(
+  entry: Pick<CalendarJob, 'status' | 'lifecycleStatus' | 'filmOrderCount' | 'isStagedForPickup'>
+) {
+  if (String(entry.lifecycleStatus || '').toUpperCase() === 'COMPLETED' || entry.status === 'COMPLETED') {
+    return 'job-calendar-job-link-status-completed';
+  }
+
+  if (entry.isStagedForPickup) {
+    return 'job-calendar-job-link-status-ready';
+  }
+
+  switch (getJobListDisplayStatus(entry.status, entry.filmOrderCount)) {
+    case 'READY':
+      return 'job-calendar-job-link-status-ready';
+    case 'CONFLICT':
+      return 'job-calendar-job-link-status-conflict';
+    case 'FILM_ORDER':
+      return 'job-calendar-job-link-status-film-order';
+    case 'CANCELLED':
+      return 'job-calendar-job-link-status-cancelled';
+    case 'ALLOCATE':
+    default:
+      return 'job-calendar-job-link-status-allocate';
+  }
+}
+
+export const getJobCalendarStatusClassName = getCalendarJobStatusClass;
+
+export function selectCalendarHighlightJobNumbers(matches: CalendarJob[], query: string) {
+  const queryDigits = canonicalizeDigits(extractDigits(query));
+  if (!queryDigits || !matches.length) {
+    return [];
+  }
+
+  const exactMatches = matches.filter(
+    (entry) => canonicalizeDigits(extractDigits(entry.jobNumber)) === queryDigits
+  );
+
+  if (exactMatches.length) {
+    return exactMatches.map((entry) => entry.jobNumber);
+  }
+
+  const queryValue = BigInt(queryDigits);
+  return matches
+    .slice()
+    .sort((left, right) => {
+      const leftDigits = canonicalizeDigits(extractDigits(left.jobNumber));
+      const rightDigits = canonicalizeDigits(extractDigits(right.jobNumber));
+      const leftPrefix = leftDigits.startsWith(queryDigits);
+      const rightPrefix = rightDigits.startsWith(queryDigits);
+      if (leftPrefix !== rightPrefix) {
+        return leftPrefix ? -1 : 1;
+      }
+
+      const distanceOrder = compareBigInt(
+        absoluteBigInt(BigInt(leftDigits) - queryValue),
+        absoluteBigInt(BigInt(rightDigits) - queryValue)
+      );
+      if (distanceOrder !== 0) {
+        return distanceOrder;
+      }
+
+      return compareJobNumbers(left, right);
+    })
+    .slice(0, 3)
+    .map((entry) => entry.jobNumber);
+}
+
+export const deriveJobCalendarHighlightJobNumbers = selectCalendarHighlightJobNumbers;
+
+export function findBestCalendarSearchMatch(matches: CalendarJob[], query: string) {
+  const highlightedJobNumbers = selectCalendarHighlightJobNumbers(matches, query);
+  if (!highlightedJobNumbers.length) {
+    return null;
+  }
+
+  const highlighted = matches.find((entry) => entry.jobNumber === highlightedJobNumbers[0]);
+  return highlighted || matches[0] || null;
+}
+
+export function sortCalendarJobsWithinDay(jobs: CalendarJob[], highlightJobNumbers: string[] = []) {
+  const highlighted = new Set(highlightJobNumbers);
+  return jobs.slice().sort((left, right) => {
+    const leftHighlighted = highlighted.has(left.jobNumber);
+    const rightHighlighted = highlighted.has(right.jobNumber);
+    if (leftHighlighted !== rightHighlighted) {
+      return leftHighlighted ? -1 : 1;
+    }
+
+    if (left.isStagedForPickup !== right.isStagedForPickup) {
+      return left.isStagedForPickup ? -1 : 1;
+    }
+
+    return compareJobNumbers(left, right);
+  });
+}
+
+export function buildCalendarPeriod(
+  view: JobCalendarView,
+  anchorDate: string,
+  jobs: CalendarJob[]
+): JobCalendarPeriod {
+  const normalizedView: JobCalendarView = view === 'month' ? 'month' : 'week';
+  const normalizedAnchorDate = normalizeAnchorDate(anchorDate);
+  const monthKey = getMonthKeyFromDate(normalizedAnchorDate) || getCurrentMonthKey();
+  const monthLabel = formatMonthKeyLabel(monthKey);
+  const range = getCalendarPeriodRange(normalizedView, normalizedAnchorDate);
+  const { jobsByDate, unscheduledJobs } = buildJobsByDate(jobs, range.startDate, range.endDate);
+  const today = todayDateString();
+
+  const days: JobCalendarDay[] = [];
+  if (normalizedView === 'week') {
+    const weekStartDate = createDateFromKey(range.startDate);
+    for (let index = 0; index < 7; index += 1) {
+      const cursor = addDays(weekStartDate, index);
+      const dateKey = formatDateKey(cursor);
+      days.push({
+        dateKey,
+        date: dateKey,
+        dayOfMonth: cursor.getDate(),
+        inCurrentMonth: true,
+        isToday: dateKey === today,
+        jobs: sortCalendarJobsWithinDay(jobsByDate.get(dateKey) || [])
+      });
+    }
+  } else {
+    const parsedMonth = parseMonthKey(monthKey) || parseMonthKey(getCurrentMonthKey());
+    if (parsedMonth) {
+      const monthStart = new Date(parsedMonth.year, parsedMonth.monthIndex, 1);
+      const monthEnd = new Date(parsedMonth.year, parsedMonth.monthIndex + 1, 0);
+      const firstGridDate = new Date(
+        parsedMonth.year,
+        parsedMonth.monthIndex,
+        1 - monthStart.getDay()
+      );
+      const lastGridDate = new Date(
+        parsedMonth.year,
+        parsedMonth.monthIndex,
+        monthEnd.getDate() + (6 - monthEnd.getDay())
+      );
+      const minimumGridDayCount = 42;
+
+      for (
+        let cursor = new Date(firstGridDate.getFullYear(), firstGridDate.getMonth(), firstGridDate.getDate());
+        cursor <= lastGridDate || days.length < minimumGridDayCount;
+        cursor = addDays(cursor, 1)
+      ) {
+        const dateKey = formatDateKey(cursor);
+        days.push({
+          dateKey,
+          date: dateKey,
+          dayOfMonth: cursor.getDate(),
+          inCurrentMonth: cursor.getMonth() === parsedMonth.monthIndex,
+          isToday: dateKey === today,
+          jobs: sortCalendarJobsWithinDay(jobsByDate.get(dateKey) || [])
+        });
+      }
+    }
+  }
+
+  return {
+    view: normalizedView,
+    anchorDate: normalizedAnchorDate,
+    periodLabel: formatCalendarPeriodLabel(normalizedView, normalizedAnchorDate),
+    monthKey,
+    monthLabel,
+    days,
+    weeks: chunkDays(days),
+    unscheduledJobs,
+    rangeStart: range.startDate,
+    rangeEnd: range.endDate
+  };
+}
+
+export function buildWeekCalendar(anchorDate: string, jobs: CalendarJob[]) {
+  return buildCalendarPeriod('week', anchorDate, jobs);
+}
+
+export function buildMonthCalendar(monthKey: string, jobs: CalendarJob[]): JobCalendarMonth {
+  const parsed = parseMonthKey(monthKey) || parseMonthKey(getCurrentMonthKey());
+  const normalizedMonthKey = parsed ? formatMonthKey(parsed.year, parsed.monthIndex) : getCurrentMonthKey();
+  return buildCalendarPeriod('month', `${normalizedMonthKey}-01`, jobs);
+}
+
+export function buildJobCalendarDays(monthKey: string, jobs: CalendarJob[]) {
+  return buildMonthCalendar(monthKey, jobs).days;
+}

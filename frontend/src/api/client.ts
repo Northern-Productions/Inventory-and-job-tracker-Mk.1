@@ -65,9 +65,12 @@ export {
   createJob,
   deleteJob,
   getJob,
+  getJobsCalendarEntries,
+  getJobsCalendarMonth,
   getJobs,
   reopenJob,
   searchJobsByNumber,
+  setJobStagedForPickup,
   updateJob
 } from './features/jobsClient';
 export {

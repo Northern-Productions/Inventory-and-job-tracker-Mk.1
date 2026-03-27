@@ -154,16 +154,21 @@ function makePendingId(prefix: string) {
   return `pending-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function computeOptimisticJobStatus(
+export function computeOptimisticJobStatus(
   requiredFeet: number,
   requiredTubes: number,
-  filmOrderCount = 0
+  filmOrderCount = 0,
+  isLaborOnly = false
 ): JobListEntry['status'] {
   if (filmOrderCount > 0) {
     return 'FILM_ORDER';
   }
 
-  return requiredFeet > 0 || requiredTubes > 0 ? 'ALLOCATE' : 'READY';
+  if (isLaborOnly && requiredFeet <= 0 && requiredTubes <= 0) {
+    return 'READY';
+  }
+
+  return 'ALLOCATE';
 }
 
 function buildOptimisticJobRequirements(
@@ -240,8 +245,10 @@ export function createOptimisticJobDetailFromCreatePayload(
           : String(payload.sections),
       dueDate: payload.dueDate || '',
       crewLeader: payload.crewLeader || '',
-      status: computeOptimisticJobStatus(requiredFeet, requiredTubes),
+      status: computeOptimisticJobStatus(requiredFeet, requiredTubes, 0, Boolean(payload.isLaborOnly)),
       lifecycleStatus: payload.lifecycleStatus || 'ACTIVE',
+      isLaborOnly: Boolean(payload.isLaborOnly),
+      isStagedForPickup: Boolean(payload.isLaborOnly),
       requiredFeet,
       allocatedFeet: 0,
       remainingFeet: requiredFeet,
@@ -342,6 +349,42 @@ export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntr
         ? [entry, ...current]
         : current.map((job) => (job.jobNumber === entry.jobNumber ? entry : job));
     queryClient.setQueryData<JobListEntry[]>(queryKey, next);
+  }
+}
+
+export function upsertJobsCalendarCaches(queryClient: QueryClient, entry: JobListEntry) {
+  const calendarQueries = queryClient.getQueriesData<JobListEntry[]>({
+    queryKey: inventoryKeys.jobsCalendarRoot
+  });
+
+  for (let index = 0; index < calendarQueries.length; index += 1) {
+    const [queryKey, current] = calendarQueries[index];
+    if (!current) {
+      continue;
+    }
+
+    const queryParams =
+      Array.isArray(queryKey) && queryKey.length > 0
+        ? (queryKey[queryKey.length - 1] as { lifecycleStatus?: string } | undefined)
+        : undefined;
+    const lifecycleFilter = String(queryParams?.lifecycleStatus || '').toUpperCase();
+    if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
+      queryClient.setQueryData<JobListEntry[]>(
+        queryKey,
+        current.filter((job) => job.jobNumber !== entry.jobNumber)
+      );
+      continue;
+    }
+
+    const hasExistingEntry = current.some((job) => job.jobNumber === entry.jobNumber);
+    if (!hasExistingEntry) {
+      continue;
+    }
+
+    queryClient.setQueryData<JobListEntry[]>(
+      queryKey,
+      current.map((job) => (job.jobNumber === entry.jobNumber ? entry : job))
+    );
   }
 }
 

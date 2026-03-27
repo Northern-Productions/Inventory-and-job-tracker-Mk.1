@@ -7,16 +7,26 @@ import type {
   JobDetailResponse,
   JobListEntry,
   JobListResponse,
+  SetJobStagedForPickupPayload,
   UpdateJobPayload
 } from '../../domain';
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
 export type JobLifecycleFilter = 'ACTIVE' | 'COMPLETED';
+export type JobsCalendarView = 'week' | 'month';
+
+export interface JobsCalendarEntriesOptions {
+  view: JobsCalendarView;
+  anchorDate: string;
+  lifecycleStatus?: JobLifecycleFilter;
+}
 
 function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
   return {
     ...entry,
+    isLaborOnly: Boolean(entry.isLaborOnly),
+    isStagedForPickup: Boolean(entry.isStagedForPickup),
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0))
@@ -51,6 +61,36 @@ export async function getJobs(
   const params = buildJobsQuery(limit, options.lifecycleStatus);
   const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
   return (data.entries || []).map(normalizeJobListEntry);
+}
+
+export async function getJobsCalendarEntries(
+  options: JobsCalendarEntriesOptions
+): Promise<JobListEntry[]> {
+  assertFeatureAccess('jobs', 'read');
+  const params: {
+    view: JobsCalendarView;
+    anchorDate: string;
+    lifecycleStatus?: JobLifecycleFilter;
+  } = {
+    view: options.view,
+    anchorDate: options.anchorDate
+  };
+  if (options.lifecycleStatus) {
+    params.lifecycleStatus = options.lifecycleStatus;
+  }
+  const data = await requestReadWithFallback<JobListResponse>('/jobs/calendar', params, params);
+  return (data.entries || []).map(normalizeJobListEntry);
+}
+
+export async function getJobsCalendarMonth(
+  month: string,
+  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+): Promise<JobListEntry[]> {
+  return getJobsCalendarEntries({
+    view: 'month',
+    anchorDate: `${String(month || '').trim()}-01`,
+    lifecycleStatus: options.lifecycleStatus
+  });
 }
 
 export async function searchJobsByNumber(
@@ -134,6 +174,17 @@ export async function deleteJob(
   const response = await request<DeleteJobResult>('POST', '/jobs/delete', { body: payload });
   return {
     result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function setJobStagedForPickup(
+  payload: SetJobStagedForPickupPayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
+  const response = await request<JobDetail>('POST', '/jobs/set-staged-pickup', { body: payload });
+  return {
+    result: normalizeJobDetail(response.data),
     warnings: response.warnings
   };
 }

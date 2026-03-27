@@ -20,6 +20,7 @@ const useReopenJobMock = vi.fn();
 const useDeleteFilmOrderMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
+const useSetJobStagedForPickupMock = vi.fn();
 const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
 const useCreateFilmOrderMock = vi.fn();
@@ -70,6 +71,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
   useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
+  useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
   useBox: () => useBoxMock(),
   useAllocateBox: () => useAllocateBoxMock(),
   useCreateFilmOrder: () => useCreateFilmOrderMock(),
@@ -85,6 +87,8 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
     crewLeader: 'Crew',
     status: 'ALLOCATE',
     lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    isStagedForPickup: false,
     requiredFeet: 0,
     allocatedFeet: 0,
     remainingFeet: 0,
@@ -165,7 +169,8 @@ describe('AllocationJobPage', () => {
       clientIdConfigured: true,
       isAuthenticated: true,
       isOwner: true,
-      isAdmin: false
+      isAdmin: false,
+      hasFeatureAccess: () => true
     });
     useJobMock.mockReturnValue({
       isLoading: false,
@@ -185,6 +190,7 @@ describe('AllocationJobPage', () => {
     useDeleteFilmOrderMock.mockReturnValue(buildMutationState());
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
+    useSetJobStagedForPickupMock.mockReturnValue(buildMutationState());
     useBoxMock.mockReturnValue({
       data: null,
       isLoading: false,
@@ -329,6 +335,69 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('24 tubes | 2 full cases | 0 loose tubes');
   });
 
+  it('renders the labor-only pill alongside the status badge when flagged', () => {
+    const detail = {
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'READY',
+        isLaborOnly: true,
+        isStagedForPickup: true
+      }) as JobDetail['summary']
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('LABOR ONLY');
+    expect(html).toContain('badge-READY');
+  });
+
+  it('renders staged pickup controls for active jobs and preserves the saved state on closed jobs', () => {
+    const activeHtml = renderPage({
+      ...baseDetail,
+      summary: buildSummary({
+        isStagedForPickup: false
+      }) as JobDetail['summary']
+    });
+
+    expect(activeHtml).toContain('Installer Pickup');
+    expect(activeHtml).toContain('Waiting on warehouse staging');
+    expect(activeHtml).toContain('Mark Staged for Pickup');
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: {
+        ...baseDetail,
+        summary: buildSummary({
+          status: 'COMPLETED',
+          lifecycleStatus: 'COMPLETED',
+          isStagedForPickup: true
+        }) as JobDetail['summary']
+      },
+      error: null
+    });
+
+    const closedHtml = renderPage({
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'COMPLETED',
+        lifecycleStatus: 'COMPLETED',
+        isStagedForPickup: true
+      }) as JobDetail['summary']
+    });
+
+    expect(closedHtml).toContain('Staged for pickup');
+    expect(closedHtml).toContain('Closed jobs keep the saved pickup state for history.');
+    expect(closedHtml).not.toContain('Mark Staged for Pickup');
+  });
+
   it('enforces closed-job read-only behavior for caulk allocation actions', () => {
     const detail: JobDetail = {
       ...baseDetail,
@@ -396,7 +465,8 @@ describe('AllocationJobPage', () => {
       clientIdConfigured: true,
       isAuthenticated: true,
       isOwner: false,
-      isAdmin: false
+      isAdmin: false,
+      hasFeatureAccess: () => true
     });
 
     const html = renderPage(baseDetail);

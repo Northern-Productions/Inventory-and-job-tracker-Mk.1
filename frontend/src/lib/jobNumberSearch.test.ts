@@ -3,26 +3,30 @@ import type { JobListEntry } from '../domain';
 import { rankActiveJobsByNumericCloseness } from './jobNumberSearch';
 
 function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
+  const { jobNumber: overrideJobNumber, ...rest } = overrides;
+
   return {
-    jobNumber: overrides.jobNumber || '000001',
-    warehouse: overrides.warehouse || 'IL1',
-    sections: overrides.sections ?? null,
-    dueDate: overrides.dueDate || '',
-    crewLeader: overrides.crewLeader || '',
-    status: overrides.status || 'ALLOCATE',
-    lifecycleStatus: overrides.lifecycleStatus || 'ACTIVE',
-    requiredFeet: overrides.requiredFeet || 0,
-    allocatedFeet: overrides.allocatedFeet || 0,
-    remainingFeet: overrides.remainingFeet || 0,
-    requiredTubes: overrides.requiredTubes || 0,
-    allocatedTubes: overrides.allocatedTubes || 0,
-    remainingTubes: overrides.remainingTubes || 0,
-    requirementCount: overrides.requirementCount || 0,
-    allocationCount: overrides.allocationCount || 0,
-    filmOrderCount: overrides.filmOrderCount || 0,
-    createdAt: overrides.createdAt || '',
-    updatedAt: overrides.updatedAt || '',
-    notes: overrides.notes || ''
+    jobNumber: overrideJobNumber || '000001',
+    warehouse: rest.warehouse || 'IL1',
+    sections: rest.sections ?? null,
+    dueDate: rest.dueDate || '',
+    crewLeader: rest.crewLeader || '',
+    status: rest.status || 'ALLOCATE',
+    lifecycleStatus: rest.lifecycleStatus || 'ACTIVE',
+    isLaborOnly: rest.isLaborOnly ?? false,
+    isStagedForPickup: rest.isStagedForPickup ?? false,
+    requiredFeet: rest.requiredFeet || 0,
+    allocatedFeet: rest.allocatedFeet || 0,
+    remainingFeet: rest.remainingFeet || 0,
+    requiredTubes: rest.requiredTubes || 0,
+    allocatedTubes: rest.allocatedTubes || 0,
+    remainingTubes: rest.remainingTubes || 0,
+    requirementCount: rest.requirementCount || 0,
+    allocationCount: rest.allocationCount || 0,
+    filmOrderCount: rest.filmOrderCount || 0,
+    createdAt: rest.createdAt || '',
+    updatedAt: rest.updatedAt || '',
+    notes: rest.notes || ''
   };
 }
 

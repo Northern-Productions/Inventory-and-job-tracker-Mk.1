@@ -342,6 +342,17 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, normalizedPayload);
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
   },
+  "/jobs/set-staged-pickup": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_jobs_set_staged_pickup",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(await deps.buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+  },
   "/jobs/complete": async ({ client, identity, payload }, deps) => {
     return await deps.completeJob(client, identity, payload);
   },

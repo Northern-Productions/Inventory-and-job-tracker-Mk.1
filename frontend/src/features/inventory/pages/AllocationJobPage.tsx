@@ -31,6 +31,7 @@ import { safeDecodePathParam } from '../../../lib/url';
 import { useAuth } from '../../auth/AuthContext';
 import { JobAllocateDialog } from '../components/JobAllocateDialog';
 import { JobEditorDialog, type JobEditorSubmitPayload } from '../components/JobEditorDialog';
+import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDialog';
 import {
   useAddCaulkJobAllocation,
   useCheckinCaulkJobAllocation,
@@ -45,6 +46,7 @@ import {
   useReopenJob,
   useRemoveJobBoxAllocations,
   useSetBoxStatus,
+  useSetJobStagedForPickup,
   useUpdateCaulkJobAllocation,
   useUpdateJob
 } from '../hooks/useInventoryQueries';
@@ -61,6 +63,7 @@ import {
   summarizeReturnedMaterials
 } from '../utils/jobReturnedMaterials';
 import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
+import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
 
@@ -155,12 +158,14 @@ export default function AllocationJobPage() {
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const setBoxStatusMutation = useSetBoxStatus();
+  const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const filmCatalogQuery = useFilmCatalog();
   const caulkProductsQuery = useQuery({
     queryKey: ['caulk', 'products'],
     queryFn: () => listCaulkProducts()
   });
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [pendingLaborOnlyUpdate, setPendingLaborOnlyUpdate] = useState<JobEditorSubmitPayload | null>(null);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [completePromptMode, setCompletePromptMode] = useState<'manual' | 'returned_materials' | null>(null);
   const [isDeleteJobConfirmOpen, setIsDeleteJobConfirmOpen] = useState(false);
@@ -337,6 +342,11 @@ export default function AllocationJobPage() {
   );
   const totalRemainingCaulkTubes = Math.max(totalRequiredCaulkTubes - totalAllocatedCaulkTubes, 0);
   const canDeleteJob = auth.clientIdConfigured && auth.isAuthenticated && (auth.isOwner || auth.isAdmin);
+  const canEditStagedPickup =
+    auth.clientIdConfigured &&
+    auth.isAuthenticated &&
+    auth.hasFeatureAccess('jobs', 'write') &&
+    !isReadOnlyJob;
   const warehouseOptions = useMemo(() => {
     const options = warehouseRegistry.entries.map((entry) => entry.code);
     if (summary?.warehouse) {
@@ -407,7 +417,23 @@ export default function AllocationJobPage() {
     }
   }
 
-  async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
+  function buildUpdateJobPayload(
+    submitPayload: JobEditorSubmitPayload,
+    isLaborOnly: boolean
+  ): UpdateJobPayload {
+    return {
+      jobNumber: summary?.jobNumber || submitPayload.jobNumber,
+      warehouse: submitPayload.warehouse,
+      sections: submitPayload.sections,
+      dueDate: submitPayload.dueDate,
+      crewLeader: submitPayload.crewLeader,
+      requirements: submitPayload.requirements,
+      caulkRequirements: submitPayload.caulkRequirements,
+      isLaborOnly
+    };
+  }
+
+  async function submitUpdateJob(submitPayload: JobEditorSubmitPayload, isLaborOnly: boolean) {
     if (isReadOnlyJob) {
       toast.push({
         title: 'Job is read-only',
@@ -421,17 +447,10 @@ export default function AllocationJobPage() {
       return;
     }
 
-    const payload: UpdateJobPayload = {
-      jobNumber: summary?.jobNumber || submitPayload.jobNumber,
-      warehouse: submitPayload.warehouse,
-      sections: submitPayload.sections,
-      dueDate: submitPayload.dueDate,
-      crewLeader: submitPayload.crewLeader,
-      requirements: submitPayload.requirements,
-      caulkRequirements: submitPayload.caulkRequirements
-    };
+    const payload = buildUpdateJobPayload(submitPayload, isLaborOnly);
 
     try {
+      setPendingLaborOnlyUpdate(null);
       const { warnings } = await updateJobMutation.mutateAsync(payload);
       setIsEditOpen(false);
       toast.push({
@@ -508,6 +527,15 @@ export default function AllocationJobPage() {
         variant: 'error'
       });
     }
+  }
+
+  async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
+    if (shouldPromptForLaborOnlyConfirmation(submitPayload, Boolean(summary?.isLaborOnly))) {
+      setPendingLaborOnlyUpdate(submitPayload);
+      return;
+    }
+
+    await submitUpdateJob(submitPayload, Boolean(summary?.isLaborOnly));
   }
 
   async function handleReopenJob(reason: string) {
@@ -676,6 +704,47 @@ export default function AllocationJobPage() {
       toast.push({
         title: 'Unable to check out box',
         description: error instanceof Error ? error.message : 'The checkout request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleSetStagedPickup(nextIsStaged: boolean) {
+    if (!summary) {
+      return;
+    }
+
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${summary.jobNumber} is closed and staged pickup cannot be changed.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!ensureSignedIn('updating staged pickup')) {
+      return;
+    }
+
+    try {
+      const { warnings } = await setJobStagedForPickupMutation.mutateAsync({
+        jobNumber: summary.jobNumber,
+        isStagedForPickup: nextIsStaged
+      });
+      toast.push({
+        title: nextIsStaged ? 'Marked staged for pickup' : 'Cleared staged pickup',
+        description:
+          warnings.join(' ') ||
+          (nextIsStaged
+            ? `Installers can now see that job ${summary.jobNumber} is staged for pickup.`
+            : `Job ${summary.jobNumber} is no longer marked staged for pickup.`),
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update staged pickup',
+        description: error instanceof Error ? error.message : 'The staged pickup update failed.',
         variant: 'error'
       });
     }
@@ -1169,6 +1238,9 @@ export default function AllocationJobPage() {
             <p className="muted-text">Job detail</p>
           </div>
           <div className="detail-actions">
+            {summary.isLaborOnly ? (
+              <span className="detail-header-pill detail-header-pill-labor-only">LABOR ONLY</span>
+            ) : null}
             <span className={`badge badge-${summary.status}`}>{formatBadgeLabel(summary.status)}</span>
             {isReadOnlyJob ? <span className="muted-text">Read-only</span> : null}
             {!isReadOnlyJob ? (
@@ -1231,6 +1303,40 @@ export default function AllocationJobPage() {
           <div className="key-value">
             <dt>Remaining Tubes</dt>
             <dd>{totalRemainingCaulkTubes}</dd>
+          </div>
+        </div>
+        <div className="panel-title-row job-detail-staged-panel">
+          <div className="key-value">
+            <dt
+              className={`detail-label-pill ${summary.isStagedForPickup ? 'detail-label-pill-green' : 'detail-label-pill-orange'}`.trim()}
+            >
+              Installer Pickup
+            </dt>
+            <dd>{summary.isStagedForPickup ? 'Staged for pickup' : 'Waiting on warehouse staging'}</dd>
+            <p className="muted-text job-detail-staged-description">
+              {summary.isStagedForPickup
+                ? 'Installers can pick up material for this job.'
+                : 'Mark this once the film is staged and ready for installer pickup.'}
+            </p>
+          </div>
+          <div className="detail-actions job-detail-staged-actions">
+            {canEditStagedPickup ? (
+              <Button
+                type="button"
+                variant={summary.isStagedForPickup ? 'secondary' : 'primary'}
+                onClick={() => void handleSetStagedPickup(!summary.isStagedForPickup)}
+                loading={setJobStagedForPickupMutation.isPending}
+                loadingLabel={summary.isStagedForPickup ? 'Saving...' : 'Saving...'}
+              >
+                {summary.isStagedForPickup ? 'Clear Staged Pickup' : 'Mark Staged for Pickup'}
+              </Button>
+            ) : (
+              <span className="muted-text">
+                {isReadOnlyJob
+                  ? 'Closed jobs keep the saved pickup state for history.'
+                  : 'Jobs write access is required to update staged pickup.'}
+              </span>
+            )}
           </div>
         </div>
       </section>
@@ -2605,6 +2711,26 @@ export default function AllocationJobPage() {
         caulkProductError={caulkProductsQuery.error}
         onCancel={() => setIsEditOpen(false)}
         onSubmit={(payload) => void handleUpdateJob(payload)}
+      />
+      <LaborOnlyJobConfirmDialog
+        open={Boolean(pendingLaborOnlyUpdate)}
+        jobNumber={pendingLaborOnlyUpdate?.jobNumber || summary.jobNumber}
+        pending={updateJobMutation.isPending}
+        onCancel={() => setPendingLaborOnlyUpdate(null)}
+        onConfirmNormal={() => {
+          if (!pendingLaborOnlyUpdate) {
+            return;
+          }
+
+          void submitUpdateJob(pendingLaborOnlyUpdate, false);
+        }}
+        onConfirmLaborOnly={() => {
+          if (!pendingLaborOnlyUpdate) {
+            return;
+          }
+
+          void submitUpdateJob(pendingLaborOnlyUpdate, true);
+        }}
       />
 
       <JobAllocateDialog

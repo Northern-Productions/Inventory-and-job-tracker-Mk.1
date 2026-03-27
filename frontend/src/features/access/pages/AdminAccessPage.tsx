@@ -10,14 +10,25 @@ import {
   getUserFeaturePermissions,
   listAccessRequests,
   listUsernameChangeRequests,
+  promoteAdminToOwner,
   promoteMemberToAdmin,
   updateAdminFeaturePermissions,
   updateUserFeaturePermissions
 } from '../../../api/features/accessClient';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { useToast } from '../../../components/Toast';
 import type { AccessRequestEntry, FeatureAccessMap, FeatureArea } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
+import {
+  getInitialPermissionsRoleDraft,
+  getPermissionsBaseRole,
+  getPermissionsRoleChangeMessage,
+  getPermissionsRoleOptions,
+  getPermissionsSaveLabel,
+  shouldRenderPermissionsGrid,
+  type PermissionsRoleDraft
+} from './adminAccessModalUtils';
 
 const MEMBER_FEATURES: FeatureArea[] = [
   'inventory',
@@ -96,12 +107,12 @@ export default function AdminAccessPage() {
   const [approveTargetUserId, setApproveTargetUserId] = useState('');
   const [approveNoteDraft, setApproveNoteDraft] = useState('');
   const [permissionsTarget, setPermissionsTarget] = useState<AccessRequestEntry | null>(null);
-  const [permissionsRoleDraft, setPermissionsRoleDraft] = useState<'member' | 'admin'>('member');
+  const [permissionsRoleDraft, setPermissionsRoleDraft] = useState<PermissionsRoleDraft>('member');
   const [userPermissionsDraft, setUserPermissionsDraft] = useState<FeatureAccessMap | null>(null);
 
   const canWriteAccess = auth.isOwner || auth.hasFeatureAccess('access_management', 'write');
   const selectedPermissionsUserId = permissionsTarget?.userId || '';
-  const selectedPermissionsRole: 'member' | 'admin' = permissionsTarget?.currentRole === 'admin' ? 'admin' : 'member';
+  const selectedPermissionsRole = getPermissionsBaseRole(permissionsTarget?.currentRole || '');
   const requestsSummary =
     statusFilter === 'pending'
       ? 'Pending requests stay in this queue until approved or denied.'
@@ -171,7 +182,7 @@ export default function AdminAccessPage() {
   });
 
   useEffect(() => {
-    if (userPermissionsQuery.data) {
+    if (permissionsRoleDraft !== 'owner' && userPermissionsQuery.data) {
       setUserPermissionsDraft(
         permissionsRoleDraft === 'member'
           ? sanitizeMemberPermissionsForReadOnly(userPermissionsQuery.data)
@@ -272,6 +283,23 @@ export default function AdminAccessPage() {
     }
   });
 
+  const promoteToOwnerMutation = useMutation({
+    mutationFn: promoteAdminToOwner,
+    onSuccess: async (_, payload) => {
+      closeUserPermissionsModal(true);
+      toast.push({
+        title: 'Admin promoted',
+        description: 'The user is now an owner.'
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['access', 'requests'] }),
+        queryClient.invalidateQueries({ queryKey: ['access', 'user-permissions', payload.userId] }),
+        queryClient.invalidateQueries({ queryKey: ['owner', 'admin-permissions'] }),
+        auth.refreshAccessContext()
+      ]);
+    }
+  });
+
   const updateUserPermissionsMutation = useMutation({
     mutationFn: updateUserFeaturePermissions,
     onSuccess: async (nextPermissions, payload) => {
@@ -329,6 +357,31 @@ export default function AdminAccessPage() {
     }
   });
 
+  const isPermissionsMutationPending =
+    updateUserPermissionsMutation.isPending ||
+    updateAdminPermissionsMutation.isPending ||
+    promoteMutation.isPending ||
+    promoteToOwnerMutation.isPending ||
+    demoteMutation.isPending;
+  const permissionsBaseRole = permissionsTarget ? getPermissionsBaseRole(permissionsTarget.currentRole) : 'member';
+  const permissionsRoleOptions = permissionsTarget ? getPermissionsRoleOptions(permissionsTarget.currentRole, auth.isOwner) : [];
+  const shouldShowPermissionsEditor = permissionsTarget
+    ? shouldRenderPermissionsGrid(permissionsTarget.currentRole, permissionsRoleDraft, Boolean(userPermissionsDraft))
+    : false;
+  const permissionsRoleMessage = permissionsTarget
+    ? getPermissionsRoleChangeMessage(permissionsTarget.currentRole, permissionsRoleDraft)
+    : '';
+  const permissionsSaveLabel = permissionsTarget
+    ? getPermissionsSaveLabel({
+        currentRole: permissionsTarget.currentRole,
+        draftRole: permissionsRoleDraft,
+        isPromotePending: promoteMutation.isPending,
+        isPromoteToOwnerPending: promoteToOwnerMutation.isPending,
+        isDemotePending: demoteMutation.isPending,
+        isSavePending: updateAdminPermissionsMutation.isPending || updateUserPermissionsMutation.isPending
+      })
+    : 'Save Permissions';
+
   function toggleUserPermission(feature: FeatureArea, mode: 'read' | 'write') {
     setUserPermissionsDraft((current) => {
       if (!current) {
@@ -346,15 +399,10 @@ export default function AdminAccessPage() {
 
   function openUserPermissionsModal(entry: AccessRequestEntry) {
     setPermissionsTarget(entry);
-    setPermissionsRoleDraft(entry.currentRole === 'admin' ? 'admin' : 'member');
+    setPermissionsRoleDraft(getInitialPermissionsRoleDraft(entry.currentRole));
     setUserPermissionsDraft(null);
     void queryClient.invalidateQueries({
-      queryKey: [
-        'access',
-        'user-permissions',
-        entry.userId,
-        entry.currentRole === 'admin' ? 'admin' : 'member'
-      ],
+      queryKey: ['access', 'user-permissions', entry.userId, getPermissionsBaseRole(entry.currentRole)],
       exact: true
     });
   }
@@ -366,6 +414,7 @@ export default function AdminAccessPage() {
         updateUserPermissionsMutation.isPending ||
         updateAdminPermissionsMutation.isPending ||
         promoteMutation.isPending ||
+        promoteToOwnerMutation.isPending ||
         demoteMutation.isPending
       )
     ) {
@@ -421,14 +470,27 @@ export default function AdminAccessPage() {
       return;
     }
 
-    const currentRole = permissionsTarget.currentRole === 'admin' ? 'admin' : 'member';
+    const currentRole = getPermissionsBaseRole(permissionsTarget.currentRole);
 
     if (permissionsRoleDraft !== currentRole) {
       if (!auth.isOwner) {
         toast.push({
           title: 'Owner required',
-          description: 'Only owners can change admin status.'
+          description: 'Only owners can change role status.'
         });
+        return;
+      }
+
+      if (permissionsRoleDraft === 'owner') {
+        if (currentRole !== 'admin') {
+          toast.push({
+            title: 'Admin required',
+            description: 'Only admin accounts can be promoted to owner.'
+          });
+          return;
+        }
+
+        await promoteToOwnerMutation.mutateAsync({ userId: permissionsTarget.userId });
         return;
       }
 
@@ -563,12 +625,7 @@ export default function AdminAccessPage() {
                             type="button"
                             variant="ghost"
                             onClick={() => openUserPermissionsModal(entry)}
-                            disabled={
-                              updateUserPermissionsMutation.isPending ||
-                              updateAdminPermissionsMutation.isPending ||
-                              promoteMutation.isPending ||
-                              demoteMutation.isPending
-                            }
+                            disabled={isPermissionsMutationPending}
                           >
                             Change Permissions
                           </Button>
@@ -652,161 +709,133 @@ export default function AdminAccessPage() {
       </section>
 
       {permissionsTarget ? (
-        <div className="dialog-backdrop" role="presentation" onClick={() => closeUserPermissionsModal()}>
-          <div
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="change-user-permissions-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="dialog-header">
-              <h2 id="change-user-permissions-title">Change Permissions</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close"
-                onClick={() => closeUserPermissionsModal()}
-                disabled={
-                  updateUserPermissionsMutation.isPending ||
-                  updateAdminPermissionsMutation.isPending ||
-                  promoteMutation.isPending ||
-                  demoteMutation.isPending
-                }
-              >
-                X
-              </button>
-            </div>
-            <p>
-              <strong>{permissionsTarget.name || permissionsTarget.email || permissionsTarget.userId}</strong>
+        <DialogSurface
+          open
+          onClose={() => closeUserPermissionsModal()}
+          titleId="change-user-permissions-title"
+          descriptionId="change-user-permissions-description"
+          className="permissions-dialog"
+          closeOnBackdrop
+        >
+          <div className="dialog-header">
+            <h2 id="change-user-permissions-title">Change Permissions</h2>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close"
+              onClick={() => closeUserPermissionsModal()}
+              disabled={isPermissionsMutationPending}
+            >
+              X
+            </button>
+          </div>
+          <p>
+            <strong>{permissionsTarget.name || permissionsTarget.email || permissionsTarget.userId}</strong>
+          </p>
+          {permissionsTarget.email ? <p className="muted-text">{permissionsTarget.email}</p> : null}
+          <p id="change-user-permissions-description" className="muted-text">
+            Set feature access for this account.
+          </p>
+          <label className="field">
+            <span className="field-label">Role</span>
+            <select
+              className="field-input"
+              value={permissionsRoleDraft}
+              onChange={(event) =>
+                setPermissionsRoleDraft(
+                  event.target.value === 'owner' ? 'owner' : event.target.value === 'admin' ? 'admin' : 'member'
+                )
+              }
+              disabled={!auth.isOwner || isPermissionsMutationPending}
+            >
+              {permissionsRoleOptions.map((roleOption) => (
+                <option key={roleOption} value={roleOption}>
+                  {roleOption === 'member' ? 'Regular' : roleOption === 'admin' ? 'Admin' : 'Owner'}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!auth.isOwner ? (
+            <p className="muted-text">
+              Only owners can manage permissions and role changes from this modal.
             </p>
-            {permissionsTarget.email ? <p className="muted-text">{permissionsTarget.email}</p> : null}
-            <p className="muted-text">Set feature access for this account.</p>
-            <label className="field">
-              <span className="field-label">Role</span>
-              <select
-                className="field-input"
-                value={permissionsRoleDraft}
-                onChange={(event) => setPermissionsRoleDraft(event.target.value === 'admin' ? 'admin' : 'member')}
-                disabled={
-                  !auth.isOwner ||
-                  updateUserPermissionsMutation.isPending ||
-                  updateAdminPermissionsMutation.isPending ||
-                  promoteMutation.isPending ||
-                  demoteMutation.isPending
-                }
-              >
-                <option value="member">Regular</option>
-                <option value="admin">Admin</option>
-              </select>
-            </label>
-            {!auth.isOwner ? (
-              <p className="muted-text">
-                Only owners can manage permissions and role changes from this modal.
-              </p>
-            ) : null}
-            {permissionsTarget.currentRole === 'admin' && permissionsRoleDraft === 'member' ? (
-              <p className="muted-text">This will demote the user to Regular.</p>
-            ) : null}
-            {permissionsTarget.currentRole === 'member' && permissionsRoleDraft === 'admin' ? (
-              <p className="muted-text">This will promote the user to Admin.</p>
-            ) : null}
-            {userPermissionsQuery.isLoading ? <p className="muted-text">Loading permissions...</p> : null}
-            {userPermissionsQuery.isError ? (
-              <p className="error-text">
-                {userPermissionsQuery.error instanceof Error
-                  ? userPermissionsQuery.error.message
-                  : 'User permissions could not be loaded.'}
-              </p>
-            ) : null}
-            {permissionsTarget.currentRole === permissionsRoleDraft && userPermissionsDraft ? (
-              <div className="feature-grid permissions-feature-grid">
-                {(permissionsRoleDraft === 'admin' ? ADMIN_FEATURES : MEMBER_FEATURES).map((feature) => (
-                  <div
-                    key={`${permissionsTarget.userId}-${feature}`}
-                    className={`feature-row ${permissionsRoleDraft === 'member' ? 'feature-row-read-only' : ''}`.trim()}
-                  >
-                    <span className="feature-label">{formatFeatureLabel(feature)}</span>
+          ) : null}
+          {permissionsRoleMessage ? <p className="muted-text">{permissionsRoleMessage}</p> : null}
+          {permissionsRoleDraft === 'owner' ? (
+            <p className="muted-text">
+              Owners always have full workspace access, access-management controls, and owner-only settings.
+            </p>
+          ) : null}
+          {permissionsRoleDraft !== 'owner' && userPermissionsQuery.isLoading ? (
+            <p className="muted-text">Loading permissions...</p>
+          ) : null}
+          {permissionsRoleDraft !== 'owner' && userPermissionsQuery.isError ? (
+            <p className="error-text">
+              {userPermissionsQuery.error instanceof Error
+                ? userPermissionsQuery.error.message
+                : 'User permissions could not be loaded.'}
+            </p>
+          ) : null}
+          {shouldShowPermissionsEditor && userPermissionsDraft ? (
+            <div className="feature-grid permissions-feature-grid">
+              {(permissionsRoleDraft === 'admin' ? ADMIN_FEATURES : MEMBER_FEATURES).map((feature) => (
+                <div
+                  key={`${permissionsTarget.userId}-${feature}`}
+                  className={`feature-row ${permissionsRoleDraft === 'member' ? 'feature-row-read-only' : ''}`.trim()}
+                >
+                  <span className="feature-label">{formatFeatureLabel(feature)}</span>
+                  <label className="field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(userPermissionsDraft[feature]?.read)}
+                      disabled={!auth.isOwner || isPermissionsMutationPending}
+                      onChange={() => toggleUserPermission(feature, 'read')}
+                    />
+                    Read
+                  </label>
+                  {permissionsRoleDraft === 'admin' ? (
                     <label className="field-checkbox">
                       <input
                         type="checkbox"
-                        checked={Boolean(userPermissionsDraft[feature]?.read)}
-                        disabled={
-                          !auth.isOwner ||
-                          updateUserPermissionsMutation.isPending ||
-                          updateAdminPermissionsMutation.isPending ||
-                          promoteMutation.isPending ||
-                          demoteMutation.isPending
-                        }
-                        onChange={() => toggleUserPermission(feature, 'read')}
+                        checked={Boolean(userPermissionsDraft[feature]?.write)}
+                        disabled={!auth.isOwner || isPermissionsMutationPending}
+                        onChange={() => toggleUserPermission(feature, 'write')}
                       />
-                      Read
+                      Write
                     </label>
-                    {permissionsRoleDraft === 'admin' ? (
-                      <label className="field-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(userPermissionsDraft[feature]?.write)}
-                          disabled={
-                            !auth.isOwner ||
-                            updateUserPermissionsMutation.isPending ||
-                            updateAdminPermissionsMutation.isPending ||
-                            promoteMutation.isPending ||
-                            demoteMutation.isPending
-                          }
-                          onChange={() => toggleUserPermission(feature, 'write')}
-                        />
-                        Write
-                      </label>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <div className="dialog-actions permissions-dialog-actions">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => closeUserPermissionsModal()}
-                disabled={
-                  updateUserPermissionsMutation.isPending ||
-                  updateAdminPermissionsMutation.isPending ||
-                  promoteMutation.isPending ||
-                  demoteMutation.isPending
-                }
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleSaveUserPermissions()}
-                disabled={
-                  !auth.isOwner ||
-                  promoteMutation.isPending ||
-                  demoteMutation.isPending ||
-                  updateAdminPermissionsMutation.isPending ||
-                  updateUserPermissionsMutation.isPending ||
-                  (permissionsTarget.currentRole === permissionsRoleDraft &&
-                    (userPermissionsQuery.isLoading || !userPermissionsDraft))
-                }
-              >
-                {promoteMutation.isPending
-                  ? 'Promoting...'
-                  : demoteMutation.isPending
-                    ? 'Demoting...'
-                    : updateAdminPermissionsMutation.isPending
-                      ? 'Saving...'
-                  : updateUserPermissionsMutation.isPending
-                    ? 'Saving...'
-                    : permissionsTarget.currentRole !== permissionsRoleDraft
-                      ? permissionsRoleDraft === 'admin'
-                        ? 'Promote to Admin'
-                        : 'Demote to Regular'
-                      : 'Save Permissions'}
-              </Button>
+                  ) : null}
+                </div>
+              ))}
             </div>
+          ) : null}
+          <div className="dialog-actions permissions-dialog-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => closeUserPermissionsModal()}
+              disabled={isPermissionsMutationPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSaveUserPermissions()}
+              disabled={
+                !auth.isOwner ||
+                promoteMutation.isPending ||
+                promoteToOwnerMutation.isPending ||
+                demoteMutation.isPending ||
+                updateAdminPermissionsMutation.isPending ||
+                updateUserPermissionsMutation.isPending ||
+                (permissionsRoleDraft !== 'owner' &&
+                  permissionsBaseRole === permissionsRoleDraft &&
+                  (userPermissionsQuery.isLoading || !userPermissionsDraft))
+              }
+            >
+              {permissionsSaveLabel}
+            </Button>
           </div>
-        </div>
+        </DialogSurface>
       ) : null}
 
       {approveTargetUserId ? (

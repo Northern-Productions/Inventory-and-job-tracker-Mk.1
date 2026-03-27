@@ -6,6 +6,7 @@ import type {
 } from '../../../domain';
 
 type JobLifecycleFilter = 'ACTIVE' | 'COMPLETED';
+type JobsCalendarView = 'week' | 'month';
 
 // Purpose: Centralized React Query keys for inventory feature queries/mutations.
 export const inventoryKeys = {
@@ -22,6 +23,14 @@ export const inventoryKeys = {
   jobsListRoot: ['inventory', 'jobs', 'list'] as const,
   jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter }) =>
     ['inventory', 'jobs', 'list', params] as const,
+  jobsCalendarRoot: ['inventory', 'jobs', 'calendar'] as const,
+  jobsCalendarPeriod: (params: {
+    view: JobsCalendarView;
+    anchorDate: string;
+    lifecycleStatus?: JobLifecycleFilter;
+  }) => ['inventory', 'jobs', 'calendar', params] as const,
+  jobsCalendarMonth: (params: { month: string; lifecycleStatus?: JobLifecycleFilter }) =>
+    ['inventory', 'jobs', 'calendar', params] as const,
   jobsSearch: ['inventory', 'jobs', 'search'] as const,
   jobsSearchResults: (params: {
     query: string;

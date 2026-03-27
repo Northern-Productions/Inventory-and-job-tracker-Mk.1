@@ -6,6 +6,11 @@ import type {
   UpdateBoxPayload,
   Warehouse
 } from '../../../domain';
+import {
+  dedupeBoxesByDisplayBoxId,
+  formatBoxIdWithWarehousePrefix,
+  normalizeTrailingLetterBoxId
+} from '../../../lib/boxIds';
 import { toDateInputValue, todayDateString } from '../../../lib/date';
 import {
   canonicalizeManufacturerLabel,
@@ -13,6 +18,7 @@ import {
 } from '../../../lib/manufacturerCanonicalization';
 
 export { canonicalizeManufacturerLabel };
+export { dedupeBoxesByDisplayBoxId, formatBoxIdWithWarehousePrefix, normalizeTrailingLetterBoxId };
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
 export const CORE_TYPE_OPTIONS = [
@@ -24,9 +30,6 @@ export const CORE_TYPE_OPTIONS = [
 ] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
-const TRAILING_LETTER_BOX_ID_PATTERN = /^([A-Z]{2}[1-9][0-9]*-[0-9]+)[A-Z]+$/;
-const CANONICAL_PREFIXED_BOX_ID_PATTERN = /^[A-Z]{2}[1-9][0-9]*-.+/;
-const LEGACY_PREFIXED_BOX_ID_PATTERN = /^[A-Z]+-(.+)$/;
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'White plastic': 2,
   'Red plastic': 1.85,
@@ -118,32 +121,6 @@ export function hasManufacturerOption(value: string, options: string[] = []) {
 
 export function deriveFilmKey(manufacturer: string, filmName: string): string {
   return `${manufacturer.trim().toUpperCase()}|${filmName.trim().toUpperCase()}`;
-}
-
-export function normalizeTrailingLetterBoxId(value: string): string {
-  const normalized = value.trim().toUpperCase();
-  const match = normalized.match(TRAILING_LETTER_BOX_ID_PATTERN);
-  return match ? match[1] : normalized;
-}
-
-export function formatBoxIdWithWarehousePrefix(boxId: string, warehouse: Warehouse | string): string {
-  const normalizedBoxId = String(boxId || '').trim().toUpperCase();
-  if (!normalizedBoxId) {
-    return '';
-  }
-
-  if (CANONICAL_PREFIXED_BOX_ID_PATTERN.test(normalizedBoxId)) {
-    return normalizedBoxId;
-  }
-
-  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase().replace(/-+$/, '');
-  if (!normalizedWarehouse) {
-    return normalizedBoxId;
-  }
-
-  const legacyMatch = normalizedBoxId.match(LEGACY_PREFIXED_BOX_ID_PATTERN);
-  const suffix = legacyMatch ? legacyMatch[1] : normalizedBoxId;
-  return `${normalizedWarehouse}-${suffix}`;
 }
 
 export function deriveCreateFeetAvailable(

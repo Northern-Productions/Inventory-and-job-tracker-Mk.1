@@ -130,6 +130,29 @@ function parseBooleanFlag(value) {
   return value === true || asTrimmedString(value).toLowerCase() === 'true';
 }
 
+function parseStrictBooleanFlag(value, fieldName) {
+  if (value === true || value === false) {
+    return value;
+  }
+
+  const normalized = asTrimmedString(value).toLowerCase();
+  if (normalized === 'true' || normalized === 't' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (
+    normalized === 'false' ||
+    normalized === 'f' ||
+    normalized === '0' ||
+    normalized === 'no' ||
+    normalized === 'off'
+  ) {
+    return false;
+  }
+
+  throw new HttpError(400, `${fieldName} must be true or false.`);
+}
+
 function formatTimestamp(value) {
   if (!value) {
     return '';
@@ -1564,6 +1587,8 @@ function mapDbJobRow(row) {
     dueDate: formatDateValue(row.due_date),
     crewLeader: asTrimmedString(row.crew_leader),
     lifecycleStatus: asTrimmedString(row.lifecycle_status) || 'ACTIVE',
+    isLaborOnly: row.is_labor_only === true,
+    isStagedForPickup: row.is_staged_for_pickup === true,
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
@@ -2159,9 +2184,13 @@ async function fetchAuthIdentity(token) {
   return identity;
 }
 
-async function resolveAuthContext(headers) {
+async function resolveAuthContext(headers, bodyJson) {
   const authorization = headers.authorization || headers.Authorization || '';
-  const token = asTrimmedString(authorization).replace(/^Bearer\s+/i, '');
+  const bodyToken =
+    bodyJson && typeof bodyJson.authToken === 'string'
+      ? asTrimmedString(bodyJson.authToken)
+      : '';
+  const token = asTrimmedString(authorization).replace(/^Bearer\s+/i, '') || bodyToken;
   if (!token) {
     throw new HttpError(401, 'Authenticated session is required.');
   }
@@ -3495,6 +3524,8 @@ async function saveJobRecord(client, orgId, job) {
         due_date,
         crew_leader,
         lifecycle_status,
+        is_labor_only,
+        is_staged_for_pickup,
         notes,
         created_at,
         created_by,
@@ -3504,11 +3535,11 @@ async function saveJobRecord(client, orgId, job) {
       values (
         $1,$2,$3,$4,
         nullif($5, '')::date,
-        $6,$7,$8,
-        coalesce($9::timestamptz, now()),
-        $10,
+        $6,$7,$8,$9,$10,
         coalesce($11::timestamptz, now()),
-        $12
+        $12,
+        coalesce($13::timestamptz, now()),
+        $14
       )
       on conflict (org_id, job_number) do update set
         warehouse = excluded.warehouse,
@@ -3516,6 +3547,8 @@ async function saveJobRecord(client, orgId, job) {
         due_date = excluded.due_date,
         crew_leader = excluded.crew_leader,
         lifecycle_status = excluded.lifecycle_status,
+        is_labor_only = excluded.is_labor_only,
+        is_staged_for_pickup = excluded.is_staged_for_pickup,
         notes = excluded.notes,
         updated_at = excluded.updated_at,
         updated_by = excluded.updated_by
@@ -3529,6 +3562,8 @@ async function saveJobRecord(client, orgId, job) {
       job.dueDate,
       job.crewLeader,
       job.lifecycleStatus,
+      Boolean(job.isLaborOnly),
+      Boolean(job.isStagedForPickup),
       job.notes,
       job.createdAt,
       job.createdBy,
@@ -3854,6 +3889,158 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
       ]
     );
   }
+}
+
+async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
+  const source = Array.isArray(entries) ? entries : [];
+  if (!source.length) {
+    return [];
+  }
+
+  const mergedByProductId = {};
+  for (let index = 0; index < source.length; index += 1) {
+    const entry = source[index] || {};
+    const productId = requireUuid(entry.productId, `CaulkRequirements[${index + 1}].ProductId`);
+    const requiredTubes = parseIntegerInput(
+      entry.requiredTubes,
+      `CaulkRequirements[${index + 1}].RequiredTubes`
+    );
+
+    if (requiredTubes <= 0) {
+      throw new HttpError(400, `CaulkRequirements[${index + 1}].RequiredTubes must be greater than zero.`);
+    }
+
+    if (!mergedByProductId[productId]) {
+      mergedByProductId[productId] = {
+        requirementId: asTrimmedString(entry.requirementId),
+        productId,
+        requiredTubes: 0
+      };
+    }
+
+    mergedByProductId[productId].requiredTubes += Math.floor(requiredTubes);
+  }
+
+  const productIds = Object.keys(mergedByProductId);
+  const rows = await queryRows(
+    client,
+    `
+      select id
+      from app.caulk_products
+      where org_id = $1::uuid
+        and id = any($2::uuid[])
+    `,
+    [orgId, productIds]
+  );
+  const existingById = {};
+  for (let index = 0; index < rows.length; index += 1) {
+    existingById[asTrimmedString(rows[index].id)] = true;
+  }
+
+  for (let index = 0; index < productIds.length; index += 1) {
+    if (!existingById[productIds[index]]) {
+      throw new HttpError(404, `Caulk product ${productIds[index]} was not found.`);
+    }
+  }
+
+  return productIds.map((productId) => mergedByProductId[productId]);
+}
+
+async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entries, actor, nowIso) {
+  await client.query(
+    `
+      delete from app.job_caulk_requirements
+      where org_id = $1
+        and job_id = $2
+    `,
+    [orgId, jobHeader.id]
+  );
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    await client.query(
+      `
+        insert into app.job_caulk_requirements (
+          id,
+          org_id,
+          job_id,
+          product_id,
+          required_tubes,
+          notes,
+          created_at,
+          created_by,
+          updated_at,
+          updated_by
+        )
+        values (
+          $1,$2,$3,$4,$5,$6,
+          $7::timestamptz,$8,
+          $9::timestamptz,$10
+        )
+      `,
+      [
+        entry.requirementId || crypto.randomUUID(),
+        orgId,
+        jobHeader.id,
+        entry.productId,
+        entry.requiredTubes,
+        '',
+        nowIso,
+        actor,
+        nowIso,
+        actor
+      ]
+    );
+  }
+}
+
+function parseExplicitJobLaborOnlyValue(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const hasCamel = Object.prototype.hasOwnProperty.call(source, 'isLaborOnly');
+  const hasSnake = Object.prototype.hasOwnProperty.call(source, 'is_labor_only');
+  if (!hasCamel && !hasSnake) {
+    return {
+      hasValue: false,
+      value: false
+    };
+  }
+
+  return {
+    hasValue: true,
+    value: parseStrictBooleanFlag(
+      hasCamel ? source.isLaborOnly : source.is_labor_only,
+      'isLaborOnly'
+    )
+  };
+}
+
+function hasJobMaterialRequirements(requirements, caulkRequirements) {
+  return (Array.isArray(requirements) ? requirements.length : 0) > 0 ||
+    (Array.isArray(caulkRequirements) ? caulkRequirements.length : 0) > 0;
+}
+
+function derivePersistedJobMaterialFlags(existingHeader, payload, requirements, caulkRequirements) {
+  const explicitLaborOnly = parseExplicitJobLaborOnlyValue(payload);
+  const previouslyLaborOnly = Boolean(existingHeader?.isLaborOnly);
+  const hasMaterials = hasJobMaterialRequirements(requirements, caulkRequirements);
+  let isLaborOnly = explicitLaborOnly.hasValue ? explicitLaborOnly.value : previouslyLaborOnly;
+  let isStagedForPickup = Boolean(existingHeader?.isStagedForPickup);
+
+  if (hasMaterials) {
+    isLaborOnly = false;
+    if (previouslyLaborOnly) {
+      isStagedForPickup = false;
+    }
+  } else if (isLaborOnly) {
+    isStagedForPickup = true;
+  } else if (explicitLaborOnly.hasValue && !explicitLaborOnly.value && previouslyLaborOnly) {
+    isStagedForPickup = false;
+  }
+
+  return {
+    isLaborOnly,
+    isStagedForPickup
+  };
 }
 
 async function deleteJobRequirementsByJobId(client, orgId, jobId) {
@@ -4493,6 +4680,7 @@ function buildAllocationJobSummary(
   requirements = [],
   caulkRequirements = [],
   lifecycleStatus = 'ACTIVE',
+  isLaborOnly = false,
   fallbackJobDate = '',
   fallbackCrewLeader = ''
 ) {
@@ -4546,6 +4734,8 @@ function buildAllocationJobSummary(
     status = 'CANCELLED';
   } else if (normalizedLifecycleStatus === 'COMPLETED') {
     status = 'COMPLETED';
+  } else if (isLaborOnly && !requirements.length && !caulkRequirements.length) {
+    status = 'READY';
   } else if (hasFilmOrder) {
     status = 'FILM_ORDER';
   } else if (hasFilmOnTheWay) {
@@ -4638,6 +4828,8 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     dueDate: metadata.jobDate,
     crewLeader: metadata.crewLeader,
     lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    isStagedForPickup: false,
     notes: '',
     createdAt,
     createdBy: '',
@@ -4685,6 +4877,7 @@ function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
 
 function computeJobStatusFromRequirements(
   lifecycleStatus,
+  isLaborOnly,
   requirements,
   caulkRequirements,
   allocations,
@@ -4700,6 +4893,10 @@ function computeJobStatusFromRequirements(
   }
 
   if (!requirements.length && !caulkRequirements.length) {
+    if (isLaborOnly) {
+      return 'READY';
+    }
+
     if (!allocations.length && !filmOrders.length) {
       return 'ALLOCATE';
     }
@@ -4806,6 +5003,7 @@ function buildJobListEntry(
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
   const baseStatus = computeJobStatusFromRequirements(
     lifecycleStatus,
+    Boolean(jobHeader.isLaborOnly),
     requirements,
     caulkRequirements,
     allocations,
@@ -4825,6 +5023,8 @@ function buildJobListEntry(
     crewLeader,
     status,
     lifecycleStatus,
+    isLaborOnly: Boolean(jobHeader.isLaborOnly),
+    isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
     requiredFeet,
     allocatedFeet,
     remainingFeet,
@@ -6568,6 +6768,7 @@ async function buildAllocationJobList(client, orgId) {
         requirements,
         publicCaulkRequirements,
         header?.lifecycleStatus || 'ACTIVE',
+        Boolean(header?.isLaborOnly),
         header?.dueDate || '',
         header?.crewLeader || ''
       )
@@ -6610,6 +6811,7 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
       publicRequirements,
       publicCaulkRequirements,
       header?.lifecycleStatus || 'ACTIVE',
+      Boolean(header?.isLaborOnly),
       header?.dueDate || '',
       header?.crewLeader || ''
     ),
@@ -6787,6 +6989,115 @@ async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStat
   return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
 }
 
+function normalizeCalendarMonth(value) {
+  const month = asTrimmedString(value);
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new HttpError(400, 'month must use yyyy-mm.');
+  }
+
+  return month;
+}
+
+function normalizeCalendarView(value) {
+  const normalized = asTrimmedString(value).toLowerCase();
+  if (!normalized || normalized === 'month') {
+    return 'month';
+  }
+
+  if (normalized === 'week') {
+    return 'week';
+  }
+
+  throw new HttpError(400, 'view must be week or month.');
+}
+
+function parseCalendarDate(value) {
+  const match = asTrimmedString(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const dayOfMonth = Number(match[3]);
+  const parsed = new Date(year, monthIndex, dayOfMonth);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== monthIndex ||
+    parsed.getDate() !== dayOfMonth
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function formatCalendarDate(date) {
+  return `${String(date.getFullYear()).padStart(4, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeCalendarAnchorDate(anchorDate, monthFallback) {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (parsedAnchorDate) {
+    return formatCalendarDate(parsedAnchorDate);
+  }
+
+  const month = asTrimmedString(monthFallback);
+  if (month) {
+    return `${normalizeCalendarMonth(month)}-01`;
+  }
+
+  throw new HttpError(400, 'anchorDate must use yyyy-mm-dd.');
+}
+
+function shiftCalendarDate(anchorDate, deltaDays) {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (!parsedAnchorDate) {
+    throw new HttpError(400, 'anchorDate must use yyyy-mm-dd.');
+  }
+
+  return formatCalendarDate(
+    new Date(
+      parsedAnchorDate.getFullYear(),
+      parsedAnchorDate.getMonth(),
+      parsedAnchorDate.getDate() + deltaDays
+    )
+  );
+}
+
+function getCalendarWeekStart(anchorDate) {
+  const parsedAnchorDate = parseCalendarDate(anchorDate);
+  if (!parsedAnchorDate) {
+    throw new HttpError(400, 'anchorDate must use yyyy-mm-dd.');
+  }
+
+  return formatCalendarDate(
+    new Date(
+      parsedAnchorDate.getFullYear(),
+      parsedAnchorDate.getMonth(),
+      parsedAnchorDate.getDate() - parsedAnchorDate.getDay()
+    )
+  );
+}
+
+async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecycleStatus) {
+  const normalizedView = normalizeCalendarView(view);
+  const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
+  const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  if (normalizedView === 'week') {
+    const weekStart = getCalendarWeekStart(normalizedAnchorDate);
+    const weekEnd = shiftCalendarDate(weekStart, 6);
+    return entries.filter((entry) => {
+      const dueDate = asTrimmedString(entry.dueDate);
+      return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= weekStart && dueDate <= weekEnd;
+    });
+  }
+
+  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
+  return entries.filter((entry) => asTrimmedString(entry.dueDate).slice(0, 7) === normalizedMonth);
+}
+
 async function buildJobDetail(client, orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   let header = await findJobByNumber(client, orgId, normalizedJobNumber);
@@ -6842,6 +7153,74 @@ async function buildJobDetail(client, orgId, jobNumber) {
   };
 }
 
+async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor) {
+  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+  const normalizedFlag = typeof isStagedForPickup === 'boolean'
+    ? String(isStagedForPickup)
+    : asTrimmedString(isStagedForPickup).toLowerCase();
+  let nextIsStaged = null;
+
+  if (normalizedFlag === 'true' || normalizedFlag === 't' || normalizedFlag === '1' || normalizedFlag === 'yes' || normalizedFlag === 'on') {
+    nextIsStaged = true;
+  } else if (
+    normalizedFlag === 'false' ||
+    normalizedFlag === 'f' ||
+    normalizedFlag === '0' ||
+    normalizedFlag === 'no' ||
+    normalizedFlag === 'off'
+  ) {
+    nextIsStaged = false;
+  }
+
+  if (nextIsStaged === null) {
+    throw new HttpError(400, 'isStagedForPickup must be true or false.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
+  const existingJob = resolvedContext.header;
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
+  }
+
+  if (normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and staged pickup cannot be changed.`);
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      update app.jobs
+      set
+        is_staged_for_pickup = $3,
+        updated_at = $4::timestamptz,
+        updated_by = $5
+      where org_id = $1
+        and upper(trim(job_number)) = upper(trim($2))
+      returning *
+    `,
+    [
+      orgId,
+      normalizedJobNumber,
+      nextIsStaged,
+      nowIso,
+      actor
+    ]
+  );
+
+  if (!row) {
+    return null;
+  }
+
+  const savedJob = mapDbJobRow(row);
+  return {
+    jobNumber: savedJob.jobNumber,
+    isStagedForPickup: savedJob.isStagedForPickup,
+    updatedAt: savedJob.updatedAt,
+    warnings: []
+  };
+}
+
 async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user, nowIso) {
   const existing = await findJobByNumber(client, orgId, jobNumber);
   if (existing) {
@@ -6862,6 +7241,8 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   derived.createdBy = derived.createdBy || user;
   derived.updatedAt = nowIso;
   derived.updatedBy = user;
+  derived.isLaborOnly = false;
+  derived.isStagedForPickup = false;
   derived.notes = asTrimmedString(payload.notes || derived.notes);
 
   return saveJobRecord(client, orgId, derived);
@@ -6901,6 +7282,8 @@ async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor,
   derived.createdBy = derived.createdBy || actor;
   derived.updatedAt = nowIso;
   derived.updatedBy = actor;
+  derived.isLaborOnly = false;
+  derived.isStagedForPickup = false;
 
   return {
     header: await saveJobRecord(client, orgId, derived),
@@ -7577,6 +7960,11 @@ async function createJob(client, orgId, payload, actor) {
     orgId,
     incomingRequirementsRaw
   );
+  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
+    client,
+    orgId,
+    payload.caulkRequirements
+  );
   const nowIso = new Date().toISOString();
   const existingHeader = await findJobByNumber(client, orgId, jobNumber);
   let nextHeader =
@@ -7590,6 +7978,8 @@ async function createJob(client, orgId, payload, actor) {
       dueDate,
       crewLeader,
       lifecycleStatus,
+      isLaborOnly: false,
+      isStagedForPickup: false,
       notes,
       createdAt: nowIso,
       createdBy: actor,
@@ -7605,11 +7995,22 @@ async function createJob(client, orgId, payload, actor) {
       dueDate,
       crewLeader,
       lifecycleStatus,
+      isLaborOnly: existingHeader.isLaborOnly,
+      isStagedForPickup: existingHeader.isStagedForPickup,
       updatedAt: nowIso,
       updatedBy: actor,
       notes
     };
   }
+
+  const materialFlags = derivePersistedJobMaterialFlags(
+    nextHeader,
+    payload,
+    incomingRequirements,
+    normalizedCaulkRequirements
+  );
+  nextHeader.isLaborOnly = materialFlags.isLaborOnly;
+  nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
   nextHeader = await saveJobRecord(client, orgId, nextHeader);
 
@@ -7662,6 +8063,14 @@ async function createJob(client, orgId, payload, actor) {
     orgId,
     nextHeader,
     buildRequirementRowsForReplace(jobNumber, mergedValues, existingByKey, actor, nowIso)
+  );
+  await replaceJobCaulkRequirementsForJob(
+    client,
+    orgId,
+    nextHeader,
+    normalizedCaulkRequirements,
+    actor,
+    nowIso
   );
 
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
@@ -7728,6 +8137,11 @@ async function updateJob(client, orgId, payload, actor) {
   }
   const requirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
   const requirements = await canonicalizeJobRequirementEntriesWithAliases(client, orgId, requirementsRaw);
+  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
+    client,
+    orgId,
+    payload.caulkRequirements
+  );
   const nowIso = new Date().toISOString();
   const header = await ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, actor, nowIso);
   if (normalizeJobLifecycleStatus(header.lifecycleStatus) !== 'ACTIVE') {
@@ -7759,6 +8173,15 @@ async function updateJob(client, orgId, payload, actor) {
     nextHeader.notes = asTrimmedString(payload.notes);
   }
 
+  const materialFlags = derivePersistedJobMaterialFlags(
+    nextHeader,
+    payload,
+    requirements,
+    normalizedCaulkRequirements
+  );
+  nextHeader.isLaborOnly = materialFlags.isLaborOnly;
+  nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
+
   nextHeader.updatedAt = nowIso;
   nextHeader.updatedBy = actor;
 
@@ -7770,6 +8193,14 @@ async function updateJob(client, orgId, payload, actor) {
     orgId,
     savedHeader,
     buildRequirementRowsForReplace(jobNumber, requirements, existingByKey, actor, nowIso)
+  );
+  await replaceJobCaulkRequirementsForJob(
+    client,
+    orgId,
+    savedHeader,
+    normalizedCaulkRequirements,
+    actor,
+    nowIso
   );
 
   const dueDateChanged = asTrimmedString(header.dueDate) !== asTrimmedString(savedHeader.dueDate);
@@ -9531,7 +9962,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
     }
 
     const params = routeParams(method, requestUrl, bodyJson);
-    const authContext = await resolveAuthContext(headers);
+    const authContext = await resolveAuthContext(headers, bodyJson);
 
     if (logicalPath === '/auth/context') {
       return {
@@ -9612,6 +10043,17 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
               )
             });
           }
+          case '/jobs/calendar':
+            return ok({
+              entries: await buildJobsCalendar(
+                client,
+                authContext.orgId,
+                params && params.view,
+                params && params.anchorDate,
+                params && params.month,
+                params && params.lifecycleStatus
+              )
+            });
           case '/jobs/search': {
             const limitValue = Number(params && params.limit);
             const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
@@ -9779,6 +10221,21 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           return createJob(client, authContext.orgId, params, authContext.actor);
         case '/jobs/update':
           return updateJob(client, authContext.orgId, params, authContext.actor);
+        case '/jobs/set-staged-pickup':
+          return (async () => {
+            const jobNumber = requireString(params.jobNumber, 'JobNumber');
+            const result = await setJobStagedPickup(
+              client,
+              authContext.orgId,
+              jobNumber,
+              params && params.isStagedForPickup,
+              authContext.actor
+            );
+            if (!result) {
+              throw new HttpError(500, 'Job staged pickup update failed.');
+            }
+            return ok(await buildJobDetail(client, authContext.orgId, jobNumber), result.warnings || []);
+          })();
         case '/jobs/complete':
           return completeJob(client, authContext.orgId, params, authContext.actor);
         case '/jobs/delete':

@@ -11,13 +11,17 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.general_feature_permissions' },
   { kind: 'table', signature: 'app.admin_feature_permissions' },
   { kind: 'table', signature: 'app.owner_notification_preferences' },
+  { kind: 'column', signature: 'app.jobs.is_labor_only' },
+  { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },
   { kind: 'function', signature: 'public.api_get_user_feature_permissions(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
-  { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' }
+  { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' }
 ];
 
 async function runSchemaCheck() {
@@ -47,13 +51,17 @@ async function runSchemaCheck() {
             ('table'::text, 'app.general_feature_permissions'::text),
             ('table'::text, 'app.admin_feature_permissions'::text),
             ('table'::text, 'app.owner_notification_preferences'::text),
+            ('column'::text, 'app.jobs.is_labor_only'::text),
+            ('column'::text, 'app.jobs.is_staged_for_pickup'::text),
             ('function'::text, 'public.api_get_auth_context(uuid)'::text),
             ('function'::text, 'public.api_request_username_change(uuid, text, jsonb)'::text),
             ('function'::text, 'public.api_list_username_change_requests(uuid, text)'::text),
             ('function'::text, 'public.api_get_user_feature_permissions(uuid, uuid)'::text),
             ('function'::text, 'public.api_update_user_feature_permissions(uuid, text, jsonb)'::text),
             ('function'::text, 'public.api_acl_boxes_delete(uuid, text, jsonb)'::text),
-            ('function'::text, 'public.api_boxes_delete(uuid, text, jsonb)'::text)
+            ('function'::text, 'public.api_boxes_delete(uuid, text, jsonb)'::text),
+            ('function'::text, 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)'::text),
+            ('function'::text, 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)'::text)
         )
         select
           kind,
@@ -79,10 +87,10 @@ async function runSchemaCheck() {
     if (missing.length > 0) {
       const details = missing.map((row) => `- ${row.kind}: ${row.signature}`).join('\n');
       throw new Error(
-        '[schema-check] Missing required migration objects (0006/0007/0008/0009):\n' +
-          '(plus delete RPC compatibility for current API handlers)\n' +
+        '[schema-check] Missing required migration objects (0006/0007/0008/0009/0034/0035):\n' +
+          '(plus current job staged-pickup + labor-only compatibility for local API handlers)\n' +
           `${details}\n` +
-          'Run backend/migrations/0006_access_control_and_approvals.sql, backend/migrations/0007_access_request_display_name.sql, backend/migrations/0008_username_change_requests.sql, and backend/migrations/0009_user_feature_overrides.sql against this database.'
+          'Run backend/migrations/0006_access_control_and_approvals.sql, backend/migrations/0007_access_request_display_name.sql, backend/migrations/0008_username_change_requests.sql, backend/migrations/0009_user_feature_overrides.sql, backend/migrations/0034_jobs_calendar_and_staged_pickup.sql, and backend/migrations/0035_labor_only_jobs.sql against this database.'
       );
     }
 
