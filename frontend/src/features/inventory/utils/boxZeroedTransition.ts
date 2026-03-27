@@ -1,5 +1,7 @@
 import type { Box, UpdateBoxPayload } from '../../../domain';
 
+export type ZeroedInventoryEditTrigger = 'lastRollWeight' | 'linearFeet';
+
 type BoxHistorySnapshot = Pick<
   Box | UpdateBoxPayload,
   'receivedDate' | 'initialWeightLbs' | 'coreWeightLbs' | 'lastWeighedDate'
@@ -59,22 +61,69 @@ export function getIncompleteBoxHistoryFieldsForZeroedEdit(
   );
 }
 
+export function getZeroedInventoryEditTrigger(
+  currentBox: Box | null | undefined,
+  payload: UpdateBoxPayload
+): ZeroedInventoryEditTrigger | null {
+  if (
+    currentBox &&
+    currentBox.initialFeet > 0 &&
+    Boolean(currentBox.receivedDate) &&
+    payload.initialFeet === 0
+  ) {
+    return 'linearFeet';
+  }
+
+  if (payload.lastRollWeightLbs !== 0) {
+    return null;
+  }
+
+  return getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload).length > 0
+    ? 'lastRollWeight'
+    : null;
+}
+
 export function shouldPromptZeroedInventoryWarningOnEdit(
   currentBox: Box | null | undefined,
   payload: UpdateBoxPayload
 ) {
-  if (payload.lastRollWeightLbs !== 0) {
-    return false;
-  }
-
-  return getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload).length > 0;
+  return getZeroedInventoryEditTrigger(currentBox, payload) !== null;
 }
 
-export function buildZeroedInventoryWarningMessage(fieldLabels: string[]) {
+export function buildZeroedInventoryPayloadForEdit(
+  currentBox: Box | null | undefined,
+  payload: UpdateBoxPayload,
+  trigger: ZeroedInventoryEditTrigger
+): UpdateBoxPayload {
+  if (trigger === 'linearFeet') {
+    return {
+      ...payload,
+      initialFeet: currentBox?.initialFeet ?? payload.initialFeet,
+      feetAvailable: 0,
+      moveToZeroed: true,
+      auditNote: 'Confirmed zero Linear Feet edit save'
+    };
+  }
+
+  return {
+    ...payload,
+    moveToZeroed: true,
+    auditNote: 'Confirmed zero Last Roll Weight edit save'
+  };
+}
+
+export function buildZeroedInventoryWarningMessage(
+  fieldLabels: string[],
+  trigger: ZeroedInventoryEditTrigger = 'lastRollWeight'
+) {
   const missingFieldsText = formatFieldList(fieldLabels);
   const historySentence = missingFieldsText
     ? `This box is missing ${missingFieldsText}.`
     : 'This box has incomplete history.';
+
+  if (trigger === 'linearFeet') {
+    return `${historySentence} If you continue, saving Linear Feet as 0 will move the box to zeroed inventory, preserve its original starting footage for history, set Available Feet to 0, and cancel any active allocations tied to this box.`;
+  }
 
   return `${historySentence} If you continue, saving a Last Roll Weight of 0 will move the box to zeroed inventory, set Available Feet to 0, and cancel any active allocations tied to this box.`;
 }

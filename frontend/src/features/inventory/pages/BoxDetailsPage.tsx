@@ -43,9 +43,11 @@ import {
   getCheckoutWarnings
 } from '../utils/boxWarnings';
 import {
+  buildZeroedInventoryPayloadForEdit,
   buildZeroedInventoryWarningMessage,
+  getZeroedInventoryEditTrigger,
   getIncompleteBoxHistoryFieldsForZeroedEdit,
-  shouldPromptZeroedInventoryWarningOnEdit
+  type ZeroedInventoryEditTrigger
 } from '../utils/boxZeroedTransition';
 import { summarizeReturnedMaterials } from '../utils/jobReturnedMaterials';
 
@@ -70,6 +72,7 @@ type ConfirmState =
 interface PendingZeroedEditState {
   payload: UpdateBoxPayload;
   missingFields: string[];
+  trigger: ZeroedInventoryEditTrigger;
 }
 
 type ReturnedMaterialsPromptState =
@@ -515,9 +518,9 @@ export default function BoxDetailsPage() {
 
     await submitUpdate({
       ...payload,
-      auditNote: payload.moveToZeroed
-        ? 'Confirmed zero Last Roll Weight edit save'
-        : 'Inventory metadata update'
+      auditNote:
+        payload.auditNote?.trim() ||
+        (payload.moveToZeroed ? 'Confirmed zeroed inventory edit save' : 'Inventory metadata update')
     });
   }
 
@@ -528,14 +531,13 @@ export default function BoxDetailsPage() {
 
     try {
       const payload = parseUpdateBoxDraft(draft);
+      const zeroedTrigger = getZeroedInventoryEditTrigger(box, payload);
 
-      if (shouldPromptZeroedInventoryWarningOnEdit(box, payload)) {
+      if (zeroedTrigger) {
         setPendingZeroedEditState({
-          payload: {
-            ...payload,
-            moveToZeroed: true
-          },
-          missingFields: getIncompleteBoxHistoryFieldsForZeroedEdit(box, payload)
+          payload: buildZeroedInventoryPayloadForEdit(box, payload, zeroedTrigger),
+          missingFields: getIncompleteBoxHistoryFieldsForZeroedEdit(box, payload),
+          trigger: zeroedTrigger
         });
         return;
       }
@@ -1082,7 +1084,10 @@ export default function BoxDetailsPage() {
         title="Move Box To Zeroed Inventory?"
         message={
           pendingZeroedEditState
-            ? buildZeroedInventoryWarningMessage(pendingZeroedEditState.missingFields)
+            ? buildZeroedInventoryWarningMessage(
+                pendingZeroedEditState.missingFields,
+                pendingZeroedEditState.trigger
+              )
             : ''
         }
         confirmLabel="Move To Zeroed"

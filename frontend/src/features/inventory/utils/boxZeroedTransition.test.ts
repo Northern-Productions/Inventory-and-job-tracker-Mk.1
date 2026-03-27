@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Box, UpdateBoxPayload } from '../../../domain';
 import {
+  buildZeroedInventoryPayloadForEdit,
   buildZeroedInventoryWarningMessage,
+  getZeroedInventoryEditTrigger,
   getIncompleteBoxHistoryFieldsForZeroedEdit,
   shouldPromptZeroedInventoryWarningOnEdit
 } from './boxZeroedTransition';
@@ -69,8 +71,23 @@ describe('boxZeroedTransition', () => {
     const currentBox = createBox({ receivedDate: '' });
     const payload = createPayload();
 
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBe('lastRollWeight');
     expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
     expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain('Received Date');
+  });
+
+  it('prompts when a received box is edited to 0 linear feet and preserves the original starting footage', () => {
+    const currentBox = createBox({ initialFeet: 500, feetAvailable: 420 });
+    const payload = createPayload({ initialFeet: 0, feetAvailable: 420, lastRollWeightLbs: 11.9 });
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBe('linearFeet');
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
+    expect(buildZeroedInventoryPayloadForEdit(currentBox, payload, 'linearFeet')).toMatchObject({
+      initialFeet: 500,
+      feetAvailable: 0,
+      moveToZeroed: true,
+      auditNote: 'Confirmed zero Linear Feet edit save'
+    });
   });
 
   it('prompts when the current saved box is incomplete even if the submitted values fill the gap', () => {
@@ -106,10 +123,13 @@ describe('boxZeroedTransition', () => {
     const currentBox = createBox();
     const payload = createPayload();
     const message = buildZeroedInventoryWarningMessage(['Received Date', 'Core Weight']);
+    const zeroLinearFeetMessage = buildZeroedInventoryWarningMessage([], 'linearFeet');
 
     expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
     expect(message).toContain('Received Date and Core Weight');
     expect(message).toContain('move the box to zeroed inventory');
     expect(message).toContain('cancel any active allocations');
+    expect(zeroLinearFeetMessage).toContain('saving Linear Feet as 0');
+    expect(zeroLinearFeetMessage).toContain('preserve its original starting footage');
   });
 });
