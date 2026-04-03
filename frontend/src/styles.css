@@ -604,6 +604,18 @@ th {
   gap: 1rem;
 }
 
+.scan-page-header {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.scan-page-heading {
+  margin: 0;
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
 .scanner-panel,
 .inventory-results-panel,
 .detail-hero,
@@ -2286,6 +2298,25 @@ td.col-available-linear-ft {
   overflow-y: auto;
 }
 
+.dialog-caulk-checkout,
+.dialog-caulk-checkin {
+  width: min(100%, 640px);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.dialog-actions-sticky-footer {
+  position: sticky;
+  bottom: -1.25rem;
+  margin: 1rem -1.25rem 0;
+  padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom));
+  background: #fff;
+  border-top: 1px solid rgba(18, 52, 59, 0.08);
+  backdrop-filter: none;
+  z-index: 2;
+}
+
 .dialog-backdrop-centered {
   place-items: center;
 }
@@ -2460,14 +2491,6 @@ td.col-available-linear-ft {
   max-height: min(42vh, 24rem);
   overflow-y: auto;
   overflow-x: auto;
-}
-
-.dialog-job-editor .dialog-actions:last-child {
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-  padding-top: 0.75rem;
-  margin-top: 0.5rem;
 }
 
 @supports selector(body:has(.dialog-backdrop)) {
@@ -3026,18 +3049,14 @@ td.col-available-linear-ft {
   margin: 0 0 1rem;
 }
 
-.jobs-calendar-search-note {
-  display: grid;
-  gap: 0.3rem;
-  min-height: 100%;
-  padding: 0.95rem 1rem;
-  border: 1px solid rgba(18, 52, 59, 0.1);
-  border-radius: 1.15rem;
-  background: rgba(245, 248, 248, 0.92);
+.jobs-calendar-search-actions {
+  display: flex;
+  align-items: flex-end;
 }
 
-.jobs-calendar-search-note p {
-  margin: 0;
+.jobs-calendar-search-button {
+  width: 100%;
+  min-height: 3.35rem;
 }
 
 .job-calendar {
@@ -3763,6 +3782,11 @@ td.col-available-linear-ft {
     max-height: calc(100dvh - 1.5rem);
   }
 
+  .dialog-caulk-checkout,
+  .dialog-caulk-checkin {
+    max-height: calc(100dvh - 1.5rem);
+  }
+
   .job-editor-basics-primary-grid,
   .job-editor-basics-secondary-grid {
     grid-template-columns: 1fr;
@@ -3774,13 +3798,6 @@ td.col-available-linear-ft {
 
   .dialog-job-allocate .allocation-preview .table-wrap {
     max-height: 42dvh;
-  }
-
-  .dialog-job-editor .dialog-actions:last-child {
-    position: static;
-    background: transparent;
-    padding-top: 0;
-    margin-top: 0.75rem;
   }
 
   .app-shell {

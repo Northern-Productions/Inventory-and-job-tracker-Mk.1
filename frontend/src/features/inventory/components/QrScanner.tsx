@@ -82,16 +82,8 @@ export function QrScanner({ onResolved }: QrScannerProps) {
 
   return (
     <div className="panel scanner-panel">
-      <div className="panel-title-row">
-        <div>
-          <span className="eyebrow">Camera Scan</span>
-          <h2>Scan QR</h2>
-          <p className="muted-text">Point the device at a label to open that box instantly.</p>
-        </div>
-      </div>
       <div id={elementId} className="scanner-frame" />
       {error ? <p className="error-text">{error}</p> : null}
-      <p className="muted-text">The QR code should contain only the BoxID text.</p>
     </div>
   );
 }

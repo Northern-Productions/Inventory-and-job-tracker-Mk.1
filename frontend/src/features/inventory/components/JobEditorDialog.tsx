@@ -863,7 +863,7 @@ export function JobEditorDialog({
 
         {error ? <p className="error-text">{error}</p> : null}
 
-        <div className="dialog-actions">
+        <div className="dialog-actions dialog-actions-sticky-footer">
           <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={submitting}>
             Cancel
           </Button>

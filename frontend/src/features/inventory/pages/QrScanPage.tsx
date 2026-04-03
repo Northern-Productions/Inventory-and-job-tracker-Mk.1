@@ -34,15 +34,9 @@ export default function QrScanPage() {
 
   return (
     <>
-      <section className="panel">
-        <div className="page-hero-topline">
-          <span className="eyebrow">Scan Workflow</span>
-        </div>
-        <div className="page-hero-title-row">
-          <div className="page-hero-copy">
-            <h2>Scan And Open Boxes</h2>
-          </div>
-        </div>
+      <section className="panel scan-page-header">
+        <span className="eyebrow">Scan Workflow</span>
+        <h2 className="scan-page-heading">Scan And Open Boxes</h2>
       </section>
       <div className="scan-workspace">
         <QrScanner onResolved={goToBox} />
