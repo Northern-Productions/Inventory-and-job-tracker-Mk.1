@@ -7,41 +7,13 @@ import type { ManualInstallMode } from '../pwa/installUtils';
 import { useAuth } from './AuthContext';
 import { UsernameChangeControl } from './UsernameChangeControl';
 
-export function AccountSummary() {
-  const auth = useAuth();
-
-  if (auth.isAuthenticated && auth.session) {
-    return (
-      <div className="auth-panel account-card">
-        <div className="auth-user">
-          <strong>{auth.session.user.name}</strong>
-          <span className="auth-email">{auth.session.user.email}</span>
-          {auth.accessContext?.role ? (
-            <span className="auth-email auth-role-line">
-              Role: {auth.accessContext.role}
-              {auth.canAccessAdminConsole ? ` | Pending: ${auth.accessContext.pendingCount}` : ''}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    );
+function buildAccountRoleLine(role: string | null | undefined, pendingCount: number, showPending: boolean) {
+  const trimmedRole = String(role || '').trim();
+  if (!trimmedRole) {
+    return '';
   }
 
-  if (!auth.clientIdConfigured) {
-    return (
-      <div className="auth-panel">
-        <p className="auth-note">
-          Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to enable sign-in.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="auth-panel">
-      <p className="auth-note">Sign in with email/password to create and change inventory.</p>
-    </div>
-  );
+  return `Role: ${trimmedRole}${showPending ? ` | Pending: ${pendingCount}` : ''}`;
 }
 
 export function AccountMenuTrigger() {
@@ -121,6 +93,13 @@ export function AccountMenuTrigger() {
     return null;
   }
 
+  const accountName = auth.session.user.name || auth.session.user.email;
+  const accountRoleLine = buildAccountRoleLine(
+    auth.accessContext?.role,
+    Number(auth.accessContext?.pendingCount || 0),
+    auth.canAccessAdminConsole
+  );
+
   const handleInstallClick = async () => {
     closeMenu();
 
@@ -151,6 +130,13 @@ export function AccountMenuTrigger() {
         left: `${menuPosition.left}px`
       }}
     >
+      <div className="account-menu-profile" role="presentation">
+        <strong className="account-menu-profile-name">{accountName}</strong>
+        <span className="account-menu-profile-email">{auth.session.user.email}</span>
+        {accountRoleLine ? (
+          <span className="account-menu-profile-meta">{accountRoleLine}</span>
+        ) : null}
+      </div>
       <UsernameChangeControl
         buttonVariant="ghost"
         buttonClassName="account-menu-item"

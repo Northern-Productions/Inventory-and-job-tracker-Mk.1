@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import type { FeatureAccessMode, FeatureArea } from '../domain';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
-import { AccountMenuTrigger, AccountSummary } from '../features/auth/AccountControl';
+import { AccountMenuTrigger } from '../features/auth/AccountControl';
 import { useAuth } from '../features/auth/AuthContext';
 import { useJobsList } from '../features/inventory/hooks/useInventoryReadQueries';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
@@ -372,82 +372,78 @@ export function AppLayout() {
           <div className="app-header-band-inner">
             <div className="app-header-topline">
               <div className="app-brand-block">
-                <div className="app-brand-row">
-                  <div>
-                    <p className="eyebrow">Operations Workspace</p>
-                    <h1>Window Film Inventory</h1>
-                  </div>
-                </div>
+                <h1>Window Film Inventory</h1>
               </div>
               <div className="app-header-corner">
                 <AccountMenuTrigger />
               </div>
-              <div className="header-actions">
-                <AccountSummary />
-              </div>
             </div>
+            {!isPhoneLayout ? (
+              <div className="app-nav-shell">
+                <nav
+                  className="app-nav"
+                  aria-label="Primary"
+                  style={{ gridTemplateColumns: `repeat(${primaryNavItems.length + 1}, minmax(0, 1fr))` }}
+                >
+                  {primaryNavItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === '/'}
+                      className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`.trim()}
+                      aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
+                    >
+                      <span className="nav-attention-label">
+                        {item.desktopLabel}
+                        {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
+                      </span>
+                    </NavLink>
+                  ))}
+                  <div className="app-nav-more-wrap" ref={desktopMoreRef}>
+                    <button
+                      type="button"
+                      className={`nav-link nav-more-button ${
+                        isDesktopMoreActive || isDesktopMoreOpen ? 'nav-link-active' : ''
+                      }`.trim()}
+                      onClick={toggleDesktopMoreMenu}
+                      aria-haspopup="menu"
+                      aria-expanded={isDesktopMoreOpen}
+                      aria-label={showAccessPendingAttention ? 'More (pending approvals)' : 'More'}
+                    >
+                      <span className="nav-attention-label">
+                        More
+                        {showAccessPendingAttention ? (
+                          <span className="nav-attention-dot" aria-hidden="true" />
+                        ) : null}
+                      </span>
+                    </button>
+                    {isDesktopMoreOpen ? (
+                      <div className="nav-more-menu" role="menu" aria-label="More pages">
+                        {moreDesktopNavItems.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            className={`nav-more-item ${item.active ? 'nav-more-item-active' : ''}`.trim()}
+                            role="menuitem"
+                            onClick={closeDesktopMoreMenu}
+                            aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
+                          >
+                            <span className="nav-attention-label">
+                              {item.desktopLabel}
+                              {item.showAttentionDot ? (
+                                <span className="nav-attention-dot" aria-hidden="true" />
+                              ) : null}
+                            </span>
+                          </NavLink>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </nav>
+              </div>
+            ) : null}
           </div>
         </div>
-        {!isPhoneLayout ? (
-          <div className="app-nav-shell">
-            <nav
-              className="app-nav"
-              aria-label="Primary"
-              style={{ gridTemplateColumns: `repeat(${primaryNavItems.length + 1}, minmax(0, 1fr))` }}
-            >
-              {primaryNavItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`.trim()}
-                  aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
-                >
-                  <span className="nav-attention-label">
-                    {item.desktopLabel}
-                    {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
-                  </span>
-                </NavLink>
-              ))}
-              <div className="app-nav-more-wrap" ref={desktopMoreRef}>
-                <button
-                  type="button"
-                  className={`nav-link nav-more-button ${
-                    isDesktopMoreActive || isDesktopMoreOpen ? 'nav-link-active' : ''
-                  }`.trim()}
-                  onClick={toggleDesktopMoreMenu}
-                  aria-haspopup="menu"
-                  aria-expanded={isDesktopMoreOpen}
-                  aria-label={showAccessPendingAttention ? 'More (pending approvals)' : 'More'}
-                >
-                  <span className="nav-attention-label">
-                    More
-                    {showAccessPendingAttention ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
-                  </span>
-                </button>
-                {isDesktopMoreOpen ? (
-                  <div className="nav-more-menu" role="menu" aria-label="More pages">
-                    {moreDesktopNavItems.map((item) => (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        className={`nav-more-item ${item.active ? 'nav-more-item-active' : ''}`.trim()}
-                        role="menuitem"
-                        onClick={closeDesktopMoreMenu}
-                        aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
-                      >
-                        <span className="nav-attention-label">
-                          {item.desktopLabel}
-                          {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
-                        </span>
-                      </NavLink>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </nav>
-          </div>
-        ) : null}
       </header>
       <main className={`app-main ${isPhoneLayout ? 'app-main-phone' : ''}`.trim()}>
         <div
