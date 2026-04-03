@@ -4,6 +4,7 @@ import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import type { CreateFilmOrderPayload, FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
+  STANDARD_WIDTH_OPTIONS,
   canonicalizeManufacturerLabel,
   getManufacturerOptionsWithCatalog,
   hasManufacturerOption
@@ -13,6 +14,7 @@ import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
+const WIDTH_BUTTON_VALUES = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 
 interface CreateFilmOrderDialogProps {
   open: boolean;
@@ -46,11 +48,20 @@ export function CreateFilmOrderDialog({
   const [widthIn, setWidthIn] = useState('36');
   const [requestedFeet, setRequestedFeet] = useState('100');
   const [error, setError] = useState('');
+  const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
+  const [customWidthDraft, setCustomWidthDraft] = useState('');
   const isKnownManufacturer = hasManufacturerOption(manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
     ? manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
   const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
+  const hasCustomWidth =
+    widthIn.trim() !== '' &&
+    !STANDARD_WIDTH_OPTIONS.includes(widthIn as (typeof STANDARD_WIDTH_OPTIONS)[number]);
+  const isCustomWidthValid =
+    customWidthDraft.trim() !== '' &&
+    Number.isFinite(Number(customWidthDraft)) &&
+    Number(customWidthDraft) > 0;
 
   useEffect(() => {
     if (open) {
@@ -63,6 +74,8 @@ export function CreateFilmOrderDialog({
     setFilmName('');
     setWidthIn('36');
     setRequestedFeet('100');
+    setCustomWidthDraft('');
+    setIsCustomWidthOpen(false);
     setError('');
   }, [defaultWarehouse, manufacturerOptions, open]);
 
@@ -111,19 +124,42 @@ export function CreateFilmOrderDialog({
     });
   }
 
+  function handleWidthButtonClick(value: (typeof WIDTH_BUTTON_VALUES)[number]) {
+    if (value === 'CUSTOM') {
+      setCustomWidthDraft(hasCustomWidth ? widthIn : '');
+      setIsCustomWidthOpen(true);
+      setError('');
+      return;
+    }
+
+    setWidthIn(value);
+    setError('');
+  }
+
+  function saveCustomWidth() {
+    if (!isCustomWidthValid) {
+      return;
+    }
+
+    setWidthIn(customWidthDraft.trim());
+    setError('');
+    setIsCustomWidthOpen(false);
+  }
+
   return (
-    <DialogSurface open={open} onClose={onCancel} titleId="create-film-order-title">
-      <div className="dialog-header">
-        <h2 id="create-film-order-title">Order Film</h2>
-        <button type="button" className="dialog-close" aria-label="Close film order dialog" onClick={onCancel}>
-          x
-        </button>
-      </div>
-      <div className="dialog-copy">
-        <p className="muted-text">
-          Save the film order first, then you will be sent to Add Box to create the incoming box records.
-        </p>
-      </div>
+    <>
+      <DialogSurface open={open} onClose={onCancel} titleId="create-film-order-title">
+        <div className="dialog-header">
+          <h2 id="create-film-order-title">Order Film</h2>
+          <button type="button" className="dialog-close" aria-label="Close film order dialog" onClick={onCancel}>
+            x
+          </button>
+        </div>
+        <div className="dialog-copy">
+          <p className="muted-text">
+            Save the film order first, then you will be sent to Add Box to create the incoming box records.
+          </p>
+        </div>
         <div className="form-grid">
           <WarehouseSelectField
             label="Warehouse"
@@ -191,18 +227,31 @@ export function CreateFilmOrderDialog({
             }}
             required
           />
-          <Input
-            label="Width"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={widthIn}
-            onChange={(event) => {
-              setWidthIn(event.target.value);
-              setError('');
-            }}
-            required
-          />
+          <div className="field width-selector">
+            <span className="field-label">Width</span>
+            <div className="width-button-grid">
+              {WIDTH_BUTTON_VALUES.map((value) => {
+                const isActive = value === 'CUSTOM' ? hasCustomWidth : widthIn === value;
+                const buttonLabel =
+                  value === 'CUSTOM' && hasCustomWidth
+                    ? widthIn
+                    : value === 'CUSTOM'
+                      ? 'Cust.'
+                      : value;
+
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`width-chip ${isActive ? 'width-chip-active' : ''}`.trim()}
+                    onClick={() => handleWidthButtonClick(value)}
+                  >
+                    {buttonLabel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <Input
             label="Linear Feet"
             type="text"
@@ -225,6 +274,49 @@ export function CreateFilmOrderDialog({
             {submitting ? 'Saving...' : 'Save And Continue'}
           </Button>
         </div>
-    </DialogSurface>
+      </DialogSurface>
+
+      {isCustomWidthOpen ? (
+        <DialogSurface
+          open={isCustomWidthOpen}
+          onClose={() => setIsCustomWidthOpen(false)}
+          className="width-dialog"
+          titleId="create-film-order-custom-width-title"
+          closeOnBackdrop
+        >
+          <div className="dialog-header">
+            <h2 id="create-film-order-custom-width-title">Custom Width</h2>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close custom width dialog"
+              onClick={() => setIsCustomWidthOpen(false)}
+            >
+              x
+            </button>
+          </div>
+          <Input
+            label="Width In"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={customWidthDraft}
+            onChange={(event) => setCustomWidthDraft(event.target.value)}
+            autoFocus
+          />
+          <div className="dialog-actions dialog-actions-center">
+            <Button
+              type="button"
+              variant="primary"
+              className="custom-width-save"
+              onClick={saveCustomWidth}
+              disabled={!isCustomWidthValid}
+            >
+              Save
+            </Button>
+          </div>
+        </DialogSurface>
+      ) : null}
+    </>
   );
 }
