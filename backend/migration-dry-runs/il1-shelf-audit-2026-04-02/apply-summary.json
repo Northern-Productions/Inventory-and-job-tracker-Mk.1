@@ -1,0 +1,1598 @@
+{
+  "generatedAt": "2026-04-03T02:48:39.236Z",
+  "prefix": "apply",
+  "parsedInput": {
+    "warehouse": "IL1",
+    "sourceEntryCount": 513,
+    "uniqueEntryCount": 510,
+    "duplicateSourceIds": [
+      {
+        "suffix": "4026",
+        "boxId": "IL1-4026",
+        "occurrenceCount": 2
+      },
+      {
+        "suffix": "6380",
+        "boxId": "IL1-6380",
+        "occurrenceCount": 2
+      },
+      {
+        "suffix": "6591",
+        "boxId": "IL1-6591",
+        "occurrenceCount": 2
+      }
+    ]
+  },
+  "summary": {
+    "warehouse": "IL1",
+    "sourceEntryCount": 513,
+    "uniqueShelfIdCount": 510,
+    "duplicateShelfIdCount": 3,
+    "inventoryRowCount": 2054,
+    "activeInventoryCount": 656,
+    "matchedActiveCount": 478,
+    "zeroCandidateCount": 167,
+    "checkedOutExceptionCount": 11,
+    "alreadyZeroedHitCount": 21,
+    "missingIdCount": 11,
+    "unexpectedStatusHitCount": 0
+  },
+  "breakdowns": {
+    "zeroCandidatesByManufacturer": {
+      "Security": 48,
+      "3M Solar": 24,
+      "Avery Dennison": 24,
+      "3M Fasara": 18,
+      "SOLYX": 12,
+      "Llumar": 11,
+      "Vinyl": 9,
+      "ASWFVKOOL": 8,
+      "Solar Gard": 7,
+      "Di-Noc": 5,
+      "Madico": 1
+    },
+    "checkedOutExceptionsByManufacturer": {
+      "Security": 6,
+      "3M Fasara": 2,
+      "3M Solar": 1,
+      "Llumar": 1,
+      "Madico": 1
+    },
+    "alreadyZeroedHitsByManufacturer": {
+      "3M Solar": 6,
+      "Llumar": 3,
+      "Security": 3,
+      "SOLYX": 3,
+      "Solar Gard": 2,
+      "Vinyl": 2,
+      "3M Fasara": 1,
+      "Di-Noc": 1
+    }
+  },
+  "extra": {
+    "inputPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\migration-dry-runs\\il1-shelf-audit-2026-04-02\\physical-shelf-audit-input.txt",
+    "reportDir": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\migration-dry-runs\\il1-shelf-audit-2026-04-02",
+    "actorUserId": "e6f0c4d8-3677-44d2-a0b2-12f7e4562123",
+    "actorRole": "owner",
+    "auditNote": "IL1 shelf audit reconcile 2026-04-02: box not found on physical shelf list.",
+    "appliedRows": [
+      {
+        "boxId": "IL1-1338",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Titan 7 Xtra",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024756149-210",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1384",
+        "manufacturer": "Security",
+        "filmName": "Ultra S15",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024756434-129",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1448",
+        "manufacturer": "Vinyl",
+        "filmName": "Oracal 651 White Glossy",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024756703-994",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1472",
+        "manufacturer": "Avery Dennison",
+        "filmName": "SkyLite 20 XTRM Poly",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024756968-397",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1485",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024757225-206",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1798",
+        "manufacturer": "3M Fasara",
+        "filmName": "Arpa SH2FGAP",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024757485-525",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1799",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF BLACK OPAQUE",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024757746-036",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1801",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF FROST REMOVABLE",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024757998-686",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1802",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF FROST REMOVABLE",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024758253-280",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-1806",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF WHITE OPAQUE",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024758515-153",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2064",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S600",
+        "widthIn": 14,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024758785-245",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2208",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra Prestige 70",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024759045-919",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2209",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024759324-579",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2278",
+        "manufacturer": "Vinyl",
+        "filmName": "Safron 818",
+        "widthIn": 30,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024759582-230",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2289",
+        "manufacturer": "Security",
+        "filmName": "7 MIL",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024759843-179",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2335",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S600",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024800103-515",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2336",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S600",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024800364-032",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2337",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S600",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024800630-920",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2385",
+        "manufacturer": "Security",
+        "filmName": "3M AG",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024800899-905",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2386",
+        "manufacturer": "Security",
+        "filmName": "3M AG",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024801150-644",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2676",
+        "manufacturer": "3M Solar",
+        "filmName": "Amber Low E 20",
+        "widthIn": 40,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024801412-862",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2692",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Titan 7 Xtra",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024801672-035",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2771",
+        "manufacturer": "3M Solar",
+        "filmName": "Privacy Mirror",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024801933-607",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2856",
+        "manufacturer": "Security",
+        "filmName": "AV Clear 7 MIL",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024802192-032",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2866",
+        "manufacturer": "Security",
+        "filmName": "Madico Blister Free",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024802453-715",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2938",
+        "manufacturer": "Avery Dennison",
+        "filmName": "HT ELITE",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024802712-336",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2969",
+        "manufacturer": "3M Fasara",
+        "filmName": "Cielo SH2FGCE",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024802971-017",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-2996",
+        "manufacturer": "Security",
+        "filmName": "SOL Ultrasafe WM560",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024803240-445",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3013",
+        "manufacturer": "Vinyl",
+        "filmName": "PERF ONE WAY",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024803497-239",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3018",
+        "manufacturer": "Security",
+        "filmName": "3M S70",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024803743-515",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3021",
+        "manufacturer": "Vinyl",
+        "filmName": "Perforated One-Way (White)",
+        "widthIn": 54,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024804004-683",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3107",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Silver 20 Poly EXT",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024804265-994",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3123",
+        "manufacturer": "Security",
+        "filmName": "3M S40 ext",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024804524-627",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3127",
+        "manufacturer": "Di-Noc",
+        "filmName": "3M Di-Noc AE-1913MT",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024804785-965",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3128",
+        "manufacturer": "Di-Noc",
+        "filmName": "3M Di-Noc PS1183 (192')",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024805062-396",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3171",
+        "manufacturer": "Solar Gard",
+        "filmName": "Panaroma Slate 20",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024805321-528",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3181",
+        "manufacturer": "SOLYX",
+        "filmName": "SXJ-0547 Feather Gradient",
+        "widthIn": 71,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024805573-797",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3194",
+        "manufacturer": "3M Fasara",
+        "filmName": "Dusted Crystal",
+        "widthIn": 18,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024805848-215",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3318",
+        "manufacturer": "Security",
+        "filmName": "SOL Ultrasafe WM560",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024806125-430",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3331",
+        "manufacturer": "Vinyl",
+        "filmName": "651 Black Matte",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024806391-489",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3401",
+        "manufacturer": "Di-Noc",
+        "filmName": "3M Di-Noc Wood Grain-1147",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024806651-500",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3442",
+        "manufacturer": "Di-Noc",
+        "filmName": "3M Di-Noc Fine Wood-1771H",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024806911-167",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3469",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF REMOVABLE WHITE FROST",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024807171-922",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3533",
+        "manufacturer": "Vinyl",
+        "filmName": "3M Black Electrocut",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024807441-488",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3648",
+        "manufacturer": "Avery Dennison",
+        "filmName": "DR Grey 20X",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024807702-107",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3649",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Ex Silver 20",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024807954-173",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3708",
+        "manufacturer": "Security",
+        "filmName": "Llumar PS-8 Silver",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024808200-666",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3709",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024808461-683",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3710",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024808721-301",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3739",
+        "manufacturer": "Avery Dennison",
+        "filmName": "R Silver 20X Poly",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024808977-959",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-3793",
+        "manufacturer": "Avery Dennison",
+        "filmName": "DR Grey 10X",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024809248-880",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-4019",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Silver 20 EXTRM (exterior)",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024809507-191",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-4035",
+        "manufacturer": "Avery Dennison",
+        "filmName": "- Silver 20 XRTM Exterior",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024809769-577",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-4036",
+        "manufacturer": "Avery Dennison",
+        "filmName": "- Silver 20 XRTM Exterior",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024810016-914",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5049",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Titan 07",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024810267-571",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5056",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Titan 07",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024810521-012",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5068",
+        "manufacturer": "Avery Dennison",
+        "filmName": "E-Lite 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024810775-418",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5069",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Titan 07",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024811036-681",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5075",
+        "manufacturer": "3M Fasara",
+        "filmName": "Feather Friendly Horizon",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024811301-562",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5076",
+        "manufacturer": "3M Fasara",
+        "filmName": "Feather Friendly Horizon",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024811563-072",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5090",
+        "manufacturer": "3M Solar",
+        "filmName": "Privacy Mirror",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024811822-839",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5115",
+        "manufacturer": "Security",
+        "filmName": "Avery Dennison Safety Clear 12 MIL",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024812079-737",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5160",
+        "manufacturer": "Security",
+        "filmName": "Avery Dennison Safety Matte 5 MIL R14811",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024812344-089",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5206",
+        "manufacturer": "Vinyl",
+        "filmName": "3M 7125 Dark Grey 41",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024812604-077",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5369",
+        "manufacturer": "Solar Gard",
+        "filmName": "Truevue 40",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024812861-885",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5381",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024813121-260",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5382",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024813382-711",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5390",
+        "manufacturer": "SOLYX",
+        "filmName": "SX-3140 Dusted Crystal",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024813639-271",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5452",
+        "manufacturer": "3M Fasara",
+        "filmName": "Frosted Crystal 7725-324",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024813903-428",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5691",
+        "manufacturer": "3M Fasara",
+        "filmName": "Essen SH2EMES",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024814164-605",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5839",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024814412-995",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5899",
+        "manufacturer": "SOLYX",
+        "filmName": "Blackout SXWFBO",
+        "widthIn": 46,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024814670-671",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5908",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Natura 30",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024814930-106",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5924",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Natura 30",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024815191-297",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5957",
+        "manufacturer": "3M Fasara",
+        "filmName": "Glace SH2MAGL",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024815465-803",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-5987",
+        "manufacturer": "Di-Noc",
+        "filmName": "3M Di-Noc Carbon Black CA421",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024815730-933",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6007",
+        "manufacturer": "Llumar",
+        "filmName": "Frost (NRM PS2)",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024816000-453",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6090",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024816259-119",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6096",
+        "manufacturer": "SOLYX",
+        "filmName": "Fine Brushed SXL1017",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024816533-232",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6104",
+        "manufacturer": "Avery Dennison",
+        "filmName": "E-Lite 70",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024816803-981",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6211",
+        "manufacturer": "3M Fasara",
+        "filmName": "Chamonix SH2EMCH",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024817063-005",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6225",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 1500",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024817324-664",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6272",
+        "manufacturer": "SOLYX",
+        "filmName": "Xpel Intelligence 65 XVAS65",
+        "widthIn": 58,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024817594-018",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6274",
+        "manufacturer": "Vinyl",
+        "filmName": "Oracal 751 White",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024817858-507",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6278",
+        "manufacturer": "3M Fasara",
+        "filmName": "Feather Friendly Harmony",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024818119-409",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6289",
+        "manufacturer": "Security",
+        "filmName": "3M S140",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024818380-827",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6293",
+        "manufacturer": "Security",
+        "filmName": "3M S140",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024818631-421",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6304",
+        "manufacturer": "3M Fasara",
+        "filmName": "Bird Divert",
+        "widthIn": 12,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024818893-720",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6322",
+        "manufacturer": "3M Fasara",
+        "filmName": "Feather Friendly Harmony",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024819149-312",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6326",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024819417-121",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6331",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Blue Sandstone",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024819674-067",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6332",
+        "manufacturer": "3M Fasara",
+        "filmName": "Fabric Sagano SH2PTSA2",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024819949-212",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6339",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024820213-206",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6345",
+        "manufacturer": "Vinyl",
+        "filmName": "Oracal 8500 Middle Gray",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024820488-069",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6370",
+        "manufacturer": "Solar Gard",
+        "filmName": "Truevue 15",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024820737-271",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6371",
+        "manufacturer": "SOLYX",
+        "filmName": "Whiteout SXWF-WO",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024820989-755",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6379",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024821249-388",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6388",
+        "manufacturer": "SOLYX",
+        "filmName": "SX-C380 Organic Etch Stripes",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024821504-093",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6413",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 25",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024821769-220",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6418",
+        "manufacturer": "Llumar",
+        "filmName": "SCL SR PS8 (Clear)",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024822025-583",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6435",
+        "manufacturer": "Avery Dennison",
+        "filmName": "DR Grey 10X",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024822303-854",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6452",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 1500",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024822568-409",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6464",
+        "manufacturer": "3M Fasara",
+        "filmName": "Feather Friendly Harmony",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024822825-789",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6466",
+        "manufacturer": "3M Fasara",
+        "filmName": "San Marino Milky Milky SH2MAMM",
+        "widthIn": 50,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024823076-624",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6473",
+        "manufacturer": "Llumar",
+        "filmName": "Frost (NRM PS2)",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024823333-233",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6495",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S800",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024823594-155",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6497",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024823867-384",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6514",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra S800",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024824119-913",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6536",
+        "manufacturer": "Llumar",
+        "filmName": "RN07",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024824385-069",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6574",
+        "manufacturer": "Solar Gard",
+        "filmName": "Truevue 15",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024824640-455",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6578",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 15",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024824911-171",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6583",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024825175-228",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6585",
+        "manufacturer": "Llumar",
+        "filmName": "N1020B SR CDF (Bronze)",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024825431-917",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6597",
+        "manufacturer": "SOLYX",
+        "filmName": "1/2\" Reeded Glass SX-1254",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024825685-218",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6609",
+        "manufacturer": "3M Fasara",
+        "filmName": "Frosted Crystal 7725-324",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024825946-574",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6612",
+        "manufacturer": "Avery Dennison",
+        "filmName": "E-Lite 70X",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024826200-098",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6613",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 40 Exterior",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024826465-693",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6614",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 40 Exterior",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024826726-817",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6629",
+        "manufacturer": "Llumar",
+        "filmName": "V33",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024826986-685",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6630",
+        "manufacturer": "Llumar",
+        "filmName": "V28",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024827252-767",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6637",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024827516-059",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6650",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024827777-519",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6652",
+        "manufacturer": "Avery Dennison",
+        "filmName": "E-lite 45",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024828034-111",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6656",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF FROST REMOVABLE",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024828298-861",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6657",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "ASWF FROST REMOVABLE",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024828551-209",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6660",
+        "manufacturer": "ASWFVKOOL",
+        "filmName": "V-Kool VK 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024828825-958",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6672",
+        "manufacturer": "Avery Dennison",
+        "filmName": "Perlite 70",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024829084-470",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6676",
+        "manufacturer": "Security",
+        "filmName": "3M S2400",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024829346-407",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6684",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024829610-295",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6692",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024829884-376",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6694",
+        "manufacturer": "Solar Gard",
+        "filmName": "Truevue 05",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024830138-745",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6698",
+        "manufacturer": "Llumar",
+        "filmName": "Frost (NRM PS2)",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024830394-470",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6700",
+        "manufacturer": "Llumar",
+        "filmName": "Frost (NRM PS2)",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024830658-453",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6718",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 25",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024830920-914",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6728",
+        "manufacturer": "Solar Gard",
+        "filmName": "Truevue 15",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024831180-517",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6729",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 15",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024831454-759",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6745",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 25",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024831710-276",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6746",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 90 Exterior",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024831980-183",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6750",
+        "manufacturer": "SOLYX",
+        "filmName": "SXR-8785 Safety Sand Blast",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024832240-255",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6757",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024832506-743",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6764",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 60",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024832767-352",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6766",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 50 Exterior",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024833039-470",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6782",
+        "manufacturer": "SOLYX",
+        "filmName": "Gold Weave SCG02",
+        "widthIn": 59,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024833299-293",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6785",
+        "manufacturer": "SOLYX",
+        "filmName": "1/2\" Reeded Glass SX-1254",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024833560-730",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6790",
+        "manufacturer": "Llumar",
+        "filmName": "V28",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024833830-774",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6794",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 15",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024834089-766",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6799",
+        "manufacturer": "3M Solar",
+        "filmName": "Silver P-18",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024834346-260",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6802",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024834607-358",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6810",
+        "manufacturer": "SOLYX",
+        "filmName": "Eco Dusted Crystal SX-3131",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024834858-716",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6824",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024835124-143",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6825",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024835412-226",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6848",
+        "manufacturer": "3M Solar",
+        "filmName": "Night Vision 25",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024835672-161",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6866",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 1500",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024835924-848",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6871",
+        "manufacturer": "Solar Gard",
+        "filmName": "Slate 20",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024836194-196",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6872",
+        "manufacturer": "3M Solar",
+        "filmName": "Prestige 70",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024836471-313",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6874",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024836729-388",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6875",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024836989-965",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6876",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024837250-350",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6884",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024837510-723",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6902",
+        "manufacturer": "Madico",
+        "filmName": "Optivision Reflective 15",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024837767-123",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6913",
+        "manufacturer": "Security",
+        "filmName": "Avery Dennison Safety Matte 12 MIL",
+        "widthIn": 60,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024838026-604",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6914",
+        "manufacturer": "Security",
+        "filmName": "3M Ultra Night Vision 25",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024838285-811",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6916",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024838546-995",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6917",
+        "manufacturer": "Security",
+        "filmName": "Madico Safetyshield 800",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024838812-496",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6918",
+        "manufacturer": "3M Fasara",
+        "filmName": "Dusted Crystal",
+        "widthIn": 48,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024839076-494",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6919",
+        "manufacturer": "3M Fasara",
+        "filmName": "Dusted Crystal",
+        "widthIn": 36,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024839333-911",
+        "warnings": ""
+      },
+      {
+        "boxId": "IL1-6924",
+        "manufacturer": "Llumar",
+        "filmName": "SpectraSelect 70 V70 SR CDF",
+        "widthIn": 72,
+        "statusBefore": "IN_STOCK",
+        "logId": "20260403024839594-697",
+        "warnings": ""
+      }
+    ],
+    "postApplySummary": {
+      "warehouse": "IL1",
+      "sourceEntryCount": 513,
+      "uniqueShelfIdCount": 510,
+      "duplicateShelfIdCount": 3,
+      "inventoryRowCount": 2054,
+      "activeInventoryCount": 489,
+      "matchedActiveCount": 478,
+      "zeroCandidateCount": 0,
+      "checkedOutExceptionCount": 11,
+      "alreadyZeroedHitCount": 21,
+      "missingIdCount": 11,
+      "unexpectedStatusHitCount": 0
+    }
+  }
+}

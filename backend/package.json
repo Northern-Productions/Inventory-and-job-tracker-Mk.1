@@ -16,6 +16,8 @@
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
+    "inventory:il1-shelf-audit:apply": "node scripts/reconcile-il1-shelf-audit.mjs --apply",
+    "inventory:il1-shelf-audit:dry": "node scripts/reconcile-il1-shelf-audit.mjs",
     "jobs:completed:backfill:apply": "node scripts/backfill-completed-jobs.mjs --apply",
     "jobs:completed:backfill:dry": "node scripts/backfill-completed-jobs.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",

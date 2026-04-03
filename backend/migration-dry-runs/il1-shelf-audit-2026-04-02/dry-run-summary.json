@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-04-03T02:48:54.670Z",
+  "prefix": "dry-run",
+  "parsedInput": {
+    "warehouse": "IL1",
+    "sourceEntryCount": 513,
+    "uniqueEntryCount": 510,
+    "duplicateSourceIds": [
+      {
+        "suffix": "4026",
+        "boxId": "IL1-4026",
+        "occurrenceCount": 2
+      },
+      {
+        "suffix": "6380",
+        "boxId": "IL1-6380",
+        "occurrenceCount": 2
+      },
+      {
+        "suffix": "6591",
+        "boxId": "IL1-6591",
+        "occurrenceCount": 2
+      }
+    ]
+  },
+  "summary": {
+    "warehouse": "IL1",
+    "sourceEntryCount": 513,
+    "uniqueShelfIdCount": 510,
+    "duplicateShelfIdCount": 3,
+    "inventoryRowCount": 2054,
+    "activeInventoryCount": 489,
+    "matchedActiveCount": 478,
+    "zeroCandidateCount": 0,
+    "checkedOutExceptionCount": 11,
+    "alreadyZeroedHitCount": 21,
+    "missingIdCount": 11,
+    "unexpectedStatusHitCount": 0
+  },
+  "breakdowns": {
+    "zeroCandidatesByManufacturer": {},
+    "checkedOutExceptionsByManufacturer": {
+      "Security": 6,
+      "3M Fasara": 2,
+      "3M Solar": 1,
+      "Llumar": 1,
+      "Madico": 1
+    },
+    "alreadyZeroedHitsByManufacturer": {
+      "3M Solar": 6,
+      "Llumar": 3,
+      "Security": 3,
+      "SOLYX": 3,
+      "Solar Gard": 2,
+      "Vinyl": 2,
+      "3M Fasara": 1,
+      "Di-Noc": 1
+    }
+  },
+  "extra": {
+    "inputPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\migration-dry-runs\\il1-shelf-audit-2026-04-02\\physical-shelf-audit-input.txt",
+    "reportDir": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\migration-dry-runs\\il1-shelf-audit-2026-04-02"
+  }
+}
