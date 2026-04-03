@@ -113,14 +113,6 @@ const navItems: NavItem[] = [
     adminConsoleOnly: true
   },
   {
-    to: '/owner/admin-permissions',
-    desktopLabel: 'Admin Access',
-    mobileLabel: 'Admin Access',
-    desktopPlacement: 'more',
-    mobilePlacement: 'more',
-    ownerOnly: true
-  },
-  {
     to: '/owner/notification-preferences',
     desktopLabel: 'Owner Alerts',
     mobileLabel: 'Owner Alerts',
