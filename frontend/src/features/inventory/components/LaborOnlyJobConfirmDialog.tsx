@@ -6,7 +6,6 @@ interface LaborOnlyJobConfirmDialogProps {
   jobNumber: string;
   pending?: boolean;
   onCancel: () => void;
-  onConfirmNormal: () => void;
   onConfirmLaborOnly: () => void;
 }
 
@@ -15,7 +14,6 @@ export function LaborOnlyJobConfirmDialog({
   jobNumber,
   pending = false,
   onCancel,
-  onConfirmNormal,
   onConfirmLaborOnly
 }: LaborOnlyJobConfirmDialogProps) {
   if (!open) {
@@ -39,9 +37,6 @@ export function LaborOnlyJobConfirmDialog({
       <div className="dialog-actions">
         <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={pending}>
           Keep Editing
-        </Button>
-        <Button type="button" variant="secondary" fullWidth onClick={onConfirmNormal} disabled={pending}>
-          No
         </Button>
         <Button type="button" fullWidth onClick={onConfirmLaborOnly} disabled={pending}>
           {pending ? 'Saving...' : 'Yes, Labor Only'}

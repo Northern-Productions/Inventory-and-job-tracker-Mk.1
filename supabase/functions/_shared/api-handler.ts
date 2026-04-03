@@ -1702,6 +1702,9 @@ function buildAllocationJobSummary(
   const distinctBoxes: Record<string, boolean> = {};
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
+  const hasMaterialRequirements =
+    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
+    caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
 
   for (const allocation of allocations) {
     if (allocation.boxId) {
@@ -1737,16 +1740,20 @@ function buildAllocationJobSummary(
     status = "CANCELLED";
   } else if (normalizedLifecycleStatus === "COMPLETED") {
     status = "COMPLETED";
-  } else if (isLaborOnly && !requirements.length && !caulkRequirements.length) {
+  } else if (hasMaterialRequirements) {
+    const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
+    const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
+    if (hasRemainingFilm || hasRemainingCaulk) {
+      status = hasFilmOrder ? "FILM_ORDER" : hasFilmOnTheWay ? "ON_ORDER" : "ALLOCATE";
+    } else {
+      status = "READY";
+    }
+  } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = "READY";
   } else if (hasFilmOrder) {
     status = "FILM_ORDER";
   } else if (hasFilmOnTheWay) {
     status = "ON_ORDER";
-  } else if (requirements.length || caulkRequirements.length) {
-    const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
-    const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
-    status = hasRemainingFilm || hasRemainingCaulk ? "ALLOCATE" : isStagedForPickup ? "READY" : "ALLOCATE";
   } else if (hasActiveAllocation) {
     status = "READY";
   } else if (hasCancelledRecord) {
@@ -1866,15 +1873,34 @@ function computeJobStatusFromRequirements(
   if (normalizedLifecycleStatus === "COMPLETED") {
     return "COMPLETED";
   }
-  if (!requirements.length && !caulkRequirements.length) {
-    if (isLaborOnly) {
+  const hasMaterialRequirements =
+    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
+    caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
+  if (!hasMaterialRequirements) {
+    if (isLaborOnly || requirements.length || caulkRequirements.length) {
       return "READY";
     }
 
-    if (!allocations.length && !filmOrders.length) {
-      return "ALLOCATE";
+    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ORDER")) {
+      return "FILM_ORDER";
     }
+
+    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ON_THE_WAY")) {
+      return "ON_ORDER";
+    }
+
     return deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
+  }
+  const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
+  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  if (!hasRemainingFilm && !hasRemainingCaulk) {
+    return "READY";
+  }
+  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ORDER")) {
+    return "FILM_ORDER";
+  }
+  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ON_THE_WAY")) {
+    return "ON_ORDER";
   }
   for (const requirement of requirements) {
     if (requirement.remainingFeet > 0) {
@@ -1886,7 +1912,7 @@ function computeJobStatusFromRequirements(
       return "ALLOCATE";
     }
   }
-  return isStagedForPickup ? "READY" : "ALLOCATE";
+  return "ALLOCATE";
 }
 
 function hasOpenFilmOrders(filmOrders: any[]) {
@@ -1926,9 +1952,6 @@ function getJobStagingBlockingReason(
     caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
   if (!hasMaterialRequirements) {
     return "";
-  }
-  if (hasOpenFilmOrders(filmOrders)) {
-    return "Open film orders must be resolved before staging this job.";
   }
   const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
   const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
@@ -3086,6 +3109,155 @@ function requireServiceRoleClientForJobs() {
   return serviceClient;
 }
 
+async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const warnings: string[] = [];
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const serviceClient = requireServiceRoleClientForJobs();
+  const { data: jobRow, error: jobError } = await serviceClient
+    .schema("app")
+    .from("jobs")
+    .select("id, lifecycle_status")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+  throwOnSupabaseError(jobError, "Unable to load job");
+  if (!jobRow) {
+    throw new HttpError(404, `Job ${jobNumber} was not found.`);
+  }
+
+  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  if (lifecycleStatus !== "ACTIVE") {
+    throw new HttpError(400, `Job ${jobNumber} is closed and checkout-all cannot be changed.`);
+  }
+
+  const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations, boxes] = await Promise.all([
+    listAllocationsByJob(client, orgId, jobNumber),
+    listFilmOrdersByJob(client, orgId, jobNumber),
+    listJobRequirementsByJob(client, orgId, jobNumber),
+    listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+    listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+    listBoxes(client, orgId)
+  ]);
+  const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const seenBoxIds: Record<string, boolean> = {};
+  let checkedOutBoxCount = 0;
+  let checkedOutCaulkCount = 0;
+
+  for (const allocation of allocations) {
+    if (allocation.status !== "ACTIVE" || !allocation.boxId || seenBoxIds[allocation.boxId]) {
+      continue;
+    }
+    seenBoxIds[allocation.boxId] = true;
+    const box = boxById[allocation.boxId];
+    if (!box) {
+      throw new HttpError(404, `Box ${allocation.boxId} was not found.`);
+    }
+
+    const normalizedBoxStatus = asTrimmedString(box.status).toUpperCase();
+    const sameJobCheckedOut =
+      normalizedBoxStatus === "CHECKED_OUT" &&
+      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber);
+
+    if (!sameJobCheckedOut && normalizedBoxStatus !== "IN_STOCK") {
+      throw new HttpError(
+        400,
+        `Box ${box.boxId} is ${normalizedBoxStatus || "not in stock"} and cannot be checked out from this view.`,
+      );
+    }
+
+    if (sameJobCheckedOut) {
+      continue;
+    }
+
+    const { data: checkoutResult, error: checkoutError } = await serviceClient.rpc("api_acl_boxes_set_status", {
+      p_org_id: orgId,
+      p_actor: actor,
+      p_payload: {
+        boxId: box.boxId,
+        status: "CHECKED_OUT",
+        auditNote: `Checked out for job ${jobNumber}`,
+      },
+    });
+    throwOnSupabaseError(checkoutError, `Unable to check out box ${box.boxId}`);
+    if (checkoutResult && Array.isArray((checkoutResult as Record<string, unknown>).warnings)) {
+      warnings.push(...((checkoutResult as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
+    }
+    checkedOutBoxCount += 1;
+  }
+
+  for (const allocation of caulkAllocations) {
+    if (allocation.status !== "ACTIVE") {
+      continue;
+    }
+
+    const remaining = integerOrZero(allocation.reservedTubesRemaining);
+    const openCount = integerOrZero(allocation.openCheckoutCount);
+    if (remaining <= 0) {
+      continue;
+    }
+
+    if (openCount > 0) {
+      throw new HttpError(
+        400,
+        `Caulk allocation ${allocation.caulkAllocationId} already has an open checkout and cannot be bulk checked out again until that cycle is closed.`,
+      );
+    }
+
+    const result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
+      p_org_id: orgId,
+      p_actor: actor,
+      p_payload: {
+        caulkAllocationId: allocation.caulkAllocationId,
+        checkoutTubes: remaining,
+        notes: `Checked out all remaining caulk for job ${jobNumber}.`,
+      },
+    });
+    if (result) {
+      if (Array.isArray((result as Record<string, unknown>).warnings)) {
+        warnings.push(...((result as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
+      }
+      checkedOutCaulkCount += 1;
+    }
+  }
+
+  const refreshedAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const refreshedFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const refreshedRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const refreshedCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const refreshedCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
+  const refreshedBoxes = await listBoxes(client, orgId);
+  const refreshedBoxById = Object.fromEntries(refreshedBoxes.map((box) => [box.boxId, box]));
+  const publicRequirements = buildPublicJobRequirementEntries(
+    refreshedRequirements,
+    refreshedAllocations,
+    refreshedBoxById,
+  );
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
+    refreshedCaulkRequirements,
+    refreshedCaulkAllocations,
+  );
+  const blockingReason = getJobStagingBlockingReason(
+    publicRequirements,
+    publicCaulkRequirements,
+    refreshedAllocations,
+    refreshedFilmOrders,
+    refreshedCaulkAllocations,
+  );
+  if (blockingReason) {
+    throw new HttpError(400, blockingReason);
+  }
+
+  if (checkedOutBoxCount > 0 || checkedOutCaulkCount > 0) {
+    warnings.push(
+      `Checked out ${checkedOutBoxCount} film box${checkedOutBoxCount === 1 ? "" : "es"} and ${checkedOutCaulkCount} caulk allocation${checkedOutCaulkCount === 1 ? "" : "s"} for job ${jobNumber}.`,
+    );
+  }
+
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
 async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const orgId = identity.orgId;
   const actor = identity.actor;
@@ -3123,7 +3295,16 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
     throw new HttpError(400, `Job ${jobNumber} is closed and staged pickup cannot be changed.`);
   }
 
+  const warnings: string[] = [];
   if (nextIsStaged) {
+    const autoCheckoutRemaining =
+      payload.autoCheckoutRemaining === true || asTrimmedString(payload.autoCheckoutRemaining).toLowerCase() === "true";
+
+    if (autoCheckoutRemaining) {
+      const checkoutResult = await checkoutAllJobMaterials(client, identity, payload);
+      warnings.push(...(checkoutResult.warnings || []));
+    }
+
     const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
       listAllocationsByJob(client, orgId, jobNumber),
       listFilmOrdersByJob(client, orgId, jobNumber),
@@ -3159,7 +3340,7 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
     .eq("id", (jobRow as Record<string, unknown>).id);
   throwOnSupabaseError(updateError, "Unable to update staged pickup");
 
-  return ok(await buildJobDetail(client, orgId, jobNumber), []);
+  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
 async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
@@ -3353,6 +3534,41 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
+function formatDeletedJobCleanupWarning({
+  jobNumber,
+  filmRequirementCount,
+  caulkRequirementCount,
+  releasedFilmAllocationCount,
+  affectedBoxCount,
+  releasedReservedCaulkTubes,
+  cancelledCaulkAllocationCount,
+  purgedFilmAllocationCount,
+  purgedCaulkAllocationCount,
+  purgedCaulkCheckoutCount,
+  purgedRollHistoryCount,
+  deletedFilmOrderCount,
+}: {
+  jobNumber: string;
+  filmRequirementCount: number;
+  caulkRequirementCount: number;
+  releasedFilmAllocationCount: number;
+  affectedBoxCount: number;
+  releasedReservedCaulkTubes: number;
+  cancelledCaulkAllocationCount: number;
+  purgedFilmAllocationCount: number;
+  purgedCaulkAllocationCount: number;
+  purgedCaulkCheckoutCount: number;
+  purgedRollHistoryCount: number;
+  deletedFilmOrderCount: number;
+}) {
+  return (
+    `Deleted job ${jobNumber}. Removed ${filmRequirementCount} film requirement${filmRequirementCount === 1 ? "" : "s"} and ${caulkRequirementCount} caulk requirement${caulkRequirementCount === 1 ? "" : "s"}, ` +
+    `released ${releasedFilmAllocationCount} active film allocation${releasedFilmAllocationCount === 1 ? "" : "s"} across ${affectedBoxCount} box${affectedBoxCount === 1 ? "" : "es"} and ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? "" : "s"} across ${cancelledCaulkAllocationCount} active caulk allocation${cancelledCaulkAllocationCount === 1 ? "" : "s"}, ` +
+    `purged ${purgedFilmAllocationCount} film allocation${purgedFilmAllocationCount === 1 ? "" : "s"}, ${purgedCaulkAllocationCount} caulk allocation${purgedCaulkAllocationCount === 1 ? "" : "s"}, ${purgedCaulkCheckoutCount} caulk checkout${purgedCaulkCheckoutCount === 1 ? "" : "s"}, and ${purgedRollHistoryCount} roll history ${purgedRollHistoryCount === 1 ? "entry" : "entries"}, ` +
+    `and deleted ${deletedFilmOrderCount} film order${deletedFilmOrderCount === 1 ? "" : "s"}.`
+  );
+}
+
 async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
@@ -3370,6 +3586,11 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
 
   const existingAllocations = await listAllocationsByJob(client, orgId, jobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
+  const existingCaulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
+  const existingRollHistory = await listRollHistoryByJob(client, orgId, jobNumber, existingAllocations);
   const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
     (box) =>
       box.status === "CHECKED_OUT" &&
@@ -3387,21 +3608,110 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     );
   }
 
-  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
-  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
-  const existingCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
-  const activeFilmAllocations = existingAllocations.filter((entry) => entry.status === "ACTIVE");
-  const activeFilmBoxCount = Object.keys(
-    Object.fromEntries(activeFilmAllocations.map((entry) => [entry.boxId, true])),
-  ).length;
-  const activeCaulkAllocations = existingCaulkAllocations.filter((entry) => entry.status === "ACTIVE");
-  const releasedReservedCaulkTubes = activeCaulkAllocations.reduce(
-    (sum, entry) => sum + Math.max(0, integerOrZero(entry.reservedTubesRemaining)),
-    0,
-  );
+  const openCaulkCheckoutCount = existingCaulkCheckouts.filter((entry) => entry.status === "OPEN").length;
+  if (openCaulkCheckoutCount > 0) {
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be deleted while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? " remains" : "s remain"} open.`,
+    );
+  }
+
   const serviceClient = requireServiceRoleClientForJobs();
   const cancelReason = asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`;
-  await rpcOrThrow<any>(client, "api_film_orders_cancel", {
+  const nowIso = new Date().toISOString();
+
+  const { data: activeAllocations, error: activeAllocationsError } = await serviceClient
+    .schema("app")
+    .from("allocations")
+    .select("id, box_id, allocated_feet")
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber)
+    .eq("status", "ACTIVE");
+  throwOnSupabaseError(activeAllocationsError, "Unable to load active allocations");
+
+  const releasedFeetByBox: Record<string, number> = {};
+  let releasedFilmAllocationCount = 0;
+  for (const row of Array.isArray(activeAllocations) ? activeAllocations : []) {
+    const allocationId = (row as Record<string, unknown>).id;
+    const boxId = asTrimmedString((row as Record<string, unknown>).box_id);
+    const allocatedFeet = integerOrZero((row as Record<string, unknown>).allocated_feet);
+    if (!allocationId || !boxId) {
+      continue;
+    }
+
+    const { error: updateAllocationError } = await serviceClient
+      .schema("app")
+      .from("allocations")
+      .update({
+        status: "CANCELLED",
+        resolved_at: nowIso,
+        resolved_by: actor,
+        notes: cancelReason,
+      })
+      .eq("org_id", orgId)
+      .eq("id", allocationId);
+    throwOnSupabaseError(updateAllocationError, `Unable to cancel allocation ${asTrimmedString(allocationId)}`);
+
+    releasedFeetByBox[boxId] = integerOrZero(releasedFeetByBox[boxId]) + allocatedFeet;
+    releasedFilmAllocationCount += 1;
+  }
+
+  let affectedBoxCount = 0;
+  for (const [boxId, releasedFeet] of Object.entries(releasedFeetByBox)) {
+    const { data: boxRow, error: boxError } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("id, status, feet_available")
+      .eq("org_id", orgId)
+      .eq("box_id", boxId)
+      .maybeSingle();
+    throwOnSupabaseError(boxError, `Unable to load box ${boxId}`);
+    if (!boxRow) {
+      continue;
+    }
+
+    const boxStatus = asTrimmedString((boxRow as Record<string, unknown>).status);
+    if (boxStatus === "ZEROED" || boxStatus === "RETIRED") {
+      continue;
+    }
+
+    const nextFeetAvailable = Math.max(0, integerOrZero((boxRow as Record<string, unknown>).feet_available) + releasedFeet);
+    const { error: updateBoxError } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .update({ feet_available: nextFeetAvailable })
+      .eq("org_id", orgId)
+      .eq("id", (boxRow as Record<string, unknown>).id);
+    throwOnSupabaseError(updateBoxError, `Unable to update box ${boxId}`);
+    affectedBoxCount += 1;
+  }
+
+  let deletedFilmOrderCount = 0;
+  for (const filmOrder of existingFilmOrders) {
+    const filmOrderId = asTrimmedString((filmOrder as Record<string, unknown>).filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    const { error: deleteFilmOrderLinksError } = await serviceClient
+      .schema("app")
+      .from("film_order_box_links")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("film_order_id", filmOrderId);
+    throwOnSupabaseError(deleteFilmOrderLinksError, `Unable to delete film order links for ${filmOrderId}`);
+
+    const { error: deleteFilmOrderError } = await serviceClient
+      .schema("app")
+      .from("film_orders")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("film_order_id", filmOrderId);
+    throwOnSupabaseError(deleteFilmOrderError, `Unable to delete film order ${filmOrderId}`);
+    deletedFilmOrderCount += 1;
+  }
+
+  const caulkCancelResult = await rpcOrThrow<any>(client, "api_acl_jobs_cancel_caulk_allocations", {
     p_org_id: orgId,
     p_actor: actor,
     p_payload: {
@@ -3409,6 +3719,32 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
       reason: cancelReason,
     },
   });
+  const cancelledCaulkAllocationCount = integerOrZero((caulkCancelResult || {}).cancelledAllocationCount);
+  const releasedReservedCaulkTubes = integerOrZero((caulkCancelResult || {}).releasedReservedTubes);
+
+  const { error: deleteAllocationsError } = await serviceClient
+    .schema("app")
+    .from("allocations")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber);
+  throwOnSupabaseError(deleteAllocationsError, `Unable to delete film allocations for job ${jobNumber}`);
+
+  const { error: deleteCaulkAllocationsError } = await serviceClient
+    .schema("app")
+    .from("caulk_job_allocations")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber);
+  throwOnSupabaseError(deleteCaulkAllocationsError, `Unable to delete caulk allocations for job ${jobNumber}`);
+
+  const { error: deleteRollHistoryError } = await serviceClient
+    .schema("app")
+    .from("roll_weight_log")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("job_number", jobNumber);
+  throwOnSupabaseError(deleteRollHistoryError, `Unable to delete roll history for job ${jobNumber}`);
 
   const { error: deleteRequirementsError } = await serviceClient
     .schema("app")
@@ -3417,6 +3753,14 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .eq("org_id", orgId)
     .eq("job_id", existingJob.id);
   throwOnSupabaseError(deleteRequirementsError, `Unable to delete job requirements for job ${jobNumber}`);
+
+  const { error: deleteCaulkRequirementsError } = await serviceClient
+    .schema("app")
+    .from("job_caulk_requirements")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("job_id", existingJob.id);
+  throwOnSupabaseError(deleteCaulkRequirementsError, `Unable to delete caulk requirements for job ${jobNumber}`);
 
   const { error: deleteJobError } = await serviceClient
     .schema("app")
@@ -3427,7 +3771,20 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   throwOnSupabaseError(deleteJobError, `Unable to delete job ${jobNumber}`);
 
   warnings.push(
-    `Deleted job ${jobNumber}. Removed ${existingRequirements.length} film requirement${existingRequirements.length === 1 ? "" : "s"}, ${existingCaulkRequirements.length} caulk requirement${existingCaulkRequirements.length === 1 ? "" : "s"}, released ${activeFilmAllocations.length} active film allocation${activeFilmAllocations.length === 1 ? "" : "s"} across ${activeFilmBoxCount} box${activeFilmBoxCount === 1 ? "" : "es"}, released ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? "" : "s"} across ${activeCaulkAllocations.length} caulk allocation${activeCaulkAllocations.length === 1 ? "" : "s"}, and deleted ${existingFilmOrders.length} film order${existingFilmOrders.length === 1 ? "" : "s"}.`,
+    formatDeletedJobCleanupWarning({
+      jobNumber,
+      filmRequirementCount: existingRequirements.length,
+      caulkRequirementCount: existingCaulkRequirements.length,
+      releasedFilmAllocationCount,
+      affectedBoxCount,
+      releasedReservedCaulkTubes,
+      cancelledCaulkAllocationCount,
+      purgedFilmAllocationCount: existingAllocations.length,
+      purgedCaulkAllocationCount: existingCaulkAllocations.length,
+      purgedCaulkCheckoutCount: existingCaulkCheckouts.length,
+      purgedRollHistoryCount: existingRollHistory.length,
+      deletedFilmOrderCount,
+    }),
   );
 
   return ok({ jobNumber }, warnings);
@@ -3780,6 +4137,7 @@ async function dispatchMutation(
     removeJobBoxAllocation,
     buildJobDetail,
     setJobStagedPickup,
+    checkoutAllJobMaterials,
     completeJob,
     reopenJob,
     deleteJob,

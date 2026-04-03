@@ -1,10 +1,13 @@
 interface JobMaterialSelection {
-  requirements?: unknown[];
-  caulkRequirements?: unknown[];
+  requirements?: Array<{ requiredFeet?: number | string | null }>;
+  caulkRequirements?: Array<{ requiredTubes?: number | string | null }>;
 }
 
 export function hasJobMaterialRequirements(selection: JobMaterialSelection): boolean {
-  return (selection.requirements?.length || 0) > 0 || (selection.caulkRequirements?.length || 0) > 0;
+  return (
+    (selection.requirements || []).some((entry) => Number(entry.requiredFeet || 0) > 0) ||
+    (selection.caulkRequirements || []).some((entry) => Number(entry.requiredTubes || 0) > 0)
+  );
 }
 
 export function hasNoJobMaterialRequirements(selection: JobMaterialSelection): boolean {

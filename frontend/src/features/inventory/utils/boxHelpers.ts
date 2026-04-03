@@ -2,6 +2,7 @@ import type {
   AllocationEntry,
   Box,
   CoreType,
+  BoxStatus,
   FilmCatalogEntry,
   UpdateBoxPayload,
   Warehouse
@@ -30,6 +31,7 @@ export const CORE_TYPE_OPTIONS = [
 ] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
+const ACTIVE_CANONICAL_BOX_STATUSES: readonly BoxStatus[] = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT'];
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'White plastic': 2,
   'Red plastic': 1.85,
@@ -322,15 +324,26 @@ export function getNextBoxIdForWarehouse(
 ): string {
   const normalizedPrefix = String(warehousePrefix || warehouse).trim().toUpperCase().replace(/-+$/, '');
   const requiredPrefix = normalizedPrefix ? `${normalizedPrefix}-` : '';
+  const activeCanonicalBoxes = dedupeBoxesByDisplayBoxId(
+    boxes
+      .filter((box) => ACTIVE_CANONICAL_BOX_STATUSES.includes(box.status))
+      .map((box) => ({
+        ...box,
+        boxId: normalizeTrailingLetterBoxId(box.boxId)
+      }))
+  ).filter((box) => {
+    if (!requiredPrefix) {
+      return true;
+    }
+
+    const canonicalBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
+    return canonicalBoxId.startsWith(requiredPrefix);
+  });
   let bestValue = 0;
   let bestWidth = 0;
 
-  for (const box of boxes) {
-    const normalizedBoxId = box.boxId.toUpperCase();
-    if (requiredPrefix && !normalizedBoxId.startsWith(requiredPrefix)) {
-      continue;
-    }
-
+  for (const box of activeCanonicalBoxes) {
+    const normalizedBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
     const match = normalizedBoxId.match(/^[A-Z0-9]+-(\d+)$/);
     if (!match) {
       continue;

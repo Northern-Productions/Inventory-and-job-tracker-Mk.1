@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveCaulkCheckinTotals,
+  getDeleteJobBlockingMessage,
   getCaulkCheckinValidationError,
+  shouldPromptForCompletedJobAfterReturns,
   summarizeReturnedMaterials
 } from './jobReturnedMaterials';
 
@@ -84,6 +86,126 @@ describe('jobReturnedMaterials', () => {
     expect(summary.hasOutstandingMaterials).toBe(true);
   });
 
+  it('formats delete blockers for checked-out film and open caulk checkouts', () => {
+    expect(
+      getDeleteJobBlockingMessage({
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-100',
+            warehouse: 'IL1',
+            jobNumber: '000123',
+            jobDate: '2026-03-20',
+            crewLeader: 'Crew',
+            allocatedFeet: 50,
+            status: 'ACTIVE',
+            allocationKind: 'REQUIREMENT',
+            createdAt: '',
+            createdBy: '',
+            resolvedAt: '',
+            resolvedBy: '',
+            filmOrderId: '',
+            notes: '',
+            manufacturer: '3M',
+            filmName: 'Ultra 70',
+            widthIn: 60,
+            boxStatus: 'CHECKED_OUT',
+            checkedOutOnThisJob: true
+          }
+        ],
+        caulkCheckouts: [
+          {
+            caulkCheckoutId: 'checkout-1',
+            caulkAllocationId: 'caulk-1',
+            productId: 'product-1',
+            manufacturerId: 'manufacturer-1',
+            manufacturer: 'DOW',
+            productName: '790 Black',
+            productCode: '790-BLK',
+            tubesPerCase: 12,
+            warehouse: 'IL1',
+            checkoutTubes: 12,
+            overageTubes: 0,
+            status: 'OPEN',
+            checkedOutAt: '',
+            checkedOutBy: '',
+            checkedInAt: '',
+            checkedInBy: '',
+            unusedTubes: 0,
+            usedTubes: 0,
+            notes: ''
+          }
+        ]
+      })
+    ).toBe('Return 1 checked-out box and close 1 open caulk checkout before deleting this job.');
+
+    expect(
+      getDeleteJobBlockingMessage({
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-100',
+            warehouse: 'IL1',
+            jobNumber: '000123',
+            jobDate: '2026-03-20',
+            crewLeader: 'Crew',
+            allocatedFeet: 50,
+            status: 'ACTIVE',
+            allocationKind: 'REQUIREMENT',
+            createdAt: '',
+            createdBy: '',
+            resolvedAt: '',
+            resolvedBy: '',
+            filmOrderId: '',
+            notes: '',
+            manufacturer: '3M',
+            filmName: 'Ultra 70',
+            widthIn: 60,
+            boxStatus: 'CHECKED_OUT',
+            checkedOutOnThisJob: true
+          }
+        ],
+        caulkCheckouts: []
+      })
+    ).toBe('Return 1 checked-out box before deleting this job.');
+
+    expect(
+      getDeleteJobBlockingMessage({
+        allocations: [],
+        caulkCheckouts: [
+          {
+            caulkCheckoutId: 'checkout-1',
+            caulkAllocationId: 'caulk-1',
+            productId: 'product-1',
+            manufacturerId: 'manufacturer-1',
+            manufacturer: 'DOW',
+            productName: '790 Black',
+            productCode: '790-BLK',
+            tubesPerCase: 12,
+            warehouse: 'IL1',
+            checkoutTubes: 12,
+            overageTubes: 0,
+            status: 'OPEN',
+            checkedOutAt: '',
+            checkedOutBy: '',
+            checkedInAt: '',
+            checkedInBy: '',
+            unusedTubes: 0,
+            usedTubes: 0,
+            notes: ''
+          }
+        ]
+      })
+    ).toBe('Close 1 open caulk checkout before deleting this job.');
+
+    expect(
+      getDeleteJobBlockingMessage({
+        allocations: [],
+        caulkCheckouts: []
+      })
+    ).toBe('');
+  });
+
   it('computes caulk returned totals from loose tubes and full cases', () => {
     expect(
       deriveCaulkCheckinTotals({
@@ -116,5 +238,25 @@ describe('jobReturnedMaterials', () => {
         unusedCases: 1
       })
     ).toBe('Returned caulk cannot exceed checked-out tubes.');
+  });
+
+  it('prompts to complete the job only after outstanding materials clear on an active non-labor job', () => {
+    expect(
+      shouldPromptForCompletedJobAfterReturns({
+        previousHasOutstandingMaterials: true,
+        currentHasOutstandingMaterials: false,
+        isLaborOnly: false,
+        lifecycleStatus: 'ACTIVE'
+      })
+    ).toBe(true);
+
+    expect(
+      shouldPromptForCompletedJobAfterReturns({
+        previousHasOutstandingMaterials: false,
+        currentHasOutstandingMaterials: false,
+        isLaborOnly: false,
+        lifecycleStatus: 'ACTIVE'
+      })
+    ).toBe(false);
   });
 });

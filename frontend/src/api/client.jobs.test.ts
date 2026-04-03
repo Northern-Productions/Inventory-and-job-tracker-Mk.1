@@ -25,6 +25,7 @@ vi.mock('../lib/offlineInventory', () => ({
 
 import {
   __resetJobsApiAvailabilityForTests,
+  checkoutAllJobMaterials,
   createJob,
   deleteJob,
   getJob,
@@ -373,6 +374,63 @@ describe('jobs API client canonical routes', () => {
       body: {
         jobNumber: '000123',
         isStagedForPickup: true
+      }
+    });
+  });
+
+  it('passes autoCheckoutRemaining through POST /jobs/set-staged-pickup', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', isStagedForPickup: true }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    await setJobStagedForPickup({
+      jobNumber: '000123',
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/set-staged-pickup', {
+      body: {
+        jobNumber: '000123',
+        isStagedForPickup: true,
+        autoCheckoutRemaining: true
+      }
+    });
+  });
+
+  it('checks out all materials through POST /jobs/checkout-all', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', isStagedForPickup: true }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const result = await checkoutAllJobMaterials({ jobNumber: '000123' });
+
+    expect(result.result.summary.jobNumber).toBe('000123');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/checkout-all', {
+      body: {
+        jobNumber: '000123'
       }
     });
   });

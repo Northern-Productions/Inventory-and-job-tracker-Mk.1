@@ -1,5 +1,6 @@
 export interface AllocationCandidateBox {
   boxId: string;
+  warehouse?: string;
   feetAvailable: number;
 }
 
@@ -34,7 +35,8 @@ function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
 
 export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
   candidates: T[],
-  preferredBoxIds: Iterable<string> = []
+  preferredBoxIds: Iterable<string> = [],
+  preferredWarehouse = ''
 ): T[] {
   const preferred = new Set<string>();
   for (const boxId of preferredBoxIds) {
@@ -45,6 +47,12 @@ export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
   }
 
   return candidates.slice().sort((left, right) => {
+    const leftPreferredWarehouse = String(left.warehouse || '').trim() === preferredWarehouse;
+    const rightPreferredWarehouse = String(right.warehouse || '').trim() === preferredWarehouse;
+    if (leftPreferredWarehouse !== rightPreferredWarehouse) {
+      return leftPreferredWarehouse ? -1 : 1;
+    }
+
     const leftPreferred = preferred.has(left.boxId);
     const rightPreferred = preferred.has(right.boxId);
     if (leftPreferred === rightPreferred) {
@@ -57,14 +65,15 @@ export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
 export function autoSelectCandidateBoxIds(
   candidates: AllocationCandidateBox[],
   requestedFeet: number,
-  preferredBoxIds: Iterable<string> = []
+  preferredBoxIds: Iterable<string> = [],
+  preferredWarehouse = ''
 ): string[] {
   const requested = toRequestedFeet(requestedFeet);
   if (requested <= 0) {
     return [];
   }
 
-  const prioritized = prioritizeCandidateBoxes(candidates, preferredBoxIds);
+  const prioritized = prioritizeCandidateBoxes(candidates, preferredBoxIds, preferredWarehouse);
   const selected: string[] = [];
   let remaining = requested;
 

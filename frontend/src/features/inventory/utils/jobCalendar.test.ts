@@ -3,6 +3,7 @@ import type { CalendarJob } from './jobCalendar';
 import {
   buildMonthCalendar,
   buildWeekCalendar,
+  compareCalendarSearchMatches,
   findBestCalendarSearchMatch,
   formatWeekRangeLabel,
   getCalendarJobStatusClass,
@@ -125,5 +126,25 @@ describe('jobCalendar', () => {
         buildJob({ jobNumber: '50000', status: 'ALLOCATE', isStagedForPickup: true })
       )
     ).toBe('job-calendar-job-link-status-ready');
+  });
+
+  it('prefers the current workflow when cross-workflow search results tie', () => {
+    const active = buildJob({ jobNumber: '12340', lifecycleStatus: 'ACTIVE', status: 'READY' });
+    const completed = buildJob({
+      jobNumber: '12360',
+      lifecycleStatus: 'COMPLETED',
+      status: 'COMPLETED'
+    });
+
+    expect(
+      compareCalendarSearchMatches(active, completed, '12350', {
+        preferredLifecycleStatus: 'ACTIVE'
+      })
+    ).toBeLessThan(0);
+    expect(
+      findBestCalendarSearchMatch([completed, active], '12350', {
+        preferredLifecycleStatus: 'ACTIVE'
+      })?.jobNumber
+    ).toBe('12340');
   });
 });

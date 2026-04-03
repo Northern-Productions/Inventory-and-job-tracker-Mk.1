@@ -188,3 +188,14 @@ export async function setJobStagedForPickup(
     warnings: response.warnings
   };
 }
+
+export async function checkoutAllJobMaterials(
+  payload: { jobNumber: string }
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
+  const response = await request<JobDetail>('POST', '/jobs/checkout-all', { body: payload });
+  return {
+    result: normalizeJobDetail(response.data),
+    warnings: response.warnings
+  };
+}

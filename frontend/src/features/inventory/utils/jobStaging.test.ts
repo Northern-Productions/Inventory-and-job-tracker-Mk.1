@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { JobDetail } from '../../../domain';
-import { canMarkJobStagedForPickup, getJobStagingBlockingMessage } from './jobStaging';
+import {
+  canMarkJobStagedForPickup,
+  canMarkJobStagedForPickupWithAutoCheckout,
+  getJobStagingBlockingMessage,
+  getJobStagingBlockingMessageWithOptions,
+  isLaborOnlyJob
+} from './jobStaging';
 
 function buildDetail(overrides: Partial<JobDetail> = {}): JobDetail {
   return {
@@ -163,5 +169,65 @@ describe('jobStaging', () => {
       'Check out the allocated caulk before staging this job.'
     );
     expect(canMarkJobStagedForPickup(detail)).toBe(false);
+  });
+
+  it('allows auto-checkout staging when only unchecked-out allocations remain', () => {
+    const detail = buildDetail();
+
+    expect(getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true })).toBe('');
+    expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(true);
+  });
+
+  it('allows staging when requirements are covered even if a film order record is still open', () => {
+    const detail = buildDetail({
+      filmOrders: [
+        {
+          filmOrderId: 'film-order-1',
+          jobNumber: '000123',
+          warehouse: 'IL1',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 60,
+          requestedFeet: 8,
+          coveredFeet: 8,
+          orderedFeet: 0,
+          remainingToOrderFeet: 0,
+          jobDate: '2026-04-01',
+          crewLeader: 'Crew',
+          status: 'FILM_ORDER',
+          sourceBoxId: '',
+          createdAt: '',
+          createdBy: '',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          linkedBoxes: []
+        }
+      ]
+    });
+
+    expect(getJobStagingBlockingMessage(detail)).toBe('');
+    expect(canMarkJobStagedForPickup(detail)).toBe(true);
+  });
+
+  it('treats jobs with zero material requirements as labor-only workflow', () => {
+    const detail = buildDetail({
+      summary: {
+        ...buildDetail().summary,
+        requiredFeet: 0,
+        allocatedFeet: 0,
+        remainingFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        isLaborOnly: false
+      },
+      requirements: [],
+      allocations: [],
+      caulkRequirements: []
+    });
+
+    expect(isLaborOnlyJob(detail)).toBe(true);
+    expect(getJobStagingBlockingMessage(detail)).toBe('');
   });
 });

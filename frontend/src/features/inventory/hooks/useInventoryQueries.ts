@@ -28,6 +28,7 @@ export {
   useAddCaulkJobAllocation,
   useCancelJob,
   useCheckinCaulkJobAllocation,
+  useCheckoutAllJobMaterials,
   useCheckoutCaulkJobAllocation,
   useCompleteJob,
   useCreateFilmOrder,

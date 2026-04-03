@@ -85,6 +85,7 @@ export function JobAllocateDialog({
   const [requestedFeet, setRequestedFeet] = useState('');
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
   const autoSelectionKeyRef = useRef('');
   const selectedRequirement = useMemo(
     () => requirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
@@ -92,8 +93,15 @@ export function JobAllocateDialog({
   );
   const warehouseRegistry = useWarehouseRegistry();
   const searchableWarehouses = useMemo(
-    () => warehouseRegistry.entries.map((entry) => entry.code),
-    [warehouseRegistry.entries]
+    () => {
+      const codes = warehouseRegistry.entries.map((entry) => entry.code);
+      if (!warehouse || !codes.includes(warehouse)) {
+        return codes;
+      }
+
+      return [warehouse, ...codes.filter((code) => code !== warehouse)];
+    },
+    [warehouse, warehouseRegistry.entries]
   );
   const searchableFilmName = selectedRequirement ? selectedRequirement.filmName.trim() : '';
   const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
@@ -125,8 +133,8 @@ export function JobAllocateDialog({
     [filmOrders, selectedRequirement]
   );
   const prioritizedMatchingBoxes = useMemo(
-    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds),
-    [matchingBoxes, preferredLinkedBoxIds]
+    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds, warehouse),
+    [matchingBoxes, preferredLinkedBoxIds, warehouse]
   );
   const requestedFeetValue = useMemo(() => {
     const parsed = Number(requestedFeet);
@@ -162,18 +170,23 @@ export function JobAllocateDialog({
       setRequestedFeet('');
       setSelectedBoxIds([]);
       setError('');
+      setCompletedRequirementIds([]);
       autoSelectionKeyRef.current = '';
       return;
     }
 
-    const firstRemaining = requirements.find((entry) => entry.remainingFeet > 0) || requirements[0];
+    const firstRemaining =
+      requirements.find(
+        (entry) => entry.remainingFeet > 0 && !completedRequirementIds.includes(entry.requirementId)
+      ) || null;
     if (!firstRemaining) {
+      onCancel();
       return;
     }
 
     setSelectedRequirementId(firstRemaining.requirementId);
     setRequestedFeet(String(Math.max(firstRemaining.remainingFeet, 0)));
-  }, [open, requirements]);
+  }, [completedRequirementIds, open, requirements]);
 
   useEffect(() => {
     if (!selectedRequirement) {
@@ -187,6 +200,27 @@ export function JobAllocateDialog({
     autoSelectionKeyRef.current = '';
     setError('');
   }, [selectedRequirement?.requirementId]);
+
+  function advanceToNextRequirement(completedRequirementId: string) {
+    const nextCompleted = Array.from(new Set([...completedRequirementIds, completedRequirementId]));
+    setCompletedRequirementIds(nextCompleted);
+
+    const nextRequirement =
+      requirements.find(
+        (entry) => entry.remainingFeet > 0 && !nextCompleted.includes(entry.requirementId)
+      ) || null;
+
+    if (!nextRequirement) {
+      onCancel();
+      return;
+    }
+
+    setSelectedRequirementId(nextRequirement.requirementId);
+    setRequestedFeet(String(Math.max(nextRequirement.remainingFeet, 0)));
+    setSelectedBoxIds([]);
+    autoSelectionKeyRef.current = '';
+    setError('');
+  }
 
   useEffect(() => {
     if (!open || !selectedRequirement || requestedFeetValue <= 0 || !prioritizedMatchingBoxes.length) {
@@ -202,9 +236,9 @@ export function JobAllocateDialog({
 
     autoSelectionKeyRef.current = nextKey;
     setSelectedBoxIds(
-      autoSelectCandidateBoxIds(prioritizedMatchingBoxes, requestedFeetValue, preferredLinkedBoxIds)
+      autoSelectCandidateBoxIds(prioritizedMatchingBoxes, requestedFeetValue, preferredLinkedBoxIds, warehouse)
     );
-  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement]);
+  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement, warehouse]);
 
   if (!open) {
     return null;
@@ -259,8 +293,6 @@ export function JobAllocateDialog({
         jobWarehouse: warehouse
       });
 
-      onCancel();
-
       const summary =
         result.allocations.length > 0
           ? result.allocations.map((entry) => `${entry.boxId}: ${entry.allocatedFeet} LF`).join(', ')
@@ -274,6 +306,7 @@ export function JobAllocateDialog({
         description: warnings.join(' ') || `${summary}.${filmOrderSuffix}`.trim(),
         variant: 'success'
       });
+      advanceToNextRequirement(selectedRequirement.requirementId);
     } catch (submitError) {
       toast.push({
         title: 'Allocation failed',
@@ -313,8 +346,6 @@ export function JobAllocateDialog({
     }
 
     try {
-      onCancel();
-
       await createFilmOrderMutation.mutateAsync({
         jobNumber,
         warehouse,
@@ -323,6 +354,7 @@ export function JobAllocateDialog({
         widthIn: selectedRequirement.widthIn,
         requestedFeet: requestedFeetValue
       });
+      advanceToNextRequirement(selectedRequirement.requirementId);
     } catch (submitError) {
       toast.push({
         title: 'Unable to create film order',
@@ -444,7 +476,7 @@ export function JobAllocateDialog({
           </div>
         ) : null}
 
-        <div className="dialog-actions">
+        <div className="dialog-actions dialog-actions-sticky-footer">
           <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>

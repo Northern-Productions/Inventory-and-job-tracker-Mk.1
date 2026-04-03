@@ -12,6 +12,7 @@ import {
 function buildCandidate(boxId: string, feetAvailable: number): AllocationCandidateBox {
   return {
     boxId,
+    warehouse: 'IL1',
     feetAvailable
   };
 }
@@ -19,19 +20,35 @@ function buildCandidate(boxId: string, feetAvailable: number): AllocationCandida
 describe('jobAllocationSelection', () => {
   it('prioritizes preferred boxes while preserving relative order within each group', () => {
     const candidates = [
-      buildCandidate('A', 25),
-      buildCandidate('B', 25),
-      buildCandidate('C', 25),
-      buildCandidate('D', 25)
+      { ...buildCandidate('A', 25), warehouse: 'MS1' },
+      { ...buildCandidate('B', 25), warehouse: 'MS1' },
+      { ...buildCandidate('C', 25), warehouse: 'MS1' },
+      { ...buildCandidate('D', 25), warehouse: 'MS1' }
     ];
 
     const prioritized = prioritizeCandidateBoxes(candidates, ['C', 'A']);
     expect(prioritized.map((entry) => entry.boxId)).toEqual(['A', 'C', 'B', 'D']);
   });
 
+  it('prioritizes the selected warehouse before other warehouse groups', () => {
+    const candidates = [
+      { boxId: 'A', warehouse: 'MS1', feetAvailable: 25 },
+      { boxId: 'B', warehouse: 'IL1', feetAvailable: 25 },
+      { boxId: 'C', warehouse: 'IL1', feetAvailable: 25 },
+      { boxId: 'D', warehouse: 'MS1', feetAvailable: 25 }
+    ];
+
+    const prioritized = prioritizeCandidateBoxes(candidates, [], 'IL1');
+    expect(prioritized.map((entry) => entry.boxId)).toEqual(['B', 'C', 'A', 'D']);
+  });
+
   it('auto-selects enough boxes to satisfy requested LF', () => {
     const selected = autoSelectCandidateBoxIds(
-      [buildCandidate('A', 25), buildCandidate('B', 25), buildCandidate('C', 80)],
+      [
+        { ...buildCandidate('A', 25), warehouse: 'MS1' },
+        { ...buildCandidate('B', 25), warehouse: 'IL1' },
+        { ...buildCandidate('C', 80), warehouse: 'IL1' }
+      ],
       85
     );
 
@@ -40,12 +57,31 @@ describe('jobAllocationSelection', () => {
 
   it('auto-selects preferred boxes first when they are linked to the job film order', () => {
     const selected = autoSelectCandidateBoxIds(
-      [buildCandidate('A', 25), buildCandidate('B', 25), buildCandidate('C', 80)],
+      [
+        { ...buildCandidate('A', 25), warehouse: 'MS1' },
+        { ...buildCandidate('B', 25), warehouse: 'IL1' },
+        { ...buildCandidate('C', 80), warehouse: 'IL1' }
+      ],
       85,
       ['C']
     );
 
     expect(selected).toEqual(['C', 'A']);
+  });
+
+  it('auto-selects boxes from the preferred warehouse before other warehouses', () => {
+    const selected = autoSelectCandidateBoxIds(
+      [
+        { boxId: 'A', warehouse: 'MS1', feetAvailable: 25 },
+        { boxId: 'B', warehouse: 'IL1', feetAvailable: 25 },
+        { boxId: 'C', warehouse: 'MS1', feetAvailable: 80 }
+      ],
+      25,
+      [],
+      'IL1'
+    );
+
+    expect(selected).toEqual(['B']);
   });
 
   it('calculates planned allocations using selected boxes and candidate order', () => {

@@ -4,6 +4,7 @@ import { getJobListDisplayStatus } from './jobSorts';
 
 export type CalendarJob = JobListEntry;
 export type JobCalendarView = 'week' | 'month';
+type JobLifecycleStatus = 'ACTIVE' | 'COMPLETED';
 
 export interface JobCalendarDay {
   dateKey: string;
@@ -130,6 +131,10 @@ function compareJobNumbers(left: CalendarJob, right: CalendarJob) {
     numeric: true,
     sensitivity: 'base'
   });
+}
+
+function normalizeLifecycleStatus(value: string) {
+  return String(value || '').trim().toUpperCase() === 'COMPLETED' ? 'COMPLETED' : 'ACTIVE';
 }
 
 function compareBigInt(left: bigint, right: bigint) {
@@ -376,14 +381,78 @@ export function selectCalendarHighlightJobNumbers(matches: CalendarJob[], query:
 
 export const deriveJobCalendarHighlightJobNumbers = selectCalendarHighlightJobNumbers;
 
-export function findBestCalendarSearchMatch(matches: CalendarJob[], query: string) {
-  const highlightedJobNumbers = selectCalendarHighlightJobNumbers(matches, query);
-  if (!highlightedJobNumbers.length) {
+export function compareCalendarSearchMatches(
+  left: CalendarJob,
+  right: CalendarJob,
+  query: string,
+  options: { preferredLifecycleStatus?: JobLifecycleStatus } = {}
+) {
+  const queryDigits = canonicalizeDigits(extractDigits(query));
+  if (!queryDigits) {
+    return compareJobNumbers(left, right);
+  }
+
+  const queryValue = BigInt(queryDigits);
+  const leftDigits = canonicalizeDigits(extractDigits(left.jobNumber));
+  const rightDigits = canonicalizeDigits(extractDigits(right.jobNumber));
+  const leftExact = leftDigits === queryDigits;
+  const rightExact = rightDigits === queryDigits;
+  if (leftExact !== rightExact) {
+    return leftExact ? -1 : 1;
+  }
+
+  const leftPrefix = leftDigits.startsWith(queryDigits);
+  const rightPrefix = rightDigits.startsWith(queryDigits);
+  if (leftPrefix !== rightPrefix) {
+    return leftPrefix ? -1 : 1;
+  }
+
+  if (leftPrefix && rightPrefix) {
+    const leftLengthDelta = Math.abs(leftDigits.length - queryDigits.length);
+    const rightLengthDelta = Math.abs(rightDigits.length - queryDigits.length);
+    if (leftLengthDelta !== rightLengthDelta) {
+      return leftLengthDelta - rightLengthDelta;
+    }
+  }
+
+  const distanceOrder = compareBigInt(
+    absoluteBigInt(BigInt(leftDigits) - queryValue),
+    absoluteBigInt(BigInt(rightDigits) - queryValue)
+  );
+  if (distanceOrder !== 0) {
+    return distanceOrder;
+  }
+
+  if (options.preferredLifecycleStatus) {
+    const leftPreferred =
+      normalizeLifecycleStatus(left.lifecycleStatus) === options.preferredLifecycleStatus;
+    const rightPreferred =
+      normalizeLifecycleStatus(right.lifecycleStatus) === options.preferredLifecycleStatus;
+    if (leftPreferred !== rightPreferred) {
+      return leftPreferred ? -1 : 1;
+    }
+  }
+
+  return compareJobNumbers(left, right);
+}
+
+export function findBestCalendarSearchMatch(
+  matches: CalendarJob[],
+  query: string,
+  options: { preferredLifecycleStatus?: JobLifecycleStatus } = {}
+) {
+  if (!matches.length) {
     return null;
   }
 
-  const highlighted = matches.find((entry) => entry.jobNumber === highlightedJobNumbers[0]);
-  return highlighted || matches[0] || null;
+  const queryDigits = canonicalizeDigits(extractDigits(query));
+  if (!queryDigits) {
+    return null;
+  }
+
+  return matches
+    .slice()
+    .sort((left, right) => compareCalendarSearchMatches(left, right, query, options))[0] || null;
 }
 
 export function sortCalendarJobsWithinDay(jobs: CalendarJob[], highlightJobNumbers: string[] = []) {

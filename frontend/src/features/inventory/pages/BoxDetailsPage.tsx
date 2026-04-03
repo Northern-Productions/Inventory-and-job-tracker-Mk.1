@@ -42,9 +42,12 @@ import {
 } from '../utils/boxWarnings';
 import {
   buildZeroedInventoryPayloadForEdit,
+  buildZeroedInventoryReactivationPayloadForEdit,
   buildZeroedInventoryWarningMessage,
+  ZEROED_BOX_REACTIVATION_PROMPT,
   getZeroedInventoryEditTrigger,
   getIncompleteBoxHistoryFieldsForZeroedEdit,
+  shouldPromptZeroedInventoryReactivationOnEdit,
   type ZeroedInventoryEditTrigger
 } from '../utils/boxZeroedTransition';
 
@@ -70,6 +73,10 @@ interface PendingZeroedEditState {
   payload: UpdateBoxPayload;
   missingFields: string[];
   trigger: ZeroedInventoryEditTrigger;
+}
+
+interface PendingZeroedReactivationState {
+  payload: UpdateBoxPayload;
 }
 
 function DetailField({
@@ -175,6 +182,8 @@ export default function BoxDetailsPage() {
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
+  const [pendingZeroedReactivationState, setPendingZeroedReactivationState] =
+    useState<PendingZeroedReactivationState | null>(null);
   const [isQrSectionOpen, setIsQrSectionOpen] = useState(() => searchParams.get('showQr') === '1');
   const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
@@ -250,6 +259,7 @@ export default function BoxDetailsPage() {
 
   useEffect(() => {
     setPendingZeroedEditState(null);
+    setPendingZeroedReactivationState(null);
     setIsAllocationsSectionCollapsed(true);
     setIsHistorySectionCollapsed(true);
     setIsRollHistorySectionCollapsed(true);
@@ -461,14 +471,16 @@ export default function BoxDetailsPage() {
       setIsEditing(false);
 
       const didMoveToZeroed = result.box.status === 'ZEROED';
-      const successTitle = didMoveToZeroed ? 'Moved to zeroed out inventory' : 'Box updated';
-      const successDescription = didMoveToZeroed
+      const wasZeroedBeforeUpdate = box?.status === 'ZEROED';
+      const didTransitionToZeroed = didMoveToZeroed && !wasZeroedBeforeUpdate;
+      const successTitle = didTransitionToZeroed ? 'Moved to zeroed out inventory' : 'Box updated';
+      const successDescription = didTransitionToZeroed
         ? `${result.box.boxId} was moved to zeroed out inventory.`
         : undefined;
 
       await pushUndoToast(result.logId, successTitle, result.box.boxId, warnings, successDescription);
 
-      if (didMoveToZeroed) {
+      if (didTransitionToZeroed) {
         navigate('/');
       }
     } catch (error) {
@@ -514,6 +526,13 @@ export default function BoxDetailsPage() {
 
     try {
       const payload = parseUpdateBoxDraft(draft);
+      if (shouldPromptZeroedInventoryReactivationOnEdit(box, payload)) {
+        setPendingZeroedReactivationState({
+          payload: buildZeroedInventoryReactivationPayloadForEdit(payload)
+        });
+        return;
+      }
+
       const zeroedTrigger = getZeroedInventoryEditTrigger(box, payload);
 
       if (zeroedTrigger) {
@@ -739,6 +758,7 @@ export default function BoxDetailsPage() {
           onSubmit={handleEditSubmit}
           onCancel={() => {
             setPendingZeroedEditState(null);
+            setPendingZeroedReactivationState(null);
             setIsEditing(false);
           }}
           onDelete={() => void handleDeleteBox()}
@@ -757,16 +777,15 @@ export default function BoxDetailsPage() {
           <div className="detail-actions">
             <span className={`badge badge-${box.status}`}>{box.status}</span>
             {!isEditing ? (
-                <Button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  disabled={
-                    isAddBoxPending ||
-                    deleteMutation.isPending ||
-                    box.status === 'ZEROED' ||
-                    !auth.isAuthenticated ||
-                    !auth.clientIdConfigured ||
-                    !canWriteInventory
+              <Button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                disabled={
+                  isAddBoxPending ||
+                  deleteMutation.isPending ||
+                  !auth.isAuthenticated ||
+                  !auth.clientIdConfigured ||
+                  !canWriteInventory
                 }
               >
                 Edit
@@ -1006,7 +1025,10 @@ export default function BoxDetailsPage() {
         }
         confirmLabel="Move To Zeroed"
         cancelLabel="Keep Active"
-        onCancel={() => setPendingZeroedEditState(null)}
+        onCancel={() => {
+          setPendingZeroedEditState(null);
+          setPendingZeroedReactivationState(null);
+        }}
         onConfirm={() => {
           if (!pendingZeroedEditState) {
             return;
@@ -1014,6 +1036,28 @@ export default function BoxDetailsPage() {
 
           const payload = pendingZeroedEditState.payload;
           setPendingZeroedEditState(null);
+          setPendingZeroedReactivationState(null);
+          void runStandardUpdateFlow(payload);
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingZeroedReactivationState)}
+        title="Reactivate Zeroed Box?"
+        message={ZEROED_BOX_REACTIVATION_PROMPT}
+        confirmLabel="YES"
+        cancelLabel="NO"
+        onCancel={() => {
+          setPendingZeroedEditState(null);
+          setPendingZeroedReactivationState(null);
+        }}
+        onConfirm={() => {
+          if (!pendingZeroedReactivationState) {
+            return;
+          }
+
+          const payload = pendingZeroedReactivationState.payload;
+          setPendingZeroedEditState(null);
+          setPendingZeroedReactivationState(null);
           void runStandardUpdateFlow(payload);
         }}
       />

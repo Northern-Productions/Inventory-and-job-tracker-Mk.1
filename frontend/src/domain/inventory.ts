@@ -138,6 +138,7 @@ export interface AddBoxPayload {
 export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId'> {
   boxId: string;
   moveToZeroed?: boolean;
+  reactivateFromZeroed?: boolean;
 }
 
 export interface DeleteBoxPayload {
@@ -552,6 +553,7 @@ export interface UpdateJobPayload {
 export interface SetJobStagedForPickupPayload {
   jobNumber: string;
   isStagedForPickup: boolean;
+  autoCheckoutRemaining?: boolean;
 }
 
 export interface DeleteJobPayload {

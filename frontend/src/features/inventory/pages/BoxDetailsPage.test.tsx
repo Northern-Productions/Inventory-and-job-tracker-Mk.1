@@ -199,4 +199,19 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('class="row-button"');
     expect(html).toContain('>000123</button>');
   });
+
+  it('allows zeroed boxes to enter edit mode from the details page', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({ status: 'ZEROED', zeroedDate: '2026-03-23', zeroedReason: 'Check-in complete' }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('>Edit</button>');
+    expect(html).toMatch(/<button[^>]*>Edit<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Edit<\/button>/);
+  });
 });

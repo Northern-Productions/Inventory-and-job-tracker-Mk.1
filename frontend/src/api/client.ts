@@ -61,6 +61,7 @@ export {
   updateCaulkJobAllocation
 } from './features/allocationsClient';
 export {
+  checkoutAllJobMaterials,
   completeJob,
   createJob,
   deleteJob,

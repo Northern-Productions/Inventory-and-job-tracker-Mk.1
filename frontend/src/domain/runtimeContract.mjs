@@ -66,6 +66,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/jobs/create': 'jobs',
   '/jobs/update': 'jobs',
   '/jobs/set-staged-pickup': 'jobs',
+  '/jobs/checkout-all': 'jobs',
   '/jobs/complete': 'jobs',
   '/jobs/delete': 'jobs',
   '/jobs/reopen': 'jobs',

@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Box, UpdateBoxPayload } from '../../../domain';
 import {
   buildZeroedInventoryPayloadForEdit,
+  buildZeroedInventoryReactivationPayloadForEdit,
   buildZeroedInventoryWarningMessage,
+  ZEROED_BOX_REACTIVATION_PROMPT,
   getZeroedInventoryEditTrigger,
   getIncompleteBoxHistoryFieldsForZeroedEdit,
+  shouldPromptZeroedInventoryReactivationOnEdit,
   shouldPromptZeroedInventoryWarningOnEdit
 } from './boxZeroedTransition';
 
@@ -90,6 +93,26 @@ describe('boxZeroedTransition', () => {
     });
   });
 
+  it('prompts zeroed boxes for reactivation when positive available feet or last roll weight is entered', () => {
+    const currentBox = createBox({ status: 'ZEROED', initialFeet: 500, feetAvailable: 0 });
+    const payload = createPayload({ initialFeet: 500, feetAvailable: 24, lastRollWeightLbs: 11.9 });
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBeNull();
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
+    expect(shouldPromptZeroedInventoryReactivationOnEdit(currentBox, payload)).toBe(true);
+    expect(buildZeroedInventoryReactivationPayloadForEdit(payload)).toMatchObject({
+      reactivateFromZeroed: true,
+      auditNote: 'Confirmed zeroed box reactivation edit save'
+    });
+  });
+
+  it('does not prompt zeroed boxes for reactivation when only historical initial feet remain', () => {
+    const currentBox = createBox({ status: 'ZEROED', initialFeet: 500, feetAvailable: 0 });
+    const payload = createPayload({ initialFeet: 500, feetAvailable: 0, lastRollWeightLbs: 0 });
+
+    expect(shouldPromptZeroedInventoryReactivationOnEdit(currentBox, payload)).toBe(false);
+  });
+
   it('prompts when the current saved box is incomplete even if the submitted values fill the gap', () => {
     const currentBox = createBox({ coreWeightLbs: null });
     const payload = createPayload({ coreWeightLbs: 1.2 });
@@ -126,6 +149,9 @@ describe('boxZeroedTransition', () => {
     const zeroLinearFeetMessage = buildZeroedInventoryWarningMessage([], 'linearFeet');
 
     expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
+    expect(ZEROED_BOX_REACTIVATION_PROMPT).toBe(
+      'Do you want to move this box back to the active IN_STOCK inventory?'
+    );
     expect(message).toContain('Received Date and Core Weight');
     expect(message).toContain('move the box to zeroed inventory');
     expect(message).toContain('cancel any active allocations');

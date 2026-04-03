@@ -6,6 +6,13 @@ type StagingDetail = Pick<
 >;
 
 export function getJobStagingBlockingMessage(detail: StagingDetail | null | undefined) {
+  return getJobStagingBlockingMessageWithOptions(detail);
+}
+
+export function getJobStagingBlockingMessageWithOptions(
+  detail: StagingDetail | null | undefined,
+  options: { allowAutoCheckout?: boolean } = {}
+) {
   const summary = detail?.summary;
   if (!summary || summary.lifecycleStatus !== 'ACTIVE') {
     return '';
@@ -20,17 +27,14 @@ export function getJobStagingBlockingMessage(detail: StagingDetail | null | unde
     return '';
   }
 
-  const hasOpenFilmOrders = (detail?.filmOrders || []).some((entry) =>
-    entry.status === 'FILM_ORDER' || entry.status === 'FILM_ON_THE_WAY'
-  );
-  if (hasOpenFilmOrders) {
-    return 'Resolve open film orders before staging this job.';
-  }
-
   const hasRemainingFilm = requirements.some((entry) => entry.remainingFeet > 0);
   const hasRemainingCaulk = caulkRequirements.some((entry) => entry.remainingTubes > 0);
   if (hasRemainingFilm || hasRemainingCaulk) {
     return 'Allocate all required film and caulk before staging this job.';
+  }
+
+  if (options.allowAutoCheckout) {
+    return '';
   }
 
   const hasUncheckedOutFilm = (detail?.allocations || []).some(
@@ -57,5 +61,22 @@ export function getJobStagingBlockingMessage(detail: StagingDetail | null | unde
 }
 
 export function canMarkJobStagedForPickup(detail: StagingDetail | null | undefined) {
-  return !getJobStagingBlockingMessage(detail);
+  return !getJobStagingBlockingMessageWithOptions(detail);
+}
+
+export function canMarkJobStagedForPickupWithAutoCheckout(detail: StagingDetail | null | undefined) {
+  return !getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true });
+}
+
+export function isLaborOnlyJob(detail: StagingDetail | null | undefined) {
+  const summary = detail?.summary;
+  if (!summary || summary.lifecycleStatus !== 'ACTIVE') {
+    return false;
+  }
+
+  if (summary.isLaborOnly) {
+    return true;
+  }
+
+  return Number(summary.requiredFeet || 0) <= 0 && Number(summary.requiredTubes || 0) <= 0;
 }

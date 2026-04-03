@@ -43,6 +43,7 @@ export type MutationHandlerDeps = {
   removeJobBoxAllocation: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   setJobStagedPickup: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  checkoutAllJobMaterials: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -347,6 +348,9 @@ const mutationHandlers: Record<string, MutationHandler> = {
   },
   "/jobs/set-staged-pickup": async ({ client, identity, normalizedPayload }, deps) => {
     return await deps.setJobStagedPickup(client, identity, normalizedPayload);
+  },
+  "/jobs/checkout-all": async ({ client, identity, normalizedPayload }, deps) => {
+    return await deps.checkoutAllJobMaterials(client, identity, normalizedPayload);
   },
   "/jobs/complete": async ({ client, identity, payload }, deps) => {
     return await deps.completeJob(client, identity, payload);

@@ -34,6 +34,44 @@ export function summarizeReturnedMaterials(detail: ReturnedMaterialsDetail | nul
   };
 }
 
+export function getDeleteJobBlockingMessage(detail: ReturnedMaterialsDetail | null | undefined) {
+  const summary = summarizeReturnedMaterials(detail);
+  const { checkedOutFilmCount, openCaulkCheckoutCount } = summary;
+
+  if (checkedOutFilmCount > 0 && openCaulkCheckoutCount > 0) {
+    return `Return ${checkedOutFilmCount} checked-out box${checkedOutFilmCount === 1 ? '' : 'es'} and close ${openCaulkCheckoutCount} open caulk checkout${openCaulkCheckoutCount === 1 ? '' : 's'} before deleting this job.`;
+  }
+
+  if (checkedOutFilmCount > 0) {
+    return `Return ${checkedOutFilmCount} checked-out box${checkedOutFilmCount === 1 ? '' : 'es'} before deleting this job.`;
+  }
+
+  if (openCaulkCheckoutCount > 0) {
+    return `Close ${openCaulkCheckoutCount} open caulk checkout${openCaulkCheckoutCount === 1 ? '' : 's'} before deleting this job.`;
+  }
+
+  return '';
+}
+
+export function shouldPromptForCompletedJobAfterReturns({
+  previousHasOutstandingMaterials,
+  currentHasOutstandingMaterials,
+  isLaborOnly,
+  lifecycleStatus
+}: {
+  previousHasOutstandingMaterials: boolean;
+  currentHasOutstandingMaterials: boolean;
+  isLaborOnly: boolean;
+  lifecycleStatus?: string;
+}) {
+  return (
+    lifecycleStatus === 'ACTIVE' &&
+    !isLaborOnly &&
+    previousHasOutstandingMaterials &&
+    !currentHasOutstandingMaterials
+  );
+}
+
 export function deriveCaulkCheckinTotals({
   checkoutTubes,
   tubesPerCase,

@@ -132,6 +132,14 @@ async function main() {
     },
     {
       method: 'POST',
+      path: '/jobs/checkout-all',
+      body: {},
+      expectedStatuses: [400],
+      requiresAuth: true,
+      safe: true
+    },
+    {
+      method: 'POST',
       path: '/film-orders/create',
       body: {},
       expectedStatuses: [400],

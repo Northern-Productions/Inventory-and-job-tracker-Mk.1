@@ -408,13 +408,11 @@ export function BoxForm({
             }
             required
           />
-          {mode === 'edit' ? (
-            <Input
-              label="Lot Run"
-              value={draft.lotRun}
-              onChange={(event) => updateField('lotRun', event.target.value)}
-            />
-          ) : null}
+          <Input
+            label="Lot Run"
+            value={draft.lotRun}
+            onChange={(event) => updateField('lotRun', event.target.value)}
+          />
           </div>
         </div>
 

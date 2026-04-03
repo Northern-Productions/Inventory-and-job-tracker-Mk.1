@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { listCaulkProducts, listCaulkStock } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
@@ -21,6 +21,7 @@ import type {
   CaulkJobCheckoutEntry,
   FilmOrderEntry,
   JobCaulkRequirementLine,
+  JobDetail,
   UpdateJobPayload,
   Warehouse
 } from '../../../domain';
@@ -34,6 +35,7 @@ import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDial
 import {
   useAddCaulkJobAllocation,
   useCheckinCaulkJobAllocation,
+  useCheckoutAllJobMaterials,
   useCheckoutCaulkJobAllocation,
   useCompleteJob,
   useDeleteJob,
@@ -58,15 +60,22 @@ import {
 } from '../utils/caulkAllocationPlanning';
 import {
   deriveCaulkCheckinTotals,
+  getDeleteJobBlockingMessage,
   getCaulkCheckinValidationError,
+  shouldPromptForCompletedJobAfterReturns,
   summarizeReturnedMaterials
 } from '../utils/jobReturnedMaterials';
 import { getPreferredCaulkProductId } from '../utils/caulkProductPreferences';
-import { canMarkJobStagedForPickup, getJobStagingBlockingMessage } from '../utils/jobStaging';
+import {
+  canMarkJobStagedForPickupWithAutoCheckout,
+  getJobStagingBlockingMessageWithOptions,
+  isLaborOnlyJob
+} from '../utils/jobStaging';
 import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { buildCaulkProductLabel } from '../utils/caulkProductLabels';
 import { useActionAccess } from '../hooks/useActionAccess';
+import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 
 interface CaulkAllocationEditorState {
   mode: 'add' | 'edit';
@@ -84,8 +93,6 @@ interface CaulkCheckoutDraft {
   caulkAllocationId: string;
   productLabel: string;
   reservedTubesRemaining: number;
-  checkoutTubes: string;
-  notes: string;
 }
 
 interface CaulkCheckinDraft {
@@ -140,6 +147,7 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
 
 export default function AllocationJobPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
@@ -152,6 +160,7 @@ export default function AllocationJobPage() {
   const addCaulkAllocationMutation = useAddCaulkJobAllocation();
   const updateCaulkAllocationMutation = useUpdateCaulkJobAllocation();
   const checkoutCaulkAllocationMutation = useCheckoutCaulkJobAllocation();
+  const checkoutAllJobMaterialsMutation = useCheckoutAllJobMaterials();
   const checkinCaulkAllocationMutation = useCheckinCaulkJobAllocation();
   const removeCaulkAllocationMutation = useRemoveCaulkJobAllocation();
   const completeJobMutation = useCompleteJob();
@@ -170,6 +179,7 @@ export default function AllocationJobPage() {
   const [pendingLaborOnlyUpdate, setPendingLaborOnlyUpdate] = useState<JobEditorSubmitPayload | null>(null);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [isCompleteConfirmOpen, setIsCompleteConfirmOpen] = useState(false);
+  const [isReturnCompletePromptOpen, setIsReturnCompletePromptOpen] = useState(false);
   const [isDeleteJobConfirmOpen, setIsDeleteJobConfirmOpen] = useState(false);
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
@@ -199,8 +209,15 @@ export default function AllocationJobPage() {
   const isClosedJob =
     summary?.lifecycleStatus === 'COMPLETED' || summary?.lifecycleStatus === 'CANCELLED';
   const isReadOnlyJob = isClosedJob;
-  const stagingBlockingMessage = useMemo(() => getJobStagingBlockingMessage(detail), [detail]);
-  const canMarkStagedPickup = useMemo(() => canMarkJobStagedForPickup(detail), [detail]);
+  const isLaborOnlyDisplayJob = useMemo(() => isLaborOnlyJob(detail), [detail]);
+  const stagingBlockingMessage = useMemo(
+    () => getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true }),
+    [detail]
+  );
+  const canMarkStagedPickup = useMemo(
+    () => canMarkJobStagedForPickupWithAutoCheckout(detail),
+    [detail]
+  );
   const visibleAllocations = useMemo(
     () => allocations.filter((entry) => entry.status === 'ACTIVE' || entry.checkedOutOnThisJob),
     [allocations]
@@ -331,6 +348,19 @@ export default function AllocationJobPage() {
         return Boolean(caulkCheckoutsByAllocationId[entry.caulkAllocationId]?.length);
       }),
     [caulkAllocations, caulkCheckoutsByAllocationId]
+  );
+  const hasCheckoutableMaterials = useMemo(
+    () =>
+      visibleAllocations.some(
+        (entry) => entry.status === 'ACTIVE' && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
+      ) ||
+      visibleCaulkAllocations.some(
+        (entry) =>
+          entry.status === 'ACTIVE' &&
+          entry.reservedTubesRemaining > 0 &&
+          !openCaulkCheckoutByAllocationId[entry.caulkAllocationId]
+      ),
+    [openCaulkCheckoutByAllocationId, visibleAllocations, visibleCaulkAllocations]
   );
   const totalRequiredCaulkTubes = useMemo(
     () => caulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0),
@@ -486,6 +516,16 @@ export default function AllocationJobPage() {
       return;
     }
 
+    const deleteBlockedMessage = getDeleteJobBlockingMessage(detail);
+    if (deleteBlockedMessage) {
+      toast.push({
+        title: 'Unable to delete job',
+        description: deleteBlockedMessage,
+        variant: 'error'
+      });
+      return;
+    }
+
     try {
       const deletePromise = deleteJobMutation.mutateAsync({
         jobNumber: summary.jobNumber
@@ -497,6 +537,64 @@ export default function AllocationJobPage() {
       toast.push({
         title: 'Unable to delete job',
         description: error instanceof Error ? error.message : 'The delete request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  function maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials: boolean) {
+    if (!summary || !detail) {
+      return;
+    }
+
+    const currentDetail = queryClient.getQueryData<JobDetail>(inventoryKeys.job(summary.jobNumber)) || detail;
+    const currentSummary = currentDetail.summary;
+    const currentReturnedMaterials = summarizeReturnedMaterials(currentDetail);
+
+    if (
+      shouldPromptForCompletedJobAfterReturns({
+        previousHasOutstandingMaterials,
+        currentHasOutstandingMaterials: currentReturnedMaterials.hasOutstandingMaterials,
+        isLaborOnly: Boolean(currentSummary.isLaborOnly),
+        lifecycleStatus: currentSummary.lifecycleStatus
+      })
+    ) {
+      setIsReturnCompletePromptOpen(true);
+    }
+  }
+
+  async function handleCheckoutAllMaterials() {
+    if (!summary) {
+      return;
+    }
+
+    if (isReadOnlyJob) {
+      toast.push({
+        title: 'Job is read-only',
+        description: `Job ${summary.jobNumber} is closed and materials cannot be checked out.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!ensureSignedIn('checking out materials')) {
+      return;
+    }
+
+    try {
+      const { warnings } = await checkoutAllJobMaterialsMutation.mutateAsync({
+        jobNumber: summary.jobNumber
+      });
+      toast.push({
+        title: 'Checked out all materials',
+        description:
+          warnings.join(' ') || `All eligible film and caulk allocations for job ${summary.jobNumber} were checked out.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to check out all materials',
+        description: error instanceof Error ? error.message : 'The checkout-all request failed.',
         variant: 'error'
       });
     }
@@ -712,7 +810,8 @@ export default function AllocationJobPage() {
     try {
       const { warnings } = await setJobStagedForPickupMutation.mutateAsync({
         jobNumber: summary.jobNumber,
-        isStagedForPickup: nextIsStaged
+        isStagedForPickup: nextIsStaged,
+        ...(nextIsStaged ? { autoCheckoutRemaining: true } : {})
       });
       toast.push({
         title: nextIsStaged ? 'Marked staged for pickup' : 'Cleared staged pickup',
@@ -763,6 +862,7 @@ export default function AllocationJobPage() {
       return;
     }
 
+    const hadOutstandingMaterials = returnedMaterialsSummary.hasOutstandingMaterials;
     const box = filmCheckinBoxQuery.data;
     if (!box) {
       toast.push({
@@ -805,6 +905,7 @@ export default function AllocationJobPage() {
           `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
         variant: 'success'
       });
+      maybeOpenReturnCompletionPrompt(hadOutstandingMaterials);
     } catch (error) {
       toast.push({
         title: 'Unable to check in box',
@@ -996,9 +1097,7 @@ export default function AllocationJobPage() {
     setCaulkCheckoutDraft({
       caulkAllocationId: entry.caulkAllocationId,
       productLabel: buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode),
-      reservedTubesRemaining: entry.reservedTubesRemaining,
-      checkoutTubes: String(Math.max(entry.reservedTubesRemaining, 1)),
-      notes: ''
+      reservedTubesRemaining: entry.reservedTubesRemaining
     });
     setCaulkCheckoutError('');
   }
@@ -1008,21 +1107,20 @@ export default function AllocationJobPage() {
       return;
     }
 
-    const parsedCheckoutTubes = Math.floor(Number(caulkCheckoutDraft.checkoutTubes));
-    if (!Number.isFinite(parsedCheckoutTubes) || parsedCheckoutTubes <= 0) {
-      setCaulkCheckoutError('Checkout tubes must be greater than zero.');
-      return;
-    }
-
     if (!ensureSignedIn('checking out caulk')) {
       return;
     }
 
     try {
+      const parsedCheckoutTubes = Math.max(0, Math.floor(Number(caulkCheckoutDraft.reservedTubesRemaining)));
+      if (parsedCheckoutTubes <= 0) {
+        setCaulkCheckoutError('No reserved tubes are available to check out.');
+        return;
+      }
+
       const { warnings } = await checkoutCaulkAllocationMutation.mutateAsync({
         caulkAllocationId: caulkCheckoutDraft.caulkAllocationId,
-        checkoutTubes: parsedCheckoutTubes,
-        notes: caulkCheckoutDraft.notes.trim() || undefined
+        checkoutTubes: parsedCheckoutTubes
       });
       toast.push({
         title: `Checked out ${parsedCheckoutTubes} tube${parsedCheckoutTubes === 1 ? '' : 's'}`,
@@ -1066,8 +1164,8 @@ export default function AllocationJobPage() {
       productLabel: buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode),
       checkoutTubes: entry.checkoutTubes,
       tubesPerCase: entry.tubesPerCase,
-      unusedLooseTubes: '0',
-      unusedCases: '0',
+      unusedLooseTubes: '',
+      unusedCases: '',
       notes: ''
     });
     setCaulkCheckinError('');
@@ -1095,6 +1193,7 @@ export default function AllocationJobPage() {
       return;
     }
 
+    const hadOutstandingMaterials = returnedMaterialsSummary.hasOutstandingMaterials;
     try {
       const { warnings } = await checkinCaulkAllocationMutation.mutateAsync({
         caulkCheckoutId: caulkCheckinDraft.caulkCheckoutId,
@@ -1109,6 +1208,7 @@ export default function AllocationJobPage() {
       });
       setCaulkCheckinDraft(null);
       setCaulkCheckinError('');
+      maybeOpenReturnCompletionPrompt(hadOutstandingMaterials);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The check-in request failed.';
       setCaulkCheckinError(message);
@@ -1268,25 +1368,52 @@ export default function AllocationJobPage() {
             >
               Installer Pickup
             </dt>
-            <dd>{summary.isStagedForPickup ? 'Staged for pickup' : 'Waiting on warehouse staging'}</dd>
+            <dd>{summary.isStagedForPickup ? 'Staged for pickup' : isLaborOnlyDisplayJob ? 'Labor only' : 'Waiting on warehouse staging'}</dd>
             <p className="muted-text job-detail-staged-description">
               {summary.isStagedForPickup
                 ? 'Installers can pick up material for this job.'
-                : stagingBlockingMessage || 'Mark this once the film is staged and ready for installer pickup.'}
+                : isLaborOnlyDisplayJob
+                  ? 'Labor-only jobs do not require staging or checkout. They are tracked by crew leader and install date only.'
+                  : stagingBlockingMessage ||
+                    'Mark this once the film and caulk are ready. Staging will check out all allocated material first.'}
             </p>
           </div>
           <div className="detail-actions job-detail-staged-actions">
-            {canEditStagedPickup ? (
-              <Button
-                type="button"
-                variant={summary.isStagedForPickup ? 'secondary' : 'primary'}
-                onClick={() => void handleSetStagedPickup(!summary.isStagedForPickup)}
-                disabled={!summary.isStagedForPickup && !canMarkStagedPickup}
-                loading={setJobStagedForPickupMutation.isPending}
-                loadingLabel={summary.isStagedForPickup ? 'Saving...' : 'Saving...'}
-              >
-                {summary.isStagedForPickup ? 'Clear Staged Pickup' : 'Mark Staged for Pickup'}
-              </Button>
+            {isLaborOnlyDisplayJob ? (
+              <span className="muted-text">Labor only workflow</span>
+            ) : canEditStagedPickup ? (
+              <div className="detail-actions job-detail-staged-actions-inner">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleCheckoutAllMaterials()}
+                  disabled={
+                    !hasCheckoutableMaterials ||
+                    checkoutAllJobMaterialsMutation.isPending ||
+                    setJobStagedForPickupMutation.isPending
+                    || setBoxStatusMutation.isPending
+                    || checkoutCaulkAllocationMutation.isPending
+                  }
+                >
+                  Checkout All
+                </Button>
+                <Button
+                  type="button"
+                  variant={summary.isStagedForPickup ? 'secondary' : 'primary'}
+                  onClick={() => void handleSetStagedPickup(!summary.isStagedForPickup)}
+                  disabled={
+                    checkoutAllJobMaterialsMutation.isPending ||
+                    setJobStagedForPickupMutation.isPending ||
+                    setBoxStatusMutation.isPending ||
+                    checkoutCaulkAllocationMutation.isPending ||
+                    (!summary.isStagedForPickup && !canMarkStagedPickup)
+                  }
+                  loading={setJobStagedForPickupMutation.isPending}
+                  loadingLabel={summary.isStagedForPickup ? 'Saving...' : 'Saving...'}
+                >
+                  {summary.isStagedForPickup ? 'Clear Staged Pickup' : 'Mark Staged for Pickup'}
+                </Button>
+              </div>
             ) : (
               <span className="muted-text">
                 {isReadOnlyJob
@@ -2114,7 +2241,7 @@ export default function AllocationJobPage() {
         title="Delete Job"
         message={
           summary
-            ? `Delete job ${summary.jobNumber}? This action cannot be undone. Active allocations will be cancelled and released, film orders will be removed, and any checked-out boxes must be returned first.`
+            ? `Delete job ${summary.jobNumber}? This action cannot be undone. Unchecked-out film allocations and reserved caulk will be returned to stock, old job-linked allocations and usage history will be removed, film orders will be deleted, and any checked-out material must be accounted for first.`
             : ''
         }
         cancelLabel="Keep Job"
@@ -2223,6 +2350,19 @@ export default function AllocationJobPage() {
         onConfirm={(reason) => {
           setIsCompleteConfirmOpen(false);
           void handleCompleteJob(reason);
+        }}
+      />
+
+      <ConfirmDialog
+        open={isReturnCompletePromptOpen}
+        title="Complete Job?"
+        message={summary ? `All materials for job ${summary.jobNumber} have been returned. Would you like to mark this job COMPLETE?` : ''}
+        confirmLabel="YES"
+        cancelLabel="NO"
+        onCancel={() => setIsReturnCompletePromptOpen(false)}
+        onConfirm={() => {
+          setIsReturnCompletePromptOpen(false);
+          void handleCompleteJob('Marked completed after all job materials were returned.');
         }}
       />
 
@@ -2452,7 +2592,7 @@ export default function AllocationJobPage() {
               </p>
             ) : null}
             {caulkAllocationEditorError ? <p className="error-text">{caulkAllocationEditorError}</p> : null}
-            <div className="dialog-actions">
+            <div className="dialog-actions dialog-actions-sticky-footer">
               <Button
                 type="button"
                 variant="ghost"
@@ -2481,160 +2621,151 @@ export default function AllocationJobPage() {
       ) : null}
 
       {caulkCheckoutDraft ? (
-        <div className="dialog-backdrop" role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="caulk-checkout-dialog-title">
-            <div className="dialog-header">
-              <h2 id="caulk-checkout-dialog-title">Check Out Caulk</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close caulk checkout dialog"
-                onClick={() => {
-                  setCaulkCheckoutDraft(null);
-                  setCaulkCheckoutError('');
-                }}
-              >
-                X
-              </button>
-            </div>
-            <p className="muted-text">
-              {caulkCheckoutDraft.productLabel} | Reserved remaining: {caulkCheckoutDraft.reservedTubesRemaining} tubes
-            </p>
-            <div className="form-grid">
-              <Input
-                label="Checkout Tubes"
-                value={caulkCheckoutDraft.checkoutTubes}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                onChange={(event) => {
-                  const value = event.target.value.replace(/[^0-9]/g, '');
-                  setCaulkCheckoutDraft((current) =>
-                    current ? { ...current, checkoutTubes: value } : current
-                  );
-                  setCaulkCheckoutError('');
-                }}
-              />
-              <Input
-                label="Notes"
-                value={caulkCheckoutDraft.notes}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setCaulkCheckoutDraft((current) => (current ? { ...current, notes: value } : current));
-                  setCaulkCheckoutError('');
-                }}
-                hint="Over-checkout is allowed and will pull extra stock automatically."
-              />
-            </div>
-            {caulkCheckoutError ? <p className="error-text">{caulkCheckoutError}</p> : null}
-            <div className="dialog-actions">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setCaulkCheckoutDraft(null);
-                  setCaulkCheckoutError('');
-                }}
-                disabled={checkoutCaulkAllocationMutation.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                onClick={() => void handleSubmitCaulkCheckoutDialog()}
-                disabled={checkoutCaulkAllocationMutation.isPending}
-              >
-                {checkoutCaulkAllocationMutation.isPending ? 'Checking Out...' : 'Check Out'}
-              </Button>
-            </div>
+        <DialogSurface
+          open={Boolean(caulkCheckoutDraft)}
+          onClose={() => {
+            setCaulkCheckoutDraft(null);
+            setCaulkCheckoutError('');
+          }}
+          className="dialog-caulk-checkout"
+          backdropClassName="dialog-backdrop-centered"
+          titleId="caulk-checkout-dialog-title"
+        >
+          <div className="dialog-header">
+            <h2 id="caulk-checkout-dialog-title">Check Out Caulk</h2>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close caulk checkout dialog"
+              onClick={() => {
+                setCaulkCheckoutDraft(null);
+                setCaulkCheckoutError('');
+              }}
+            >
+              X
+            </button>
           </div>
-        </div>
+          <p className="muted-text">
+            {caulkCheckoutDraft.productLabel} | Allocated amount: {caulkCheckoutDraft.reservedTubesRemaining} tubes
+          </p>
+          {caulkCheckoutError ? <p className="error-text">{caulkCheckoutError}</p> : null}
+          <div className="dialog-actions dialog-actions-sticky-footer">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setCaulkCheckoutDraft(null);
+                setCaulkCheckoutError('');
+              }}
+              disabled={checkoutCaulkAllocationMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void handleSubmitCaulkCheckoutDialog()}
+              disabled={checkoutCaulkAllocationMutation.isPending}
+            >
+              {checkoutCaulkAllocationMutation.isPending ? 'Checking Out...' : 'Check Out'}
+            </Button>
+          </div>
+        </DialogSurface>
       ) : null}
 
       {caulkCheckinDraft ? (
-        <div className="dialog-backdrop" role="presentation">
-          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="caulk-checkin-dialog-title">
-            <div className="dialog-header">
-              <h2 id="caulk-checkin-dialog-title">Check In Caulk</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close caulk checkin dialog"
-                onClick={() => {
-                  setCaulkCheckinDraft(null);
-                  setCaulkCheckinError('');
-                }}
-              >
-                X
-              </button>
-            </div>
-            <p className="muted-text">
-              {caulkCheckinDraft.productLabel} | Checked out: {caulkCheckinDraft.checkoutTubes} tubes | {caulkCheckinDraft.tubesPerCase} tubes per case
-            </p>
-            <div className="form-grid">
-              <Input
-                label="Unused Loose Tubes"
-                value={caulkCheckinDraft.unusedLooseTubes}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                onChange={(event) => {
-                  const value = event.target.value.replace(/[^0-9]/g, '');
-                  setCaulkCheckinDraft((current) => (current ? { ...current, unusedLooseTubes: value } : current));
-                  setCaulkCheckinError('');
-                }}
-                hint={`Must be between 0 and ${Math.max(caulkCheckinDraft.tubesPerCase - 1, 0)}.`}
-              />
-              <Input
-                label="Unused Full Cases"
-                value={caulkCheckinDraft.unusedCases}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                onChange={(event) => {
-                  const value = event.target.value.replace(/[^0-9]/g, '');
-                  setCaulkCheckinDraft((current) => (current ? { ...current, unusedCases: value } : current));
-                  setCaulkCheckinError('');
-                }}
-                hint="Enter unopened full cases only."
-              />
-              <Input
-                label="Notes"
-                value={caulkCheckinDraft.notes}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setCaulkCheckinDraft((current) => (current ? { ...current, notes: value } : current));
-                  setCaulkCheckinError('');
-                }}
-              />
-            </div>
-            {caulkCheckinTotals ? (
-              <p className="muted-text">
-                Returning {caulkCheckinTotals.totalReturnedTubes} tubes total; {caulkCheckinTotals.usedTubes} tube{caulkCheckinTotals.usedTubes === 1 ? '' : 's'} will be marked used.
-              </p>
-            ) : null}
-            {caulkCheckinError ? <p className="error-text">{caulkCheckinError}</p> : null}
-            <div className="dialog-actions">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setCaulkCheckinDraft(null);
-                  setCaulkCheckinError('');
-                }}
-                disabled={checkinCaulkAllocationMutation.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                onClick={() => void handleSubmitCaulkCheckinDialog()}
-                disabled={checkinCaulkAllocationMutation.isPending}
-              >
-                {checkinCaulkAllocationMutation.isPending ? 'Checking In...' : 'Check In'}
-              </Button>
-            </div>
+        <DialogSurface
+          open={Boolean(caulkCheckinDraft)}
+          onClose={() => {
+            setCaulkCheckinDraft(null);
+            setCaulkCheckinError('');
+          }}
+          className="dialog-caulk-checkin"
+          backdropClassName="dialog-backdrop-centered"
+          titleId="caulk-checkin-dialog-title"
+        >
+          <div className="dialog-header">
+            <h2 id="caulk-checkin-dialog-title">Check In Caulk</h2>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close caulk checkin dialog"
+              onClick={() => {
+                setCaulkCheckinDraft(null);
+                setCaulkCheckinError('');
+              }}
+            >
+              X
+            </button>
           </div>
-        </div>
+          <p className="muted-text">
+            {caulkCheckinDraft.productLabel} | Checked out: {caulkCheckinDraft.checkoutTubes} tubes | {caulkCheckinDraft.tubesPerCase} tubes per case
+          </p>
+          <div className="form-grid">
+            <Input
+              label="Unused Loose Tubes"
+              value={caulkCheckinDraft.unusedLooseTubes}
+              placeholder="0"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              onChange={(event) => {
+                const value = event.target.value.replace(/[^0-9]/g, '');
+                setCaulkCheckinDraft((current) => (current ? { ...current, unusedLooseTubes: value } : current));
+                setCaulkCheckinError('');
+              }}
+              hint={`Must be between 0 and ${Math.max(caulkCheckinDraft.tubesPerCase - 1, 0)}.`}
+            />
+            <Input
+              label="Unused Full Cases"
+              value={caulkCheckinDraft.unusedCases}
+              placeholder="0"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              onChange={(event) => {
+                const value = event.target.value.replace(/[^0-9]/g, '');
+                setCaulkCheckinDraft((current) => (current ? { ...current, unusedCases: value } : current));
+                setCaulkCheckinError('');
+              }}
+              hint="Enter unopened full cases only."
+            />
+            <Input
+              label="Notes"
+              value={caulkCheckinDraft.notes}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCaulkCheckinDraft((current) => (current ? { ...current, notes: value } : current));
+                setCaulkCheckinError('');
+              }}
+            />
+          </div>
+          {caulkCheckinTotals ? (
+            <p className="muted-text">
+              Returning {caulkCheckinTotals.totalReturnedTubes} tubes total; {caulkCheckinTotals.usedTubes} tube{caulkCheckinTotals.usedTubes === 1 ? '' : 's'} will be marked used.
+            </p>
+          ) : null}
+          {caulkCheckinError ? <p className="error-text">{caulkCheckinError}</p> : null}
+          <div className="dialog-actions dialog-actions-sticky-footer">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setCaulkCheckinDraft(null);
+                setCaulkCheckinError('');
+              }}
+              disabled={checkinCaulkAllocationMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => void handleSubmitCaulkCheckinDialog()}
+              disabled={checkinCaulkAllocationMutation.isPending}
+            >
+              {checkinCaulkAllocationMutation.isPending ? 'Checking In...' : 'Check In'}
+            </Button>
+          </div>
+        </DialogSurface>
       ) : null}
 
       <JobEditorDialog
@@ -2668,13 +2799,6 @@ export default function AllocationJobPage() {
         jobNumber={pendingLaborOnlyUpdate?.jobNumber || summary.jobNumber}
         pending={updateJobMutation.isPending}
         onCancel={() => setPendingLaborOnlyUpdate(null)}
-        onConfirmNormal={() => {
-          if (!pendingLaborOnlyUpdate) {
-            return;
-          }
-
-          void submitUpdateJob(pendingLaborOnlyUpdate, false);
-        }}
         onConfirmLaborOnly={() => {
           if (!pendingLaborOnlyUpdate) {
             return;

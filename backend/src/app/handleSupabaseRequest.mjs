@@ -4033,8 +4033,14 @@ function parseExplicitJobLaborOnlyValue(payload) {
 }
 
 function hasJobMaterialRequirements(requirements, caulkRequirements) {
-  return (Array.isArray(requirements) ? requirements.length : 0) > 0 ||
-    (Array.isArray(caulkRequirements) ? caulkRequirements.length : 0) > 0;
+  return (
+    (Array.isArray(requirements) ? requirements : []).some(
+      (entry) => integerOrZero(entry && entry.requiredFeet) > 0
+    ) ||
+    (Array.isArray(caulkRequirements) ? caulkRequirements : []).some(
+      (entry) => integerOrZero(entry && entry.requiredTubes) > 0
+    )
+  );
 }
 
 function derivePersistedJobMaterialFlags(existingHeader, payload, requirements, caulkRequirements) {
@@ -4053,12 +4059,9 @@ function derivePersistedJobMaterialFlags(existingHeader, payload, requirements, 
       isStagedForPickup = false;
     }
   } else {
+    isLaborOnly = true;
     isStagedForPickup = false;
-    if (isLaborOnly) {
-      isLaborAssigned = previouslyLaborOnly ? previouslyLaborAssigned : false;
-    } else {
-      isLaborAssigned = false;
-    }
+    isLaborAssigned = previouslyLaborOnly ? previouslyLaborAssigned : false;
   }
 
   return {
@@ -4072,6 +4075,15 @@ async function deleteJobRequirementsByJobId(client, orgId, jobId) {
   await client.query(
     `
       delete from app.job_requirements
+      where org_id = $1
+        and job_id = $2
+    `,
+    [orgId, jobId]
+  );
+
+  await client.query(
+    `
+      delete from app.job_caulk_requirements
       where org_id = $1
         and job_id = $2
     `,
@@ -4723,6 +4735,7 @@ function buildAllocationJobSummary(
   const distinctBoxes = {};
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
+  const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
@@ -4761,13 +4774,7 @@ function buildAllocationJobSummary(
     status = 'CANCELLED';
   } else if (normalizedLifecycleStatus === 'COMPLETED') {
     status = 'COMPLETED';
-  } else if (isLaborOnly && !requirements.length && !caulkRequirements.length) {
-    status = isLaborAssigned ? 'READY' : 'ALLOCATE';
-  } else if (hasFilmOrder) {
-    status = 'FILM_ORDER';
-  } else if (hasFilmOnTheWay) {
-    status = 'ON_ORDER';
-  } else if (requirements.length || caulkRequirements.length) {
+  } else if (hasMaterialRequirements) {
     let hasRemainingFilm = false;
     for (let index = 0; index < requirements.length; index += 1) {
       if (Math.max(0, Number(requirements[index].remainingFeet || 0)) > 0) {
@@ -4784,7 +4791,17 @@ function buildAllocationJobSummary(
       }
     }
 
-    status = hasRemainingFilm || hasRemainingCaulk ? 'ALLOCATE' : isStagedForPickup ? 'READY' : 'ALLOCATE';
+    if (hasRemainingFilm || hasRemainingCaulk) {
+      status = hasFilmOrder ? 'FILM_ORDER' : hasFilmOnTheWay ? 'ON_ORDER' : 'ALLOCATE';
+    } else {
+      status = 'READY';
+    }
+  } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
+    status = 'READY';
+  } else if (hasFilmOrder) {
+    status = 'FILM_ORDER';
+  } else if (hasFilmOnTheWay) {
+    status = 'ON_ORDER';
   } else if (hasActiveAllocation) {
     status = 'READY';
   } else if (hasCancelledRecord) {
@@ -4915,12 +4932,35 @@ function computeJobStatusFromRequirements(
     return 'COMPLETED';
   }
 
-  if (!requirements.length && !caulkRequirements.length) {
-    if (isLaborOnly) {
-      return isLaborAssigned ? 'READY' : 'ALLOCATE';
+  const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
+  if (!hasMaterialRequirements) {
+    if (isLaborOnly || requirements.length || caulkRequirements.length) {
+      return 'READY';
     }
 
-    return 'ALLOCATE';
+    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === 'FILM_ORDER')) {
+      return 'FILM_ORDER';
+    }
+
+    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === 'FILM_ON_THE_WAY')) {
+      return 'ON_ORDER';
+    }
+
+    return deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
+  }
+
+  const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
+  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  if (!hasRemainingFilm && !hasRemainingCaulk) {
+    return 'READY';
+  }
+
+  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === 'FILM_ORDER')) {
+    return 'FILM_ORDER';
+  }
+
+  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === 'FILM_ON_THE_WAY')) {
+    return 'ON_ORDER';
   }
 
   for (let index = 0; index < requirements.length; index += 1) {
@@ -4935,7 +4975,7 @@ function computeJobStatusFromRequirements(
     }
   }
 
-  return isStagedForPickup ? 'READY' : 'ALLOCATE';
+  return 'ALLOCATE';
 }
 
 function hasOpenFilmOrders(filmOrders) {
@@ -4980,15 +5020,9 @@ function hasUncheckedOutCaulkAllocations(caulkAllocations) {
 }
 
 function getJobStagingBlockingReason(requirements, caulkRequirements, allocations, filmOrders, caulkAllocations) {
-  const hasMaterialRequirements =
-    requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
-    caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
+  const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
   if (!hasMaterialRequirements) {
     return '';
-  }
-
-  if (hasOpenFilmOrders(filmOrders)) {
-    return 'Open film orders must be resolved before staging this job.';
   }
 
   const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
@@ -5704,6 +5738,131 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
   };
 }
 
+function formatDeletedJobCleanupWarning({
+  jobNumber,
+  filmRequirementCount,
+  caulkRequirementCount,
+  releasedFilmAllocationCount,
+  affectedBoxCount,
+  releasedReservedCaulkTubes,
+  cancelledCaulkAllocationCount,
+  purgedFilmAllocationCount,
+  purgedCaulkAllocationCount,
+  purgedCaulkCheckoutCount,
+  purgedRollHistoryCount,
+  deletedFilmOrderCount
+}) {
+  return (
+    `Deleted job ${jobNumber}. Removed ${filmRequirementCount} film requirement${filmRequirementCount === 1 ? '' : 's'} and ${caulkRequirementCount} caulk requirement${caulkRequirementCount === 1 ? '' : 's'}, ` +
+    `released ${releasedFilmAllocationCount} active film allocation${releasedFilmAllocationCount === 1 ? '' : 's'} across ${affectedBoxCount} box${affectedBoxCount === 1 ? '' : 'es'} and ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? '' : 's'} across ${cancelledCaulkAllocationCount} active caulk allocation${cancelledCaulkAllocationCount === 1 ? '' : 's'}, ` +
+    `purged ${purgedFilmAllocationCount} film allocation${purgedFilmAllocationCount === 1 ? '' : 's'}, ${purgedCaulkAllocationCount} caulk allocation${purgedCaulkAllocationCount === 1 ? '' : 's'}, ${purgedCaulkCheckoutCount} caulk checkout${purgedCaulkCheckoutCount === 1 ? '' : 's'}, and ${purgedRollHistoryCount} roll history ${purgedRollHistoryCount === 1 ? 'entry' : 'entries'}, ` +
+    `and deleted ${deletedFilmOrderCount} film order${deletedFilmOrderCount === 1 ? '' : 's'}.`
+  );
+}
+
+async function prepareDeletedJobCleanup(client, orgId, jobNumber, user, reason) {
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
+  const note = asTrimmedString(reason) || `Deleted job ${jobNumber}.`;
+  const releasedFeetByBox = {};
+  let releasedFilmAllocationCount = 0;
+  let affectedBoxCount = 0;
+  let deletedFilmOrderCount = 0;
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = cloneValue(allocations[index]);
+    if (entry.status !== 'ACTIVE') {
+      continue;
+    }
+
+    releasedFeetByBox[entry.boxId] = integerOrZero(releasedFeetByBox[entry.boxId]) + integerOrZero(entry.allocatedFeet);
+    entry.status = 'CANCELLED';
+    entry.resolvedAt = new Date().toISOString();
+    entry.resolvedBy = asTrimmedString(user);
+    entry.notes = note;
+    await saveAllocationRecord(client, orgId, entry);
+    releasedFilmAllocationCount += 1;
+  }
+
+  for (const boxId of Object.keys(releasedFeetByBox)) {
+    const box = await findBoxById(client, orgId, boxId);
+    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+      continue;
+    }
+
+    box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(releasedFeetByBox[boxId]));
+    await saveBoxRecord(client, orgId, box);
+    affectedBoxCount += 1;
+  }
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const order = filmOrders[index];
+    const filmOrderId = asTrimmedString(order.filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+    await deleteFilmOrderRecord(client, orgId, filmOrderId);
+    deletedFilmOrderCount += 1;
+  }
+
+  const caulkCancelResponse = await queryRow(
+    client,
+    `select public.api_acl_jobs_cancel_caulk_allocations($1::uuid, $2::text, $3::jsonb) as payload`,
+    [
+      orgId,
+      asTrimmedString(user),
+      JSON.stringify({
+        jobNumber,
+        reason: note
+      })
+    ]
+  );
+  const caulkCancelPayload =
+    caulkCancelResponse && typeof caulkCancelResponse.payload === 'object'
+      ? cloneValue(caulkCancelResponse.payload)
+      : {};
+
+  const purgedFilmAllocationsResult = await client.query(
+    `
+      delete from app.allocations
+      where org_id = $1
+        and upper(trim(job_number)) = upper(trim($2))
+    `,
+    [orgId, jobNumber]
+  );
+  const purgedCaulkAllocationsResult = await client.query(
+    `
+      delete from app.caulk_job_allocations
+      where org_id = $1
+        and upper(trim(job_number)) = upper(trim($2))
+    `,
+    [orgId, jobNumber]
+  );
+  const purgedRollHistoryResult = await client.query(
+    `
+      delete from app.roll_weight_log
+      where org_id = $1
+        and upper(trim(job_number)) = upper(trim($2))
+    `,
+    [orgId, jobNumber]
+  );
+
+  return {
+    releasedFilmAllocationCount,
+    affectedBoxCount,
+    cancelledCaulkAllocationCount: integerOrZero(caulkCancelPayload.cancelledAllocationCount),
+    releasedReservedCaulkTubes: integerOrZero(caulkCancelPayload.releasedReservedTubes),
+    purgedFilmAllocationCount: integerOrZero(purgedFilmAllocationsResult.rowCount),
+    purgedCaulkAllocationCount: integerOrZero(purgedCaulkAllocationsResult.rowCount),
+    purgedCaulkCheckoutCount: caulkCheckouts.length,
+    purgedRollHistoryCount: integerOrZero(purgedRollHistoryResult.rowCount),
+    deletedFilmOrderCount
+  };
+}
+
 async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, user, reason) {
   const jobHeader = await findJobByNumber(client, orgId, jobNumber);
   if (jobHeader && normalizeJobLifecycleStatus(jobHeader.lifecycleStatus) !== 'ACTIVE') {
@@ -6269,6 +6428,285 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
   }
 
   return result;
+}
+
+function hasPositiveReactivationSignal(box) {
+  return (
+    integerOrZero(box?.feetAvailable) > 0 ||
+    (box && box.lastRollWeightLbs !== null && Number(box.lastRollWeightLbs) > 0)
+  );
+}
+
+async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
+  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+  const normalizedJobKey = normalizeJobNumberKey(normalizedJobNumber);
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    throw new HttpError(404, `Box ${boxId} was not found.`);
+  }
+
+  const warnings = [];
+  const isCheckedOutOnThisJob =
+    box.status === 'CHECKED_OUT' && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobKey;
+
+  if (box.status !== 'IN_STOCK' && !isCheckedOutOnThisJob) {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is ${box.status || 'not in stock'} and cannot be checked out from this view.`
+    );
+  }
+
+  const workingBox = cloneValue(box);
+  if (box.status === 'IN_STOCK') {
+    applyCheckoutWarnings(warnings, workingBox);
+    workingBox.status = 'CHECKED_OUT';
+    workingBox.hasEverBeenCheckedOut = true;
+    workingBox.lastCheckoutJob = normalizedJobNumber;
+    workingBox.lastCheckoutDate = todayDateString();
+    workingBox.zeroedDate = '';
+    workingBox.zeroedReason = '';
+    workingBox.zeroedBy = '';
+
+    const autoLinkResult = await autoLinkRemainingJobFeetToCheckedOutBox(
+      client,
+      orgId,
+      workingBox,
+      normalizedJobNumber,
+      user,
+      'checkout'
+    );
+    if (autoLinkResult.created) {
+      warnings.push(
+        `Auto-linked ${autoLinkResult.allocatedFeet} LF from ${workingBox.boxId} to job ${normalizedJobNumber} at checkout.`
+      );
+    } else if (autoLinkResult.skippedReason === 'NO_REQUIREMENTS') {
+      warnings.push(`No job requirements were found for job ${normalizedJobNumber}, so no LF was auto-linked.`);
+    }
+
+    const allocationResolution = await resolveAllocationsForCheckout(
+      client,
+      orgId,
+      workingBox.boxId,
+      normalizedJobNumber,
+      user
+    );
+    if (allocationResolution.fulfilledCount > 0) {
+      warnings.push(
+        `Fulfilled ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF for job ${normalizedJobNumber}.`
+      );
+    }
+
+    if (allocationResolution.otherJobs.length > 0) {
+      warnings.push(`This box still has active allocations for ${allocationResolution.otherJobs.join(', ')}.`);
+    }
+
+    const savedBox = await saveBoxRecord(client, orgId, workingBox);
+    return {
+      box: savedBox,
+      warnings,
+      checkedOut: true
+    };
+  }
+
+  const allocationResolution = await resolveAllocationsForCheckout(
+    client,
+    orgId,
+    workingBox.boxId,
+    normalizedJobNumber,
+    user
+  );
+  if (allocationResolution.fulfilledCount > 0) {
+    warnings.push(
+      `Fulfilled ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF for job ${normalizedJobNumber}.`
+    );
+  }
+
+  if (allocationResolution.otherJobs.length > 0) {
+    warnings.push(`This box still has active allocations for ${allocationResolution.otherJobs.join(', ')}.`);
+  }
+
+  return {
+    box: workingBox,
+    warnings,
+    checkedOut: false
+  };
+}
+
+async function checkoutCaulkAllocationForJob(client, orgId, jobNumber, caulkAllocation, user) {
+  const allocation = cloneValue(caulkAllocation);
+  const remaining = Math.max(0, integerOrZero(allocation.reservedTubesRemaining));
+  const openCount = Math.max(0, integerOrZero(allocation.openCheckoutCount));
+
+  if (allocation.status !== 'ACTIVE') {
+    return {
+      checkoutCreated: false,
+      warnings: []
+    };
+  }
+
+  if (remaining <= 0) {
+    return {
+      checkoutCreated: false,
+      warnings: []
+    };
+  }
+
+  if (openCount > 0) {
+    throw new HttpError(
+      400,
+      `Caulk allocation ${allocation.caulkAllocationId} already has an open checkout and cannot be bulk checked out again until that cycle is closed.`
+    );
+  }
+
+  const response = await queryRow(
+    client,
+    `select public.api_acl_allocations_caulk_checkout($1::uuid, $2::text, $3::jsonb) as payload`,
+    [
+      orgId,
+      user,
+      JSON.stringify({
+        caulkAllocationId: allocation.caulkAllocationId,
+        checkoutTubes: remaining,
+        notes: `Checked out all remaining caulk for job ${jobNumber}.`
+      })
+    ]
+  );
+
+  const payload = response && typeof response.payload === 'object' ? cloneValue(response.payload) : null;
+  const warnings = Array.isArray(payload?.warnings) ? payload.warnings.map((entry) => asTrimmedString(entry)).filter(Boolean) : [];
+  return {
+    checkoutCreated: true,
+    warnings
+  };
+}
+
+async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
+  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+  const resolvedContext = await resolveExistingOrLegacyJobHeader(
+    client,
+    orgId,
+    normalizedJobNumber,
+    user,
+    new Date().toISOString()
+  );
+  const existingJob = resolvedContext.header;
+  if (!existingJob) {
+    throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
+  }
+
+  if (normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and checkout-all cannot be changed.`);
+  }
+
+  const allocations = resolvedContext.allocations || (await listAllocationsByJob(client, orgId, normalizedJobNumber));
+  const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, normalizedJobNumber));
+  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
+  const boxes = await listBoxes(client, orgId);
+  const boxById = {};
+  const warnings = [];
+  const seenBoxIds = {};
+  let checkedOutBoxCount = 0;
+  let checkedOutCaulkCount = 0;
+
+  for (let index = 0; index < boxes.length; index += 1) {
+    boxById[boxes[index].boxId] = boxes[index];
+  }
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const allocation = allocations[index];
+    if (allocation.status !== 'ACTIVE' || !allocation.boxId || seenBoxIds[allocation.boxId]) {
+      continue;
+    }
+
+    seenBoxIds[allocation.boxId] = true;
+    const checkoutResult = await checkoutBoxForJob(
+      client,
+      orgId,
+      allocation.boxId,
+      normalizedJobNumber,
+      user
+    );
+    warnings.push(...checkoutResult.warnings);
+    if (checkoutResult.checkedOut) {
+      checkedOutBoxCount += 1;
+    }
+  }
+
+  for (let index = 0; index < caulkAllocations.length; index += 1) {
+    const allocation = caulkAllocations[index];
+    if (allocation.status !== 'ACTIVE') {
+      continue;
+    }
+
+    const remaining = Math.max(0, integerOrZero(allocation.reservedTubesRemaining));
+    const openCount = Math.max(0, integerOrZero(allocation.openCheckoutCount));
+    if (remaining <= 0) {
+      continue;
+    }
+
+    if (openCount > 0) {
+      throw new HttpError(
+        400,
+        `Caulk allocation ${allocation.caulkAllocationId} already has an open checkout and cannot be bulk checked out again until that cycle is closed.`
+      );
+    }
+
+    const checkoutResult = await checkoutCaulkAllocationForJob(
+      client,
+      orgId,
+      normalizedJobNumber,
+      allocation,
+      user
+    );
+    warnings.push(...checkoutResult.warnings);
+    if (checkoutResult.checkoutCreated) {
+      checkedOutCaulkCount += 1;
+    }
+  }
+
+  const refreshedAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
+  const refreshedFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const refreshedRequirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const refreshedCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
+  const refreshedCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
+  const refreshedBoxes = await listBoxes(client, orgId);
+  const refreshedBoxById = {};
+
+  for (let index = 0; index < refreshedBoxes.length; index += 1) {
+    refreshedBoxById[refreshedBoxes[index].boxId] = refreshedBoxes[index];
+  }
+
+  const publicRequirements = buildPublicJobRequirementEntries(
+    refreshedRequirements,
+    refreshedAllocations,
+    refreshedBoxById
+  );
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
+    refreshedCaulkRequirements,
+    refreshedCaulkAllocations
+  );
+  const blockingReason = getJobStagingBlockingReason(
+    publicRequirements,
+    publicCaulkRequirements,
+    refreshedAllocations,
+    refreshedFilmOrders,
+    refreshedCaulkAllocations
+  );
+  if (blockingReason) {
+    throw new HttpError(400, blockingReason);
+  }
+
+  if (checkedOutBoxCount > 0 || checkedOutCaulkCount > 0) {
+    warnings.push(
+      `Checked out ${checkedOutBoxCount} film box${checkedOutBoxCount === 1 ? '' : 'es'} and ${checkedOutCaulkCount} caulk allocation${checkedOutCaulkCount === 1 ? '' : 's'} for job ${normalizedJobNumber}.`
+    );
+  }
+
+  return {
+    warnings
+  };
 }
 
 async function cancelActiveAllocationsForBox(client, orgId, boxId, user, reason) {
@@ -7295,8 +7733,9 @@ async function buildJobDetail(client, orgId, jobNumber) {
   };
 }
 
-async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor) {
+async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor, payload = {}) {
   const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+  const warnings = [];
   const normalizedFlag = typeof isStagedForPickup === 'boolean'
     ? String(isStagedForPickup)
     : asTrimmedString(isStagedForPickup).toLowerCase();
@@ -7330,8 +7769,22 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
   }
 
   if (nextIsStaged) {
-    const allocations = resolvedContext.allocations || (await listAllocationsByJob(client, orgId, normalizedJobNumber));
-    const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, normalizedJobNumber));
+    const autoCheckoutRemaining = payload.autoCheckoutRemaining === true || String(payload.autoCheckoutRemaining) === 'true';
+
+    if (autoCheckoutRemaining) {
+      const checkoutResult = await checkoutAllJobMaterials(client, orgId, normalizedJobNumber, actor);
+      if (checkoutResult && Array.isArray(checkoutResult.warnings)) {
+        for (let index = 0; index < checkoutResult.warnings.length; index += 1) {
+          const warning = asTrimmedString(checkoutResult.warnings[index]);
+          if (warning) {
+            warnings.push(warning);
+          }
+        }
+      }
+    }
+
+    const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
+    const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
     const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
     const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
     const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
@@ -7387,7 +7840,7 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
     jobNumber: savedJob.jobNumber,
     isStagedForPickup: savedJob.isStagedForPickup,
     updatedAt: savedJob.updatedAt,
-    warnings: []
+    warnings
   };
 }
 
@@ -7864,7 +8317,42 @@ async function updateBox(client, orgId, payload, actor) {
   }
 
   if (existing.status === 'ZEROED') {
-    throw new HttpError(400, 'Zeroed boxes cannot be edited directly. Use audit undo instead.');
+    const requestedReactivateFromZeroed =
+      payload.reactivateFromZeroed === true || String(payload.reactivateFromZeroed) === 'true';
+    let updatedBox = await buildBoxFromPayload(client, orgId, payload, warnings, existing);
+    const shouldReactivate = hasPositiveReactivationSignal(updatedBox) && requestedReactivateFromZeroed;
+
+    if (hasPositiveReactivationSignal(updatedBox) && !requestedReactivateFromZeroed) {
+      throw new HttpError(
+        400,
+        'Zeroed boxes with new active inventory values must be confirmed before moving back to IN_STOCK.'
+      );
+    }
+
+    if (shouldReactivate) {
+      updatedBox.status = 'IN_STOCK';
+      updatedBox.zeroedDate = '';
+      updatedBox.zeroedReason = '';
+      updatedBox.zeroedBy = '';
+      warnings.push(`Box ${updatedBox.boxId} was moved back to active IN_STOCK inventory.`);
+    }
+
+    applyAddOrEditWarnings(warnings, existing, updatedBox);
+    updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+    const publicBefore = toPublicBox(existing);
+    const publicAfter = toPublicBox(updatedBox);
+    const logId = await appendAuditEntry(
+      client,
+      orgId,
+      shouldReactivate ? 'SET_STATUS' : 'UPDATE_BOX',
+      updatedBox.boxId,
+      publicBefore,
+      publicAfter,
+      actor,
+      asTrimmedString(payload.auditNote)
+    );
+
+    return ok({ box: publicAfter, logId }, warnings);
   }
 
   let updatedBox = await buildBoxFromPayload(client, orgId, payload, warnings, existing);
@@ -8665,8 +9153,19 @@ async function deleteJob(client, orgId, payload, actor, role) {
     );
   }
 
+  const openCaulkCheckoutCount = (await listCaulkJobCheckoutsByJob(client, orgId, jobNumber)).filter(
+    (entry) => entry.status === 'OPEN'
+  ).length;
+  if (openCaulkCheckoutCount > 0) {
+    throw new HttpError(
+      400,
+      `Job ${jobNumber} cannot be deleted while ${openCaulkCheckoutCount} caulk checkout${openCaulkCheckoutCount === 1 ? ' remains' : 's remain'} open.`
+    );
+  }
+
   const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
-  const deleteResult = await cancelJobAndReleaseAllocations(
+  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const deleteResult = await prepareDeletedJobCleanup(
     client,
     orgId,
     jobNumber,
@@ -8678,7 +9177,20 @@ async function deleteJob(client, orgId, payload, actor, role) {
   await deleteJobRecord(client, orgId, jobNumber);
 
   warnings.push(
-    `Deleted job ${jobNumber}. Removed ${existingRequirements.length} requirement${existingRequirements.length === 1 ? '' : 's'}, released ${deleteResult.releasedAllocationCount} active allocation${deleteResult.releasedAllocationCount === 1 ? '' : 's'} across ${deleteResult.affectedBoxCount} box${deleteResult.affectedBoxCount === 1 ? '' : 'es'}, and deleted ${deleteResult.deletedFilmOrderCount} film order${deleteResult.deletedFilmOrderCount === 1 ? '' : 's'}.`
+    formatDeletedJobCleanupWarning({
+      jobNumber,
+      filmRequirementCount: existingRequirements.length,
+      caulkRequirementCount: existingCaulkRequirements.length,
+      releasedFilmAllocationCount: deleteResult.releasedFilmAllocationCount,
+      affectedBoxCount: deleteResult.affectedBoxCount,
+      releasedReservedCaulkTubes: deleteResult.releasedReservedCaulkTubes,
+      cancelledCaulkAllocationCount: deleteResult.cancelledCaulkAllocationCount,
+      purgedFilmAllocationCount: deleteResult.purgedFilmAllocationCount,
+      purgedCaulkAllocationCount: deleteResult.purgedCaulkAllocationCount,
+      purgedCaulkCheckoutCount: deleteResult.purgedCaulkCheckoutCount,
+      purgedRollHistoryCount: deleteResult.purgedRollHistoryCount,
+      deletedFilmOrderCount: deleteResult.deletedFilmOrderCount
+    })
   );
 
   return ok({ jobNumber }, warnings);
@@ -10505,10 +11017,20 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
               authContext.orgId,
               jobNumber,
               params && params.isStagedForPickup,
-              authContext.actor
+              authContext.actor,
+              params
             );
             if (!result) {
               throw new HttpError(500, 'Job staged pickup update failed.');
+            }
+            return ok(await buildJobDetail(client, authContext.orgId, jobNumber), result.warnings || []);
+          })();
+        case '/jobs/checkout-all':
+          return (async () => {
+            const jobNumber = requireString(params.jobNumber, 'JobNumber');
+            const result = await checkoutAllJobMaterials(client, authContext.orgId, jobNumber, authContext.actor);
+            if (!result) {
+              throw new HttpError(500, 'Job checkout-all update failed.');
             }
             return ok(await buildJobDetail(client, authContext.orgId, jobNumber), result.warnings || []);
           })();

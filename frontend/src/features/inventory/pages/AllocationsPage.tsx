@@ -36,7 +36,6 @@ import {
   findBestCalendarSearchMatch,
   getCurrentCalendarAnchorDate,
   isDateInCalendarPeriod,
-  selectCalendarHighlightJobNumbers,
   shiftCalendarAnchorDate
 } from '../utils/jobCalendar';
 import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
@@ -102,16 +101,43 @@ export default function AllocationsPage({
     jobsWorkflowView === 'completed' ? 'COMPLETED' : 'ACTIVE';
   const [jobSearchInput, setJobSearchInput] = useState(initialJobSearchInput);
   const [jobSort, setJobSort] = useState<JobSortOption>(initialJobSort);
+  const [submittedCalendarSearch, setSubmittedCalendarSearch] = useState<{
+    query: string;
+    requestId: number;
+  } | null>(() =>
+    initialJobsViewMode === 'calendar' && initialJobSearchInput.trim()
+      ? {
+          query: initialJobSearchInput.trim(),
+          requestId: 1
+        }
+      : null
+  );
+  const [calendarSearchTarget, setCalendarSearchTarget] = useState<{
+    jobNumber: string;
+    lifecycleStatus: JobLifecycleFilter;
+    dueDate: string;
+  } | null>(null);
+  const [calendarTargetNavigationToken, setCalendarTargetNavigationToken] = useState(0);
   const deferredJobSearchInput = useDeferredValue(jobSearchInput);
-  const isSearchingJobs = Boolean(deferredJobSearchInput.trim());
   const isCalendarView = jobsViewMode === 'calendar';
+  const listSearchQuery = isCalendarView ? '' : deferredJobSearchInput;
+  const isSearchingListJobs = Boolean(listSearchQuery.trim());
+  const calendarSearchQuery = submittedCalendarSearch?.query || '';
   const jobsQuery = useJobsList(25, {
     enabled: !isCalendarView,
     lifecycleStatus: selectedLifecycleStatus
   });
-  const jobsSearchQuery = useJobsSearch(deferredJobSearchInput, isCalendarView ? 3 : 25, {
-    enabled: isSearchingJobs,
+  const jobsSearchQuery = useJobsSearch(listSearchQuery, 25, {
+    enabled: isSearchingListJobs,
     lifecycleStatus: selectedLifecycleStatus
+  });
+  const activeCalendarSearchQuery = useJobsSearch(calendarSearchQuery, 1, {
+    enabled: isCalendarView && Boolean(calendarSearchQuery),
+    lifecycleStatus: 'ACTIVE'
+  });
+  const completedCalendarSearchQuery = useJobsSearch(calendarSearchQuery, 1, {
+    enabled: isCalendarView && Boolean(calendarSearchQuery),
+    lifecycleStatus: 'COMPLETED'
   });
   const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
     enabled: isCalendarView,
@@ -140,7 +166,7 @@ export default function AllocationsPage({
         : null
     );
   const isCompletedWorkflow = jobsWorkflowView === 'completed';
-  const listJobsSource = isSearchingJobs ? jobsSearchQuery.data || [] : jobsQuery.data || [];
+  const listJobsSource = isSearchingListJobs ? jobsSearchQuery.data || [] : jobsQuery.data || [];
   const listJobs = useMemo(
     () =>
       sortJobs(
@@ -187,21 +213,21 @@ export default function AllocationsPage({
     lifecycleStatus: selectedLifecycleStatus
   });
   const hasDisplayedCalendarSnapshot = Boolean(displayedCalendarSnapshot);
-  const highlightedCalendarJobNumbers = useMemo(
-    () => selectCalendarHighlightJobNumbers(jobsSearchQuery.data || [], deferredJobSearchInput),
-    [deferredJobSearchInput, jobsSearchQuery.data]
+  const calendarSearchMatches = useMemo(
+    () => [...(activeCalendarSearchQuery.data || []), ...(completedCalendarSearchQuery.data || [])],
+    [activeCalendarSearchQuery.data, completedCalendarSearchQuery.data]
   );
-  const visibleHighlightedCalendarJobNumbers = useMemo(() => {
-    const visibleJobNumbers = new Set(calendarJobs.map((entry) => entry.jobNumber));
-    return highlightedCalendarJobNumbers.filter((jobNumber) => visibleJobNumbers.has(jobNumber));
-  }, [calendarJobs, highlightedCalendarJobNumbers]);
   const bestCalendarSearchMatch = useMemo(
-    () => findBestCalendarSearchMatch(jobsSearchQuery.data || [], deferredJobSearchInput),
-    [deferredJobSearchInput, jobsSearchQuery.data]
+    () =>
+      findBestCalendarSearchMatch(calendarSearchMatches, calendarSearchQuery, {
+        preferredLifecycleStatus: selectedLifecycleStatus
+      }),
+    [calendarSearchMatches, calendarSearchQuery, selectedLifecycleStatus]
   );
-  const autoJumpKeyRef = useRef('');
-  const listJobsLoading = (isSearchingJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading) && !listJobs.length;
-  const listJobsError = isSearchingJobs ? jobsSearchQuery.error : jobsQuery.error;
+  const handledCalendarSearchKeyRef = useRef('');
+  const listJobsLoading =
+    (isSearchingListJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading) && !listJobs.length;
+  const listJobsError = isSearchingListJobs ? jobsSearchQuery.error : jobsQuery.error;
   const calendarLoading = jobsCalendarQuery.isLoading && !hasDisplayedCalendarSnapshot;
   const calendarError = !hasDisplayedCalendarSnapshot ? jobsCalendarQuery.error : null;
   const isCalendarPendingTransition =
@@ -224,25 +250,34 @@ export default function AllocationsPage({
   );
   const calendarPeriodPreposition = displayedCalendarGranularity === 'week' ? 'for' : 'in';
   const requestedCalendarPeriodLabel = formatCalendarPeriodLabel(calendarGranularity, calendarAnchorDate);
-  const jobsLoadingLabel = isSearchingJobs
+  const jobsLoadingLabel = isSearchingListJobs
     ? `Searching ${workflowSummaryLabel}...`
     : `Loading ${workflowSummaryLabel}...`;
-  const jobsEmptyState = isSearchingJobs
-    ? `No ${workflowSummaryLabel} match ${deferredJobSearchInput}.`
+  const jobsEmptyState = isSearchingListJobs
+    ? `No ${workflowSummaryLabel} match ${listSearchQuery}.`
     : isCompletedWorkflow
       ? 'No completed job history yet.'
       : 'No active jobs found yet.';
-  const calendarSummaryCopy = isSearchingJobs
-    ? visibleHighlightedCalendarJobNumbers.length === 1
-      ? `glowing exact match ${calendarPeriodPreposition} ${calendarPeriodLabel}`
-      : visibleHighlightedCalendarJobNumbers.length
-        ? `glowing ${visibleHighlightedCalendarJobNumbers.length} closest matches ${calendarPeriodPreposition} ${calendarPeriodLabel}`
-        : `no matching job numbers visible ${calendarPeriodPreposition} ${calendarPeriodLabel}`
-    : `scheduled ${workflowSummaryLabel} ${calendarPeriodPreposition} ${calendarPeriodLabel}`;
-  const calendarVisibleCount = isSearchingJobs ? visibleHighlightedCalendarJobNumbers.length : calendarJobs.length;
+  const calendarSummaryCopy = `scheduled ${workflowSummaryLabel} ${calendarPeriodPreposition} ${calendarPeriodLabel}`;
+  const calendarVisibleCount = calendarJobs.length;
   const calendarEmptyState = isCompletedWorkflow
     ? `No completed jobs are scheduled ${calendarPeriodPreposition} ${calendarPeriodLabel}.`
     : `No active jobs are scheduled ${calendarPeriodPreposition} ${calendarPeriodLabel}.`;
+  const visibleCalendarTargetJobNumber =
+    calendarSearchTarget?.lifecycleStatus === selectedLifecycleStatus
+      ? calendarSearchTarget.jobNumber
+      : '';
+  const visibleCalendarTargetDate =
+    calendarSearchTarget?.lifecycleStatus === selectedLifecycleStatus
+      ? calendarSearchTarget.dueDate
+      : '';
+  const isCalendarSearchPending =
+    isCalendarView &&
+    Boolean(calendarSearchQuery) &&
+    (activeCalendarSearchQuery.isLoading ||
+      activeCalendarSearchQuery.isFetching ||
+      completedCalendarSearchQuery.isLoading ||
+      completedCalendarSearchQuery.isFetching);
   const showCalendarTransitionError =
     Boolean(calendarTransitionErrorMessage) &&
     hasDisplayedCalendarSnapshot &&
@@ -348,41 +383,87 @@ export default function AllocationsPage({
   }, [displayedCalendarSnapshot, hasDisplayedCalendarSnapshot, isCalendarView, queryClient]);
 
   useEffect(() => {
-    if (!isCalendarView || !isSearchingJobs || !bestCalendarSearchMatch) {
+    if (!isCalendarView || !submittedCalendarSearch) {
       return;
     }
 
+    if (
+      activeCalendarSearchQuery.isLoading ||
+      activeCalendarSearchQuery.isFetching ||
+      completedCalendarSearchQuery.isLoading ||
+      completedCalendarSearchQuery.isFetching
+    ) {
+      return;
+    }
+
+    const handledKey = `${submittedCalendarSearch.query}:${submittedCalendarSearch.requestId}`;
+    if (handledCalendarSearchKeyRef.current === handledKey) {
+      return;
+    }
+
+    handledCalendarSearchKeyRef.current = handledKey;
+
+    if (!bestCalendarSearchMatch) {
+      setCalendarSearchTarget(null);
+      toast.push({
+        title: 'No matching jobs found',
+        description: `No jobs in history matched ${submittedCalendarSearch.query}.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    const targetLifecycleStatus: JobLifecycleFilter =
+      String(bestCalendarSearchMatch.lifecycleStatus || '').trim().toUpperCase() === 'COMPLETED'
+        ? 'COMPLETED'
+        : 'ACTIVE';
     const targetAnchorDate = String(bestCalendarSearchMatch.dueDate || '').trim().slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetAnchorDate)) {
-      return;
+    const hasTargetAnchorDate = /^\d{4}-\d{2}-\d{2}$/.test(targetAnchorDate);
+
+    if (targetLifecycleStatus !== selectedLifecycleStatus) {
+      setCalendarTransitionErrorMessage('');
+      setJobsWorkflowView(targetLifecycleStatus === 'COMPLETED' ? 'completed' : 'active');
     }
 
-    if (isDateInCalendarPeriod(calendarGranularity, calendarAnchorDate, targetAnchorDate)) {
-      return;
+    if (
+      hasTargetAnchorDate &&
+      !isDateInCalendarPeriod(calendarGranularity, calendarAnchorDate, targetAnchorDate)
+    ) {
+      requestCalendarAnchorDate(targetAnchorDate);
     }
 
-    const autoJumpKey = `${selectedLifecycleStatus}:${calendarGranularity}:${deferredJobSearchInput.trim()}:${targetAnchorDate}`;
-    if (autoJumpKeyRef.current === autoJumpKey) {
-      return;
-    }
-
-    autoJumpKeyRef.current = autoJumpKey;
-    requestCalendarAnchorDate(targetAnchorDate);
+    setCalendarSearchTarget({
+      jobNumber: bestCalendarSearchMatch.jobNumber,
+      lifecycleStatus: targetLifecycleStatus,
+      dueDate: hasTargetAnchorDate ? targetAnchorDate : ''
+    });
+    setCalendarTargetNavigationToken((currentToken) => currentToken + 1);
   }, [
+    activeCalendarSearchQuery.isFetching,
+    activeCalendarSearchQuery.isLoading,
     bestCalendarSearchMatch,
     calendarAnchorDate,
     calendarGranularity,
-    deferredJobSearchInput,
+    completedCalendarSearchQuery.isFetching,
+    completedCalendarSearchQuery.isLoading,
     isCalendarView,
-    isSearchingJobs,
-    selectedLifecycleStatus
+    selectedLifecycleStatus,
+    submittedCalendarSearch,
+    toast
   ]);
 
-  useEffect(() => {
-    if (!isSearchingJobs) {
-      autoJumpKeyRef.current = '';
+  function handleCalendarSearchSubmit() {
+    const normalizedQuery = jobSearchInput.trim();
+    if (!normalizedQuery) {
+      return;
     }
-  }, [isSearchingJobs, selectedLifecycleStatus]);
+
+    setCalendarTransitionErrorMessage('');
+    setSubmittedCalendarSearch((current) => ({
+      query: normalizedQuery,
+      requestId: (current?.requestId || 0) + 1
+    }));
+  }
 
   function buildCreateJobPayload(
     submitPayload: JobEditorSubmitPayload,
@@ -513,7 +594,21 @@ export default function AllocationsPage({
                   inputMode="numeric"
                   pattern="[0-9]*"
                   value={jobSearchInput}
-                  onChange={(event) => setJobSearchInput(event.target.value.replace(/[^0-9]/g, ''))}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.replace(/[^0-9]/g, '');
+                    setJobSearchInput(nextValue);
+                    if (isCalendarView && !nextValue) {
+                      handledCalendarSearchKeyRef.current = '';
+                      setSubmittedCalendarSearch(null);
+                      setCalendarSearchTarget(null);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && isCalendarView) {
+                      event.preventDefault();
+                      handleCalendarSearchSubmit();
+                    }
+                  }}
                   placeholder="Enter job number"
                 />
               </label>
@@ -526,11 +621,16 @@ export default function AllocationsPage({
                   onChange={(event) => setJobSort(event.target.value as JobSortOption)}
                 />
               ) : (
-                <div className="jobs-calendar-search-note">
-                  <span className="field-label">Calendar Search</span>
-                  <p className="muted-text">
-                    Exact matches glow by themselves. Otherwise the 3 closest jobs glow.
-                  </p>
+                <div className="jobs-calendar-search-actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="jobs-calendar-search-button"
+                    onClick={handleCalendarSearchSubmit}
+                    disabled={!jobSearchInput.trim() || isCalendarSearchPending}
+                  >
+                    {isCalendarSearchPending ? 'Searching...' : 'Search'}
+                  </Button>
                 </div>
               )}
             </div>
@@ -556,7 +656,7 @@ export default function AllocationsPage({
               <span className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy">
                 {isCalendarView
                   ? calendarSummaryCopy
-                  : isSearchingJobs
+                  : isSearchingListJobs
                     ? `matching ${workflowSummaryLabel}`
                     : workflowSummaryLabel}
               </span>
@@ -570,9 +670,7 @@ export default function AllocationsPage({
           <h2>{isCalendarView ? 'Install Calendar' : workflowTitle}</h2>
           <span className="muted-text allocations-recent-count">
             {isCalendarView
-              ? isSearchingJobs
-                ? `${calendarVisibleCount} highlighted match${calendarVisibleCount === 1 ? '' : 'es'} ${calendarPeriodPreposition} ${calendarPeriodLabel}`
-                : `${calendarVisibleCount} job${calendarVisibleCount === 1 ? '' : 's'} ${calendarPeriodPreposition} ${calendarPeriodLabel}`
+              ? `${calendarVisibleCount} job${calendarVisibleCount === 1 ? '' : 's'} ${calendarPeriodPreposition} ${calendarPeriodLabel}`
               : `${listJobs.length} job(s)`}
           </span>
         </div>
@@ -670,21 +768,18 @@ export default function AllocationsPage({
         {isCalendarView && !calendarLoading && !calendarError ? (
           <>
             <p className="muted-text jobs-calendar-panel-description">
-              {isSearchingJobs
-                ? visibleHighlightedCalendarJobNumbers.length === 1
-                  ? `The exact job match is glowing ${calendarPeriodPreposition} ${calendarPeriodLabel}.`
-                  : visibleHighlightedCalendarJobNumbers.length
-                    ? `The ${visibleHighlightedCalendarJobNumbers.length} closest visible job numbers are glowing ${calendarPeriodPreposition} ${calendarPeriodLabel}.`
-                    : `No matching job numbers were found. The ${displayedCalendarGranularity} stays visible while you search.`
-                : !calendarJobs.length
-                  ? calendarEmptyState
-                  : 'Click a job number to open job details. Completed jobs stay clickable, and staged jobs show a check mark.'}
+              {!calendarJobs.length
+                ? calendarEmptyState
+                : 'Click a job number to open job details. Completed jobs stay clickable, and staged jobs show a check mark.'}
             </p>
             <JobsCalendarView
               view={displayedCalendarGranularity}
               anchorDate={displayedCalendarAnchorDate}
               jobs={calendarJobs}
-              highlightJobNumbers={visibleHighlightedCalendarJobNumbers}
+              highlightJobNumbers={visibleCalendarTargetJobNumber ? [visibleCalendarTargetJobNumber] : []}
+              targetJobNumber={visibleCalendarTargetJobNumber || undefined}
+              targetJobDate={visibleCalendarTargetDate}
+              targetNavigationToken={visibleCalendarTargetJobNumber ? calendarTargetNavigationToken : 0}
               requestedView={calendarGranularity}
               requestedAnchorDate={calendarAnchorDate}
               navigationStatus={calendarNavigationStatus}
@@ -716,13 +811,6 @@ export default function AllocationsPage({
         jobNumber={pendingLaborOnlyCreate?.jobNumber || ''}
         pending={createJobMutation.isPending}
         onCancel={() => setPendingLaborOnlyCreate(null)}
-        onConfirmNormal={() => {
-          if (!pendingLaborOnlyCreate) {
-            return;
-          }
-
-          void submitCreateJob(pendingLaborOnlyCreate, false);
-        }}
         onConfirmLaborOnly={() => {
           if (!pendingLaborOnlyCreate) {
             return;

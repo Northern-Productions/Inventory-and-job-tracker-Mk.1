@@ -20,6 +20,7 @@ const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/owner/admin-permissions',
   '/owner/notification-preferences',
   '/jobs/set-staged-pickup',
+  '/jobs/checkout-all',
   '/jobs/set-labor-assigned'
 ]);
 const LOCAL_FALLBACK_READ_PATHS = new Set([

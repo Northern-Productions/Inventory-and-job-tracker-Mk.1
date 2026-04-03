@@ -73,6 +73,7 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('Loading Mar 29 - Apr 4, 2026...');
     expect(html).toContain('href="/allocations/10001"');
     expect(html).toContain('job-calendar-job-link-highlight');
+    expect(html).toContain('job-calendar-job-link-status-ready');
     expect(html).toContain('job-calendar-stage-mark');
     expect(html).toContain('job-calendar-job-link-status-completed');
     expect(html).toContain('job-calendar-day-modal');

@@ -12,6 +12,7 @@ const useUpdateJobMock = vi.fn();
 const useAddCaulkJobAllocationMock = vi.fn();
 const useUpdateCaulkJobAllocationMock = vi.fn();
 const useCheckoutCaulkJobAllocationMock = vi.fn();
+const useCheckoutAllJobMaterialsMock = vi.fn();
 const useCheckinCaulkJobAllocationMock = vi.fn();
 const useRemoveCaulkJobAllocationMock = vi.fn();
 const useCompleteJobMock = vi.fn();
@@ -63,6 +64,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
   useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),
   useCheckoutCaulkJobAllocation: () => useCheckoutCaulkJobAllocationMock(),
+  useCheckoutAllJobMaterials: () => useCheckoutAllJobMaterialsMock(),
   useCheckinCaulkJobAllocation: () => useCheckinCaulkJobAllocationMock(),
   useRemoveCaulkJobAllocation: () => useRemoveCaulkJobAllocationMock(),
   useCompleteJob: () => useCompleteJobMock(),
@@ -89,11 +91,11 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     isStagedForPickup: false,
-    requiredFeet: 0,
-    allocatedFeet: 0,
+    requiredFeet: 8,
+    allocatedFeet: 8,
     remainingFeet: 0,
-    requiredTubes: 0,
-    allocatedTubes: 0,
+    requiredTubes: 12,
+    allocatedTubes: 12,
     remainingTubes: 0,
     requirementCount: 0,
     allocationCount: 0,
@@ -136,6 +138,54 @@ function buildMutationState() {
   return {
     mutateAsync: vi.fn(),
     isPending: false
+  };
+}
+
+function buildMaterialJobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
+  return {
+    ...baseDetail,
+    summary: buildSummary({
+      status: 'READY',
+      requiredFeet: 8,
+      allocatedFeet: 8,
+      remainingFeet: 0
+    }) as JobDetail['summary'],
+    requirements: [
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 60,
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
+      }
+    ],
+    allocations: [
+      {
+        allocationId: 'alloc-1',
+        boxId: 'IL1-100',
+        warehouse: 'IL1',
+        jobNumber: '000123',
+        jobDate: '2026-03-20',
+        crewLeader: 'Crew',
+        allocatedFeet: 8,
+        status: 'ACTIVE',
+        allocationKind: 'REQUIREMENT',
+        createdAt: '2026-03-20T00:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 60,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ],
+    ...overrides
   };
 }
 
@@ -182,6 +232,7 @@ describe('AllocationJobPage', () => {
     useAddCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useUpdateCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useCheckoutCaulkJobAllocationMock.mockReturnValue(buildMutationState());
+    useCheckoutAllJobMaterialsMock.mockReturnValue(buildMutationState());
     useCheckinCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useRemoveCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useCompleteJobMock.mockReturnValue(buildMutationState());
@@ -359,88 +410,80 @@ describe('AllocationJobPage', () => {
   });
 
   it('renders staged pickup controls for active jobs and preserves the saved state on closed jobs', () => {
-    const activeHtml = renderPage({
-      ...baseDetail,
+    const activeDetail = buildMaterialJobDetail({
       summary: buildSummary({
-        isStagedForPickup: false
+        status: 'READY',
+        isStagedForPickup: false,
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
       }) as JobDetail['summary']
     });
 
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: activeDetail,
+      error: null
+    });
+
+    const activeHtml = renderPage(activeDetail);
+
     expect(activeHtml).toContain('Installer Pickup');
+    expect(activeHtml).toContain('badge-READY');
     expect(activeHtml).toContain('Waiting on warehouse staging');
+    expect(activeHtml).toContain('Checkout All');
     expect(activeHtml).toContain('Mark Staged for Pickup');
+    expect(activeHtml).toContain('Staging will check out all allocated material first.');
 
     useJobMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
       data: {
-        ...baseDetail,
+        ...buildMaterialJobDetail(),
         summary: buildSummary({
           status: 'COMPLETED',
           lifecycleStatus: 'COMPLETED',
-          isStagedForPickup: true
+          isStagedForPickup: true,
+          requiredFeet: 8,
+          allocatedFeet: 8,
+          remainingFeet: 0
         }) as JobDetail['summary']
       },
       error: null
     });
 
     const closedHtml = renderPage({
-      ...baseDetail,
+      ...buildMaterialJobDetail(),
       summary: buildSummary({
         status: 'COMPLETED',
         lifecycleStatus: 'COMPLETED',
-        isStagedForPickup: true
+        isStagedForPickup: true,
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
       }) as JobDetail['summary']
     });
 
     expect(closedHtml).toContain('Staged for pickup');
     expect(closedHtml).toContain('Closed jobs keep the saved pickup state for history.');
     expect(closedHtml).not.toContain('Mark Staged for Pickup');
+    expect(closedHtml).not.toContain('Checkout All');
   });
 
-  it('disables staged pickup until allocated material has been checked out', () => {
+  it('renders a labor-only pickup display without staging actions when no materials are required', () => {
     const detail: JobDetail = {
       ...baseDetail,
       summary: buildSummary({
-        requiredFeet: 8,
-        allocatedFeet: 8,
-        remainingFeet: 0
-      }) as JobDetail['summary'],
-      requirements: [
-        {
-          requirementId: 'req-1',
-          manufacturer: '3M',
-          filmName: 'Night Vision 35',
-          widthIn: 60,
-          requiredFeet: 8,
-          allocatedFeet: 8,
-          remainingFeet: 0
-        }
-      ],
-      allocations: [
-        {
-          allocationId: 'alloc-1',
-          boxId: 'IL1-100',
-          warehouse: 'IL1',
-          jobNumber: '000123',
-          jobDate: '2026-03-20',
-          crewLeader: 'Crew',
-          allocatedFeet: 8,
-          status: 'ACTIVE',
-          allocationKind: 'REQUIREMENT',
-          createdAt: '2026-03-20T00:00:00Z',
-          createdBy: 'tester',
-          resolvedAt: '',
-          resolvedBy: '',
-          filmOrderId: '',
-          notes: '',
-          manufacturer: '3M',
-          filmName: 'Night Vision 35',
-          widthIn: 60,
-          boxStatus: 'IN_STOCK',
-          checkedOutOnThisJob: false
-        }
-      ]
+        status: 'READY',
+        isLaborOnly: true,
+        requiredFeet: 0,
+        allocatedFeet: 0,
+        remainingFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0
+      }) as JobDetail['summary']
     };
 
     useJobMock.mockReturnValueOnce({
@@ -452,8 +495,34 @@ describe('AllocationJobPage', () => {
 
     const html = renderPage(detail);
 
-    expect(html).toContain('Check out the allocated film before staging this job.');
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Mark Staged for Pickup<\/button>/);
+    expect(html).toContain('Labor only workflow');
+    expect(html).not.toContain('Mark Staged for Pickup');
+    expect(html).not.toContain('Checkout All');
+  });
+
+  it('keeps staged pickup available when checkout-all can clear allocated material', () => {
+    const detail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'READY',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
+      }) as JobDetail['summary']
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Checkout All');
+    expect(html).toContain('Mark Staged for Pickup');
+    expect(html).toContain('Staging will check out all allocated material first.');
+    expect(html).not.toContain('Check out the allocated film before staging this job.');
   });
 
   it('enforces closed-job read-only behavior for caulk allocation actions', () => {

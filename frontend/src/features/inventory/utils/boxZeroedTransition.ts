@@ -1,6 +1,8 @@
 import type { Box, UpdateBoxPayload } from '../../../domain';
 
 export type ZeroedInventoryEditTrigger = 'lastRollWeight' | 'linearFeet';
+export const ZEROED_BOX_REACTIVATION_PROMPT =
+  'Do you want to move this box back to the active IN_STOCK inventory?';
 
 type BoxHistorySnapshot = Pick<
   Box | UpdateBoxPayload,
@@ -65,6 +67,10 @@ export function getZeroedInventoryEditTrigger(
   currentBox: Box | null | undefined,
   payload: UpdateBoxPayload
 ): ZeroedInventoryEditTrigger | null {
+  if (currentBox?.status === 'ZEROED') {
+    return null;
+  }
+
   if (
     currentBox &&
     currentBox.initialFeet > 0 &&
@@ -109,6 +115,27 @@ export function buildZeroedInventoryPayloadForEdit(
     ...payload,
     moveToZeroed: true,
     auditNote: 'Confirmed zero Last Roll Weight edit save'
+  };
+}
+
+export function shouldPromptZeroedInventoryReactivationOnEdit(
+  currentBox: Box | null | undefined,
+  payload: UpdateBoxPayload
+) {
+  if (currentBox?.status !== 'ZEROED') {
+    return false;
+  }
+
+  return Number(payload.feetAvailable ?? 0) > 0 || Number(payload.lastRollWeightLbs ?? 0) > 0;
+}
+
+export function buildZeroedInventoryReactivationPayloadForEdit(
+  payload: UpdateBoxPayload
+): UpdateBoxPayload {
+  return {
+    ...payload,
+    reactivateFromZeroed: true,
+    auditNote: 'Confirmed zeroed box reactivation edit save'
   };
 }
 

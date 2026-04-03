@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
@@ -20,6 +20,9 @@ interface JobsCalendarViewProps {
   anchorDate: string;
   jobs: JobListEntry[];
   highlightJobNumbers?: string[];
+  targetJobNumber?: string;
+  targetJobDate?: string;
+  targetNavigationToken?: number;
   requestedView?: JobCalendarView;
   requestedAnchorDate?: string;
   navigationStatus?: {
@@ -80,6 +83,7 @@ function renderJobLink(
     highlightJobNumbers: Set<string>;
     compact?: boolean;
     onNavigate?: () => void;
+    registerRef?: (jobNumber: string, node: HTMLAnchorElement | null) => void;
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
@@ -87,6 +91,7 @@ function renderJobLink(
   return (
     <Link
       key={job.jobNumber}
+      ref={(node) => options.registerRef?.(job.jobNumber, node)}
       to={buildJobHref(job.jobNumber)}
       className={[
         'job-calendar-job-link',
@@ -114,6 +119,9 @@ export function JobsCalendarView({
   anchorDate,
   jobs,
   highlightJobNumbers = [],
+  targetJobNumber = '',
+  targetJobDate = '',
+  targetNavigationToken = 0,
   requestedView,
   requestedAnchorDate,
   navigationStatus = null,
@@ -127,6 +135,8 @@ export function JobsCalendarView({
   const detectedPhoneLayout = useIsPhoneLayout(768);
   const isPhoneLayout = isPhoneLayoutOverride ?? detectedPhoneLayout;
   const [selectedDayDate, setSelectedDayDate] = useState(initialSelectedDayDate);
+  const jobLinkRefs = useRef(new Map<string, HTMLAnchorElement>());
+  const dayRefs = useRef(new Map<string, HTMLElement>());
   const calendar = useMemo(() => buildCalendarPeriod(view, anchorDate, jobs), [anchorDate, jobs, view]);
   const navigationView = requestedView ?? view;
   const navigationAnchorDate = requestedAnchorDate ?? anchorDate;
@@ -142,6 +152,33 @@ export function JobsCalendarView({
   const selectedDayDescriptionId = selectedDay ? `job-calendar-day-description-${selectedDay.dateKey}` : undefined;
   const isPhoneWeekView = isPhoneLayout && view === 'week';
 
+  useEffect(() => {
+    if (!targetJobNumber || !targetNavigationToken) {
+      return;
+    }
+
+    const targetDay = calendar.days.find((day) =>
+      day.jobs.some((job) => job.jobNumber === targetJobNumber)
+    );
+
+    const frame = window.requestAnimationFrame(() => {
+      const targetLink = jobLinkRefs.current.get(targetJobNumber);
+      if (targetLink) {
+        targetLink.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+
+      const fallbackDateKey = targetDay?.dateKey || String(targetJobDate || '').trim().slice(0, 10);
+      if (!fallbackDateKey) {
+        return;
+      }
+
+      dayRefs.current.get(fallbackDateKey)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [calendar.days, targetJobDate, targetJobNumber, targetNavigationToken]);
+
   function openDay(day: JobCalendarDay) {
     if (!day.jobs.length) {
       return;
@@ -154,6 +191,24 @@ export function JobsCalendarView({
     setSelectedDayDate('');
   }
 
+  function registerJobLinkRef(jobNumber: string, node: HTMLAnchorElement | null) {
+    if (!node) {
+      jobLinkRefs.current.delete(jobNumber);
+      return;
+    }
+
+    jobLinkRefs.current.set(jobNumber, node);
+  }
+
+  function registerDayRef(dateKey: string, node: HTMLElement | null) {
+    if (!node) {
+      dayRefs.current.delete(dateKey);
+      return;
+    }
+
+    dayRefs.current.set(dateKey, node);
+  }
+
   function renderCalendarDay(day: JobCalendarDay, options: { mobileGrid?: boolean; weekCard?: boolean } = {}) {
     const sortedJobs = sortCalendarJobsWithinDay(day.jobs, highlightJobNumbers);
     const hiddenJobCount = Math.max(sortedJobs.length - maxVisibleJobsPerDay, 0);
@@ -162,6 +217,7 @@ export function JobsCalendarView({
       return (
         <section
           key={day.dateKey}
+          ref={(node) => registerDayRef(day.dateKey, node)}
           className={[
             'job-calendar-week-card',
             day.isToday ? 'job-calendar-day-today' : ''
@@ -188,7 +244,8 @@ export function JobsCalendarView({
               {sortedJobs.slice(0, maxVisibleJobsPerDay).map((job) =>
                 renderJobLink(job, {
                   compact: true,
-                  highlightJobNumbers: highlightSet
+                  highlightJobNumbers: highlightSet,
+                  registerRef: registerJobLinkRef
                 })
               )}
               {hiddenJobCount > 0 ? (
@@ -211,6 +268,7 @@ export function JobsCalendarView({
     return (
       <div
         key={day.dateKey}
+        ref={(node) => registerDayRef(day.dateKey, node)}
         className={[
           'job-calendar-day',
           day.inCurrentMonth ? '' : 'job-calendar-day-outside',
@@ -250,7 +308,8 @@ export function JobsCalendarView({
             {sortedJobs.slice(0, maxVisibleJobsPerDay).map((job) =>
               renderJobLink(job, {
                 compact: true,
-                highlightJobNumbers: highlightSet
+                highlightJobNumbers: highlightSet,
+                registerRef: registerJobLinkRef
               })
             )}
             {hiddenJobCount > 0 ? (
@@ -383,7 +442,8 @@ export function JobsCalendarView({
               <div className="job-calendar-unscheduled-list">
                 {calendar.unscheduledJobs.map((job) =>
                   renderJobLink(job, {
-                    highlightJobNumbers: highlightSet
+                    highlightJobNumbers: highlightSet,
+                    registerRef: registerJobLinkRef
                   })
                 )}
               </div>
@@ -432,7 +492,8 @@ export function JobsCalendarView({
                 {sortCalendarJobsWithinDay(selectedDay.jobs, highlightJobNumbers).map((job) =>
                   renderJobLink(job, {
                     highlightJobNumbers: highlightSet,
-                    onNavigate: closeDayDialog
+                    onNavigate: closeDayDialog,
+                    registerRef: registerJobLinkRef
                   })
                 )}
               </div>

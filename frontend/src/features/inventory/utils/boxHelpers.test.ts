@@ -23,6 +23,39 @@ import {
   shouldAutoMoveToZeroed
 } from './boxHelpers';
 
+function createBox(overrides: Partial<import('../../../domain').Box> = {}) {
+  return {
+    boxId: 'IL1-1',
+    warehouse: 'IL1',
+    manufacturer: '',
+    filmName: '',
+    widthIn: 36,
+    initialFeet: 0,
+    feetAvailable: 0,
+    lotRun: '',
+    status: 'IN_STOCK',
+    orderDate: '',
+    receivedDate: '',
+    initialWeightLbs: null,
+    lastRollWeightLbs: null,
+    lastWeighedDate: '',
+    filmKey: '',
+    coreType: '',
+    coreWeightLbs: null,
+    lfWeightLbsPerFt: null,
+    pricePerLf: null,
+    purchaseCost: null,
+    notes: '',
+    hasEverBeenCheckedOut: false,
+    lastCheckoutJob: '',
+    lastCheckoutDate: '',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: '',
+    ...overrides
+  } as import('../../../domain').Box;
+}
+
 describe('boxHelpers', () => {
   it('canonicalizes legacy manufacturer aliases while preserving 3M Fasara', () => {
     expect(canonicalizeManufacturerLabel('3M')).toBe('3M Solar');
@@ -170,6 +203,22 @@ describe('boxHelpers', () => {
       )
     ).toBe('CA1-010');
     expect(getNextBoxIdForWarehouse([], 'CA1', 'CA1')).toBe('CA1-1');
+  });
+
+  it('ignores zeroed, retired, and alias duplicates when building the next warehouse box id', () => {
+    expect(
+      getNextBoxIdForWarehouse(
+        [
+          createBox({ boxId: 'IL1-6999', status: 'IN_STOCK' }),
+          createBox({ boxId: 'IL1-7000', status: 'CHECKED_OUT' }),
+          createBox({ boxId: 'IL1-7000A', status: 'IN_STOCK' }),
+          createBox({ boxId: 'IL1-9127', status: 'ZEROED' }),
+          createBox({ boxId: 'IL1-9127B', status: 'RETIRED' }),
+          createBox({ boxId: 'MS1-9999', warehouse: 'MS1', status: 'IN_STOCK' })
+        ],
+        'IL1'
+      )
+    ).toBe('IL1-7001');
   });
 
   it('normalizes trailing-letter box ids to numeric canonical ids', () => {

@@ -54,7 +54,7 @@ export default function AddBoxPage() {
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
   );
-  const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: true });
+  const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: false });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
 
   useEffect(() => {
