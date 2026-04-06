@@ -297,7 +297,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       </div>
       <div className="dialog-copy">
         <p className="muted-text">
-          Request LF for a job, then review matching boxes in the same warehouse before saving.
+          Request LF for a job, then review compatible boxes in the same warehouse before saving.
         </p>
         <p className="muted-text">
           This source box currently has {box.feetAvailable} LF available to allocate.
@@ -490,7 +490,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
 
             {!preview.suggestions.length && selectionSummary?.remainingFeet ? (
               <p className="muted-text">
-                No other matching boxes can help bridge this shortage in {box.warehouse}.
+                No other compatible boxes can help bridge this shortage in {box.warehouse}.
               </p>
             ) : null}
 

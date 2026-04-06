@@ -18,7 +18,7 @@ import {
   planSelectedCandidateAllocation,
   prioritizeCandidateBoxes
 } from '../utils/jobAllocationSelection';
-import { buildJobPlanningFilmKey } from '../utils/jobPlanningFilmIdentity';
+import { canJobPlanningFilmSatisfyRequirement } from '../utils/jobPlanningFilmIdentity';
 
 interface JobAllocateDialogProps {
   open: boolean;
@@ -38,8 +38,6 @@ function collectPreferredLinkedBoxIds(
   if (!requirement) {
     return new Set<string>();
   }
-
-  const targetFilmKey = buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName);
   const preferred = new Set<string>();
 
   for (let index = 0; index < filmOrders.length; index += 1) {
@@ -48,7 +46,14 @@ function collectPreferredLinkedBoxIds(
       continue;
     }
 
-    if (buildJobPlanningFilmKey(order.manufacturer, order.filmName) !== targetFilmKey) {
+    if (
+      !canJobPlanningFilmSatisfyRequirement(
+        order.manufacturer,
+        order.filmName,
+        requirement.manufacturer,
+        requirement.filmName
+      )
+    ) {
       continue;
     }
 
@@ -449,11 +454,11 @@ export function JobAllocateDialog({
           />
         </div>
 
-        {isMatchingBoxesLoading ? <p className="muted-text">Loading matching boxes...</p> : null}
+        {isMatchingBoxesLoading ? <p className="muted-text">Loading compatible boxes...</p> : null}
         {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxes.length ? (
           <p className="muted-text">
-            No matching boxes were found for this requirement (same film, width at or above requested). Create
-            a film-order alert instead.
+            No compatible boxes were found for this requirement (matching film family, width at or above
+            requested). Create a film-order alert instead.
           </p>
         ) : null}
         {dueDate.trim() && !crewLeader.trim() ? (

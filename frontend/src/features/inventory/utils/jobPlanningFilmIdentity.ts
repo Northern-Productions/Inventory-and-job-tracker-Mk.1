@@ -13,6 +13,22 @@ function normalizeLookup(value: string): string {
   return normalizeLabel(value).toLowerCase();
 }
 
+function stripTrailingExteriorSuffix(value: string): { familyFilmName: string; isExterior: boolean } {
+  const normalized = normalizeLabel(value);
+  if (!/\bexterior$/i.test(normalized)) {
+    return {
+      familyFilmName: normalized,
+      isExterior: false
+    };
+  }
+
+  const stripped = normalizeLabel(normalized.replace(/\s+exterior$/i, ''));
+  return {
+    familyFilmName: stripped || normalized,
+    isExterior: true
+  };
+}
+
 function canonicalizeNumericDigits(value: string): string {
   const digitsOnly = value.replace(/[^0-9]/g, '');
   const withoutLeadingZeros = digitsOnly.replace(/^0+/, '');
@@ -69,4 +85,52 @@ export function canonicalizeJobPlanningManufacturerAndFilm(
 export function buildJobPlanningFilmKey(manufacturer: string, filmName: string): string {
   const canonical = canonicalizeJobPlanningManufacturerAndFilm(manufacturer, filmName);
   return `${normalizeManufacturerLookupKey(canonical.manufacturer)}|${normalizeLookup(canonical.filmName)}`;
+}
+
+export function describeJobPlanningFilm(
+  manufacturer: string,
+  filmName: string
+): {
+  manufacturer: string;
+  filmName: string;
+  familyFilmName: string;
+  key: string;
+  familyKey: string;
+  isExterior: boolean;
+} {
+  const canonical = canonicalizeJobPlanningManufacturerAndFilm(manufacturer, filmName);
+  const { familyFilmName, isExterior } = stripTrailingExteriorSuffix(canonical.filmName);
+  const manufacturerKey = normalizeManufacturerLookupKey(canonical.manufacturer);
+
+  return {
+    manufacturer: canonical.manufacturer,
+    filmName: canonical.filmName,
+    familyFilmName,
+    key: `${manufacturerKey}|${normalizeLookup(canonical.filmName)}`,
+    familyKey: `${manufacturerKey}|${normalizeLookup(familyFilmName)}`,
+    isExterior
+  };
+}
+
+export function buildJobPlanningFilmFamilyKey(manufacturer: string, filmName: string): string {
+  return describeJobPlanningFilm(manufacturer, filmName).familyKey;
+}
+
+export function canJobPlanningFilmSatisfyRequirement(
+  candidateManufacturer: string,
+  candidateFilmName: string,
+  requirementManufacturer: string,
+  requirementFilmName: string
+): boolean {
+  const candidate = describeJobPlanningFilm(candidateManufacturer, candidateFilmName);
+  const requirement = describeJobPlanningFilm(requirementManufacturer, requirementFilmName);
+  if (candidate.familyKey !== requirement.familyKey) {
+    return false;
+  }
+
+  if (requirement.isExterior && !candidate.isExterior) {
+    return false;
+  }
+
+  return true;
 }

@@ -48,6 +48,46 @@ function createQueryClient() {
   });
 }
 
+function buildFilmRequirementCoverageDetail(
+  requirements: JobDetail['requirements']
+): JobDetail {
+  const requiredFeet = requirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
+
+  return {
+    summary: {
+      jobNumber: '29050',
+      warehouse: 'IL1',
+      sections: null,
+      dueDate: '2026-04-06',
+      crewLeader: 'Crew',
+      status: 'ALLOCATE',
+      lifecycleStatus: 'ACTIVE',
+      isLaborOnly: false,
+      isStagedForPickup: false,
+      requiredFeet,
+      allocatedFeet: 0,
+      remainingFeet: requiredFeet,
+      requiredTubes: 0,
+      allocatedTubes: 0,
+      remainingTubes: 0,
+      requirementCount: requirements.length,
+      allocationCount: 0,
+      filmOrderCount: 0,
+      createdAt: '2026-04-06T00:00:00Z',
+      updatedAt: '2026-04-06T00:00:00Z',
+      notes: ''
+    },
+    requirements,
+    allocations: [],
+    usage: [],
+    usageTimeline: [],
+    caulkRequirements: [],
+    caulkAllocations: [],
+    caulkCheckouts: [],
+    filmOrders: []
+  };
+}
+
 describe('inventoryMutationUtils', () => {
   it('applies delayed optimistic mutations immediately and can restore snapshots on failure', () => {
     const queryClient = createQueryClient();
@@ -1276,6 +1316,219 @@ describe('inventoryMutationUtils', () => {
         allocatedFeet: 10,
         remainingFeet: 2
       })
+    ]);
+  });
+
+  it('credits bound exterior allocations to non-exterior requirements when the family matches', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 0,
+        remainingFeet: 30
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 0,
+        remainingFeet: 50
+      }
+    ]);
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, withCoveredFeetEntries([
+      {
+        allocationId: 'alloc-ext-to-int',
+        boxId: 'IL1-EXT',
+        warehouse: 'IL1',
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        allocatedFeet: 20,
+        coveredFeet: 20,
+        requirementId: 'req-int',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T12:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ]));
+
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 0,
+        remainingFeet: 30
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 20,
+        remainingFeet: 30
+      }
+    ]);
+  });
+
+  it('does not let bound interior allocations satisfy exterior-only requirements', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 0,
+        remainingFeet: 30
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 0,
+        remainingFeet: 50
+      }
+    ]);
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, withCoveredFeetEntries([
+      {
+        allocationId: 'alloc-int-to-ext',
+        boxId: 'IL1-INT',
+        warehouse: 'IL1',
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        allocatedFeet: 20,
+        coveredFeet: 20,
+        requirementId: 'req-ext',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T12:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ]));
+
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 0,
+        remainingFeet: 30
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 20,
+        remainingFeet: 30
+      }
+    ]);
+  });
+
+  it('reserves pooled exterior coverage for exterior requirements before interior ones', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 0,
+        remainingFeet: 30
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 0,
+        remainingFeet: 50
+      }
+    ]);
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, withCoveredFeetEntries([
+      {
+        allocationId: 'alloc-pooled-ext',
+        boxId: 'IL1-EXT',
+        warehouse: 'IL1',
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        allocatedFeet: 50,
+        coveredFeet: 50,
+        requirementId: '',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T12:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ]));
+
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-ext',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60,
+        requiredFeet: 30,
+        allocatedFeet: 30,
+        remainingFeet: 0
+      },
+      {
+        requirementId: 'req-int',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 50,
+        allocatedFeet: 20,
+        remainingFeet: 30
+      }
     ]);
   });
 

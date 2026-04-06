@@ -20,6 +20,11 @@ import type {
 } from '../../../domain';
 import { WAREHOUSE_CODES } from '../../../domain';
 import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
+import {
+  buildJobPlanningFilmFamilyKey,
+  canJobPlanningFilmSatisfyRequirement,
+  describeJobPlanningFilm
+} from '../utils/jobPlanningFilmIdentity';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 // Purpose: Shared optimistic mutation and cache helper utilities for inventory hooks.
@@ -545,8 +550,12 @@ function buildAllocationJobSummaryFromJobDetail(
   };
 }
 
-function normalizeRequirementFilmKey(manufacturer: string, filmName: string) {
-  return `${manufacturer.trim().toUpperCase()}|${filmName.trim().toUpperCase()}`;
+function normalizeRequirementFilmFamilyKey(manufacturer: string, filmName: string) {
+  return buildJobPlanningFilmFamilyKey(manufacturer, filmName);
+}
+
+function isExteriorPlanningFilm(manufacturer: string, filmName: string) {
+  return describeJobPlanningFilm(manufacturer, filmName).isExterior;
 }
 
 function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetailEntry) {
@@ -573,8 +582,12 @@ function allocationMatchesRequirement(
   requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
 ) {
   return (
-    normalizeRequirementFilmKey(allocation.manufacturer, allocation.filmName) ===
-      normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) &&
+    canJobPlanningFilmSatisfyRequirement(
+      allocation.manufacturer,
+      allocation.filmName,
+      requirement.manufacturer,
+      requirement.filmName
+    ) &&
     (Number(allocation.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
   );
 }
@@ -590,11 +603,13 @@ function rebuildRequirementCoverage(
         requirementId: string;
         widthIn: number;
         requiredFeet: number;
+        isExterior: boolean;
         index: number;
       }>;
       pools: Array<{
         widthIn: number;
         remainingFeet: number;
+        isExterior: boolean;
       }>;
     }
   > = {};
@@ -603,7 +618,7 @@ function rebuildRequirementCoverage(
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const groupKey = normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = normalizeRequirementFilmFamilyKey(requirement.manufacturer, requirement.filmName);
     requirementById[requirement.requirementId] = requirement;
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
@@ -616,6 +631,7 @@ function rebuildRequirementCoverage(
       requirementId: requirement.requirementId,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
+      isExterior: isExteriorPlanningFilm(requirement.manufacturer, requirement.filmName),
       index
     });
   }
@@ -643,7 +659,7 @@ function rebuildRequirementCoverage(
       continue;
     }
 
-    const groupKey = normalizeRequirementFilmKey(allocation.manufacturer, allocation.filmName);
+    const groupKey = normalizeRequirementFilmFamilyKey(allocation.manufacturer, allocation.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -653,7 +669,8 @@ function rebuildRequirementCoverage(
 
     grouped[groupKey].pools.push({
       widthIn: Number(allocation.widthIn) || 0,
-      remainingFeet: coveredFeet
+      remainingFeet: coveredFeet,
+      isExterior: isExteriorPlanningFilm(allocation.manufacturer, allocation.filmName)
     });
   }
 
@@ -661,13 +678,23 @@ function rebuildRequirementCoverage(
   for (let groupIndex = 0; groupIndex < groupedValues.length; groupIndex += 1) {
     const group = groupedValues[groupIndex];
     group.requirements.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? -1 : 1;
+      }
+
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
       }
 
       return left.index - right.index;
     });
-    group.pools.sort((left, right) => left.widthIn - right.widthIn);
+    group.pools.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? 1 : -1;
+      }
+
+      return left.widthIn - right.widthIn;
+    });
 
     for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
       const requirement = group.requirements[requirementIndex];
@@ -679,7 +706,11 @@ function rebuildRequirementCoverage(
 
       for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
         const pool = group.pools[poolIndex];
-        if (pool.remainingFeet <= 0 || pool.widthIn < requirement.widthIn) {
+        if (
+          pool.remainingFeet <= 0 ||
+          pool.widthIn < requirement.widthIn ||
+          (requirement.isExterior && !pool.isExterior)
+        ) {
           continue;
         }
 

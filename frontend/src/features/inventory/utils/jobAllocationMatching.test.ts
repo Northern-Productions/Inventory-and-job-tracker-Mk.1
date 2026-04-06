@@ -114,6 +114,62 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-NV15']);
   });
 
+  it('includes both interior and exterior boxes for non-exterior requirements and prefers interior first', () => {
+    const requirement = buildRequirement({
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60',
+      widthIn: 60
+    });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-EXT',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60 Exterior',
+          widthIn: 60,
+          receivedDate: '2026-01-01'
+        }),
+        buildBox({
+          boxId: 'IL1-INT',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          receivedDate: '2026-02-01'
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-INT', 'IL1-EXT']);
+  });
+
+  it('keeps exterior requirements limited to exterior-compatible boxes', () => {
+    const requirement = buildRequirement({
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60 Exterior',
+      widthIn: 60
+    });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-INT',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60
+        }),
+        buildBox({
+          boxId: 'IL1-EXT',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60 Exterior',
+          widthIn: 60
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-EXT']);
+  });
+
   it('excludes checked-out rolls when available LF is 0', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(
@@ -363,5 +419,63 @@ describe('findCompatibleRequirementsForBox', () => {
     );
 
     expect(compatible.map((entry) => entry.requirementId)).toEqual(['req-36']);
+  });
+
+  it('lets exterior boxes satisfy both exterior and non-exterior requirement lines in the same family', () => {
+    const compatible = findCompatibleRequirementsForBox(
+      [
+        buildRequirement({
+          requirementId: 'req-int',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          remainingFeet: 20
+        }),
+        buildRequirement({
+          requirementId: 'req-ext',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60 Exterior',
+          widthIn: 60,
+          remainingFeet: 20
+        })
+      ],
+      buildBox({
+        boxId: 'IL1-EXT',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60 Exterior',
+        widthIn: 60
+      })
+    );
+
+    expect(compatible.map((entry) => entry.requirementId)).toEqual(['req-int', 'req-ext']);
+  });
+
+  it('keeps interior boxes from satisfying exterior requirements', () => {
+    const compatible = findCompatibleRequirementsForBox(
+      [
+        buildRequirement({
+          requirementId: 'req-int',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          remainingFeet: 20
+        }),
+        buildRequirement({
+          requirementId: 'req-ext',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60 Exterior',
+          widthIn: 60,
+          remainingFeet: 20
+        })
+      ],
+      buildBox({
+        boxId: 'IL1-INT',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60
+      })
+    );
+
+    expect(compatible.map((entry) => entry.requirementId)).toEqual(['req-int']);
   });
 });

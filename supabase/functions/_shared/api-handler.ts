@@ -661,12 +661,71 @@ function normalizeJobRequirementLookupKey(
   ].join("|");
 }
 
-function normalizePlanningFilmKey(manufacturer: unknown, filmName: unknown): string {
+function stripPlanningExteriorSuffix(
+  filmName: unknown,
+): { familyFilmName: string; isExterior: boolean } {
+  const normalized = normalizeCollapsedCatalogLabel(filmName);
+  if (!/\bexterior$/i.test(normalized)) {
+    return {
+      familyFilmName: normalized,
+      isExterior: false,
+    };
+  }
+
+  const stripped = normalizeCollapsedCatalogLabel(normalized.replace(/\s+exterior$/i, ""));
+  return {
+    familyFilmName: stripped || normalized,
+    isExterior: true,
+  };
+}
+
+function describePlanningFilmIdentity(
+  manufacturer: unknown,
+  filmName: unknown,
+): { manufacturer: string; filmName: string; key: string; familyKey: string; isExterior: boolean } {
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
-  return [
-    normalizeCatalogLookupKey(canonical.manufacturer),
-    normalizeCatalogLookupKey(canonical.filmName),
-  ].join("|");
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(canonical.filmName);
+  const manufacturerKey = normalizeCatalogLookupKey(canonical.manufacturer);
+  const { familyFilmName, isExterior } = stripPlanningExteriorSuffix(normalizedFilmName);
+
+  return {
+    manufacturer: canonical.manufacturer,
+    filmName: normalizedFilmName,
+    key: [manufacturerKey, normalizeCatalogLookupKey(normalizedFilmName)].join("|"),
+    familyKey: [manufacturerKey, normalizeCatalogLookupKey(familyFilmName)].join("|"),
+    isExterior,
+  };
+}
+
+function normalizePlanningFilmKey(manufacturer: unknown, filmName: unknown): string {
+  return describePlanningFilmIdentity(manufacturer, filmName).key;
+}
+
+function normalizePlanningFilmFamilyKey(manufacturer: unknown, filmName: unknown): string {
+  return describePlanningFilmIdentity(manufacturer, filmName).familyKey;
+}
+
+function planningFilmIsExterior(manufacturer: unknown, filmName: unknown): boolean {
+  return describePlanningFilmIdentity(manufacturer, filmName).isExterior;
+}
+
+function planningFilmCanSatisfyRequirement(
+  candidateManufacturer: unknown,
+  candidateFilmName: unknown,
+  requirementManufacturer: unknown,
+  requirementFilmName: unknown,
+): boolean {
+  const candidate = describePlanningFilmIdentity(candidateManufacturer, candidateFilmName);
+  const requirement = describePlanningFilmIdentity(requirementManufacturer, requirementFilmName);
+  if (candidate.familyKey !== requirement.familyKey) {
+    return false;
+  }
+
+  if (requirement.isExterior && !candidate.isExterior) {
+    return false;
+  }
+
+  return true;
 }
 
 function normalizeJobNumberKey(jobNumber: unknown): string {
@@ -1608,8 +1667,12 @@ function allocationMatchesRequirement(box: any, requirement: any) {
   }
 
   return (
-    normalizePlanningFilmKey(box.manufacturer, box.filmName) ===
-      normalizePlanningFilmKey(requirement.manufacturer, requirement.filmName) &&
+    planningFilmCanSatisfyRequirement(
+      box.manufacturer,
+      box.filmName,
+      requirement.manufacturer,
+      requirement.filmName,
+    ) &&
     (Number(box.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
   );
 }
@@ -1629,11 +1692,13 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       requirementId: string;
       widthIn: number;
       requiredFeet: number;
+      isExterior: boolean;
       index: number;
     }>;
     pools: Array<{
       widthIn: number;
       remainingFeet: number;
+      isExterior: boolean;
     }>;
   }> = {};
   const coverageByRequirementId: Record<string, number> = {};
@@ -1643,7 +1708,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
     requirementById[requirementId] = requirement;
-    const groupKey = normalizePlanningFilmKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = normalizePlanningFilmFamilyKey(requirement.manufacturer, requirement.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -1655,6 +1720,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       requirementId,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
+      isExterior: planningFilmIsExterior(requirement.manufacturer, requirement.filmName),
       index,
     });
   }
@@ -1687,7 +1753,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       continue;
     }
 
-    const groupKey = normalizePlanningFilmKey(box.manufacturer, box.filmName);
+    const groupKey = normalizePlanningFilmFamilyKey(box.manufacturer, box.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -1697,18 +1763,29 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     grouped[groupKey].pools.push({
       widthIn: Number(box.widthIn) || 0,
       remainingFeet: coveredFeet,
+      isExterior: planningFilmIsExterior(box.manufacturer, box.filmName),
     });
   }
 
   for (const group of Object.values(grouped)) {
     group.requirements.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? -1 : 1;
+      }
+
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
       }
 
       return left.index - right.index;
     });
-    group.pools.sort((left, right) => left.widthIn - right.widthIn);
+    group.pools.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? 1 : -1;
+      }
+
+      return left.widthIn - right.widthIn;
+    });
 
     for (const requirement of group.requirements) {
       let remainingNeed = Math.max(
@@ -1720,7 +1797,11 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
         if (remainingNeed <= 0) {
           break;
         }
-        if (pool.remainingFeet <= 0 || pool.widthIn < requirement.widthIn) {
+        if (
+          pool.remainingFeet <= 0 ||
+          pool.widthIn < requirement.widthIn ||
+          (requirement.isExterior && !pool.isExterior)
+        ) {
           continue;
         }
 
@@ -2381,15 +2462,28 @@ function buildAllocationPreviewPlan(
     minimumWidthIn?: unknown;
     allBoxes: any[];
     activeAllocationsByBox: Record<string, any[]>;
+    selectedRequirement?: any;
   },
 ) {
   const requested = coerceFeetValue(requestedFeet, "RequestedFeet", [], true);
   if (requested <= 0) {
     throw new HttpError(400, "RequestedFeet must be greater than zero.");
   }
+  const selectedRequirement = options.selectedRequirement || null;
+  const requirementWidthValue = Number(selectedRequirement?.widthIn);
   const minimumWidthValue = Number(options.minimumWidthIn);
   const minimumWidthIn =
-    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : sourceBox.widthIn;
+    Number.isFinite(requirementWidthValue) && requirementWidthValue > 0
+      ? requirementWidthValue
+      : Number.isFinite(minimumWidthValue) && minimumWidthValue > 0
+        ? minimumWidthValue
+        : sourceBox.widthIn;
+  if (selectedRequirement && !allocationMatchesRequirement(sourceBox, selectedRequirement)) {
+    throw new HttpError(
+      400,
+      `Box ${sourceBox.boxId} does not match requirement ${asTrimmedString(selectedRequirement.id)}.`,
+    );
+  }
   if (sourceBox.widthIn < minimumWidthIn) {
     throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
@@ -2403,14 +2497,30 @@ function buildAllocationPreviewPlan(
   const candidateBoxes = options.crossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
-  const sourcePlanningFilmKey = normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName);
-  const filteredCandidates = candidateBoxes.filter((candidate) =>
-    candidate.boxId !== sourceBox.boxId &&
-    candidate.status === "IN_STOCK" &&
-    candidate.feetAvailable > 0 &&
-    normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) === sourcePlanningFilmKey &&
-    candidate.widthIn >= minimumWidthIn
-  );
+  const filteredCandidates = candidateBoxes.filter((candidate) => {
+    if (
+      candidate.boxId === sourceBox.boxId ||
+      candidate.status !== "IN_STOCK" ||
+      candidate.feetAvailable <= 0 ||
+      candidate.widthIn < minimumWidthIn
+    ) {
+      return false;
+    }
+
+    if (selectedRequirement) {
+      return planningFilmCanSatisfyRequirement(
+        candidate.manufacturer,
+        candidate.filmName,
+        selectedRequirement.manufacturer,
+        selectedRequirement.filmName,
+      );
+    }
+
+    return (
+      normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) ===
+      normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName)
+    );
+  });
   filteredCandidates.sort((left, right) => {
     const leftIsExactMatch = left.widthIn === minimumWidthIn;
     const rightIsExactMatch = right.widthIn === minimumWidthIn;
@@ -2428,6 +2538,14 @@ function buildAllocationPreviewPlan(
     const rightWidthDelta = right.widthIn - minimumWidthIn;
     if (leftWidthDelta !== rightWidthDelta) {
       return leftWidthDelta - rightWidthDelta;
+    }
+
+    if (selectedRequirement && !planningFilmIsExterior(selectedRequirement.manufacturer, selectedRequirement.filmName)) {
+      const leftIsExterior = planningFilmIsExterior(left.manufacturer, left.filmName);
+      const rightIsExterior = planningFilmIsExterior(right.manufacturer, right.filmName);
+      if (leftIsExterior !== rightIsExterior) {
+        return leftIsExterior ? 1 : -1;
+      }
     }
 
     return compareBoxesByOldestStock(left, right);
@@ -4234,6 +4352,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
     resolveJobContext,
     parseCrossWarehouseFlag,
     listBoxes,
+    listJobRequirementsByJob,
     buildActiveAllocationsByBoxIndex,
     listActiveAllocations,
     buildJobsList,

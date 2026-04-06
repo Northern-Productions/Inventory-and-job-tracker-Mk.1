@@ -32,6 +32,7 @@ export type ReadHandlerDeps = {
       minimumWidthIn: unknown;
       allBoxes: any[];
       activeAllocationsByBox: Record<string, any[]>;
+      selectedRequirement?: any;
     },
   ) => Record<string, unknown>;
   resolveJobContext: (
@@ -43,6 +44,7 @@ export type ReadHandlerDeps = {
   ) => Promise<unknown>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
+  listJobRequirementsByJob: (client: any, orgId: string, jobNumber: string) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
   buildJobsList: (client: any, orgId: string, limit: number, lifecycleStatus?: unknown) => Promise<unknown[]>;
@@ -261,15 +263,33 @@ const readHandlers: Record<string, ReadHandler> = {
     if (source.status !== "IN_STOCK") {
       throw new HttpError(400, "Only in-stock boxes can be allocated.");
     }
+    const jobContext = await deps.resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader);
+    const requirementId = deps.asTrimmedString(params.requirementId);
+    const selectedRequirement = requirementId
+      ? (
+          await deps.listJobRequirementsByJob(
+            client,
+            orgId,
+            deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber),
+          )
+        ).find((entry) => deps.asTrimmedString((entry as Record<string, unknown>).id) === requirementId) || null
+      : null;
+    if (requirementId && !selectedRequirement) {
+      throw new HttpError(
+        400,
+        `Requirement ${requirementId} does not belong to job ${deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber)}.`,
+      );
+    }
     return ok(deps.buildAllocationPreviewPlan(
       source,
       params.requestedFeet,
-      await deps.resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader),
+      jobContext,
       {
         crossWarehouse: deps.parseCrossWarehouseFlag(params.crossWarehouse),
         minimumWidthIn: params.requestedWidthIn,
         allBoxes: await deps.listBoxes(client, orgId),
         activeAllocationsByBox: deps.buildActiveAllocationsByBoxIndex(await deps.listActiveAllocations(client, orgId)),
+        selectedRequirement,
       },
     ));
   },

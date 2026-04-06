@@ -4490,9 +4490,66 @@ function buildJobRequirementsByLookupKey(entries) {
   return byKey;
 }
 
-function normalizeRequirementFilmKey(manufacturer, filmName) {
+function stripPlanningExteriorSuffix(filmName) {
+  const normalized = normalizeCollapsedCatalogLabel(filmName);
+  if (!/\bexterior$/i.test(normalized)) {
+    return {
+      familyFilmName: normalized,
+      isExterior: false
+    };
+  }
+
+  const stripped = normalizeCollapsedCatalogLabel(normalized.replace(/\s+exterior$/i, ''));
+  return {
+    familyFilmName: stripped || normalized,
+    isExterior: true
+  };
+}
+
+function describeRequirementPlanningFilm(manufacturer, filmName) {
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
-  return `${normalizeCatalogManufacturerLookupKey(canonical.manufacturer)}|${normalizeCatalogLookupKey(canonical.filmName)}`;
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(canonical.filmName);
+  const manufacturerKey = normalizeCatalogManufacturerLookupKey(canonical.manufacturer);
+  const { familyFilmName, isExterior } = stripPlanningExteriorSuffix(normalizedFilmName);
+
+  return {
+    manufacturer: canonical.manufacturer,
+    filmName: normalizedFilmName,
+    key: `${manufacturerKey}|${normalizeCatalogLookupKey(normalizedFilmName)}`,
+    familyKey: `${manufacturerKey}|${normalizeCatalogLookupKey(familyFilmName)}`,
+    isExterior
+  };
+}
+
+function normalizeRequirementFilmKey(manufacturer, filmName) {
+  return describeRequirementPlanningFilm(manufacturer, filmName).key;
+}
+
+function normalizeRequirementFilmFamilyKey(manufacturer, filmName) {
+  return describeRequirementPlanningFilm(manufacturer, filmName).familyKey;
+}
+
+function requirementFilmIsExterior(manufacturer, filmName) {
+  return describeRequirementPlanningFilm(manufacturer, filmName).isExterior;
+}
+
+function planningFilmCanSatisfyRequirement(
+  candidateManufacturer,
+  candidateFilmName,
+  requirementManufacturer,
+  requirementFilmName
+) {
+  const candidate = describeRequirementPlanningFilm(candidateManufacturer, candidateFilmName);
+  const requirement = describeRequirementPlanningFilm(requirementManufacturer, requirementFilmName);
+  if (candidate.familyKey !== requirement.familyKey) {
+    return false;
+  }
+
+  if (requirement.isExterior && !candidate.isExterior) {
+    return false;
+  }
+
+  return true;
 }
 
 function allocationMatchesRequirement(box, requirement) {
@@ -4501,8 +4558,12 @@ function allocationMatchesRequirement(box, requirement) {
   }
 
   return (
-    normalizeRequirementFilmKey(box.manufacturer, box.filmName) ===
-      normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) &&
+    planningFilmCanSatisfyRequirement(
+      box.manufacturer,
+      box.filmName,
+      requirement.manufacturer,
+      requirement.filmName
+    ) &&
     (Number(box.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
   );
 }
@@ -4533,7 +4594,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
     requirementById[requirementId] = requirement;
-    const groupKey = normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = normalizeRequirementFilmFamilyKey(requirement.manufacturer, requirement.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -4545,6 +4606,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       requirementId,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
+      isExterior: requirementFilmIsExterior(requirement.manufacturer, requirement.filmName),
       index
     });
   }
@@ -4579,7 +4641,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
-    const groupKey = normalizeRequirementFilmKey(box.manufacturer, box.filmName);
+    const groupKey = normalizeRequirementFilmFamilyKey(box.manufacturer, box.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -4589,7 +4651,8 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
     grouped[groupKey].pools.push({
       widthIn: Number(box.widthIn) || 0,
-      remainingFeet: coveredFeet
+      remainingFeet: coveredFeet,
+      isExterior: requirementFilmIsExterior(box.manufacturer, box.filmName)
     });
   }
 
@@ -4597,12 +4660,22 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
   for (let groupIndex = 0; groupIndex < groupValues.length; groupIndex += 1) {
     const group = groupValues[groupIndex];
     group.requirements.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? -1 : 1;
+      }
+
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
       }
       return left.index - right.index;
     });
-    group.pools.sort((left, right) => left.widthIn - right.widthIn);
+    group.pools.sort((left, right) => {
+      if (left.isExterior !== right.isExterior) {
+        return left.isExterior ? 1 : -1;
+      }
+
+      return left.widthIn - right.widthIn;
+    });
 
     for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
       const requirement = group.requirements[requirementIndex];
@@ -4613,7 +4686,11 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
       for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
         const pool = group.pools[poolIndex];
-        if (pool.remainingFeet <= 0 || pool.widthIn < requirement.widthIn) {
+        if (
+          pool.remainingFeet <= 0 ||
+          pool.widthIn < requirement.widthIn ||
+          (requirement.isExterior && !pool.isExterior)
+        ) {
           continue;
         }
 
@@ -5423,9 +5500,21 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
 
   const useCrossWarehouse = options && options.crossWarehouse === true;
+  const selectedRequirement = options && options.selectedRequirement ? options.selectedRequirement : null;
+  const requirementWidthValue = Number(selectedRequirement && selectedRequirement.widthIn);
   const minimumWidthValue = Number(options && options.minimumWidthIn);
   const minimumWidthIn =
-    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : sourceBox.widthIn;
+    Number.isFinite(requirementWidthValue) && requirementWidthValue > 0
+      ? requirementWidthValue
+      : Number.isFinite(minimumWidthValue) && minimumWidthValue > 0
+        ? minimumWidthValue
+        : sourceBox.widthIn;
+  if (selectedRequirement && !allocationMatchesRequirement(sourceBox, selectedRequirement)) {
+    throw new HttpError(
+      400,
+      `Box ${sourceBox.boxId} does not match requirement ${asTrimmedString(selectedRequirement.id)}.`
+    );
+  }
   if (sourceBox.widthIn < minimumWidthIn) {
     throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
   }
@@ -5441,7 +5530,6 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   const candidateBoxes = useCrossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
-  const sourcePlanningFilmKey = normalizeRequirementFilmKey(sourceBox.manufacturer, sourceBox.filmName);
   const filteredCandidates = [];
 
   for (let index = 0; index < candidateBoxes.length; index += 1) {
@@ -5450,8 +5538,25 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       candidate.boxId === sourceBox.boxId ||
       !isAllocatableBoxStatus(candidate.status) ||
       candidate.feetAvailable <= 0 ||
-      normalizeRequirementFilmKey(candidate.manufacturer, candidate.filmName) !== sourcePlanningFilmKey ||
       candidate.widthIn < minimumWidthIn
+    ) {
+      continue;
+    }
+
+    if (selectedRequirement) {
+      if (
+        !planningFilmCanSatisfyRequirement(
+          candidate.manufacturer,
+          candidate.filmName,
+          selectedRequirement.manufacturer,
+          selectedRequirement.filmName
+        )
+      ) {
+        continue;
+      }
+    } else if (
+      normalizeRequirementFilmKey(candidate.manufacturer, candidate.filmName) !==
+      normalizeRequirementFilmKey(sourceBox.manufacturer, sourceBox.filmName)
     ) {
       continue;
     }
@@ -5476,6 +5581,14 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     const rightWidthDelta = right.widthIn - minimumWidthIn;
     if (leftWidthDelta !== rightWidthDelta) {
       return leftWidthDelta - rightWidthDelta;
+    }
+
+    if (selectedRequirement && !requirementFilmIsExterior(selectedRequirement.manufacturer, selectedRequirement.filmName)) {
+      const leftIsExterior = requirementFilmIsExterior(left.manufacturer, left.filmName);
+      const rightIsExterior = requirementFilmIsExterior(right.manufacturer, right.filmName);
+      if (leftIsExterior !== rightIsExterior) {
+        return leftIsExterior ? 1 : -1;
+      }
     }
 
     return compareBoxesByOldestStock(left, right);
@@ -5690,6 +5803,7 @@ async function createFilmOrderForShortage(
   client,
   orgId,
   sourceBox,
+  selectedRequirement,
   jobContext,
   requestedFeet,
   shortageFeet,
@@ -5709,9 +5823,13 @@ async function createFilmOrderForShortage(
     jobId,
     jobNumber: jobContext.jobNumber,
     warehouse: resolvedWarehouse,
-    manufacturer: sourceBox.manufacturer,
-    filmName: sourceBox.filmName,
-    widthIn: Number(shortageWidthIn) > 0 ? Number(shortageWidthIn) : sourceBox.widthIn,
+    manufacturer: selectedRequirement ? selectedRequirement.manufacturer : sourceBox.manufacturer,
+    filmName: selectedRequirement ? selectedRequirement.filmName : sourceBox.filmName,
+    widthIn: Number(shortageWidthIn) > 0
+      ? Number(shortageWidthIn)
+      : selectedRequirement
+        ? Number(selectedRequirement.widthIn) || sourceBox.widthIn
+        : sourceBox.widthIn,
     requestedFeet: shortageFeet,
     coveredFeet: 0,
     orderedFeet: 0,
@@ -6194,12 +6312,18 @@ function resolveCheckoutSnapshotAllocationFeet(checkoutAudit, box) {
 }
 
 function sumRemainingMatchingRequirementFeetForBox(requirements, box) {
-  const boxFilmKey = normalizeRequirementFilmKey(box.manufacturer, box.filmName);
   let total = 0;
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    if (normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) !== boxFilmKey) {
+    if (
+      !planningFilmCanSatisfyRequirement(
+        box.manufacturer,
+        box.filmName,
+        requirement.manufacturer,
+        requirement.filmName
+      )
+    ) {
       continue;
     }
 
@@ -9561,12 +9685,22 @@ async function previewAllocationPlan(client, orgId, payload) {
     payload.jobDate,
     payload.crewLeader
   );
+  const requirementId = asTrimmedString(payload.requirementId);
+  const selectedRequirement = requirementId
+    ? resolveSelectedRequirement(
+        await listJobRequirementsByJob(client, orgId, jobContext.jobNumber),
+        requirementId,
+        source,
+        jobContext.jobNumber
+      )
+    : null;
 
   return buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
     crossWarehouse,
     minimumWidthIn: payload.requestedWidthIn,
     allBoxes,
-    activeAllocationsByBox
+    activeAllocationsByBox,
+    selectedRequirement
   });
 }
 
@@ -9679,7 +9813,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       crossWarehouse,
       minimumWidthIn,
       allBoxes,
-      activeAllocationsByBox
+      activeAllocationsByBox,
+      selectedRequirement
     });
     const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
       ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))
@@ -9736,7 +9871,24 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
     }
 
-    if (currentBox.manufacturer !== source.manufacturer || currentBox.filmName !== source.filmName) {
+    if (selectedRequirement) {
+      if (
+        !planningFilmCanSatisfyRequirement(
+          currentBox.manufacturer,
+          currentBox.filmName,
+          selectedRequirement.manufacturer,
+          selectedRequirement.filmName
+        )
+      ) {
+        throw new HttpError(
+          400,
+          `Extra box ${currentBox.boxId} must use a compatible film for requirement ${selectedRequirement.id}.`
+        );
+      }
+    } else if (
+      normalizeRequirementFilmKey(currentBox.manufacturer, currentBox.filmName) !==
+      normalizeRequirementFilmKey(source.manufacturer, source.filmName)
+    ) {
       throw new HttpError(
         400,
         `Extra box ${currentBox.boxId} must match the source box film (${source.manufacturer} ${source.filmName}).`
@@ -9773,6 +9925,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       client,
       orgId,
       source,
+      selectedRequirement,
       jobContext,
       requestedFeet,
       selection.remainingFeet,

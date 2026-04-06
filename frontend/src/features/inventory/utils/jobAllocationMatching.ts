@@ -1,6 +1,9 @@
 import type { Box, JobRequirementLine } from '../../../domain';
 import { isSplitCoveragePair } from '../../../domain/allocationCoverageContract.mjs';
-import { buildJobPlanningFilmKey } from './jobPlanningFilmIdentity';
+import {
+  canJobPlanningFilmSatisfyRequirement,
+  describeJobPlanningFilm
+} from './jobPlanningFilmIdentity';
 
 function compareDates(leftDate: string, rightDate: string) {
   if (leftDate === rightDate) {
@@ -14,7 +17,12 @@ function getStockDate(box: Pick<Box, 'receivedDate' | 'orderDate'>) {
   return box.receivedDate || box.orderDate || '9999-12-31';
 }
 
-function compareBoxesByClosestCompatibleWidth(left: Box, right: Box, minimumWidthIn: number) {
+function compareBoxesByClosestCompatibleWidth(
+  left: Box,
+  right: Box,
+  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
+) {
+  const minimumWidthIn = requirement.widthIn;
   const leftIsExactMatch = left.widthIn === minimumWidthIn;
   const rightIsExactMatch = right.widthIn === minimumWidthIn;
   if (leftIsExactMatch !== rightIsExactMatch) {
@@ -33,6 +41,15 @@ function compareBoxesByClosestCompatibleWidth(left: Box, right: Box, minimumWidt
     return leftWidthDelta - rightWidthDelta;
   }
 
+  const requirementFilm = describeJobPlanningFilm(requirement.manufacturer, requirement.filmName);
+  if (!requirementFilm.isExterior) {
+    const leftIsExterior = describeJobPlanningFilm(left.manufacturer, left.filmName).isExterior;
+    const rightIsExterior = describeJobPlanningFilm(right.manufacturer, right.filmName).isExterior;
+    if (leftIsExterior !== rightIsExterior) {
+      return leftIsExterior ? 1 : -1;
+    }
+  }
+
   const dateComparison = compareDates(getStockDate(left), getStockDate(right));
   if (dateComparison !== 0) {
     return dateComparison;
@@ -46,7 +63,6 @@ function compareBoxesByClosestCompatibleWidth(left: Box, right: Box, minimumWidt
 }
 
 export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRequirementLine): Box[] {
-  const requiredPlanningFilmKey = buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName);
   const requiredWidth = requirement.widthIn;
   const dedupedByBoxId = new Map<string, Box>();
 
@@ -68,14 +84,21 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
       return false;
     }
 
-    if (buildJobPlanningFilmKey(box.manufacturer, box.filmName) !== requiredPlanningFilmKey) {
+    if (
+      !canJobPlanningFilmSatisfyRequirement(
+        box.manufacturer,
+        box.filmName,
+        requirement.manufacturer,
+        requirement.filmName
+      )
+    ) {
       return false;
     }
 
     return true;
   });
 
-  filtered.sort((left, right) => compareBoxesByClosestCompatibleWidth(left, right, requiredWidth));
+  filtered.sort((left, right) => compareBoxesByClosestCompatibleWidth(left, right, requirement));
   return filtered;
 }
 
@@ -83,7 +106,6 @@ export function findCompatibleRequirementsForBox(
   requirements: JobRequirementLine[],
   box: Pick<Box, 'manufacturer' | 'filmName' | 'widthIn'>
 ): JobRequirementLine[] {
-  const boxPlanningFilmKey = buildJobPlanningFilmKey(box.manufacturer, box.filmName);
   const boxWidth = Number(box.widthIn) || 0;
 
   return requirements.filter((requirement) => {
@@ -95,6 +117,11 @@ export function findCompatibleRequirementsForBox(
       return false;
     }
 
-    return buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName) === boxPlanningFilmKey;
+    return canJobPlanningFilmSatisfyRequirement(
+      box.manufacturer,
+      box.filmName,
+      requirement.manufacturer,
+      requirement.filmName
+    );
   });
 }
