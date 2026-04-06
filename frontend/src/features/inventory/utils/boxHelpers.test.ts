@@ -15,11 +15,15 @@ import {
   getDisplayedAllocatedFeetForBox,
   getManufacturerOptionsWithCatalog,
   getNextBoxIdForWarehouse,
+  getWarehouseBoxIdPrefixToken,
+  isWarehousePrefixOnlyBoxId,
   getRemainingAllocatableFeet,
   getRiskyFieldChanges,
   isLowStockBox,
   isLowStockFeetValue,
+  normalizeCreateBoxIdForWarehouse,
   normalizeTrailingLetterBoxId,
+  remapCreateBoxIdForWarehouse,
   shouldAutoMoveToZeroed
 } from './boxHelpers';
 
@@ -233,6 +237,37 @@ describe('boxHelpers', () => {
     expect(formatBoxIdWithWarehousePrefix('IL-6901', 'IL1')).toBe('IL1-6901');
     expect(formatBoxIdWithWarehousePrefix('ms-214', 'MS1')).toBe('MS1-214');
     expect(formatBoxIdWithWarehousePrefix('il1-1338', 'IL1')).toBe('IL1-1338');
+  });
+
+  it('builds locked warehouse prefix tokens', () => {
+    expect(getWarehouseBoxIdPrefixToken('IL1')).toBe('IL1-');
+    expect(getWarehouseBoxIdPrefixToken('ms1-')).toBe('MS1-');
+    expect(getWarehouseBoxIdPrefixToken('')).toBe('');
+  });
+
+  it('keeps the warehouse prefix locked while normalizing create-mode box ids', () => {
+    expect(normalizeCreateBoxIdForWarehouse('', 'IL1')).toBe('IL1-');
+    expect(normalizeCreateBoxIdForWarehouse('IL1', 'IL1')).toBe('IL1-');
+    expect(normalizeCreateBoxIdForWarehouse('IL1IL', 'IL1')).toBe('IL1-IL');
+    expect(normalizeCreateBoxIdForWarehouse('IL1-IL1-123', 'IL1')).toBe('IL1-123');
+    expect(normalizeCreateBoxIdForWarehouse('-123', 'IL1')).toBe('IL1-123');
+    expect(normalizeCreateBoxIdForWarehouse('123', 'IL1')).toBe('IL1-123');
+    expect(normalizeCreateBoxIdForWarehouse('il1-123', 'IL1')).toBe('IL1-123');
+    expect(normalizeCreateBoxIdForWarehouse('ms1-123', 'IL1')).toBe('IL1-123');
+    expect(normalizeCreateBoxIdForWarehouse('ms-123', 'IL1')).toBe('IL1-123');
+  });
+
+  it('detects prefix-only create-mode box ids', () => {
+    expect(isWarehousePrefixOnlyBoxId('IL1', 'IL1')).toBe(true);
+    expect(isWarehousePrefixOnlyBoxId('IL1-', 'IL1')).toBe(true);
+    expect(isWarehousePrefixOnlyBoxId('IL1-123', 'IL1')).toBe(false);
+    expect(isWarehousePrefixOnlyBoxId('', '')).toBe(true);
+  });
+
+  it('remaps create-mode box ids when the warehouse changes', () => {
+    expect(remapCreateBoxIdForWarehouse('IL1-123', 'MS1')).toBe('MS1-123');
+    expect(remapCreateBoxIdForWarehouse('IL1-', 'MS1')).toBe('MS1-');
+    expect(remapCreateBoxIdForWarehouse('123', 'MS1')).toBe('MS1-123');
   });
 
   it('derives manufacturer options from film catalog values only', () => {

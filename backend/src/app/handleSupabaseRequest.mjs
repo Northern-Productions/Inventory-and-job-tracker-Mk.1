@@ -123,7 +123,7 @@ function assertBoxStatus(value) {
 
 function isAllocatableBoxStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === 'IN_STOCK' || normalized === 'CHECKED_OUT';
+  return normalized === 'IN_STOCK';
 }
 
 function parseBooleanFlag(value) {
@@ -1481,6 +1481,7 @@ function mapDbAllocationRow(row) {
     jobNumber: asTrimmedString(row.job_number),
     jobDate: formatDateValue(row.job_date),
     allocatedFeet: integerOrZero(row.allocated_feet),
+    requirementId: asTrimmedString(row.requirement_id),
     allocationKind: normalizeAllocationKind(row.allocation_kind),
     status: asTrimmedString(row.status) || 'ACTIVE',
     createdAt: formatTimestamp(row.created_at),
@@ -1502,6 +1503,7 @@ function toPublicAllocation(entry) {
     jobDate: entry.jobDate,
     crewLeader: entry.crewLeader,
     allocatedFeet: entry.allocatedFeet,
+    requirementId: asTrimmedString(entry.requirementId),
     allocationKind: normalizeAllocationKind(entry.allocationKind),
     status: entry.status,
     createdAt: entry.createdAt,
@@ -3191,6 +3193,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         warehouse,
         job_date,
         allocated_feet,
+        requirement_id,
         status,
         created_at,
         created_by,
@@ -3204,11 +3207,13 @@ async function saveAllocationRecord(client, orgId, entry) {
       values (
         $1,$2,$3,$4,$5,$6,
         nullif($7, '')::date,
-        $8,$9,
-        coalesce($10::timestamptz, now()),
-        $11,
-        nullif($12, '')::timestamptz,
-        $13,$14,$15,$16,$17
+        $8,
+        nullif($9, '')::uuid,
+        $10,
+        coalesce($11::timestamptz, now()),
+        $12,
+        nullif($13, '')::timestamptz,
+        $14,$15,$16,$17,$18
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
@@ -3217,6 +3222,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         warehouse = excluded.warehouse,
         job_date = excluded.job_date,
         allocated_feet = excluded.allocated_feet,
+        requirement_id = excluded.requirement_id,
         status = excluded.status,
         created_at = excluded.created_at,
         created_by = excluded.created_by,
@@ -3237,6 +3243,7 @@ async function saveAllocationRecord(client, orgId, entry) {
       entry.warehouse,
       entry.jobDate,
       entry.allocatedFeet,
+      asTrimmedString(entry.requirementId),
       entry.status,
       entry.createdAt,
       entry.createdBy,
@@ -4457,6 +4464,18 @@ function normalizeRequirementFilmKey(manufacturer, filmName) {
   return `${normalizeCatalogManufacturerLookupKey(canonical.manufacturer)}|${normalizeCatalogLookupKey(canonical.filmName)}`;
 }
 
+function allocationMatchesRequirement(box, requirement) {
+  if (!box || !requirement) {
+    return false;
+  }
+
+  return (
+    normalizeRequirementFilmKey(box.manufacturer, box.filmName) ===
+      normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) &&
+    (Number(box.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
+  );
+}
+
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
   if (!box || allocation.status !== 'ACTIVE') {
     return false;
@@ -4468,10 +4487,12 @@ function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
 function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
   const grouped = {};
   const coverage = {};
+  const requirementById = {};
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
+    requirementById[requirementId] = requirement;
     const groupKey = normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
@@ -4507,6 +4528,16 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
+    const boundRequirementId = asTrimmedString(allocation.requirementId);
+    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
+      coverage[boundRequirementId] = Math.min(
+        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
+        Math.max(0, Number(coverage[boundRequirementId] || 0)) + Math.max(0, Number(allocation.allocatedFeet || 0))
+      );
+      continue;
+    }
+
     const groupKey = normalizeRequirementFilmKey(box.manufacturer, box.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
@@ -4534,7 +4565,10 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
     for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
       const requirement = group.requirements[requirementIndex];
-      let remainingNeed = requirement.requiredFeet;
+      let remainingNeed = Math.max(
+        0,
+        requirement.requiredFeet - Math.max(0, Number(coverage[requirement.requirementId] || 0))
+      );
 
       for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
         const pool = group.pools[poolIndex];
@@ -4547,7 +4581,10 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
         remainingNeed -= assignedFeet;
       }
 
-      coverage[requirement.requirementId] = requirement.requiredFeet - remainingNeed;
+      coverage[requirement.requirementId] = Math.min(
+        requirement.requiredFeet,
+        requirement.requiredFeet - Math.max(0, remainingNeed)
+      );
     }
   }
 
@@ -5488,7 +5525,8 @@ async function createAllocationRecord(
   allocatedFeet,
   user,
   filmOrderId,
-  allocationKind = 'REQUIREMENT'
+  allocationKind = 'REQUIREMENT',
+  requirementId = ''
 ) {
   const jobId = await getOrResolveJobId(client, orgId, jobContext.jobNumber);
   return saveAllocationRecord(client, orgId, {
@@ -5499,6 +5537,7 @@ async function createAllocationRecord(
     jobNumber: jobContext.jobNumber,
     jobDate: jobContext.jobDate,
     allocatedFeet,
+    requirementId: asTrimmedString(requirementId),
     status: 'ACTIVE',
     createdAt: new Date().toISOString(),
     createdBy: asTrimmedString(user),
@@ -6430,6 +6469,27 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
   return result;
 }
 
+function shouldRecalculateReceivedFeetFromState(
+  existingBox,
+  initialFeet,
+  resolvedLastRollWeightLbs,
+  resolvedCoreWeightLbs,
+  resolvedLfWeightLbsPerFt,
+  reactivateFromZeroed
+) {
+  if (!existingBox || !existingBox.receivedDate) {
+    return true;
+  }
+
+  return (
+    existingBox.initialFeet !== initialFeet ||
+    existingBox.lastRollWeightLbs !== resolvedLastRollWeightLbs ||
+    existingBox.coreWeightLbs !== resolvedCoreWeightLbs ||
+    existingBox.lfWeightLbsPerFt !== resolvedLfWeightLbsPerFt ||
+    reactivateFromZeroed
+  );
+}
+
 function hasPositiveReactivationSignal(box) {
   return (
     integerOrZero(box?.feetAvailable) > 0 ||
@@ -6894,6 +6954,8 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   const lastWeighedDateInput = normalizeDateString(payload.lastWeighedDate, 'LastWeighedDate', true);
   const coreTypeInput = normalizeCoreType(payload.coreType, true);
   const existingCoreType = existingBox ? normalizeCoreType(existingBox.coreType, true) : '';
+  const reactivateFromZeroed =
+    payload.reactivateFromZeroed === true || String(payload.reactivateFromZeroed) === 'true';
   let feetAvailable;
   let resolvedInitialWeightLbs = initialWeightInput;
   let resolvedLastRollWeightLbs = lastRollWeightInput;
@@ -7098,8 +7160,24 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     }
 
     const isFirstReceipt = !existingBox || !existingBox.receivedDate;
-    const weightChanged =
-      !existingBox || resolvedLastRollWeightLbs !== existingBox.lastRollWeightLbs;
+    const shouldRecalculateReceivedFeet = shouldRecalculateReceivedFeetFromState(
+      existingBox,
+      initialFeet,
+      resolvedLastRollWeightLbs,
+      resolvedCoreWeightLbs,
+      resolvedLfWeightLbsPerFt,
+      reactivateFromZeroed
+    );
+    const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
+      resolvedLastRollWeightLbs,
+      resolvedCoreWeightLbs,
+      resolvedLfWeightLbsPerFt,
+      initialFeet
+    );
+    const shouldRepairStaleFeet =
+      Boolean(existingBox && existingBox.receivedDate) &&
+      Math.max(existingBox ? existingBox.feetAvailable : 0, 0) === 0 &&
+      physicalFeetAvailable > 0;
     let activeAllocatedFeet = 0;
 
     if (existingBox) {
@@ -7113,13 +7191,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
     if (isFirstReceipt) {
       feetAvailable = Math.max(initialFeet - activeAllocatedFeet, 0);
-    } else if (weightChanged) {
-      const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
-        resolvedLastRollWeightLbs,
-        resolvedCoreWeightLbs,
-        resolvedLfWeightLbsPerFt,
-        initialFeet
-      );
+    } else if (shouldRecalculateReceivedFeet || shouldRepairStaleFeet) {
       const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
       if (feetAvailable !== recalculatedFeetAvailable) {
         feetAvailable = recalculatedFeetAvailable;
@@ -9395,7 +9467,7 @@ async function previewAllocationPlan(client, orgId, payload) {
   }
 
   if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock or checked-out boxes can be allocated.');
+    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
   }
 
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
@@ -9417,6 +9489,28 @@ async function previewAllocationPlan(client, orgId, payload) {
   });
 }
 
+function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobNumber) {
+  const normalizedRequirementId = asTrimmedString(requirementId);
+  if (!normalizedRequirementId) {
+    throw new HttpError(400, 'RequirementId is required for film allocations.');
+  }
+
+  const selectedRequirement =
+    requirements.find((entry) => asTrimmedString(entry.id) === normalizedRequirementId) || null;
+  if (!selectedRequirement) {
+    throw new HttpError(400, `Requirement ${normalizedRequirementId} does not belong to job ${jobNumber}.`);
+  }
+
+  if (!allocationMatchesRequirement(sourceBox, selectedRequirement)) {
+    throw new HttpError(
+      400,
+      `Box ${sourceBox.boxId} does not match requirement ${normalizedRequirementId}.`
+    );
+  }
+
+  return selectedRequirement;
+}
+
 async function applyAllocationPlan(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
@@ -9428,17 +9522,10 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   }
 
   if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock or checked-out boxes can be allocated.');
+    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
   }
 
   const requestedFeet = coerceFeetValue(payload.requestedFeet ?? 0, 'RequestedFeet', warnings, false);
-  const minimumWidthValue = Number(payload.requestedWidthIn);
-  const minimumWidthIn =
-    Number.isFinite(minimumWidthValue) && minimumWidthValue > 0 ? minimumWidthValue : source.widthIn;
-  if (source.widthIn < minimumWidthIn) {
-    throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
-  }
-
   const extraAllocationsPayload = payload.extraAllocations;
   if (extraAllocationsPayload !== undefined && !Array.isArray(extraAllocationsPayload)) {
     throw new HttpError(400, 'extraAllocations must be an array.');
@@ -9487,6 +9574,21 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     payload.jobDate,
     payload.crewLeader
   );
+  const jobRequirements =
+    requestedFeet > 0 ? await listJobRequirementsByJob(client, orgId, jobContext.jobNumber) : [];
+  const selectedRequirement =
+    requestedFeet > 0
+      ? resolveSelectedRequirement(jobRequirements, payload.requirementId, source, jobContext.jobNumber)
+      : null;
+  const minimumWidthValue = Number(payload.requestedWidthIn);
+  const minimumWidthIn = selectedRequirement
+    ? Number(selectedRequirement.widthIn) || 0
+    : Number.isFinite(minimumWidthValue) && minimumWidthValue > 0
+      ? minimumWidthValue
+      : source.widthIn;
+  if (source.widthIn < minimumWidthIn) {
+    throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
+  }
   let selection = {
     allocations: [],
     remainingFeet: 0
@@ -9533,7 +9635,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       plannedAllocation.allocatedFeet,
       actor,
       '',
-      'REQUIREMENT'
+      'REQUIREMENT',
+      selectedRequirement ? selectedRequirement.id : ''
     );
     currentBox.feetAvailable = Math.max(currentBox.feetAvailable - plannedAllocation.allocatedFeet, 0);
     boxById[currentBox.boxId] = await saveBoxRecord(client, orgId, currentBox);

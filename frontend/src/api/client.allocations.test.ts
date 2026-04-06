@@ -20,9 +20,11 @@ vi.mock('./http', () => {
 import {
   __resetJobsApiAvailabilityForTests,
   addCaulkJobAllocation,
+  applyAllocationPlan,
   checkinCaulkJobAllocation,
   checkoutCaulkJobAllocation,
   getAllocationJob,
+  previewAllocationPlan,
   removeCaulkJobAllocation,
   updateCaulkJobAllocation
 } from './client';
@@ -99,6 +101,80 @@ describe('allocations API client caulk routes', () => {
     expect(result.warnings).toEqual(['reserve warning']);
     expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/caulk/add', {
       body: payload
+    });
+  });
+
+  it('passes requirementId through allocation preview requests', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobNumber: '000123',
+        jobDate: '',
+        crewLeader: '',
+        requestedFeet: 12,
+        sourceBoxId: 'IL1-6502',
+        sourceWarehouse: 'IL1',
+        sourceBoxFeetAvailable: 12,
+        sourceSuggestedFeet: 12,
+        sourceConflicts: [],
+        suggestions: [],
+        defaultCoveredFeet: 12,
+        defaultRemainingFeet: 0
+      },
+      warnings: []
+    });
+
+    await previewAllocationPlan({
+      boxId: 'IL1-6502',
+      jobNumber: '000123',
+      requestedFeet: 12,
+      requestedWidthIn: 72,
+      requirementId: 'req-72'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/preview', {
+      query: {
+        boxId: 'IL1-6502',
+        jobNumber: '000123',
+        jobDate: undefined,
+        crewLeader: undefined,
+        requestedFeet: 12,
+        requestedWidthIn: 72,
+        requirementId: 'req-72',
+        crossWarehouse: undefined
+      }
+    });
+  });
+
+  it('posts film allocation plans with requirementId in the body', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        allocations: [],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await applyAllocationPlan({
+      boxId: 'IL1-6502',
+      jobNumber: '000123',
+      requestedFeet: 12,
+      requestedWidthIn: 72,
+      requirementId: 'req-72',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/apply', {
+      body: {
+        boxId: 'IL1-6502',
+        jobNumber: '000123',
+        requestedFeet: 12,
+        requestedWidthIn: 72,
+        requirementId: 'req-72',
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      }
     });
   });
 

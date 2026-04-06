@@ -193,15 +193,16 @@ export default function BoxDetailsPage() {
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
+  const allocations = allocationsQuery.data || [];
   const displayedAllocatedFeet = box
-    ? getDisplayedAllocatedFeetForBox(box, allocationsQuery.data || [])
+    ? getDisplayedAllocatedFeetForBox(box, allocations)
     : 0;
   const onHandAssetCost =
     box && typeof box.pricePerLf === 'number' && Number.isFinite(box.pricePerLf)
       ? Math.max(box.feetAvailable, 0) * box.pricePerLf
       : null;
   const checkoutJobOptions = useMemo(() => {
-    const activeAllocations = (allocationsQuery.data || [])
+    const activeAllocations = allocations
       .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
       .slice()
       .sort((left, right) => {
@@ -237,7 +238,7 @@ export default function BoxDetailsPage() {
       });
       return options;
     }, []);
-  }, [allocationsQuery.data]);
+  }, [allocations]);
   const initialDraft = useMemo(
     () => (box ? createDraftFromBox(box) : createDraftFromBox(createFallbackBox(boxId))),
     [box, boxId]
@@ -496,7 +497,7 @@ export default function BoxDetailsPage() {
   }
 
   async function runStandardUpdateFlow(payload: UpdateBoxPayload) {
-    const addOrEditWarnings = getAddOrEditWarnings(payload, box);
+    const addOrEditWarnings = getAddOrEditWarnings(payload, box, allocations);
     if (!confirmWarnings(addOrEditWarnings)) {
       return;
     }
@@ -525,7 +526,18 @@ export default function BoxDetailsPage() {
     }
 
     try {
-      const payload = parseUpdateBoxDraft(draft);
+      if (draft.receivedDate && (allocationsQuery.isLoading || allocationsQuery.isError)) {
+        toast.push({
+          title: 'Allocation data unavailable',
+          description: allocationsQuery.isLoading
+            ? 'Wait for allocation data to finish loading, then try saving again.'
+            : 'Refresh the box allocations and try saving again.',
+          variant: 'error'
+        });
+        return;
+      }
+
+      const payload = parseUpdateBoxDraft(draft, box, allocations);
       if (shouldPromptZeroedInventoryReactivationOnEdit(box, payload)) {
         setPendingZeroedReactivationState({
           payload: buildZeroedInventoryReactivationPayloadForEdit(payload)

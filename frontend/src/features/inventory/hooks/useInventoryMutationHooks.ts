@@ -64,6 +64,7 @@ import { WAREHOUSE_CODES } from '../../../domain';
 import { todayDateString } from '../../../lib/date';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
+  applyOptimisticAllocationAdditionToCaches,
   applyOptimisticAllocationRemovalToCaches,
   beginDelayedOptimisticMutation,
   beginImmediateOptimisticMutation,
@@ -840,68 +841,30 @@ export function useAllocateBox() {
     mutationFn: (payload: ApplyAllocationPlanPayload) => applyAllocationPlan(payload),
     onMutate: async (payload) => {
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocations(payload.boxId) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
       ]);
-
-      const sourceBox = queryClient.getQueryData<Box>(inventoryKeys.box(payload.boxId));
-      const sourceAllocatedFeet =
-        payload.crossWarehouse === true
-          ? 0
-          : sourceBox
-            ? Math.min(sourceBox.feetAvailable, payload.requestedFeet)
-            : payload.requestedFeet;
-      const now = new Date().toISOString();
-      const optimisticAllocation: AllocationEntry | null =
-        sourceAllocatedFeet > 0
-          ? {
-              allocationId: `pending-${Date.now()}-${payload.boxId}`,
-              boxId: payload.boxId,
-              warehouse: sourceBox?.warehouse || payload.jobWarehouse || WAREHOUSE_CODES[0],
-              jobNumber: payload.jobNumber,
-              jobDate: payload.jobDate || '',
-              crewLeader: payload.crewLeader || '',
-              allocatedFeet: sourceAllocatedFeet,
-              allocationKind: 'REQUIREMENT',
-              status: 'ACTIVE',
-              createdAt: now,
-              createdBy: 'Pending...',
-              resolvedAt: '',
-              resolvedBy: '',
-              filmOrderId: '',
-              notes: 'Pending server confirmation'
-            }
-          : null;
 
       return beginDelayedOptimisticMutation(
         queryClient,
         optimisticQueue,
         `Allocating film for ${payload.jobNumber}`,
         [
-          inventoryKeys.box(payload.boxId),
+          inventoryKeys.boxRoot,
           inventoryKeys.listRoot,
-          inventoryKeys.allocations(payload.boxId),
+          inventoryKeys.allocationsRoot,
           inventoryKeys.jobs,
           inventoryKeys.job(payload.jobNumber),
           inventoryKeys.allocationJobs,
           inventoryKeys.allocationJob(payload.jobNumber)
         ],
         () => {
-          if (sourceAllocatedFeet > 0) {
-            updateBoxCaches(queryClient, payload.boxId, (box) => ({
-              ...box,
-              feetAvailable: Math.max(box.feetAvailable - sourceAllocatedFeet, 0)
-            }));
-          }
-
-          if (optimisticAllocation) {
-            queryClient.setQueryData<AllocationEntry[] | undefined>(
-              inventoryKeys.allocations(payload.boxId),
-              (current) => [...(current || []), optimisticAllocation]
-            );
-          }
+          applyOptimisticAllocationAdditionToCaches(queryClient, payload);
         }
       );
     },

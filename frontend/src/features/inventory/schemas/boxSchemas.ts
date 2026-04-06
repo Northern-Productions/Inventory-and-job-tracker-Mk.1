@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type {
   AddBoxPayload,
+  AllocationEntry,
   SearchBoxesParams,
+  Box,
   UpdateBoxPayload
 } from '../../../domain';
 import { toOptionalNumber } from '../../../lib/number';
@@ -10,7 +12,8 @@ import type { WarehouseFilterValue } from '../utils/warehouseOptions';
 import {
   CORE_TYPE_OPTIONS,
   deriveCreateFeetAvailable,
-  normalizeTrailingLetterBoxId
+  normalizeTrailingLetterBoxId,
+  resolveEditedReceivedBoxFeetAvailable
 } from '../utils/boxHelpers';
 
 export interface InventoryFilterValues {
@@ -155,10 +158,28 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
   }) as AddBoxPayload;
 }
 
-export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
+export function parseUpdateBoxDraft(
+  draft: BoxDraft,
+  currentBox?: Box | null,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
+): UpdateBoxPayload {
   const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
   const purchaseCost = parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost');
   const resolvedPricePerLf = resolvePricePerLfForDraft(initialFeet, purchaseCost, draft.pricePerLf);
+  const parsedFeetAvailable = parseRequiredNumber(draft.feetAvailable, 'Feet available');
+  const nextValues = {
+    receivedDate: draft.receivedDate,
+    initialFeet,
+    lastRollWeightLbs: parseOptionalNonNegativeNumber(
+      draft.lastRollWeightLbs,
+      'Last roll weight'
+    ),
+    coreWeightLbs: parseOptionalNonNegativeNumber(draft.coreWeightLbs, 'Core weight'),
+    lfWeightLbsPerFt: parseOptionalNonNegativeNumber(
+      draft.lfWeightLbsPerFt,
+      'LF weight per foot'
+    )
+  };
 
   return updateSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
@@ -166,23 +187,19 @@ export function parseUpdateBoxDraft(draft: BoxDraft): UpdateBoxPayload {
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
     initialFeet,
-    feetAvailable: parseRequiredNumber(draft.feetAvailable, 'Feet available'),
+    feetAvailable: currentBox
+      ? resolveEditedReceivedBoxFeetAvailable(currentBox, nextValues, allocations)
+      : parsedFeetAvailable,
     lotRun: draft.lotRun,
     orderDate: draft.orderDate,
     receivedDate: draft.receivedDate,
     initialWeightLbs: parseOptionalNonNegativeNumber(draft.initialWeightLbs, 'Initial weight'),
-    lastRollWeightLbs: parseOptionalNonNegativeNumber(
-      draft.lastRollWeightLbs,
-      'Last roll weight'
-    ),
+    lastRollWeightLbs: nextValues.lastRollWeightLbs,
     lastWeighedDate: draft.lastWeighedDate.trim(),
     filmKey: '',
     coreType: parseCoreType(draft.coreType),
-    coreWeightLbs: parseOptionalNonNegativeNumber(draft.coreWeightLbs, 'Core weight'),
-    lfWeightLbsPerFt: parseOptionalNonNegativeNumber(
-      draft.lfWeightLbsPerFt,
-      'LF weight per foot'
-    ),
+    coreWeightLbs: nextValues.coreWeightLbs,
+    lfWeightLbsPerFt: nextValues.lfWeightLbsPerFt,
     pricePerLf: resolvedPricePerLf,
     purchaseCost,
     notes: draft.notes

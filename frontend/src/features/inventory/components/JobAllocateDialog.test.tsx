@@ -89,4 +89,53 @@ describe('JobAllocateDialog', () => {
     expect(html).toContain('dialog-actions dialog-actions-sticky-footer');
     queryClient.clear();
   });
+
+  it('only renders unmet requirement lines in the selector', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          staleTime: Infinity
+        }
+      }
+    });
+
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <JobAllocateDialog
+          open
+          jobNumber="18959"
+          warehouse="IL1"
+          dueDate=""
+          crewLeader=""
+          requirements={[
+            {
+              requirementId: 'req-50',
+              manufacturer: '3M Solar',
+              filmName: 'Affinity 15',
+              widthIn: 50,
+              requiredFeet: 2,
+              allocatedFeet: 2,
+              remainingFeet: 0
+            },
+            {
+              requirementId: 'req-72',
+              manufacturer: '3M Solar',
+              filmName: 'Affinity 15',
+              widthIn: 72,
+              requiredFeet: 12,
+              allocatedFeet: 10,
+              remainingFeet: 2
+            }
+          ]}
+          filmOrders={[]}
+          onCancel={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(html).not.toContain('Affinity 15 50&quot; (0 LF remaining)');
+    expect(html).toContain('Affinity 15 72&quot; (2 LF remaining)');
+    queryClient.clear();
+  });
 });

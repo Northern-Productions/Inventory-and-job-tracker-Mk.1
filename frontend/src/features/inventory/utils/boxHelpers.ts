@@ -10,6 +10,10 @@ import type {
 import {
   dedupeBoxesByDisplayBoxId,
   formatBoxIdWithWarehousePrefix,
+  getWarehouseBoxIdPrefixToken,
+  isWarehousePrefixOnlyBoxId,
+  normalizeCreateBoxIdForWarehouse,
+  remapCreateBoxIdForWarehouse,
   normalizeTrailingLetterBoxId
 } from '../../../lib/boxIds';
 import { toDateInputValue, todayDateString } from '../../../lib/date';
@@ -19,7 +23,15 @@ import {
 } from '../../../lib/manufacturerCanonicalization';
 
 export { canonicalizeManufacturerLabel };
-export { dedupeBoxesByDisplayBoxId, formatBoxIdWithWarehousePrefix, normalizeTrailingLetterBoxId };
+export {
+  dedupeBoxesByDisplayBoxId,
+  formatBoxIdWithWarehousePrefix,
+  getWarehouseBoxIdPrefixToken,
+  isWarehousePrefixOnlyBoxId,
+  normalizeCreateBoxIdForWarehouse,
+  remapCreateBoxIdForWarehouse,
+  normalizeTrailingLetterBoxId
+};
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
 export const CORE_TYPE_OPTIONS = [
@@ -230,6 +242,110 @@ export function getActiveAllocatedFeet(
 
     return total + entry.allocatedFeet;
   }, 0);
+}
+
+function clampFeetAvailable(feetAvailable: number, initialFeet: number): number {
+  return Math.min(Math.max(Math.floor(feetAvailable), 0), initialFeet);
+}
+
+export interface ReceivedFeetResolutionContext {
+  receivedDate: string;
+  initialFeet: number;
+  lastRollWeightLbs: number | null;
+  coreWeightLbs: number | null;
+  lfWeightLbsPerFt: number | null;
+}
+
+function hasReceivedFeetMetadata(context: ReceivedFeetResolutionContext): boolean {
+  return (
+    context.lastRollWeightLbs !== null &&
+    context.coreWeightLbs !== null &&
+    context.lfWeightLbsPerFt !== null &&
+    context.lfWeightLbsPerFt > 0
+  );
+}
+
+export function shouldRecalculateReceivedBoxFeet(
+  currentBox: Pick<
+    Box,
+    'status' | 'receivedDate' | 'initialFeet' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  > | null | undefined,
+  nextValues: ReceivedFeetResolutionContext
+): boolean {
+  if (!nextValues.receivedDate) {
+    return false;
+  }
+
+  if (!currentBox || !currentBox.receivedDate) {
+    return true;
+  }
+
+  if (currentBox.status === 'ZEROED') {
+    return true;
+  }
+
+  return (
+    currentBox.initialFeet !== nextValues.initialFeet ||
+    currentBox.lastRollWeightLbs !== nextValues.lastRollWeightLbs ||
+    currentBox.coreWeightLbs !== nextValues.coreWeightLbs ||
+    currentBox.lfWeightLbsPerFt !== nextValues.lfWeightLbsPerFt
+  );
+}
+
+export function deriveReceivedBoxPhysicalFeet(
+  nextValues: ReceivedFeetResolutionContext
+): number | null {
+  if (!hasReceivedFeetMetadata(nextValues)) {
+    return null;
+  }
+
+  return deriveFeetAvailableFromRollWeight(
+    nextValues.lastRollWeightLbs!,
+    nextValues.coreWeightLbs!,
+    nextValues.lfWeightLbsPerFt!,
+    nextValues.initialFeet
+  );
+}
+
+export function resolveEditedReceivedBoxFeetAvailable(
+  currentBox: Pick<
+    Box,
+    'status' | 'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  > | null | undefined,
+  nextValues: ReceivedFeetResolutionContext,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
+): number {
+  if (!currentBox) {
+    return clampFeetAvailable(nextValues.initialFeet, nextValues.initialFeet);
+  }
+
+  if (!nextValues.receivedDate) {
+    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+  }
+
+  if (!currentBox.receivedDate) {
+    return clampFeetAvailable(
+      nextValues.initialFeet - getActiveAllocatedFeet(allocations),
+      nextValues.initialFeet
+    );
+  }
+
+  const physicalFeetAvailable = deriveReceivedBoxPhysicalFeet(nextValues);
+  const shouldRepairStaleFeet =
+    currentBox.feetAvailable <= 0 &&
+    physicalFeetAvailable !== null &&
+    physicalFeetAvailable > 0;
+
+  if (!shouldRecalculateReceivedBoxFeet(currentBox, nextValues) && !shouldRepairStaleFeet) {
+    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+  }
+
+  if (physicalFeetAvailable === null) {
+    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+  }
+
+  const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
+  return clampFeetAvailable(physicalFeetAvailable - activeAllocatedFeet, nextValues.initialFeet);
 }
 
 export function getDisplayedAllocatedFeetForBox(

@@ -1,6 +1,11 @@
-import type { AddBoxPayload, Box, UpdateBoxPayload } from '../../../domain';
-import { deriveFeetAvailableFromRollWeight } from './boxHelpers';
+import type { AddBoxPayload, AllocationEntry, Box, UpdateBoxPayload } from '../../../domain';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
+import {
+  deriveReceivedBoxPhysicalFeet,
+  deriveFeetAvailableFromRollWeight,
+  getActiveAllocatedFeet,
+  resolveEditedReceivedBoxFeetAvailable
+} from './boxHelpers';
 
 function hasEstablishedWeights(box: Box): boolean {
   return box.initialWeightLbs !== null || box.lastRollWeightLbs !== null || box.lfWeightLbsPerFt !== null;
@@ -26,10 +31,24 @@ export function confirmWarnings(warnings: string[]): boolean {
 
 export function getAddOrEditWarnings(
   payload: AddBoxPayload | UpdateBoxPayload,
-  currentBox?: Box | null
+  currentBox?: Box | null,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
 ): string[] {
   const warnings: string[] = [];
   const isReceived = Boolean(payload.receivedDate);
+  const effectiveFeetAvailable = currentBox
+      ? resolveEditedReceivedBoxFeetAvailable(
+        currentBox,
+        {
+          receivedDate: payload.receivedDate,
+          initialFeet: payload.initialFeet,
+          lastRollWeightLbs: payload.lastRollWeightLbs ?? null,
+          coreWeightLbs: payload.coreWeightLbs ?? null,
+          lfWeightLbsPerFt: payload.lfWeightLbsPerFt ?? null
+        },
+        allocations
+      )
+    : payload.feetAvailable;
 
   if (payload.receivedDate && payload.orderDate && payload.receivedDate < payload.orderDate) {
     warnings.push('Received Date is earlier than Order Date.');
@@ -39,15 +58,36 @@ export function getAddOrEditWarnings(
     warnings.push('Last Weighed Date is earlier than Received Date.');
   }
 
-  if (payload.feetAvailable > payload.initialFeet) {
+  if (effectiveFeetAvailable > payload.initialFeet) {
     warnings.push('Available Feet is greater than Initial Feet.');
   }
 
-  if (isReceived && payload.feetAvailable === 0 && (payload.lastRollWeightLbs ?? null) !== null && payload.lastRollWeightLbs! > 0) {
-    warnings.push('Available Feet is 0 while Last Roll Weight is still above 0.');
+  if (
+    isReceived &&
+    (payload.lastRollWeightLbs ?? null) !== null &&
+    payload.lastRollWeightLbs! > 0
+  ) {
+    const derivedPhysicalFeetAvailable = currentBox
+      ? deriveReceivedBoxPhysicalFeet({
+          receivedDate: payload.receivedDate,
+          initialFeet: payload.initialFeet,
+          lastRollWeightLbs: payload.lastRollWeightLbs ?? null,
+          coreWeightLbs: payload.coreWeightLbs ?? null,
+          lfWeightLbsPerFt: payload.lfWeightLbsPerFt ?? null
+        })
+      : null;
+    const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
+    const zeroIsExplainedByAllocations =
+      derivedPhysicalFeetAvailable !== null &&
+      derivedPhysicalFeetAvailable > 0 &&
+      activeAllocatedFeet >= derivedPhysicalFeetAvailable;
+
+    if (effectiveFeetAvailable === 0 && !zeroIsExplainedByAllocations) {
+      warnings.push('Available Feet is 0 while Last Roll Weight is still above 0.');
+    }
   }
 
-  if (isReceived && payload.lastRollWeightLbs === 0 && payload.feetAvailable > 0) {
+  if (isReceived && payload.lastRollWeightLbs === 0 && effectiveFeetAvailable > 0) {
     warnings.push('Last Roll Weight is 0 while Available Feet is still above 0.');
   }
 

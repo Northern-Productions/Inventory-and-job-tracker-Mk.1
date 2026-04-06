@@ -93,7 +93,20 @@ describe('boxZeroedTransition', () => {
     });
   });
 
-  it('prompts zeroed boxes for reactivation when positive available feet or last roll weight is entered', () => {
+  it('prompts zeroed boxes for reactivation when weight returns above 0 even if available feet stays 0', () => {
+    const currentBox = createBox({ status: 'ZEROED', initialFeet: 500, feetAvailable: 0 });
+    const payload = createPayload({ initialFeet: 500, feetAvailable: 0, lastRollWeightLbs: 11.9 });
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBeNull();
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
+    expect(shouldPromptZeroedInventoryReactivationOnEdit(currentBox, payload)).toBe(true);
+    expect(buildZeroedInventoryReactivationPayloadForEdit(payload)).toMatchObject({
+      reactivateFromZeroed: true,
+      auditNote: 'Confirmed zeroed box reactivation edit save'
+    });
+  });
+
+  it('prompts zeroed boxes for reactivation when positive available feet is entered', () => {
     const currentBox = createBox({ status: 'ZEROED', initialFeet: 500, feetAvailable: 0 });
     const payload = createPayload({ initialFeet: 500, feetAvailable: 24, lastRollWeightLbs: 11.9 });
 

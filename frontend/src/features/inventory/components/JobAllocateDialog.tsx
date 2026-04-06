@@ -87,9 +87,13 @@ export function JobAllocateDialog({
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
   const autoSelectionKeyRef = useRef('');
+  const allocatableRequirements = useMemo(
+    () => requirements.filter((entry) => entry.remainingFeet > 0),
+    [requirements]
+  );
   const selectedRequirement = useMemo(
-    () => requirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
-    [requirements, selectedRequirementId]
+    () => allocatableRequirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
+    [allocatableRequirements, selectedRequirementId]
   );
   const warehouseRegistry = useWarehouseRegistry();
   const searchableWarehouses = useMemo(
@@ -176,7 +180,7 @@ export function JobAllocateDialog({
     }
 
     const firstRemaining =
-      requirements.find(
+      allocatableRequirements.find(
         (entry) => entry.remainingFeet > 0 && !completedRequirementIds.includes(entry.requirementId)
       ) || null;
     if (!firstRemaining) {
@@ -186,7 +190,7 @@ export function JobAllocateDialog({
 
     setSelectedRequirementId(firstRemaining.requirementId);
     setRequestedFeet(String(Math.max(firstRemaining.remainingFeet, 0)));
-  }, [completedRequirementIds, open, requirements]);
+  }, [allocatableRequirements, completedRequirementIds, open, onCancel]);
 
   useEffect(() => {
     if (!selectedRequirement) {
@@ -206,7 +210,7 @@ export function JobAllocateDialog({
     setCompletedRequirementIds(nextCompleted);
 
     const nextRequirement =
-      requirements.find(
+      allocatableRequirements.find(
         (entry) => entry.remainingFeet > 0 && !nextCompleted.includes(entry.requirementId)
       ) || null;
 
@@ -279,6 +283,11 @@ export function JobAllocateDialog({
       return;
     }
 
+    if (requestedFeetValue > selectedRequirement.remainingFeet) {
+      setError('Requested LF cannot exceed the selected requirement remaining LF.');
+      return;
+    }
+
     try {
       const { result, warnings } = await allocateMutation.mutateAsync({
         boxId: sourceBox.boxId,
@@ -287,6 +296,7 @@ export function JobAllocateDialog({
         crewLeader: crewLeader || '',
         requestedFeet: requestedFeetValue,
         requestedWidthIn: selectedRequirement.widthIn,
+        requirementId: selectedRequirement.requirementId,
         selectedSuggestionBoxIds: orderedSelectedBoxes.slice(1).map((entry) => entry.boxId),
         extraAllocations: [],
         crossWarehouse: true,
@@ -345,6 +355,11 @@ export function JobAllocateDialog({
       return;
     }
 
+    if (requestedFeetValue > selectedRequirement.remainingFeet) {
+      setError('Requested LF cannot exceed the selected requirement remaining LF.');
+      return;
+    }
+
     try {
       await createFilmOrderMutation.mutateAsync({
         jobNumber,
@@ -384,7 +399,7 @@ export function JobAllocateDialog({
               value={selectedRequirementId}
               onChange={(event) => setSelectedRequirementId(event.target.value)}
             >
-              {requirements.map((entry) => (
+              {allocatableRequirements.map((entry) => (
                 <option key={entry.requirementId} value={entry.requirementId}>
                   {entry.manufacturer} {entry.filmName} {entry.widthIn}" ({entry.remainingFeet} LF remaining)
                 </option>

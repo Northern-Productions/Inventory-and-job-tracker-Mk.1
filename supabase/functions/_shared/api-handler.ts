@@ -1595,8 +1595,54 @@ function shouldIgnoreAllocationCoverageForBoxStatus(allocation: any, box: any) {
   return box.status === "ZEROED" || box.status === "RETIRED";
 }
 
-function buildAllocationCoverageByRequirementKey(allocations: any[], boxById: Record<string, any>) {
-  const totals: Record<string, number> = {};
+function allocationMatchesRequirement(box: any, requirement: any) {
+  if (!box || !requirement) {
+    return false;
+  }
+
+  return (
+    normalizePlanningFilmKey(box.manufacturer, box.filmName) ===
+      normalizePlanningFilmKey(requirement.manufacturer, requirement.filmName) &&
+    (Number(box.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
+  );
+}
+
+function buildAllocationCoverageByRequirementId(requirements: any[], allocations: any[], boxById: Record<string, any>) {
+  const grouped: Record<string, {
+    requirements: Array<{
+      requirementId: string;
+      widthIn: number;
+      requiredFeet: number;
+      index: number;
+    }>;
+    pools: Array<{
+      widthIn: number;
+      remainingFeet: number;
+    }>;
+  }> = {};
+  const coverageByRequirementId: Record<string, number> = {};
+  const requirementById: Record<string, any> = {};
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = requirements[index];
+    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
+    requirementById[requirementId] = requirement;
+    const groupKey = normalizePlanningFilmKey(requirement.manufacturer, requirement.filmName);
+    if (!grouped[groupKey]) {
+      grouped[groupKey] = {
+        requirements: [],
+        pools: [],
+      };
+    }
+
+    grouped[groupKey].requirements.push({
+      requirementId,
+      widthIn: Number(requirement.widthIn) || 0,
+      requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
+      index,
+    });
+  }
+
   for (const allocation of allocations) {
     if (
       allocation.status === "CANCELLED" ||
@@ -1612,25 +1658,79 @@ function buildAllocationCoverageByRequirementKey(allocations: any[], boxById: Re
     if (shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
       continue;
     }
-    const key = normalizeJobRequirementLookupKey(box.manufacturer, box.filmName, box.widthIn);
-    totals[key] = (totals[key] || 0) + allocation.allocatedFeet;
+
+    const boundRequirementId = asTrimmedString(allocation.requirementId);
+    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
+      coverageByRequirementId[boundRequirementId] = Math.min(
+        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
+        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) +
+          Math.max(0, Number(allocation.allocatedFeet || 0)),
+      );
+      continue;
+    }
+
+    const groupKey = normalizePlanningFilmKey(box.manufacturer, box.filmName);
+    if (!grouped[groupKey]) {
+      grouped[groupKey] = {
+        requirements: [],
+        pools: [],
+      };
+    }
+    grouped[groupKey].pools.push({
+      widthIn: Number(box.widthIn) || 0,
+      remainingFeet: Math.max(0, Number(allocation.allocatedFeet || 0)),
+    });
   }
-  return totals;
+
+  for (const group of Object.values(grouped)) {
+    group.requirements.sort((left, right) => {
+      if (left.widthIn !== right.widthIn) {
+        return right.widthIn - left.widthIn;
+      }
+
+      return left.index - right.index;
+    });
+    group.pools.sort((left, right) => left.widthIn - right.widthIn);
+
+    for (const requirement of group.requirements) {
+      let remainingNeed = Math.max(
+        0,
+        requirement.requiredFeet - Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0)),
+      );
+
+      for (const pool of group.pools) {
+        if (remainingNeed <= 0) {
+          break;
+        }
+        if (pool.remainingFeet <= 0 || pool.widthIn < requirement.widthIn) {
+          continue;
+        }
+
+        const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
+        pool.remainingFeet -= assignedFeet;
+        remainingNeed -= assignedFeet;
+      }
+
+      coverageByRequirementId[requirement.requirementId] = Math.min(
+        requirement.requiredFeet,
+        requirement.requiredFeet - Math.max(0, remainingNeed),
+      );
+    }
+  }
+
+  return coverageByRequirementId;
 }
 
 function buildPublicJobRequirementEntries(requirements: any[], allocations: any[], boxById: Record<string, any>) {
-  const coverage = buildAllocationCoverageByRequirementKey(allocations, boxById);
+  const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = requirements.map((requirement) => {
-    const key = normalizeJobRequirementLookupKey(
-      requirement.manufacturer,
-      requirement.filmName,
-      requirement.widthIn,
-    );
-    const allocatedFeet = Math.max(0, Number(coverage[key] || 0));
+    const requirementId = asTrimmedString(requirement.id) || createLogId();
+    const allocatedFeet = Math.max(0, Number(coverage[requirementId] || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
     const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
     return {
-      requirementId: requirement.id || createLogId(),
+      requirementId,
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,

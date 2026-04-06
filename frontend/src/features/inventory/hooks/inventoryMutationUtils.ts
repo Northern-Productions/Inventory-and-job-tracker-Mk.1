@@ -6,6 +6,8 @@ import type {
   AllocationJobDetail,
   AllocationJobDetailEntry,
   AllocationJobSummary,
+  AllocationPreview,
+  ApplyAllocationPlanPayload,
   Box,
   CaulkProductEntry,
   CreateFilmOrderPayload,
@@ -155,6 +157,222 @@ export function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
 
 function makePendingId(prefix: string) {
   return `pending-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function findCachedBoxById(queryClient: QueryClient, boxId: string) {
+  const normalizedBoxId = String(boxId || '').trim().toUpperCase();
+  if (!normalizedBoxId) {
+    return null;
+  }
+
+  const directMatch = queryClient.getQueryData<Box>(inventoryKeys.box(normalizedBoxId));
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const listQueries = queryClient.getQueriesData<Box[]>({ queryKey: inventoryKeys.listRoot });
+  for (let index = 0; index < listQueries.length; index += 1) {
+    const [, current] = listQueries[index];
+    const matched = current?.find((entry) => entry.boxId.trim().toUpperCase() === normalizedBoxId) || null;
+    if (matched) {
+      return matched;
+    }
+  }
+
+  const searchQueries = queryClient.getQueriesData<Box[]>({
+    queryKey: ['inventory', 'search'] as const
+  });
+  for (let index = 0; index < searchQueries.length; index += 1) {
+    const [, current] = searchQueries[index];
+    const matched = current?.find((entry) => entry.boxId.trim().toUpperCase() === normalizedBoxId) || null;
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return null;
+}
+
+function matchesAllocationPreviewPayload(
+  candidate: unknown,
+  payload: ApplyAllocationPlanPayload
+) {
+  if (!candidate || typeof candidate !== 'object') {
+    return false;
+  }
+
+  const previewPayload = candidate as Partial<ApplyAllocationPlanPayload>;
+  return (
+    String(previewPayload.boxId || '').trim().toUpperCase() === payload.boxId.trim().toUpperCase() &&
+    String(previewPayload.jobNumber || '').trim().toUpperCase() === payload.jobNumber.trim().toUpperCase() &&
+    Number(previewPayload.requestedFeet || 0) === Number(payload.requestedFeet || 0) &&
+    String(previewPayload.requirementId || '').trim() === String(payload.requirementId || '').trim() &&
+    Number(previewPayload.requestedWidthIn || 0) === Number(payload.requestedWidthIn || 0)
+  );
+}
+
+function findMatchingAllocationPreview(
+  queryClient: QueryClient,
+  payload: ApplyAllocationPlanPayload
+) {
+  const previewQueries = queryClient.getQueriesData<AllocationPreview>({
+    queryKey: ['inventory', 'allocation-preview'] as const
+  });
+
+  for (let index = 0; index < previewQueries.length; index += 1) {
+    const [queryKey, preview] = previewQueries[index];
+    if (!preview) {
+      continue;
+    }
+
+    const previewPayload =
+      Array.isArray(queryKey) && queryKey.length >= 3 ? queryKey[2] : null;
+    if (matchesAllocationPreviewPayload(previewPayload, payload)) {
+      return preview;
+    }
+  }
+
+  return null;
+}
+
+interface OptimisticAllocationBuildResult {
+  allocations: AllocationEntry[];
+  jobAllocations: AllocationJobDetailEntry[];
+  allocatedFeetByBoxId: Record<string, number>;
+}
+
+function buildOptimisticAllocationRows(
+  queryClient: QueryClient,
+  payload: ApplyAllocationPlanPayload,
+  detail: JobDetail | undefined
+): OptimisticAllocationBuildResult {
+  const selectedRequirement =
+    detail?.requirements.find((entry) => entry.requirementId === payload.requirementId) || null;
+  const preview = findMatchingAllocationPreview(queryClient, payload);
+  const selectedSuggestionIds = new Set(payload.selectedSuggestionBoxIds || []);
+  const allocations: AllocationEntry[] = [];
+  const jobAllocations: AllocationJobDetailEntry[] = [];
+  const allocatedFeetByBoxId: Record<string, number> = {};
+  const now = new Date().toISOString();
+  let remainingFeet = Math.max(0, Math.floor(Number(payload.requestedFeet || 0)));
+
+  function addOptimisticAllocation(
+    boxId: string,
+    allocatedFeet: number,
+    options: {
+      warehouse?: string;
+      widthIn?: number;
+      box?: Box | null;
+    } = {}
+  ) {
+    if (allocatedFeet <= 0 || remainingFeet <= 0) {
+      return;
+    }
+
+    const nextAllocatedFeet = Math.min(allocatedFeet, remainingFeet);
+    if (nextAllocatedFeet <= 0) {
+      return;
+    }
+
+    const box = options.box || findCachedBoxById(queryClient, boxId);
+    const warehouse =
+      options.warehouse ||
+      box?.warehouse ||
+      payload.jobWarehouse ||
+      detail?.summary.warehouse ||
+      WAREHOUSE_CODES[0];
+    const widthIn =
+      options.widthIn ||
+      box?.widthIn ||
+      Number(payload.requestedWidthIn) ||
+      selectedRequirement?.widthIn ||
+      0;
+    const manufacturer = box?.manufacturer || selectedRequirement?.manufacturer || '';
+    const filmName = box?.filmName || selectedRequirement?.filmName || '';
+    const allocationId = makePendingId(`allocation-${boxId}`);
+
+    allocations.push({
+      allocationId,
+      boxId,
+      warehouse,
+      jobNumber: payload.jobNumber,
+      jobDate: payload.jobDate || '',
+      crewLeader: payload.crewLeader || '',
+      allocatedFeet: nextAllocatedFeet,
+      requirementId: payload.requirementId,
+      allocationKind: 'REQUIREMENT',
+      status: 'ACTIVE',
+      createdAt: now,
+      createdBy: 'Pending...',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: '',
+      notes: 'Pending server confirmation'
+    });
+
+    jobAllocations.push({
+      allocationId,
+      boxId,
+      warehouse,
+      jobNumber: payload.jobNumber,
+      jobDate: payload.jobDate || '',
+      crewLeader: payload.crewLeader || '',
+      allocatedFeet: nextAllocatedFeet,
+      requirementId: payload.requirementId,
+      allocationKind: 'REQUIREMENT',
+      status: 'ACTIVE',
+      createdAt: now,
+      createdBy: 'Pending...',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: '',
+      notes: 'Pending server confirmation',
+      manufacturer,
+      filmName,
+      widthIn,
+      boxStatus: 'IN_STOCK',
+      checkedOutOnThisJob: false
+    });
+
+    allocatedFeetByBoxId[boxId] = (allocatedFeetByBoxId[boxId] || 0) + nextAllocatedFeet;
+    remainingFeet -= nextAllocatedFeet;
+  }
+
+  if (preview) {
+    if (preview.sourceSuggestedFeet > 0) {
+      addOptimisticAllocation(preview.sourceBoxId, preview.sourceSuggestedFeet, {
+        warehouse: preview.sourceWarehouse,
+        widthIn: findCachedBoxById(queryClient, preview.sourceBoxId)?.widthIn || Number(payload.requestedWidthIn) || 0
+      });
+    }
+
+    for (let index = 0; index < preview.suggestions.length && remainingFeet > 0; index += 1) {
+      const suggestion = preview.suggestions[index];
+      if (!selectedSuggestionIds.has(suggestion.boxId)) {
+        continue;
+      }
+
+      addOptimisticAllocation(suggestion.boxId, suggestion.availableFeet, {
+        warehouse: suggestion.warehouse,
+        widthIn: suggestion.widthIn
+      });
+    }
+  } else {
+    const orderedBoxIds = [payload.boxId, ...(payload.selectedSuggestionBoxIds || [])];
+    for (let index = 0; index < orderedBoxIds.length && remainingFeet > 0; index += 1) {
+      const boxId = orderedBoxIds[index];
+      const box = findCachedBoxById(queryClient, boxId);
+      addOptimisticAllocation(boxId, Math.max(0, Number(box?.feetAvailable || remainingFeet)), {
+        box
+      });
+    }
+  }
+
+  return {
+    allocations,
+    jobAllocations,
+    allocatedFeetByBoxId
+  };
 }
 
 export function computeOptimisticJobStatus(
@@ -334,6 +552,17 @@ function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetai
   return allocation.boxStatus === 'ZEROED' || allocation.boxStatus === 'RETIRED';
 }
 
+function allocationMatchesRequirement(
+  allocation: Pick<AllocationJobDetailEntry, 'manufacturer' | 'filmName' | 'widthIn'>,
+  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
+) {
+  return (
+    normalizeRequirementFilmKey(allocation.manufacturer, allocation.filmName) ===
+      normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName) &&
+    (Number(allocation.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
+  );
+}
+
 function rebuildRequirementCoverage(
   requirements: JobRequirementLine[],
   allocations: AllocationJobDetailEntry[]
@@ -354,10 +583,12 @@ function rebuildRequirementCoverage(
     }
   > = {};
   const coverageByRequirementId: Record<string, number> = {};
+  const requirementById: Record<string, JobRequirementLine> = {};
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
     const groupKey = normalizeRequirementFilmKey(requirement.manufacturer, requirement.filmName);
+    requirementById[requirement.requirementId] = requirement;
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -381,6 +612,18 @@ function rebuildRequirementCoverage(
       allocation.allocationKind === 'EXTRA' ||
       shouldIgnoreOptimisticAllocationCoverage(allocation)
     ) {
+      continue;
+    }
+
+    const boundRequirementId = String(allocation.requirementId || '').trim();
+    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    if (boundRequirement && allocationMatchesRequirement(allocation, boundRequirement)) {
+      const nextCoveredFeet = Math.min(
+        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
+        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) +
+          Math.max(0, Number(allocation.allocatedFeet || 0))
+      );
+      coverageByRequirementId[boundRequirementId] = nextCoveredFeet;
       continue;
     }
 
@@ -412,7 +655,11 @@ function rebuildRequirementCoverage(
 
     for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
       const requirement = group.requirements[requirementIndex];
-      let remainingNeed = requirement.requiredFeet;
+      const coveredBeforePools = Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0));
+      let remainingNeed = Math.max(
+        0,
+        requirement.requiredFeet - coveredBeforePools
+      );
 
       for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
         const pool = group.pools[poolIndex];
@@ -425,9 +672,9 @@ function rebuildRequirementCoverage(
         remainingNeed -= assignedFeet;
       }
 
-      coverageByRequirementId[requirement.requirementId] = Math.max(
-        0,
-        requirement.requiredFeet - remainingNeed
+      coverageByRequirementId[requirement.requirementId] = Math.min(
+        requirement.requiredFeet,
+        requirement.requiredFeet - Math.max(0, remainingNeed)
       );
     }
   }
@@ -519,6 +766,35 @@ export function createOptimisticJobDetailAfterAllocationRemoval(
       allocations: nextAllocations
     },
     removedAllocation
+  };
+}
+
+export function createOptimisticJobDetailAfterAllocationAddition(
+  detail: JobDetail,
+  addedAllocations: AllocationJobDetailEntry[]
+) {
+  if (!addedAllocations.length) {
+    return detail;
+  }
+
+  const nextAllocations = [...detail.allocations, ...addedAllocations];
+  const nextRequirements = rebuildRequirementCoverage(detail.requirements, nextAllocations);
+  const requiredFeet = nextRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
+  const allocatedFeet = nextRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
+  const remainingFeet = nextRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
+
+  return {
+    ...detail,
+    summary: {
+      ...detail.summary,
+      status: computeOptimisticExistingJobStatus(detail, nextRequirements),
+      requiredFeet,
+      allocatedFeet,
+      remainingFeet,
+      allocationCount: nextAllocations.length
+    },
+    requirements: nextRequirements,
+    allocations: nextAllocations
   };
 }
 
@@ -617,6 +893,77 @@ export function applyOptimisticAllocationRemovalToCaches(
   return {
     removedBoxId: removedAllocation?.boxId || ''
   };
+}
+
+export function applyOptimisticAllocationAdditionToCaches(
+  queryClient: QueryClient,
+  payload: ApplyAllocationPlanPayload
+) {
+  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
+  const optimisticRows = buildOptimisticAllocationRows(queryClient, payload, currentJob);
+
+  if (!optimisticRows.allocations.length) {
+    return optimisticRows;
+  }
+
+  if (currentJob) {
+    const nextJobDetail = createOptimisticJobDetailAfterAllocationAddition(
+      currentJob,
+      optimisticRows.jobAllocations
+    );
+    syncJobDetailCaches(queryClient, nextJobDetail, { syncAllocationJobDetail: true });
+  }
+
+  queryClient.setQueryData<AllocationJobDetail | undefined>(
+    inventoryKeys.allocationJob(payload.jobNumber),
+    (current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextAllocations = [...current.allocations, ...optimisticRows.jobAllocations];
+      return {
+        ...current,
+        summary: {
+          ...current.summary,
+          activeAllocatedFeet: nextAllocations.reduce(
+            (sum, entry) => (entry.status === 'ACTIVE' ? sum + entry.allocatedFeet : sum),
+            0
+          ),
+          fulfilledAllocatedFeet: nextAllocations.reduce(
+            (sum, entry) => (entry.status === 'FULFILLED' ? sum + entry.allocatedFeet : sum),
+            0
+          ),
+          boxCount: new Set(nextAllocations.map((entry) => entry.boxId).filter(Boolean)).size
+        },
+        allocations: nextAllocations
+      };
+    }
+  );
+
+  for (let index = 0; index < optimisticRows.allocations.length; index += 1) {
+    const entry = optimisticRows.allocations[index];
+    queryClient.setQueryData<AllocationEntry[] | undefined>(
+      inventoryKeys.allocations(entry.boxId),
+      (current) => [...(current || []), entry]
+    );
+  }
+
+  const touchedBoxIds = Object.keys(optimisticRows.allocatedFeetByBoxId);
+  for (let index = 0; index < touchedBoxIds.length; index += 1) {
+    const boxId = touchedBoxIds[index];
+    const allocatedFeet = optimisticRows.allocatedFeetByBoxId[boxId] || 0;
+    if (allocatedFeet <= 0) {
+      continue;
+    }
+
+    updateBoxCaches(queryClient, boxId, (box) => ({
+      ...box,
+      feetAvailable: Math.max(0, box.feetAvailable - allocatedFeet)
+    }));
+  }
+
+  return optimisticRows;
 }
 
 export function createOptimisticFilmOrderFromPayload(
@@ -806,7 +1153,7 @@ export function removeAllocationJobSummaryCaches(queryClient: QueryClient, jobNu
   );
 }
 
-export function syncJobDetailCaches(
+export function syncJobSummaryCachesFromDetail(
   queryClient: QueryClient,
   detail: JobDetail,
   options: { syncAllocationJobDetail?: boolean } = {}
@@ -820,7 +1167,6 @@ export function syncJobDetailCaches(
     currentAllocationJob?.summary
   );
 
-  queryClient.setQueryData<JobDetail>(inventoryKeys.job(jobNumber), detail);
   upsertJobListCaches(queryClient, detail.summary);
   upsertJobsCalendarCaches(queryClient, detail.summary);
   upsertAllocationJobSummaryCaches(queryClient, nextAllocationSummary);
@@ -841,6 +1187,15 @@ export function syncJobDetailCaches(
           }
         : current
   );
+}
+
+export function syncJobDetailCaches(
+  queryClient: QueryClient,
+  detail: JobDetail,
+  options: { syncAllocationJobDetail?: boolean } = {}
+) {
+  queryClient.setQueryData<JobDetail>(inventoryKeys.job(detail.summary.jobNumber), detail);
+  syncJobSummaryCachesFromDetail(queryClient, detail, options);
 }
 
 export function upsertFilmOrdersCache(queryClient: QueryClient, entry: FilmOrderEntry) {

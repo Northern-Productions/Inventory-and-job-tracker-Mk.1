@@ -65,3 +65,23 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
   filtered.sort((left, right) => compareBoxesByClosestCompatibleWidth(left, right, requiredWidth));
   return filtered;
 }
+
+export function findCompatibleRequirementsForBox(
+  requirements: JobRequirementLine[],
+  box: Pick<Box, 'manufacturer' | 'filmName' | 'widthIn'>
+): JobRequirementLine[] {
+  const boxPlanningFilmKey = buildJobPlanningFilmKey(box.manufacturer, box.filmName);
+  const boxWidth = Number(box.widthIn) || 0;
+
+  return requirements.filter((requirement) => {
+    if ((Number(requirement.remainingFeet) || 0) <= 0) {
+      return false;
+    }
+
+    if ((Number(requirement.widthIn) || 0) > boxWidth) {
+      return false;
+    }
+
+    return buildJobPlanningFilmKey(requirement.manufacturer, requirement.filmName) === boxPlanningFilmKey;
+  });
+}

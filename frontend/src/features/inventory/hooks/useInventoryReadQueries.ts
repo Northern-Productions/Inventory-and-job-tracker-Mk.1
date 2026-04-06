@@ -1,5 +1,6 @@
 // Purpose: Read-only React Query hooks for inventory, jobs, film orders, and reports.
-import { useMutationState, useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getAllocationsByBox,
   getAllocationJob,
@@ -26,9 +27,11 @@ import type {
   AddBoxPayload,
   AllocateBoxPayload,
   AuditListParams,
+  JobDetail,
   ReportsSummaryFilters,
   SearchBoxesParams
 } from '../../../domain';
+import { syncJobSummaryCachesFromDetail } from './inventoryMutationUtils';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 const DEFAULT_READ_STALE_TIME_MS = 2 * 60 * 1000;
@@ -187,7 +190,9 @@ export function useJobsCalendarEntries(
 }
 
 export function useJob(jobNumber: string) {
-  return useCachedInventoryReadQuery({
+  const queryClient = useQueryClient();
+  const lastSyncedKeyRef = useRef('');
+  const query = useCachedInventoryReadQuery<JobDetail>({
     queryKey: inventoryKeys.job(jobNumber),
     queryFn: () => getJob(jobNumber),
     enabled: Boolean(jobNumber),
@@ -195,6 +200,22 @@ export function useJob(jobNumber: string) {
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false
   });
+
+  useEffect(() => {
+    if (!jobNumber || !query.data || query.dataUpdatedAt <= 0) {
+      return;
+    }
+
+    const syncKey = `${jobNumber}:${query.dataUpdatedAt}`;
+    if (lastSyncedKeyRef.current === syncKey) {
+      return;
+    }
+
+    lastSyncedKeyRef.current = syncKey;
+    syncJobSummaryCachesFromDetail(queryClient, query.data, { syncAllocationJobDetail: true });
+  }, [jobNumber, query.data, query.dataUpdatedAt, queryClient]);
+
+  return query;
 }
 
 export function useAllocationJobs() {

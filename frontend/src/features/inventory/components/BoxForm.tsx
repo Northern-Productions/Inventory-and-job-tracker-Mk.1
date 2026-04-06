@@ -6,9 +6,13 @@ import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   CORE_TYPE_OPTIONS,
   STANDARD_WIDTH_OPTIONS,
+  getWarehouseBoxIdPrefixToken,
+  isWarehousePrefixOnlyBoxId,
   getManufacturerOptionsWithCatalog,
   getWidthMode,
   hasManufacturerOption,
+  normalizeCreateBoxIdForWarehouse,
+  remapCreateBoxIdForWarehouse,
   type BoxDraft
 } from '../utils/boxHelpers';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
@@ -68,6 +72,7 @@ export function BoxForm({
   const deleteDialogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warehouseRegistry = useWarehouseRegistry();
   const createWarehousePrefix = getWarehousePrefix(warehouseRegistry.entries, createWarehouse || '');
+  const createWarehousePrefixToken = getWarehouseBoxIdPrefixToken(createWarehousePrefix);
 
   function clearDeleteDialogTimer() {
     if (deleteDialogTimeoutRef.current !== null) {
@@ -123,33 +128,66 @@ export function BoxForm({
   }, [initialDraft, resetKey]);
 
   useEffect(() => {
-    if (mode !== 'create' || !createWarehouse || !nextBoxIdForCreateWarehouse) {
-      return;
-    }
-
-    const suggestedBoxId = nextBoxIdForCreateWarehouse;
-    if (!suggestedBoxId) {
+    if (mode !== 'create' || !createWarehouse) {
       return;
     }
 
     setDraft((current) => {
       const warehouseChanged = lastCreateWarehouseRef.current !== createWarehouse;
+      const previousWarehousePrefix = getWarehousePrefix(
+        warehouseRegistry.entries,
+        lastCreateWarehouseRef.current || ''
+      );
       const shouldReplace =
-        warehouseChanged || current.boxId.trim() === '' || current.boxId === lastSuggestedBoxIdRef.current;
+        current.boxId.trim() === '' ||
+        current.boxId === lastSuggestedBoxIdRef.current ||
+        isWarehousePrefixOnlyBoxId(current.boxId, previousWarehousePrefix || createWarehousePrefix);
 
       lastCreateWarehouseRef.current = createWarehouse;
 
-      if (!shouldReplace) {
+      if (shouldReplace) {
+        if (nextBoxIdForCreateWarehouse) {
+          lastSuggestedBoxIdRef.current = nextBoxIdForCreateWarehouse;
+          return current.boxId === nextBoxIdForCreateWarehouse
+            ? current
+            : {
+                ...current,
+                boxId: nextBoxIdForCreateWarehouse
+              };
+        }
+
+        if (createWarehousePrefixToken && current.boxId !== createWarehousePrefixToken) {
+          return {
+            ...current,
+            boxId: createWarehousePrefixToken
+          };
+        }
+
         return current;
       }
 
-      lastSuggestedBoxIdRef.current = suggestedBoxId;
+      if (!warehouseChanged || !createWarehousePrefix) {
+        return current;
+      }
+
+      const remappedBoxId = remapCreateBoxIdForWarehouse(current.boxId, createWarehousePrefix);
+      if (remappedBoxId === current.boxId) {
+        return current;
+      }
+
       return {
         ...current,
-        boxId: suggestedBoxId
+        boxId: remappedBoxId
       };
     });
-  }, [createWarehouse, mode, nextBoxIdForCreateWarehouse]);
+  }, [
+    createWarehouse,
+    createWarehousePrefix,
+    createWarehousePrefixToken,
+    mode,
+    nextBoxIdForCreateWarehouse,
+    warehouseRegistry.entries
+  ]);
 
   useEffect(
     () => () => {
@@ -277,10 +315,7 @@ export function BoxForm({
 
   const handleBoxIdChange = (value: string) => {
     if (mode === 'create' && createWarehousePrefix) {
-      const normalized = value.toUpperCase();
-      const escapedPrefix = createWarehousePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const withoutPrefix = normalized.replace(new RegExp(`^(?:${escapedPrefix})+`), '');
-      updateField('boxId', `${createWarehousePrefix}${withoutPrefix}`);
+      updateField('boxId', normalizeCreateBoxIdForWarehouse(value, createWarehousePrefix));
       return;
     }
 

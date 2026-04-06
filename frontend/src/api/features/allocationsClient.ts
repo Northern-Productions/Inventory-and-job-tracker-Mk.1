@@ -77,6 +77,7 @@ export async function previewAllocationPlan(payload: AllocateBoxPayload): Promis
     crewLeader: payload.crewLeader,
     requestedFeet: payload.requestedFeet,
     requestedWidthIn: payload.requestedWidthIn,
+    requirementId: payload.requirementId,
     crossWarehouse: payload.crossWarehouse
   };
 

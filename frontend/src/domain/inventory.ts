@@ -165,6 +165,7 @@ export interface AllocateBoxPayload {
   crewLeader?: string;
   requestedFeet: number;
   requestedWidthIn?: number;
+  requirementId?: string;
   crossWarehouse?: boolean;
 }
 
@@ -251,6 +252,7 @@ export interface AllocationEntry {
   jobDate: string;
   crewLeader: string;
   allocatedFeet: number;
+  requirementId?: string;
   allocationKind: AllocationKind;
   status: AllocationStatus;
   createdAt: string;

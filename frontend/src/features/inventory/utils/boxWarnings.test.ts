@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AddBoxPayload, Box } from '../../../domain';
+import type { AddBoxPayload, AllocationEntry, Box } from '../../../domain';
 import {
   confirmWarnings,
   getAddOrEditWarnings,
@@ -40,6 +40,27 @@ function createBox(overrides: Partial<Box> = {}): Box {
   };
 }
 
+function createAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEntry {
+  return {
+    allocationId: 'A-1',
+    boxId: '2',
+    warehouse: 'IL1',
+    jobNumber: 'JOB-1',
+    jobDate: '2026-03-04',
+    crewLeader: 'Crew Lead',
+    allocatedFeet: 20,
+    allocationKind: 'REQUIREMENT',
+    status: 'ACTIVE',
+    createdAt: '2026-03-04T12:00:00.000Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    filmOrderId: '',
+    notes: '',
+    ...overrides
+  };
+}
+
 describe('boxWarnings', () => {
   it('builds edit warnings for suspicious date and zero mismatches', () => {
     const payload: AddBoxPayload = {
@@ -59,11 +80,34 @@ describe('boxWarnings', () => {
       notes: ''
     };
 
-    const warnings = getAddOrEditWarnings(payload, createBox());
+    const warnings = getAddOrEditWarnings(payload);
 
     expect(warnings).toContain('Received Date is earlier than Order Date.');
     expect(warnings).toContain('Last Weighed Date is earlier than Received Date.');
     expect(warnings).toContain('Available Feet is 0 while Last Roll Weight is still above 0.');
+  });
+
+  it('warns when film identity or dimensions change after weights are established', () => {
+    const warnings = getAddOrEditWarnings(
+      {
+        boxId: '2',
+        manufacturer: '3M Fasara',
+        filmName: 'Prestige 40',
+        widthIn: 48,
+        initialFeet: 100,
+        feetAvailable: 50,
+        lotRun: '',
+        orderDate: '2026-03-03',
+        receivedDate: '2026-03-02',
+        initialWeightLbs: 20,
+        lastRollWeightLbs: 15,
+        lastWeighedDate: '2026-03-03',
+        purchaseCost: 0,
+        notes: ''
+      },
+      createBox()
+    );
+
     expect(warnings).toContain(
       'Film identity, width, or initial feet changed after weights were already established.'
     );
@@ -79,6 +123,39 @@ describe('boxWarnings', () => {
 
     const warnings = getCheckInWarnings(createBox({ feetAvailable: 12 }), 0);
     expect(warnings).toContain('This check-in will auto-move the box into zeroed out inventory.');
+  });
+
+  it('suppresses the zero-feet warning when active allocations fully explain the missing footage', () => {
+    const warnings = getAddOrEditWarnings(
+      {
+        boxId: '2',
+        manufacturer: '3M',
+        filmName: 'Prestige 40',
+        widthIn: 36,
+        initialFeet: 20,
+        feetAvailable: 0,
+        lotRun: '',
+        orderDate: '2026-03-01',
+        receivedDate: '2026-03-02',
+        initialWeightLbs: 20,
+        lastRollWeightLbs: 15,
+        lastWeighedDate: '2026-03-03',
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.14,
+        purchaseCost: 120,
+        notes: ''
+      },
+      createBox({
+        initialFeet: 20,
+        feetAvailable: 0,
+        lastRollWeightLbs: 15,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.14
+      }),
+      [createAllocation()]
+    );
+
+    expect(warnings).not.toContain('Available Feet is 0 while Last Roll Weight is still above 0.');
   });
 
   it('uses browser confirmation only when warnings exist', () => {

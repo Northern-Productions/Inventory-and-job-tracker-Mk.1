@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Box, JobRequirementLine } from '../../../domain';
-import { findMatchingBoxesForRequirement } from './jobAllocationMatching';
+import { findCompatibleRequirementsForBox, findMatchingBoxesForRequirement } from './jobAllocationMatching';
 
 function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' | 'filmName' | 'widthIn'>): Box {
   return {
@@ -242,5 +242,91 @@ describe('findMatchingBoxesForRequirement', () => {
       { boxId: 'IL1-72-A', allocatedFeet: 35 }
     ]);
     expect(remaining).toBe(0);
+  });
+});
+
+describe('findCompatibleRequirementsForBox', () => {
+  it('returns unmet requirement lines for the same film when the box width meets or exceeds the requirement', () => {
+    const compatible = findCompatibleRequirementsForBox(
+      [
+        buildRequirement({
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 0,
+          remainingFeet: 2
+        }),
+        buildRequirement({
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 0,
+          remainingFeet: 12
+        }),
+        buildRequirement({
+          requirementId: 'req-other-film',
+          manufacturer: '3M Solar',
+          filmName: 'Night Vision 15',
+          widthIn: 50,
+          requiredFeet: 4,
+          allocatedFeet: 0,
+          remainingFeet: 4
+        }),
+        buildRequirement({
+          requirementId: 'req-complete',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 36,
+          requiredFeet: 8,
+          allocatedFeet: 8,
+          remainingFeet: 0
+        })
+      ],
+      buildBox({
+        boxId: 'IL1-6502',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 72
+      })
+    );
+
+    expect(compatible.map((entry) => entry.requirementId)).toEqual(['req-50', 'req-72']);
+  });
+
+  it('keeps only requirement lines that the box can physically cover', () => {
+    const compatible = findCompatibleRequirementsForBox(
+      [
+        buildRequirement({
+          requirementId: 'req-36',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 36,
+          requiredFeet: 10,
+          allocatedFeet: 0,
+          remainingFeet: 10
+        }),
+        buildRequirement({
+          requirementId: 'req-72',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 72,
+          requiredFeet: 10,
+          allocatedFeet: 0,
+          remainingFeet: 10
+        })
+      ],
+      buildBox({
+        boxId: 'IL1-6076',
+        manufacturer: '3M Fasara',
+        filmName: 'Milano Milky White SH2MAML',
+        widthIn: 60
+      })
+    );
+
+    expect(compatible.map((entry) => entry.requirementId)).toEqual(['req-36']);
   });
 });

@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
+  applyOptimisticAllocationAdditionToCaches,
   applyOptimisticAllocationRemovalToCaches,
   beginDelayedOptimisticMutation,
   computeOptimisticJobStatus,
   createOptimisticFilmOrderFromPayload,
+  createOptimisticJobDetailAfterAllocationAddition,
   createOptimisticJobDetailAfterAllocationRemoval,
   createOptimisticJobDetailFromCreatePayload,
   removeJobPlanningCaches,
   restoreSnapshots,
   syncJobDetailCaches,
+  syncJobSummaryCachesFromDetail,
+  updateBoxCaches,
   upsertJobsCalendarCaches,
   upsertFilmOrdersCache
 } from './inventoryMutationUtils';
@@ -489,6 +493,280 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
+  it('hydrates stale job summary collection caches from a fresh job detail read', () => {
+    const queryClient = createQueryClient();
+    const staleSummary = {
+      jobNumber: '18959',
+      warehouse: 'IL1',
+      sections: '1',
+      dueDate: '',
+      crewLeader: '',
+      status: 'ALLOCATE' as const,
+      lifecycleStatus: 'ACTIVE' as const,
+      isLaborOnly: false,
+      isStagedForPickup: false,
+      requiredFeet: 34,
+      allocatedFeet: 12,
+      remainingFeet: 22,
+      requiredTubes: 0,
+      allocatedTubes: 0,
+      remainingTubes: 0,
+      requirementCount: 3,
+      allocationCount: 2,
+      filmOrderCount: 0,
+      createdAt: '2026-04-03T17:19:35.984Z',
+      updatedAt: '2026-04-03T17:20:34.647Z',
+      notes: ''
+    };
+    const freshDetail = {
+      summary: {
+        ...staleSummary,
+        crewLeader: 'Crew',
+        status: 'READY' as const,
+        allocatedFeet: 34,
+        remainingFeet: 0,
+        allocationCount: 3,
+        updatedAt: '2026-04-06T07:03:32.372Z'
+      },
+      requirements: [
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 12,
+          remainingFeet: 0
+        },
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 2,
+          remainingFeet: 0
+        },
+        {
+          requirementId: 'req-fasara',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 50,
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'IL1-6076',
+          warehouse: 'IL1',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 60,
+          allocatedFeet: 20,
+          jobNumber: '18959',
+          jobDate: '',
+          crewLeader: 'Crew',
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:19:35.984Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          filmOrderId: '',
+          requirementId: 'req-fasara',
+          allocationKind: 'REQUIREMENT' as const,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-2',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          allocatedFeet: 2,
+          jobNumber: '18959',
+          jobDate: '',
+          crewLeader: 'Crew',
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-06T07:03:24.227Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          filmOrderId: '',
+          requirementId: 'req-50',
+          allocationKind: 'REQUIREMENT' as const,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-3',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          allocatedFeet: 12,
+          jobNumber: '18959',
+          jobDate: '',
+          crewLeader: 'Crew',
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-06T07:03:32.372Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          filmOrderId: '',
+          requirementId: 'req-72',
+          allocationKind: 'REQUIREMENT' as const,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      staleSummary
+    ]);
+    queryClient.setQueryData(
+      inventoryKeys.jobsCalendarPeriod({
+        view: 'week',
+        anchorDate: '2026-04-05',
+        lifecycleStatus: 'ACTIVE'
+      }),
+      [staleSummary]
+    );
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '18959',
+        jobDate: '',
+        crewLeader: '',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 12,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 1
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJob('18959'), {
+      summary: {
+        jobNumber: '18959',
+        jobDate: '',
+        crewLeader: '',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 12,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 1
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+
+    syncJobSummaryCachesFromDetail(queryClient, freshDetail, { syncAllocationJobDetail: true });
+
+    expect(queryClient.getQueryData(inventoryKeys.job('18959'))).toBeUndefined();
+    expect(
+      queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))
+    ).toEqual([freshDetail.summary]);
+    expect(
+      queryClient.getQueryData(
+        inventoryKeys.jobsCalendarPeriod({
+          view: 'week',
+          anchorDate: '2026-04-05',
+          lifecycleStatus: 'ACTIVE'
+        })
+      )
+    ).toEqual([freshDetail.summary]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      {
+        jobNumber: '18959',
+        jobDate: '',
+        crewLeader: 'Crew',
+        status: 'READY',
+        activeAllocatedFeet: 34,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 2
+      }
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('18959'))).toMatchObject({
+      summary: {
+        jobNumber: '18959',
+        crewLeader: 'Crew',
+        status: 'READY',
+        activeAllocatedFeet: 34,
+        boxCount: 2
+      },
+      caulkRequirements: [],
+      filmOrders: []
+    });
+  });
+
+  it('safely skips read-side job summary hydration when collection caches are absent', () => {
+    const queryClient = createQueryClient();
+    const detail = createOptimisticJobDetailFromCreatePayload({
+      jobNumber: '19000',
+      warehouse: 'IL1',
+      sections: '1',
+      dueDate: '2026-04-06',
+      crewLeader: 'Crew',
+      requirements: [
+        {
+          manufacturer: '3M',
+          filmName: 'Dusted Crystal',
+          widthIn: 48,
+          requiredFeet: 8
+        }
+      ]
+    });
+
+    expect(() =>
+      syncJobSummaryCachesFromDetail(queryClient, {
+        ...detail,
+        summary: {
+          ...detail.summary,
+          status: 'READY',
+          allocatedFeet: 8,
+          remainingFeet: 0
+        },
+        requirements: detail.requirements.map((entry) => ({
+          ...entry,
+          allocatedFeet: 8,
+          remainingFeet: 0
+        }))
+      })
+    ).not.toThrow();
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toBeUndefined();
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toBeUndefined();
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('19000'))).toBeUndefined();
+  });
+
   it('recomputes requirement coverage after removing an allocation', () => {
     const detail = {
       summary: {
@@ -722,6 +1000,416 @@ describe('inventoryMutationUtils', () => {
     expect(nextDetail.summary.remainingFeet).toBe(11);
   });
 
+  it('keeps bound mixed-width allocations credited to their intended requirement lines', () => {
+    const detail = {
+      summary: {
+        jobNumber: '18959',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-03',
+        crewLeader: 'Crew',
+        status: 'READY' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 14,
+        allocatedFeet: 12,
+        remainingFeet: 2,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 2,
+        allocationCount: 2,
+        filmOrderCount: 0,
+        createdAt: '2026-04-03T00:00:00Z',
+        updatedAt: '2026-04-03T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 2,
+          remainingFeet: 0
+        },
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 10,
+          remainingFeet: 2
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-50',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          jobNumber: '18959',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 2,
+          requirementId: 'req-50',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:20:03.817Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-72',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          jobNumber: '18959',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 10,
+          requirementId: 'req-72',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:20:34.647Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    const { detail: nextDetail } = createOptimisticJobDetailAfterAllocationRemoval(detail, 'alloc-50');
+
+    expect(nextDetail.summary.allocatedFeet).toBe(10);
+    expect(nextDetail.summary.remainingFeet).toBe(4);
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-50',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 50,
+        requiredFeet: 2,
+        allocatedFeet: 0,
+        remainingFeet: 2
+      },
+      {
+        requirementId: 'req-72',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 72,
+        requiredFeet: 12,
+        allocatedFeet: 10,
+        remainingFeet: 2
+      }
+    ]);
+  });
+
+  it('recomputes mixed-width requirement coverage after adding a bound optimistic allocation', () => {
+    const detail = {
+      summary: {
+        jobNumber: '18959',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-03',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 14,
+        allocatedFeet: 10,
+        remainingFeet: 4,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 2,
+        allocationCount: 1,
+        filmOrderCount: 0,
+        createdAt: '2026-04-03T00:00:00Z',
+        updatedAt: '2026-04-03T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 0,
+          remainingFeet: 2
+        },
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 10,
+          remainingFeet: 2
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-72',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          jobNumber: '18959',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 10,
+          requirementId: 'req-72',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:20:34.647Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [
+      {
+        allocationId: 'pending-alloc-50',
+        boxId: 'IL1-6502',
+        warehouse: 'IL1',
+        jobNumber: '18959',
+        jobDate: '2026-04-03',
+        crewLeader: 'Crew',
+        allocatedFeet: 2,
+        requirementId: 'req-50',
+        allocationKind: 'REQUIREMENT' as const,
+        status: 'ACTIVE' as const,
+        createdAt: '2026-04-03T17:22:00.000Z',
+        createdBy: 'Pending...',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: 'Pending server confirmation',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 72,
+        boxStatus: 'IN_STOCK' as const,
+        checkedOutOnThisJob: false
+      }
+    ]);
+
+    expect(nextDetail.summary.status).toBe('ALLOCATE');
+    expect(nextDetail.summary.allocatedFeet).toBe(12);
+    expect(nextDetail.summary.remainingFeet).toBe(2);
+    expect(nextDetail.summary.allocationCount).toBe(2);
+    expect(nextDetail.requirements).toEqual([
+      expect.objectContaining({
+        requirementId: 'req-50',
+        allocatedFeet: 2,
+        remainingFeet: 0
+      }),
+      expect.objectContaining({
+        requirementId: 'req-72',
+        allocatedFeet: 10,
+        remainingFeet: 2
+      })
+    ]);
+  });
+
+  it('applies optimistic cross-warehouse additions using cached search results', () => {
+    const queryClient = createQueryClient();
+    const detail = {
+      summary: {
+        jobNumber: '18959',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-03',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 14,
+        allocatedFeet: 0,
+        remainingFeet: 14,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 2,
+        allocationCount: 0,
+        filmOrderCount: 0,
+        createdAt: '2026-04-03T00:00:00Z',
+        updatedAt: '2026-04-03T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 0,
+          remainingFeet: 2
+        },
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 0,
+          remainingFeet: 12
+        }
+      ],
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    queryClient.setQueryData(inventoryKeys.job('18959'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('18959'), {
+      summary: {
+        jobNumber: '18959',
+        jobDate: '2026-04-03',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+    queryClient.setQueryData(['inventory', 'search', 'IL1', 'Affinity 15', 'active'], [
+      {
+        boxId: 'IL1-6502',
+        warehouse: 'IL1',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 72,
+        initialFeet: 12,
+        feetAvailable: 12,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-04-01',
+        receivedDate: '2026-04-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '3M SOLAR|AFFINITY 15',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      }
+    ]);
+
+    const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-6502',
+      jobNumber: '18959',
+      requestedFeet: 12,
+      requestedWidthIn: 72,
+      requirementId: 'req-72',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
+      crossWarehouse: true,
+      jobWarehouse: 'IL1'
+    });
+
+    expect(result.allocations).toHaveLength(1);
+    expect(result.allocations[0]).toMatchObject({
+      boxId: 'IL1-6502',
+      allocatedFeet: 12,
+      requirementId: 'req-72'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.job('18959'))).toMatchObject({
+      summary: {
+        allocatedFeet: 12,
+        remainingFeet: 2,
+        allocationCount: 1
+      },
+      requirements: [
+        expect.objectContaining({
+          requirementId: 'req-50',
+          allocatedFeet: 0,
+          remainingFeet: 2
+        }),
+        expect.objectContaining({
+          requirementId: 'req-72',
+          allocatedFeet: 12,
+          remainingFeet: 0
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('18959'))).toMatchObject({
+      summary: {
+        activeAllocatedFeet: 12,
+        boxCount: 1
+      },
+      allocations: [
+        expect.objectContaining({
+          boxId: 'IL1-6502',
+          requirementId: 'req-72'
+        })
+      ]
+    });
+  });
+
   it('applies optimistic allocation removal across job, summary, box, and allocation caches', () => {
     const queryClient = createQueryClient();
     const detail = {
@@ -952,6 +1640,72 @@ describe('inventoryMutationUtils', () => {
         allocatedFeet: 9,
         remainingFeet: 11,
         allocationCount: 1
+      })
+    ]);
+  });
+
+  it('updates box caches with the server-returned reactivated zeroed box state', () => {
+    const queryClient = createQueryClient();
+    const zeroedBox = {
+      boxId: 'IL1-6919',
+      warehouse: 'IL1',
+      manufacturer: '3M Fasara',
+      filmName: 'Dusted Crystal',
+      widthIn: 18,
+      initialFeet: 20,
+      feetAvailable: 0,
+      lotRun: '',
+      status: 'ZEROED' as const,
+      orderDate: '2026-03-20',
+      receivedDate: '2026-03-21',
+      initialWeightLbs: 3.3,
+      lastRollWeightLbs: 0,
+      lastWeighedDate: '2026-03-30',
+      filmKey: '3M FASARA|DUSTED CRYSTAL',
+      coreType: 'Cardboard 1/8"',
+      coreWeightLbs: 1.025,
+      lfWeightLbsPerFt: 0.11375,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '2026-04-02',
+      zeroedReason: 'Auto-zeroed because Available Feet and Last Roll Weight reached 0.',
+      zeroedBy: 'rob'
+    };
+
+    queryClient.setQueryData(inventoryKeys.box(zeroedBox.boxId), zeroedBox);
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1' }), [zeroedBox]);
+
+    updateBoxCaches(queryClient, zeroedBox.boxId, (current) => ({
+      ...current,
+      status: 'IN_STOCK',
+      feetAvailable: 20,
+      lastRollWeightLbs: 3.3,
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    }));
+
+    expect(queryClient.getQueryData(inventoryKeys.box(zeroedBox.boxId))).toMatchObject({
+      status: 'IN_STOCK',
+      feetAvailable: 20,
+      lastRollWeightLbs: 3.3,
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+    expect(queryClient.getQueryData(inventoryKeys.list({ warehouse: 'IL1' }))).toEqual([
+      expect.objectContaining({
+        boxId: 'IL1-6919',
+        status: 'IN_STOCK',
+        feetAvailable: 20,
+        lastRollWeightLbs: 3.3,
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
       })
     ]);
   });

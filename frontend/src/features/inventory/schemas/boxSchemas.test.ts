@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { AllocationEntry, Box } from '../../../domain';
 import type { BoxDraft } from '../utils/boxHelpers';
 import { createEmptyBoxDraft } from '../utils/boxHelpers';
 import { parseAddBoxDraft, parseUpdateBoxDraft } from './boxSchemas';
@@ -12,6 +13,60 @@ function buildDraft(overrides: Partial<BoxDraft> = {}): BoxDraft {
     initialFeet: '200',
     feetAvailable: '200',
     orderDate: '2026-03-22',
+    ...overrides
+  };
+}
+
+function buildBox(overrides: Partial<Box> = {}): Box {
+  return {
+    boxId: 'IL1-6919',
+    warehouse: 'IL1',
+    manufacturer: '3M Fasara',
+    filmName: 'Dusted Crystal',
+    widthIn: 18,
+    initialFeet: 20,
+    feetAvailable: 0,
+    lotRun: 'G2605505',
+    status: 'IN_STOCK',
+    orderDate: '2026-03-26',
+    receivedDate: '2026-03-30',
+    initialWeightLbs: 3.3,
+    lastRollWeightLbs: 3.3,
+    lastWeighedDate: '2026-03-30',
+    filmKey: '3M FASARA|DUSTED CRYSTAL',
+    coreType: 'Cardboard 1/8"',
+    coreWeightLbs: 1.025,
+    lfWeightLbsPerFt: 0.11375,
+    pricePerLf: null,
+    purchaseCost: null,
+    notes: '',
+    hasEverBeenCheckedOut: false,
+    lastCheckoutJob: '',
+    lastCheckoutDate: '',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: '',
+    ...overrides
+  };
+}
+
+function buildAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEntry {
+  return {
+    allocationId: 'ALLOC-1',
+    boxId: 'IL1-6919',
+    warehouse: 'IL1',
+    jobNumber: 'JOB-1',
+    jobDate: '2026-04-01',
+    crewLeader: 'Crew Lead',
+    allocatedFeet: 5,
+    allocationKind: 'REQUIREMENT',
+    status: 'ACTIVE',
+    createdAt: '2026-04-01T12:00:00.000Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    filmOrderId: '',
+    notes: '',
     ...overrides
   };
 }
@@ -100,5 +155,87 @@ describe('boxSchemas price derivation', () => {
 
     expect(payload.purchaseCost).toBeNull();
     expect(payload.pricePerLf).toBe(4.4444);
+  });
+
+  it('derives received-box feet from roll weight and active allocations on edit', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '20',
+        feetAvailable: '0',
+        lastRollWeightLbs: '3.3',
+        coreWeightLbs: '1.025',
+        lfWeightLbsPerFt: '0.11375'
+      }),
+      buildBox(),
+      [buildAllocation()]
+    );
+
+    expect(payload.feetAvailable).toBe(15);
+  });
+
+  it('derives first-receipt feet from initial feet minus active allocations', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '20',
+        feetAvailable: '0'
+      }),
+      buildBox({ receivedDate: '', status: 'ORDERED', feetAvailable: 0 }),
+      [buildAllocation()]
+    );
+
+    expect(payload.feetAvailable).toBe(15);
+  });
+
+  it('falls back to the stored feet when received-box weight metadata is incomplete', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        feetAvailable: '0',
+        lastRollWeightLbs: '',
+        coreWeightLbs: '',
+        lfWeightLbsPerFt: ''
+      }),
+      buildBox({ feetAvailable: 13, lastRollWeightLbs: null, coreWeightLbs: null, lfWeightLbsPerFt: null }),
+      []
+    );
+
+    expect(payload.feetAvailable).toBe(13);
+  });
+
+  it('caps recalculated received-box feet to the new initial feet value', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '10',
+        feetAvailable: '0',
+        lastRollWeightLbs: '15',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.14'
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 90,
+        lastRollWeightLbs: 15,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.14
+      }),
+      []
+    );
+
+    expect(payload.feetAvailable).toBe(10);
+  });
+
+  it('preserves stored feet for ordered boxes instead of trusting the hidden draft value', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        feetAvailable: '999'
+      }),
+      buildBox({ receivedDate: '', status: 'ORDERED', feetAvailable: 42 }),
+      []
+    );
+
+    expect(payload.feetAvailable).toBe(42);
   });
 });

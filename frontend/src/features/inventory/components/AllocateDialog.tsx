@@ -13,8 +13,10 @@ import type { AllocationPreview, Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import {
   useAllocateBox,
-  useAllocationPreview
+  useAllocationPreview,
+  useJob
 } from '../hooks/useInventoryQueries';
+import { findCompatibleRequirementsForBox } from '../utils/jobAllocationMatching';
 
 interface AllocateDialogProps {
   open: boolean;
@@ -69,9 +71,20 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     jobDate?: string;
     crewLeader?: string;
     requestedFeet: number;
+    requestedWidthIn?: number;
+    requirementId?: string;
   } | null>(null);
   const [selectedSuggestionBoxIds, setSelectedSuggestionBoxIds] = useState<string[]>([]);
+  const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [error, setError] = useState('');
+  const normalizedJobNumber = jobNumber.trim();
+  const jobQuery = useJob(open ? normalizedJobNumber : '');
+  const compatibleRequirements = useMemo(
+    () => findCompatibleRequirementsForBox(jobQuery.data?.requirements || [], box),
+    [box, jobQuery.data?.requirements]
+  );
+  const selectedRequirement =
+    compatibleRequirements.find((entry) => entry.requirementId === selectedRequirementId) || null;
 
   const previewQuery = useAllocationPreview(open ? previewPayload : null);
   const preview = previewQuery.data;
@@ -100,6 +113,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       setRequestedFeet('');
       setPreviewPayload(null);
       setSelectedSuggestionBoxIds([]);
+      setSelectedRequirementId('');
       setError('');
     }
   }, [open]);
@@ -112,6 +126,28 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     setSelectedSuggestionBoxIds(preview.suggestions.map((suggestion) => suggestion.boxId));
   }, [preview]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (!normalizedJobNumber) {
+      setSelectedRequirementId('');
+      return;
+    }
+
+    if (selectedRequirementId && compatibleRequirements.some((entry) => entry.requirementId === selectedRequirementId)) {
+      return;
+    }
+
+    if (compatibleRequirements.length === 1) {
+      setSelectedRequirementId(compatibleRequirements[0].requirementId);
+      return;
+    }
+
+    setSelectedRequirementId('');
+  }, [compatibleRequirements, normalizedJobNumber, open, selectedRequirementId]);
+
   if (!open) {
     return null;
   }
@@ -123,7 +159,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
 
   function handleFindCoverage() {
     const parsedFeet = Number(requestedFeet);
-    if (!jobNumber.trim()) {
+    if (!normalizedJobNumber) {
       setError('Job Number is required.');
       return;
     }
@@ -138,13 +174,35 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       return;
     }
 
+    if (jobQuery.isLoading || jobQuery.isFetching) {
+      setError('Loading job requirements. Try again in a moment.');
+      return;
+    }
+
+    if (jobQuery.isError) {
+      setError(jobQuery.error.message || 'Unable to load the selected job.');
+      return;
+    }
+
+    if (!compatibleRequirements.length) {
+      setError('No compatible unmet requirement lines were found for this job.');
+      return;
+    }
+
+    if (!selectedRequirement) {
+      setError('Select the requirement line this allocation should satisfy.');
+      return;
+    }
+
     setError('');
     setPreviewPayload({
       boxId: box.boxId,
-      jobNumber: jobNumber.trim(),
+      jobNumber: normalizedJobNumber,
       jobDate: jobDate.trim(),
       crewLeader: crewLeader.trim(),
-      requestedFeet: Math.floor(parsedFeet)
+      requestedFeet: Math.floor(parsedFeet),
+      requestedWidthIn: selectedRequirement.widthIn,
+      requirementId: selectedRequirement.requirementId
     });
   }
 
@@ -245,6 +303,36 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
             }}
             placeholder={jobDate ? 'Required when Job Date is set' : 'Optional'}
           />
+          <label className="field">
+            <span className="field-label">Requirement</span>
+            <select
+              className="field-input"
+              value={selectedRequirementId}
+              onChange={(event) => {
+                setSelectedRequirementId(event.target.value);
+                invalidatePreview();
+                setError('');
+              }}
+              disabled={!normalizedJobNumber || compatibleRequirements.length <= 1 || jobQuery.isLoading || jobQuery.isFetching}
+            >
+              <option value="">
+                {compatibleRequirements.length
+                  ? compatibleRequirements.length === 1
+                    ? 'Compatible requirement auto-selected'
+                    : 'Select requirement'
+                  : normalizedJobNumber
+                    ? jobQuery.isLoading || jobQuery.isFetching
+                      ? 'Loading requirements...'
+                      : 'No compatible unmet requirement'
+                    : 'Enter a job number first'}
+              </option>
+              {compatibleRequirements.map((requirement) => (
+                <option key={requirement.requirementId} value={requirement.requirementId}>
+                  {requirement.manufacturer} {requirement.filmName} {requirement.widthIn}" ({requirement.remainingFeet} LF remaining)
+                </option>
+              ))}
+            </select>
+          </label>
           <Input
             label="Requested LF"
             type="number"
@@ -261,6 +349,11 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
 
         {error ? <p className="error-text">{error}</p> : null}
         {previewQuery.isError ? <p className="error-text">{previewQuery.error.message}</p> : null}
+        {!preview && normalizedJobNumber && compatibleRequirements.length > 1 ? (
+          <p className="muted-text">
+            Choose the exact job requirement line this box should satisfy before finding coverage.
+          </p>
+        ) : null}
 
         {preview ? (
           <div className="allocation-preview">

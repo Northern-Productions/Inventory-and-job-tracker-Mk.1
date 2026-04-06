@@ -24,9 +24,13 @@ const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/jobs/set-labor-assigned'
 ]);
 const LOCAL_FALLBACK_READ_PATHS = new Set([
+  '/allocations/by-job',
+  '/allocations/jobs',
   '/owner/reports/asset-total-cost',
   '/jobs/calendar',
-  '/jobs/get'
+  '/jobs/get',
+  '/jobs/list',
+  '/jobs/search'
 ]);
 
 function resolveEdgeApiBaseUrl_() {
