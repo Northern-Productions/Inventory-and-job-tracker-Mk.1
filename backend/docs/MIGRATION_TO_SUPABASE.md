@@ -126,11 +126,13 @@ Set function secrets:
 - `CACHE_TTL_MS`
 - `MAX_CACHE_ENTRIES`
 - `CORS_ALLOWED_ORIGINS`
+- `API_BUILD_SHA`
+- `API_BUILT_AT`
 
 Deploy:
 
 ```bash
-npx supabase functions deploy api --no-verify-jwt
+npx supabase functions deploy api --project-ref tiwpulgvxtwlmqdnyuzd --no-verify-jwt
 ```
 
 ## 4. Point the frontend at Supabase directly
@@ -147,12 +149,13 @@ VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
 
 Recommended checks:
 
-1. `GET /health` returns `mode: "supabase"`
+1. `GET /health` returns `mode: "supabase"` plus `apiBuildSha` and `apiBuiltAt`
 2. inventory list loads
 3. box detail loads allocations, history, and roll history
 4. jobs list and job detail load
 5. checkout/check-in writes succeed
 6. audit and roll history entries land in Postgres
+7. `npm --prefix backend run verify:edge:live` passes with an authenticated `SMOKE_AUTH_TOKEN`
 
 ## Notes
 

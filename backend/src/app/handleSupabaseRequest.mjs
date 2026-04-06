@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { BOX_STATUSES, CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS, CORE_WEIGHT_REFERENCE_WIDTH_IN, DEFAULT_ORG_ID, LOW_STOCK_THRESHOLD_LF, MEMBER_FEATURE_AREAS, ADMIN_FEATURE_AREAS, SUPABASE_ANON_KEY, SUPABASE_URL, UUID_PATTERN, ZEROED_BOX_AUTO_CANCEL_NOTE } from '../config/runtime.mjs';
+import { API_BUILD_SHA, API_BUILT_AT, BOX_STATUSES, CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS, CORE_WEIGHT_REFERENCE_WIDTH_IN, DEFAULT_ORG_ID, LOW_STOCK_THRESHOLD_LF, MEMBER_FEATURE_AREAS, ADMIN_FEATURE_AREAS, SUPABASE_ANON_KEY, SUPABASE_URL, UUID_PATTERN, ZEROED_BOX_AUTO_CANCEL_NOTE } from '../config/runtime.mjs';
 import { ensureConfigured, queryRow, queryRows, withMutation, withReadClient } from '../db/client.mjs';
 import { HttpError, ok } from '../lib/http.mjs';
 import { routeParams } from '../routes/params.mjs';
@@ -10847,7 +10847,9 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           status: 'ok',
           timestamp: new Date().toISOString(),
           sheets: [],
-          mode: 'supabase'
+          mode: 'supabase',
+          apiBuildSha: API_BUILD_SHA,
+          apiBuiltAt: API_BUILT_AT
         })
       };
     }

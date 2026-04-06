@@ -43,6 +43,16 @@ Health check:
 curl "http://localhost:3000/health"
 ```
 
+The health payload includes `apiBuildSha` and `apiBuiltAt` when those env vars are set, so the local rollback host can be version-checked against the deployed Edge runtime.
+
+Live Edge verification:
+
+```bash
+npm run verify:edge:live
+```
+
+Set `SMOKE_AUTH_TOKEN` before running the verification command.
+
 ## Frontend Pairing
 
 If you intentionally use this rollback host in local frontend dev:

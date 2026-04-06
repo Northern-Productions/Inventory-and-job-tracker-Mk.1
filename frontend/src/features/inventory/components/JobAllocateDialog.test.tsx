@@ -104,7 +104,7 @@ describe('JobAllocateDialog', () => {
       <QueryClientProvider client={queryClient}>
         <JobAllocateDialog
           open
-          jobNumber="18959"
+          jobNumber="29010"
           warehouse="IL1"
           dueDate=""
           crewLeader=""

@@ -29,6 +29,19 @@ function assertEnvelope(path, response) {
   if (!Array.isArray(response.payload.warnings)) {
     throw new Error(`${path}: payload.warnings must be an array`);
   }
+
+  if (path === '/health') {
+    const data = response.payload.data;
+    if (!data || typeof data !== 'object') {
+      throw new Error('/health: payload.data must be an object');
+    }
+    if (typeof data.apiBuildSha !== 'string') {
+      throw new Error('/health: data.apiBuildSha must be a string');
+    }
+    if (typeof data.apiBuiltAt !== 'string') {
+      throw new Error('/health: data.apiBuiltAt must be a string');
+    }
+  }
 }
 
 async function runCase(testCase, token) {

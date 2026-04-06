@@ -8,6 +8,8 @@ const EDGE_API_BASE_URL = resolveEdgeApiBaseUrl_();
 const PORT = Number(process.env.PORT || 3000);
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 30000);
 const MAX_CACHE_ENTRIES = Number(process.env.MAX_CACHE_ENTRIES || 500);
+const API_BUILD_SHA = String(process.env.API_BUILD_SHA || '').trim();
+const API_BUILT_AT = String(process.env.API_BUILT_AT || '').trim();
 const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
   .split(',')
   .map((entry) => entry.trim())
@@ -299,7 +301,9 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         mode: BACKEND_MODE,
         timestamp: new Date().toISOString(),
-        sheets: []
+        sheets: [],
+        apiBuildSha: API_BUILD_SHA,
+        apiBuiltAt: API_BUILT_AT
       },
       warnings: []
     });

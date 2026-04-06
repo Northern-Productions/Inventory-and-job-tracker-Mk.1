@@ -493,7 +493,7 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
-  it('hydrates stale job summary collection caches from a fresh job detail read', () => {
+  it('hydrates deliberately stale 18959 job summary collection caches from a fresh job detail read', () => {
     const queryClient = createQueryClient();
     const staleSummary = {
       jobNumber: '18959',
@@ -522,9 +522,9 @@ describe('inventoryMutationUtils', () => {
       summary: {
         ...staleSummary,
         crewLeader: 'Crew',
-        status: 'READY' as const,
-        allocatedFeet: 34,
-        remainingFeet: 0,
+        status: 'ALLOCATE' as const,
+        allocatedFeet: 32,
+        remainingFeet: 2,
         allocationCount: 3,
         updatedAt: '2026-04-06T07:03:32.372Z'
       },
@@ -535,8 +535,8 @@ describe('inventoryMutationUtils', () => {
           filmName: 'Affinity 15',
           widthIn: 72,
           requiredFeet: 12,
-          allocatedFeet: 12,
-          remainingFeet: 0
+          allocatedFeet: 10,
+          remainingFeet: 2
         },
         {
           requirementId: 'req-50',
@@ -611,7 +611,7 @@ describe('inventoryMutationUtils', () => {
           manufacturer: '3M Solar',
           filmName: 'Affinity 15',
           widthIn: 72,
-          allocatedFeet: 12,
+          allocatedFeet: 10,
           jobNumber: '18959',
           jobDate: '',
           crewLeader: 'Crew',
@@ -705,8 +705,8 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '18959',
         jobDate: '',
         crewLeader: 'Crew',
-        status: 'READY',
-        activeAllocatedFeet: 34,
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 32,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
         allocatedTubes: 0,
@@ -719,8 +719,8 @@ describe('inventoryMutationUtils', () => {
       summary: {
         jobNumber: '18959',
         crewLeader: 'Crew',
-        status: 'READY',
-        activeAllocatedFeet: 34,
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 32,
         boxCount: 2
       },
       caulkRequirements: [],
@@ -1003,12 +1003,12 @@ describe('inventoryMutationUtils', () => {
   it('keeps bound mixed-width allocations credited to their intended requirement lines', () => {
     const detail = {
       summary: {
-        jobNumber: '18959',
+        jobNumber: '29001',
         warehouse: 'IL1',
         sections: null,
         dueDate: '2026-04-03',
         crewLeader: 'Crew',
-        status: 'READY' as const,
+        status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
         isLaborOnly: false,
         isStagedForPickup: false,
@@ -1050,7 +1050,7 @@ describe('inventoryMutationUtils', () => {
           allocationId: 'alloc-50',
           boxId: 'IL1-6502',
           warehouse: 'IL1',
-          jobNumber: '18959',
+          jobNumber: '29001',
           jobDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 2,
@@ -1073,7 +1073,7 @@ describe('inventoryMutationUtils', () => {
           allocationId: 'alloc-72',
           boxId: 'IL1-6502',
           warehouse: 'IL1',
-          jobNumber: '18959',
+          jobNumber: '29001',
           jobDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 10,
@@ -1130,7 +1130,7 @@ describe('inventoryMutationUtils', () => {
   it('recomputes mixed-width requirement coverage after adding a bound optimistic allocation', () => {
     const detail = {
       summary: {
-        jobNumber: '18959',
+        jobNumber: '29002',
         warehouse: 'IL1',
         sections: null,
         dueDate: '2026-04-03',
@@ -1177,6 +1177,160 @@ describe('inventoryMutationUtils', () => {
           allocationId: 'alloc-72',
           boxId: 'IL1-6502',
           warehouse: 'IL1',
+          jobNumber: '29002',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 10,
+          requirementId: 'req-72',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:20:34.647Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [
+      {
+        allocationId: 'pending-alloc-50',
+        boxId: 'IL1-6502',
+        warehouse: 'IL1',
+        jobNumber: '29002',
+        jobDate: '2026-04-03',
+        crewLeader: 'Crew',
+        allocatedFeet: 2,
+        requirementId: 'req-50',
+        allocationKind: 'REQUIREMENT' as const,
+        status: 'ACTIVE' as const,
+        createdAt: '2026-04-03T17:22:00.000Z',
+        createdBy: 'Pending...',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: 'Pending server confirmation',
+        manufacturer: '3M Solar',
+        filmName: 'Affinity 15',
+        widthIn: 72,
+        boxStatus: 'IN_STOCK' as const,
+        checkedOutOnThisJob: false
+      }
+    ]);
+
+    expect(nextDetail.summary.status).toBe('ALLOCATE');
+    expect(nextDetail.summary.allocatedFeet).toBe(12);
+    expect(nextDetail.summary.remainingFeet).toBe(2);
+    expect(nextDetail.summary.allocationCount).toBe(2);
+    expect(nextDetail.requirements).toEqual([
+      expect.objectContaining({
+        requirementId: 'req-50',
+        allocatedFeet: 2,
+        remainingFeet: 0
+      }),
+      expect.objectContaining({
+        requirementId: 'req-72',
+        allocatedFeet: 10,
+        remainingFeet: 2
+      })
+    ]);
+  });
+
+  it('keeps 18959-style wider-box requirement coverage at 32 allocated and 2 remaining instead of the old 12/22 undercount', () => {
+    const detail = {
+      summary: {
+        jobNumber: '18959',
+        warehouse: 'IL1',
+        sections: '1',
+        dueDate: '2026-04-03',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 34,
+        allocatedFeet: 30,
+        remainingFeet: 4,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 3,
+        allocationCount: 2,
+        filmOrderCount: 0,
+        createdAt: '2026-04-03T00:00:00Z',
+        updatedAt: '2026-04-03T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-fasara',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 50,
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        },
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 2,
+          allocatedFeet: 0,
+          remainingFeet: 2
+        },
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 10,
+          remainingFeet: 2
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-fasara',
+          boxId: 'IL1-6076',
+          warehouse: 'IL1',
+          jobNumber: '18959',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 20,
+          requirementId: 'req-fasara',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:19:35.984Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-72',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
           jobNumber: '18959',
           jobDate: '2026-04-03',
           crewLeader: 'Crew',
@@ -1217,7 +1371,7 @@ describe('inventoryMutationUtils', () => {
         requirementId: 'req-50',
         allocationKind: 'REQUIREMENT' as const,
         status: 'ACTIVE' as const,
-        createdAt: '2026-04-03T17:22:00.000Z',
+        createdAt: '2026-04-06T07:03:24.227Z',
         createdBy: 'Pending...',
         resolvedAt: '',
         resolvedBy: '',
@@ -1232,10 +1386,16 @@ describe('inventoryMutationUtils', () => {
     ]);
 
     expect(nextDetail.summary.status).toBe('ALLOCATE');
-    expect(nextDetail.summary.allocatedFeet).toBe(12);
+    expect(nextDetail.summary.allocatedFeet).toBe(32);
     expect(nextDetail.summary.remainingFeet).toBe(2);
-    expect(nextDetail.summary.allocationCount).toBe(2);
+    expect(nextDetail.summary.allocatedFeet).not.toBe(12);
+    expect(nextDetail.summary.remainingFeet).not.toBe(22);
     expect(nextDetail.requirements).toEqual([
+      expect.objectContaining({
+        requirementId: 'req-fasara',
+        allocatedFeet: 20,
+        remainingFeet: 0
+      }),
       expect.objectContaining({
         requirementId: 'req-50',
         allocatedFeet: 2,
@@ -1253,7 +1413,7 @@ describe('inventoryMutationUtils', () => {
     const queryClient = createQueryClient();
     const detail = {
       summary: {
-        jobNumber: '18959',
+        jobNumber: '29003',
         warehouse: 'IL1',
         sections: null,
         dueDate: '2026-04-03',
@@ -1304,10 +1464,10 @@ describe('inventoryMutationUtils', () => {
       filmOrders: []
     };
 
-    queryClient.setQueryData(inventoryKeys.job('18959'), detail);
-    queryClient.setQueryData(inventoryKeys.allocationJob('18959'), {
+    queryClient.setQueryData(inventoryKeys.job('29003'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('29003'), {
       summary: {
-        jobNumber: '18959',
+        jobNumber: '29003',
         jobDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
@@ -1361,7 +1521,7 @@ describe('inventoryMutationUtils', () => {
 
     const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
       boxId: 'IL1-6502',
-      jobNumber: '18959',
+      jobNumber: '29003',
       requestedFeet: 12,
       requestedWidthIn: 72,
       requirementId: 'req-72',
@@ -1377,7 +1537,7 @@ describe('inventoryMutationUtils', () => {
       allocatedFeet: 12,
       requirementId: 'req-72'
     });
-    expect(queryClient.getQueryData(inventoryKeys.job('18959'))).toMatchObject({
+    expect(queryClient.getQueryData(inventoryKeys.job('29003'))).toMatchObject({
       summary: {
         allocatedFeet: 12,
         remainingFeet: 2,
@@ -1396,7 +1556,7 @@ describe('inventoryMutationUtils', () => {
         })
       ]
     });
-    expect(queryClient.getQueryData(inventoryKeys.allocationJob('18959'))).toMatchObject({
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('29003'))).toMatchObject({
       summary: {
         activeAllocatedFeet: 12,
         boxCount: 1

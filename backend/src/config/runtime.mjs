@@ -10,6 +10,8 @@ export const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replac
 export const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
 export const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 export const DEFAULT_ORG_ID = String(process.env.DEFAULT_ORG_ID || '').trim();
+export const API_BUILD_SHA = String(process.env.API_BUILD_SHA || '').trim();
+export const API_BUILT_AT = String(process.env.API_BUILT_AT || '').trim();
 
 export const LOW_STOCK_THRESHOLD_LF = 10;
 export const ZEROED_BOX_AUTO_CANCEL_NOTE =

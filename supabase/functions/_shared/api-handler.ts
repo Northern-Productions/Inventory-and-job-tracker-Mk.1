@@ -1,5 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
+  API_BUILD_SHA,
+  API_BUILT_AT,
   CACHE_TTL_MS,
   CORS_ALLOWED_ORIGINS,
   FILM_NAME_ALIAS_CACHE_TTL_MS,
@@ -4269,6 +4271,8 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
         mode: "supabase",
         timestamp: new Date().toISOString(),
         sheets: [],
+        apiBuildSha: API_BUILD_SHA,
+        apiBuiltAt: API_BUILT_AT,
       },
       warnings: [],
     });

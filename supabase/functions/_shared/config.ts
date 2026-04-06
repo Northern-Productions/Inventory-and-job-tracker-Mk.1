@@ -5,6 +5,8 @@ export const SUPABASE_SERVICE_ROLE_KEY = (Deno.env.get('SUPABASE_SERVICE_ROLE_KE
 export const DEFAULT_ORG_ID = (Deno.env.get('DEFAULT_ORG_ID') || '').trim();
 export const RESEND_API_KEY = (Deno.env.get('RESEND_API_KEY') || '').trim();
 export const RESEND_FROM_EMAIL = (Deno.env.get('RESEND_FROM_EMAIL') || '').trim();
+export const API_BUILD_SHA = (Deno.env.get('API_BUILD_SHA') || '').trim();
+export const API_BUILT_AT = (Deno.env.get('API_BUILT_AT') || '').trim();
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = Deno.env.get(name);

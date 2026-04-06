@@ -87,10 +87,10 @@ From repo root:
 
 ```bash
 npx supabase login
-npx supabase secrets set DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
+npx supabase secrets set --project-ref tiwpulgvxtwlmqdnyuzd DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" API_BUILD_SHA="YOUR_GIT_SHA" API_BUILT_AT="YYYY-MM-DDTHH:MM:SSZ"
 # verify migration 0006 objects exist in the same target DB
 npm --prefix backend run check:schema:0006
-npx supabase functions deploy api --no-verify-jwt
+npx supabase functions deploy api --project-ref tiwpulgvxtwlmqdnyuzd --no-verify-jwt
 ```
 
 Health check:
@@ -98,6 +98,8 @@ Health check:
 ```bash
 curl "https://YOUR_PROJECT_REF.supabase.co/functions/v1/api?path=/health"
 ```
+
+The health payload now includes `apiBuildSha` and `apiBuiltAt` so the deployed Edge runtime can be identified without auth.
 
 ### 5. Configure Vercel frontend env
 
@@ -159,5 +161,9 @@ npm run dev
 
 1. Apply DB migrations before API/frontend deploy (`0001` -> `0006`).
 2. Run `npm --prefix backend run check:schema:0006` against the target DB.
-3. Deploy Supabase function `api`.
-4. Deploy frontend after API is live.
+3. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
+4. Deploy Supabase function `api`.
+5. Run `npm --prefix backend run verify:edge:live` with an authenticated `SMOKE_AUTH_TOKEN`.
+6. Deploy frontend after API verification is live.
+
+Changes under `supabase/functions/api` or `supabase/functions/_shared` require a Supabase Edge deploy even if the frontend is already on the correct git commit.

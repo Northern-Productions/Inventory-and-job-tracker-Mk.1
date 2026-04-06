@@ -21,6 +21,7 @@
     "jobs:completed:backfill:apply": "node scripts/backfill-completed-jobs.mjs --apply",
     "jobs:completed:backfill:dry": "node scripts/backfill-completed-jobs.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
+    "verify:edge:live": "node scripts/verify-live-edge-job-summary.mjs",
     "start": "npm run check:schema:0006 && node server.mjs",
     "start:unsafe": "node server.mjs",
     "dev": "npm run check:schema:0006 && node --watch server.mjs"
