@@ -54,12 +54,15 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'SECURITY White plastic 3/8"': 14.4
 };
 
+export type RollTrackingEditedField = '' | 'currentFeetOnRoll' | 'lastRollWeightLbs';
+
 export interface BoxDraft {
   boxId: string;
   manufacturer: string;
   filmName: string;
   widthIn: string;
   initialFeet: string;
+  currentFeetOnRoll: string;
   feetAvailable: string;
   lotRun: string;
   orderDate: string;
@@ -74,6 +77,7 @@ export interface BoxDraft {
   pricePerLf: string;
   purchaseCost: string;
   notes: string;
+  rollTrackingEditedField: RollTrackingEditedField;
 }
 
 function normalizeManufacturerLabel(value: string) {
@@ -157,6 +161,13 @@ export function deriveCreateFeetAvailable(
   return receivedDate && receivedDate <= today ? initialFeet : 0;
 }
 
+export function deriveLifecycleStatus(
+  receivedDate: string,
+  today = todayDateString()
+): Extract<BoxStatus, 'ORDERED' | 'IN_STOCK'> {
+  return receivedDate && receivedDate <= today ? 'IN_STOCK' : 'ORDERED';
+}
+
 function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
@@ -223,6 +234,14 @@ export function deriveFeetAvailableFromRollWeight(
   return Math.min(Math.floor(rawFeet), initialFeet);
 }
 
+export function deriveLastRollWeightLbsFromCurrentFeet(
+  currentFeetOnRoll: number,
+  coreWeightLbs: number,
+  lfWeightLbsPerFt: number
+): number {
+  return roundTo(lfWeightLbsPerFt * currentFeetOnRoll + coreWeightLbs, 2);
+}
+
 export function shouldAutoMoveToZeroed(
   receivedDate: string,
   previousFeetAvailable: number,
@@ -260,15 +279,20 @@ function clampFeetAvailable(feetAvailable: number, initialFeet: number): number 
   return Math.min(Math.max(Math.floor(feetAvailable), 0), initialFeet);
 }
 
-export interface ReceivedFeetResolutionContext {
+export interface RollTrackingResolutionContext {
   receivedDate: string;
   initialFeet: number;
+  currentFeetOnRoll: number | null;
   lastRollWeightLbs: number | null;
   coreWeightLbs: number | null;
   lfWeightLbsPerFt: number | null;
+  rollTrackingEditedField?: RollTrackingEditedField;
 }
 
-function hasReceivedFeetMetadata(context: ReceivedFeetResolutionContext): boolean {
+function hasRollWeightMetadata(context: Pick<
+  RollTrackingResolutionContext,
+  'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+>): boolean {
   return (
     context.lastRollWeightLbs !== null &&
     context.coreWeightLbs !== null &&
@@ -277,12 +301,29 @@ function hasReceivedFeetMetadata(context: ReceivedFeetResolutionContext): boolea
   );
 }
 
+function canDeriveRollWeightFromCurrentFeet(context: Pick<
+  RollTrackingResolutionContext,
+  'coreWeightLbs' | 'lfWeightLbsPerFt'
+>): boolean {
+  return (
+    context.coreWeightLbs !== null &&
+    context.lfWeightLbsPerFt !== null &&
+    context.lfWeightLbsPerFt > 0
+  );
+}
+
+export function boxNeedsAllocationsToResolveCurrentFeet(
+  box: Pick<Box, 'receivedDate' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'>
+): boolean {
+  return Boolean(box.receivedDate) && !hasRollWeightMetadata(box);
+}
+
 export function shouldRecalculateReceivedBoxFeet(
   currentBox: Pick<
     Box,
     'status' | 'receivedDate' | 'initialFeet' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
   > | null | undefined,
-  nextValues: ReceivedFeetResolutionContext
+  nextValues: RollTrackingResolutionContext
 ): boolean {
   if (!nextValues.receivedDate) {
     return false;
@@ -305,9 +346,12 @@ export function shouldRecalculateReceivedBoxFeet(
 }
 
 export function deriveReceivedBoxPhysicalFeet(
-  nextValues: ReceivedFeetResolutionContext
+  nextValues: Pick<
+    RollTrackingResolutionContext,
+    'initialFeet' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  >
 ): number | null {
-  if (!hasReceivedFeetMetadata(nextValues)) {
+  if (!hasRollWeightMetadata(nextValues)) {
     return null;
   }
 
@@ -319,45 +363,167 @@ export function deriveReceivedBoxPhysicalFeet(
   );
 }
 
+export function deriveCurrentFeetOnRollForBox(
+  box: Pick<
+    Box,
+    'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  >,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> | null = null
+): number | null {
+  if (!box.receivedDate) {
+    return clampFeetAvailable(box.initialFeet, box.initialFeet);
+  }
+
+  const derivedFromWeight = deriveReceivedBoxPhysicalFeet({
+    initialFeet: box.initialFeet,
+    lastRollWeightLbs: box.lastRollWeightLbs,
+    coreWeightLbs: box.coreWeightLbs,
+    lfWeightLbsPerFt: box.lfWeightLbsPerFt
+  });
+
+  if (derivedFromWeight !== null) {
+    return derivedFromWeight;
+  }
+
+  if (allocations !== null) {
+    return clampFeetAvailable(box.feetAvailable + getActiveAllocatedFeet(allocations), box.initialFeet);
+  }
+
+  if (boxNeedsAllocationsToResolveCurrentFeet(box)) {
+    return null;
+  }
+
+  return clampFeetAvailable(box.feetAvailable, box.initialFeet);
+}
+
 export function resolveEditedReceivedBoxFeetAvailable(
   currentBox: Pick<
     Box,
     'status' | 'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
   > | null | undefined,
-  nextValues: ReceivedFeetResolutionContext,
+  nextValues: RollTrackingResolutionContext,
   allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
 ): number {
+  return resolveUpdateBoxRollTracking(currentBox, nextValues, allocations).feetAvailable;
+}
+
+function getCurrentFeetEditFallback(
+  currentBox: Pick<
+    Box,
+    'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  > | null | undefined,
+  nextValues: RollTrackingResolutionContext,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>>
+) {
   if (!currentBox) {
-    return clampFeetAvailable(nextValues.initialFeet, nextValues.initialFeet);
+    return clampFeetAvailable(nextValues.currentFeetOnRoll ?? nextValues.initialFeet, nextValues.initialFeet);
   }
+
+  const derivedFeet = deriveCurrentFeetOnRollForBox(
+    {
+      ...currentBox,
+      initialFeet: nextValues.initialFeet,
+      lastRollWeightLbs: nextValues.lastRollWeightLbs,
+      coreWeightLbs: nextValues.coreWeightLbs,
+      lfWeightLbsPerFt: nextValues.lfWeightLbsPerFt
+    },
+    allocations
+  );
+
+  if (derivedFeet !== null) {
+    return clampFeetAvailable(derivedFeet, nextValues.initialFeet);
+  }
+
+  return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+}
+
+export function resolveUpdateBoxRollTracking(
+  currentBox: Pick<
+    Box,
+    'status' | 'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+  > | null | undefined,
+  nextValues: RollTrackingResolutionContext,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
+) {
+  const currentFeetInput =
+    nextValues.currentFeetOnRoll === null
+      ? null
+      : clampFeetAvailable(nextValues.currentFeetOnRoll, nextValues.initialFeet);
 
   if (!nextValues.receivedDate) {
-    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+    const initialFeet = clampFeetAvailable(currentFeetInput ?? nextValues.initialFeet, currentFeetInput ?? nextValues.initialFeet);
+    return {
+      initialFeet,
+      currentFeetOnRoll: initialFeet,
+      feetAvailable: currentBox
+        ? clampFeetAvailable(currentBox.feetAvailable, initialFeet)
+        : deriveCreateFeetAvailable(initialFeet, nextValues.receivedDate),
+      lastRollWeightLbs: null
+    };
   }
 
-  if (!currentBox.receivedDate) {
-    return clampFeetAvailable(
-      nextValues.initialFeet - getActiveAllocatedFeet(allocations),
-      nextValues.initialFeet
-    );
-  }
-
-  const physicalFeetAvailable = deriveReceivedBoxPhysicalFeet(nextValues);
-  const shouldRepairStaleFeet =
-    currentBox.feetAvailable <= 0 &&
-    physicalFeetAvailable !== null &&
-    physicalFeetAvailable > 0;
-
-  if (!shouldRecalculateReceivedBoxFeet(currentBox, nextValues) && !shouldRepairStaleFeet) {
-    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
-  }
-
-  if (physicalFeetAvailable === null) {
-    return clampFeetAvailable(currentBox.feetAvailable, nextValues.initialFeet);
+  if (!currentBox || !currentBox.receivedDate) {
+    const initialFeet = clampFeetAvailable(currentFeetInput ?? nextValues.initialFeet, currentFeetInput ?? nextValues.initialFeet);
+    return {
+      initialFeet,
+      currentFeetOnRoll: initialFeet,
+      feetAvailable: clampFeetAvailable(initialFeet - getActiveAllocatedFeet(allocations), initialFeet),
+      lastRollWeightLbs: nextValues.lastRollWeightLbs
+    };
   }
 
   const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
-  return clampFeetAvailable(physicalFeetAvailable - activeAllocatedFeet, nextValues.initialFeet);
+  const fallbackCurrentFeet = getCurrentFeetEditFallback(currentBox, nextValues, allocations);
+  const currentFeetChanged =
+    nextValues.rollTrackingEditedField === 'currentFeetOnRoll' ||
+    (nextValues.rollTrackingEditedField !== 'lastRollWeightLbs' &&
+      currentFeetInput !== null &&
+      currentFeetInput !== fallbackCurrentFeet);
+  const lastRollWeightChanged =
+    nextValues.rollTrackingEditedField === 'lastRollWeightLbs' ||
+    (nextValues.rollTrackingEditedField !== 'currentFeetOnRoll' &&
+      nextValues.lastRollWeightLbs !== currentBox.lastRollWeightLbs);
+
+  if (lastRollWeightChanged && hasRollWeightMetadata(nextValues)) {
+    const currentFeetOnRoll = clampFeetAvailable(
+      deriveFeetAvailableFromRollWeight(
+        nextValues.lastRollWeightLbs!,
+        nextValues.coreWeightLbs!,
+        nextValues.lfWeightLbsPerFt!,
+        nextValues.initialFeet
+      ),
+      nextValues.initialFeet
+    );
+
+    return {
+      initialFeet: nextValues.initialFeet,
+      currentFeetOnRoll,
+      feetAvailable: clampFeetAvailable(currentFeetOnRoll - activeAllocatedFeet, nextValues.initialFeet),
+      lastRollWeightLbs: nextValues.lastRollWeightLbs
+    };
+  }
+
+  if (currentFeetChanged && currentFeetInput !== null) {
+    return {
+      initialFeet: nextValues.initialFeet,
+      currentFeetOnRoll: currentFeetInput,
+      feetAvailable: clampFeetAvailable(currentFeetInput - activeAllocatedFeet, nextValues.initialFeet),
+      lastRollWeightLbs: canDeriveRollWeightFromCurrentFeet(nextValues)
+        ? deriveLastRollWeightLbsFromCurrentFeet(
+            currentFeetInput,
+            nextValues.coreWeightLbs!,
+            nextValues.lfWeightLbsPerFt!
+          )
+        : nextValues.lastRollWeightLbs
+    };
+  }
+
+  return {
+    initialFeet: nextValues.initialFeet,
+    currentFeetOnRoll: fallbackCurrentFeet,
+    feetAvailable: clampFeetAvailable(fallbackCurrentFeet - activeAllocatedFeet, nextValues.initialFeet),
+    lastRollWeightLbs: nextValues.lastRollWeightLbs
+  };
 }
 
 export function getDisplayedAllocatedFeetForBox(
@@ -398,6 +564,7 @@ export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
     filmName: '',
     widthIn: '36',
     initialFeet: '100',
+    currentFeetOnRoll: '100',
     feetAvailable: '100',
     lotRun: '',
     orderDate: todayDateString(),
@@ -411,17 +578,24 @@ export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
     lfWeightLbsPerFt: '',
     pricePerLf: '',
     purchaseCost: '',
-    notes: ''
+    notes: '',
+    rollTrackingEditedField: ''
   };
 }
 
-export function createDraftFromBox(box: Box): BoxDraft {
+export function createDraftFromBox(
+  box: Box,
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> | null = null
+): BoxDraft {
+  const currentFeetOnRoll = deriveCurrentFeetOnRollForBox(box, allocations);
+
   return {
     boxId: box.boxId,
     manufacturer: box.manufacturer,
     filmName: box.filmName,
     widthIn: String(box.widthIn),
     initialFeet: String(box.initialFeet),
+    currentFeetOnRoll: String(currentFeetOnRoll ?? Math.max(box.feetAvailable, 0)),
     feetAvailable: String(box.feetAvailable),
     lotRun: box.lotRun,
     orderDate: toDateInputValue(box.orderDate),
@@ -435,7 +609,8 @@ export function createDraftFromBox(box: Box): BoxDraft {
     lfWeightLbsPerFt: box.lfWeightLbsPerFt == null ? '' : String(box.lfWeightLbsPerFt),
     pricePerLf: box.pricePerLf == null ? '' : String(box.pricePerLf),
     purchaseCost: box.purchaseCost == null ? '' : String(box.purchaseCost),
-    notes: box.notes
+    notes: box.notes,
+    rollTrackingEditedField: ''
   };
 }
 
@@ -498,7 +673,7 @@ export function getRiskyFieldChanges(current: Box, next: UpdateBoxPayload): stri
   const risky: string[] = [];
 
   if (current.initialFeet !== next.initialFeet) {
-    risky.push('Linear Feet');
+    risky.push('Initial Linear Feet');
   }
 
   if (current.widthIn !== next.widthIn) {

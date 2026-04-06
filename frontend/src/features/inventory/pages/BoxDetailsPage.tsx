@@ -28,7 +28,9 @@ import {
 import { useActionAccess } from '../hooks/useActionAccess';
 import { parseUpdateBoxDraft } from '../schemas/boxSchemas';
 import {
+  boxNeedsAllocationsToResolveCurrentFeet,
   createDraftFromBox,
+  deriveCurrentFeetOnRollForBox,
   deriveFeetAvailableFromRollWeight,
   getDisplayedAllocatedFeetForBox,
   getRiskyFieldChanges,
@@ -194,12 +196,23 @@ export default function BoxDetailsPage() {
 
   const box = boxQuery.data;
   const allocations = allocationsQuery.data || [];
+  const allocationsForCurrentFeet =
+    allocationsQuery.isLoading || allocationsQuery.isError ? null : allocations;
   const displayedAllocatedFeet = box
     ? getDisplayedAllocatedFeetForBox(box, allocations)
     : 0;
+  const currentFeetOnRoll = box ? deriveCurrentFeetOnRollForBox(box, allocationsForCurrentFeet) : null;
+  const shouldBlockEditWhileAllocationsResolve = Boolean(
+    box &&
+      boxNeedsAllocationsToResolveCurrentFeet(box) &&
+      (allocationsQuery.isLoading || allocationsQuery.isError)
+  );
   const onHandAssetCost =
-    box && typeof box.pricePerLf === 'number' && Number.isFinite(box.pricePerLf)
-      ? Math.max(box.feetAvailable, 0) * box.pricePerLf
+    box &&
+    currentFeetOnRoll !== null &&
+    typeof box.pricePerLf === 'number' &&
+    Number.isFinite(box.pricePerLf)
+      ? Math.max(currentFeetOnRoll, 0) * box.pricePerLf
       : null;
   const checkoutJobOptions = useMemo(() => {
     const activeAllocations = allocations
@@ -240,8 +253,11 @@ export default function BoxDetailsPage() {
     }, []);
   }, [allocations]);
   const initialDraft = useMemo(
-    () => (box ? createDraftFromBox(box) : createDraftFromBox(createFallbackBox(boxId))),
-    [box, boxId]
+    () =>
+      box
+        ? createDraftFromBox(box, allocationsForCurrentFeet)
+        : createDraftFromBox(createFallbackBox(boxId)),
+    [allocationsForCurrentFeet, box, boxId]
   );
 
   useEffect(() => {
@@ -764,6 +780,7 @@ export default function BoxDetailsPage() {
           submitLabel="Save Changes"
           submitting={updateMutation.isPending}
           deleting={deleteMutation.isPending}
+          preserveInitialFeetInEdit={Boolean(box.receivedDate)}
           filmCatalogEntries={filmCatalogQuery.data}
           filmCatalogLoading={filmCatalogQuery.isLoading}
           filmCatalogError={filmCatalogQuery.error}
@@ -795,6 +812,7 @@ export default function BoxDetailsPage() {
                 disabled={
                   isAddBoxPending ||
                   deleteMutation.isPending ||
+                  shouldBlockEditWhileAllocationsResolve ||
                   !auth.isAuthenticated ||
                   !auth.clientIdConfigured ||
                   !canWriteInventory
@@ -808,6 +826,10 @@ export default function BoxDetailsPage() {
 
         <div className="detail-highlight-grid stat-grid">
           <div className="key-value">
+            <dt className="detail-label-pill detail-label-pill-green">On Hand Feet</dt>
+            <dd>{currentFeetOnRoll === null ? '...' : currentFeetOnRoll}</dd>
+          </div>
+          <div className="key-value">
             <dt className="detail-label-pill detail-label-pill-green">Available Feet</dt>
             <dd>{box.feetAvailable}</dd>
           </div>
@@ -816,12 +838,8 @@ export default function BoxDetailsPage() {
             <dd>{allocationsQuery.isLoading ? '...' : displayedAllocatedFeet}</dd>
           </div>
           <div className="key-value">
-            <dt className="detail-label-pill detail-label-pill-orange">Price / LF</dt>
-            <dd>{formatPricePerLf(box.pricePerLf)}</dd>
-          </div>
-          <div className="key-value">
             <dt>On-Hand Asset Cost</dt>
-            <dd>{formatUsdAmount(onHandAssetCost)}</dd>
+            <dd>{currentFeetOnRoll === null ? '...' : formatUsdAmount(onHandAssetCost)}</dd>
           </div>
         </div>
 
@@ -834,6 +852,7 @@ export default function BoxDetailsPage() {
             labelClassName="detail-label-pill detail-label-pill-orange"
           />
           <DetailField label="Initial Feet" value={box.initialFeet} />
+          <DetailField label="Current Feet" value={currentFeetOnRoll === null ? '...' : currentFeetOnRoll} />
           <DetailField label="Lot Run" value={box.lotRun} />
           <DetailField label="Order Date" value={formatDate(box.orderDate)} />
           <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
@@ -843,6 +862,7 @@ export default function BoxDetailsPage() {
           <DetailField label="Core Type" value={box.coreType} />
           <DetailField label="Core Weight" value={box.coreWeightLbs} />
           <DetailField label="LF Weight / Ft" value={box.lfWeightLbsPerFt} />
+          <DetailField label="Price / LF" value={formatPricePerLf(box.pricePerLf)} />
           <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
           <DetailField
             label="Last Checkout Job"
@@ -941,6 +961,11 @@ export default function BoxDetailsPage() {
             {auth.isAuthenticated && !canWriteInventory ? (
               <p className="muted-text">
                 You can view this box, but your role does not allow inventory edits.
+              </p>
+            ) : null}
+            {auth.isAuthenticated && canWriteInventory && shouldBlockEditWhileAllocationsResolve ? (
+              <p className="muted-text">
+                Wait for allocation data to finish loading before editing this box&apos;s current footage.
               </p>
             ) : null}
 

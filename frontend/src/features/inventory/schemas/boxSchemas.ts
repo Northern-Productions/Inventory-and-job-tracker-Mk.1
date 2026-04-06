@@ -14,7 +14,7 @@ import {
   deriveCreateFeetAvailable,
   normalizeTrailingLetterBoxId,
   normalizeCoreTypeValue,
-  resolveEditedReceivedBoxFeetAvailable
+  resolveUpdateBoxRollTracking
 } from '../utils/boxHelpers';
 
 export interface InventoryFilterValues {
@@ -74,7 +74,8 @@ const addSchema = z.object({
 
 const updateSchema = addSchema.extend({
   boxId: requiredString,
-  manufacturer: requiredString
+  manufacturer: requiredString,
+  currentFeetOnRoll: z.number().min(0, 'Current feet must be zero or greater.').optional()
 });
 
 function parseRequiredNumber(value: string, fieldLabel: string): number {
@@ -130,7 +131,7 @@ function parseCoreType(value: string): AddBoxPayload['coreType'] {
 }
 
 export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
-  const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
+  const initialFeet = parseRequiredNumber(draft.initialFeet, 'Initial linear feet');
   const purchaseCost = parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost');
   const resolvedPricePerLf = resolvePricePerLfForDraft(initialFeet, purchaseCost, draft.pricePerLf);
 
@@ -168,22 +169,46 @@ export function parseUpdateBoxDraft(
   currentBox?: Box | null,
   allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
 ): UpdateBoxPayload {
-  const initialFeet = parseRequiredNumber(draft.initialFeet, 'Linear feet');
+  const storedInitialFeet = parseRequiredNumber(draft.initialFeet, 'Initial linear feet');
+  const currentFeetOnRoll = parseRequiredNumber(
+    draft.currentFeetOnRoll || draft.initialFeet,
+    'Current linear feet'
+  );
   const purchaseCost = parseOptionalNonNegativeNumber(draft.purchaseCost, 'Purchase cost');
-  const resolvedPricePerLf = resolvePricePerLfForDraft(initialFeet, purchaseCost, draft.pricePerLf);
-  const parsedFeetAvailable = parseRequiredNumber(draft.feetAvailable, 'Feet available');
+  const nextRollTracking = resolveUpdateBoxRollTracking(
+    currentBox,
+    {
+      receivedDate: draft.receivedDate,
+      initialFeet: currentBox?.receivedDate && draft.receivedDate ? storedInitialFeet : currentFeetOnRoll,
+      currentFeetOnRoll,
+      lastRollWeightLbs: parseOptionalNonNegativeNumber(
+        draft.lastRollWeightLbs,
+        'Last roll weight'
+      ),
+      coreWeightLbs: parseOptionalNonNegativeNumber(draft.coreWeightLbs, 'Core weight'),
+      lfWeightLbsPerFt: parseOptionalNonNegativeNumber(
+        draft.lfWeightLbsPerFt,
+        'LF weight per foot'
+      ),
+      rollTrackingEditedField: draft.rollTrackingEditedField
+    },
+    allocations
+  );
+  const resolvedPricePerLf = resolvePricePerLfForDraft(
+    nextRollTracking.initialFeet,
+    purchaseCost,
+    draft.pricePerLf
+  );
   const nextValues = {
     receivedDate: draft.receivedDate,
-    initialFeet,
-    lastRollWeightLbs: parseOptionalNonNegativeNumber(
-      draft.lastRollWeightLbs,
-      'Last roll weight'
-    ),
+    initialFeet: nextRollTracking.initialFeet,
+    currentFeetOnRoll: nextRollTracking.currentFeetOnRoll,
+    lastRollWeightLbs:
+      currentBox?.receivedDate && draft.rollTrackingEditedField === 'currentFeetOnRoll'
+        ? currentBox.lastRollWeightLbs
+        : nextRollTracking.lastRollWeightLbs,
     coreWeightLbs: parseOptionalNonNegativeNumber(draft.coreWeightLbs, 'Core weight'),
-    lfWeightLbsPerFt: parseOptionalNonNegativeNumber(
-      draft.lfWeightLbsPerFt,
-      'LF weight per foot'
-    )
+    lfWeightLbsPerFt: parseOptionalNonNegativeNumber(draft.lfWeightLbsPerFt, 'LF weight per foot')
   };
 
   return updateSchema.parse({
@@ -191,10 +216,9 @@ export function parseUpdateBoxDraft(
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
-    initialFeet,
-    feetAvailable: currentBox
-      ? resolveEditedReceivedBoxFeetAvailable(currentBox, nextValues, allocations)
-      : parsedFeetAvailable,
+    initialFeet: nextValues.initialFeet,
+    currentFeetOnRoll: nextValues.currentFeetOnRoll,
+    feetAvailable: nextRollTracking.feetAvailable,
     lotRun: draft.lotRun,
     orderDate: draft.orderDate,
     receivedDate: draft.receivedDate,

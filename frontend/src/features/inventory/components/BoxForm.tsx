@@ -6,6 +6,8 @@ import type { FilmCatalogEntry, Warehouse } from '../../../domain';
 import {
   CORE_TYPE_OPTIONS,
   STANDARD_WIDTH_OPTIONS,
+  deriveFeetAvailableFromRollWeight,
+  deriveLastRollWeightLbsFromCurrentFeet,
   getWarehouseBoxIdPrefixToken,
   isWarehousePrefixOnlyBoxId,
   getManufacturerOptionsWithCatalog,
@@ -31,6 +33,7 @@ interface BoxFormProps {
   disabled?: boolean;
   submitting?: boolean;
   deleting?: boolean;
+  preserveInitialFeetInEdit?: boolean;
   createWarehouse?: Warehouse;
   nextBoxIdForCreateWarehouse?: string;
   filmCatalogEntries?: FilmCatalogEntry[];
@@ -49,6 +52,7 @@ export function BoxForm({
   disabled = false,
   submitting = false,
   deleting = false,
+  preserveInitialFeetInEdit = false,
   createWarehouse,
   nextBoxIdForCreateWarehouse,
   filmCatalogEntries,
@@ -223,6 +227,84 @@ export function BoxForm({
     }));
   };
 
+  const handleFootageChange = (value: string) => {
+    const nextCurrentFeet = value.replace(/[^0-9]/g, '');
+
+    setDraft((current) => {
+      const nextDraft: BoxDraft = {
+        ...current,
+        currentFeetOnRoll: nextCurrentFeet,
+        rollTrackingEditedField: mode === 'edit' ? 'currentFeetOnRoll' : ''
+      };
+
+      if (mode === 'create' || !preserveInitialFeetInEdit) {
+        nextDraft.initialFeet = nextCurrentFeet;
+      }
+
+      if (mode === 'edit' && preserveInitialFeetInEdit) {
+        const currentFeetValue = Number(nextCurrentFeet);
+        const coreWeightValue = Number(current.coreWeightLbs);
+        const lfWeightValue = Number(current.lfWeightLbsPerFt);
+
+        if (
+          nextCurrentFeet.trim() &&
+          Number.isFinite(currentFeetValue) &&
+          currentFeetValue >= 0 &&
+          Number.isFinite(coreWeightValue) &&
+          coreWeightValue >= 0 &&
+          Number.isFinite(lfWeightValue) &&
+          lfWeightValue > 0
+        ) {
+          nextDraft.lastRollWeightLbs = String(
+            deriveLastRollWeightLbsFromCurrentFeet(currentFeetValue, coreWeightValue, lfWeightValue)
+          );
+        }
+      }
+
+      return nextDraft;
+    });
+  };
+
+  const handleLastRollWeightChange = (value: string) => {
+    setDraft((current) => {
+      const nextDraft: BoxDraft = {
+        ...current,
+        lastRollWeightLbs: value,
+        rollTrackingEditedField: 'lastRollWeightLbs'
+      };
+
+      if (mode === 'edit' && preserveInitialFeetInEdit) {
+        const lastRollWeightValue = Number(value);
+        const coreWeightValue = Number(current.coreWeightLbs);
+        const lfWeightValue = Number(current.lfWeightLbsPerFt);
+        const initialFeetValueForRollMath = Number(current.initialFeet);
+
+        if (
+          value.trim() &&
+          Number.isFinite(lastRollWeightValue) &&
+          lastRollWeightValue >= 0 &&
+          Number.isFinite(coreWeightValue) &&
+          coreWeightValue >= 0 &&
+          Number.isFinite(lfWeightValue) &&
+          lfWeightValue > 0 &&
+          Number.isFinite(initialFeetValueForRollMath) &&
+          initialFeetValueForRollMath >= 0
+        ) {
+          nextDraft.currentFeetOnRoll = String(
+            deriveFeetAvailableFromRollWeight(
+              lastRollWeightValue,
+              coreWeightValue,
+              lfWeightValue,
+              initialFeetValueForRollMath
+            )
+          );
+        }
+      }
+
+      return nextDraft;
+    });
+  };
+
   const widthButtonValues = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
   const isCustomWidthValid =
     customWidthDraft.trim() !== '' &&
@@ -242,10 +324,15 @@ export function BoxForm({
     ? (Math.round((purchaseCostValue / initialFeetValue) * 10000) / 10000).toFixed(4)
     : '';
   const pricePerLfHint = shouldAutoDerivePricePerLf
-    ? 'Auto-calculated from Purchase Cost / Linear Feet.'
+    ? 'Auto-calculated from Purchase Cost / Initial Linear Feet.'
     : hasPurchaseCost
-      ? 'Initial LF must be greater than 0 when Purchase Cost is set.'
+      ? 'Initial Linear Feet must be greater than 0 when Purchase Cost is set.'
       : undefined;
+  const footageFieldLabel = mode === 'create' ? 'Initial Linear Feet' : 'Current Linear Feet';
+  const footageSectionCopy =
+    mode === 'create'
+      ? 'Set the label, product, width, and starting footage.'
+      : 'Set the label, product, width, and current footage.';
   const manufacturerOptions = getManufacturerOptionsWithCatalog(filmCatalogEntries);
   const isKnownManufacturer = hasManufacturerOption(draft.manufacturer, manufacturerOptions);
   const manufacturerSelectValue = isKnownManufacturer
@@ -353,7 +440,7 @@ export function BoxForm({
         <div className={`form-section ${mode === 'create' ? 'form-section-first' : ''}`.trim()}>
           <div className="form-section-header">
             <h3>Box Identity</h3>
-            <p className="muted-text">Set the label, product, width, and starting footage.</p>
+            <p className="muted-text">{footageSectionCopy}</p>
           </div>
           <div className="form-grid">
           <Input
@@ -433,14 +520,12 @@ export function BoxForm({
             </div>
           </div>
           <Input
-            label="Linear Feet"
+            label={footageFieldLabel}
             type="text"
             inputMode="numeric"
             pattern="[0-9]*"
-            value={draft.initialFeet}
-            onChange={(event) =>
-              updateField('initialFeet', event.target.value.replace(/[^0-9]/g, ''))
-            }
+            value={mode === 'create' ? draft.initialFeet : draft.currentFeetOnRoll}
+            onChange={(event) => handleFootageChange(event.target.value)}
             required
           />
           <Input
@@ -544,7 +629,7 @@ export function BoxForm({
               step="0.01"
               min="0"
               value={draft.lastRollWeightLbs}
-              onChange={(event) => updateField('lastRollWeightLbs', event.target.value)}
+              onChange={(event) => handleLastRollWeightChange(event.target.value)}
             />
           ) : null}
           {mode === 'edit' ? (

@@ -138,6 +138,7 @@ export interface AddBoxPayload {
 
 export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId'> {
   boxId: string;
+  currentFeetOnRoll?: number;
   moveToZeroed?: boolean;
   reactivateFromZeroed?: boolean;
 }

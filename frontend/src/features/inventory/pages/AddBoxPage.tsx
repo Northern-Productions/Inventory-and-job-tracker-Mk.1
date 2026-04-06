@@ -98,6 +98,7 @@ export default function AddBoxPage() {
       filmName: filmOrderPrefill.filmName || draft.filmName,
       widthIn: filmOrderPrefill.widthIn || draft.widthIn,
       initialFeet: filmOrderPrefill.initialFeet || draft.initialFeet,
+      currentFeetOnRoll: filmOrderPrefill.initialFeet || draft.currentFeetOnRoll,
       notes: filmOrderPrefill.notes || draft.notes
     };
   }, [filmOrderPrefill, retryState?.retryDraft]);
