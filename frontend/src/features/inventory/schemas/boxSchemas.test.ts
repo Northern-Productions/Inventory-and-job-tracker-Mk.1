@@ -5,12 +5,15 @@ import { createEmptyBoxDraft } from '../utils/boxHelpers';
 import { parseAddBoxDraft, parseUpdateBoxDraft } from './boxSchemas';
 
 function buildDraft(overrides: Partial<BoxDraft> = {}): BoxDraft {
+  const resolvedInitialFeet = overrides.initialFeet ?? '200';
+
   return {
     ...createEmptyBoxDraft('3M Solar'),
     boxId: 'IL1-100',
     filmName: 'Crystalline 70',
     widthIn: '48',
-    initialFeet: '200',
+    initialFeet: resolvedInitialFeet,
+    currentFeetOnRoll: overrides.currentFeetOnRoll ?? resolvedInitialFeet,
     feetAvailable: '200',
     orderDate: '2026-03-22',
     ...overrides
@@ -202,6 +205,8 @@ describe('boxSchemas price derivation', () => {
   it('falls back to the stored feet when received-box weight metadata is incomplete', () => {
     const payload = parseUpdateBoxDraft(
       buildDraft({
+        initialFeet: '20',
+        currentFeetOnRoll: '13',
         receivedDate: '2026-03-30',
         feetAvailable: '0',
         lastRollWeightLbs: '',

@@ -27,7 +27,9 @@ import {
   shouldAutoMoveToZeroed
 } from './boxHelpers';
 
-function createBox(overrides: Partial<import('../../../domain').Box> = {}) {
+function createBox(
+  overrides: Partial<import('../../../domain').Box> & { coreType?: string } = {}
+) {
   return {
     boxId: 'IL1-1',
     warehouse: 'IL1',
@@ -127,7 +129,7 @@ describe('boxHelpers', () => {
       }
     );
 
-    expect(risky).toEqual(['Linear Feet', 'Width']);
+    expect(risky).toEqual(['Initial Linear Feet', 'Width']);
   });
 
   it('builds the next suggested box id per warehouse', () => {
@@ -365,7 +367,7 @@ describe('boxHelpers', () => {
   it('normalizes legacy Cardboard 3/4" values in edit drafts', () => {
     const draft = createDraftFromBox(
       createBox({
-        coreType: 'Cardboard 3/4"'
+        coreType: 'Cardboard 3/4"' as import('../../../domain').Box['coreType']
       })
     );
 

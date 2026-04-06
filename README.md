@@ -115,6 +115,19 @@ Do not set `VITE_PROXY_TARGET` in Vercel.
 
 Redeploy after changing env vars.
 
+### Supabase password reset redirect URLs
+
+The login page now supports `Forgot Password`, which sends Supabase password reset emails back to the frontend shell root path instead of a hash route.
+
+In Supabase Auth URL Configuration:
+
+- Set the Site URL to your real production app origin and path.
+- Add your production frontend URL as an allowed Redirect URL.
+- Add your local frontend dev URL, for example `http://localhost:5173/**`.
+- If you use Vercel previews, add the preview pattern as an allowed Redirect URL as well.
+
+If these redirect URLs are missing, reset-password emails will not return users to the app correctly.
+
 ## Local Development
 
 Install frontend deps:

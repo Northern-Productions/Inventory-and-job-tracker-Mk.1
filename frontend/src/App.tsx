@@ -34,6 +34,15 @@ function PwaUpdateBanner() {
 export default function App() {
   const auth = useAuth();
 
+  if (auth.isPasswordRecovery) {
+    return (
+      <>
+        <PwaUpdateBanner />
+        <AuthGate />
+      </>
+    );
+  }
+
   if (!auth.isReady || !auth.isAuthenticated) {
     return (
       <>
