@@ -21,6 +21,11 @@ import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
 import type { AuthIdentity } from "./types.ts";
+import {
+  computeCoveredFeetForAllocation,
+  isSplitCoveragePair,
+  planCoverageAllocation,
+} from "../../../frontend/src/domain/allocationCoverageContract.mjs";
 
 type CacheEntry = {
   expiresAt: number;
@@ -1609,6 +1614,15 @@ function allocationMatchesRequirement(box: any, requirement: any) {
   );
 }
 
+function getStoredAllocationCoveredFeet(allocation: any) {
+  const coveredFeet = integerOrZero(allocation.coveredFeet);
+  if (coveredFeet > 0) {
+    return coveredFeet;
+  }
+
+  return integerOrZero(allocation.allocatedFeet);
+}
+
 function buildAllocationCoverageByRequirementId(requirements: any[], allocations: any[], boxById: Record<string, any>) {
   const grouped: Record<string, {
     requirements: Array<{
@@ -1663,11 +1677,12 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
 
     const boundRequirementId = asTrimmedString(allocation.requirementId);
     const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
       coverageByRequirementId[boundRequirementId] = Math.min(
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
         Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) +
-          Math.max(0, Number(allocation.allocatedFeet || 0)),
+          coveredFeet,
       );
       continue;
     }
@@ -1681,7 +1696,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     }
     grouped[groupKey].pools.push({
       widthIn: Number(box.widthIn) || 0,
-      remainingFeet: Math.max(0, Number(allocation.allocatedFeet || 0)),
+      remainingFeet: coveredFeet,
     });
   }
 
@@ -1814,10 +1829,10 @@ function buildAllocationJobSummary(
     }
     if (allocation.status === "ACTIVE") {
       hasActiveAllocation = true;
-      activeAllocatedFeet += allocation.allocatedFeet;
+      activeAllocatedFeet += getStoredAllocationCoveredFeet(allocation);
     } else if (allocation.status === "FULFILLED") {
       hasFulfilledRecord = true;
-      fulfilledAllocatedFeet += allocation.allocatedFeet;
+      fulfilledAllocatedFeet += getStoredAllocationCoveredFeet(allocation);
     } else if (allocation.status === "CANCELLED") {
       hasCancelledRecord = true;
     }
@@ -2379,8 +2394,12 @@ function buildAllocationPreviewPlan(
     throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, options.activeAllocationsByBox);
-  const sourceSuggestedFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
-  let remaining = requested - sourceSuggestedFeet;
+  const sourcePlan = sourceConflicts.length
+    ? { allocatedFeet: 0, coveredFeet: 0, remainingCoveredFeet: requested }
+    : planCoverageAllocation(requested, sourceBox.feetAvailable, sourceBox.widthIn, minimumWidthIn);
+  const sourceSuggestedFeet = sourcePlan.allocatedFeet;
+  const sourceSuggestedCoveredFeet = sourcePlan.coveredFeet;
+  let remaining = sourcePlan.remainingCoveredFeet;
   const candidateBoxes = options.crossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
@@ -2393,6 +2412,18 @@ function buildAllocationPreviewPlan(
     candidate.widthIn >= minimumWidthIn
   );
   filteredCandidates.sort((left, right) => {
+    const leftIsExactMatch = left.widthIn === minimumWidthIn;
+    const rightIsExactMatch = right.widthIn === minimumWidthIn;
+    if (leftIsExactMatch !== rightIsExactMatch) {
+      return leftIsExactMatch ? -1 : 1;
+    }
+
+    const leftIsPreferredSplitMatch = isSplitCoveragePair(left.widthIn, minimumWidthIn);
+    const rightIsPreferredSplitMatch = isSplitCoveragePair(right.widthIn, minimumWidthIn);
+    if (leftIsPreferredSplitMatch !== rightIsPreferredSplitMatch) {
+      return leftIsPreferredSplitMatch ? -1 : 1;
+    }
+
     const leftWidthDelta = left.widthIn - minimumWidthIn;
     const rightWidthDelta = right.widthIn - minimumWidthIn;
     if (leftWidthDelta !== rightWidthDelta) {
@@ -2408,18 +2439,19 @@ function buildAllocationPreviewPlan(
     if (conflicts.length) {
       continue;
     }
-    const suggestedFeet = remaining > 0 ? Math.min(candidate.feetAvailable, remaining) : 0;
+    const candidatePlan = planCoverageAllocation(remaining, candidate.feetAvailable, candidate.widthIn, minimumWidthIn);
     suggestions.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
       widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
-      suggestedFeet,
+      suggestedFeet: candidatePlan.allocatedFeet,
+      suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
       orderDate: candidate.orderDate,
     });
     if (remaining > 0) {
-      remaining -= Math.min(candidate.feetAvailable, remaining);
+      remaining = candidatePlan.remainingCoveredFeet;
     }
   }
 
@@ -2428,10 +2460,13 @@ function buildAllocationPreviewPlan(
     jobDate: jobContext.jobDate,
     crewLeader: jobContext.crewLeader,
     requestedFeet: requested,
+    requestedWidthIn: minimumWidthIn,
     sourceBoxId: sourceBox.boxId,
     sourceWarehouse: sourceBox.warehouse,
+    sourceWidthIn: sourceBox.widthIn,
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceSuggestedFeet,
+    sourceSuggestedCoveredFeet,
     sourceConflicts,
     suggestions,
     defaultCoveredFeet: requested - remaining,
@@ -3908,7 +3943,7 @@ async function recalculateFilmOrderAfterAllocationMutation(
   let coveredFeet = 0;
   for (const allocation of allocations) {
     if (allocation.status !== "CANCELLED") {
-      coveredFeet += integerOrZero(allocation.allocatedFeet);
+      coveredFeet += getStoredAllocationCoveredFeet(allocation);
     }
   }
 

@@ -1,12 +1,16 @@
+import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
+
 export interface AllocationCandidateBox {
   boxId: string;
   warehouse?: string;
   feetAvailable: number;
+  widthIn?: number;
 }
 
 export interface PlannedCandidateAllocation {
   boxId: string;
   allocatedFeet: number;
+  coveredFeet: number;
 }
 
 export interface BuildExtraAllocationsResult {
@@ -66,7 +70,8 @@ export function autoSelectCandidateBoxIds(
   candidates: AllocationCandidateBox[],
   requestedFeet: number,
   preferredBoxIds: Iterable<string> = [],
-  preferredWarehouse = ''
+  preferredWarehouse = '',
+  requirementWidthIn = 0
 ): string[] {
   const requested = toRequestedFeet(requestedFeet);
   if (requested <= 0) {
@@ -75,10 +80,10 @@ export function autoSelectCandidateBoxIds(
 
   const prioritized = prioritizeCandidateBoxes(candidates, preferredBoxIds, preferredWarehouse);
   const selected: string[] = [];
-  let remaining = requested;
+  let remainingCoverageFeet = requested;
 
   for (let index = 0; index < prioritized.length; index += 1) {
-    if (remaining <= 0) {
+    if (remainingCoverageFeet <= 0) {
       break;
     }
 
@@ -89,7 +94,12 @@ export function autoSelectCandidateBoxIds(
     }
 
     selected.push(candidate.boxId);
-    remaining -= Math.min(availableFeet, remaining);
+    remainingCoverageFeet = planCoverageAllocation(
+      remainingCoverageFeet,
+      availableFeet,
+      candidate.widthIn,
+      requirementWidthIn
+    ).remainingCoveredFeet;
   }
 
   return selected;
@@ -98,7 +108,8 @@ export function autoSelectCandidateBoxIds(
 export function planSelectedCandidateAllocation(
   candidates: AllocationCandidateBox[],
   requestedFeet: number,
-  selectedBoxIds: Iterable<string>
+  selectedBoxIds: Iterable<string>,
+  requirementWidthIn = 0
 ): {
   allocations: PlannedCandidateAllocation[];
   coveredFeet: number;
@@ -116,10 +127,10 @@ export function planSelectedCandidateAllocation(
   }
 
   const allocations: PlannedCandidateAllocation[] = [];
-  let remaining = requested;
+  let remainingCoverageFeet = requested;
 
   for (let index = 0; index < candidates.length; index += 1) {
-    if (remaining <= 0) {
+    if (remainingCoverageFeet <= 0) {
       break;
     }
 
@@ -133,32 +144,45 @@ export function planSelectedCandidateAllocation(
       continue;
     }
 
-    const allocatedFeet = Math.min(availableFeet, remaining);
+    const nextPlan = planCoverageAllocation(
+      remainingCoverageFeet,
+      availableFeet,
+      candidate.widthIn,
+      requirementWidthIn
+    );
+    const allocatedFeet = nextPlan.allocatedFeet;
+    const coveredFeet = nextPlan.coveredFeet;
+    if (allocatedFeet <= 0 || coveredFeet <= 0) {
+      continue;
+    }
+
     allocations.push({
       boxId: candidate.boxId,
-      allocatedFeet
+      allocatedFeet,
+      coveredFeet
     });
-    remaining -= allocatedFeet;
+    remainingCoverageFeet = nextPlan.remainingCoveredFeet;
   }
 
   return {
     allocations,
-    coveredFeet: requested - remaining,
-    remainingFeet: remaining
+    coveredFeet: requested - remainingCoverageFeet,
+    remainingFeet: remainingCoverageFeet
   };
 }
 
 export function getSelectedExtraBoxIds(
   candidates: AllocationCandidateBox[],
   requestedFeet: number,
-  selectedBoxIds: Iterable<string>
+  selectedBoxIds: Iterable<string>,
+  requirementWidthIn = 0
 ): string[] {
   const selected = toNormalizedSelectedSet(selectedBoxIds);
   if (!selected.size) {
     return [];
   }
 
-  const planned = planSelectedCandidateAllocation(candidates, requestedFeet, selected);
+  const planned = planSelectedCandidateAllocation(candidates, requestedFeet, selected, requirementWidthIn);
   const plannedByBoxId = new Set(planned.allocations.map((entry) => entry.boxId));
   const extras: string[] = [];
 
@@ -225,7 +249,7 @@ export function buildValidatedExtraAllocations(
       };
     }
 
-    extras.push({ boxId, allocatedFeet });
+    extras.push({ boxId, allocatedFeet, coveredFeet: allocatedFeet });
   }
 
   return {

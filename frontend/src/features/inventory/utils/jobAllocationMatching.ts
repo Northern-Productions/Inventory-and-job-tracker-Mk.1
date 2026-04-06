@@ -1,4 +1,5 @@
 import type { Box, JobRequirementLine } from '../../../domain';
+import { isSplitCoveragePair } from '../../../domain/allocationCoverageContract.mjs';
 import { buildJobPlanningFilmKey } from './jobPlanningFilmIdentity';
 
 function compareDates(leftDate: string, rightDate: string) {
@@ -14,6 +15,18 @@ function getStockDate(box: Pick<Box, 'receivedDate' | 'orderDate'>) {
 }
 
 function compareBoxesByClosestCompatibleWidth(left: Box, right: Box, minimumWidthIn: number) {
+  const leftIsExactMatch = left.widthIn === minimumWidthIn;
+  const rightIsExactMatch = right.widthIn === minimumWidthIn;
+  if (leftIsExactMatch !== rightIsExactMatch) {
+    return leftIsExactMatch ? -1 : 1;
+  }
+
+  const leftIsPreferredSplitMatch = isSplitCoveragePair(left.widthIn, minimumWidthIn);
+  const rightIsPreferredSplitMatch = isSplitCoveragePair(right.widthIn, minimumWidthIn);
+  if (leftIsPreferredSplitMatch !== rightIsPreferredSplitMatch) {
+    return leftIsPreferredSplitMatch ? -1 : 1;
+  }
+
   const leftWidthDelta = left.widthIn - minimumWidthIn;
   const rightWidthDelta = right.widthIn - minimumWidthIn;
   if (leftWidthDelta !== rightWidthDelta) {

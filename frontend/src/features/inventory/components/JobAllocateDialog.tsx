@@ -67,6 +67,14 @@ function collectPreferredLinkedBoxIds(
   return preferred;
 }
 
+function formatPlannedFeet(allocatedFeet: number, coveredFeet: number) {
+  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
+    return `${allocatedFeet} physical / ${coveredFeet} covered`;
+  }
+
+  return String(allocatedFeet);
+}
+
 export function JobAllocateDialog({
   open,
   jobNumber,
@@ -156,14 +164,23 @@ export function JobAllocateDialog({
     Boolean(selectedRequirement) &&
     !prioritizedMatchingBoxes.length;
   const plannedSelection = useMemo(
-    () => planSelectedCandidateAllocation(prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds),
-    [prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds]
+    () =>
+      planSelectedCandidateAllocation(
+        prioritizedMatchingBoxes,
+        requestedFeetValue,
+        selectedBoxIds,
+        selectedRequirement?.widthIn || 0
+      ),
+    [prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds, selectedRequirement?.widthIn]
   );
   const plannedFeetByBox = useMemo(() => {
-    const mapped = new Map<string, number>();
+    const mapped = new Map<string, { allocatedFeet: number; coveredFeet: number }>();
     for (let index = 0; index < plannedSelection.allocations.length; index += 1) {
       const allocation = plannedSelection.allocations[index];
-      mapped.set(allocation.boxId, allocation.allocatedFeet);
+      mapped.set(allocation.boxId, {
+        allocatedFeet: allocation.allocatedFeet,
+        coveredFeet: allocation.coveredFeet
+      });
     }
     return mapped;
   }, [plannedSelection.allocations]);
@@ -240,7 +257,13 @@ export function JobAllocateDialog({
 
     autoSelectionKeyRef.current = nextKey;
     setSelectedBoxIds(
-      autoSelectCandidateBoxIds(prioritizedMatchingBoxes, requestedFeetValue, preferredLinkedBoxIds, warehouse)
+      autoSelectCandidateBoxIds(
+        prioritizedMatchingBoxes,
+        requestedFeetValue,
+        preferredLinkedBoxIds,
+        warehouse,
+        selectedRequirement.widthIn
+      )
     );
   }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement, warehouse]);
 
@@ -305,7 +328,13 @@ export function JobAllocateDialog({
 
       const summary =
         result.allocations.length > 0
-          ? result.allocations.map((entry) => `${entry.boxId}: ${entry.allocatedFeet} LF`).join(', ')
+          ? result.allocations
+              .map((entry) =>
+                entry.coveredFeet !== entry.allocatedFeet
+                  ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
+                  : `${entry.boxId}: ${entry.allocatedFeet} LF`
+              )
+              .join(', ')
           : 'No matching boxes covered this request.';
       const filmOrderSuffix = result.filmOrder
         ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
@@ -464,7 +493,7 @@ export function JobAllocateDialog({
                     <th>Film Name</th>
                     <th>Width</th>
                     <th>Avail LF</th>
-                    <th>Allocated LF</th>
+                    <th>Planned LF</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -482,7 +511,14 @@ export function JobAllocateDialog({
                       <td>{box.filmName}</td>
                       <td>{box.widthIn}</td>
                       <td>{box.feetAvailable}</td>
-                      <td>{plannedFeetByBox.get(box.boxId) || 0}</td>
+                      <td>
+                        {plannedFeetByBox.has(box.boxId)
+                          ? formatPlannedFeet(
+                              plannedFeetByBox.get(box.boxId)?.allocatedFeet || 0,
+                              plannedFeetByBox.get(box.boxId)?.coveredFeet || 0
+                            )
+                          : '0'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

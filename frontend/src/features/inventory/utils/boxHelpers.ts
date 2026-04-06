@@ -38,8 +38,9 @@ export const CORE_TYPE_OPTIONS = [
   'White plastic',
   'Red plastic',
   'Cardboard 1/8"',
-  'Cardboard 3/4"',
-  'SECURITY 1/4" Cardboard'
+  'Cardboard 3/8"',
+  'SECURITY 1/4" Cardboard',
+  'SECURITY White plastic 3/8"'
 ] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
@@ -48,8 +49,9 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'White plastic': 2,
   'Red plastic': 1.85,
   'Cardboard 1/8"': 2.05,
-  'Cardboard 3/4"': 6.15,
-  'SECURITY 1/4" Cardboard': 11.6
+  'Cardboard 3/8"': 6.15,
+  'SECURITY 1/4" Cardboard': 11.6,
+  'SECURITY White plastic 3/8"': 14.4
 };
 
 export interface BoxDraft {
@@ -80,6 +82,16 @@ function normalizeManufacturerLabel(value: string) {
 
 function normalizeManufacturerKey(value: string) {
   return normalizeManufacturerLookupKey(value);
+}
+
+export function normalizeCoreTypeValue(value: string): string {
+  const trimmed = value.trim();
+
+  if (trimmed === 'Cardboard 3/4"' || trimmed === 'Cardboard 3/4') {
+    return 'Cardboard 3/8"';
+  }
+
+  return trimmed;
 }
 
 function dedupeManufacturerLabels(values: string[]) {
@@ -418,7 +430,7 @@ export function createDraftFromBox(box: Box): BoxDraft {
     lastRollWeightLbs: box.lastRollWeightLbs == null ? '' : String(box.lastRollWeightLbs),
     lastWeighedDate: toDateInputValue(box.lastWeighedDate),
     filmKey: box.filmKey,
-    coreType: box.coreType,
+    coreType: normalizeCoreTypeValue(box.coreType),
     coreWeightLbs: box.coreWeightLbs == null ? '' : String(box.coreWeightLbs),
     lfWeightLbsPerFt: box.lfWeightLbsPerFt == null ? '' : String(box.lfWeightLbsPerFt),
     pricePerLf: box.pricePerLf == null ? '' : String(box.pricePerLf),

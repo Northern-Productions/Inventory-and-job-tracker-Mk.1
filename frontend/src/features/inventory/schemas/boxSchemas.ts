@@ -13,6 +13,7 @@ import {
   CORE_TYPE_OPTIONS,
   deriveCreateFeetAvailable,
   normalizeTrailingLetterBoxId,
+  normalizeCoreTypeValue,
   resolveEditedReceivedBoxFeetAvailable
 } from '../utils/boxHelpers';
 
@@ -33,7 +34,11 @@ const optionalCoreTypeString = z
   .string()
   .trim()
   .refine(
-    (value) => value === '' || CORE_TYPE_OPTIONS.includes(value as (typeof CORE_TYPE_OPTIONS)[number]),
+    (value) =>
+      value === '' ||
+      CORE_TYPE_OPTIONS.includes(
+        normalizeCoreTypeValue(value) as (typeof CORE_TYPE_OPTIONS)[number]
+      ),
     'Select a core type.'
   );
 const dateString = z
@@ -121,7 +126,7 @@ function resolvePricePerLfForDraft(
 }
 
 function parseCoreType(value: string): AddBoxPayload['coreType'] {
-  return value.trim() as AddBoxPayload['coreType'];
+  return normalizeCoreTypeValue(value) as AddBoxPayload['coreType'];
 }
 
 export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {

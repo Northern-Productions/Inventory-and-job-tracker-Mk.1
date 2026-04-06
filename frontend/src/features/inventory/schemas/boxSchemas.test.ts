@@ -59,6 +59,7 @@ function buildAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEn
     jobDate: '2026-04-01',
     crewLeader: 'Crew Lead',
     allocatedFeet: 5,
+    coveredFeet: Number(overrides.coveredFeet ?? overrides.allocatedFeet ?? 5),
     allocationKind: 'REQUIREMENT',
     status: 'ACTIVE',
     createdAt: '2026-04-01T12:00:00.000Z',
@@ -72,6 +73,16 @@ function buildAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEn
 }
 
 describe('boxSchemas price derivation', () => {
+  it('accepts SECURITY White plastic 3/8" as a selectable core type', () => {
+    const payload = parseAddBoxDraft(
+      buildDraft({
+        coreType: 'SECURITY White plastic 3/8"'
+      })
+    );
+
+    expect(payload.coreType).toBe('SECURITY White plastic 3/8"');
+  });
+
   it('derives add payload pricePerLf from purchaseCost and initialFeet', () => {
     const payload = parseAddBoxDraft(
       buildDraft({

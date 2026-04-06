@@ -362,6 +362,16 @@ describe('boxHelpers', () => {
     expect(draft.receivedDate).toBe('2026-02-28');
   });
 
+  it('normalizes legacy Cardboard 3/4" values in edit drafts', () => {
+    const draft = createDraftFromBox(
+      createBox({
+        coreType: 'Cardboard 3/4"'
+      })
+    );
+
+    expect(draft.coreType).toBe('Cardboard 3/8"');
+  });
+
   it('derives film and core weights for any width and length', () => {
     const coreWeight = deriveCoreWeightLbs('Red plastic', 48);
     const lfWeight = deriveLfWeightLbsPerFt(0.0625, 48);
@@ -374,9 +384,9 @@ describe('boxHelpers', () => {
     expect(sqFtWeight).toBeCloseTo(0.0625, 4);
   });
 
-  it('derives Cardboard 3/4" as 3x Cardboard 1/8" at the same width', () => {
+  it('derives Cardboard 3/8" as 3x Cardboard 1/8" at the same width', () => {
     const cardboardWeight = deriveCoreWeightLbs('Cardboard 1/8"', 72);
-    const thickCardboardWeight = deriveCoreWeightLbs('Cardboard 3/4"', 72);
+    const thickCardboardWeight = deriveCoreWeightLbs('Cardboard 3/8"', 72);
 
     expect(thickCardboardWeight).toBeCloseTo(cardboardWeight * 3, 4);
     expect(thickCardboardWeight).toBe(6.15);
@@ -386,6 +396,12 @@ describe('boxHelpers', () => {
     const securityCoreWeight = deriveCoreWeightLbs('SECURITY 1/4" Cardboard', 72);
 
     expect(securityCoreWeight).toBe(11.6);
+  });
+
+  it('derives SECURITY White plastic 3/8" at the 72-inch reference width', () => {
+    const securityWhiteCoreWeight = deriveCoreWeightLbs('SECURITY White plastic 3/8"', 72);
+
+    expect(securityWhiteCoreWeight).toBe(14.4);
   });
 
   it('derives remaining feet from the last roll weight', () => {

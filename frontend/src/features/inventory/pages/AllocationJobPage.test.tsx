@@ -170,6 +170,7 @@ function buildMaterialJobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
         jobDate: '2026-03-20',
         crewLeader: 'Crew',
         allocatedFeet: 8,
+        coveredFeet: 8,
         status: 'ACTIVE',
         allocationKind: 'REQUIREMENT',
         createdAt: '2026-03-20T00:00:00Z',
@@ -616,6 +617,7 @@ describe('AllocationJobPage', () => {
           jobDate: '2026-03-20',
           crewLeader: 'Crew',
           allocatedFeet: 50,
+          coveredFeet: 50,
           status: 'ACTIVE',
           allocationKind: 'REQUIREMENT',
           createdAt: '2026-03-20T00:00:00Z',
@@ -638,6 +640,7 @@ describe('AllocationJobPage', () => {
           jobDate: '2026-03-20',
           crewLeader: 'Crew',
           allocatedFeet: 60,
+          coveredFeet: 60,
           status: 'ACTIVE',
           allocationKind: 'REQUIREMENT',
           createdAt: '2026-03-20T00:00:00Z',
@@ -668,6 +671,65 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('Check Out');
   });
 
+  it('renders split allocations with both physical and covered LF', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'READY',
+        requiredFeet: 20,
+        allocatedFeet: 20,
+        remainingFeet: 0
+      }) as JobDetail['summary'],
+      requirements: [
+        {
+          requirementId: 'req-36',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 36,
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-split',
+          boxId: 'MS1-3608',
+          warehouse: 'MS1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 10,
+          coveredFeet: 20,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('10 physical / 20 covered');
+  });
+
   it('disables manual job completion while returned materials are still outstanding', () => {
     const detail: JobDetail = {
       ...baseDetail,
@@ -681,6 +743,7 @@ describe('AllocationJobPage', () => {
           jobDate: '2026-03-20',
           crewLeader: 'Crew',
           allocatedFeet: 50,
+          coveredFeet: 50,
           status: 'ACTIVE',
           allocationKind: 'REQUIREMENT',
           createdAt: '2026-03-20T00:00:00Z',

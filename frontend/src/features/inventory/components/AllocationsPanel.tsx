@@ -18,6 +18,14 @@ function renderDateTime(value: string): string {
   return value ? formatDateTime(value) : '--';
 }
 
+function formatAllocationFeet(allocatedFeet: number, coveredFeet: number) {
+  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
+    return `${allocatedFeet} physical / ${coveredFeet} covered`;
+  }
+
+  return String(allocatedFeet);
+}
+
 export function AllocationsPanel({
   boxId,
   feetAvailable,
@@ -86,7 +94,7 @@ export function AllocationsPanel({
                   <MobileFieldList>
                     <MobileField label="Job Date" value={renderDate(entry.jobDate)} />
                     <MobileField label="Crew" value={entry.crewLeader || '--'} />
-                    <MobileField label="LF" value={entry.allocatedFeet} />
+                    <MobileField label="LF" value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)} />
                     <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
                   </MobileFieldList>
                 </MobileRecordCard>
@@ -113,7 +121,7 @@ export function AllocationsPanel({
                       <td>{entry.jobNumber}</td>
                       <td>{renderDate(entry.jobDate)}</td>
                       <td>{entry.crewLeader || '--'}</td>
-                      <td>{entry.allocatedFeet}</td>
+                      <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)}</td>
                       <td>{entry.status}</td>
                       <td>{renderDateTime(entry.resolvedAt)}</td>
                     </tr>

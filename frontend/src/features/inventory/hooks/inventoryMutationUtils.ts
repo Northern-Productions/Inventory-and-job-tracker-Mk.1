@@ -19,6 +19,7 @@ import type {
   JobRequirementLine
 } from '../../../domain';
 import { WAREHOUSE_CODES } from '../../../domain';
+import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 // Purpose: Shared optimistic mutation and cache helper utilities for inventory hooks.
@@ -254,23 +255,20 @@ function buildOptimisticAllocationRows(
   const jobAllocations: AllocationJobDetailEntry[] = [];
   const allocatedFeetByBoxId: Record<string, number> = {};
   const now = new Date().toISOString();
+  const requirementWidthIn =
+    Number(payload.requestedWidthIn) || Number(selectedRequirement?.widthIn) || 0;
   let remainingFeet = Math.max(0, Math.floor(Number(payload.requestedFeet || 0)));
 
   function addOptimisticAllocation(
     boxId: string,
-    allocatedFeet: number,
+    availableFeet: number,
     options: {
       warehouse?: string;
       widthIn?: number;
       box?: Box | null;
     } = {}
   ) {
-    if (allocatedFeet <= 0 || remainingFeet <= 0) {
-      return;
-    }
-
-    const nextAllocatedFeet = Math.min(allocatedFeet, remainingFeet);
-    if (nextAllocatedFeet <= 0) {
+    if (availableFeet <= 0 || remainingFeet <= 0) {
       return;
     }
 
@@ -284,9 +282,14 @@ function buildOptimisticAllocationRows(
     const widthIn =
       options.widthIn ||
       box?.widthIn ||
-      Number(payload.requestedWidthIn) ||
-      selectedRequirement?.widthIn ||
+      requirementWidthIn ||
       0;
+    const nextPlan = planCoverageAllocation(remainingFeet, availableFeet, widthIn, requirementWidthIn);
+    const nextAllocatedFeet = nextPlan.allocatedFeet;
+    const nextCoveredFeet = nextPlan.coveredFeet;
+    if (nextAllocatedFeet <= 0 || nextCoveredFeet <= 0) {
+      return;
+    }
     const manufacturer = box?.manufacturer || selectedRequirement?.manufacturer || '';
     const filmName = box?.filmName || selectedRequirement?.filmName || '';
     const allocationId = makePendingId(`allocation-${boxId}`);
@@ -299,6 +302,7 @@ function buildOptimisticAllocationRows(
       jobDate: payload.jobDate || '',
       crewLeader: payload.crewLeader || '',
       allocatedFeet: nextAllocatedFeet,
+      coveredFeet: nextCoveredFeet,
       requirementId: payload.requirementId,
       allocationKind: 'REQUIREMENT',
       status: 'ACTIVE',
@@ -318,6 +322,7 @@ function buildOptimisticAllocationRows(
       jobDate: payload.jobDate || '',
       crewLeader: payload.crewLeader || '',
       allocatedFeet: nextAllocatedFeet,
+      coveredFeet: nextCoveredFeet,
       requirementId: payload.requirementId,
       allocationKind: 'REQUIREMENT',
       status: 'ACTIVE',
@@ -335,7 +340,7 @@ function buildOptimisticAllocationRows(
     });
 
     allocatedFeetByBoxId[boxId] = (allocatedFeetByBoxId[boxId] || 0) + nextAllocatedFeet;
-    remainingFeet -= nextAllocatedFeet;
+    remainingFeet = nextPlan.remainingCoveredFeet;
   }
 
   if (preview) {
@@ -498,11 +503,11 @@ export function createOptimisticAllocationJobSummaryFromJobDetail(
   detail: JobDetail
 ): AllocationJobSummary {
   const activeAllocatedFeet = detail.allocations.reduce(
-    (sum, entry) => (entry.status === 'ACTIVE' ? sum + entry.allocatedFeet : sum),
+    (sum, entry) => (entry.status === 'ACTIVE' ? sum + getAllocationCoveredFeet(entry) : sum),
     0
   );
   const fulfilledAllocatedFeet = detail.allocations.reduce(
-    (sum, entry) => (entry.status === 'FULFILLED' ? sum + entry.allocatedFeet : sum),
+    (sum, entry) => (entry.status === 'FULFILLED' ? sum + getAllocationCoveredFeet(entry) : sum),
     0
   );
   const openFilmOrderCount = detail.filmOrders.reduce((sum, entry) => {
@@ -550,6 +555,17 @@ function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetai
   }
 
   return allocation.boxStatus === 'ZEROED' || allocation.boxStatus === 'RETIRED';
+}
+
+function getAllocationCoveredFeet(
+  allocation: Pick<AllocationJobDetailEntry, 'allocatedFeet' | 'coveredFeet'>
+) {
+  const coveredFeet = Math.max(0, Number(allocation.coveredFeet || 0));
+  if (coveredFeet > 0) {
+    return coveredFeet;
+  }
+
+  return Math.max(0, Number(allocation.allocatedFeet || 0));
 }
 
 function allocationMatchesRequirement(
@@ -617,11 +633,11 @@ function rebuildRequirementCoverage(
 
     const boundRequirementId = String(allocation.requirementId || '').trim();
     const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    const coveredFeet = getAllocationCoveredFeet(allocation);
     if (boundRequirement && allocationMatchesRequirement(allocation, boundRequirement)) {
       const nextCoveredFeet = Math.min(
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) +
-          Math.max(0, Number(allocation.allocatedFeet || 0))
+        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) + coveredFeet
       );
       coverageByRequirementId[boundRequirementId] = nextCoveredFeet;
       continue;
@@ -637,7 +653,7 @@ function rebuildRequirementCoverage(
 
     grouped[groupKey].pools.push({
       widthIn: Number(allocation.widthIn) || 0,
-      remainingFeet: Math.max(0, Number(allocation.allocatedFeet || 0))
+      remainingFeet: coveredFeet
     });
   }
 
@@ -927,11 +943,11 @@ export function applyOptimisticAllocationAdditionToCaches(
         summary: {
           ...current.summary,
           activeAllocatedFeet: nextAllocations.reduce(
-            (sum, entry) => (entry.status === 'ACTIVE' ? sum + entry.allocatedFeet : sum),
+            (sum, entry) => (entry.status === 'ACTIVE' ? sum + getAllocationCoveredFeet(entry) : sum),
             0
           ),
           fulfilledAllocatedFeet: nextAllocations.reduce(
-            (sum, entry) => (entry.status === 'FULFILLED' ? sum + entry.allocatedFeet : sum),
+            (sum, entry) => (entry.status === 'FULFILLED' ? sum + getAllocationCoveredFeet(entry) : sum),
             0
           ),
           boxCount: new Set(nextAllocations.map((entry) => entry.boxId).filter(Boolean)).size

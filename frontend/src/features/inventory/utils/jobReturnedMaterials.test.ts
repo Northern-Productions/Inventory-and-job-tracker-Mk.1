@@ -7,54 +7,51 @@ import {
   summarizeReturnedMaterials
 } from './jobReturnedMaterials';
 
+function buildAllocation(overrides: Record<string, unknown> = {}) {
+  const allocatedFeet = Number(overrides.allocatedFeet ?? 0);
+  return {
+    allocationId: 'alloc-1',
+    boxId: 'IL1-100',
+    warehouse: 'IL1',
+    jobNumber: '000123',
+    jobDate: '2026-03-20',
+    crewLeader: 'Crew',
+    allocatedFeet,
+    coveredFeet: Number(overrides.coveredFeet ?? allocatedFeet),
+    status: 'ACTIVE' as const,
+    allocationKind: 'REQUIREMENT' as const,
+    createdAt: '',
+    createdBy: '',
+    resolvedAt: '',
+    resolvedBy: '',
+    filmOrderId: '',
+    notes: '',
+    manufacturer: '3M',
+    filmName: 'Ultra 70',
+    widthIn: 60,
+    boxStatus: 'IN_STOCK' as const,
+    checkedOutOnThisJob: false,
+    ...overrides
+  };
+}
+
 describe('jobReturnedMaterials', () => {
   it('counts checked-out film boxes and open caulk checkout cycles', () => {
     const summary = summarizeReturnedMaterials({
       allocations: [
-        {
-          allocationId: 'alloc-1',
-          boxId: 'IL1-100',
-          warehouse: 'IL1',
-          jobNumber: '000123',
-          jobDate: '2026-03-20',
-          crewLeader: 'Crew',
+        buildAllocation({
           allocatedFeet: 50,
-          status: 'ACTIVE',
-          allocationKind: 'REQUIREMENT',
-          createdAt: '',
-          createdBy: '',
-          resolvedAt: '',
-          resolvedBy: '',
-          filmOrderId: '',
-          notes: '',
-          manufacturer: '3M',
-          filmName: 'Ultra 70',
-          widthIn: 60,
+          coveredFeet: 50,
           boxStatus: 'CHECKED_OUT',
           checkedOutOnThisJob: true
-        },
-        {
+        }),
+        buildAllocation({
           allocationId: 'alloc-2',
           boxId: 'IL1-101',
-          warehouse: 'IL1',
-          jobNumber: '000123',
-          jobDate: '2026-03-20',
-          crewLeader: 'Crew',
           allocatedFeet: 60,
-          status: 'ACTIVE',
-          allocationKind: 'REQUIREMENT',
-          createdAt: '',
-          createdBy: '',
-          resolvedAt: '',
-          resolvedBy: '',
-          filmOrderId: '',
-          notes: '',
-          manufacturer: '3M',
-          filmName: 'Night Vision 35',
-          widthIn: 60,
-          boxStatus: 'IN_STOCK',
-          checkedOutOnThisJob: false
-        }
+          coveredFeet: 60,
+          filmName: 'Night Vision 35'
+        })
       ],
       caulkCheckouts: [
         {
@@ -90,28 +87,12 @@ describe('jobReturnedMaterials', () => {
     expect(
       getDeleteJobBlockingMessage({
         allocations: [
-          {
-            allocationId: 'alloc-1',
-            boxId: 'IL1-100',
-            warehouse: 'IL1',
-            jobNumber: '000123',
-            jobDate: '2026-03-20',
-            crewLeader: 'Crew',
+          buildAllocation({
             allocatedFeet: 50,
-            status: 'ACTIVE',
-            allocationKind: 'REQUIREMENT',
-            createdAt: '',
-            createdBy: '',
-            resolvedAt: '',
-            resolvedBy: '',
-            filmOrderId: '',
-            notes: '',
-            manufacturer: '3M',
-            filmName: 'Ultra 70',
-            widthIn: 60,
+            coveredFeet: 50,
             boxStatus: 'CHECKED_OUT',
             checkedOutOnThisJob: true
-          }
+          })
         ],
         caulkCheckouts: [
           {
@@ -142,28 +123,12 @@ describe('jobReturnedMaterials', () => {
     expect(
       getDeleteJobBlockingMessage({
         allocations: [
-          {
-            allocationId: 'alloc-1',
-            boxId: 'IL1-100',
-            warehouse: 'IL1',
-            jobNumber: '000123',
-            jobDate: '2026-03-20',
-            crewLeader: 'Crew',
+          buildAllocation({
             allocatedFeet: 50,
-            status: 'ACTIVE',
-            allocationKind: 'REQUIREMENT',
-            createdAt: '',
-            createdBy: '',
-            resolvedAt: '',
-            resolvedBy: '',
-            filmOrderId: '',
-            notes: '',
-            manufacturer: '3M',
-            filmName: 'Ultra 70',
-            widthIn: 60,
+            coveredFeet: 50,
             boxStatus: 'CHECKED_OUT',
             checkedOutOnThisJob: true
-          }
+          })
         ],
         caulkCheckouts: []
       })

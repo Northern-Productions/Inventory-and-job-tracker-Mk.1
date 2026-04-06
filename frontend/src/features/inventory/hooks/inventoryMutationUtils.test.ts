@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
+import type { AllocationJobDetailEntry, JobDetail } from '../../../domain';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
   applyOptimisticAllocationAdditionToCaches,
@@ -18,6 +19,24 @@ import {
   upsertJobsCalendarCaches,
   upsertFilmOrdersCache
 } from './inventoryMutationUtils';
+
+function withCoveredFeetEntries<T extends Array<{ allocatedFeet: number; coveredFeet?: number }>>(
+  entries: T
+): AllocationJobDetailEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    coveredFeet: Number(entry.coveredFeet ?? entry.allocatedFeet ?? 0)
+  })) as AllocationJobDetailEntry[];
+}
+
+function withCoveredFeetDetail<T extends { allocations: Array<{ allocatedFeet: number; coveredFeet?: number }> }>(
+  detail: T
+) : JobDetail {
+  return {
+    ...detail,
+    allocations: withCoveredFeetEntries(detail.allocations)
+  } as unknown as JobDetail;
+}
 
 function createQueryClient() {
   return new QueryClient({
@@ -685,7 +704,9 @@ describe('inventoryMutationUtils', () => {
       filmOrders: []
     });
 
-    syncJobSummaryCachesFromDetail(queryClient, freshDetail, { syncAllocationJobDetail: true });
+    syncJobSummaryCachesFromDetail(queryClient, withCoveredFeetDetail(freshDetail), {
+      syncAllocationJobDetail: true
+    });
 
     expect(queryClient.getQueryData(inventoryKeys.job('18959'))).toBeUndefined();
     expect(
@@ -858,7 +879,7 @@ describe('inventoryMutationUtils', () => {
     };
 
     const { detail: nextDetail, removedAllocation } = createOptimisticJobDetailAfterAllocationRemoval(
-      detail,
+      withCoveredFeetDetail(detail),
       'alloc-1'
     );
 
@@ -994,7 +1015,10 @@ describe('inventoryMutationUtils', () => {
       ]
     };
 
-    const { detail: nextDetail } = createOptimisticJobDetailAfterAllocationRemoval(detail, 'alloc-1');
+    const { detail: nextDetail } = createOptimisticJobDetailAfterAllocationRemoval(
+      withCoveredFeetDetail(detail),
+      'alloc-1'
+    );
 
     expect(nextDetail.summary.status).toBe('FILM_ORDER');
     expect(nextDetail.summary.remainingFeet).toBe(11);
@@ -1101,7 +1125,10 @@ describe('inventoryMutationUtils', () => {
       filmOrders: []
     };
 
-    const { detail: nextDetail } = createOptimisticJobDetailAfterAllocationRemoval(detail, 'alloc-50');
+    const { detail: nextDetail } = createOptimisticJobDetailAfterAllocationRemoval(
+      withCoveredFeetDetail(detail),
+      'alloc-50'
+    );
 
     expect(nextDetail.summary.allocatedFeet).toBe(10);
     expect(nextDetail.summary.remainingFeet).toBe(4);
@@ -1205,31 +1232,34 @@ describe('inventoryMutationUtils', () => {
       filmOrders: []
     };
 
-    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [
-      {
-        allocationId: 'pending-alloc-50',
-        boxId: 'IL1-6502',
-        warehouse: 'IL1',
-        jobNumber: '29002',
-        jobDate: '2026-04-03',
-        crewLeader: 'Crew',
-        allocatedFeet: 2,
-        requirementId: 'req-50',
-        allocationKind: 'REQUIREMENT' as const,
-        status: 'ACTIVE' as const,
-        createdAt: '2026-04-03T17:22:00.000Z',
-        createdBy: 'Pending...',
-        resolvedAt: '',
-        resolvedBy: '',
-        filmOrderId: '',
-        notes: 'Pending server confirmation',
-        manufacturer: '3M Solar',
-        filmName: 'Affinity 15',
-        widthIn: 72,
-        boxStatus: 'IN_STOCK' as const,
-        checkedOutOnThisJob: false
-      }
-    ]);
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(
+      withCoveredFeetDetail(detail),
+      withCoveredFeetEntries([
+        {
+          allocationId: 'pending-alloc-50',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          jobNumber: '29002',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 2,
+          requirementId: 'req-50',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-03T17:22:00.000Z',
+          createdBy: 'Pending...',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: 'Pending server confirmation',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ])
+    );
 
     expect(nextDetail.summary.status).toBe('ALLOCATE');
     expect(nextDetail.summary.allocatedFeet).toBe(12);
@@ -1359,31 +1389,34 @@ describe('inventoryMutationUtils', () => {
       filmOrders: []
     };
 
-    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [
-      {
-        allocationId: 'pending-alloc-50',
-        boxId: 'IL1-6502',
-        warehouse: 'IL1',
-        jobNumber: '18959',
-        jobDate: '2026-04-03',
-        crewLeader: 'Crew',
-        allocatedFeet: 2,
-        requirementId: 'req-50',
-        allocationKind: 'REQUIREMENT' as const,
-        status: 'ACTIVE' as const,
-        createdAt: '2026-04-06T07:03:24.227Z',
-        createdBy: 'Pending...',
-        resolvedAt: '',
-        resolvedBy: '',
-        filmOrderId: '',
-        notes: 'Pending server confirmation',
-        manufacturer: '3M Solar',
-        filmName: 'Affinity 15',
-        widthIn: 72,
-        boxStatus: 'IN_STOCK' as const,
-        checkedOutOnThisJob: false
-      }
-    ]);
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(
+      withCoveredFeetDetail(detail),
+      withCoveredFeetEntries([
+        {
+          allocationId: 'pending-alloc-50',
+          boxId: 'IL1-6502',
+          warehouse: 'IL1',
+          jobNumber: '18959',
+          jobDate: '2026-04-03',
+          crewLeader: 'Crew',
+          allocatedFeet: 2,
+          requirementId: 'req-50',
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-06T07:03:24.227Z',
+          createdBy: 'Pending...',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: 'Pending server confirmation',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ])
+    );
 
     expect(nextDetail.summary.status).toBe('ALLOCATE');
     expect(nextDetail.summary.allocatedFeet).toBe(32);
@@ -1407,6 +1440,150 @@ describe('inventoryMutationUtils', () => {
         remainingFeet: 2
       })
     ]);
+  });
+
+  it('uses covered feet for optimistic 72-to-36 requirement allocations while only consuming physical stock', () => {
+    const queryClient = createQueryClient();
+    const detail = {
+      summary: {
+        jobNumber: '4803',
+        warehouse: 'MS1',
+        sections: '1',
+        dueDate: '2026-04-06',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 0,
+        filmOrderCount: 0,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-36',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 36,
+          requiredFeet: 20,
+          allocatedFeet: 0,
+          remainingFeet: 20
+        }
+      ],
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    };
+
+    queryClient.setQueryData(inventoryKeys.job('4803'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('4803'), {
+      summary: {
+        jobNumber: '4803',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+    queryClient.setQueryData(inventoryKeys.box('MS1-3608'), {
+      boxId: 'MS1-3608',
+      warehouse: 'MS1',
+      manufacturer: 'SOLYX',
+      filmName: 'Whiteout SXWF-WO',
+      widthIn: 72,
+      initialFeet: 10,
+      feetAvailable: 10,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-04-01',
+      receivedDate: '2026-04-02',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: 'SOLYX|WHITEOUT SXWF-WO',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+
+    const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'MS1-3608',
+      jobNumber: '4803',
+      requestedFeet: 20,
+      requestedWidthIn: 36,
+      requirementId: 'req-36',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
+      crossWarehouse: false,
+      jobWarehouse: 'MS1'
+    });
+
+    expect(result.allocations).toMatchObject([
+      {
+        boxId: 'MS1-3608',
+        allocatedFeet: 10,
+        coveredFeet: 20,
+        requirementId: 'req-36'
+      }
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.job('4803'))).toMatchObject({
+      summary: {
+        allocatedFeet: 20,
+        remainingFeet: 0,
+        allocationCount: 1
+      },
+      requirements: [
+        expect.objectContaining({
+          requirementId: 'req-36',
+          allocatedFeet: 20,
+          remainingFeet: 0
+        })
+      ],
+      allocations: [
+        expect.objectContaining({
+          allocatedFeet: 10,
+          coveredFeet: 20
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.box('MS1-3608'))).toMatchObject({
+      feetAvailable: 0
+    });
   });
 
   it('applies optimistic cross-warehouse additions using cached search results', () => {

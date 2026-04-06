@@ -55,8 +55,9 @@ export const CORE_TYPES = [
   'White plastic',
   'Red plastic',
   'Cardboard 1/8"',
-  'Cardboard 3/4"',
-  'SECURITY 1/4" Cardboard'
+  'Cardboard 3/8"',
+  'SECURITY 1/4" Cardboard',
+  'SECURITY White plastic 3/8"'
 ] as const;
 export type CoreType = (typeof CORE_TYPES)[number];
 export type BoxCoreType = CoreType | '';
@@ -252,6 +253,7 @@ export interface AllocationEntry {
   jobDate: string;
   crewLeader: string;
   allocatedFeet: number;
+  coveredFeet: number;
   requirementId?: string;
   allocationKind: AllocationKind;
   status: AllocationStatus;
@@ -273,6 +275,7 @@ export interface AllocationPreviewSuggestion {
   widthIn: number;
   availableFeet: number;
   suggestedFeet: number;
+  suggestedCoveredFeet: number;
   receivedDate: string;
   orderDate: string;
 }
@@ -282,10 +285,13 @@ export interface AllocationPreview {
   jobDate: string;
   crewLeader: string;
   requestedFeet: number;
+  requestedWidthIn: number;
   sourceBoxId: string;
   sourceWarehouse: Warehouse;
+  sourceWidthIn: number;
   sourceBoxFeetAvailable: number;
   sourceSuggestedFeet: number;
+  sourceSuggestedCoveredFeet: number;
   sourceConflicts: string[];
   suggestions: AllocationPreviewSuggestion[];
   defaultCoveredFeet: number;

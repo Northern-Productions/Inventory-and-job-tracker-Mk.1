@@ -118,6 +118,18 @@ function formatBadgeLabel(value: string) {
   return value.replace(/_/g, ' ');
 }
 
+function formatAllocationFeet(allocatedFeet: number, coveredFeet: number, allocationKind: string) {
+  if (allocationKind === 'EXTRA') {
+    return 'EXTRA';
+  }
+
+  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
+    return `${allocatedFeet} physical / ${coveredFeet} covered`;
+  }
+
+  return String(allocatedFeet);
+}
+
 function formatFilmOrderStatusLabel(value: string) {
   if (value === 'FILM_ON_THE_WAY') {
     return 'FILM ORDERED';
@@ -1573,7 +1585,7 @@ export default function AllocationJobPage() {
                   <MobileField label="Width" value={entry.widthIn || '--'} />
                   <MobileField
                     label="Allocated LF"
-                    value={entry.allocationKind === 'EXTRA' ? 'EXTRA' : entry.allocatedFeet}
+                    value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.allocationKind)}
                   />
                   <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
                   <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
@@ -1650,7 +1662,7 @@ export default function AllocationJobPage() {
                       {entry.manufacturer} {entry.filmName}
                     </td>
                     <td>{entry.widthIn || '--'}</td>
-                    <td>{entry.allocationKind === 'EXTRA' ? 'EXTRA' : entry.allocatedFeet}</td>
+                    <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.allocationKind)}</td>
                     <td>{renderDateTime(entry.createdAt)}</td>
                     <td>{renderDateTime(entry.resolvedAt)}</td>
                     <td>

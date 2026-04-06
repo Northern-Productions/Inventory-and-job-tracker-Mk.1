@@ -8,6 +8,34 @@ import {
   isLaborOnlyJob
 } from './jobStaging';
 
+function buildFilmAllocation(overrides: Record<string, unknown> = {}) {
+  const allocatedFeet = Number(overrides.allocatedFeet ?? 8);
+  return {
+    allocationId: 'alloc-1',
+    boxId: 'IL1-100',
+    warehouse: 'IL1',
+    jobNumber: '000123',
+    jobDate: '2026-04-01',
+    crewLeader: 'Crew',
+    allocatedFeet,
+    coveredFeet: Number(overrides.coveredFeet ?? allocatedFeet),
+    status: 'FULFILLED' as const,
+    allocationKind: 'REQUIREMENT' as const,
+    createdAt: '',
+    createdBy: '',
+    resolvedAt: '',
+    resolvedBy: '',
+    filmOrderId: '',
+    notes: '',
+    manufacturer: '3M',
+    filmName: 'Night Vision 35',
+    widthIn: 60,
+    boxStatus: 'CHECKED_OUT' as const,
+    checkedOutOnThisJob: true,
+    ...overrides
+  };
+}
+
 function buildDetail(overrides: Partial<JobDetail> = {}): JobDetail {
   return {
     summary: {
@@ -45,28 +73,7 @@ function buildDetail(overrides: Partial<JobDetail> = {}): JobDetail {
       }
     ],
     allocations: [
-      {
-        allocationId: 'alloc-1',
-        boxId: 'IL1-100',
-        warehouse: 'IL1',
-        jobNumber: '000123',
-        jobDate: '2026-04-01',
-        crewLeader: 'Crew',
-        allocatedFeet: 8,
-        status: 'FULFILLED',
-        allocationKind: 'REQUIREMENT',
-        createdAt: '',
-        createdBy: '',
-        resolvedAt: '',
-        resolvedBy: '',
-        filmOrderId: '',
-        notes: '',
-        manufacturer: '3M',
-        filmName: 'Night Vision 35',
-        widthIn: 60,
-        boxStatus: 'CHECKED_OUT',
-        checkedOutOnThisJob: true
-      }
+      buildFilmAllocation()
     ],
     usage: [],
     usageTimeline: [],
@@ -89,12 +96,12 @@ describe('jobStaging', () => {
   it('blocks staging while required film is still only allocated', () => {
     const detail = buildDetail({
       allocations: [
-        {
+        buildFilmAllocation({
           ...buildDetail().allocations[0],
           status: 'ACTIVE',
           boxStatus: 'IN_STOCK',
           checkedOutOnThisJob: false
-        }
+        })
       ]
     });
 

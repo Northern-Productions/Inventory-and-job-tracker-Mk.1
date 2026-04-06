@@ -13,7 +13,8 @@ function buildCandidate(boxId: string, feetAvailable: number): AllocationCandida
   return {
     boxId,
     warehouse: 'IL1',
-    feetAvailable
+    feetAvailable,
+    widthIn: 60
   };
 }
 
@@ -92,10 +93,26 @@ describe('jobAllocationSelection', () => {
     );
 
     expect(plan.allocations).toEqual([
-      { boxId: 'B', allocatedFeet: 25 },
-      { boxId: 'C', allocatedFeet: 60 }
+      { boxId: 'B', allocatedFeet: 25, coveredFeet: 25 },
+      { boxId: 'C', allocatedFeet: 60, coveredFeet: 60 }
     ]);
     expect(plan.coveredFeet).toBe(85);
+    expect(plan.remainingFeet).toBe(0);
+  });
+
+  it('uses 72-inch rolls as 2x coverage for bound 36-inch requirements', () => {
+    const plan = planSelectedCandidateAllocation(
+      [
+        { ...buildCandidate('A', 10), widthIn: 72 },
+        { ...buildCandidate('B', 10), widthIn: 60 }
+      ],
+      20,
+      ['A'],
+      36
+    );
+
+    expect(plan.allocations).toEqual([{ boxId: 'A', allocatedFeet: 10, coveredFeet: 20 }]);
+    expect(plan.coveredFeet).toBe(20);
     expect(plan.remainingFeet).toBe(0);
   });
 
@@ -115,7 +132,7 @@ describe('jobAllocationSelection', () => {
     const validation = buildValidatedExtraAllocations(candidates, extraBoxIds, { A: '12' });
 
     expect(validation.error).toBe('');
-    expect(validation.extraAllocations).toEqual([{ boxId: 'A', allocatedFeet: 12 }]);
+    expect(validation.extraAllocations).toEqual([{ boxId: 'A', allocatedFeet: 12, coveredFeet: 12 }]);
     expect(canSubmitAllocationRequest(0, validation.extraAllocations.length)).toBe(true);
   });
 

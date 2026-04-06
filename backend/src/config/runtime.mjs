@@ -22,8 +22,9 @@ export const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
   'White plastic': 2,
   'Red plastic': 1.85,
   'Cardboard 1/8"': 2.05,
-  'Cardboard 3/4"': 6.15,
-  'SECURITY 1/4" Cardboard': 11.6
+  'Cardboard 3/8"': 6.15,
+  'SECURITY 1/4" Cardboard': 11.6,
+  'SECURITY White plastic 3/8"': 14.4
 };
 
 export const BOX_STATUSES = new Set(CONTRACT_BOX_STATUSES);

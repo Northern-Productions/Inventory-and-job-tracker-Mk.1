@@ -11,6 +11,7 @@ import {
 import { useToast } from '../../../components/Toast';
 import type { AllocationPreview, Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
+import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
 import {
   useAllocateBox,
   useAllocationPreview,
@@ -26,15 +27,22 @@ interface AllocateDialogProps {
 
 function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBoxIds: string[]) {
   const selected = new Set(selectedSuggestionBoxIds);
-  const allocations: Array<{ boxId: string; allocatedFeet: number }> = [];
+  const allocations: Array<{ boxId: string; allocatedFeet: number; coveredFeet: number }> = [];
   let remaining = preview.requestedFeet;
 
   if (preview.sourceSuggestedFeet > 0) {
+    const sourcePlan = planCoverageAllocation(
+      remaining,
+      preview.sourceSuggestedFeet,
+      preview.sourceWidthIn,
+      preview.requestedWidthIn
+    );
     allocations.push({
       boxId: preview.sourceBoxId,
-      allocatedFeet: preview.sourceSuggestedFeet
+      allocatedFeet: sourcePlan.allocatedFeet,
+      coveredFeet: sourcePlan.coveredFeet
     });
-    remaining -= preview.sourceSuggestedFeet;
+    remaining = sourcePlan.remainingCoveredFeet;
   }
 
   for (const suggestion of preview.suggestions) {
@@ -42,12 +50,18 @@ function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBox
       continue;
     }
 
-    const allocatedFeet = Math.min(suggestion.availableFeet, remaining);
+    const nextPlan = planCoverageAllocation(
+      remaining,
+      suggestion.availableFeet,
+      suggestion.widthIn,
+      preview.requestedWidthIn
+    );
     allocations.push({
       boxId: suggestion.boxId,
-      allocatedFeet
+      allocatedFeet: nextPlan.allocatedFeet,
+      coveredFeet: nextPlan.coveredFeet
     });
-    remaining -= allocatedFeet;
+    remaining = nextPlan.remainingCoveredFeet;
   }
 
   return {
@@ -55,6 +69,14 @@ function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBox
     coveredFeet: preview.requestedFeet - remaining,
     remainingFeet: remaining
   };
+}
+
+function formatPlannedFeet(allocatedFeet: number, coveredFeet: number) {
+  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
+    return `${allocatedFeet} physical / ${coveredFeet} covered`;
+  }
+
+  return String(allocatedFeet);
 }
 
 export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
@@ -93,13 +115,16 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     [preview, selectedSuggestionBoxIds]
   );
   const selectedAllocationByBoxId = useMemo(() => {
-    const allocationByBoxId = new Map<string, number>();
+    const allocationByBoxId = new Map<string, { allocatedFeet: number; coveredFeet: number }>();
     if (!selectionSummary) {
       return allocationByBoxId;
     }
 
     for (const allocation of selectionSummary.allocations) {
-      allocationByBoxId.set(allocation.boxId, allocation.allocatedFeet);
+      allocationByBoxId.set(allocation.boxId, {
+        allocatedFeet: allocation.allocatedFeet,
+        coveredFeet: allocation.coveredFeet
+      });
     }
 
     return allocationByBoxId;
@@ -235,7 +260,11 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       const allocationSummary =
         result.allocations.length > 0
           ? `${result.allocations
-              .map((entry) => `${entry.boxId}: ${entry.allocatedFeet} LF`)
+              .map((entry) =>
+                entry.coveredFeet !== entry.allocatedFeet
+                  ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
+                  : `${entry.boxId}: ${entry.allocatedFeet} LF`
+              )
               .join(', ')}`
           : 'No in-stock boxes could cover the request.';
       const filmOrderSummary = result.filmOrder
@@ -379,7 +408,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
               </p>
             ) : (
               <p className="muted-text">
-                {box.boxId} will cover {preview.sourceSuggestedFeet} LF.
+                {box.boxId} will cover {formatPlannedFeet(preview.sourceSuggestedFeet, preview.sourceSuggestedCoveredFeet)}.
               </p>
             )}
 
@@ -388,7 +417,10 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                 <div className="mobile-record-list">
                   {preview.suggestions.map((suggestion) => {
                     const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
-                    const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) ?? 0;
+                    const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) || {
+                      allocatedFeet: 0,
+                      coveredFeet: 0
+                    };
 
                     return (
                       <MobileRecordCard key={suggestion.boxId}>
@@ -396,7 +428,10 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                         <MobileFieldList>
                           <MobileField label="Use" value={selected ? 'Yes' : 'No'} />
                           <MobileField label="Avail LF" value={suggestion.availableFeet} />
-                          <MobileField label="Planned LF" value={selectedPlanFeet} />
+                          <MobileField
+                            label="Planned LF"
+                            value={formatPlannedFeet(selectedPlanFeet.allocatedFeet, selectedPlanFeet.coveredFeet)}
+                          />
                           <MobileField label="Received" value={suggestion.receivedDate || '--'} />
                         </MobileFieldList>
                         <Button
@@ -426,7 +461,10 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                     <tbody>
                       {preview.suggestions.map((suggestion) => {
                         const selected = selectedSuggestionBoxIds.includes(suggestion.boxId);
-                        const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) ?? 0;
+                        const selectedPlanFeet = selectedAllocationByBoxId.get(suggestion.boxId) || {
+                          allocatedFeet: 0,
+                          coveredFeet: 0
+                        };
 
                         return (
                           <tr key={suggestion.boxId}>
@@ -439,7 +477,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                             </td>
                             <td>{suggestion.boxId}</td>
                             <td>{suggestion.availableFeet}</td>
-                            <td>{selectedPlanFeet}</td>
+                            <td>{formatPlannedFeet(selectedPlanFeet.allocatedFeet, selectedPlanFeet.coveredFeet)}</td>
                             <td>{suggestion.receivedDate || '--'}</td>
                           </tr>
                         );

@@ -10,6 +10,11 @@ import {
   inferFeatureForRoute as inferFeatureForRouteContract,
   isOwnerOnlyRoute as isOwnerOnlyRouteContract
 } from '../../../frontend/src/domain/runtimeContract.mjs';
+import {
+  computeCoveredFeetForAllocation,
+  isSplitCoveragePair,
+  planCoverageAllocation
+} from '../../../frontend/src/domain/allocationCoverageContract.mjs';
 
 function asTrimmedString(value) {
   if (value === null || value === undefined) {
@@ -314,9 +319,13 @@ function normalizeCoreType(value, allowBlank) {
     normalized === 'cardboard 3/4"' ||
     normalized === 'cardboard 3/4' ||
     normalized === 'cardboard 3-4"' ||
-    normalized === 'cardboard 3-4'
+    normalized === 'cardboard 3-4' ||
+    normalized === 'cardboard 3/8"' ||
+    normalized === 'cardboard 3/8' ||
+    normalized === 'cardboard 3-8"' ||
+    normalized === 'cardboard 3-8'
   ) {
-    return 'Cardboard 3/4"';
+    return 'Cardboard 3/8"';
   }
 
   if (
@@ -328,9 +337,26 @@ function normalizeCoreType(value, allowBlank) {
     return 'SECURITY 1/4" Cardboard';
   }
 
+  if (
+    normalized === 'security white plastic 3/8"' ||
+    normalized === 'security white plastic 3/8' ||
+    normalized === 'security white plastic 3-8"' ||
+    normalized === 'security white plastic 3-8' ||
+    normalized === 'security whiteplastic 3/8"' ||
+    normalized === 'security whiteplastic 3/8' ||
+    normalized === 'security whiteplastic 3-8"' ||
+    normalized === 'security whiteplastic 3-8' ||
+    normalized === 'security white 3/8"' ||
+    normalized === 'security white 3/8' ||
+    normalized === 'security white 3-8"' ||
+    normalized === 'security white 3-8'
+  ) {
+    return 'SECURITY White plastic 3/8"';
+  }
+
   throw new HttpError(
     400,
-    'CoreType must be White plastic, Red plastic, Cardboard 1/8", Cardboard 3/4", or SECURITY 1/4" Cardboard.'
+    'CoreType must be White plastic, Red plastic, Cardboard 1/8", Cardboard 3/8", SECURITY 1/4" Cardboard, or SECURITY White plastic 3/8".'
   );
 }
 
@@ -1481,6 +1507,7 @@ function mapDbAllocationRow(row) {
     jobNumber: asTrimmedString(row.job_number),
     jobDate: formatDateValue(row.job_date),
     allocatedFeet: integerOrZero(row.allocated_feet),
+    coveredFeet: integerOrZero(row.covered_feet),
     requirementId: asTrimmedString(row.requirement_id),
     allocationKind: normalizeAllocationKind(row.allocation_kind),
     status: asTrimmedString(row.status) || 'ACTIVE',
@@ -1503,6 +1530,7 @@ function toPublicAllocation(entry) {
     jobDate: entry.jobDate,
     crewLeader: entry.crewLeader,
     allocatedFeet: entry.allocatedFeet,
+    coveredFeet: integerOrZero(entry.coveredFeet) || entry.allocatedFeet,
     requirementId: asTrimmedString(entry.requirementId),
     allocationKind: normalizeAllocationKind(entry.allocationKind),
     status: entry.status,
@@ -3193,6 +3221,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         warehouse,
         job_date,
         allocated_feet,
+        covered_feet,
         requirement_id,
         status,
         created_at,
@@ -3207,13 +3236,13 @@ async function saveAllocationRecord(client, orgId, entry) {
       values (
         $1,$2,$3,$4,$5,$6,
         nullif($7, '')::date,
-        $8,
-        nullif($9, '')::uuid,
-        $10,
-        coalesce($11::timestamptz, now()),
-        $12,
-        nullif($13, '')::timestamptz,
-        $14,$15,$16,$17,$18
+        $8,$9,
+        nullif($10, '')::uuid,
+        $11,
+        coalesce($12::timestamptz, now()),
+        $13,
+        nullif($14, '')::timestamptz,
+        $15,$16,$17,$18,$19
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
@@ -3222,6 +3251,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         warehouse = excluded.warehouse,
         job_date = excluded.job_date,
         allocated_feet = excluded.allocated_feet,
+        covered_feet = excluded.covered_feet,
         requirement_id = excluded.requirement_id,
         status = excluded.status,
         created_at = excluded.created_at,
@@ -3243,6 +3273,7 @@ async function saveAllocationRecord(client, orgId, entry) {
       entry.warehouse,
       entry.jobDate,
       entry.allocatedFeet,
+      integerOrZero(entry.coveredFeet) || entry.allocatedFeet,
       asTrimmedString(entry.requirementId),
       entry.status,
       entry.createdAt,
@@ -4476,6 +4507,15 @@ function allocationMatchesRequirement(box, requirement) {
   );
 }
 
+function getStoredAllocationCoveredFeet(allocation) {
+  const coveredFeet = integerOrZero(allocation.coveredFeet);
+  if (coveredFeet > 0) {
+    return coveredFeet;
+  }
+
+  return integerOrZero(allocation.allocatedFeet);
+}
+
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
   if (!box || allocation.status !== 'ACTIVE') {
     return false;
@@ -4530,10 +4570,11 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
     const boundRequirementId = asTrimmedString(allocation.requirementId);
     const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
       coverage[boundRequirementId] = Math.min(
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        Math.max(0, Number(coverage[boundRequirementId] || 0)) + Math.max(0, Number(allocation.allocatedFeet || 0))
+        Math.max(0, Number(coverage[boundRequirementId] || 0)) + coveredFeet
       );
       continue;
     }
@@ -4548,7 +4589,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
     grouped[groupKey].pools.push({
       widthIn: Number(box.widthIn) || 0,
-      remainingFeet: allocation.allocatedFeet
+      remainingFeet: coveredFeet
     });
   }
 
@@ -4782,10 +4823,10 @@ function buildAllocationJobSummary(
 
     if (allocation.status === 'ACTIVE') {
       hasActiveAllocation = true;
-      activeAllocatedFeet += allocation.allocatedFeet;
+      activeAllocatedFeet += getStoredAllocationCoveredFeet(allocation);
     } else if (allocation.status === 'FULFILLED') {
       hasFulfilledRecord = true;
-      fulfilledAllocatedFeet += allocation.allocatedFeet;
+      fulfilledAllocatedFeet += getStoredAllocationCoveredFeet(allocation);
     } else if (allocation.status === 'CANCELLED') {
       hasCancelledRecord = true;
     }
@@ -5390,8 +5431,12 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
   const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, activeAllocationsByBox);
-  const sourceSuggestedFeet = sourceConflicts.length ? 0 : Math.min(sourceBox.feetAvailable, requested);
-  let remaining = requested - sourceSuggestedFeet;
+  const sourcePlan = sourceConflicts.length
+    ? { allocatedFeet: 0, coveredFeet: 0, remainingCoveredFeet: requested }
+    : planCoverageAllocation(requested, sourceBox.feetAvailable, sourceBox.widthIn, minimumWidthIn);
+  const sourceSuggestedFeet = sourcePlan.allocatedFeet;
+  const sourceSuggestedCoveredFeet = sourcePlan.coveredFeet;
+  let remaining = sourcePlan.remainingCoveredFeet;
   const candidates = [];
   const candidateBoxes = useCrossWarehouse
     ? options.allBoxes
@@ -5415,6 +5460,18 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
 
   filteredCandidates.sort((left, right) => {
+    const leftIsExactMatch = left.widthIn === minimumWidthIn;
+    const rightIsExactMatch = right.widthIn === minimumWidthIn;
+    if (leftIsExactMatch !== rightIsExactMatch) {
+      return leftIsExactMatch ? -1 : 1;
+    }
+
+    const leftIsPreferredSplitMatch = isSplitCoveragePair(left.widthIn, minimumWidthIn);
+    const rightIsPreferredSplitMatch = isSplitCoveragePair(right.widthIn, minimumWidthIn);
+    if (leftIsPreferredSplitMatch !== rightIsPreferredSplitMatch) {
+      return leftIsPreferredSplitMatch ? -1 : 1;
+    }
+
     const leftWidthDelta = left.widthIn - minimumWidthIn;
     const rightWidthDelta = right.widthIn - minimumWidthIn;
     if (leftWidthDelta !== rightWidthDelta) {
@@ -5431,18 +5488,20 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       continue;
     }
 
+    const candidatePlan = planCoverageAllocation(remaining, candidate.feetAvailable, candidate.widthIn, minimumWidthIn);
     candidates.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
       widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
-      suggestedFeet: remaining > 0 ? Math.min(candidate.feetAvailable, remaining) : 0,
+      suggestedFeet: candidatePlan.allocatedFeet,
+      suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
       orderDate: candidate.orderDate
     });
 
     if (remaining > 0) {
-      remaining -= Math.min(candidate.feetAvailable, remaining);
+      remaining = candidatePlan.remainingCoveredFeet;
     }
   }
 
@@ -5451,10 +5510,13 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     jobDate: jobContext.jobDate,
     crewLeader: jobContext.crewLeader,
     requestedFeet: requested,
+    requestedWidthIn: minimumWidthIn,
     sourceBoxId: sourceBox.boxId,
     sourceWarehouse: sourceBox.warehouse,
+    sourceWidthIn: sourceBox.widthIn,
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceSuggestedFeet,
+    sourceSuggestedCoveredFeet,
     sourceConflicts,
     suggestions: candidates,
     defaultCoveredFeet: requested - remaining,
@@ -5468,11 +5530,18 @@ function calculateSelectedSuggestionAllocations(plan, selectedBoxIds) {
   let remaining = plan.requestedFeet;
 
   if (plan.sourceSuggestedFeet > 0) {
+    const sourcePlan = planCoverageAllocation(
+      remaining,
+      plan.sourceSuggestedFeet,
+      plan.sourceWidthIn,
+      plan.requestedWidthIn
+    );
     allocations.push({
       boxId: plan.sourceBoxId,
-      allocatedFeet: plan.sourceSuggestedFeet
+      allocatedFeet: sourcePlan.allocatedFeet,
+      coveredFeet: sourcePlan.coveredFeet
     });
-    remaining -= plan.sourceSuggestedFeet;
+    remaining = sourcePlan.remainingCoveredFeet;
   }
 
   for (let index = 0; index < selectedBoxIds.length; index += 1) {
@@ -5485,12 +5554,18 @@ function calculateSelectedSuggestionAllocations(plan, selectedBoxIds) {
       continue;
     }
 
-    const allocatedFeet = Math.min(suggestion.availableFeet, remaining);
+    const nextPlan = planCoverageAllocation(
+      remaining,
+      suggestion.availableFeet,
+      suggestion.widthIn,
+      plan.requestedWidthIn
+    );
     allocations.push({
       boxId: suggestion.boxId,
-      allocatedFeet
+      allocatedFeet: nextPlan.allocatedFeet,
+      coveredFeet: nextPlan.coveredFeet
     });
-    remaining -= allocatedFeet;
+    remaining = nextPlan.remainingCoveredFeet;
   }
 
   return {
@@ -5523,6 +5598,7 @@ async function createAllocationRecord(
   box,
   jobContext,
   allocatedFeet,
+  coveredFeet,
   user,
   filmOrderId,
   allocationKind = 'REQUIREMENT',
@@ -5537,6 +5613,7 @@ async function createAllocationRecord(
     jobNumber: jobContext.jobNumber,
     jobDate: jobContext.jobDate,
     allocatedFeet,
+    coveredFeet: integerOrZero(coveredFeet) || allocatedFeet,
     requirementId: asTrimmedString(requirementId),
     status: 'ACTIVE',
     createdAt: new Date().toISOString(),
@@ -5556,7 +5633,7 @@ async function sumFilmOrderCoveredFeet(client, orgId, filmOrderId) {
 
   for (let index = 0; index < allocations.length; index += 1) {
     if (allocations[index].status !== 'CANCELLED') {
-      total += allocations[index].allocatedFeet;
+      total += getStoredAllocationCoveredFeet(allocations[index]);
     }
   }
 
@@ -5616,6 +5693,7 @@ async function createFilmOrderForShortage(
   jobContext,
   requestedFeet,
   shortageFeet,
+  shortageWidthIn,
   user,
   shortageWarehouse
 ) {
@@ -5633,7 +5711,7 @@ async function createFilmOrderForShortage(
     warehouse: resolvedWarehouse,
     manufacturer: sourceBox.manufacturer,
     filmName: sourceBox.filmName,
-    widthIn: sourceBox.widthIn,
+    widthIn: Number(shortageWidthIn) > 0 ? Number(shortageWidthIn) : sourceBox.widthIn,
     requestedFeet: shortageFeet,
     coveredFeet: 0,
     orderedFeet: 0,
@@ -5705,6 +5783,7 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
         jobDate: filmOrder.jobDate,
         crewLeader: filmOrder.crewLeader
       },
+      allocationFeet,
       allocationFeet,
       user,
       filmOrder.filmOrderId
@@ -6263,6 +6342,7 @@ async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNu
     box,
     jobContext,
     allocatableFeet,
+    allocatableFeet,
     user,
     ''
   );
@@ -6327,6 +6407,7 @@ async function reconcileCheckedOutBoxAllocationLink(client, orgId, box, user) {
     orgId,
     workingBox,
     jobContext,
+    snapshotFeet,
     snapshotFeet,
     user,
     ''
@@ -9633,6 +9714,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       currentBox,
       jobContext,
       plannedAllocation.allocatedFeet,
+      plannedAllocation.coveredFeet,
       actor,
       '',
       'REQUIREMENT',
@@ -9675,6 +9757,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       currentBox,
       jobContext,
       plannedExtra.allocatedFeet,
+      plannedExtra.allocatedFeet,
       actor,
       '',
       'EXTRA'
@@ -9693,6 +9776,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       jobContext,
       requestedFeet,
       selection.remainingFeet,
+      minimumWidthIn,
       actor,
       normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
     );

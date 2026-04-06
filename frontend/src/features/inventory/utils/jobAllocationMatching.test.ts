@@ -165,6 +165,41 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-OLD', 'IL1-60-NEW', 'IL1-72-A']);
   });
 
+  it('keeps exact 36 first, then 72 split stock, then other wider fallback widths for 36-inch requirements', () => {
+    const requirement = buildRequirement({ widthIn: 36 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-60-A',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60
+        }),
+        buildBox({
+          boxId: 'IL1-72-A',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 72
+        }),
+        buildBox({
+          boxId: 'IL1-36-A',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 36
+        }),
+        buildBox({
+          boxId: 'IL1-48-A',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 48
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-36-A', 'IL1-72-A', 'IL1-48-A', 'IL1-60-A']);
+  });
+
   it('dedupes repeated box ids by keeping the highest available feet snapshot', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(
