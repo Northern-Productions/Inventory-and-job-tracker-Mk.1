@@ -177,7 +177,7 @@ export default function InventoryHomePage() {
 
   const filmInventoryContent = (
     <>
-      <section className="panel">
+      <section className="panel inventory-filter-panel">
         <div className="page-hero-topline">
           <span className="eyebrow">Inventory Control</span>
           <div className="inventory-view-toggle-wrap">{inventoryViewToggle}</div>

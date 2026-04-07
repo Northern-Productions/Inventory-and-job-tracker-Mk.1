@@ -150,8 +150,8 @@ export function InventorySearchAutocompleteInput({
                   }}
                   onMouseEnter={() => setHighlightedIndex(index)}
                 >
-                  <span>{entry.boxId}</span>
-                  <small>{entry.manufacturer} {entry.filmName}</small>
+                  <span className="inventory-search-autocomplete-title">{entry.filmName}</span>
+                  <small>{entry.manufacturer} | {entry.boxId}</small>
                 </li>
               );
             })}

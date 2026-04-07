@@ -614,6 +614,19 @@ th {
   box-shadow: var(--shadow-md);
 }
 
+.inventory-filter-panel,
+.inventory-results-panel {
+  position: relative;
+}
+
+.inventory-filter-panel {
+  z-index: 3;
+}
+
+.inventory-results-panel {
+  z-index: 1;
+}
+
 .scan-workspace .scanner-panel {
   width: 100%;
 }
@@ -1478,7 +1491,7 @@ textarea {
 
 .film-name-autocomplete-menu {
   position: absolute;
-  z-index: 20;
+  z-index: 80;
   top: calc(100% + 0.25rem);
   left: 0;
   right: 0;
@@ -1506,7 +1519,8 @@ textarea {
   font-size: 0.78rem;
 }
 
-.inventory-search-autocomplete .film-name-autocomplete-option span {
+.inventory-search-autocomplete .film-name-autocomplete-option span,
+.inventory-search-autocomplete-title {
   font-weight: 600;
 }
 

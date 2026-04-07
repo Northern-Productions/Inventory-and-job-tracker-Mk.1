@@ -44,6 +44,9 @@ describe('InventorySearchAutocompleteInput', () => {
 
     const options = screen.getAllByRole('option');
     expect(options).toHaveLength(3);
+    expect(options[0].textContent).toContain('Frosted Stripes SXC-1418');
+    expect(options[1].textContent).toContain('Frosted Stripes SXC-1418');
+    expect(options[2].textContent).toContain('SX-1418 Frosted');
     expect(options[0].textContent).toContain('IL1-6727');
     expect(options[1].textContent).toContain('IL1-6854');
     expect(options[2].textContent).toContain('IL1-6901');
