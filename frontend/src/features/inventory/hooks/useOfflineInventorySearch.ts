@@ -3,16 +3,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncAllOfflineInventorySnapshots } from '../../../api/features/inventoryClient';
 import type { Warehouse } from '../../../domain';
 import {
+  getOfflineInventorySnapshotBoxes,
   getOfflineInventorySyncMeta,
-  searchOfflineBoxes,
-  type OfflineInventorySyncMeta,
-  type OfflineSearchBoxesParams
+  type OfflineInventorySyncMeta
 } from '../../../lib/offlineInventory';
 import { useWarehouseRegistry } from './useWarehouseRegistry';
 
 const offlineInventoryKeys = {
   root: ['inventory', 'offline'] as const,
-  list: (params: OfflineSearchBoxesParams) => ['inventory', 'offline', 'list', params] as const,
+  snapshot: (warehouse: Warehouse | '') => ['inventory', 'offline', 'snapshot', warehouse || 'ALL'] as const,
   meta: (warehouses: readonly Warehouse[]) => ['inventory', 'offline', 'meta', warehouses.join('|')] as const
 };
 
@@ -38,7 +37,7 @@ function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
   };
 }
 
-export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
+export function useOfflineInventorySearch(warehouse: Warehouse | '') {
   const queryClient = useQueryClient();
   const isSyncingRef = useRef(false);
   const [isOnline, setIsOnline] = useState(() =>
@@ -49,14 +48,14 @@ export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
   const warehouseRegistry = useWarehouseRegistry();
   const selectedWarehouses = useMemo<Warehouse[]>(
     () =>
-      params.warehouse
-        ? [params.warehouse]
+      warehouse
+        ? [warehouse]
         : warehouseRegistry.entries.map((entry) => entry.code),
-    [params.warehouse, warehouseRegistry.entries]
+    [warehouse, warehouseRegistry.entries]
   );
-  const boxesQuery = useQuery({
-    queryKey: offlineInventoryKeys.list(params),
-    queryFn: () => searchOfflineBoxes(params)
+  const snapshotQuery = useQuery({
+    queryKey: offlineInventoryKeys.snapshot(warehouse),
+    queryFn: () => getOfflineInventorySnapshotBoxes(warehouse)
   });
   const metaQuery = useQuery({
     queryKey: offlineInventoryKeys.meta(selectedWarehouses),
@@ -66,8 +65,8 @@ export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
   const hasSnapshot = Boolean(metaQuery.data?.lastSyncedAt);
   const isInitialLoad =
     !hasSnapshot &&
-    (boxesQuery.isLoading ||
-      boxesQuery.isFetching ||
+    (snapshotQuery.isLoading ||
+      snapshotQuery.isFetching ||
       metaQuery.isLoading ||
       metaQuery.isFetching ||
       isSyncing);
@@ -162,9 +161,9 @@ export function useOfflineInventorySearch(params: OfflineSearchBoxesParams) {
   }, [syncNow]);
 
   return {
-    data: boxesQuery.data || [],
-    isError: boxesQuery.isError,
-    error: boxesQuery.error,
+    snapshotBoxes: snapshotQuery.data || [],
+    isError: snapshotQuery.isError,
+    error: snapshotQuery.error,
     isLoading: isInitialLoad,
     isOffline: !isOnline,
     isSyncing,

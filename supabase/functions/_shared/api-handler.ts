@@ -26,6 +26,10 @@ import {
   isSplitCoveragePair,
   planCoverageAllocation,
 } from "../../../frontend/src/domain/allocationCoverageContract.mjs";
+import {
+  matchesBoxSearchQuery,
+  rankBoxSearchCandidates,
+} from "../../../frontend/src/domain/boxSearchMatcher.mjs";
 
 type CacheEntry = {
   expiresAt: number;
@@ -2733,11 +2737,8 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
     ) {
       return false;
     }
-    if (query) {
-      const haystack = [box.boxId, box.manufacturer, box.filmName, box.lotRun, box.filmKey].join(" ").toLowerCase();
-      if (haystack.indexOf(query) === -1) {
-        return false;
-      }
+    if (query && !matchesBoxSearchQuery(box, query)) {
+      return false;
     }
     return true;
   }).map(toPublicBox);
@@ -2757,6 +2758,10 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
         : 0
     );
     filtered = lowStock.concat(remaining);
+  }
+
+  if (query) {
+    filtered = rankBoxSearchCandidates(filtered, query);
   }
 
   return filtered;

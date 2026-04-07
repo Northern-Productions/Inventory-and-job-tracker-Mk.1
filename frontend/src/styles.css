@@ -1506,6 +1506,10 @@ textarea {
   font-size: 0.78rem;
 }
 
+.inventory-search-autocomplete .film-name-autocomplete-option span {
+  font-weight: 600;
+}
+
 .film-name-autocomplete-option-active {
   background: rgba(18, 52, 59, 0.1);
 }

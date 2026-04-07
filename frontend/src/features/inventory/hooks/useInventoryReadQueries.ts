@@ -29,6 +29,7 @@ import type {
   AuditListParams,
   FilmOrderEntry,
   JobDetail,
+  RemoveJobBoxAllocationsPayload,
   ReportsSummaryFilters,
   SearchBoxesParams
 } from '../../../domain';
@@ -323,6 +324,31 @@ export function useIsAddBoxPending(boxId: string) {
   }
 
   return pendingBoxIds.some((pendingBoxId) => pendingBoxId.trim().toUpperCase() === normalizedBoxId);
+}
+
+export function usePendingRemoveJobBoxAllocationIds() {
+  const pendingAllocationIds = useMutationState({
+    filters: {
+      mutationKey: inventoryKeys.removeJobBoxAllocationMutation,
+      status: 'pending'
+    },
+    select: (mutation) => {
+      const variables = mutation.state.variables as RemoveJobBoxAllocationsPayload | undefined;
+      return String(variables?.allocationId || '').trim().toUpperCase();
+    }
+  });
+
+  return useMemo(() => {
+    const nextIds = new Set<string>();
+    for (let index = 0; index < pendingAllocationIds.length; index += 1) {
+      const allocationId = String(pendingAllocationIds[index] || '').trim().toUpperCase();
+      if (allocationId) {
+        nextIds.add(allocationId);
+      }
+    }
+
+    return nextIds;
+  }, [pendingAllocationIds]);
 }
 
 export function usePendingDeleteFilmOrderIds() {

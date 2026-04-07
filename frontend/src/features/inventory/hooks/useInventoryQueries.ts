@@ -18,6 +18,7 @@ export {
   useJobsSearch,
   useOwnerAssetTotalCostReport,
   usePendingDeleteFilmOrderIds,
+  usePendingRemoveJobBoxAllocationIds,
   useReportsSummary,
   useRollHistory,
   useSearchBoxes,

@@ -1,4 +1,5 @@
 import type { Box, SearchBoxesParams, Warehouse } from '../domain';
+import { matchesBoxSearchQuery, rankBoxSearchCandidates } from '../domain/boxSearchMatcher.mjs';
 import { normalizeManufacturerLookupKey } from './manufacturerCanonicalization';
 
 const OFFLINE_DB_NAME = 'inventory-offline';
@@ -69,11 +70,7 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
     }
 
     if (query) {
-      const haystack = [box.boxId, box.manufacturer, box.filmName, box.lotRun, box.filmKey]
-        .join(' ')
-        .toLowerCase();
-
-      if (haystack.indexOf(query) === -1) {
+      if (!matchesBoxSearchQuery(box, query)) {
         continue;
       }
     }
@@ -81,38 +78,26 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
     filtered.push(box);
   }
 
-  if (!film) {
-    return filtered;
+  let ordered = filtered;
+
+  if (film) {
+    ordered = prioritizeLowStockBoxes(ordered);
   }
 
-  const lowStock: Box[] = [];
-  const remaining: Box[] = [];
-
-  for (let index = 0; index < filtered.length; index += 1) {
-    if (isLowStockBox(filtered[index])) {
-      lowStock.push(filtered[index]);
-      continue;
-    }
-
-    remaining.push(filtered[index]);
+  if (query) {
+    ordered = rankBoxSearchCandidates(ordered, query);
   }
 
-  lowStock.sort((a, b) => {
-    if (a.feetAvailable !== b.feetAvailable) {
-      return a.feetAvailable - b.feetAvailable;
-    }
-
-    return a.boxId < b.boxId ? -1 : a.boxId > b.boxId ? 1 : 0;
-  });
-
-  return lowStock.concat(remaining);
+  return ordered;
 }
 
 export async function searchOfflineBoxes(params: OfflineSearchBoxesParams): Promise<Box[]> {
-  const boxes = params.warehouse
-    ? await getOfflineBoxesByWarehouse(params.warehouse)
-    : await getAllOfflineBoxes();
+  const boxes = await getOfflineInventorySnapshotBoxes(params.warehouse);
   return filterOfflineBoxes(boxes, params);
+}
+
+export async function getOfflineInventorySnapshotBoxes(warehouse: Warehouse | ''): Promise<Box[]> {
+  return warehouse ? await getOfflineBoxesByWarehouse(warehouse) : await getAllOfflineBoxes();
 }
 
 export async function getOfflineBox(boxId: string): Promise<Box | null> {
@@ -297,6 +282,30 @@ async function getAllOfflineBoxes(): Promise<Box[]> {
 
 function isLowStockBox(box: Box): boolean {
   return box.status === 'IN_STOCK' && box.feetAvailable > 0 && box.feetAvailable < LOW_STOCK_THRESHOLD_LF;
+}
+
+function prioritizeLowStockBoxes(boxes: Box[]): Box[] {
+  const lowStock: Box[] = [];
+  const remaining: Box[] = [];
+
+  for (let index = 0; index < boxes.length; index += 1) {
+    if (isLowStockBox(boxes[index])) {
+      lowStock.push(boxes[index]);
+      continue;
+    }
+
+    remaining.push(boxes[index]);
+  }
+
+  lowStock.sort((a, b) => {
+    if (a.feetAvailable !== b.feetAvailable) {
+      return a.feetAvailable - b.feetAvailable;
+    }
+
+    return a.boxId < b.boxId ? -1 : a.boxId > b.boxId ? 1 : 0;
+  });
+
+  return lowStock.concat(remaining);
 }
 
 function normalizeOfflineWidthToken(value: unknown): string {

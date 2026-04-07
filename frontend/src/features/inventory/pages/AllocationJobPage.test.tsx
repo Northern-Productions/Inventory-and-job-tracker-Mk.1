@@ -20,6 +20,7 @@ const useDeleteJobMock = vi.fn();
 const useReopenJobMock = vi.fn();
 const useDeleteFilmOrderMock = vi.fn();
 const usePendingDeleteFilmOrderIdsMock = vi.fn();
+const usePendingRemoveJobBoxAllocationIdsMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useSetJobStagedForPickupMock = vi.fn();
@@ -73,6 +74,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useReopenJob: () => useReopenJobMock(),
   useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
   usePendingDeleteFilmOrderIds: () => usePendingDeleteFilmOrderIdsMock(),
+  usePendingRemoveJobBoxAllocationIds: () => usePendingRemoveJobBoxAllocationIdsMock(),
   useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
@@ -243,6 +245,7 @@ describe('AllocationJobPage', () => {
     useReopenJobMock.mockReturnValue(buildMutationState());
     useDeleteFilmOrderMock.mockReturnValue(buildMutationState());
     usePendingDeleteFilmOrderIdsMock.mockReturnValue(new Set());
+    usePendingRemoveJobBoxAllocationIdsMock.mockReturnValue(new Set());
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useSetJobStagedForPickupMock.mockReturnValue(buildMutationState());
@@ -672,6 +675,78 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Check In');
     expect(html).toContain('Check Out');
+  });
+
+  it('only disables the allocation row that is currently being removed', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-pending',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 50,
+          coveredFeet: 50,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-ready',
+          boxId: 'IL1-101',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 60,
+          coveredFeet: 60,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+    usePendingRemoveJobBoxAllocationIdsMock.mockReturnValueOnce(new Set(['ALLOC-PENDING']));
+    useRemoveJobBoxAllocationsMock.mockReturnValueOnce({
+      ...buildMutationState(),
+      isPending: true
+    });
+
+    const html = renderPage(detail);
+
+    expect(html.match(/disabled=""[^>]*>Remove<\/button>/g)).toHaveLength(1);
+    expect(html.match(/>Remove<\/button>/g)).toHaveLength(2);
   });
 
   it('renders split allocations with both physical and covered LF', () => {

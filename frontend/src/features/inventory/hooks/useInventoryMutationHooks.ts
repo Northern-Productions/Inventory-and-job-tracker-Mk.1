@@ -75,6 +75,7 @@ import {
   createOptimisticFilmOrderFromPayload,
   createOptimisticJobDetailFromCreatePayload,
   resolveOptimisticFilmOrderScheduleFromCaches,
+  rollbackOptimisticAllocationRemovalInCaches,
   removeBoxCaches,
   removeJobPlanningCaches,
   replaceFilmOrderInCaches,
@@ -85,7 +86,8 @@ import {
   upsertFilmOrdersCache,
   upsertBoxInSearchCaches,
   upsertJobListCaches,
-  updateBoxCaches
+  updateBoxCaches,
+  type OptimisticAllocationRemovalRollback
 } from './inventoryMutationUtils';
 import {
   invalidateCaulkJobQueries,
@@ -952,6 +954,7 @@ export function useRemoveJobBoxAllocations() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.removeJobBoxAllocationMutation,
     mutationFn: (payload: RemoveJobBoxAllocationsPayload) => removeJobBoxAllocations(payload),
     onMutate: async (payload) => {
       await Promise.all([
@@ -964,28 +967,18 @@ export function useRemoveJobBoxAllocations() {
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot })
       ]);
 
-      return beginImmediateOptimisticMutation(
+      const { rollback } = applyOptimisticAllocationRemovalToCaches(
         queryClient,
-        [
-          inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
-          inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber),
-          inventoryKeys.listRoot,
-          inventoryKeys.boxRoot,
-          inventoryKeys.allocationsRoot
-        ],
-        () => {
-          applyOptimisticAllocationRemovalToCaches(
-            queryClient,
-            payload.jobNumber,
-            payload.allocationId
-          );
-        }
+        payload.jobNumber,
+        payload.allocationId
       );
+
+      return {
+        rollback: rollback as OptimisticAllocationRemovalRollback | null
+      };
     },
     onError: (_error, _variables, context) => {
-      restoreSnapshots(queryClient, context?.snapshots);
+      rollbackOptimisticAllocationRemovalInCaches(queryClient, context?.rollback);
     },
     onSuccess: async ({ result }, variables) => {
       await Promise.all([

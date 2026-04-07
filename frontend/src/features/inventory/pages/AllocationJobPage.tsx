@@ -42,6 +42,7 @@ import {
   useDeleteFilmOrder,
   useFilmCatalog,
   usePendingDeleteFilmOrderIds,
+  usePendingRemoveJobBoxAllocationIds,
   useBox,
   useJob,
   useRemoveCaulkJobAllocation,
@@ -181,6 +182,7 @@ export default function AllocationJobPage() {
   const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const pendingDeleteFilmOrderIds = usePendingDeleteFilmOrderIds();
+  const pendingRemoveJobBoxAllocationIds = usePendingRemoveJobBoxAllocationIds();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
@@ -198,6 +200,8 @@ export default function AllocationJobPage() {
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
   const [allocationToRemove, setAllocationToRemove] = useState<AllocationJobDetailEntry | null>(null);
+  const isAllocationRemovalPending = (allocationId: string) =>
+    pendingRemoveJobBoxAllocationIds.has(allocationId.trim().toUpperCase());
   const [filmCheckinEntry, setFilmCheckinEntry] = useState<AllocationJobDetailEntry | null>(null);
   const [caulkAllocationToRemove, setCaulkAllocationToRemove] = useState<CaulkJobAllocationEntry | null>(
     null
@@ -1623,7 +1627,7 @@ export default function AllocationJobPage() {
                           type="button"
                           variant="danger"
                           onClick={() => setAllocationToRemove(entry)}
-                          disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                          disabled={isAllocationRemovalPending(entry.allocationId) || setBoxStatusMutation.isPending}
                         >
                           Remove
                         </Button>
@@ -1698,7 +1702,7 @@ export default function AllocationJobPage() {
                               type="button"
                               variant="danger"
                               onClick={() => setAllocationToRemove(entry)}
-                              disabled={removeJobBoxAllocationsMutation.isPending || setBoxStatusMutation.isPending}
+                              disabled={isAllocationRemovalPending(entry.allocationId) || setBoxStatusMutation.isPending}
                             >
                               Remove
                             </Button>

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
+import { filterOfflineBoxes } from '../../../lib/offlineInventory';
 import { CaulkInventoryContent } from '../../caulk/components/CaulkInventoryContent';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
@@ -13,6 +14,7 @@ import {
   canonicalizeManufacturerLabel,
   getManufacturerOptionsWithCatalog
 } from '../utils/boxHelpers';
+import { getInventorySearchSuggestions } from '../utils/inventorySearchSuggestions';
 import {
   getActiveCustomWidth,
   normalizeSelectedWidths,
@@ -48,7 +50,15 @@ export default function InventoryHomePage() {
   );
   const inventoryView = readInventoryView(searchParams.get('inventoryView'));
   const deferredFilters = useDeferredValue(filters);
-  const boxesQuery = useOfflineInventorySearch(deferredFilters);
+  const boxesQuery = useOfflineInventorySearch(filters.warehouse);
+  const filteredBoxes = useMemo(
+    () => filterOfflineBoxes(boxesQuery.snapshotBoxes, deferredFilters),
+    [boxesQuery.snapshotBoxes, deferredFilters]
+  );
+  const searchSuggestions = useMemo(
+    () => getInventorySearchSuggestions(boxesQuery.snapshotBoxes, filters),
+    [boxesQuery.snapshotBoxes, filters]
+  );
   const filmCatalogQuery = useFilmCatalog();
   const manufacturerOptions = useMemo(() => {
     const optionsByKey = new Map<string, string>();
@@ -185,7 +195,7 @@ export default function InventoryHomePage() {
             <div className="hero-metric-line inventory-summary-line">
               <span className="hero-metric-label">Results</span>
               <strong className="hero-metric-value inventory-summary-value">
-                {boxesQuery.isLoading && !boxesQuery.hasSnapshot ? 'Loading' : boxesQuery.data.length}
+                {boxesQuery.isLoading && !boxesQuery.hasSnapshot ? 'Loading' : filteredBoxes.length}
               </strong>
               <span className="hero-metric-detail hero-metric-inline-copy inventory-summary-copy">
                 {boxesQuery.isLoading && !boxesQuery.hasSnapshot ? 'Building inventory view' : 'Matching boxes'}
@@ -213,6 +223,7 @@ export default function InventoryHomePage() {
         <InventoryFilters
           values={filters}
           manufacturerOptions={manufacturerOptions}
+          searchSuggestions={searchSuggestions}
           rememberedCustomWidth={rememberedCustomWidth}
           onRememberedCustomWidthChange={setRememberedCustomWidth}
           onChange={patchFilters}
@@ -228,7 +239,7 @@ export default function InventoryHomePage() {
             </p>
           </div>
           {!boxesQuery.isLoading && !boxesQuery.isError ? (
-            <span className="muted-text">{boxesQuery.data.length} box(es)</span>
+            <span className="muted-text">{filteredBoxes.length} box(es)</span>
           ) : null}
         </div>
         <DeferredLoadingState when={boxesQuery.isLoading} label="Loading inventory..." />
@@ -246,7 +257,7 @@ export default function InventoryHomePage() {
         ) : null}
         {!boxesQuery.isLoading && !boxesQuery.isError ? (
           <InventoryTable
-            boxes={boxesQuery.data}
+            boxes={filteredBoxes}
             onSelect={(boxId) => navigate(`/inventory/${encodeURIComponent(boxId)}`)}
           />
         ) : null}

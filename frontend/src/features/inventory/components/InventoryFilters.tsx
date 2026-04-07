@@ -1,12 +1,14 @@
-import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
+import { InventorySearchAutocompleteInput } from './InventorySearchAutocompleteInput';
+import type { InventorySearchSuggestion } from '../utils/inventorySearchSuggestions';
 import { WarehouseSelectField } from './WarehouseSelectField';
 import { WidthFilterField } from './WidthFilterField';
 
 interface InventoryFiltersProps {
   values: InventoryFilterValues;
   manufacturerOptions: string[];
+  searchSuggestions: InventorySearchSuggestion[];
   rememberedCustomWidth: string;
   onRememberedCustomWidthChange: (value: string) => void;
   onChange: (next: Partial<InventoryFilterValues>) => void;
@@ -15,6 +17,7 @@ interface InventoryFiltersProps {
 export function InventoryFilters({
   values,
   manufacturerOptions,
+  searchSuggestions,
   rememberedCustomWidth,
   onRememberedCustomWidthChange,
   onChange
@@ -40,10 +43,11 @@ export function InventoryFilters({
             }))
           ]}
         />
-        <Input
+        <InventorySearchAutocompleteInput
           label="Search"
           value={values.q}
-          onChange={(event) => onChange({ q: event.target.value })}
+          suggestions={searchSuggestions}
+          onChange={(value) => onChange({ q: value })}
           placeholder="BoxID, film"
         />
         <Select

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import type { AllocationJobDetailEntry, FilmOrderEntry, JobDetail } from '../../../domain';
+import type { AllocationEntry, AllocationJobDetailEntry, FilmOrderEntry, JobDetail } from '../../../domain';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
   applyOptimisticAllocationAdditionToCaches,
@@ -16,6 +16,7 @@ import {
   createOptimisticJobDetailAfterFilmOrderDeletion,
   createOptimisticJobDetailFromCreatePayload,
   resolveOptimisticFilmOrderScheduleFromCaches,
+  rollbackOptimisticAllocationRemovalInCaches,
   removeJobPlanningCaches,
   restoreSnapshots,
   syncJobDetailCaches,
@@ -2271,7 +2272,16 @@ describe('inventoryMutationUtils', () => {
 
     const result = applyOptimisticAllocationRemovalToCaches(queryClient, '555', 'alloc-1');
 
-    expect(result).toEqual({ removedBoxId: 'IL1-6552' });
+    expect(result).toMatchObject({
+      removedBoxId: 'IL1-6552',
+      rollback: {
+        jobNumber: '555',
+        allocation: expect.objectContaining({
+          allocationId: 'alloc-1',
+          boxId: 'IL1-6552'
+        })
+      }
+    });
     expect(queryClient.getQueryData(inventoryKeys.job('555'))).toMatchObject({
       summary: {
         status: 'ALLOCATE',
@@ -2317,6 +2327,258 @@ describe('inventoryMutationUtils', () => {
         allocationCount: 1
       })
     ]);
+  });
+
+  it('restores only the failed allocation when optimistic removals overlap', () => {
+    const queryClient = createQueryClient();
+    const detail = withCoveredFeetDetail({
+      summary: {
+        jobNumber: '555',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-02',
+        crewLeader: 'Crew',
+        status: 'READY' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 20,
+        allocatedFeet: 20,
+        remainingFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 2,
+        filmOrderCount: 0,
+        createdAt: '2026-04-02T00:00:00Z',
+        updatedAt: '2026-04-02T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: '3M',
+          filmName: 'Safety Shield',
+          widthIn: 48,
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'IL1-6552',
+          warehouse: 'IL1',
+          jobNumber: '555',
+          jobDate: '2026-04-02',
+          crewLeader: 'Crew',
+          allocatedFeet: 11,
+          coveredFeet: 11,
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-02T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Safety Shield',
+          widthIn: 48,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-2',
+          boxId: 'IL1-5973',
+          warehouse: 'IL1',
+          jobNumber: '555',
+          jobDate: '2026-04-02',
+          crewLeader: 'Crew',
+          allocatedFeet: 9,
+          coveredFeet: 9,
+          allocationKind: 'REQUIREMENT' as const,
+          status: 'ACTIVE' as const,
+          createdAt: '2026-04-02T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Safety Shield',
+          widthIn: 48,
+          boxStatus: 'IN_STOCK' as const,
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+
+    queryClient.setQueryData(inventoryKeys.job('555'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('555'), {
+      summary: {
+        jobNumber: '555',
+        jobDate: '2026-04-02',
+        crewLeader: 'Crew',
+        status: 'READY',
+        activeAllocatedFeet: 20,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 2
+      },
+      allocations: detail.allocations,
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+    queryClient.setQueryData(inventoryKeys.box('IL1-6552'), {
+      boxId: 'IL1-6552',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Safety Shield',
+      widthIn: 48,
+      initialFeet: 100,
+      feetAvailable: 3,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-03-20',
+      receivedDate: '2026-03-21',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M|SAFETY SHIELD',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+    queryClient.setQueryData(inventoryKeys.box('IL1-5973'), {
+      boxId: 'IL1-5973',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Safety Shield',
+      widthIn: 48,
+      initialFeet: 100,
+      feetAvailable: 5,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-03-20',
+      receivedDate: '2026-03-21',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M|SAFETY SHIELD',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+    queryClient.setQueryData(inventoryKeys.allocations('IL1-6552'), [
+      {
+        allocationId: 'alloc-1',
+        boxId: 'IL1-6552',
+        warehouse: 'IL1',
+        jobNumber: '555',
+        jobDate: '2026-04-02',
+        crewLeader: 'Crew',
+        allocatedFeet: 11,
+        coveredFeet: 11,
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-02T00:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: ''
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocations('IL1-5973'), [
+      {
+        allocationId: 'alloc-2',
+        boxId: 'IL1-5973',
+        warehouse: 'IL1',
+        jobNumber: '555',
+        jobDate: '2026-04-02',
+        crewLeader: 'Crew',
+        allocatedFeet: 9,
+        coveredFeet: 9,
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-02T00:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: ''
+      }
+    ]);
+
+    const firstRemoval = applyOptimisticAllocationRemovalToCaches(queryClient, '555', 'alloc-1');
+    const secondRemoval = applyOptimisticAllocationRemovalToCaches(queryClient, '555', 'alloc-2');
+
+    rollbackOptimisticAllocationRemovalInCaches(queryClient, secondRemoval.rollback);
+
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('555'))).toMatchObject({
+      summary: {
+        allocatedFeet: 9,
+        remainingFeet: 11,
+        allocationCount: 1
+      },
+      allocations: [
+        expect.objectContaining({
+          allocationId: 'alloc-2'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('555'))?.allocations).toHaveLength(1);
+    expect(
+      queryClient.getQueryData<AllocationEntry[]>(inventoryKeys.allocations('IL1-6552'))
+    ).toEqual([]);
+    expect(
+      queryClient.getQueryData<AllocationEntry[]>(inventoryKeys.allocations('IL1-5973'))
+    ).toEqual([
+      expect.objectContaining({
+        allocationId: 'alloc-2'
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-6552'))).toMatchObject({
+      feetAvailable: 14
+    });
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-5973'))).toMatchObject({
+      feetAvailable: 5
+    });
+    expect(firstRemoval.rollback?.allocation.allocationId).toBe('alloc-1');
   });
 
   it('updates box caches with the server-returned reactivated zeroed box state', () => {

@@ -147,6 +147,30 @@ describe('offline inventory filters', () => {
     expect(result.map((box) => box.boxId)).toEqual(['IL1-1003', 'IL1-1001', 'IL1-1002']);
   });
 
+  it('uses the broader shared matcher for inventory search queries', () => {
+    const boxes = [
+      createBox({
+        boxId: 'IL1-6727',
+        manufacturer: 'SOLYX',
+        filmName: 'Frosted Stripes SXC-1418',
+        filmKey: 'SOLYX|FROSTED STRIPES SXC-1418'
+      }),
+      createBox({
+        boxId: 'IL1-6728',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        filmKey: 'SOLYX|WHITEOUT SXWF-WO'
+      })
+    ];
+
+    const result = filterOfflineBoxes(boxes, {
+      warehouse: 'IL1',
+      q: 'sx-1418'
+    });
+
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-6727']);
+  });
+
   it('keeps boxes from all warehouses when the warehouse filter is all', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1001', warehouse: 'IL1' }),
