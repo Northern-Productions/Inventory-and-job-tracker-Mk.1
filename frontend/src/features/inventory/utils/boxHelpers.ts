@@ -4,7 +4,6 @@ import type {
   CoreType,
   BoxStatus,
   FilmCatalogEntry,
-  UpdateBoxPayload,
   Warehouse
 } from '../../../domain';
 import {
@@ -54,8 +53,6 @@ const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'SECURITY White plastic 3/8"': 14.4
 };
 
-export type RollTrackingEditedField = '' | 'currentFeetOnRoll' | 'lastRollWeightLbs';
-
 export interface BoxDraft {
   boxId: string;
   manufacturer: string;
@@ -77,7 +74,8 @@ export interface BoxDraft {
   pricePerLf: string;
   purchaseCost: string;
   notes: string;
-  rollTrackingEditedField: RollTrackingEditedField;
+  currentFeetOnRollManuallyEdited: boolean;
+  lastRollWeightLbsManuallyEdited: boolean;
 }
 
 function normalizeManufacturerLabel(value: string) {
@@ -286,7 +284,8 @@ export interface RollTrackingResolutionContext {
   lastRollWeightLbs: number | null;
   coreWeightLbs: number | null;
   lfWeightLbsPerFt: number | null;
-  rollTrackingEditedField?: RollTrackingEditedField;
+  currentFeetOnRollManuallyEdited?: boolean;
+  lastRollWeightLbsManuallyEdited?: boolean;
 }
 
 function hasRollWeightMetadata(context: Pick<
@@ -449,6 +448,8 @@ export function resolveUpdateBoxRollTracking(
     nextValues.currentFeetOnRoll === null
       ? null
       : clampFeetAvailable(nextValues.currentFeetOnRoll, nextValues.initialFeet);
+  const currentFeetOnRollManuallyEdited = nextValues.currentFeetOnRollManuallyEdited ?? false;
+  const lastRollWeightLbsManuallyEdited = nextValues.lastRollWeightLbsManuallyEdited ?? false;
 
   if (!nextValues.receivedDate) {
     const initialFeet = clampFeetAvailable(currentFeetInput ?? nextValues.initialFeet, currentFeetInput ?? nextValues.initialFeet);
@@ -474,17 +475,19 @@ export function resolveUpdateBoxRollTracking(
 
   const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
   const fallbackCurrentFeet = getCurrentFeetEditFallback(currentBox, nextValues, allocations);
-  const currentFeetChanged =
-    nextValues.rollTrackingEditedField === 'currentFeetOnRoll' ||
-    (nextValues.rollTrackingEditedField !== 'lastRollWeightLbs' &&
-      currentFeetInput !== null &&
-      currentFeetInput !== fallbackCurrentFeet);
-  const lastRollWeightChanged =
-    nextValues.rollTrackingEditedField === 'lastRollWeightLbs' ||
-    (nextValues.rollTrackingEditedField !== 'currentFeetOnRoll' &&
-      nextValues.lastRollWeightLbs !== currentBox.lastRollWeightLbs);
+  const manuallyEditedBothRollTrackingFields =
+    currentFeetOnRollManuallyEdited && lastRollWeightLbsManuallyEdited;
 
-  if (lastRollWeightChanged && hasRollWeightMetadata(nextValues)) {
+  if (manuallyEditedBothRollTrackingFields && currentFeetInput !== null) {
+    return {
+      initialFeet: nextValues.initialFeet,
+      currentFeetOnRoll: currentFeetInput,
+      feetAvailable: clampFeetAvailable(currentFeetInput - activeAllocatedFeet, nextValues.initialFeet),
+      lastRollWeightLbs: nextValues.lastRollWeightLbs
+    };
+  }
+
+  if (lastRollWeightLbsManuallyEdited && hasRollWeightMetadata(nextValues)) {
     const currentFeetOnRoll = clampFeetAvailable(
       deriveFeetAvailableFromRollWeight(
         nextValues.lastRollWeightLbs!,
@@ -503,7 +506,7 @@ export function resolveUpdateBoxRollTracking(
     };
   }
 
-  if (currentFeetChanged && currentFeetInput !== null) {
+  if (currentFeetOnRollManuallyEdited && currentFeetInput !== null) {
     return {
       initialFeet: nextValues.initialFeet,
       currentFeetOnRoll: currentFeetInput,
@@ -579,7 +582,8 @@ export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
     pricePerLf: '',
     purchaseCost: '',
     notes: '',
-    rollTrackingEditedField: ''
+    currentFeetOnRollManuallyEdited: false,
+    lastRollWeightLbsManuallyEdited: false
   };
 }
 
@@ -610,7 +614,8 @@ export function createDraftFromBox(
     pricePerLf: box.pricePerLf == null ? '' : String(box.pricePerLf),
     purchaseCost: box.purchaseCost == null ? '' : String(box.purchaseCost),
     notes: box.notes,
-    rollTrackingEditedField: ''
+    currentFeetOnRollManuallyEdited: false,
+    lastRollWeightLbsManuallyEdited: false
   };
 }
 
@@ -667,18 +672,4 @@ export function getNextBoxIdForWarehouse(
   const nextDigits = String(nextValue).padStart(Math.max(bestWidth, String(nextValue).length), '0');
 
   return `${requiredPrefix}${nextDigits}`;
-}
-
-export function getRiskyFieldChanges(current: Box, next: UpdateBoxPayload): string[] {
-  const risky: string[] = [];
-
-  if (current.initialFeet !== next.initialFeet) {
-    risky.push('Initial Linear Feet');
-  }
-
-  if (current.widthIn !== next.widthIn) {
-    risky.push('Width');
-  }
-
-  return risky;
 }

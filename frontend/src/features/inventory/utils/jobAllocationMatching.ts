@@ -1,8 +1,10 @@
 import type { Box, JobRequirementLine } from '../../../domain';
 import { isSplitCoveragePair } from '../../../domain/allocationCoverageContract.mjs';
 import {
+  compareJobPlanningFilmMatches,
   canJobPlanningFilmSatisfyRequirement,
-  describeJobPlanningFilm
+  describeJobPlanningFilm,
+  getJobPlanningFilmMatch
 } from './jobPlanningFilmIdentity';
 
 function compareDates(leftDate: string, rightDate: string) {
@@ -74,32 +76,41 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
     }
   }
 
-  const filtered = Array.from(dedupedByBoxId.values()).filter((box) => {
+  const rankedMatches = Array.from(dedupedByBoxId.values()).flatMap((box) => {
     const isAllocatableStatus = box.status === 'IN_STOCK' || box.status === 'CHECKED_OUT';
     if (!isAllocatableStatus || box.feetAvailable <= 0) {
-      return false;
+      return [];
     }
 
     if (box.widthIn < requiredWidth) {
-      return false;
+      return [];
     }
 
-    if (
-      !canJobPlanningFilmSatisfyRequirement(
-        box.manufacturer,
-        box.filmName,
-        requirement.manufacturer,
-        requirement.filmName
-      )
-    ) {
-      return false;
+    const filmMatch = getJobPlanningFilmMatch(
+      box.manufacturer,
+      box.filmName,
+      requirement.manufacturer,
+      requirement.filmName
+    );
+    if (!filmMatch) {
+      return [];
     }
 
-    return true;
+    return [
+      {
+        box,
+        filmMatch
+      }
+    ];
   });
 
-  filtered.sort((left, right) => compareBoxesByClosestCompatibleWidth(left, right, requirement));
-  return filtered;
+  rankedMatches.sort(
+    (left, right) =>
+      compareJobPlanningFilmMatches(left.filmMatch, right.filmMatch) ||
+      compareBoxesByClosestCompatibleWidth(left.box, right.box, requirement)
+  );
+
+  return rankedMatches.map((entry) => entry.box);
 }
 
 export function findCompatibleRequirementsForBox(

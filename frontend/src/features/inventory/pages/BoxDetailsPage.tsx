@@ -33,7 +33,6 @@ import {
   deriveCurrentFeetOnRollForBox,
   deriveFeetAvailableFromRollWeight,
   getDisplayedAllocatedFeetForBox,
-  getRiskyFieldChanges,
   type BoxDraft
 } from '../utils/boxHelpers';
 import {
@@ -54,11 +53,6 @@ import {
 } from '../utils/boxZeroedTransition';
 
 type ConfirmState =
-  | {
-      type: 'update';
-      payload: UpdateBoxPayload;
-      message: string;
-    }
   | {
       type: 'checkout';
       payload: SetBoxStatusPayload;
@@ -102,7 +96,7 @@ function createStatusConfirmState(
   boxId: string,
   status: SetBoxStatusPayload['status'],
   message: string
-): Exclude<ConfirmState, { type: 'update' } | null> {
+): Exclude<ConfirmState, null> {
   return {
     type: status === 'CHECKED_OUT' ? 'checkout' : 'checkin',
     payload: {
@@ -518,16 +512,6 @@ export default function BoxDetailsPage() {
       return;
     }
 
-    const riskyFields = box ? getRiskyFieldChanges(box, payload) : [];
-    if (riskyFields.length > 0) {
-      setConfirmState({
-        type: 'update',
-        payload,
-        message: `This change affects ${riskyFields.join(', ')}. A reason is required.`
-      });
-      return;
-    }
-
     await submitUpdate({
       ...payload,
       auditNote:
@@ -619,17 +603,6 @@ export default function BoxDetailsPage() {
 
   async function handleConfirm(reason: string) {
     if (!confirmState) {
-      return;
-    }
-
-    if (confirmState.type === 'update') {
-      const payload = {
-        ...confirmState.payload,
-        auditNote: reason
-      };
-
-      setConfirmState(null);
-      await submitUpdate(payload);
       return;
     }
 
@@ -1103,42 +1076,30 @@ export default function BoxDetailsPage() {
         title={
           confirmState?.type === 'checkout'
             ? 'Check Out Box'
-            : confirmState?.type === 'checkin'
-              ? 'Check In Box'
-              : 'Confirm Risky Edit'
+            : 'Check In Box'
         }
         message={confirmState?.message || ''}
         confirmLabel={
           confirmState?.type === 'checkout'
             ? 'Check Out'
-            : confirmState?.type === 'checkin'
-              ? 'Check In'
-              : 'Confirm Save'
+            : 'Check In'
         }
         cancelLabel="Cancel"
-        requireReason={
-          confirmState?.type === 'update' ||
-          confirmState?.type === 'checkout' ||
-          confirmState?.type === 'checkin'
-        }
+        requireReason
         reasonLabel={
           confirmState?.type === 'checkout'
             ? checkoutJobOptions.length > 0
               ? 'Allocated Job'
               : 'Job Number'
-            : confirmState?.type === 'checkin'
-              ? 'Roll Weight (lbs)'
-              : 'Reason'
+            : 'Roll Weight (lbs)'
         }
         reasonPlaceholder={
           confirmState?.type === 'checkout' ? 'Numbers only' : 'Required'
         }
         reasonField={
-          confirmState?.type === 'update'
-            ? 'textarea'
-            : confirmState?.type === 'checkout' || confirmState?.type === 'checkin'
-              ? 'input'
-              : 'textarea'
+          confirmState?.type === 'checkout' || confirmState?.type === 'checkin'
+            ? 'input'
+            : 'textarea'
         }
         reasonInputType={
           confirmState?.type === 'checkin'

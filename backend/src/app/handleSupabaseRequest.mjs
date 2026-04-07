@@ -19,6 +19,12 @@ import {
   matchesBoxSearchQuery,
   rankBoxSearchCandidates
 } from '../../../frontend/src/domain/boxSearchMatcher.mjs';
+import {
+  canJobPlanningFilmSatisfyRequirement as canSharedJobPlanningFilmSatisfyRequirement,
+  compareJobPlanningFilmMatches as compareSharedJobPlanningFilmMatches,
+  describeJobPlanningFilm as describeSharedJobPlanningFilm,
+  getJobPlanningFilmMatch as getSharedJobPlanningFilmMatch
+} from '../../../frontend/src/domain/jobPlanningFilmMatcher.mjs';
 
 function asTrimmedString(value) {
   if (value === null || value === undefined) {
@@ -415,6 +421,37 @@ function deriveFeetAvailableFromRollWeight(lastRollWeightLbs, coreWeightLbs, lfW
   }
 
   return flooredFeet;
+}
+
+function clampFeetToInitialRange(feetValue, initialFeet) {
+  const normalizedInitialFeet = Math.max(Math.floor(Number(initialFeet) || 0), 0);
+  const normalizedFeetValue = Math.floor(Number(feetValue) || 0);
+  return Math.min(Math.max(normalizedFeetValue, 0), normalizedInitialFeet);
+}
+
+function deriveLfWeightLbsPerFtIfPossible(initialWeightLbs, coreWeightLbs, widthIn, initialFeet) {
+  if (
+    initialWeightLbs === null ||
+    coreWeightLbs === null ||
+    !Number.isFinite(Number(widthIn)) ||
+    Number(widthIn) <= 0 ||
+    !Number.isFinite(Number(initialFeet)) ||
+    Number(initialFeet) <= 0
+  ) {
+    return null;
+  }
+
+  try {
+    const sqFtWeightLbsPerSqFt = deriveSqFtWeightLbsPerSqFt(
+      initialWeightLbs,
+      coreWeightLbs,
+      widthIn,
+      initialFeet
+    );
+    return deriveLfWeightLbsPerFt(sqFtWeightLbsPerSqFt, widthIn);
+  } catch {
+    return null;
+  }
 }
 
 function isLowStockBox(box) {
@@ -4566,17 +4603,7 @@ function stripPlanningExteriorSuffix(filmName) {
 
 function describeRequirementPlanningFilm(manufacturer, filmName) {
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
-  const normalizedFilmName = normalizeCollapsedCatalogLabel(canonical.filmName);
-  const manufacturerKey = normalizeCatalogManufacturerLookupKey(canonical.manufacturer);
-  const { familyFilmName, isExterior } = stripPlanningExteriorSuffix(normalizedFilmName);
-
-  return {
-    manufacturer: canonical.manufacturer,
-    filmName: normalizedFilmName,
-    key: `${manufacturerKey}|${normalizeCatalogLookupKey(normalizedFilmName)}`,
-    familyKey: `${manufacturerKey}|${normalizeCatalogLookupKey(familyFilmName)}`,
-    isExterior
-  };
+  return describeSharedJobPlanningFilm(canonical.manufacturer, canonical.filmName);
 }
 
 function normalizeRequirementFilmKey(manufacturer, filmName) {
@@ -4597,17 +4624,34 @@ function planningFilmCanSatisfyRequirement(
   requirementManufacturer,
   requirementFilmName
 ) {
-  const candidate = describeRequirementPlanningFilm(candidateManufacturer, candidateFilmName);
-  const requirement = describeRequirementPlanningFilm(requirementManufacturer, requirementFilmName);
-  if (candidate.familyKey !== requirement.familyKey) {
-    return false;
-  }
+  const candidate = normalizeCanonicalManufacturerAndFilm(candidateManufacturer, candidateFilmName);
+  const requirement = normalizeCanonicalManufacturerAndFilm(requirementManufacturer, requirementFilmName);
+  return canSharedJobPlanningFilmSatisfyRequirement(
+    candidate.manufacturer,
+    candidate.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+}
 
-  if (requirement.isExterior && !candidate.isExterior) {
-    return false;
-  }
+function getRequirementPlanningFilmMatch(
+  candidateManufacturer,
+  candidateFilmName,
+  requirementManufacturer,
+  requirementFilmName
+) {
+  const candidate = normalizeCanonicalManufacturerAndFilm(candidateManufacturer, candidateFilmName);
+  const requirement = normalizeCanonicalManufacturerAndFilm(requirementManufacturer, requirementFilmName);
+  return getSharedJobPlanningFilmMatch(
+    candidate.manufacturer,
+    candidate.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+}
 
-  return true;
+function getRequirementPlanningManufacturerGroupKey(manufacturer, filmName) {
+  return describeRequirementPlanningFilm(manufacturer, filmName).manufacturerKey;
 }
 
 function allocationMatchesRequirement(box, requirement) {
@@ -4643,6 +4687,38 @@ function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
   return box.status === 'ZEROED' || box.status === 'RETIRED';
 }
 
+function compareRequirementCoveragePoolsForRequirement(left, right, requirement) {
+  const leftMatch = getRequirementPlanningFilmMatch(
+    left.manufacturer,
+    left.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+  const rightMatch = getRequirementPlanningFilmMatch(
+    right.manufacturer,
+    right.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+
+  if (leftMatch && rightMatch) {
+    const matchComparison = compareSharedJobPlanningFilmMatches(leftMatch, rightMatch);
+    if (matchComparison !== 0) {
+      return matchComparison;
+    }
+  }
+
+  if (!requirementFilmIsExterior(requirement.manufacturer, requirement.filmName) && left.isExterior !== right.isExterior) {
+    return left.isExterior ? 1 : -1;
+  }
+
+  if (left.widthIn !== right.widthIn) {
+    return left.widthIn - right.widthIn;
+  }
+
+  return left.index - right.index;
+}
+
 function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
   const grouped = {};
   const coverage = {};
@@ -4652,7 +4728,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
     requirementById[requirementId] = requirement;
-    const groupKey = normalizeRequirementFilmFamilyKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = getRequirementPlanningManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -4662,9 +4738,12 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
     grouped[groupKey].requirements.push({
       requirementId,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
       isExterior: requirementFilmIsExterior(requirement.manufacturer, requirement.filmName),
+      specificity: describeRequirementPlanningFilm(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
       index
     });
   }
@@ -4699,7 +4778,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
-    const groupKey = normalizeRequirementFilmFamilyKey(box.manufacturer, box.filmName);
+    const groupKey = getRequirementPlanningManufacturerGroupKey(box.manufacturer, box.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -4708,9 +4787,12 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
     }
 
     grouped[groupKey].pools.push({
+      manufacturer: box.manufacturer,
+      filmName: box.filmName,
       widthIn: Number(box.widthIn) || 0,
       remainingFeet: coveredFeet,
-      isExterior: requirementFilmIsExterior(box.manufacturer, box.filmName)
+      isExterior: requirementFilmIsExterior(box.manufacturer, box.filmName),
+      index
     });
   }
 
@@ -4724,6 +4806,10 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
 
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
+      }
+
+      if (left.specificity !== right.specificity) {
+        return right.specificity - left.specificity;
       }
       return left.index - right.index;
     });
@@ -4741,17 +4827,24 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
         0,
         requirement.requiredFeet - Math.max(0, Number(coverage[requirement.requirementId] || 0))
       );
+      const compatiblePools = group.pools
+        .filter(
+          (pool) =>
+            pool.remainingFeet > 0 &&
+            pool.widthIn >= requirement.widthIn &&
+            Boolean(
+              getRequirementPlanningFilmMatch(
+                pool.manufacturer,
+                pool.filmName,
+                requirement.manufacturer,
+                requirement.filmName
+              )
+            )
+        )
+        .sort((left, right) => compareRequirementCoveragePoolsForRequirement(left, right, requirement));
 
-      for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
-        const pool = group.pools[poolIndex];
-        if (
-          pool.remainingFeet <= 0 ||
-          pool.widthIn < requirement.widthIn ||
-          (requirement.isExterior && !pool.isExterior)
-        ) {
-          continue;
-        }
-
+      for (let poolIndex = 0; poolIndex < compatiblePools.length && remainingNeed > 0; poolIndex += 1) {
+        const pool = compatiblePools[poolIndex];
         const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
         pool.remainingFeet -= assignedFeet;
         remainingNeed -= assignedFeet;
@@ -5602,15 +5695,15 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       continue;
     }
 
+    let filmMatch = null;
     if (selectedRequirement) {
-      if (
-        !planningFilmCanSatisfyRequirement(
-          candidate.manufacturer,
-          candidate.filmName,
-          selectedRequirement.manufacturer,
-          selectedRequirement.filmName
-        )
-      ) {
+      filmMatch = getRequirementPlanningFilmMatch(
+        candidate.manufacturer,
+        candidate.filmName,
+        selectedRequirement.manufacturer,
+        selectedRequirement.filmName
+      );
+      if (!filmMatch) {
         continue;
       }
     } else if (
@@ -5620,10 +5713,22 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       continue;
     }
 
-    filteredCandidates.push(candidate);
+    filteredCandidates.push({
+      candidate,
+      filmMatch
+    });
   }
 
-  filteredCandidates.sort((left, right) => {
+  filteredCandidates.sort((leftEntry, rightEntry) => {
+    if (selectedRequirement && leftEntry.filmMatch && rightEntry.filmMatch) {
+      const filmComparison = compareSharedJobPlanningFilmMatches(leftEntry.filmMatch, rightEntry.filmMatch);
+      if (filmComparison !== 0) {
+        return filmComparison;
+      }
+    }
+
+    const left = leftEntry.candidate;
+    const right = rightEntry.candidate;
     const leftIsExactMatch = left.widthIn === minimumWidthIn;
     const rightIsExactMatch = right.widthIn === minimumWidthIn;
     if (leftIsExactMatch !== rightIsExactMatch) {
@@ -5654,7 +5759,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   });
 
   for (let index = 0; index < filteredCandidates.length; index += 1) {
-    const candidate = filteredCandidates[index];
+    const candidate = filteredCandidates[index].candidate;
     const conflicts = getDateConflictJobsForBox(candidate.boxId, jobContext, activeAllocationsByBox);
     if (conflicts.length) {
       continue;
@@ -7212,11 +7317,20 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   const orderDate = normalizeDateString(payload.orderDate, 'OrderDate', false);
   const receivedDate = normalizeDateString(payload.receivedDate, 'ReceivedDate', true);
   const feetAvailableInput = asTrimmedString(payload.feetAvailable);
+  const hasSubmittedInitialWeightLbs = Object.prototype.hasOwnProperty.call(payload, 'initialWeightLbs');
+  const hasSubmittedLastRollWeightLbs = Object.prototype.hasOwnProperty.call(payload, 'lastRollWeightLbs');
+  const hasSubmittedLastWeighedDate = Object.prototype.hasOwnProperty.call(payload, 'lastWeighedDate');
+  const hasSubmittedCoreType = Object.prototype.hasOwnProperty.call(payload, 'coreType');
+  const hasSubmittedCurrentFeetOnRoll = Object.prototype.hasOwnProperty.call(payload, 'currentFeetOnRoll');
   const filmKey = normalizeFilmKeyInput(manufacturer, filmName, payload.filmKey);
   const initialWeightInput = coerceOptionalNonNegativeNumber(payload.initialWeightLbs, 'InitialWeightLbs');
   const lastRollWeightInput = coerceOptionalNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const lastWeighedDateInput = normalizeDateString(payload.lastWeighedDate, 'LastWeighedDate', true);
   const coreTypeInput = normalizeCoreType(payload.coreType, true);
+  const currentFeetOnRollInput =
+    hasSubmittedCurrentFeetOnRoll && asTrimmedString(payload.currentFeetOnRoll)
+      ? coerceFeetValue(payload.currentFeetOnRoll, 'CurrentFeetOnRoll', warnings, true)
+      : null;
   const existingCoreType = existingBox ? normalizeCoreType(existingBox.coreType, true) : '';
   const reactivateFromZeroed =
     payload.reactivateFromZeroed === true || String(payload.reactivateFromZeroed) === 'true';
@@ -7228,6 +7342,8 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   let resolvedCoreWeightLbs = null;
   let resolvedLfWeightLbsPerFt = null;
   let shouldRefreshReceivingMetrics = false;
+  let activeAllocatedFeet = 0;
+  let usedPartialReceivingMetrics = false;
 
   if (!feetAvailableInput) {
     if (existingBox) {
@@ -7252,198 +7368,6 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       throw new HttpError(400, 'InitialFeet must be greater than zero for received boxes.');
     }
 
-    shouldRefreshReceivingMetrics =
-      !existingBox ||
-      !existingBox.receivedDate ||
-      existingBox.filmKey !== filmKey ||
-      existingBox.widthIn !== widthIn ||
-      existingBox.initialFeet !== initialFeet ||
-      (coreTypeInput && coreTypeInput !== existingCoreType) ||
-      initialWeightInput !== null;
-
-    if (shouldRefreshReceivingMetrics) {
-      const filmData = await findFilmCatalogByFilmKey(client, orgId, filmKey);
-      const filmDataCoreType = filmData ? normalizeCoreType(filmData.defaultCoreType, true) : '';
-      const effectiveCoreType = coreTypeInput || filmDataCoreType || existingCoreType;
-
-      if (filmData && filmData.sqFtWeightLbsPerSqFt !== null) {
-        if (!effectiveCoreType) {
-          throw new HttpError(400, 'CoreType is required before this film can be received.');
-        }
-
-        const knownSqFtWeight = coerceNonNegativeNumber(
-          filmData.sqFtWeightLbsPerSqFt,
-          'SqFtWeightLbsPerSqFt'
-        );
-        resolvedCoreType = effectiveCoreType;
-        resolvedCoreWeightLbs = deriveCoreWeightLbs(effectiveCoreType, widthIn);
-
-        if (initialWeightInput !== null) {
-          const inputSqFtWeight = deriveSqFtWeightLbsPerSqFt(
-            initialWeightInput,
-            resolvedCoreWeightLbs,
-            widthIn,
-            initialFeet
-          );
-          resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(inputSqFtWeight, widthIn);
-          resolvedInitialWeightLbs = roundToDecimals(initialWeightInput, 2);
-        } else {
-          resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(knownSqFtWeight, widthIn);
-          resolvedInitialWeightLbs = deriveInitialWeightLbs(
-            resolvedLfWeightLbsPerFt,
-            initialFeet,
-            resolvedCoreWeightLbs
-          );
-        }
-
-        if (resolvedLastRollWeightLbs === null) {
-          resolvedLastRollWeightLbs =
-            existingBox && existingBox.lastRollWeightLbs !== null
-              ? existingBox.lastRollWeightLbs
-              : resolvedInitialWeightLbs;
-        }
-
-        if (!resolvedLastWeighedDate) {
-          resolvedLastWeighedDate =
-            existingBox && existingBox.lastWeighedDate ? existingBox.lastWeighedDate : receivedDate;
-        }
-
-        if ((!existingBox || !existingBox.receivedDate) && initialWeightInput === null) {
-          warnings.push('Initial and last roll weights were auto-filled from FILM DATA.');
-        }
-
-        if (!filmDataCoreType || filmDataCoreType !== effectiveCoreType) {
-          await upsertFilmCatalogRecord(client, orgId, {
-            filmKey,
-            manufacturer: filmData.manufacturer || manufacturer,
-            filmName: filmData.filmName || filmName,
-            sqFtWeightLbsPerSqFt: knownSqFtWeight,
-            defaultCoreType: effectiveCoreType,
-            sourceWidthIn: filmData.sourceWidthIn,
-            sourceInitialFeet: filmData.sourceInitialFeet,
-            sourceInitialWeightLbs: filmData.sourceInitialWeightLbs,
-            updatedAt: new Date().toISOString(),
-            sourceBoxId: filmData.sourceBoxId || boxId,
-            notes: filmData.notes
-          });
-          warnings.push('FILM DATA was updated with the selected core type.');
-        }
-      } else {
-        if (!effectiveCoreType) {
-          throw new HttpError(400, 'CoreType is required the first time a received film is saved.');
-        }
-
-        const seedInitialWeight =
-          initialWeightInput !== null
-            ? initialWeightInput
-            : existingBox && existingBox.initialWeightLbs !== null
-              ? existingBox.initialWeightLbs
-              : null;
-
-        if (seedInitialWeight === null) {
-          throw new HttpError(400, 'InitialWeightLbs is required the first time a received film is saved.');
-        }
-
-        resolvedCoreType = effectiveCoreType;
-        resolvedCoreWeightLbs = deriveCoreWeightLbs(effectiveCoreType, widthIn);
-        const derivedSqFtWeight = deriveSqFtWeightLbsPerSqFt(
-          seedInitialWeight,
-          resolvedCoreWeightLbs,
-          widthIn,
-          initialFeet
-        );
-        resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(derivedSqFtWeight, widthIn);
-        resolvedInitialWeightLbs = roundToDecimals(seedInitialWeight, 2);
-
-        if (resolvedLastRollWeightLbs === null) {
-          resolvedLastRollWeightLbs =
-            existingBox && existingBox.lastRollWeightLbs !== null
-              ? existingBox.lastRollWeightLbs
-              : resolvedInitialWeightLbs;
-        }
-
-        if (!resolvedLastWeighedDate) {
-          resolvedLastWeighedDate = receivedDate;
-        }
-
-        await upsertFilmCatalogRecord(client, orgId, {
-          filmKey,
-          manufacturer,
-          filmName,
-          sqFtWeightLbsPerSqFt: derivedSqFtWeight,
-          defaultCoreType: effectiveCoreType,
-          sourceWidthIn: widthIn,
-          sourceInitialFeet: initialFeet,
-          sourceInitialWeightLbs: resolvedInitialWeightLbs,
-          updatedAt: new Date().toISOString(),
-          sourceBoxId: boxId,
-          notes: ''
-        });
-        warnings.push(`FILM DATA was created from the first received weight for ${filmKey}.`);
-      }
-    } else {
-      resolvedInitialWeightLbs = existingBox ? existingBox.initialWeightLbs : resolvedInitialWeightLbs;
-      resolvedCoreType = coreTypeInput || existingCoreType;
-      resolvedCoreWeightLbs = existingBox ? existingBox.coreWeightLbs : null;
-      resolvedLfWeightLbsPerFt = existingBox ? existingBox.lfWeightLbsPerFt : null;
-      resolvedLastRollWeightLbs =
-        resolvedLastRollWeightLbs !== null
-          ? resolvedLastRollWeightLbs
-          : existingBox
-            ? existingBox.lastRollWeightLbs
-            : resolvedInitialWeightLbs;
-      resolvedLastWeighedDate =
-        resolvedLastWeighedDate || (existingBox ? existingBox.lastWeighedDate : receivedDate);
-    }
-  } else {
-    resolvedInitialWeightLbs = null;
-    resolvedLastRollWeightLbs = null;
-    resolvedLastWeighedDate = '';
-    resolvedCoreType = '';
-    resolvedCoreWeightLbs = null;
-    resolvedLfWeightLbsPerFt = null;
-  }
-
-  if (receivedDate) {
-    if (resolvedLastRollWeightLbs === null) {
-      throw new HttpError(
-        400,
-        'LastRollWeightLbs is required for received boxes because FeetAvailable is derived from roll weight.'
-      );
-    }
-
-    if (
-      resolvedCoreWeightLbs === null ||
-      resolvedLfWeightLbsPerFt === null ||
-      resolvedLfWeightLbsPerFt <= 0
-    ) {
-      throw new HttpError(
-        400,
-        'CoreWeightLbs and LfWeightLbsPerFt must be set for received boxes because FeetAvailable is derived from roll weight.'
-      );
-    }
-
-    const isFirstReceipt = !existingBox || !existingBox.receivedDate;
-    const shouldRecalculateReceivedFeet = shouldRecalculateReceivedFeetFromState(
-      existingBox,
-      initialFeet,
-      resolvedLastRollWeightLbs,
-      resolvedCoreWeightLbs,
-      resolvedLfWeightLbsPerFt,
-      reactivateFromZeroed
-    );
-    const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
-      resolvedLastRollWeightLbs,
-      resolvedCoreWeightLbs,
-      resolvedLfWeightLbsPerFt,
-      initialFeet
-    );
-    const shouldRepairStaleFeet =
-      Boolean(existingBox && existingBox.receivedDate) &&
-      Math.max(existingBox ? existingBox.feetAvailable : 0, 0) === 0 &&
-      physicalFeetAvailable > 0;
-    let activeAllocatedFeet = 0;
-
     if (existingBox) {
       const existingAllocations = await listAllocationsByBox(client, orgId, boxId);
       for (let index = 0; index < existingAllocations.length; index += 1) {
@@ -7453,17 +7377,312 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       }
     }
 
-    if (isFirstReceipt) {
-      feetAvailable = Math.max(initialFeet - activeAllocatedFeet, 0);
-    } else if (shouldRecalculateReceivedFeet || shouldRepairStaleFeet) {
-      const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
-      if (feetAvailable !== recalculatedFeetAvailable) {
-        feetAvailable = recalculatedFeetAvailable;
-        warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');
+    shouldRefreshReceivingMetrics =
+      !existingBox ||
+      !existingBox.receivedDate ||
+      existingBox.filmKey !== filmKey ||
+      existingBox.widthIn !== widthIn ||
+      existingBox.initialFeet !== initialFeet ||
+      coreTypeInput !== existingCoreType ||
+      initialWeightInput !== (existingBox ? existingBox.initialWeightLbs : null);
+
+    if (shouldRefreshReceivingMetrics) {
+      const filmData = await findFilmCatalogByFilmKey(client, orgId, filmKey);
+      const filmDataCoreType = filmData ? normalizeCoreType(filmData.defaultCoreType, true) : '';
+      const shouldRespectBlankCoreType = Boolean(existingBox && hasSubmittedCoreType && !coreTypeInput);
+      const effectiveCoreType = shouldRespectBlankCoreType
+        ? ''
+        : coreTypeInput || filmDataCoreType || existingCoreType;
+
+      if (filmData && filmData.sqFtWeightLbsPerSqFt !== null) {
+        if (!effectiveCoreType) {
+          if (!existingBox) {
+            throw new HttpError(400, 'CoreType is required before this film can be received.');
+          }
+        }
+
+        if (effectiveCoreType) {
+          const knownSqFtWeight = coerceNonNegativeNumber(
+            filmData.sqFtWeightLbsPerSqFt,
+            'SqFtWeightLbsPerSqFt'
+          );
+          resolvedCoreType = effectiveCoreType;
+          resolvedCoreWeightLbs = deriveCoreWeightLbs(effectiveCoreType, widthIn);
+
+          if (initialWeightInput !== null) {
+            const inputSqFtWeight = deriveSqFtWeightLbsPerSqFt(
+              initialWeightInput,
+              resolvedCoreWeightLbs,
+              widthIn,
+              initialFeet
+            );
+            resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(inputSqFtWeight, widthIn);
+            resolvedInitialWeightLbs = roundToDecimals(initialWeightInput, 2);
+          } else if (!existingBox || !hasSubmittedInitialWeightLbs) {
+            resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(knownSqFtWeight, widthIn);
+            resolvedInitialWeightLbs = deriveInitialWeightLbs(
+              resolvedLfWeightLbsPerFt,
+              initialFeet,
+              resolvedCoreWeightLbs
+            );
+          }
+
+          if (resolvedLastRollWeightLbs === null) {
+            if (existingBox && !hasSubmittedLastRollWeightLbs && existingBox.lastRollWeightLbs !== null) {
+              resolvedLastRollWeightLbs = existingBox.lastRollWeightLbs;
+            } else if (!existingBox && resolvedInitialWeightLbs !== null) {
+              resolvedLastRollWeightLbs = resolvedInitialWeightLbs;
+            }
+          }
+
+          if (!resolvedLastWeighedDate) {
+            if (existingBox && !hasSubmittedLastWeighedDate && existingBox.lastWeighedDate) {
+              resolvedLastWeighedDate = existingBox.lastWeighedDate;
+            } else if (!existingBox && resolvedLastRollWeightLbs !== null) {
+              resolvedLastWeighedDate = receivedDate;
+            }
+          }
+
+          if ((!existingBox || !existingBox.receivedDate) && initialWeightInput === null && !existingBox) {
+            warnings.push('Initial and last roll weights were auto-filled from FILM DATA.');
+          }
+
+          const hasFullFilmCatalogMetrics =
+            resolvedInitialWeightLbs !== null &&
+            resolvedLastRollWeightLbs !== null &&
+            resolvedCoreWeightLbs !== null &&
+            resolvedLfWeightLbsPerFt !== null &&
+            resolvedLfWeightLbsPerFt > 0;
+
+          if (hasFullFilmCatalogMetrics && (!filmDataCoreType || filmDataCoreType !== effectiveCoreType)) {
+            await upsertFilmCatalogRecord(client, orgId, {
+              filmKey,
+              manufacturer: filmData.manufacturer || manufacturer,
+              filmName: filmData.filmName || filmName,
+              sqFtWeightLbsPerSqFt: knownSqFtWeight,
+              defaultCoreType: effectiveCoreType,
+              sourceWidthIn: filmData.sourceWidthIn,
+              sourceInitialFeet: filmData.sourceInitialFeet,
+              sourceInitialWeightLbs: filmData.sourceInitialWeightLbs,
+              updatedAt: new Date().toISOString(),
+              sourceBoxId: filmData.sourceBoxId || boxId,
+              notes: filmData.notes
+            });
+            warnings.push('FILM DATA was updated with the selected core type.');
+          }
+        }
+      } else {
+        const shouldRespectBlankInitialWeight = Boolean(
+          existingBox && hasSubmittedInitialWeightLbs && initialWeightInput === null
+        );
+        const seedInitialWeight =
+          initialWeightInput !== null
+            ? initialWeightInput
+            : existingBox && !shouldRespectBlankInitialWeight && existingBox.initialWeightLbs !== null
+              ? existingBox.initialWeightLbs
+              : null;
+
+        if (!effectiveCoreType) {
+          if (!existingBox) {
+            throw new HttpError(400, 'CoreType is required the first time a received film is saved.');
+          }
+        }
+
+        if (seedInitialWeight === null) {
+          if (!existingBox) {
+            throw new HttpError(400, 'InitialWeightLbs is required the first time a received film is saved.');
+          }
+        }
+
+        if (effectiveCoreType && seedInitialWeight !== null) {
+          resolvedCoreType = effectiveCoreType;
+          resolvedCoreWeightLbs = deriveCoreWeightLbs(effectiveCoreType, widthIn);
+          const derivedSqFtWeight = deriveSqFtWeightLbsPerSqFt(
+            seedInitialWeight,
+            resolvedCoreWeightLbs,
+            widthIn,
+            initialFeet
+          );
+          resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFt(derivedSqFtWeight, widthIn);
+          resolvedInitialWeightLbs = roundToDecimals(seedInitialWeight, 2);
+
+          if (resolvedLastRollWeightLbs === null) {
+            if (existingBox && !hasSubmittedLastRollWeightLbs && existingBox.lastRollWeightLbs !== null) {
+              resolvedLastRollWeightLbs = existingBox.lastRollWeightLbs;
+            } else if (!existingBox) {
+              resolvedLastRollWeightLbs = resolvedInitialWeightLbs;
+            }
+          }
+
+          if (!resolvedLastWeighedDate) {
+            if (existingBox && !hasSubmittedLastWeighedDate && existingBox.lastWeighedDate) {
+              resolvedLastWeighedDate = existingBox.lastWeighedDate;
+            } else if (!existingBox && resolvedLastRollWeightLbs !== null) {
+              resolvedLastWeighedDate = receivedDate;
+            }
+          }
+
+          const hasFullSeededMetrics =
+            resolvedInitialWeightLbs !== null &&
+            resolvedLastRollWeightLbs !== null &&
+            resolvedCoreWeightLbs !== null &&
+            resolvedLfWeightLbsPerFt !== null &&
+            resolvedLfWeightLbsPerFt > 0;
+
+          if (hasFullSeededMetrics) {
+            await upsertFilmCatalogRecord(client, orgId, {
+              filmKey,
+              manufacturer,
+              filmName,
+              sqFtWeightLbsPerSqFt: derivedSqFtWeight,
+              defaultCoreType: effectiveCoreType,
+              sourceWidthIn: widthIn,
+              sourceInitialFeet: initialFeet,
+              sourceInitialWeightLbs: resolvedInitialWeightLbs,
+              updatedAt: new Date().toISOString(),
+              sourceBoxId: boxId,
+              notes: ''
+            });
+            warnings.push(`FILM DATA was created from the first received weight for ${filmKey}.`);
+          }
+        }
       }
     } else {
-      feetAvailable = Math.min(Math.max(existingBox ? existingBox.feetAvailable : feetAvailable, 0), initialFeet);
+      resolvedInitialWeightLbs =
+        initialWeightInput !== null
+          ? initialWeightInput
+          : existingBox && !hasSubmittedInitialWeightLbs
+            ? existingBox.initialWeightLbs
+            : null;
+      resolvedCoreType = hasSubmittedCoreType ? coreTypeInput : coreTypeInput || existingCoreType;
+      resolvedCoreWeightLbs = existingBox ? existingBox.coreWeightLbs : null;
+      resolvedLfWeightLbsPerFt = existingBox ? existingBox.lfWeightLbsPerFt : null;
+      resolvedLastRollWeightLbs =
+        resolvedLastRollWeightLbs !== null
+          ? resolvedLastRollWeightLbs
+          : existingBox && !hasSubmittedLastRollWeightLbs
+            ? existingBox.lastRollWeightLbs
+            : null;
+      resolvedLastWeighedDate = resolvedLastWeighedDate
+        ? resolvedLastWeighedDate
+        : existingBox && !hasSubmittedLastWeighedDate
+          ? existingBox.lastWeighedDate
+          : '';
     }
+
+    if (resolvedCoreType && resolvedCoreWeightLbs === null) {
+      resolvedCoreWeightLbs = deriveCoreWeightLbs(resolvedCoreType, widthIn);
+    }
+
+    if (resolvedLfWeightLbsPerFt === null) {
+      resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFtIfPossible(
+        resolvedInitialWeightLbs,
+        resolvedCoreWeightLbs,
+        widthIn,
+        initialFeet
+      );
+    }
+
+    const hasFullReceivingMetrics =
+      resolvedInitialWeightLbs !== null &&
+      resolvedLastRollWeightLbs !== null &&
+      resolvedCoreWeightLbs !== null &&
+      resolvedLfWeightLbsPerFt !== null &&
+      resolvedLfWeightLbsPerFt > 0;
+
+    if (!hasFullReceivingMetrics && existingBox) {
+      usedPartialReceivingMetrics = true;
+      resolvedInitialWeightLbs =
+        initialWeightInput !== null
+          ? initialWeightInput
+          : existingBox && !hasSubmittedInitialWeightLbs
+            ? existingBox.initialWeightLbs
+            : null;
+      resolvedLastRollWeightLbs =
+        lastRollWeightInput !== null
+          ? lastRollWeightInput
+          : existingBox && !hasSubmittedLastRollWeightLbs
+            ? existingBox.lastRollWeightLbs
+            : null;
+      resolvedLastWeighedDate = lastWeighedDateInput
+        ? lastWeighedDateInput
+        : existingBox && !hasSubmittedLastWeighedDate
+          ? existingBox.lastWeighedDate
+          : '';
+      resolvedCoreType = hasSubmittedCoreType ? coreTypeInput : existingCoreType;
+      resolvedCoreWeightLbs = resolvedCoreType ? deriveCoreWeightLbs(resolvedCoreType, widthIn) : null;
+      resolvedLfWeightLbsPerFt = deriveLfWeightLbsPerFtIfPossible(
+        resolvedInitialWeightLbs,
+        resolvedCoreWeightLbs,
+        widthIn,
+        initialFeet
+      );
+    }
+
+    if (usedPartialReceivingMetrics) {
+      if (currentFeetOnRollInput !== null) {
+        feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - activeAllocatedFeet, initialFeet);
+      } else {
+        feetAvailable = clampFeetToInitialRange(feetAvailable, initialFeet);
+      }
+    } else {
+      if (resolvedLastRollWeightLbs === null) {
+        throw new HttpError(
+          400,
+          'LastRollWeightLbs is required for received boxes because FeetAvailable is derived from roll weight.'
+        );
+      }
+
+      if (
+        resolvedCoreWeightLbs === null ||
+        resolvedLfWeightLbsPerFt === null ||
+        resolvedLfWeightLbsPerFt <= 0
+      ) {
+        throw new HttpError(
+          400,
+          'CoreWeightLbs and LfWeightLbsPerFt must be set for received boxes because FeetAvailable is derived from roll weight.'
+        );
+      }
+
+      const isFirstReceipt = !existingBox || !existingBox.receivedDate;
+      const shouldRecalculateReceivedFeet = shouldRecalculateReceivedFeetFromState(
+        existingBox,
+        initialFeet,
+        resolvedLastRollWeightLbs,
+        resolvedCoreWeightLbs,
+        resolvedLfWeightLbsPerFt,
+        reactivateFromZeroed
+      );
+      const physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
+        resolvedLastRollWeightLbs,
+        resolvedCoreWeightLbs,
+        resolvedLfWeightLbsPerFt,
+        initialFeet
+      );
+      const shouldRepairStaleFeet =
+        Boolean(existingBox && existingBox.receivedDate) &&
+        Math.max(existingBox ? existingBox.feetAvailable : 0, 0) === 0 &&
+        physicalFeetAvailable > 0;
+
+      if (isFirstReceipt) {
+        feetAvailable = Math.max(initialFeet - activeAllocatedFeet, 0);
+      } else if (shouldRecalculateReceivedFeet || shouldRepairStaleFeet) {
+        const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
+        if (feetAvailable !== recalculatedFeetAvailable) {
+          feetAvailable = recalculatedFeetAvailable;
+          warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');
+        }
+      } else {
+        feetAvailable = Math.min(Math.max(existingBox ? existingBox.feetAvailable : feetAvailable, 0), initialFeet);
+      }
+    }
+  } else {
+    resolvedInitialWeightLbs = null;
+    resolvedLastRollWeightLbs = null;
+    resolvedLastWeighedDate = '';
+    resolvedCoreType = '';
+    resolvedCoreWeightLbs = null;
+    resolvedLfWeightLbsPerFt = null;
   }
 
   const hasSubmittedPricePerLf = Object.prototype.hasOwnProperty.call(payload, 'pricePerLf');
@@ -8690,14 +8909,6 @@ async function updateBox(client, orgId, payload, actor) {
   }
 
   let updatedBox = await buildBoxFromPayload(client, orgId, payload, warnings, existing);
-  if (
-    existing.status !== 'CHECKED_OUT' &&
-    existing.status !== 'RETIRED' &&
-    deriveLifecycleStatus(existing.receivedDate) === 'ORDERED' &&
-    updatedBox.status === 'IN_STOCK'
-  ) {
-    updatedBox.feetAvailable = updatedBox.initialFeet;
-  }
 
   applyAddOrEditWarnings(warnings, existing, updatedBox);
 

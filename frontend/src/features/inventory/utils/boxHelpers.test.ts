@@ -18,7 +18,6 @@ import {
   getWarehouseBoxIdPrefixToken,
   isWarehousePrefixOnlyBoxId,
   getRemainingAllocatableFeet,
-  getRiskyFieldChanges,
   isLowStockBox,
   isLowStockFeetValue,
   normalizeCreateBoxIdForWarehouse,
@@ -73,63 +72,6 @@ describe('boxHelpers', () => {
 
   it('builds film keys in uppercase', () => {
     expect(deriveFilmKey('SunTek', 'Carbon 35')).toBe('SUNTEK|CARBON 35');
-  });
-
-  it('identifies risky inventory edits', () => {
-    const risky = getRiskyFieldChanges(
-      {
-        boxId: 'IL1-1',
-        warehouse: 'IL1',
-        manufacturer: 'A',
-        filmName: 'B',
-        widthIn: 36,
-        initialFeet: 100,
-        feetAvailable: 80,
-        lotRun: '',
-      status: 'ORDERED',
-      orderDate: '2026-02-25',
-      receivedDate: '2026-02-27',
-      initialWeightLbs: null,
-      lastRollWeightLbs: null,
-        lastWeighedDate: '',
-        filmKey: 'A|B',
-        coreType: '',
-      coreWeightLbs: null,
-      lfWeightLbsPerFt: null,
-      pricePerLf: null,
-      purchaseCost: null,
-      notes: '',
-      hasEverBeenCheckedOut: false,
-      lastCheckoutJob: '',
-      lastCheckoutDate: '',
-      zeroedDate: '',
-      zeroedReason: '',
-      zeroedBy: ''
-    },
-      {
-        boxId: 'IL1-1',
-        manufacturer: 'A',
-        filmName: 'B',
-        widthIn: 48,
-        initialFeet: 120,
-        feetAvailable: 70,
-        lotRun: '',
-        orderDate: '2026-02-25',
-        receivedDate: '2026-02-27',
-        initialWeightLbs: null,
-        lastRollWeightLbs: null,
-        lastWeighedDate: '',
-        filmKey: 'A|B',
-        coreType: '',
-        coreWeightLbs: null,
-        lfWeightLbsPerFt: null,
-        pricePerLf: null,
-        purchaseCost: null,
-        notes: ''
-      }
-    );
-
-    expect(risky).toEqual(['Initial Linear Feet', 'Width']);
   });
 
   it('builds the next suggested box id per warehouse', () => {

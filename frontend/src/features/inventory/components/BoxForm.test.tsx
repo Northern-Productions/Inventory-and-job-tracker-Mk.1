@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createEmptyBoxDraft } from '../utils/boxHelpers';
 import { BoxForm } from './BoxForm';
@@ -14,6 +17,31 @@ vi.mock('./FilmNameAutocompleteInput', () => ({
     <input aria-label={label} data-testid="film-name-autocomplete" />
   )
 }));
+
+afterEach(() => {
+  cleanup();
+});
+
+function createEditDraft() {
+  return {
+    ...createEmptyBoxDraft('3M Solar'),
+    boxId: 'IL1-6735',
+    filmName: '3M S140',
+    widthIn: '60',
+    initialFeet: '100',
+    currentFeetOnRoll: '50',
+    feetAvailable: '50',
+    lotRun: '54395+40',
+    orderDate: '2026-03-22',
+    receivedDate: '2026-03-30',
+    initialWeightLbs: '51',
+    lastRollWeightLbs: '26',
+    lastWeighedDate: '2026-04-07',
+    coreType: 'SECURITY 1/4" Cardboard',
+    coreWeightLbs: '1',
+    lfWeightLbsPerFt: '0.5'
+  };
+}
 
 describe('BoxForm', () => {
   beforeEach(() => {
@@ -70,5 +98,61 @@ describe('BoxForm', () => {
 
     expect(html).toContain('value="IL1-7001"');
     expect(html).toContain('disabled=""');
+  });
+
+  it('auto-fills roll weight from current feet until the weight field is manually edited', () => {
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-roll-tracking"
+        mode="edit"
+        preserveInitialFeetInEdit
+        submitLabel="Save Changes"
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const currentFeetInput = screen.getByLabelText('Current Linear Feet') as HTMLInputElement;
+    const lastRollWeightInput = screen.getByLabelText('Last Roll Weight (lbs)') as HTMLInputElement;
+
+    fireEvent.change(currentFeetInput, { target: { value: '40' } });
+    expect(currentFeetInput.value).toBe('40');
+    expect(lastRollWeightInput.value).toBe('21');
+
+    fireEvent.change(lastRollWeightInput, { target: { value: '18' } });
+    expect(lastRollWeightInput.value).toBe('18');
+    expect(currentFeetInput.value).toBe('40');
+
+    fireEvent.change(currentFeetInput, { target: { value: '35' } });
+    expect(currentFeetInput.value).toBe('35');
+    expect(lastRollWeightInput.value).toBe('18');
+
+    fireEvent.change(lastRollWeightInput, { target: { value: '' } });
+    expect(lastRollWeightInput.value).toBe('');
+    expect(currentFeetInput.value).toBe('35');
+
+    fireEvent.change(currentFeetInput, { target: { value: '30' } });
+    expect(currentFeetInput.value).toBe('30');
+    expect(lastRollWeightInput.value).toBe('');
+  });
+
+  it('auto-fills current feet from roll weight until the feet field is manually edited', () => {
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-roll-weight"
+        mode="edit"
+        preserveInitialFeetInEdit
+        submitLabel="Save Changes"
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const currentFeetInput = screen.getByLabelText('Current Linear Feet') as HTMLInputElement;
+    const lastRollWeightInput = screen.getByLabelText('Last Roll Weight (lbs)') as HTMLInputElement;
+
+    fireEvent.change(lastRollWeightInput, { target: { value: '16' } });
+    expect(lastRollWeightInput.value).toBe('16');
+    expect(currentFeetInput.value).toBe('30');
   });
 });

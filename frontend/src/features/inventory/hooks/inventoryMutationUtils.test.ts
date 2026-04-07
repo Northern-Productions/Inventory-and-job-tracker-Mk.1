@@ -1618,6 +1618,77 @@ describe('inventoryMutationUtils', () => {
     ]);
   });
 
+  it('keeps pooled descriptive RN07 coverage on the exact descriptive requirement before the broader shorthand requirement', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-base',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20
+      },
+      {
+        requirementId: 'req-desc',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20
+      }
+    ]);
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, withCoveredFeetEntries([
+      {
+        allocationId: 'alloc-pooled-rn07-desc',
+        boxId: 'IL1-RN07-REFL',
+        warehouse: 'IL1',
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        requirementId: '',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T12:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ]));
+
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-base',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20
+      },
+      {
+        requirementId: 'req-desc',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        requiredFeet: 20,
+        allocatedFeet: 10,
+        remainingFeet: 10
+      }
+    ]);
+  });
+
   it('keeps 18959-style wider-box requirement coverage at 32 allocated and 2 remaining instead of the old 12/22 undercount', () => {
     const detail = {
       summary: {

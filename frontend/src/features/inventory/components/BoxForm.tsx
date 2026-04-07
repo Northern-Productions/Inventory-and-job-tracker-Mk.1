@@ -234,14 +234,18 @@ export function BoxForm({
       const nextDraft: BoxDraft = {
         ...current,
         currentFeetOnRoll: nextCurrentFeet,
-        rollTrackingEditedField: mode === 'edit' ? 'currentFeetOnRoll' : ''
+        currentFeetOnRollManuallyEdited: true
       };
 
       if (mode === 'create' || !preserveInitialFeetInEdit) {
         nextDraft.initialFeet = nextCurrentFeet;
       }
 
-      if (mode === 'edit' && preserveInitialFeetInEdit) {
+      if (
+        mode === 'edit' &&
+        preserveInitialFeetInEdit &&
+        !current.lastRollWeightLbsManuallyEdited
+      ) {
         const currentFeetValue = Number(nextCurrentFeet);
         const coreWeightValue = Number(current.coreWeightLbs);
         const lfWeightValue = Number(current.lfWeightLbsPerFt);
@@ -270,10 +274,14 @@ export function BoxForm({
       const nextDraft: BoxDraft = {
         ...current,
         lastRollWeightLbs: value,
-        rollTrackingEditedField: 'lastRollWeightLbs'
+        lastRollWeightLbsManuallyEdited: true
       };
 
-      if (mode === 'edit' && preserveInitialFeetInEdit) {
+      if (
+        mode === 'edit' &&
+        preserveInitialFeetInEdit &&
+        !current.currentFeetOnRollManuallyEdited
+      ) {
         const lastRollWeightValue = Number(value);
         const coreWeightValue = Number(current.coreWeightLbs);
         const lfWeightValue = Number(current.lfWeightLbsPerFt);

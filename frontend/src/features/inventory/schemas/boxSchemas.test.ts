@@ -220,6 +220,147 @@ describe('boxSchemas price derivation', () => {
     expect(payload.feetAvailable).toBe(13);
   });
 
+  it('preserves both explicitly edited received-box roll tracking fields', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '100',
+        currentFeetOnRoll: '40',
+        feetAvailable: '0',
+        lastRollWeightLbs: '21',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.5',
+        currentFeetOnRollManuallyEdited: true,
+        lastRollWeightLbsManuallyEdited: true
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        initialWeightLbs: 51,
+        lastRollWeightLbs: 26,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.5
+      }),
+      [buildAllocation({ allocatedFeet: 5 })]
+    );
+
+    expect(payload.currentFeetOnRoll).toBe(40);
+    expect(payload.feetAvailable).toBe(35);
+    expect(payload.lastRollWeightLbs).toBe(21);
+  });
+
+  it('derives received-box weight from current feet when only current feet was manually edited', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '100',
+        currentFeetOnRoll: '40',
+        feetAvailable: '0',
+        lastRollWeightLbs: '26',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.5',
+        currentFeetOnRollManuallyEdited: true
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        initialWeightLbs: 51,
+        lastRollWeightLbs: 26,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.5
+      }),
+      [buildAllocation({ allocatedFeet: 5 })]
+    );
+
+    expect(payload.currentFeetOnRoll).toBe(40);
+    expect(payload.feetAvailable).toBe(35);
+    expect(payload.lastRollWeightLbs).toBe(21);
+  });
+
+  it('derives received-box current feet from roll weight when only roll weight was manually edited', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '100',
+        currentFeetOnRoll: '50',
+        feetAvailable: '0',
+        lastRollWeightLbs: '16',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.5',
+        lastRollWeightLbsManuallyEdited: true
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        initialWeightLbs: 51,
+        lastRollWeightLbs: 26,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.5
+      }),
+      [buildAllocation({ allocatedFeet: 5 })]
+    );
+
+    expect(payload.currentFeetOnRoll).toBe(30);
+    expect(payload.feetAvailable).toBe(25);
+    expect(payload.lastRollWeightLbs).toBe(16);
+  });
+
+  it('keeps both received-box roll tracking fields when the submitted values are inconsistent', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '100',
+        currentFeetOnRoll: '40',
+        feetAvailable: '0',
+        lastRollWeightLbs: '30',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.5',
+        currentFeetOnRollManuallyEdited: true,
+        lastRollWeightLbsManuallyEdited: true
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        initialWeightLbs: 51,
+        lastRollWeightLbs: 26,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.5
+      }),
+      [buildAllocation({ allocatedFeet: 5 })]
+    );
+
+    expect(payload.currentFeetOnRoll).toBe(40);
+    expect(payload.feetAvailable).toBe(35);
+    expect(payload.lastRollWeightLbs).toBe(30);
+  });
+
+  it('does not overwrite an explicitly submitted roll weight with the stored weight', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        receivedDate: '2026-03-30',
+        initialFeet: '100',
+        currentFeetOnRoll: '35',
+        feetAvailable: '0',
+        lastRollWeightLbs: '18',
+        coreWeightLbs: '1',
+        lfWeightLbsPerFt: '0.5',
+        currentFeetOnRollManuallyEdited: true,
+        lastRollWeightLbsManuallyEdited: true
+      }),
+      buildBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        initialWeightLbs: 51,
+        lastRollWeightLbs: 26,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.5
+      }),
+      []
+    );
+
+    expect(payload.lastRollWeightLbs).toBe(18);
+  });
+
   it('caps recalculated received-box feet to the new initial feet value', () => {
     const payload = parseUpdateBoxDraft(
       buildDraft({

@@ -3,8 +3,7 @@ import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonic
 import {
   deriveReceivedBoxPhysicalFeet,
   deriveFeetAvailableFromRollWeight,
-  getActiveAllocatedFeet,
-  resolveUpdateBoxRollTracking
+  getActiveAllocatedFeet
 } from './boxHelpers';
 
 function hasEstablishedWeights(box: Box): boolean {
@@ -36,25 +35,7 @@ export function getAddOrEditWarnings(
 ): string[] {
   const warnings: string[] = [];
   const isReceived = Boolean(payload.receivedDate);
-  const payloadCurrentFeetOnRoll =
-    'currentFeetOnRoll' in payload && typeof payload.currentFeetOnRoll === 'number'
-      ? payload.currentFeetOnRoll
-      : null;
-  const effectiveFeetAvailable = currentBox
-      ? resolveUpdateBoxRollTracking(
-        currentBox,
-        {
-          receivedDate: payload.receivedDate,
-          initialFeet: payload.initialFeet,
-          currentFeetOnRoll: payloadCurrentFeetOnRoll,
-          lastRollWeightLbs: payload.lastRollWeightLbs ?? null,
-          coreWeightLbs: payload.coreWeightLbs ?? null,
-          lfWeightLbsPerFt: payload.lfWeightLbsPerFt ?? null,
-          rollTrackingEditedField: payloadCurrentFeetOnRoll !== null ? 'currentFeetOnRoll' : ''
-        },
-        allocations
-      ).feetAvailable
-    : payload.feetAvailable;
+  const effectiveFeetAvailable = payload.feetAvailable;
 
   if (payload.receivedDate && payload.orderDate && payload.receivedDate < payload.orderDate) {
     warnings.push('Received Date is earlier than Order Date.');

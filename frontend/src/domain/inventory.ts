@@ -104,6 +104,7 @@ export interface Box {
 
 export interface SearchBoxesParams {
   warehouse: Warehouse;
+  manufacturer?: string;
   q?: string;
   status?: BoxStatus | '';
   film?: string;

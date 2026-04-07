@@ -114,6 +114,49 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-NV15']);
   });
 
+  it('includes shorthand RN07-family variants and keeps exact or base matches ahead of descriptive ones', () => {
+    const requirement = buildRequirement({
+      manufacturer: 'Llumar',
+      filmName: 'RN 07',
+      widthIn: 48
+    });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-REFL',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07 Refl. One Way Mirror',
+          widthIn: 48,
+          receivedDate: '2026-01-01'
+        }),
+        buildBox({
+          boxId: 'IL1-LEGACY',
+          manufacturer: 'Llumar',
+          filmName: 'Llumar RN07',
+          widthIn: 48,
+          receivedDate: '2026-01-03'
+        }),
+        buildBox({
+          boxId: 'IL1-BASE',
+          manufacturer: 'Llumar',
+          filmName: 'RN07',
+          widthIn: 48,
+          receivedDate: '2026-01-02'
+        }),
+        buildBox({
+          boxId: 'IL1-OTHER-MAKER',
+          manufacturer: 'SOLYX',
+          filmName: 'RN07',
+          widthIn: 48,
+          receivedDate: '2026-01-01'
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-BASE', 'IL1-LEGACY', 'IL1-REFL']);
+  });
+
   it('includes both interior and exterior boxes for non-exterior requirements and prefers interior first', () => {
     const requirement = buildRequirement({
       manufacturer: '3M Solar',

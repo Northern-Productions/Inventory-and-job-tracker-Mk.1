@@ -23,10 +23,12 @@ import type {
 import { WAREHOUSE_CODES } from '../../../domain';
 import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
 import { matchesBoxSearchQuery, rankBoxSearchCandidates } from '../../../domain/boxSearchMatcher.mjs';
+import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 import {
-  buildJobPlanningFilmFamilyKey,
+  compareJobPlanningFilmMatches,
   canJobPlanningFilmSatisfyRequirement,
-  describeJobPlanningFilm
+  describeJobPlanningFilm,
+  getJobPlanningFilmMatch
 } from '../utils/jobPlanningFilmIdentity';
 import {
   countUnresolvedFilmOrders,
@@ -196,6 +198,16 @@ function matchesSearchBoxesParams(box: Box, params: Partial<SearchBoxesParams> |
     .trim()
     .toUpperCase();
   if (status && box.status !== status) {
+    return false;
+  }
+
+  const manufacturer = String(params.manufacturer || '').trim();
+  if (
+    manufacturer &&
+    normalizeManufacturerLookupKey(box.manufacturer).indexOf(
+      normalizeManufacturerLookupKey(manufacturer)
+    ) === -1
+  ) {
     return false;
   }
 
@@ -886,8 +898,8 @@ function buildAllocationJobSummaryFromJobDetail(
   };
 }
 
-function normalizeRequirementFilmFamilyKey(manufacturer: string, filmName: string) {
-  return buildJobPlanningFilmFamilyKey(manufacturer, filmName);
+function getPlanningManufacturerGroupKey(manufacturer: string, filmName: string) {
+  return describeJobPlanningFilm(manufacturer, filmName).manufacturerKey;
 }
 
 function isExteriorPlanningFilm(manufacturer: string, filmName: string) {
@@ -928,6 +940,55 @@ function allocationMatchesRequirement(
   );
 }
 
+function compareCoveragePoolsForRequirement(
+  left: {
+    manufacturer: string;
+    filmName: string;
+    widthIn: number;
+    isExterior: boolean;
+    index: number;
+  },
+  right: {
+    manufacturer: string;
+    filmName: string;
+    widthIn: number;
+    isExterior: boolean;
+    index: number;
+  },
+  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName'>
+) {
+  const leftMatch = getJobPlanningFilmMatch(
+    left.manufacturer,
+    left.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+  const rightMatch = getJobPlanningFilmMatch(
+    right.manufacturer,
+    right.filmName,
+    requirement.manufacturer,
+    requirement.filmName
+  );
+
+  if (leftMatch && rightMatch) {
+    const matchComparison = compareJobPlanningFilmMatches(leftMatch, rightMatch);
+    if (matchComparison !== 0) {
+      return matchComparison;
+    }
+  }
+
+  const requirementIsExterior = isExteriorPlanningFilm(requirement.manufacturer, requirement.filmName);
+  if (!requirementIsExterior && left.isExterior !== right.isExterior) {
+    return left.isExterior ? 1 : -1;
+  }
+
+  if (left.widthIn !== right.widthIn) {
+    return left.widthIn - right.widthIn;
+  }
+
+  return left.index - right.index;
+}
+
 function rebuildRequirementCoverage(
   requirements: JobRequirementLine[],
   allocations: AllocationJobDetailEntry[]
@@ -937,15 +998,21 @@ function rebuildRequirementCoverage(
     {
       requirements: Array<{
         requirementId: string;
+        manufacturer: string;
+        filmName: string;
         widthIn: number;
         requiredFeet: number;
         isExterior: boolean;
+        specificity: number;
         index: number;
       }>;
       pools: Array<{
+        manufacturer: string;
+        filmName: string;
         widthIn: number;
         remainingFeet: number;
         isExterior: boolean;
+        index: number;
       }>;
     }
   > = {};
@@ -954,7 +1021,7 @@ function rebuildRequirementCoverage(
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const groupKey = normalizeRequirementFilmFamilyKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = getPlanningManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
     requirementById[requirement.requirementId] = requirement;
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
@@ -965,9 +1032,12 @@ function rebuildRequirementCoverage(
 
     grouped[groupKey].requirements.push({
       requirementId: requirement.requirementId,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
       isExterior: isExteriorPlanningFilm(requirement.manufacturer, requirement.filmName),
+      specificity: describeJobPlanningFilm(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
       index
     });
   }
@@ -995,7 +1065,7 @@ function rebuildRequirementCoverage(
       continue;
     }
 
-    const groupKey = normalizeRequirementFilmFamilyKey(allocation.manufacturer, allocation.filmName);
+    const groupKey = getPlanningManufacturerGroupKey(allocation.manufacturer, allocation.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -1004,9 +1074,12 @@ function rebuildRequirementCoverage(
     }
 
     grouped[groupKey].pools.push({
+      manufacturer: allocation.manufacturer,
+      filmName: allocation.filmName,
       widthIn: Number(allocation.widthIn) || 0,
       remainingFeet: coveredFeet,
-      isExterior: isExteriorPlanningFilm(allocation.manufacturer, allocation.filmName)
+      isExterior: isExteriorPlanningFilm(allocation.manufacturer, allocation.filmName),
+      index
     });
   }
 
@@ -1020,6 +1093,10 @@ function rebuildRequirementCoverage(
 
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
+      }
+
+      if (left.specificity !== right.specificity) {
+        return right.specificity - left.specificity;
       }
 
       return left.index - right.index;
@@ -1039,17 +1116,24 @@ function rebuildRequirementCoverage(
         0,
         requirement.requiredFeet - coveredBeforePools
       );
+      const compatiblePools = group.pools
+        .filter(
+          (pool) =>
+            pool.remainingFeet > 0 &&
+            pool.widthIn >= requirement.widthIn &&
+            Boolean(
+              getJobPlanningFilmMatch(
+                pool.manufacturer,
+                pool.filmName,
+                requirement.manufacturer,
+                requirement.filmName
+              )
+            )
+        )
+        .sort((left, right) => compareCoveragePoolsForRequirement(left, right, requirement));
 
-      for (let poolIndex = 0; poolIndex < group.pools.length && remainingNeed > 0; poolIndex += 1) {
-        const pool = group.pools[poolIndex];
-        if (
-          pool.remainingFeet <= 0 ||
-          pool.widthIn < requirement.widthIn ||
-          (requirement.isExterior && !pool.isExterior)
-        ) {
-          continue;
-        }
-
+      for (let poolIndex = 0; poolIndex < compatiblePools.length && remainingNeed > 0; poolIndex += 1) {
+        const pool = compatiblePools[poolIndex];
         const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
         pool.remainingFeet -= assignedFeet;
         remainingNeed -= assignedFeet;

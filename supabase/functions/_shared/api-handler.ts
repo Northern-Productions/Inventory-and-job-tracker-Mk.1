@@ -30,6 +30,12 @@ import {
   matchesBoxSearchQuery,
   rankBoxSearchCandidates,
 } from "../../../frontend/src/domain/boxSearchMatcher.mjs";
+import {
+  canJobPlanningFilmSatisfyRequirement as canSharedJobPlanningFilmSatisfyRequirement,
+  compareJobPlanningFilmMatches as compareSharedJobPlanningFilmMatches,
+  describeJobPlanningFilm as describeSharedJobPlanningFilm,
+  getJobPlanningFilmMatch as getSharedJobPlanningFilmMatch,
+} from "../../../frontend/src/domain/jobPlanningFilmMatcher.mjs";
 
 type CacheEntry = {
   expiresAt: number;
@@ -686,19 +692,9 @@ function stripPlanningExteriorSuffix(
 function describePlanningFilmIdentity(
   manufacturer: unknown,
   filmName: unknown,
-): { manufacturer: string; filmName: string; key: string; familyKey: string; isExterior: boolean } {
+){
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
-  const normalizedFilmName = normalizeCollapsedCatalogLabel(canonical.filmName);
-  const manufacturerKey = normalizeCatalogLookupKey(canonical.manufacturer);
-  const { familyFilmName, isExterior } = stripPlanningExteriorSuffix(normalizedFilmName);
-
-  return {
-    manufacturer: canonical.manufacturer,
-    filmName: normalizedFilmName,
-    key: [manufacturerKey, normalizeCatalogLookupKey(normalizedFilmName)].join("|"),
-    familyKey: [manufacturerKey, normalizeCatalogLookupKey(familyFilmName)].join("|"),
-    isExterior,
-  };
+  return describeSharedJobPlanningFilm(canonical.manufacturer, canonical.filmName);
 }
 
 function normalizePlanningFilmKey(manufacturer: unknown, filmName: unknown): string {
@@ -719,17 +715,34 @@ function planningFilmCanSatisfyRequirement(
   requirementManufacturer: unknown,
   requirementFilmName: unknown,
 ): boolean {
-  const candidate = describePlanningFilmIdentity(candidateManufacturer, candidateFilmName);
-  const requirement = describePlanningFilmIdentity(requirementManufacturer, requirementFilmName);
-  if (candidate.familyKey !== requirement.familyKey) {
-    return false;
-  }
+  const candidate = normalizeCanonicalManufacturerAndFilm(candidateManufacturer, candidateFilmName);
+  const requirement = normalizeCanonicalManufacturerAndFilm(requirementManufacturer, requirementFilmName);
+  return canSharedJobPlanningFilmSatisfyRequirement(
+    candidate.manufacturer,
+    candidate.filmName,
+    requirement.manufacturer,
+    requirement.filmName,
+  );
+}
 
-  if (requirement.isExterior && !candidate.isExterior) {
-    return false;
-  }
+function getPlanningFilmMatch(
+  candidateManufacturer: unknown,
+  candidateFilmName: unknown,
+  requirementManufacturer: unknown,
+  requirementFilmName: unknown,
+) {
+  const candidate = normalizeCanonicalManufacturerAndFilm(candidateManufacturer, candidateFilmName);
+  const requirement = normalizeCanonicalManufacturerAndFilm(requirementManufacturer, requirementFilmName);
+  return getSharedJobPlanningFilmMatch(
+    candidate.manufacturer,
+    candidate.filmName,
+    requirement.manufacturer,
+    requirement.filmName,
+  );
+}
 
-  return true;
+function getPlanningFilmManufacturerGroupKey(manufacturer: unknown, filmName: unknown): string {
+  return describePlanningFilmIdentity(manufacturer, filmName).manufacturerKey;
 }
 
 function normalizeJobNumberKey(jobNumber: unknown): string {
@@ -1665,6 +1678,38 @@ function shouldIgnoreAllocationCoverageForBoxStatus(allocation: any, box: any) {
   return box.status === "ZEROED" || box.status === "RETIRED";
 }
 
+function compareCoveragePoolsForRequirement(left: any, right: any, requirement: any) {
+  const leftMatch = getPlanningFilmMatch(
+    left.manufacturer,
+    left.filmName,
+    requirement.manufacturer,
+    requirement.filmName,
+  );
+  const rightMatch = getPlanningFilmMatch(
+    right.manufacturer,
+    right.filmName,
+    requirement.manufacturer,
+    requirement.filmName,
+  );
+
+  if (leftMatch && rightMatch) {
+    const matchComparison = compareSharedJobPlanningFilmMatches(leftMatch, rightMatch);
+    if (matchComparison !== 0) {
+      return matchComparison;
+    }
+  }
+
+  if (!planningFilmIsExterior(requirement.manufacturer, requirement.filmName) && left.isExterior !== right.isExterior) {
+    return left.isExterior ? 1 : -1;
+  }
+
+  if (left.widthIn !== right.widthIn) {
+    return left.widthIn - right.widthIn;
+  }
+
+  return left.index - right.index;
+}
+
 function allocationMatchesRequirement(box: any, requirement: any) {
   if (!box || !requirement) {
     return false;
@@ -1694,15 +1739,21 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
   const grouped: Record<string, {
     requirements: Array<{
       requirementId: string;
+      manufacturer: string;
+      filmName: string;
       widthIn: number;
       requiredFeet: number;
       isExterior: boolean;
+      specificity: number;
       index: number;
     }>;
     pools: Array<{
+      manufacturer: string;
+      filmName: string;
       widthIn: number;
       remainingFeet: number;
       isExterior: boolean;
+      index: number;
     }>;
   }> = {};
   const coverageByRequirementId: Record<string, number> = {};
@@ -1712,7 +1763,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
     requirementById[requirementId] = requirement;
-    const groupKey = normalizePlanningFilmFamilyKey(requirement.manufacturer, requirement.filmName);
+    const groupKey = getPlanningFilmManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -1722,14 +1773,18 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
 
     grouped[groupKey].requirements.push({
       requirementId,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
       widthIn: Number(requirement.widthIn) || 0,
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
       isExterior: planningFilmIsExterior(requirement.manufacturer, requirement.filmName),
+      specificity: describePlanningFilmIdentity(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
       index,
     });
   }
 
-  for (const allocation of allocations) {
+  for (let index = 0; index < allocations.length; index += 1) {
+    const allocation = allocations[index];
     if (
       allocation.status === "CANCELLED" ||
       allocation.allocatedFeet <= 0 ||
@@ -1757,7 +1812,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       continue;
     }
 
-    const groupKey = normalizePlanningFilmFamilyKey(box.manufacturer, box.filmName);
+    const groupKey = getPlanningFilmManufacturerGroupKey(box.manufacturer, box.filmName);
     if (!grouped[groupKey]) {
       grouped[groupKey] = {
         requirements: [],
@@ -1765,9 +1820,12 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       };
     }
     grouped[groupKey].pools.push({
+      manufacturer: box.manufacturer,
+      filmName: box.filmName,
       widthIn: Number(box.widthIn) || 0,
       remainingFeet: coveredFeet,
       isExterior: planningFilmIsExterior(box.manufacturer, box.filmName),
+      index,
     });
   }
 
@@ -1779,6 +1837,10 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
 
       if (left.widthIn !== right.widthIn) {
         return right.widthIn - left.widthIn;
+      }
+
+      if (left.specificity !== right.specificity) {
+        return right.specificity - left.specificity;
       }
 
       return left.index - right.index;
@@ -1796,17 +1858,25 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
         0,
         requirement.requiredFeet - Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0)),
       );
+      const compatiblePools = group.pools
+        .filter(
+          (pool) =>
+            pool.remainingFeet > 0 &&
+            pool.widthIn >= requirement.widthIn &&
+            Boolean(
+              getPlanningFilmMatch(
+                pool.manufacturer,
+                pool.filmName,
+                requirement.manufacturer,
+                requirement.filmName,
+              )
+            ),
+        )
+        .sort((left, right) => compareCoveragePoolsForRequirement(left, right, requirement));
 
-      for (const pool of group.pools) {
+      for (const pool of compatiblePools) {
         if (remainingNeed <= 0) {
           break;
-        }
-        if (
-          pool.remainingFeet <= 0 ||
-          pool.widthIn < requirement.widthIn ||
-          (requirement.isExterior && !pool.isExterior)
-        ) {
-          continue;
         }
 
         const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
@@ -2554,31 +2624,49 @@ function buildAllocationPreviewPlan(
   const candidateBoxes = options.crossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
-  const filteredCandidates = candidateBoxes.filter((candidate) => {
+  const filteredCandidates = candidateBoxes.flatMap((candidate) => {
     if (
       candidate.boxId === sourceBox.boxId ||
       candidate.status !== "IN_STOCK" ||
       candidate.feetAvailable <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
-      return false;
+      return [];
     }
 
+    let filmMatch = null;
     if (selectedRequirement) {
-      return planningFilmCanSatisfyRequirement(
+      filmMatch = getPlanningFilmMatch(
         candidate.manufacturer,
         candidate.filmName,
         selectedRequirement.manufacturer,
         selectedRequirement.filmName,
       );
+      if (!filmMatch) {
+        return [];
+      }
+      return [{ candidate, filmMatch }];
     }
 
-    return (
+    if (
       normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) ===
       normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName)
-    );
+    ) {
+      return [{ candidate, filmMatch }];
+    }
+
+    return [];
   });
-  filteredCandidates.sort((left, right) => {
+  filteredCandidates.sort((leftEntry, rightEntry) => {
+    if (selectedRequirement && leftEntry.filmMatch && rightEntry.filmMatch) {
+      const filmComparison = compareSharedJobPlanningFilmMatches(leftEntry.filmMatch, rightEntry.filmMatch);
+      if (filmComparison !== 0) {
+        return filmComparison;
+      }
+    }
+
+    const left = leftEntry.candidate;
+    const right = rightEntry.candidate;
     const leftIsExactMatch = left.widthIn === minimumWidthIn;
     const rightIsExactMatch = right.widthIn === minimumWidthIn;
     if (leftIsExactMatch !== rightIsExactMatch) {
@@ -2609,7 +2697,8 @@ function buildAllocationPreviewPlan(
   });
 
   const suggestions: any[] = [];
-  for (const candidate of filteredCandidates) {
+  for (const entry of filteredCandidates) {
+    const candidate = entry.candidate;
     const conflicts = getDateConflictJobsForBox(candidate.boxId, jobContext, options.activeAllocationsByBox);
     if (conflicts.length) {
       continue;
@@ -2713,6 +2802,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   if (!isConfiguredWarehouse) {
     throw new HttpError(400, "warehouse is not configured.");
   }
+  const manufacturerFilterKey = normalizeCatalogManufacturerLookupKey(params.manufacturer);
   const query = asTrimmedString(params.q).toLowerCase();
   const status = asTrimmedString(params.status).toUpperCase();
   const film = asTrimmedString(params.film).toLowerCase();
@@ -2724,6 +2814,12 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
       return false;
     }
     if (status && box.status !== status) {
+      return false;
+    }
+    if (
+      manufacturerFilterKey &&
+      normalizeCatalogManufacturerLookupKey(box.manufacturer).indexOf(manufacturerFilterKey) === -1
+    ) {
       return false;
     }
     if (width && String(box.widthIn) !== width) {

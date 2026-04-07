@@ -190,7 +190,8 @@ export function parseUpdateBoxDraft(
         draft.lfWeightLbsPerFt,
         'LF weight per foot'
       ),
-      rollTrackingEditedField: draft.rollTrackingEditedField
+      currentFeetOnRollManuallyEdited: draft.currentFeetOnRollManuallyEdited,
+      lastRollWeightLbsManuallyEdited: draft.lastRollWeightLbsManuallyEdited
     },
     allocations
   );
@@ -203,10 +204,7 @@ export function parseUpdateBoxDraft(
     receivedDate: draft.receivedDate,
     initialFeet: nextRollTracking.initialFeet,
     currentFeetOnRoll: nextRollTracking.currentFeetOnRoll,
-    lastRollWeightLbs:
-      currentBox?.receivedDate && draft.rollTrackingEditedField === 'currentFeetOnRoll'
-        ? currentBox.lastRollWeightLbs
-        : nextRollTracking.lastRollWeightLbs,
+    lastRollWeightLbs: nextRollTracking.lastRollWeightLbs,
     coreWeightLbs: parseOptionalNonNegativeNumber(draft.coreWeightLbs, 'Core weight'),
     lfWeightLbsPerFt: parseOptionalNonNegativeNumber(draft.lfWeightLbsPerFt, 'LF weight per foot')
   };

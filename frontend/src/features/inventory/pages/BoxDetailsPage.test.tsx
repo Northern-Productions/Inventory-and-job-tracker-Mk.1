@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { Box } from '../../../domain';
+import type { Box, BoxMutationResult, BoxStatus, UpdateBoxPayload } from '../../../domain';
 import BoxDetailsPage from './BoxDetailsPage';
 
 const navigateMock = vi.fn();
@@ -12,15 +15,23 @@ const useBoxAllocationsMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useIsAddBoxPendingMock = vi.fn();
 const useDeleteBoxMock = vi.fn();
-const useCompleteJobMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
+const parseUpdateBoxDraftMock = vi.fn();
+const qrCodeToDataUrlMock = vi.fn();
+let nextBoxFormSubmitDraft: unknown = {};
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
   useParams: () => ({ boxId: 'IL1-1234' }),
   useSearchParams: () => [new URLSearchParams('showQr=1'), setSearchParamsMock]
+}));
+
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: (...args: unknown[]) => qrCodeToDataUrlMock(...args)
+  }
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({
@@ -41,15 +52,28 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useFilmCatalog: () => useFilmCatalogMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
   useDeleteBox: () => useDeleteBoxMock(),
-  useCompleteJob: () => useCompleteJobMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpdateBox: () => useUpdateBoxMock()
 }));
 
+vi.mock('../schemas/boxSchemas', () => ({
+  parseUpdateBoxDraft: (...args: unknown[]) => parseUpdateBoxDraftMock(...args)
+}));
+
 vi.mock('../components/AllocateDialog', () => ({
   AllocateDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="allocate-dialog">Allocate dialog</div> : null
+}));
+
+vi.mock('../components/BoxForm', () => ({
+  BoxForm: ({ onSubmit }: { onSubmit: (draft: unknown) => void }) => (
+    <div data-testid="box-form">
+      <button type="button" onClick={() => onSubmit(nextBoxFormSubmitDraft)}>
+        Submit Mock Edit
+      </button>
+    </div>
+  )
 }));
 
 vi.mock('../components/AllocationsPanel', () => ({
@@ -81,6 +105,10 @@ vi.mock('../components/RollHistoryPanel', () => ({
     collapsed: boolean;
   }) => <div data-testid="roll-history-panel">{`${boxId}:${String(collapsed)}`}</div>
 }));
+
+afterEach(() => {
+  cleanup();
+});
 
 function buildMutationState() {
   return {
@@ -126,11 +154,60 @@ function renderPage() {
   return renderToStaticMarkup(<BoxDetailsPage />);
 }
 
+function renderInteractivePage() {
+  return render(<BoxDetailsPage />);
+}
+
+function buildUpdateBoxResult(overrides: Partial<Box> = {}) {
+  return {
+    result: {
+      box: buildBox(overrides),
+      logId: 'log-1'
+    } satisfies BoxMutationResult,
+    warnings: []
+  };
+}
+
+function buildUpdatePayload(
+  overrides: Partial<UpdateBoxPayload> = {},
+  currentBoxOverrides: Partial<Box> = {}
+): UpdateBoxPayload {
+  const box = buildBox(currentBoxOverrides);
+
+  return {
+    boxId: box.boxId,
+    manufacturer: box.manufacturer,
+    filmName: box.filmName,
+    widthIn: box.widthIn,
+    initialFeet: box.initialFeet,
+    currentFeetOnRoll: box.initialFeet,
+    feetAvailable: box.feetAvailable,
+    lotRun: box.lotRun,
+    orderDate: box.orderDate,
+    receivedDate: box.receivedDate,
+    initialWeightLbs: box.initialWeightLbs,
+    lastRollWeightLbs: box.lastRollWeightLbs,
+    lastWeighedDate: box.lastWeighedDate,
+    filmKey: '',
+    coreType: box.coreType,
+    coreWeightLbs: box.coreWeightLbs,
+    lfWeightLbsPerFt: box.lfWeightLbsPerFt,
+    pricePerLf: box.pricePerLf,
+    purchaseCost: box.purchaseCost,
+    notes: box.notes,
+    ...overrides
+  };
+}
+
 describe('BoxDetailsPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     setSearchParamsMock.mockReset();
     toastPushMock.mockReset();
+    parseUpdateBoxDraftMock.mockReset();
+    qrCodeToDataUrlMock.mockReset();
+    qrCodeToDataUrlMock.mockResolvedValue('data:image/png;base64,qr');
+    nextBoxFormSubmitDraft = {};
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -156,7 +233,6 @@ describe('BoxDetailsPage', () => {
     });
     useIsAddBoxPendingMock.mockReturnValue(false);
     useDeleteBoxMock.mockReturnValue(buildMutationState());
-    useCompleteJobMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
@@ -213,5 +289,202 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('>Edit</button>');
     expect(html).toMatch(/<button[^>]*>Edit<\/button>/);
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Edit<\/button>/);
+  });
+
+  it('saves ordered-box edits immediately without asking for a risky-field reason', async () => {
+    const updateMutationState = buildMutationState();
+    updateMutationState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({ status: 'ORDERED', receivedDate: '', widthIn: 48 })
+    );
+    useUpdateBoxMock.mockReturnValue(updateMutationState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null
+      }),
+      error: null
+    });
+    parseUpdateBoxDraftMock.mockReturnValue(
+      buildUpdatePayload(
+        {
+          receivedDate: '',
+          widthIn: 48,
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null
+        },
+        {
+          status: 'ORDERED',
+          receivedDate: '',
+          feetAvailable: 0,
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null
+        }
+      )
+    );
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Mock Edit' }));
+
+    await waitFor(() => {
+      expect(updateMutationState.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          widthIn: 48,
+          auditNote: 'Inventory metadata update'
+        })
+      );
+    });
+    expect(screen.queryByText('Confirm Risky Edit')).toBeNull();
+  });
+
+  it('saves received-box edits directly while keeping zeroed reactivation confirmation intact', async () => {
+    const updateMutationState = buildMutationState();
+    updateMutationState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        widthIn: 48,
+        status: 'IN_STOCK',
+        receivedDate: '2026-03-21',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null
+      })
+    );
+    useUpdateBoxMock.mockReturnValue(updateMutationState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'IN_STOCK',
+        receivedDate: '2026-03-21',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null
+      }),
+      error: null
+    });
+    parseUpdateBoxDraftMock.mockReturnValue(
+      buildUpdatePayload(
+        {
+          widthIn: 48,
+          receivedDate: '2026-03-21',
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null
+        },
+        {
+          status: 'IN_STOCK',
+          receivedDate: '2026-03-21',
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null
+        }
+      )
+    );
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Mock Edit' }));
+
+    await waitFor(() => {
+      expect(updateMutationState.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          widthIn: 48,
+          auditNote: 'Inventory metadata update'
+        })
+      );
+    });
+
+    cleanup();
+
+    const zeroedUpdateMutationState = buildMutationState();
+    zeroedUpdateMutationState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        feetAvailable: 20,
+        lastRollWeightLbs: 5,
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      })
+    );
+    useUpdateBoxMock.mockReturnValue(zeroedUpdateMutationState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ZEROED',
+        feetAvailable: 0,
+        lastRollWeightLbs: 0,
+        zeroedDate: '2026-03-23',
+        zeroedReason: 'Check-in complete'
+      }),
+      error: null
+    });
+    parseUpdateBoxDraftMock.mockReturnValue(
+      buildUpdatePayload(
+        {
+          feetAvailable: 20,
+          currentFeetOnRoll: 20,
+          lastRollWeightLbs: 5
+        },
+        {
+          status: 'ZEROED',
+          feetAvailable: 0,
+          lastRollWeightLbs: 0,
+          zeroedDate: '2026-03-23',
+          zeroedReason: 'Check-in complete'
+        }
+      )
+    );
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Mock Edit' }));
+
+    expect(zeroedUpdateMutationState.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByText('Do you want to move this box back to the active IN_STOCK inventory?')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'YES' }));
+
+    await waitFor(() => {
+      expect(zeroedUpdateMutationState.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reactivateFromZeroed: true,
+          auditNote: 'Confirmed zeroed box reactivation edit save'
+        })
+      );
+    });
   });
 });

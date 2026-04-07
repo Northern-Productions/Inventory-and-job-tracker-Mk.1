@@ -438,7 +438,8 @@ function buildNextFilmOrderDraft(currentDraft: BoxDraft): BoxDraft {
     pricePerLf: '',
     purchaseCost: '',
     notes: currentDraft.notes,
-    rollTrackingEditedField: ''
+    currentFeetOnRollManuallyEdited: false,
+    lastRollWeightLbsManuallyEdited: false
   };
 }
 

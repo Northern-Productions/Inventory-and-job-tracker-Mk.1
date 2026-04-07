@@ -29,6 +29,7 @@ import { listWarehouses } from './warehouseClient';
 function buildSearchBoxFilters(params: SearchBoxesParams) {
   return {
     warehouse: params.warehouse,
+    manufacturer: params.manufacturer,
     q: params.q,
     status: params.status,
     film: params.film,

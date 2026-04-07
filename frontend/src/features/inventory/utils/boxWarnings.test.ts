@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AddBoxPayload, AllocationEntry, Box } from '../../../domain';
+import type { AddBoxPayload, AllocationEntry, Box, UpdateBoxPayload } from '../../../domain';
 import {
   confirmWarnings,
   getAddOrEditWarnings,
@@ -157,6 +157,42 @@ describe('boxWarnings', () => {
     );
 
     expect(warnings).not.toContain('Available Feet is 0 while Last Roll Weight is still above 0.');
+  });
+
+  it('uses the submitted feetAvailable value instead of re-deriving from roll weight on edit', () => {
+    const payload: UpdateBoxPayload = {
+      boxId: '2',
+      manufacturer: '3M',
+      filmName: 'Prestige 40',
+      widthIn: 36,
+      initialFeet: 100,
+      currentFeetOnRoll: 0,
+      feetAvailable: 0,
+      lotRun: '',
+      orderDate: '2026-03-01',
+      receivedDate: '2026-03-02',
+      initialWeightLbs: 20,
+      lastRollWeightLbs: 5,
+      lastWeighedDate: '2026-03-03',
+      coreWeightLbs: 1,
+      lfWeightLbsPerFt: 0.14,
+      purchaseCost: 120,
+      notes: ''
+    };
+
+    const warnings = getAddOrEditWarnings(
+      payload,
+      createBox({
+        initialFeet: 100,
+        feetAvailable: 50,
+        lastRollWeightLbs: 15,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.14
+      }),
+      []
+    );
+
+    expect(warnings).toContain('Available Feet is 0 while Last Roll Weight is still above 0.');
   });
 
   it('uses browser confirmation only when warnings exist', () => {

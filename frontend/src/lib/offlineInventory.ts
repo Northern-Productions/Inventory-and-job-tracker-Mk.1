@@ -17,7 +17,6 @@ export interface OfflineInventorySyncMeta {
 
 export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse'> {
   warehouse: Warehouse | '';
-  manufacturer?: string;
   widths?: string[];
 }
 

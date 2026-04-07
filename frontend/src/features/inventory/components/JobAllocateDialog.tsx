@@ -121,14 +121,24 @@ export function JobAllocateDialog({
     [warehouse, warehouseRegistry.entries]
   );
   const searchableFilmName = selectedRequirement ? selectedRequirement.filmName.trim() : '';
+  const searchableManufacturer = selectedRequirement ? selectedRequirement.manufacturer.trim() : '';
   const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
   const matchingBoxesQueries = useQueries({
     queries: searchableWarehouses.map((warehouseCode) => ({
-      queryKey: ['inventory', 'search', warehouseCode, searchableFilmName, 'active'] as const,
+      queryKey: [
+        'inventory',
+        'search',
+        'job-allocate',
+        warehouseCode,
+        searchableManufacturer,
+        searchableFilmName,
+        'active'
+      ] as const,
       queryFn: () =>
         searchBoxes({
           warehouse: warehouseCode,
-          film: searchableFilmName,
+          manufacturer: searchableManufacturer,
+          q: searchableFilmName,
           showRetired: false
         }),
       enabled: shouldSearchMatchingBoxes
@@ -150,8 +160,8 @@ export function JobAllocateDialog({
     [filmOrders, selectedRequirement]
   );
   const prioritizedMatchingBoxes = useMemo(
-    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds, warehouse),
-    [matchingBoxes, preferredLinkedBoxIds, warehouse]
+    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds),
+    [matchingBoxes, preferredLinkedBoxIds]
   );
   const requestedFeetValue = useMemo(() => {
     const parsed = Number(requestedFeet);
@@ -266,11 +276,11 @@ export function JobAllocateDialog({
         prioritizedMatchingBoxes,
         requestedFeetValue,
         preferredLinkedBoxIds,
-        warehouse,
+        '',
         selectedRequirement.widthIn
       )
     );
-  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement, warehouse]);
+  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement]);
 
   if (!open) {
     return null;
