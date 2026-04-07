@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
@@ -6,6 +7,7 @@ import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm } from '../components/BoxForm';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
+import { invalidateJobLifecycleQueries } from '../hooks/inventoryInvalidation';
 import { useAddBox, useFilmCatalog, useSearchBoxes } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
@@ -25,7 +27,7 @@ interface FilmOrderPrefill {
   manufacturer: string;
   filmName: string;
   widthIn: string;
-  initialFeet: string;
+  remainingToOrderFeet: string;
   notes: string;
 }
 
@@ -36,6 +38,7 @@ interface AddBoxRetryState {
 }
 
 export default function AddBoxPage() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -56,6 +59,10 @@ export default function AddBoxPage() {
   );
   const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: false });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
+  const [filmOrderDraftSeed, setFilmOrderDraftSeed] = useState<BoxDraft | null>(null);
+  const [filmOrderRemainingFeet, setFilmOrderRemainingFeet] = useState<number | null>(null);
+  const [filmOrderResetNonce, setFilmOrderResetNonce] = useState(0);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (retryState?.retryWarehouse) {
@@ -81,7 +88,7 @@ export default function AddBoxPage() {
     () => getNextBoxIdForWarehouse(warehouseBoxesQuery.data ?? [], warehouse, warehousePrefix),
     [warehouse, warehouseBoxesQuery.data, warehousePrefix]
   );
-  const initialDraft = useMemo(() => {
+  const baseInitialDraft = useMemo(() => {
     if (retryState?.retryDraft) {
       return retryState.retryDraft;
     }
@@ -97,15 +104,43 @@ export default function AddBoxPage() {
       manufacturer: filmOrderPrefill.manufacturer || draft.manufacturer,
       filmName: filmOrderPrefill.filmName || draft.filmName,
       widthIn: filmOrderPrefill.widthIn || draft.widthIn,
-      initialFeet: filmOrderPrefill.initialFeet || draft.initialFeet,
-      currentFeetOnRoll: filmOrderPrefill.initialFeet || draft.currentFeetOnRoll,
+      initialFeet: '',
+      currentFeetOnRoll: '',
+      feetAvailable: '',
       notes: filmOrderPrefill.notes || draft.notes
     };
   }, [filmOrderPrefill, retryState?.retryDraft]);
+  const initialDraft = filmOrderPrefill.filmOrderId
+    ? filmOrderDraftSeed || baseInitialDraft
+    : baseInitialDraft;
   const resetKey = useMemo(
     () =>
-      `create-box-${filmOrderPrefill.filmOrderId || 'default'}-${prefillToken || 'blank'}-${retryState?.retryNonce || 0}`,
-    [filmOrderPrefill.filmOrderId, prefillToken, retryState?.retryNonce]
+      `create-box-${filmOrderPrefill.filmOrderId || 'default'}-${prefillToken || 'blank'}-${retryState?.retryNonce || 0}-${filmOrderResetNonce}`,
+    [filmOrderPrefill.filmOrderId, filmOrderResetNonce, prefillToken, retryState?.retryNonce]
+  );
+  const displayedRemainingToOrderFeet = filmOrderPrefill.filmOrderId
+    ? formatRemainingToOrderFeetValue(filmOrderRemainingFeet, filmOrderPrefill.remainingToOrderFeet)
+    : '';
+
+  useEffect(() => {
+    if (!filmOrderPrefill.filmOrderId) {
+      setFilmOrderDraftSeed(null);
+      setFilmOrderRemainingFeet(null);
+      return;
+    }
+
+    setFilmOrderDraftSeed(baseInitialDraft);
+    setFilmOrderRemainingFeet(parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet));
+    setFilmOrderResetNonce((current) => current + 1);
+  }, [baseInitialDraft, filmOrderPrefill.filmOrderId, filmOrderPrefill.remainingToOrderFeet]);
+
+  useEffect(
+    () => () => {
+      if (redirectTimerRef.current !== null) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    },
+    []
   );
 
   async function handleSubmit(draft: BoxDraft) {
@@ -186,6 +221,47 @@ export default function AddBoxPage() {
         return;
       }
 
+      if (filmOrderPrefill.filmOrderId) {
+        const { result, warnings } = await addBoxMutation.mutateAsync(payload);
+        const currentRemainingFeet =
+          filmOrderRemainingFeet ?? parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet) ?? 0;
+        const nextRemainingFeet = Math.max(currentRemainingFeet - payload.initialFeet, 0);
+
+        setFilmOrderRemainingFeet(nextRemainingFeet);
+        void invalidateJobLifecycleQueries(queryClient, filmOrderPrefill.jobNumber);
+
+        if (nextRemainingFeet <= 0) {
+          toast.push({
+            title: 'Film Order Covered',
+            description: 'closing order',
+            variant: 'success',
+            durationMs: 2000
+          });
+
+          if (redirectTimerRef.current !== null) {
+            clearTimeout(redirectTimerRef.current);
+          }
+
+          redirectTimerRef.current = setTimeout(() => {
+            navigate(`/allocations/${encodeURIComponent(filmOrderPrefill.jobNumber)}`, {
+              replace: true
+            });
+          }, 2000);
+          return;
+        }
+
+        setFilmOrderDraftSeed(buildNextFilmOrderDraft(draft));
+        setFilmOrderResetNonce((current) => current + 1);
+        toast.push({
+          title: `Added ${result.box.boxId}`,
+          description:
+            warnings.join(' ') ||
+            `${nextRemainingFeet} LF still needs to be entered on ${filmOrderPrefill.filmOrderId}.`,
+          variant: 'success'
+        });
+        return;
+      }
+
       const destination = `/inventory/${encodeURIComponent(payload.boxId)}?showQr=1`;
       const savePromise = addBoxMutation.mutateAsync(payload);
       navigate(destination);
@@ -193,14 +269,16 @@ export default function AddBoxPage() {
       const { result } = await savePromise;
       navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`, { replace: true });
     } catch (error) {
-      navigate('/inventory/add', {
-        replace: true,
-        state: {
-          retryDraft: draft,
-          retryWarehouse: warehouse,
-          retryNonce: Date.now()
-        } satisfies AddBoxRetryState
-      });
+      if (!filmOrderPrefill.filmOrderId) {
+        navigate('/inventory/add', {
+          replace: true,
+          state: {
+            retryDraft: draft,
+            retryWarehouse: warehouse,
+            retryNonce: Date.now()
+          } satisfies AddBoxRetryState
+        });
+      }
       toast.push({
         title: 'Unable to add box',
         description:
@@ -260,8 +338,8 @@ export default function AddBoxPage() {
               <dd>{filmOrderPrefill.widthIn || '--'}</dd>
             </div>
             <div className="key-value">
-              <dt>Starting LF</dt>
-              <dd>{filmOrderPrefill.initialFeet || '--'}</dd>
+              <dt>Remaining To Order LF</dt>
+              <dd>{displayedRemainingToOrderFeet || '--'}</dd>
             </div>
           </div>
         </section>
@@ -297,7 +375,7 @@ export default function AddBoxPage() {
 function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill {
   const warehouse = searchParams.get('warehouse');
   const width = searchParams.get('width');
-  const initialFeet = searchParams.get('initialFeet');
+  const remainingToOrderFeet = searchParams.get('remainingToOrderFeet') || searchParams.get('initialFeet');
 
   return {
     filmOrderId: (searchParams.get('filmOrderId') || '').trim(),
@@ -306,9 +384,61 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
     manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     filmName: (searchParams.get('filmName') || '').trim(),
     widthIn: width && Number.isFinite(Number(width)) && Number(width) > 0 ? width : '',
-    initialFeet:
-      initialFeet && Number.isFinite(Number(initialFeet)) && Number(initialFeet) > 0 ? initialFeet : '',
+    remainingToOrderFeet:
+      remainingToOrderFeet && Number.isFinite(Number(remainingToOrderFeet)) && Number(remainingToOrderFeet) >= 0
+        ? String(Math.floor(Number(remainingToOrderFeet)))
+        : '',
     notes: (searchParams.get('notes') || '').trim()
+  };
+}
+
+function parseRemainingFeetValue(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(parsed));
+}
+
+function formatRemainingToOrderFeetValue(currentValue: number | null, fallbackValue: string) {
+  if (currentValue !== null) {
+    return String(currentValue);
+  }
+
+  return fallbackValue.trim();
+}
+
+function buildNextFilmOrderDraft(currentDraft: BoxDraft): BoxDraft {
+  const nextDraft = createEmptyBoxDraft();
+
+  return {
+    ...nextDraft,
+    boxId: '',
+    manufacturer: currentDraft.manufacturer,
+    filmName: currentDraft.filmName,
+    widthIn: currentDraft.widthIn,
+    initialFeet: '',
+    currentFeetOnRoll: '',
+    feetAvailable: '',
+    lotRun: '',
+    orderDate: currentDraft.orderDate,
+    receivedDate: currentDraft.receivedDate,
+    initialWeightLbs: '',
+    lastRollWeightLbs: '',
+    lastWeighedDate: '',
+    filmKey: '',
+    coreType: '',
+    coreWeightLbs: '',
+    lfWeightLbsPerFt: '',
+    pricePerLf: '',
+    purchaseCost: '',
+    notes: currentDraft.notes,
+    rollTrackingEditedField: ''
   };
 }
 

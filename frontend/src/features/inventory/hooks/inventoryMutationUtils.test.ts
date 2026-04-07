@@ -1,16 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import type { AllocationJobDetailEntry, JobDetail } from '../../../domain';
+import type { AllocationJobDetailEntry, FilmOrderEntry, JobDetail } from '../../../domain';
 import { inventoryKeys } from './inventoryQueryKeys';
 import {
   applyOptimisticAllocationAdditionToCaches,
   applyOptimisticAllocationRemovalToCaches,
+  applyOptimisticFilmOrderDeletionToCaches,
+  applyOptimisticJobScheduleSyncToCaches,
   beginDelayedOptimisticMutation,
+  beginImmediateOptimisticMutation,
   computeOptimisticJobStatus,
   createOptimisticFilmOrderFromPayload,
   createOptimisticJobDetailAfterAllocationAddition,
   createOptimisticJobDetailAfterAllocationRemoval,
+  createOptimisticJobDetailAfterFilmOrderDeletion,
   createOptimisticJobDetailFromCreatePayload,
+  resolveOptimisticFilmOrderScheduleFromCaches,
   removeJobPlanningCaches,
   restoreSnapshots,
   syncJobDetailCaches,
@@ -85,6 +90,32 @@ function buildFilmRequirementCoverageDetail(
     caulkAllocations: [],
     caulkCheckouts: [],
     filmOrders: []
+  };
+}
+
+function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
+  return {
+    filmOrderId: 'FO-1',
+    jobNumber: '2941',
+    warehouse: 'IL1',
+    manufacturer: '3M Solar',
+    filmName: 'Prestige 60',
+    widthIn: 72,
+    requestedFeet: 60,
+    coveredFeet: 16,
+    orderedFeet: 0,
+    remainingToOrderFeet: 44,
+    jobDate: '2026-04-13',
+    crewLeader: 'Crew',
+    status: 'FILM_ORDER',
+    sourceBoxId: '',
+    createdAt: '2026-04-06T00:00:00Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    linkedBoxes: [],
+    ...overrides
   };
 }
 
@@ -205,6 +236,60 @@ describe('inventoryMutationUtils', () => {
     expect(optimisticFilmOrder.status).toBe('FILM_ORDER');
     expect(optimisticFilmOrder.remainingToOrderFeet).toBe(120);
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([optimisticFilmOrder]);
+  });
+
+  it('can seed optimistic film orders with cached job scheduling metadata', () => {
+    const optimisticFilmOrder = createOptimisticFilmOrderFromPayload(
+      {
+        jobNumber: '18798',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Dusted Crystal',
+        widthIn: 60,
+        requestedFeet: 120
+      },
+      {
+        jobDate: '2026-04-13',
+        crewLeader: 'Napo'
+      }
+    );
+
+    expect(optimisticFilmOrder.jobDate).toBe('2026-04-13');
+    expect(optimisticFilmOrder.crewLeader).toBe('Napo');
+  });
+
+  it('resolves optimistic film-order scheduling metadata from cached job sources', () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Napo',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 260,
+        allocatedFeet: 93,
+        remainingFeet: 167,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 2,
+        allocationCount: 2,
+        filmOrderCount: 2,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      }
+    ]);
+
+    expect(resolveOptimisticFilmOrderScheduleFromCaches(queryClient, '2941')).toEqual({
+      jobDate: '2026-04-13',
+      crewLeader: 'Napo'
+    });
   });
 
   it('updates matching calendar caches with the latest job summary', () => {
@@ -2296,6 +2381,891 @@ describe('inventoryMutationUtils', () => {
         zeroedDate: '',
         zeroedReason: '',
         zeroedBy: ''
+      })
+    ]);
+  });
+
+  it('recomputes job status immediately when deleting the last unresolved film order', () => {
+    const detail: JobDetail = {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 10,
+        allocatedFeet: 10,
+        remainingFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 1,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 72,
+          requiredFeet: 10,
+          allocatedFeet: 10,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-ready-1',
+          boxId: 'IL1-5000',
+          warehouse: 'IL1',
+          jobNumber: '2941',
+          jobDate: '2026-04-13',
+          crewLeader: 'Crew',
+          allocatedFeet: 10,
+          coveredFeet: 10,
+          requirementId: 'req-1',
+          allocationKind: 'REQUIREMENT',
+          status: 'ACTIVE',
+          createdAt: '2026-04-06T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 72,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        }
+      ],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [buildFilmOrderEntry()]
+    };
+
+    const result = createOptimisticJobDetailAfterFilmOrderDeletion(detail, {
+      filmOrderId: 'FO-1',
+      reason: 'Deleted from test',
+      resolvedAt: '2026-04-06T12:30:00Z'
+    });
+
+    expect(result.removed).toBe(true);
+    expect(result.detail.summary.status).toBe('READY');
+    expect(result.detail.summary.filmOrderCount).toBe(0);
+    expect(result.detail.filmOrders).toEqual([]);
+    expect(result.detail.allocations).toHaveLength(1);
+  });
+
+  it('applies optimistic film-order deletion across film, job, allocation, and box caches', () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry();
+    const allocation = {
+      allocationId: 'alloc-fo-1',
+      boxId: 'IL1-6396',
+      warehouse: 'IL1',
+      jobNumber: '2941',
+      jobDate: '2026-04-13',
+      crewLeader: 'Crew',
+      allocatedFeet: 16,
+      coveredFeet: 16,
+      requirementId: 'req-72',
+      allocationKind: 'REQUIREMENT' as const,
+      status: 'ACTIVE' as const,
+      createdAt: '2026-04-06T00:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: 'FO-1',
+      notes: '',
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60 Exterior',
+      widthIn: 72,
+      boxStatus: 'IN_STOCK' as const,
+      checkedOutOnThisJob: false
+    };
+    const jobDetail: JobDetail = {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 16,
+        remainingFeet: 44,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 1,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 72,
+          requiredFeet: 60,
+          allocatedFeet: 16,
+          remainingFeet: 44
+        }
+      ],
+      allocations: [allocation],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    };
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    queryClient.setQueryData(inventoryKeys.job('2941'), jobDetail);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      jobDetail.summary
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
+      summary: {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      },
+      allocations: [allocation],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    });
+    queryClient.setQueryData(inventoryKeys.box('IL1-6396'), {
+      boxId: 'IL1-6396',
+      warehouse: 'IL1',
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60 Exterior',
+      widthIn: 72,
+      initialFeet: 20,
+      feetAvailable: 4,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-04-01',
+      receivedDate: '2026-04-02',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M SOLAR|PRESTIGE 60 EXTERIOR',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1' }), [
+      queryClient.getQueryData(inventoryKeys.box('IL1-6396'))
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocations('IL1-6396'), [
+      {
+        allocationId: 'alloc-fo-1',
+        boxId: 'IL1-6396',
+        warehouse: 'IL1',
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        allocatedFeet: 16,
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T00:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: 'FO-1',
+        notes: ''
+      }
+    ]);
+
+    const result = applyOptimisticFilmOrderDeletionToCaches(queryClient, {
+      filmOrderId: 'FO-1',
+      jobNumber: '2941',
+      reason: 'Deleted from Film Orders',
+      resolvedAt: '2026-04-06T12:30:00Z'
+    });
+
+    expect(result).toEqual({
+      removedJobNumbers: ['2941'],
+      releasedBoxIds: ['IL1-6396']
+    });
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([]);
+    expect(queryClient.getQueryData(inventoryKeys.job('2941'))).toMatchObject({
+      summary: {
+        status: 'ALLOCATE',
+        allocatedFeet: 0,
+        remainingFeet: 60,
+        allocationCount: 0,
+        filmOrderCount: 0
+      },
+      allocations: [],
+      filmOrders: [],
+      requirements: [
+        expect.objectContaining({
+          requirementId: 'req-72',
+          allocatedFeet: 0,
+          remainingFeet: 60
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        status: 'ALLOCATE',
+        filmOrderCount: 0,
+        allocatedFeet: 0,
+        remainingFeet: 60
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('2941'))).toMatchObject({
+      summary: {
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      },
+      allocations: [],
+      filmOrders: []
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-6396'))).toMatchObject({
+      feetAvailable: 20
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-6396'))).toEqual([
+      expect.objectContaining({
+        allocationId: 'alloc-fo-1',
+        status: 'CANCELLED',
+        resolvedBy: 'Pending...',
+        notes: 'Deleted from Film Orders'
+      })
+    ]);
+  });
+
+  it('falls back to summary-only cache updates when detail queries are not loaded', () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry();
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 16,
+        remainingFeet: 44,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 1,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      }
+    ]);
+
+    applyOptimisticFilmOrderDeletionToCaches(queryClient, {
+      filmOrderId: 'FO-1',
+      jobNumber: '2941',
+      resolvedAt: '2026-04-06T12:30:00Z'
+    });
+
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([]);
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        filmOrderCount: 0,
+        updatedAt: '2026-04-06T12:30:00Z'
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        openFilmOrderCount: 0
+      })
+    ]);
+  });
+
+  it('restores film-order deletion snapshots together on rollback', () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry();
+    const allocation = {
+      allocationId: 'alloc-fo-1',
+      boxId: 'IL1-6396',
+      warehouse: 'IL1',
+      jobNumber: '2941',
+      jobDate: '2026-04-13',
+      crewLeader: 'Crew',
+      allocatedFeet: 16,
+      coveredFeet: 16,
+      requirementId: 'req-72',
+      allocationKind: 'REQUIREMENT' as const,
+      status: 'ACTIVE' as const,
+      createdAt: '2026-04-06T00:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: 'FO-1',
+      notes: '',
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60 Exterior',
+      widthIn: 72,
+      boxStatus: 'IN_STOCK' as const,
+      checkedOutOnThisJob: false
+    };
+    const jobDetail: JobDetail = {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 16,
+        remainingFeet: 44,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 1,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 72,
+          requiredFeet: 60,
+          allocatedFeet: 16,
+          remainingFeet: 44
+        }
+      ],
+      allocations: [allocation],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    };
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    queryClient.setQueryData(inventoryKeys.job('2941'), jobDetail);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      jobDetail.summary
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
+      summary: {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      },
+      allocations: [allocation],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    });
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.box('IL1-6396'), {
+      boxId: 'IL1-6396',
+      warehouse: 'IL1',
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60 Exterior',
+      widthIn: 72,
+      initialFeet: 20,
+      feetAvailable: 4,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-04-01',
+      receivedDate: '2026-04-02',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M SOLAR|PRESTIGE 60 EXTERIOR',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1' }), [
+      queryClient.getQueryData(inventoryKeys.box('IL1-6396'))
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocations('IL1-6396'), [
+      {
+        allocationId: 'alloc-fo-1',
+        boxId: 'IL1-6396',
+        warehouse: 'IL1',
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        allocatedFeet: 16,
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T00:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: 'FO-1',
+        notes: ''
+      }
+    ]);
+
+    const context = beginImmediateOptimisticMutation(
+      queryClient,
+      [
+        inventoryKeys.filmOrders,
+        inventoryKeys.jobs,
+        inventoryKeys.jobRoot,
+        inventoryKeys.allocationJobs,
+        inventoryKeys.allocationJobRoot,
+        inventoryKeys.boxRoot,
+        inventoryKeys.listRoot,
+        inventoryKeys.allocationsRoot
+      ],
+      () =>
+        applyOptimisticFilmOrderDeletionToCaches(queryClient, {
+          filmOrderId: 'FO-1',
+          jobNumber: '2941',
+          reason: 'Deleted from Film Orders',
+          resolvedAt: '2026-04-06T12:30:00Z'
+        })
+    );
+
+    restoreSnapshots(queryClient, context.snapshots);
+
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([filmOrder]);
+    expect(queryClient.getQueryData(inventoryKeys.job('2941'))).toEqual(jobDetail);
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
+      jobDetail.summary
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('2941'))).toMatchObject({
+      summary: {
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      },
+      allocations: [expect.objectContaining({ allocationId: 'alloc-fo-1', status: 'ACTIVE' })],
+      filmOrders: [filmOrder]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-6396'))).toMatchObject({
+      feetAvailable: 4
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-6396'))).toEqual([
+      expect.objectContaining({
+        allocationId: 'alloc-fo-1',
+        status: 'ACTIVE',
+        filmOrderId: 'FO-1'
+      })
+    ]);
+  });
+
+  it('syncs an edited install date into linked unresolved film-order caches immediately', () => {
+    const queryClient = createQueryClient();
+    const openFilmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-OPEN',
+      jobDate: '',
+      crewLeader: 'Old Crew',
+      status: 'FILM_ORDER'
+    });
+    const resolvedFilmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-DONE',
+      jobDate: '2026-04-01',
+      crewLeader: 'Old Crew',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-02T00:00:00Z'
+    });
+    const jobDetail: JobDetail = {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '',
+        crewLeader: 'Old Crew',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 16,
+        remainingFeet: 44,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 2,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 72,
+          requiredFeet: 60,
+          allocatedFeet: 16,
+          remainingFeet: 44
+        }
+      ],
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [openFilmOrder, resolvedFilmOrder]
+    };
+
+    queryClient.setQueryData(inventoryKeys.job('2941'), jobDetail);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      jobDetail.summary
+    ]);
+    queryClient.setQueryData(
+      inventoryKeys.jobsSearchResults({ query: '2941', limit: 5, lifecycleStatus: 'ACTIVE' }),
+      [jobDetail.summary]
+    );
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        jobDate: '',
+        crewLeader: 'Old Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
+      summary: {
+        jobNumber: '2941',
+        jobDate: '',
+        crewLeader: 'Old Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [openFilmOrder, resolvedFilmOrder]
+    });
+    queryClient.setQueryData(inventoryKeys.filmOrders, [openFilmOrder, resolvedFilmOrder]);
+
+    applyOptimisticJobScheduleSyncToCaches(queryClient, {
+      jobNumber: '2941',
+      dueDate: '2026-04-13'
+    });
+
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('2941'))).toMatchObject({
+      summary: {
+        dueDate: '2026-04-13'
+      },
+      filmOrders: [
+        expect.objectContaining({
+          filmOrderId: 'FO-OPEN',
+          jobDate: '2026-04-13'
+        }),
+        expect.objectContaining({
+          filmOrderId: 'FO-DONE',
+          jobDate: '2026-04-01'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        dueDate: '2026-04-13'
+      })
+    ]);
+    expect(
+      queryClient.getQueryData(
+        inventoryKeys.jobsSearchResults({ query: '2941', limit: 5, lifecycleStatus: 'ACTIVE' })
+      )
+    ).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        dueDate: '2026-04-13'
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        jobDate: '2026-04-13'
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('2941'))).toMatchObject({
+      summary: {
+        jobDate: '2026-04-13'
+      },
+      filmOrders: [
+        expect.objectContaining({
+          filmOrderId: 'FO-OPEN',
+          jobDate: '2026-04-13'
+        }),
+        expect.objectContaining({
+          filmOrderId: 'FO-DONE',
+          jobDate: '2026-04-01'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({
+        filmOrderId: 'FO-OPEN',
+        jobDate: '2026-04-13'
+      }),
+      expect.objectContaining({
+        filmOrderId: 'FO-DONE',
+        jobDate: '2026-04-01'
+      })
+    ]);
+  });
+
+  it('clears the install date from unresolved linked film orders immediately when the job date is removed', () => {
+    const queryClient = createQueryClient();
+    const openFilmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-OPEN',
+      jobDate: '2026-04-13'
+    });
+    const resolvedFilmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-DONE',
+      jobDate: '2026-04-01',
+      status: 'CANCELLED',
+      resolvedAt: '2026-04-02T00:00:00Z'
+    });
+
+    queryClient.setQueryData(inventoryKeys.job('2941'), {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        dueDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 0,
+        remainingFeet: 60,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 0,
+        filmOrderCount: 2,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [],
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [openFilmOrder, resolvedFilmOrder]
+    });
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        jobDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 0
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.filmOrders, [openFilmOrder, resolvedFilmOrder]);
+
+    applyOptimisticJobScheduleSyncToCaches(queryClient, {
+      jobNumber: '2941',
+      dueDate: ''
+    });
+
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('2941'))).toMatchObject({
+      summary: {
+        dueDate: ''
+      },
+      filmOrders: [
+        expect.objectContaining({
+          filmOrderId: 'FO-OPEN',
+          jobDate: ''
+        }),
+        expect.objectContaining({
+          filmOrderId: 'FO-DONE',
+          jobDate: '2026-04-01'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        jobDate: ''
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({
+        filmOrderId: 'FO-OPEN',
+        jobDate: ''
+      }),
+      expect.objectContaining({
+        filmOrderId: 'FO-DONE',
+        jobDate: '2026-04-01'
       })
     ]);
   });

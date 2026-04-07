@@ -44,6 +44,7 @@ export const inventoryKeys = {
   allocationJob: (jobNumber: string) => ['inventory', 'allocation-job', jobNumber] as const,
   allocationPreview: (params: AllocateBoxPayload | null) => ['inventory', 'allocation-preview', params] as const,
   addBoxMutation: ['inventory', 'mutation', 'add-box'] as const,
+  deleteFilmOrderMutation: ['inventory', 'mutation', 'delete-film-order'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,
   activityRoot: ['inventory', 'activity'] as const,

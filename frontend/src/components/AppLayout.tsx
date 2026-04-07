@@ -4,7 +4,8 @@ import type { FeatureAccessMode, FeatureArea } from '../domain';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountMenuTrigger } from '../features/auth/AccountControl';
 import { useAuth } from '../features/auth/AuthContext';
-import { useJobsList } from '../features/inventory/hooks/useInventoryReadQueries';
+import { useFilmOrders, useJobsList } from '../features/inventory/hooks/useInventoryReadQueries';
+import { hasFilmOrdersNeedingAttention } from '../features/inventory/utils/filmOrders';
 import { MobileBottomNav, type MobileNavItem } from './MobileBottomNav';
 import { MobileMoreSheet } from './MobileMoreSheet';
 
@@ -187,9 +188,13 @@ export function AppLayout() {
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
   const canReadJobs = auth.hasFeatureAccess('allocations', 'read');
+  const canReadFilmOrders = auth.hasFeatureAccess('film_orders', 'read');
   const jobsAttentionQuery = useJobsList(0, {
     enabled: canReadJobs,
     refetchOnWindowFocus: true
+  });
+  const filmOrdersAttentionQuery = useFilmOrders({
+    enabled: canReadFilmOrders
   });
   const appShellTheme = useMemo(
     () => resolveAppShellTheme(location.pathname),
@@ -236,6 +241,10 @@ export function AppLayout() {
         entry.lifecycleStatus === 'ACTIVE' &&
         (Number(entry.remainingFeet || 0) > 0 || Number(entry.remainingTubes || 0) > 0)
     );
+  const showFilmOrdersAttention =
+    canReadFilmOrders &&
+    hasFilmOrdersNeedingAttention(filmOrdersAttentionQuery.data || []) &&
+    visibleNavItems.some((item) => item.to === '/film-orders');
 
   const primaryNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -244,13 +253,20 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: item.to === '/allocations' ? showJobsNeedingAllocationAttention : false,
+          showAttentionDot:
+            item.to === '/allocations'
+              ? showJobsNeedingAllocationAttention
+              : item.to === '/film-orders'
+                ? showFilmOrdersAttention
+                : false,
           attentionAriaLabel:
             item.to === '/allocations' && showJobsNeedingAllocationAttention
               ? `${item.desktopLabel} (jobs need allocations)`
+              : item.to === '/film-orders' && showFilmOrdersAttention
+                ? `${item.desktopLabel} (install-dated film orders)`
               : undefined
         })),
-    [location.pathname, showJobsNeedingAllocationAttention, visibleNavItems]
+    [location.pathname, showFilmOrdersAttention, showJobsNeedingAllocationAttention, visibleNavItems]
   );
   const moreDesktopNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -274,13 +290,20 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: item.to === '/allocations' ? showJobsNeedingAllocationAttention : false,
+          showAttentionDot:
+            item.to === '/allocations'
+              ? showJobsNeedingAllocationAttention
+              : item.to === '/film-orders'
+                ? showFilmOrdersAttention
+                : false,
           attentionAriaLabel:
             item.to === '/allocations' && showJobsNeedingAllocationAttention
               ? `${item.mobileLabel} (jobs need allocations)`
+              : item.to === '/film-orders' && showFilmOrdersAttention
+                ? `${item.mobileLabel} (install-dated film orders)`
               : undefined
         })),
-    [location.pathname, showJobsNeedingAllocationAttention, visibleNavItems]
+    [location.pathname, showFilmOrdersAttention, showJobsNeedingAllocationAttention, visibleNavItems]
   );
   const moreMobileNavItems = useMemo<ComputedNavItem[]>(
     () =>
@@ -289,13 +312,17 @@ export function AppLayout() {
         .map((item) => ({
           ...item,
           active: isNavItemActive(location.pathname, item.to),
-          showAttentionDot: showAccessPendingAttention && item.to === '/admin/access',
+          showAttentionDot:
+            (showAccessPendingAttention && item.to === '/admin/access') ||
+            (showFilmOrdersAttention && item.to === '/film-orders'),
           attentionAriaLabel:
             showAccessPendingAttention && item.to === '/admin/access'
               ? `${item.mobileLabel} (pending approvals)`
+              : showFilmOrdersAttention && item.to === '/film-orders'
+                ? `${item.mobileLabel} (install-dated film orders)`
               : undefined
         })),
-    [location.pathname, showAccessPendingAttention, visibleNavItems]
+    [location.pathname, showAccessPendingAttention, showFilmOrdersAttention, visibleNavItems]
   );
   const primaryMobileItems = useMemo<MobileNavItem[]>(
     () =>
@@ -321,6 +348,24 @@ export function AppLayout() {
   );
   const isDesktopMoreActive = moreDesktopNavItems.some((item) => item.active);
   const isMobileMoreActive = moreMobileNavItems.some((item) => item.active);
+  const desktopMoreHasAttention = moreDesktopNavItems.some((item) => item.showAttentionDot);
+  const mobileMoreHasAttention = moreMobileNavItems.some((item) => item.showAttentionDot);
+  const mobileMoreAttentionAriaLabel = useMemo(() => {
+    if (showAccessPendingAttention && showFilmOrdersAttention) {
+      return 'More (pending approvals and install-dated film orders)';
+    }
+
+    if (showFilmOrdersAttention) {
+      return 'More (install-dated film orders)';
+    }
+
+    if (showAccessPendingAttention) {
+      return 'More (pending approvals)';
+    }
+
+    return undefined;
+  }, [showAccessPendingAttention, showFilmOrdersAttention]);
+  const desktopMoreAttentionAriaLabel = mobileMoreAttentionAriaLabel;
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -408,11 +453,11 @@ export function AppLayout() {
                       onClick={toggleDesktopMoreMenu}
                       aria-haspopup="menu"
                       aria-expanded={isDesktopMoreOpen}
-                      aria-label={showAccessPendingAttention ? 'More (pending approvals)' : 'More'}
+                      aria-label={desktopMoreHasAttention ? desktopMoreAttentionAriaLabel || 'More (needs attention)' : 'More'}
                     >
                       <span className="nav-attention-label">
                         More
-                        {showAccessPendingAttention ? (
+                        {desktopMoreHasAttention ? (
                           <span className="nav-attention-dot" aria-hidden="true" />
                         ) : null}
                       </span>
@@ -461,7 +506,8 @@ export function AppLayout() {
             isMoreOpen={isMobileMoreOpen}
             onOpenMore={toggleMobileMoreSheet}
             moreButtonRef={mobileMoreButtonRef}
-            moreHasAttentionDot={showAccessPendingAttention}
+            moreHasAttentionDot={mobileMoreHasAttention}
+            moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
           />
           <MobileMoreSheet
             open={isMobileMoreOpen}

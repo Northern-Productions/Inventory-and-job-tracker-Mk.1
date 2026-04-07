@@ -1,0 +1,247 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FilmOrderEntry } from '../../../domain';
+import { inventoryKeys } from '../hooks/inventoryQueryKeys';
+import FilmOrdersPage from './FilmOrdersPage';
+
+const toastPushMock = vi.fn();
+const useAuthMock = vi.fn();
+const getFilmOrdersMock = vi.fn();
+const getFilmCatalogMock = vi.fn();
+const createFilmOrderMock = vi.fn();
+const cancelJobMock = vi.fn();
+const deleteFilmOrderMock = vi.fn();
+const useIsPhoneLayoutMock = vi.fn();
+
+vi.mock('../../../components/Toast', () => ({
+  useToast: () => ({ push: toastPushMock })
+}));
+
+vi.mock('../../auth/AuthContext', () => ({
+  useAuth: () => useAuthMock()
+}));
+
+vi.mock('../../../hooks/useIsPhoneLayout', () => ({
+  useIsPhoneLayout: () => useIsPhoneLayoutMock()
+}));
+
+vi.mock('../../../api/features/filmOrdersClient', () => ({
+  getFilmOrders: () => getFilmOrdersMock(),
+  getFilmCatalog: () => getFilmCatalogMock(),
+  createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
+  cancelJob: (...args: unknown[]) => cancelJobMock(...args),
+  deleteFilmOrder: (...args: unknown[]) => deleteFilmOrderMock(...args)
+}));
+
+function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
+  return {
+    filmOrderId: 'FO-1',
+    jobNumber: '2941',
+    warehouse: 'IL1',
+    manufacturer: '3M Solar',
+    filmName: 'Prestige Demo',
+    widthIn: 72,
+    requestedFeet: 60,
+    coveredFeet: 0,
+    orderedFeet: 0,
+    remainingToOrderFeet: 60,
+    jobDate: '2026-04-13',
+    crewLeader: 'Crew',
+    status: 'FILM_ORDER',
+    sourceBoxId: '',
+    createdAt: '2026-04-06T00:00:00Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    linkedBoxes: [],
+    ...overrides
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject
+  };
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false
+      },
+      mutations: {
+        retry: false
+      }
+    }
+  });
+}
+
+function renderPage(entries: FilmOrderEntry[]) {
+  const queryClient = createQueryClient();
+  queryClient.setQueryData(inventoryKeys.filmOrders, entries);
+  queryClient.setQueryData(inventoryKeys.filmCatalog, []);
+
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/film-orders']}>
+        <FilmOrdersPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+
+  return {
+    ...view,
+    queryClient
+  };
+}
+
+describe('FilmOrdersPage', () => {
+  beforeEach(() => {
+    toastPushMock.mockReset();
+    getFilmOrdersMock.mockReset();
+    getFilmCatalogMock.mockReset();
+    createFilmOrderMock.mockReset();
+    cancelJobMock.mockReset();
+    deleteFilmOrderMock.mockReset();
+    useIsPhoneLayoutMock.mockReset();
+    getFilmOrdersMock.mockResolvedValue([]);
+    getFilmCatalogMock.mockResolvedValue([]);
+    useIsPhoneLayoutMock.mockReturnValue(false);
+    useAuthMock.mockReturnValue({
+      clientIdConfigured: true,
+      isAuthenticated: true
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('removes the deleted film-order row immediately and keeps the remaining delete action enabled', async () => {
+    const firstOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-1',
+      filmName: 'Prestige Demo',
+      createdAt: '2026-04-06T00:00:00Z'
+    });
+    const secondOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-2',
+      filmName: 'Safety Shield Demo',
+      widthIn: 60,
+      requestedFeet: 24,
+      remainingToOrderFeet: 24,
+      createdAt: '2026-04-06T00:05:00Z'
+    });
+    const deleteDeferred = createDeferred<{ result: FilmOrderEntry; warnings: string[] }>();
+
+    getFilmOrdersMock.mockResolvedValue([secondOrder]);
+    deleteFilmOrderMock.mockImplementation(() => deleteDeferred.promise);
+
+    renderPage([firstOrder, secondOrder]);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+
+    const dialog = screen.getByRole('dialog', { name: 'Delete Film Order' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Prestige Demo')).toBeNull();
+    });
+
+    expect(screen.getByText(/Safety Shield Demo/, { selector: 'td' })).toBeTruthy();
+    const remainingDeleteButtons = screen.getAllByRole('button', { name: 'Delete' });
+    expect(remainingDeleteButtons).toHaveLength(1);
+    expect(remainingDeleteButtons[0].hasAttribute('disabled')).toBe(false);
+
+    deleteDeferred.resolve({
+      result: firstOrder,
+      warnings: []
+    });
+
+    await waitFor(() => {
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Deleted FO-1',
+          variant: 'success'
+        })
+      );
+    });
+  });
+
+  it('surfaces install-dated unresolved orders first and renders blue job links on desktop', () => {
+    const undatedOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-1',
+      jobNumber: '2941',
+      filmName: 'Prestige Undated',
+      jobDate: '',
+      createdAt: '2026-04-06T00:00:00Z'
+    });
+    const datedLaterOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-2',
+      jobNumber: '2942',
+      filmName: 'Prestige Later',
+      jobDate: '2026-04-15',
+      createdAt: '2026-04-06T00:01:00Z'
+    });
+    const datedSoonerOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-3',
+      jobNumber: '2943',
+      filmName: 'Prestige Sooner',
+      jobDate: '2026-04-13',
+      createdAt: '2026-04-06T00:02:00Z'
+    });
+    const resolvedOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-4',
+      jobNumber: '2944',
+      filmName: 'Prestige Resolved',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-06T05:00:00Z',
+      createdAt: '2026-04-06T00:03:00Z'
+    });
+
+    const { container } = renderPage([
+      undatedOrder,
+      datedLaterOrder,
+      datedSoonerOrder,
+      resolvedOrder
+    ]);
+
+    expect(screen.getAllByRole('columnheader', { name: 'Install Date' })[0]).toBeTruthy();
+    expect(screen.getByRole('link', { name: '2943' }).getAttribute('href')).toBe('/allocations/2943');
+
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    expect(rows).toHaveLength(4);
+    expect(rows.map((row) => row.querySelector('td:nth-child(2)')?.textContent?.trim())).toEqual([
+      '2943',
+      '2942',
+      '2941',
+      '2944'
+    ]);
+  });
+
+  it('renders the mobile job ID as a link', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+
+    renderPage([buildFilmOrderEntry()]);
+
+    expect(screen.getByRole('link', { name: 'Job 2941' }).getAttribute('href')).toBe(
+      '/allocations/2941'
+    );
+    expect(screen.getByText('Install Date')).toBeTruthy();
+  });
+});

@@ -98,7 +98,7 @@ export function MobileMoreSheet({
               key={item.to}
               type="button"
               className={`mobile-more-link ${isActiveItem(activePath, item.to) ? 'mobile-more-link-active' : ''}`.trim()}
-              aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (pending approvals)` : undefined}
+              aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (needs attention)` : undefined}
               onClick={() => {
                 navigate(item.to);
                 onClose();

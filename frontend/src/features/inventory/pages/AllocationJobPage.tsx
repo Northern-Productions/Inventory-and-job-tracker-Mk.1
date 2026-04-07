@@ -41,6 +41,7 @@ import {
   useDeleteJob,
   useDeleteFilmOrder,
   useFilmCatalog,
+  usePendingDeleteFilmOrderIds,
   useBox,
   useJob,
   useRemoveCaulkJobAllocation,
@@ -150,7 +151,7 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
     manufacturer: order.manufacturer,
     filmName: order.filmName,
     width: String(order.widthIn),
-    initialFeet: String(Math.max(order.remainingToOrderFeet, 1)),
+    remainingToOrderFeet: String(Math.max(order.remainingToOrderFeet, 0)),
     notes: `Ordered for job ${order.jobNumber} via ${order.filmOrderId}`
   });
 
@@ -179,6 +180,7 @@ export default function AllocationJobPage() {
   const deleteJobMutation = useDeleteJob();
   const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
+  const pendingDeleteFilmOrderIds = usePendingDeleteFilmOrderIds();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
@@ -2129,7 +2131,7 @@ export default function AllocationJobPage() {
                         type="button"
                         variant="danger"
                         onClick={() => setFilmOrderToDelete(order)}
-                        disabled={deleteFilmOrderMutation.isPending}
+                        disabled={pendingDeleteFilmOrderIds.has(order.filmOrderId.trim().toUpperCase())}
                       >
                         Delete
                       </Button>
@@ -2190,7 +2192,7 @@ export default function AllocationJobPage() {
                               type="button"
                               variant="danger"
                               onClick={() => setFilmOrderToDelete(order)}
-                              disabled={deleteFilmOrderMutation.isPending}
+                              disabled={pendingDeleteFilmOrderIds.has(order.filmOrderId.trim().toUpperCase())}
                             >
                               Delete
                             </Button>

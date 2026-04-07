@@ -2384,9 +2384,62 @@ async function buildPublicFilmOrderLinkedBoxes(client: any, orgId: string, filmO
   return response;
 }
 
+function isUnresolvedFilmOrderStatus(status: unknown) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  return normalizedStatus === "FILM_ORDER" || normalizedStatus === "FILM_ON_THE_WAY";
+}
+
+async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, filmOrders: any[]) {
+  const jobHeaderCache = new Map<string, any | null>();
+  const response = [];
+
+  for (const entry of filmOrders) {
+    if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
+      response.push(entry);
+      continue;
+    }
+
+    const needsJobDate = !asTrimmedString(entry.jobDate);
+    const needsCrewLeader = !asTrimmedString(entry.crewLeader);
+    if (!needsJobDate && !needsCrewLeader) {
+      response.push(entry);
+      continue;
+    }
+
+    const jobNumber = asTrimmedString(entry.jobNumber);
+    if (!jobNumber) {
+      response.push(entry);
+      continue;
+    }
+
+    if (!jobHeaderCache.has(jobNumber)) {
+      jobHeaderCache.set(jobNumber, (await findJobByNumber(client, orgId, jobNumber)) || null);
+    }
+
+    const jobHeader = jobHeaderCache.get(jobNumber);
+    if (!jobHeader) {
+      response.push(entry);
+      continue;
+    }
+
+    response.push({
+      ...entry,
+      ...(needsJobDate && asTrimmedString(jobHeader.dueDate)
+        ? { jobDate: asTrimmedString(jobHeader.dueDate) }
+        : {}),
+      ...(needsCrewLeader && asTrimmedString(jobHeader.crewLeader)
+        ? { crewLeader: asTrimmedString(jobHeader.crewLeader) }
+        : {}),
+    });
+  }
+
+  return response;
+}
+
 async function buildPublicFilmOrdersForJob(client: any, orgId: string, filmOrders: any[]) {
   const response = [];
-  const sorted = filmOrders.slice().sort((left, right) =>
+  const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
+  const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
       { jobDate: left.createdAt, jobNumber: left.filmOrderId },
       { jobDate: right.createdAt, jobNumber: right.filmOrderId },
@@ -3292,10 +3345,10 @@ async function listAudit(client: any, orgId: string, params: Record<string, unkn
 }
 
 async function buildFilmOrdersList(client: any, orgId: string) {
-  const entries = await listFilmOrders(client, orgId);
+  const entries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, await listFilmOrders(client, orgId));
   const sorted = entries.slice().sort((left, right) => {
-    const leftOpen = left.status === "FILM_ORDER" || left.status === "FILM_ON_THE_WAY";
-    const rightOpen = right.status === "FILM_ORDER" || right.status === "FILM_ON_THE_WAY";
+    const leftOpen = isUnresolvedFilmOrderStatus(left.status);
+    const rightOpen = isUnresolvedFilmOrderStatus(right.status);
     if (leftOpen !== rightOpen) {
       return leftOpen ? -1 : 1;
     }

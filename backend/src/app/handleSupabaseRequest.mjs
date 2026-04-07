@@ -3321,6 +3321,60 @@ async function listFilmOrdersByJob(client, orgId, jobNumber) {
   return rows.map(mapDbFilmOrderRow);
 }
 
+function isUnresolvedFilmOrderStatus(status) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  return normalizedStatus === 'FILM_ORDER' || normalizedStatus === 'FILM_ON_THE_WAY';
+}
+
+async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
+  const jobHeaderCache = {};
+  const response = [];
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const entry = filmOrders[index];
+    if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
+      response.push(entry);
+      continue;
+    }
+
+    const needsJobDate = !asTrimmedString(entry.jobDate);
+    const needsCrewLeader = !asTrimmedString(entry.crewLeader);
+    if (!needsJobDate && !needsCrewLeader) {
+      response.push(entry);
+      continue;
+    }
+
+    const normalizedJobNumber = asTrimmedString(entry.jobNumber);
+    if (!normalizedJobNumber) {
+      response.push(entry);
+      continue;
+    }
+
+    if (!(normalizedJobNumber in jobHeaderCache)) {
+      jobHeaderCache[normalizedJobNumber] =
+        (await findJobByNumber(client, orgId, normalizedJobNumber)) || null;
+    }
+
+    const jobHeader = jobHeaderCache[normalizedJobNumber];
+    if (!jobHeader) {
+      response.push(entry);
+      continue;
+    }
+
+    response.push({
+      ...entry,
+      ...(needsJobDate && asTrimmedString(jobHeader.dueDate)
+        ? { jobDate: asTrimmedString(jobHeader.dueDate) }
+        : {}),
+      ...(needsCrewLeader && asTrimmedString(jobHeader.crewLeader)
+        ? { crewLeader: asTrimmedString(jobHeader.crewLeader) }
+        : {})
+    });
+  }
+
+  return response;
+}
+
 async function findFilmOrderById(client, orgId, filmOrderId) {
   const row = await queryRow(
     client,
@@ -5387,7 +5441,8 @@ async function buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
 
 async function buildPublicFilmOrdersForJob(client, orgId, filmOrders) {
   const response = [];
-  const sorted = filmOrders.slice().sort((left, right) =>
+  const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
+  const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
       { jobDate: left.createdAt, jobNumber: left.filmOrderId },
       { jobDate: right.createdAt, jobNumber: right.filmOrderId }
@@ -9512,8 +9567,8 @@ async function createFilmOrder(client, orgId, payload, actor) {
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: requestedFeet,
-    jobDate: '',
-    crewLeader: '',
+    jobDate: asTrimmedString(existingJob?.dueDate),
+    crewLeader: asTrimmedString(existingJob?.crewLeader),
     status: 'FILM_ORDER',
     sourceBoxId: '',
     createdAt: new Date().toISOString(),
@@ -10094,10 +10149,14 @@ async function undoAudit(client, orgId, payload, actor) {
 }
 
 async function buildFilmOrdersList(client, orgId) {
-  const entries = await listFilmOrders(client, orgId);
+  const entries = await enrichOpenFilmOrdersWithJobSchedule(
+    client,
+    orgId,
+    await listFilmOrders(client, orgId)
+  );
   const sorted = entries.slice().sort((left, right) => {
-    const leftOpen = left.status === 'FILM_ORDER' || left.status === 'FILM_ON_THE_WAY';
-    const rightOpen = right.status === 'FILM_ORDER' || right.status === 'FILM_ON_THE_WAY';
+    const leftOpen = isUnresolvedFilmOrderStatus(left.status);
+    const rightOpen = isUnresolvedFilmOrderStatus(right.status);
 
     if (leftOpen !== rightOpen) {
       return leftOpen ? -1 : 1;

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
@@ -20,20 +20,61 @@ import {
   useCreateFilmOrder,
   useDeleteFilmOrder,
   useFilmCatalog,
-  useFilmOrders
+  useFilmOrders,
+  usePendingDeleteFilmOrderIds
 } from '../hooks/useInventoryQueries';
+import {
+  isFilmOrderNeedingAttention,
+  isUnresolvedFilmOrder
+} from '../utils/filmOrders';
 
-function isOpenFilmOrder(order: FilmOrderEntry) {
-  return order.status === 'FILM_ORDER' || order.status === 'FILM_ON_THE_WAY';
+function buildJobHref(jobNumber: string) {
+  return `/allocations/${encodeURIComponent(jobNumber)}`;
+}
+
+function compareDateAscending(left: string, right: string) {
+  const normalizedLeft = String(left || '').trim();
+  const normalizedRight = String(right || '').trim();
+
+  if (normalizedLeft === normalizedRight) {
+    return 0;
+  }
+
+  if (normalizedLeft && normalizedRight) {
+    return normalizedLeft < normalizedRight ? -1 : 1;
+  }
+
+  if (normalizedLeft) {
+    return -1;
+  }
+
+  if (normalizedRight) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function sortFilmOrders(entries: FilmOrderEntry[]) {
   return [...entries].sort((a, b) => {
-    const aOpen = isOpenFilmOrder(a);
-    const bOpen = isOpenFilmOrder(b);
+    const aNeedsAttention = isFilmOrderNeedingAttention(a);
+    const bNeedsAttention = isFilmOrderNeedingAttention(b);
+    if (aNeedsAttention !== bNeedsAttention) {
+      return aNeedsAttention ? -1 : 1;
+    }
+
+    const aOpen = isUnresolvedFilmOrder(a);
+    const bOpen = isUnresolvedFilmOrder(b);
 
     if (aOpen !== bOpen) {
       return aOpen ? -1 : 1;
+    }
+
+    if (aNeedsAttention && bNeedsAttention) {
+      const installDateOrder = compareDateAscending(a.jobDate, b.jobDate);
+      if (installDateOrder !== 0) {
+        return installDateOrder;
+      }
     }
 
     const aKey = aOpen ? a.createdAt : a.resolvedAt || a.createdAt;
@@ -54,7 +95,7 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
     manufacturer: order.manufacturer,
     filmName: order.filmName,
     width: String(order.widthIn),
-    initialFeet: String(Math.max(order.remainingToOrderFeet, 1)),
+    remainingToOrderFeet: String(Math.max(order.remainingToOrderFeet, 0)),
     notes: `Ordered for job ${order.jobNumber} via ${order.filmOrderId}`
   });
 
@@ -74,6 +115,7 @@ export default function FilmOrdersPage() {
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
+  const pendingDeleteFilmOrderIds = usePendingDeleteFilmOrderIds();
   const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
 
@@ -174,43 +216,60 @@ export default function FilmOrdersPage() {
         {orderedEntries.length ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
-              {orderedEntries.map((order) => (
-                <MobileRecordCard key={order.filmOrderId}>
-                  <MobileRecordHeader
-                    title={`${order.manufacturer} ${order.filmName}`}
-                    subtitle={`Job ${order.jobNumber}`}
-                    badge={<span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>}
-                  />
-                  <MobileFieldList>
-                    <MobileField label="Warehouse" value={order.warehouse} />
-                    <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
-                    <MobileField label="Width" value={order.widthIn} />
-                    <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
-                    <MobileField label="Job Date" value={formatDate(order.jobDate)} />
-                    <MobileField label="Created" value={formatDate(order.createdAt)} />
-                  </MobileFieldList>
-                  <MobileActionStack>
-                    {order.status === 'FULFILLED' ? null : (
+              {orderedEntries.map((order) => {
+                const isDeletePending = pendingDeleteFilmOrderIds.has(
+                  order.filmOrderId.trim().toUpperCase()
+                );
+
+                return (
+                  <MobileRecordCard key={order.filmOrderId}>
+                    <MobileRecordHeader
+                      title={`${order.manufacturer} ${order.filmName}`}
+                      subtitle={
+                        <Link
+                          to={buildJobHref(order.jobNumber)}
+                          className="film-orders-job-link film-orders-job-link-mobile"
+                        >
+                          Job {order.jobNumber}
+                        </Link>
+                      }
+                      badge={
+                        <span className={`badge badge-${order.status}`}>
+                          {formatBadgeLabel(order.status)}
+                        </span>
+                      }
+                    />
+                    <MobileFieldList>
+                      <MobileField label="Warehouse" value={order.warehouse} />
+                      <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
+                      <MobileField label="Width" value={order.widthIn} />
+                      <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
+                      <MobileField label="Install Date" value={formatDate(order.jobDate)} />
+                      <MobileField label="Created" value={formatDate(order.createdAt)} />
+                    </MobileFieldList>
+                    <MobileActionStack>
+                      {order.status === 'FULFILLED' ? null : (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => navigate(buildAddBoxTarget(order))}
+                          disabled={order.status !== 'FILM_ORDER'}
+                        >
+                          FILM ORDERED
+                        </Button>
+                      )}
                       <Button
                         type="button"
-                        variant="secondary"
-                        onClick={() => navigate(buildAddBoxTarget(order))}
-                        disabled={order.status !== 'FILM_ORDER'}
+                        variant="danger"
+                        onClick={() => setFilmOrderToDelete(order)}
+                        disabled={isDeletePending}
                       >
-                        FILM ORDERED
+                        Delete
                       </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="danger"
-                      onClick={() => setFilmOrderToDelete(order)}
-                      disabled={deleteFilmOrderMutation.isPending}
-                    >
-                      Delete
-                    </Button>
-                  </MobileActionStack>
-                </MobileRecordCard>
-              ))}
+                    </MobileActionStack>
+                  </MobileRecordCard>
+                );
+              })}
             </div>
           ) : (
             <div className="table-wrap">
@@ -223,50 +282,62 @@ export default function FilmOrdersPage() {
                     <th>Film</th>
                     <th>Width</th>
                     <th>Need To Order</th>
-                    <th>Job Date</th>
+                    <th>Install Date</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {orderedEntries.map((order) => (
-                    <tr key={order.filmOrderId}>
-                      <td>
-                        <span className={`badge badge-${order.status}`}>{formatBadgeLabel(order.status)}</span>
-                      </td>
-                      <td>{order.jobNumber}</td>
-                      <td>{order.warehouse}</td>
-                      <td>
-                        {order.manufacturer} {order.filmName}
-                      </td>
-                      <td>{order.widthIn}</td>
-                      <td>{order.remainingToOrderFeet}</td>
-                      <td>{formatDate(order.jobDate)}</td>
-                      <td>{formatDate(order.createdAt)}</td>
-                      <td>
-                        <div className="film-order-actions">
-                          {order.status === 'FULFILLED' ? null : (
+                  {orderedEntries.map((order) => {
+                    const isDeletePending = pendingDeleteFilmOrderIds.has(
+                      order.filmOrderId.trim().toUpperCase()
+                    );
+
+                    return (
+                      <tr key={order.filmOrderId}>
+                        <td>
+                          <span className={`badge badge-${order.status}`}>
+                            {formatBadgeLabel(order.status)}
+                          </span>
+                        </td>
+                        <td>
+                          <Link to={buildJobHref(order.jobNumber)} className="film-orders-job-link">
+                            {order.jobNumber}
+                          </Link>
+                        </td>
+                        <td>{order.warehouse}</td>
+                        <td>
+                          {order.manufacturer} {order.filmName}
+                        </td>
+                        <td>{order.widthIn}</td>
+                        <td>{order.remainingToOrderFeet}</td>
+                        <td>{formatDate(order.jobDate)}</td>
+                        <td>{formatDate(order.createdAt)}</td>
+                        <td>
+                          <div className="film-order-actions">
+                            {order.status === 'FULFILLED' ? null : (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => navigate(buildAddBoxTarget(order))}
+                                disabled={order.status !== 'FILM_ORDER'}
+                              >
+                                FILM ORDERED
+                              </Button>
+                            )}
                             <Button
                               type="button"
-                              variant="secondary"
-                              onClick={() => navigate(buildAddBoxTarget(order))}
-                              disabled={order.status !== 'FILM_ORDER'}
+                              variant="danger"
+                              onClick={() => setFilmOrderToDelete(order)}
+                              disabled={isDeletePending}
                             >
-                              FILM ORDERED
+                              Delete
                             </Button>
-                          )}
-                          <Button
-                            type="button"
-                            variant="danger"
-                            onClick={() => setFilmOrderToDelete(order)}
-                            disabled={deleteFilmOrderMutation.isPending}
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -6,7 +6,7 @@ interface MobileRecordCardProps {
 
 interface MobileRecordHeaderProps {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   badge?: ReactNode;
   onTitleClick?: ButtonHTMLAttributes<HTMLButtonElement>['onClick'];
 }

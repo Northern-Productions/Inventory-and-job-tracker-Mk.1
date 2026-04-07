@@ -2858,6 +2858,29 @@ td.col-available-linear-ft {
   gap: 0.5rem;
 }
 
+.film-orders-job-link {
+  color: #1d62c4;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(29, 98, 196, 0.34);
+  text-underline-offset: 0.12em;
+  transition:
+    color 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.film-orders-job-link:hover,
+.film-orders-job-link:focus-visible {
+  color: #154c9d;
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.film-orders-job-link-mobile {
+  display: inline-flex;
+  align-items: center;
+}
+
 .film-order-linked-boxes {
   min-width: 200px;
   font-size: 0.9rem;

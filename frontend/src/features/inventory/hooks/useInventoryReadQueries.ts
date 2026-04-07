@@ -1,5 +1,5 @@
 // Purpose: Read-only React Query hooks for inventory, jobs, film orders, and reports.
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getAllocationsByBox,
@@ -27,6 +27,7 @@ import type {
   AddBoxPayload,
   AllocateBoxPayload,
   AuditListParams,
+  FilmOrderEntry,
   JobDetail,
   ReportsSummaryFilters,
   SearchBoxesParams
@@ -253,10 +254,12 @@ export function useAllocationPreview(payload: AllocateBoxPayload | null) {
   });
 }
 
-export function useFilmOrders() {
-  return useInventoryReadQuery({
+export function useFilmOrders(options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
+  return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.filmOrders,
-    queryFn: () => getFilmOrders()
+    queryFn: () => getFilmOrders(),
+    enabled: options.enabled ?? true,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
   });
 }
 
@@ -320,4 +323,30 @@ export function useIsAddBoxPending(boxId: string) {
   }
 
   return pendingBoxIds.some((pendingBoxId) => pendingBoxId.trim().toUpperCase() === normalizedBoxId);
+}
+
+export function usePendingDeleteFilmOrderIds() {
+  const pendingFilmOrderIds = useMutationState({
+    filters: {
+      mutationKey: inventoryKeys.deleteFilmOrderMutation,
+      status: 'pending'
+    },
+    select: (mutation) => {
+      const variables =
+        mutation.state.variables as Pick<FilmOrderEntry, 'filmOrderId'> | { filmOrderId?: string } | undefined;
+      return String(variables?.filmOrderId || '').trim().toUpperCase();
+    }
+  });
+
+  return useMemo(() => {
+    const nextIds = new Set<string>();
+    for (let index = 0; index < pendingFilmOrderIds.length; index += 1) {
+      const filmOrderId = String(pendingFilmOrderIds[index] || '').trim().toUpperCase();
+      if (filmOrderId) {
+        nextIds.add(filmOrderId);
+      }
+    }
+
+    return nextIds;
+  }, [pendingFilmOrderIds]);
 }

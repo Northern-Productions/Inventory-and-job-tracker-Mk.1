@@ -16,6 +16,7 @@ interface MobileBottomNavProps {
   onOpenMore: () => void;
   moreButtonRef: RefObject<HTMLButtonElement>;
   moreHasAttentionDot?: boolean;
+  moreAttentionAriaLabel?: string;
 }
 
 export function MobileBottomNav({
@@ -24,7 +25,8 @@ export function MobileBottomNav({
   isMoreOpen,
   onOpenMore,
   moreButtonRef,
-  moreHasAttentionDot = false
+  moreHasAttentionDot = false,
+  moreAttentionAriaLabel
 }: MobileBottomNavProps) {
   const navigate = useNavigate();
 
@@ -37,7 +39,7 @@ export function MobileBottomNav({
           className={`mobile-nav-link ${item.active ? 'mobile-nav-link-active' : ''}`.trim()}
           onClick={() => navigate(item.to)}
           aria-current={item.active ? 'page' : undefined}
-          aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (pending approvals)` : undefined}
+          aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (needs attention)` : undefined}
         >
           <span className="nav-attention-label">
             {item.label}
@@ -52,7 +54,7 @@ export function MobileBottomNav({
         onClick={onOpenMore}
         aria-haspopup="dialog"
         aria-expanded={isMoreOpen}
-        aria-label={moreHasAttentionDot ? 'More (pending approvals)' : 'More'}
+        aria-label={moreHasAttentionDot ? moreAttentionAriaLabel || 'More (needs attention)' : 'More'}
       >
         <span className="nav-attention-label">
           More
