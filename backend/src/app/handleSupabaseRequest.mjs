@@ -6312,6 +6312,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
 
   const useCrossWarehouse = options && options.crossWarehouse === true;
   const selectedRequirement = options && options.selectedRequirement ? options.selectedRequirement : null;
+  const preferredWarehouse = asTrimmedString(options && options.jobWarehouse).toUpperCase();
   const requirementWidthValue = Number(selectedRequirement && selectedRequirement.widthIn);
   const minimumWidthValue = Number(options && options.minimumWidthIn);
   const minimumWidthIn =
@@ -6379,6 +6380,16 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
 
   filteredCandidates.sort((leftEntry, rightEntry) => {
+    if (preferredWarehouse) {
+      const leftPreferredWarehouse =
+        asTrimmedString(leftEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+      const rightPreferredWarehouse =
+        asTrimmedString(rightEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+      if (leftPreferredWarehouse !== rightPreferredWarehouse) {
+        return leftPreferredWarehouse ? -1 : 1;
+      }
+    }
+
     if (selectedRequirement && leftEntry.filmMatch && rightEntry.filmMatch) {
       const filmComparison = compareSharedJobPlanningFilmMatches(leftEntry.filmMatch, rightEntry.filmMatch);
       if (filmComparison !== 0) {
@@ -10962,7 +10973,8 @@ async function previewAllocationPlan(client, orgId, payload) {
     minimumWidthIn: payload.requestedWidthIn,
     allBoxes,
     activeAllocationsByBox,
-    selectedRequirement
+    selectedRequirement,
+    jobWarehouse: normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
   });
 }
 
@@ -11076,7 +11088,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       minimumWidthIn,
       allBoxes,
       activeAllocationsByBox,
-      selectedRequirement
+      selectedRequirement,
+      jobWarehouse: normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
     });
     const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
       ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))

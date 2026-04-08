@@ -560,4 +560,318 @@ describe('JobAllocateDialog', () => {
 
     queryClient.clear();
   });
+
+  it('prefers same-warehouse boxes before closer cross-warehouse matches and forwards jobWarehouse to preview', async () => {
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
+      payload?.boxId === 'IL1-6915'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '17170',
+              jobDate: '',
+              crewLeader: '',
+              requestedFeet: 5,
+              requestedWidthIn: 48,
+              sourceBoxId: 'IL1-6915',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 48,
+              sourceBoxFeetAvailable: 25,
+              sourceSuggestedFeet: 5,
+              sourceSuggestedCoveredFeet: 5,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 5,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockImplementation(async (params: { warehouse: string }) => {
+      if (params.warehouse === 'IL1') {
+        return [
+          {
+            boxId: 'IL1-6915',
+            warehouse: 'IL1',
+            manufacturer: 'Llumar',
+            filmName: 'RN 07 Refl. One Way Mirror',
+            widthIn: 48,
+            initialFeet: 25,
+            feetAvailable: 25,
+            lotRun: '',
+            status: 'IN_STOCK',
+            orderDate: '2026-01-01',
+            receivedDate: '2026-01-01',
+            initialWeightLbs: null,
+            lastRollWeightLbs: null,
+            lastWeighedDate: '',
+            filmKey: '',
+            coreType: '',
+            coreWeightLbs: null,
+            lfWeightLbsPerFt: null,
+            pricePerLf: null,
+            purchaseCost: null,
+            notes: '',
+            hasEverBeenCheckedOut: false,
+            lastCheckoutJob: '',
+            lastCheckoutDate: '',
+            zeroedDate: '',
+            zeroedReason: '',
+            zeroedBy: ''
+          }
+        ];
+      }
+
+      return [
+        {
+          boxId: 'MS1-127',
+          warehouse: 'MS1',
+          manufacturer: 'Llumar',
+          filmName: 'RN07',
+          widthIn: 60,
+          initialFeet: 24,
+          feetAvailable: 24,
+          lotRun: '',
+          status: 'IN_STOCK',
+          orderDate: '2026-01-02',
+          receivedDate: '2026-01-02',
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          filmKey: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null,
+          pricePerLf: null,
+          purchaseCost: null,
+          notes: '',
+          hasEverBeenCheckedOut: false,
+          lastCheckoutJob: '',
+          lastCheckoutDate: '',
+          zeroedDate: '',
+          zeroedReason: '',
+          zeroedBy: ''
+        }
+      ];
+    });
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      warehouse: 'IL1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 5,
+          allocatedFeet: 0,
+          remainingFeet: 5
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent || '').toContain('IL1-6915');
+    expect(rows[1].textContent || '').toContain('MS1-127');
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-6915',
+          jobWarehouse: 'IL1'
+        })
+      )
+    );
+
+    const checkboxes = within(table).getAllByRole('checkbox');
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+    expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+
+    queryClient.clear();
+  });
+
+  it('lets a suggestion row become the source after a deliberate source switch', async () => {
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) => {
+      if (payload?.boxId === 'MS1-127') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 5,
+            requestedWidthIn: 48,
+            sourceBoxId: 'MS1-127',
+            sourceWarehouse: 'MS1',
+            sourceWidthIn: 60,
+            sourceBoxFeetAvailable: 24,
+            sourceSuggestedFeet: 5,
+            sourceSuggestedCoveredFeet: 5,
+            sourceConflicts: [],
+            suggestions: [
+              {
+                boxId: 'IL1-6915',
+                warehouse: 'IL1',
+                widthIn: 48,
+                availableFeet: 25,
+                suggestedFeet: 0,
+                suggestedCoveredFeet: 0,
+                receivedDate: '2026-01-01',
+                orderDate: '2026-01-01'
+              }
+            ],
+            defaultCoveredFeet: 5,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      if (payload?.boxId === 'IL1-6915') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 5,
+            requestedWidthIn: 48,
+            sourceBoxId: 'IL1-6915',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 48,
+            sourceBoxFeetAvailable: 25,
+            sourceSuggestedFeet: 5,
+            sourceSuggestedCoveredFeet: 5,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 5,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      return buildPreviewState();
+    });
+    searchBoxesMock.mockImplementation(async (params: { warehouse: string }) => {
+      if (params.warehouse === 'MS1') {
+        return [
+          {
+            boxId: 'MS1-127',
+            warehouse: 'MS1',
+            manufacturer: 'Llumar',
+            filmName: 'RN07',
+            widthIn: 60,
+            initialFeet: 24,
+            feetAvailable: 24,
+            lotRun: '',
+            status: 'IN_STOCK',
+            orderDate: '2026-01-02',
+            receivedDate: '2026-01-02',
+            initialWeightLbs: null,
+            lastRollWeightLbs: null,
+            lastWeighedDate: '',
+            filmKey: '',
+            coreType: '',
+            coreWeightLbs: null,
+            lfWeightLbsPerFt: null,
+            pricePerLf: null,
+            purchaseCost: null,
+            notes: '',
+            hasEverBeenCheckedOut: false,
+            lastCheckoutJob: '',
+            lastCheckoutDate: '',
+            zeroedDate: '',
+            zeroedReason: '',
+            zeroedBy: ''
+          }
+        ];
+      }
+
+      return [
+        {
+          boxId: 'IL1-6915',
+          warehouse: 'IL1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07 Refl. One Way Mirror',
+          widthIn: 48,
+          initialFeet: 25,
+          feetAvailable: 25,
+          lotRun: '',
+          status: 'IN_STOCK',
+          orderDate: '2026-01-01',
+          receivedDate: '2026-01-01',
+          initialWeightLbs: null,
+          lastRollWeightLbs: null,
+          lastWeighedDate: '',
+          filmKey: '',
+          coreType: '',
+          coreWeightLbs: null,
+          lfWeightLbsPerFt: null,
+          pricePerLf: null,
+          purchaseCost: null,
+          notes: '',
+          hasEverBeenCheckedOut: false,
+          lastCheckoutJob: '',
+          lastCheckoutDate: '',
+          zeroedDate: '',
+          zeroedReason: '',
+          zeroedBy: ''
+        }
+      ];
+    });
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      warehouse: 'MS1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 5,
+          allocatedFeet: 0,
+          remainingFeet: 5
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    let rows = within(table).getAllByRole('row').slice(1);
+    let checkboxes = within(table).getAllByRole('checkbox');
+    expect(rows[0].textContent || '').toContain('MS1-127');
+    expect(rows[1].textContent || '').toContain('IL1-6915');
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+    expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(checkboxes[1]);
+
+    await waitFor(() => {
+      const refreshedCheckboxes = within(table).getAllByRole('checkbox');
+      expect((refreshedCheckboxes[0] as HTMLInputElement).checked).toBe(true);
+      expect((refreshedCheckboxes[1] as HTMLInputElement).checked).toBe(true);
+    });
+
+    fireEvent.click(rows[1]);
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-6915',
+          jobWarehouse: 'MS1'
+        })
+      )
+    );
+
+    rows = within(table).getAllByRole('row').slice(1);
+    checkboxes = within(table).getAllByRole('checkbox');
+    await waitFor(() => {
+      expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
+      expect((checkboxes[1] as HTMLInputElement).checked).toBe(true);
+    });
+    expect(rows[1].textContent || '').toContain('IL1-6915');
+    const secondRowCells = within(rows[1]).getAllByRole('cell');
+    expect(secondRowCells[6].textContent || '').toBe('5');
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*5/i);
+
+    queryClient.clear();
+  });
 });

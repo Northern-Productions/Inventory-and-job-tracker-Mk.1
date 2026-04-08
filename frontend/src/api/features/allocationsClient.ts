@@ -79,7 +79,8 @@ export async function previewAllocationPlan(payload: AllocateBoxPayload): Promis
     requestedFeet: payload.requestedFeet,
     requestedWidthIn: payload.requestedWidthIn,
     requirementId: payload.requirementId,
-    crossWarehouse: payload.crossWarehouse
+    crossWarehouse: payload.crossWarehouse,
+    jobWarehouse: payload.jobWarehouse
   };
 
   return requestReadWithFallback<AllocationPreview>('/allocations/preview', params, params);

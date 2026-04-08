@@ -187,11 +187,11 @@ export interface AllocateBoxPayload {
   requestedWidthIn?: number;
   requirementId?: string;
   crossWarehouse?: boolean;
+  jobWarehouse?: Warehouse;
 }
 
 export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
   selectedSuggestionBoxIds?: string[];
-  jobWarehouse?: Warehouse;
   extraAllocations?: Array<{
     boxId: string;
     allocatedFeet: number;

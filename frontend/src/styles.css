@@ -2538,6 +2538,22 @@ td.col-available-linear-ft {
   overflow-x: auto;
 }
 
+.dialog-job-allocate .allocation-preview tbody tr {
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.dialog-job-allocate .allocation-preview tbody tr:hover,
+.dialog-job-allocate .allocation-preview tbody tr:focus-within {
+  background: rgba(19, 96, 100, 0.05);
+}
+
+.dialog-job-allocate .allocation-preview tbody tr.allocation-source-row {
+  background: rgba(19, 96, 100, 0.08);
+}
+
 @supports selector(body:has(.dialog-backdrop)) {
   body:has(.dialog-backdrop) .mobile-bottom-nav {
     opacity: 0;

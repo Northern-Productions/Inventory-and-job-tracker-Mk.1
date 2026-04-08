@@ -171,7 +171,8 @@ export function JobAllocateDialog({
   const createFilmOrderMutation = useCreateFilmOrder();
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [requestedFeet, setRequestedFeet] = useState('');
-  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
+  const [selectedSourceBoxId, setSelectedSourceBoxId] = useState('');
+  const [selectedSuggestionBoxIds, setSelectedSuggestionBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
   const autoSelectionKeyRef = useRef('');
@@ -235,8 +236,8 @@ export function JobAllocateDialog({
     [filmOrders, selectedRequirement]
   );
   const prioritizedMatchingBoxes = useMemo(
-    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds),
-    [matchingBoxes, preferredLinkedBoxIds]
+    () => prioritizeCandidateBoxes(matchingBoxes, preferredLinkedBoxIds, warehouse),
+    [matchingBoxes, preferredLinkedBoxIds, warehouse]
   );
   const requestedFeetValue = useMemo(() => {
     const parsed = Number(requestedFeet);
@@ -248,10 +249,10 @@ export function JobAllocateDialog({
   }, [requestedFeet]);
   const selectedSourceBox = useMemo(
     () =>
-      prioritizedMatchingBoxes.find((box) => selectedBoxIds.includes(box.boxId)) ||
+      prioritizedMatchingBoxes.find((box) => box.boxId === selectedSourceBoxId) ||
       prioritizedMatchingBoxes[0] ||
       null,
-    [prioritizedMatchingBoxes, selectedBoxIds]
+    [prioritizedMatchingBoxes, selectedSourceBoxId]
   );
   const previewPayload = useMemo(
     () =>
@@ -283,11 +284,9 @@ export function JobAllocateDialog({
   const selectedPreviewSuggestionBoxIds = useMemo(
     () =>
       activePreview
-        ? selectedBoxIds.filter(
-            (boxId) => boxId !== activePreview.sourceBoxId && previewSuggestionBoxIdSet.has(boxId)
-          )
+        ? selectedSuggestionBoxIds.filter((boxId) => previewSuggestionBoxIdSet.has(boxId))
         : [],
-    [activePreview, previewSuggestionBoxIdSet, selectedBoxIds]
+    [activePreview, previewSuggestionBoxIdSet, selectedSuggestionBoxIds]
   );
   const isMatchingBoxesLoading = matchingBoxesQueries.some(
     (query) => query.isLoading || query.isFetching
@@ -325,7 +324,8 @@ export function JobAllocateDialog({
     if (!open) {
       setSelectedRequirementId('');
       setRequestedFeet('');
-      setSelectedBoxIds([]);
+      setSelectedSourceBoxId('');
+      setSelectedSuggestionBoxIds([]);
       setError('');
       setCompletedRequirementIds([]);
       autoSelectionKeyRef.current = '';
@@ -348,12 +348,14 @@ export function JobAllocateDialog({
   useEffect(() => {
     if (!selectedRequirement) {
       setRequestedFeet('');
-      setSelectedBoxIds([]);
+      setSelectedSourceBoxId('');
+      setSelectedSuggestionBoxIds([]);
       return;
     }
 
     setRequestedFeet(String(Math.max(selectedRequirement.remainingFeet, 0)));
-    setSelectedBoxIds([]);
+    setSelectedSourceBoxId('');
+    setSelectedSuggestionBoxIds([]);
     autoSelectionKeyRef.current = '';
     setError('');
   }, [selectedRequirement?.requirementId]);
@@ -374,7 +376,8 @@ export function JobAllocateDialog({
 
     setSelectedRequirementId(nextRequirement.requirementId);
     setRequestedFeet(String(Math.max(nextRequirement.remainingFeet, 0)));
-    setSelectedBoxIds([]);
+    setSelectedSourceBoxId('');
+    setSelectedSuggestionBoxIds([]);
     autoSelectionKeyRef.current = '';
     setError('');
   }
@@ -398,36 +401,50 @@ export function JobAllocateDialog({
 
     autoSelectionKeyRef.current = nextKey;
     if (activePreview) {
-      setSelectedBoxIds([
-        activePreview.sourceBoxId,
-        ...activePreview.suggestions
+      setSelectedSourceBoxId(activePreview.sourceBoxId);
+      setSelectedSuggestionBoxIds(
+        activePreview.suggestions
           .filter((suggestion) => suggestion.suggestedCoveredFeet > 0)
           .map((suggestion) => suggestion.boxId)
-      ]);
+      );
       return;
     }
 
-    setSelectedBoxIds([selectedSourceBox.boxId]);
+    setSelectedSourceBoxId(selectedSourceBox.boxId);
+    setSelectedSuggestionBoxIds([]);
   }, [activePreview, open, requestedFeetValue, selectedRequirement, selectedSourceBox]);
 
   if (!open) {
     return null;
   }
 
+  function promoteSourceBox(boxId: string) {
+    if (!boxId || boxId === selectedSourceBox?.boxId) {
+      return;
+    }
+
+    autoSelectionKeyRef.current = '';
+    setSelectedSourceBoxId(boxId);
+    setSelectedSuggestionBoxIds([]);
+    setError('');
+  }
+
   function toggleBox(boxId: string) {
+    if (boxId === selectedSourceBox?.boxId) {
+      return;
+    }
+
     const isSelectableSuggestion =
       activePreview &&
       boxId !== activePreview.sourceBoxId &&
       previewSuggestionBoxIdSet.has(boxId);
 
     if (!isSelectableSuggestion) {
-      autoSelectionKeyRef.current = '';
-      setSelectedBoxIds([boxId]);
-      setError('');
+      promoteSourceBox(boxId);
       return;
     }
 
-    setSelectedBoxIds((current) =>
+    setSelectedSuggestionBoxIds((current) =>
       current.includes(boxId) ? current.filter((value) => value !== boxId) : [...current, boxId]
     );
     setError('');
@@ -441,11 +458,6 @@ export function JobAllocateDialog({
 
     if (dueDate.trim() && !crewLeader.trim()) {
       setError('CrewLeader is required when JobDate is set.');
-      return;
-    }
-
-    if (!selectedBoxIds.length) {
-      setError('Select at least one box to allocate.');
       return;
     }
 
@@ -606,7 +618,8 @@ export function JobAllocateDialog({
             pattern="[0-9]*"
             onChange={(event) => {
               setRequestedFeet(event.target.value.replace(/[^0-9]/g, ''));
-              setSelectedBoxIds([]);
+              setSelectedSourceBoxId('');
+              setSelectedSuggestionBoxIds([]);
               autoSelectionKeyRef.current = '';
               setError('');
             }}
@@ -672,11 +685,19 @@ export function JobAllocateDialog({
                 </thead>
                 <tbody>
                   {prioritizedMatchingBoxes.map((box) => (
-                    <tr key={box.boxId}>
+                    <tr
+                      key={box.boxId}
+                      className={box.boxId === selectedSourceBox?.boxId ? 'allocation-source-row' : undefined}
+                      onClick={() => promoteSourceBox(box.boxId)}
+                    >
                       <td>
                         <input
                           type="checkbox"
-                          checked={selectedBoxIds.includes(box.boxId)}
+                          checked={
+                            box.boxId === selectedSourceBox?.boxId ||
+                            selectedPreviewSuggestionBoxIds.includes(box.boxId)
+                          }
+                          onClick={(event) => event.stopPropagation()}
                           onChange={() => toggleBox(box.boxId)}
                         />
                       </td>

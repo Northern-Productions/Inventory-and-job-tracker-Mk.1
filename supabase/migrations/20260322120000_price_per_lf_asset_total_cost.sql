@@ -1,4 +1,4 @@
-﻿-- Adds per-box price-per-linear-foot support for film asset valuation.
+-- Adds per-box price-per-linear-foot support for film asset valuation.
 
 alter table app.boxes
   add column if not exists price_per_lf numeric(12,4);

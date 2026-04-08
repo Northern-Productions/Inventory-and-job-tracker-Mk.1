@@ -104,7 +104,7 @@ describe('allocations API client caulk routes', () => {
     });
   });
 
-  it('passes requirementId through allocation preview requests', async () => {
+  it('passes requirementId and jobWarehouse through allocation preview requests', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
         jobNumber: '000123',
@@ -128,7 +128,8 @@ describe('allocations API client caulk routes', () => {
       jobNumber: '000123',
       requestedFeet: 12,
       requestedWidthIn: 72,
-      requirementId: 'req-72'
+      requirementId: 'req-72',
+      jobWarehouse: 'IL1'
     });
 
     expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/preview', {
@@ -140,7 +141,8 @@ describe('allocations API client caulk routes', () => {
         requestedFeet: 12,
         requestedWidthIn: 72,
         requirementId: 'req-72',
-        crossWarehouse: undefined
+        crossWarehouse: undefined,
+        jobWarehouse: 'IL1'
       }
     });
   });

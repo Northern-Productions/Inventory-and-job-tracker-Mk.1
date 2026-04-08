@@ -40,8 +40,10 @@ export type ReadHandlerDeps = {
       allBoxes: any[];
       activeAllocationsByBox: Record<string, any[]>;
       selectedRequirement?: any;
+      jobWarehouse?: string;
     },
   ) => Record<string, unknown>;
+  normalizeOptionalWarehouse: (value: unknown, fieldName?: string) => string;
   resolveJobContext: (
     client: any,
     orgId: string,
@@ -302,6 +304,7 @@ const readHandlers: Record<string, ReadHandler> = {
         allBoxes: await deps.listBoxes(client, orgId),
         activeAllocationsByBox: deps.buildActiveAllocationsByBoxIndex(await deps.listActiveAllocations(client, orgId)),
         selectedRequirement,
+        jobWarehouse: deps.normalizeOptionalWarehouse(params.jobWarehouse, "JobWarehouse"),
       },
     ));
   },

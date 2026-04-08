@@ -2990,6 +2990,17 @@ function parseCrossWarehouseFlag(value: unknown): boolean {
   return value === true || String(value).toLowerCase() === "true";
 }
 
+function normalizeOptionalWarehouse(value: unknown, fieldName = "Warehouse"): string {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized) {
+    return "";
+  }
+  if (!/^[A-Z]{2}\d+$/.test(normalized)) {
+    throw new HttpError(400, `${fieldName} must be a valid warehouse code.`);
+  }
+  return normalized;
+}
+
 function getDateConflictJobsForBox(
   boxId: string,
   jobContext: { jobNumber: string; jobDate: string; crewLeader: string },
@@ -3169,6 +3180,7 @@ function buildAllocationPreviewPlan(
     allBoxes: any[];
     activeAllocationsByBox: Record<string, any[]>;
     selectedRequirement?: any;
+    jobWarehouse?: string;
   },
 ) {
   type CandidatePreviewEntry = {
@@ -3181,6 +3193,7 @@ function buildAllocationPreviewPlan(
     throw new HttpError(400, "RequestedFeet must be greater than zero.");
   }
   const selectedRequirement = options.selectedRequirement || null;
+  const preferredWarehouse = asTrimmedString(options.jobWarehouse).toUpperCase();
   const requirementWidthValue = Number(selectedRequirement?.widthIn);
   const minimumWidthValue = Number(options.minimumWidthIn);
   const minimumWidthIn =
@@ -3242,6 +3255,15 @@ function buildAllocationPreviewPlan(
     }
   }
   filteredCandidates.sort((leftEntry, rightEntry) => {
+    if (preferredWarehouse) {
+      const leftPreferredWarehouse = asTrimmedString(leftEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+      const rightPreferredWarehouse =
+        asTrimmedString(rightEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+      if (leftPreferredWarehouse !== rightPreferredWarehouse) {
+        return leftPreferredWarehouse ? -1 : 1;
+      }
+    }
+
     if (selectedRequirement && leftEntry.filmMatch && rightEntry.filmMatch) {
       const filmComparison = compareSharedJobPlanningFilmMatches(leftEntry.filmMatch, rightEntry.filmMatch);
       if (filmComparison !== 0) {
@@ -5380,6 +5402,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
     buildAllocationJobList,
     buildAllocationJobDetail,
     buildAllocationPreviewPlan,
+    normalizeOptionalWarehouse,
     resolveJobContext,
     parseCrossWarehouseFlag,
     listBoxes,

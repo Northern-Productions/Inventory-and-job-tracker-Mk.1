@@ -43,6 +43,23 @@ describe('jobAllocationSelection', () => {
     expect(prioritized.map((entry) => entry.boxId)).toEqual(['B', 'C', 'A', 'D']);
   });
 
+  it('keeps existing within-warehouse ranking while moving the preferred warehouse group first', () => {
+    const candidates = [
+      { boxId: 'MS1-exact', warehouse: 'MS1', feetAvailable: 25 },
+      { boxId: 'IL1-broader', warehouse: 'IL1', feetAvailable: 25 },
+      { boxId: 'IL1-legacy', warehouse: 'IL1', feetAvailable: 25 },
+      { boxId: 'MS1-broader', warehouse: 'MS1', feetAvailable: 25 }
+    ];
+
+    const prioritized = prioritizeCandidateBoxes(candidates, [], 'IL1');
+    expect(prioritized.map((entry) => entry.boxId)).toEqual([
+      'IL1-broader',
+      'IL1-legacy',
+      'MS1-exact',
+      'MS1-broader'
+    ]);
+  });
+
   it('auto-selects enough boxes to satisfy requested LF', () => {
     const selected = autoSelectCandidateBoxIds(
       [
