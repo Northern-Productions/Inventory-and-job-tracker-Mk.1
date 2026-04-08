@@ -4252,7 +4252,7 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
       continue;
     }
 
-    const { data: checkoutResult, error: checkoutError } = await serviceClient.rpc("api_acl_boxes_set_status", {
+    const checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
       p_org_id: orgId,
       p_actor: actor,
       p_payload: {
@@ -4261,7 +4261,6 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
         auditNote: `Checked out for job ${jobNumber}`,
       },
     });
-    throwOnSupabaseError(checkoutError, `Unable to check out box ${box.boxId}`);
     if (checkoutResult && Array.isArray((checkoutResult as Record<string, unknown>).warnings)) {
       warnings.push(...((checkoutResult as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
     }
