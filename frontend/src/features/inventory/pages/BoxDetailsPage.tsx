@@ -1,12 +1,24 @@
+import { useQueries } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { getJob } from '../../../api/features/jobsClient';
 import { APIError } from '../../../api/http';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
+import { DialogSurface } from '../../../components/DialogSurface';
+import { Input, TextArea } from '../../../components/Input';
+import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
-import { WAREHOUSE_CODES, getWarehouseLabel, type Box, type SetBoxStatusPayload, type UpdateBoxPayload } from '../../../domain';
+import {
+  WAREHOUSE_CODES,
+  getWarehouseLabel,
+  type Box,
+  type SetBoxStatusPayload,
+  type UpdateBoxPayload,
+  type Warehouse
+} from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { safeDecodePathParam } from '../../../lib/url';
 import { useAuth } from '../../auth/AuthContext';
@@ -17,15 +29,21 @@ import { HistoryPanel } from '../components/HistoryPanel';
 import { RollHistoryPanel } from '../components/RollHistoryPanel';
 import {
   useBoxAllocations,
+  useBoxTransfer,
+  useCancelBoxTransfer,
   useFilmCatalog,
   useIsAddBoxPending,
   useBox,
+  useReceiveBoxTransfer,
   useDeleteBox,
   useSetBoxStatus,
+  useStartBoxTransfer,
   useUndoAudit,
   useUpdateBox
 } from '../hooks/useInventoryQueries';
 import { useActionAccess } from '../hooks/useActionAccess';
+import { inventoryKeys } from '../hooks/inventoryQueryKeys';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseUpdateBoxDraft } from '../schemas/boxSchemas';
 import {
   boxNeedsAllocationsToResolveCurrentFeet,
@@ -73,6 +91,15 @@ interface PendingZeroedEditState {
 
 interface PendingZeroedReactivationState {
   payload: UpdateBoxPayload;
+}
+
+type TransferActionState = 'receive' | 'cancel' | null;
+
+interface TransferDestinationAnalysis {
+  suggestedDestination: Warehouse | '';
+  conflictMessage: string;
+  isResolvingAllocations: boolean;
+  resolutionWarning: string;
 }
 
 function DetailField({
@@ -126,6 +153,106 @@ function formatPricePerLf(value: number | null | undefined) {
   return `${USD_CURRENCY_FORMATTER.format(value)} / LF`;
 }
 
+function formatBoxStatusLabel(status: string) {
+  return status === 'TRANSFER' ? 'Transfer' : status.replace(/_/g, ' ');
+}
+
+function buildTransferDestinationAnalysis(
+  box: Box | undefined,
+  allocations: Array<{ status: string; jobNumber: string }>,
+  allocationJobs: Array<{ summary?: { warehouse?: Warehouse } } | null>,
+  allocationQueryStates: Array<{ isLoading?: boolean; isFetching?: boolean; isError?: boolean }>
+): TransferDestinationAnalysis {
+  if (!box) {
+    return {
+      suggestedDestination: '',
+      conflictMessage: '',
+      isResolvingAllocations: false,
+      resolutionWarning: ''
+    };
+  }
+
+  const activeJobAllocations = allocations.filter(
+    (entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim()
+  );
+
+  if (!activeJobAllocations.length) {
+    return {
+      suggestedDestination: '',
+      conflictMessage: '',
+      isResolvingAllocations: false,
+      resolutionWarning: ''
+    };
+  }
+
+  const isResolvingAllocations = allocationQueryStates.some(
+    (query) => query.isLoading || query.isFetching
+  );
+
+  if (isResolvingAllocations) {
+    return {
+      suggestedDestination: '',
+      conflictMessage: '',
+      isResolvingAllocations: true,
+      resolutionWarning: ''
+    };
+  }
+
+  if (allocationQueryStates.some((query) => query.isError)) {
+    return {
+      suggestedDestination: '',
+      conflictMessage: '',
+      isResolvingAllocations: false,
+      resolutionWarning:
+        'Some allocation destinations could not be loaded. You can still try the transfer and the server will verify it.'
+    };
+  }
+
+  const destinationWarehouses = new Set<Warehouse>();
+  let hasSameWarehouseAllocation = false;
+
+  for (let index = 0; index < activeJobAllocations.length; index += 1) {
+    const destinationWarehouse = allocationJobs[index]?.summary?.warehouse;
+    if (!destinationWarehouse) {
+      continue;
+    }
+
+    if (destinationWarehouse === box.warehouse) {
+      hasSameWarehouseAllocation = true;
+      continue;
+    }
+
+    destinationWarehouses.add(destinationWarehouse);
+  }
+
+  if (hasSameWarehouseAllocation) {
+    return {
+      suggestedDestination: '',
+      conflictMessage:
+        'This box is still allocated to a job in its current warehouse. Remove that allocation before starting a transfer.',
+      isResolvingAllocations: false,
+      resolutionWarning: ''
+    };
+  }
+
+  if (destinationWarehouses.size > 1) {
+    return {
+      suggestedDestination: '',
+      conflictMessage:
+        'This box is allocated to jobs in more than one destination warehouse. Remove the conflicting allocations before starting a transfer.',
+      isResolvingAllocations: false,
+      resolutionWarning: ''
+    };
+  }
+
+  return {
+    suggestedDestination: destinationWarehouses.size === 1 ? Array.from(destinationWarehouses)[0] : '',
+    conflictMessage: '',
+    isResolvingAllocations: false,
+    resolutionWarning: ''
+  };
+}
+
 async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -167,15 +294,24 @@ export default function BoxDetailsPage() {
   const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
   const boxId = safeDecodePathParam(params.boxId);
   const boxQuery = useBox(boxId);
+  const boxTransferQuery = useBoxTransfer(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
   const updateMutation = useUpdateBox();
   const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();
+  const startTransferMutation = useStartBoxTransfer();
+  const receiveTransferMutation = useReceiveBoxTransfer();
+  const cancelTransferMutation = useCancelBoxTransfer();
   const undoMutation = useUndoAudit();
   const filmCatalogQuery = useFilmCatalog();
   const allocationsQuery = useBoxAllocations(boxId);
+  const warehouseRegistry = useWarehouseRegistry();
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
+  const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
+  const [transferDestination, setTransferDestination] = useState<Warehouse | ''>('');
+  const [transferNotes, setTransferNotes] = useState('');
+  const [transferActionState, setTransferActionState] = useState<TransferActionState>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
   const [pendingZeroedReactivationState, setPendingZeroedReactivationState] =
@@ -189,7 +325,62 @@ export default function BoxDetailsPage() {
   const didHandleScanCheckIn = useRef(false);
 
   const box = boxQuery.data;
+  const transferEntry = boxTransferQuery.data;
+  const pendingTransfer = transferEntry?.status === 'PENDING' ? transferEntry : null;
   const allocations = allocationsQuery.data || [];
+  const activeAllocationJobNumbers = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allocations
+            .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
+            .map((entry) => entry.jobNumber.trim())
+        )
+      ),
+    [allocations]
+  );
+  const activeAllocationJobQueries = useQueries({
+    queries: activeAllocationJobNumbers.map((jobNumber) => ({
+      queryKey: inventoryKeys.job(jobNumber),
+      queryFn: () => getJob(jobNumber),
+      enabled: Boolean(box?.boxId)
+    }))
+  });
+  const transferDestinationAnalysis = useMemo(
+    () =>
+      buildTransferDestinationAnalysis(
+        box,
+        allocations,
+        activeAllocationJobQueries.map((query) => query.data || null),
+        activeAllocationJobQueries
+      ),
+    [activeAllocationJobQueries, allocations, box]
+  );
+  const transferDestinationOptions = useMemo(() => {
+    const seenCodes = new Set<string>();
+    const options = [
+      {
+        label: 'Select destination warehouse',
+        value: ''
+      }
+    ];
+
+    for (const entry of warehouseRegistry.entries) {
+      if (!entry.code || entry.code === box?.warehouse || seenCodes.has(entry.code)) {
+        continue;
+      }
+
+      seenCodes.add(entry.code);
+      options.push({
+        label: `${entry.code} · ${entry.name}`,
+        value: entry.code
+      });
+    }
+
+    return options;
+  }, [box?.warehouse, warehouseRegistry.entries]);
+  const transferMutationsPending =
+    startTransferMutation.isPending || receiveTransferMutation.isPending || cancelTransferMutation.isPending;
   const allocationsForCurrentFeet =
     allocationsQuery.isLoading || allocationsQuery.isError ? null : allocations;
   const displayedAllocatedFeet = box
@@ -271,6 +462,10 @@ export default function BoxDetailsPage() {
   useEffect(() => {
     setPendingZeroedEditState(null);
     setPendingZeroedReactivationState(null);
+    setIsTransferDialogOpen(false);
+    setTransferActionState(null);
+    setTransferDestination('');
+    setTransferNotes('');
     setIsAllocationsSectionCollapsed(true);
     setIsHistorySectionCollapsed(true);
     setIsRollHistorySectionCollapsed(true);
@@ -471,6 +666,126 @@ export default function BoxDetailsPage() {
           error instanceof APIError || error instanceof Error
             ? error.message
             : 'The box could not be deleted.',
+        variant: 'error'
+      });
+    }
+  }
+
+  function openTransferDialog() {
+    if (!box) {
+      return;
+    }
+
+    setTransferNotes('');
+    setTransferDestination(transferDestinationAnalysis.suggestedDestination || '');
+    setIsTransferDialogOpen(true);
+  }
+
+  function closeTransferDialog() {
+    setIsTransferDialogOpen(false);
+    setTransferNotes('');
+    setTransferDestination('');
+  }
+
+  async function handleStartTransfer() {
+    if (!box) {
+      return;
+    }
+
+    if (!ensureSignedIn('start box transfers', 'inventory')) {
+      return;
+    }
+
+    if (!transferDestination) {
+      toast.push({
+        title: 'Destination required',
+        description: 'Choose the warehouse this box is being sent to before starting the transfer.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      const { result, warnings } = await startTransferMutation.mutateAsync({
+        boxId: box.boxId,
+        toWarehouse: transferDestination,
+        notes: transferNotes.trim() || undefined
+      });
+      closeTransferDialog();
+      toast.push({
+        title: 'Transfer started',
+        description:
+          warnings.join(' ') ||
+          `${result.box.boxId} is now marked for transfer from ${result.transfer.sourceWarehouse} to ${result.transfer.destinationWarehouse}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to start transfer',
+        description: error instanceof Error ? error.message : 'The transfer could not be started.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleReceiveTransfer() {
+    if (!pendingTransfer) {
+      return;
+    }
+
+    if (!ensureSignedIn('receive box transfers', 'inventory')) {
+      return;
+    }
+
+    try {
+      const { result, warnings } = await receiveTransferMutation.mutateAsync({
+        transferId: pendingTransfer.transferId
+      });
+      setTransferActionState(null);
+      toast.push({
+        title: 'Transfer received',
+        description:
+          warnings.join(' ') ||
+          `${result.transfer.sourceBoxId} was received into ${result.transfer.destinationWarehouse} as ${result.box.boxId}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to receive transfer',
+        description: error instanceof Error ? error.message : 'The transfer could not be received.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleCancelTransfer() {
+    if (!pendingTransfer) {
+      return;
+    }
+
+    if (!ensureSignedIn('cancel box transfers', 'inventory')) {
+      return;
+    }
+
+    try {
+      const { result, warnings } = await cancelTransferMutation.mutateAsync({
+        transferId: pendingTransfer.transferId,
+        reason: 'Cancelled from box details.'
+      });
+      setTransferActionState(null);
+      const cancellationSummary =
+        result.cancelledAllocationCount > 0
+          ? `Cancelled ${result.cancelledAllocationCount} cross-warehouse allocation${result.cancelledAllocationCount === 1 ? '' : 's'} and released ${result.releasedFeet} LF.`
+          : `${result.box.boxId} is back in stock in ${result.transfer.sourceWarehouse}.`;
+      toast.push({
+        title: 'Transfer cancelled',
+        description: warnings.join(' ') || cancellationSummary,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to cancel transfer',
+        description: error instanceof Error ? error.message : 'The transfer could not be cancelled.',
         variant: 'error'
       });
     }
@@ -777,7 +1092,27 @@ export default function BoxDetailsPage() {
             </p>
           </div>
           <div className="detail-actions">
-            <span className={`badge badge-${box.status}`}>{box.status}</span>
+            <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+            {!isEditing ? (
+              !pendingTransfer ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={openTransferDialog}
+                  disabled={
+                    isAddBoxPending ||
+                    shouldBlockEditWhileAllocationsResolve ||
+                    transferMutationsPending ||
+                    box.status !== 'IN_STOCK' ||
+                    !auth.isAuthenticated ||
+                    !auth.clientIdConfigured ||
+                    !canWriteInventory
+                  }
+                >
+                  Transfer Box
+                </Button>
+              ) : null
+            ) : null}
             {!isEditing ? (
               <Button
                 type="button"
@@ -785,7 +1120,9 @@ export default function BoxDetailsPage() {
                 disabled={
                   isAddBoxPending ||
                   deleteMutation.isPending ||
+                  transferMutationsPending ||
                   shouldBlockEditWhileAllocationsResolve ||
+                  box.status === 'TRANSFER' ||
                   !auth.isAuthenticated ||
                   !auth.clientIdConfigured ||
                   !canWriteInventory
@@ -859,6 +1196,58 @@ export default function BoxDetailsPage() {
           <DetailField label="Zeroed By" value={box.zeroedBy} />
           <DetailField label="Notes" value={box.notes} />
         </div>
+
+        {pendingTransfer ? (
+          <div className="transfer-status-card">
+            <div className="panel-title-row">
+              <div className="transfer-status-copy">
+                <p className="eyebrow">Pending Transfer</p>
+                <h3>{pendingTransfer.sourceBoxId} is moving warehouses</h3>
+                <p className="muted-text">
+                  Receive this transfer in {pendingTransfer.destinationWarehouse} before the box can be checked out or staged on a cross-warehouse job.
+                </p>
+              </div>
+              <div className="detail-actions transfer-status-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setTransferActionState('receive')}
+                  disabled={
+                    transferMutationsPending ||
+                    !auth.isAuthenticated ||
+                    !auth.clientIdConfigured ||
+                    !canWriteInventory
+                  }
+                >
+                  Receive Box
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => setTransferActionState('cancel')}
+                  disabled={
+                    transferMutationsPending ||
+                    !auth.isAuthenticated ||
+                    !auth.clientIdConfigured ||
+                    !canWriteInventory
+                  }
+                >
+                  Cancel Transfer
+                </Button>
+              </div>
+            </div>
+            <div className="detail-grid detail-grid-secondary transfer-status-grid">
+              <DetailField label="Current Warehouse" value={pendingTransfer.sourceWarehouse} />
+              <DetailField label="Destination Warehouse" value={pendingTransfer.destinationWarehouse} />
+              <DetailField label="Current Box ID" value={pendingTransfer.sourceBoxId} />
+              <DetailField label="Received Box ID" value={pendingTransfer.destinationBoxId} />
+              <DetailField label="Transfer ID" value={pendingTransfer.transferId} />
+              <DetailField label="Started" value={formatDate(pendingTransfer.createdAt)} />
+              <DetailField label="Started By" value={pendingTransfer.createdBy} />
+              <DetailField label="Notes" value={pendingTransfer.notes} />
+            </div>
+          </div>
+        ) : null}
 
         <div className={`qr-code-card ${isQrSectionOpen ? 'qr-code-card-open' : 'qr-code-card-closed'}`}>
           <button
@@ -941,6 +1330,11 @@ export default function BoxDetailsPage() {
                 Wait for allocation data to finish loading before editing this box&apos;s current footage.
               </p>
             ) : null}
+            {box.status === 'TRANSFER' ? (
+              <p className="muted-text">
+                Pending transfers must be received or cancelled before editing, allocating, checking in, or checking out this box.
+              </p>
+            ) : null}
 
             <div className="page-actions detail-status-actions">
               <Button
@@ -952,6 +1346,7 @@ export default function BoxDetailsPage() {
                   statusMutation.isPending ||
                   box.status === 'ORDERED' ||
                   box.status === 'IN_STOCK' ||
+                  box.status === 'TRANSFER' ||
                   box.status === 'ZEROED' ||
                   box.status === 'RETIRED' ||
                   !auth.isAuthenticated ||
@@ -969,6 +1364,7 @@ export default function BoxDetailsPage() {
                   isAddBoxPending ||
                   statusMutation.isPending ||
                   (box.status !== 'IN_STOCK' && box.status !== 'CHECKED_OUT') ||
+                  box.status === 'TRANSFER' ||
                   !auth.isAuthenticated ||
                   !auth.clientIdConfigured ||
                   box.feetAvailable <= 0 ||
@@ -986,6 +1382,7 @@ export default function BoxDetailsPage() {
                   statusMutation.isPending ||
                   box.status === 'ORDERED' ||
                   box.status === 'CHECKED_OUT' ||
+                  box.status === 'TRANSFER' ||
                   box.status === 'ZEROED' ||
                   box.status === 'RETIRED' ||
                   !auth.isAuthenticated ||
@@ -1022,6 +1419,78 @@ export default function BoxDetailsPage() {
         box={box}
         onCancel={() => setIsAllocateOpen(false)}
       />
+      <DialogSurface
+        open={isTransferDialogOpen}
+        onClose={closeTransferDialog}
+        titleId="transfer-box-dialog-title"
+        descriptionId="transfer-box-dialog-description"
+        className="transfer-box-dialog"
+      >
+        <div className="dialog-header">
+          <h2 id="transfer-box-dialog-title">Transfer Box</h2>
+          <button type="button" className="dialog-close" aria-label="Close dialog" onClick={closeTransferDialog}>
+            x
+          </button>
+        </div>
+        <p id="transfer-box-dialog-description" className="muted-text dialog-message">
+          Start a warehouse transfer for this box. The box ID prefix will not change until the destination warehouse receives it.
+        </p>
+        <div className="form-grid">
+          <Input
+            label="Current Warehouse"
+            value={`${box.warehouse} · ${getWarehouseLabel(box.warehouse)}`}
+            readOnly
+          />
+          <Select
+            label="Send To"
+            options={transferDestinationOptions}
+            value={transferDestination}
+            onChange={(event) => setTransferDestination(event.target.value as Warehouse | '')}
+            autoFocus
+          />
+        </div>
+        {transferDestinationAnalysis.suggestedDestination ? (
+          <p className="field-hint">
+            Suggested destination: {transferDestinationAnalysis.suggestedDestination}
+          </p>
+        ) : null}
+        {transferDestinationAnalysis.isResolvingAllocations ? (
+          <p className="muted-text">Loading active allocation destinations for this box...</p>
+        ) : null}
+        {transferDestinationAnalysis.conflictMessage ? (
+          <p className="error-text">{transferDestinationAnalysis.conflictMessage}</p>
+        ) : null}
+        {!transferDestinationAnalysis.conflictMessage && transferDestinationAnalysis.resolutionWarning ? (
+          <p className="muted-text">{transferDestinationAnalysis.resolutionWarning}</p>
+        ) : null}
+        <TextArea
+          label="Transfer Notes"
+          rows={3}
+          value={transferNotes}
+          onChange={(event) => setTransferNotes(event.target.value)}
+          placeholder="Optional notes for the receiving warehouse"
+        />
+        <div className="dialog-actions">
+          <Button type="button" variant="ghost" fullWidth onClick={closeTransferDialog}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            fullWidth
+            onClick={() => void handleStartTransfer()}
+            loading={startTransferMutation.isPending}
+            loadingLabel="Sending..."
+            disabled={
+              !transferDestination ||
+              Boolean(transferDestinationAnalysis.conflictMessage) ||
+              transferDestinationAnalysis.isResolvingAllocations ||
+              transferMutationsPending
+            }
+          >
+            Send
+          </Button>
+        </div>
+      </DialogSurface>
       <ConfirmDialog
         open={Boolean(pendingZeroedEditState)}
         title="Move Box To Zeroed Inventory?"
@@ -1070,6 +1539,32 @@ export default function BoxDetailsPage() {
           setPendingZeroedReactivationState(null);
           void runStandardUpdateFlow(payload);
         }}
+      />
+      <ConfirmDialog
+        open={transferActionState === 'receive'}
+        title="Receive Transfer?"
+        message={
+          pendingTransfer
+            ? `Receive ${pendingTransfer.sourceBoxId} into ${pendingTransfer.destinationWarehouse}? The box ID will change to ${pendingTransfer.destinationBoxId}.`
+            : ''
+        }
+        confirmLabel="Receive Box"
+        cancelLabel="Cancel"
+        onCancel={() => setTransferActionState(null)}
+        onConfirm={() => void handleReceiveTransfer()}
+      />
+      <ConfirmDialog
+        open={transferActionState === 'cancel'}
+        title="Cancel Transfer?"
+        message={
+          pendingTransfer
+            ? `Cancel the transfer from ${pendingTransfer.sourceWarehouse} to ${pendingTransfer.destinationWarehouse}? Any active allocations for jobs in ${pendingTransfer.destinationWarehouse} will be released back to this box.`
+            : ''
+        }
+        confirmLabel="Cancel Transfer"
+        cancelLabel="Keep Transfer"
+        onCancel={() => setTransferActionState(null)}
+        onConfirm={() => void handleCancelTransfer()}
       />
       <ConfirmDialog
         open={Boolean(confirmState)}

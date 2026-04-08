@@ -6,9 +6,12 @@ import {
 } from '../../../lib/offlineInventory';
 
 export interface InventorySearchSuggestion {
-  boxId: string;
-  manufacturer: string;
+  suggestionKey: string;
   filmName: string;
+}
+
+function normalizeSuggestionFilmName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 export function getInventorySearchSuggestions(
@@ -26,11 +29,28 @@ export function getInventorySearchSuggestions(
     q: ''
   });
 
-  return rankBoxSearchCandidates(filteredCandidates, query)
-    .slice(0, limit)
-    .map((box: Box) => ({
-      boxId: box.boxId,
-      manufacturer: box.manufacturer,
-      filmName: box.filmName
-    }));
+  const rankedBoxes = rankBoxSearchCandidates(filteredCandidates, query);
+  const suggestions: InventorySearchSuggestion[] = [];
+  const seenFilmNames = new Set<string>();
+
+  for (let index = 0; index < rankedBoxes.length; index += 1) {
+    const box = rankedBoxes[index];
+    const normalizedFilmName = normalizeSuggestionFilmName(box.filmName);
+
+    if (!normalizedFilmName || seenFilmNames.has(normalizedFilmName)) {
+      continue;
+    }
+
+    seenFilmNames.add(normalizedFilmName);
+    suggestions.push({
+      suggestionKey: normalizedFilmName,
+      filmName: box.filmName.trim()
+    });
+
+    if (suggestions.length >= limit) {
+      break;
+    }
+  }
+
+  return suggestions;
 }

@@ -13,7 +13,7 @@ export const FEATURE_AREAS = Object.freeze([
   'access_management'
 ]);
 
-export const BOX_STATUSES = Object.freeze(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'ZEROED', 'RETIRED']);
+export const BOX_STATUSES = Object.freeze(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'TRANSFER', 'ZEROED', 'RETIRED']);
 export const FILM_ORDER_STATUSES = Object.freeze(['FILM_ORDER', 'FILM_ON_THE_WAY', 'FULFILLED', 'CANCELLED']);
 export const JOB_STATUSES = Object.freeze(['ALLOCATE', 'CONFLICT', 'READY', 'COMPLETED', 'CANCELLED']);
 export const ALLOCATION_JOB_STATUSES = Object.freeze([
@@ -34,6 +34,10 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/boxes/update': 'inventory',
   '/boxes/delete': 'inventory',
   '/boxes/set-status': 'inventory',
+  '/boxes/transfer/by-box': 'inventory',
+  '/boxes/transfer/start': 'inventory',
+  '/boxes/transfer/receive': 'inventory',
+  '/boxes/transfer/cancel': 'inventory',
   '/film-data/catalog': 'inventory',
   '/warehouses/list': 'inventory',
   '/owner/warehouses/add': 'inventory',
@@ -100,6 +104,7 @@ export const READ_PATHS = Object.freeze([
   '/auth/context',
   '/boxes/search',
   '/boxes/get',
+  '/boxes/transfer/by-box',
   '/audit/list',
   '/audit/by-box',
   '/allocations/by-box',

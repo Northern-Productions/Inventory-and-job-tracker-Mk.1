@@ -25,6 +25,7 @@ import {
   describeJobPlanningFilm as describeSharedJobPlanningFilm,
   getJobPlanningFilmMatch as getSharedJobPlanningFilmMatch
 } from '../../../frontend/src/domain/jobPlanningFilmMatcher.mjs';
+import { rankJobNumberSearchCandidates } from '../../../frontend/src/domain/jobNumberSearchMatcher.mjs';
 
 function asTrimmedString(value) {
   if (value === null || value === undefined) {
@@ -129,7 +130,7 @@ function assertBoxStatus(value) {
   if (!BOX_STATUSES.has(normalized)) {
     throw new HttpError(
       400,
-      'Status must be ORDERED, IN_STOCK, CHECKED_OUT, ZEROED, or RETIRED.'
+      'Status must be ORDERED, IN_STOCK, CHECKED_OUT, TRANSFER, ZEROED, or RETIRED.'
     );
   }
 
@@ -257,6 +258,10 @@ function createLogId() {
   ].join('');
   const suffix = String(crypto.randomInt(0, 1000)).padStart(3, '0');
   return `${timestamp}-${suffix}`;
+}
+
+function createTransferId() {
+  return `TRF-${createLogId()}`;
 }
 
 function roundToDecimals(value, decimals) {
@@ -1511,6 +1516,56 @@ function toPublicBox(box) {
   };
 }
 
+function mapDbBoxTransferRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    transferId: asTrimmedString(row.transfer_id).toUpperCase(),
+    boxRecordId: row.box_record_id,
+    sourceBoxId: asTrimmedString(row.source_box_id).toUpperCase(),
+    destinationBoxId: asTrimmedString(row.destination_box_id).toUpperCase(),
+    sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
+    destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    status: asTrimmedString(row.status).toUpperCase() || 'PENDING',
+    notes: asTrimmedString(row.notes),
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+    receivedAt: formatTimestamp(row.received_at),
+    receivedBy: asTrimmedString(row.received_by),
+    cancelledAt: formatTimestamp(row.cancelled_at),
+    cancelledBy: asTrimmedString(row.cancelled_by),
+    updatedAt: formatTimestamp(row.updated_at),
+    updatedBy: asTrimmedString(row.updated_by)
+  };
+}
+
+function toPublicBoxTransfer(transfer) {
+  if (!transfer) {
+    return null;
+  }
+
+  return {
+    transferId: transfer.transferId,
+    boxId: transfer.status === 'RECEIVED' ? transfer.destinationBoxId : transfer.sourceBoxId,
+    sourceBoxId: transfer.sourceBoxId,
+    destinationBoxId: transfer.destinationBoxId,
+    sourceWarehouse: transfer.sourceWarehouse,
+    destinationWarehouse: transfer.destinationWarehouse,
+    status: transfer.status,
+    createdAt: transfer.createdAt,
+    createdBy: transfer.createdBy,
+    receivedAt: transfer.receivedAt,
+    receivedBy: transfer.receivedBy,
+    cancelledAt: transfer.cancelledAt,
+    cancelledBy: transfer.cancelledBy,
+    notes: transfer.notes
+  };
+}
+
 function mapDbFilmCatalogRow(row) {
   if (!row) {
     return null;
@@ -2508,6 +2563,58 @@ async function requireConfiguredWarehouse(client, orgId, warehouse, fieldName) {
   return normalized;
 }
 
+async function findWarehouseEntry(client, orgId, warehouseCode, fieldName = 'Warehouse') {
+  const normalizedCode = await requireConfiguredWarehouse(client, orgId, warehouseCode, fieldName);
+  const row = await queryRow(
+    client,
+    `
+      select
+        code,
+        name,
+        box_id_prefix
+      from app.warehouses
+      where org_id = $1
+        and code = $2
+    `,
+    [orgId, normalizedCode]
+  );
+
+  if (!row) {
+    throw new HttpError(400, `${fieldName} is not configured.`);
+  }
+
+  return {
+    code: asTrimmedString(row.code).toUpperCase(),
+    name: asTrimmedString(row.name),
+    boxIdPrefix: asTrimmedString(row.box_id_prefix).toUpperCase()
+  };
+}
+
+function getBoxIdPrefixToken(prefix) {
+  const normalizedPrefix = normalizeWarehouseCodeFormat(prefix, 'BoxID prefix');
+  return `${normalizedPrefix.replace(/-+$/g, '')}-`;
+}
+
+function getTransferredBoxIdSuffix(boxId, sourcePrefix) {
+  const normalizedBoxId = requireString(boxId, 'BoxID').toUpperCase();
+  const sourcePrefixToken = getBoxIdPrefixToken(sourcePrefix);
+  if (normalizedBoxId.startsWith(sourcePrefixToken)) {
+    return normalizedBoxId.slice(sourcePrefixToken.length);
+  }
+
+  const prefixedMatch = normalizedBoxId.match(/^[A-Z0-9]+-(.+)$/);
+  if (prefixedMatch?.[1]) {
+    return prefixedMatch[1];
+  }
+
+  return normalizedBoxId;
+}
+
+function buildTransferredBoxId(boxId, sourcePrefix, destinationPrefix) {
+  const suffix = getTransferredBoxIdSuffix(boxId, sourcePrefix);
+  return `${getBoxIdPrefixToken(destinationPrefix)}${suffix}`;
+}
+
 async function listCaulkManufacturers(client, orgId) {
   const rows = await queryRows(
     client,
@@ -3043,6 +3150,197 @@ async function saveBoxRecord(client, orgId, box) {
   );
 
   return mapDbBoxRow(row);
+}
+
+async function findBoxByRecordId(client, orgId, boxRecordId) {
+  if (!boxRecordId) {
+    return null;
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.boxes
+      where org_id = $1
+        and id = $2::uuid
+    `,
+    [orgId, boxRecordId]
+  );
+
+  return mapDbBoxRow(row);
+}
+
+async function findBoxTransferByTransferId(client, orgId, transferId) {
+  const normalizedTransferId = requireString(transferId, 'TransferID').toUpperCase();
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.box_transfers
+      where org_id = $1
+        and transfer_id = $2
+    `,
+    [orgId, normalizedTransferId]
+  );
+
+  return mapDbBoxTransferRow(row);
+}
+
+async function listBoxTransfersByBoxRecordId(client, orgId, boxRecordId) {
+  if (!boxRecordId) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.box_transfers
+      where org_id = $1
+        and box_record_id = $2
+      order by created_at desc, id desc
+    `,
+    [orgId, boxRecordId]
+  );
+
+  return rows.map(mapDbBoxTransferRow);
+}
+
+async function getLatestBoxTransferByBoxId(client, orgId, boxId) {
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    return { box: null, transfer: null };
+  }
+
+  const transfers = await listBoxTransfersByBoxRecordId(client, orgId, box.id);
+  return {
+    box,
+    transfer: transfers[0] || null
+  };
+}
+
+async function findPendingBoxTransferByBoxRecordId(client, orgId, boxRecordId) {
+  if (!boxRecordId) {
+    return null;
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.box_transfers
+      where org_id = $1
+        and box_record_id = $2
+        and status = 'PENDING'
+      order by created_at desc, id desc
+      limit 1
+    `,
+    [orgId, boxRecordId]
+  );
+
+  return mapDbBoxTransferRow(row);
+}
+
+async function listPendingBoxTransfersByBoxRecordIds(client, orgId, boxRecordIds) {
+  const normalizedIds = Array.from(new Set((Array.isArray(boxRecordIds) ? boxRecordIds : []).filter(Boolean)));
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.box_transfers
+      where org_id = $1
+        and status = 'PENDING'
+        and box_record_id = any($2::uuid[])
+      order by created_at desc, id desc
+    `,
+    [orgId, normalizedIds]
+  );
+
+  return rows.map(mapDbBoxTransferRow);
+}
+
+function indexPendingBoxTransfersByBoxRecordId(transfers) {
+  const indexed = {};
+  const entries = Array.isArray(transfers) ? transfers : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const transfer = entries[index];
+    if (!transfer?.boxRecordId || indexed[transfer.boxRecordId]) {
+      continue;
+    }
+    indexed[transfer.boxRecordId] = transfer;
+  }
+  return indexed;
+}
+
+async function saveBoxTransferRecord(client, orgId, transfer) {
+  const row = await queryRow(
+    client,
+    `
+      insert into app.box_transfers (
+        org_id,
+        transfer_id,
+        box_record_id,
+        source_box_id,
+        destination_box_id,
+        source_warehouse,
+        destination_warehouse,
+        status,
+        notes,
+        created_at,
+        created_by,
+        received_at,
+        received_by,
+        cancelled_at,
+        cancelled_by,
+        updated_at,
+        updated_by
+      )
+      values (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,
+        $10::timestamptz,$11,
+        nullif($12, '')::timestamptz,$13,
+        nullif($14, '')::timestamptz,$15,
+        $16::timestamptz,$17
+      )
+      on conflict (org_id, transfer_id) do update set
+        destination_box_id = excluded.destination_box_id,
+        status = excluded.status,
+        notes = excluded.notes,
+        received_at = excluded.received_at,
+        received_by = excluded.received_by,
+        cancelled_at = excluded.cancelled_at,
+        cancelled_by = excluded.cancelled_by,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+      returning *
+    `,
+    [
+      orgId,
+      requireString(transfer.transferId, 'TransferID').toUpperCase(),
+      transfer.boxRecordId,
+      requireString(transfer.sourceBoxId, 'SourceBoxID').toUpperCase(),
+      requireString(transfer.destinationBoxId, 'DestinationBoxID').toUpperCase(),
+      normalizeWarehouseCodeFormat(transfer.sourceWarehouse, 'SourceWarehouse'),
+      normalizeWarehouseCodeFormat(transfer.destinationWarehouse, 'DestinationWarehouse'),
+      requireString(transfer.status, 'TransferStatus').toUpperCase(),
+      asTrimmedString(transfer.notes),
+      transfer.createdAt || new Date().toISOString(),
+      asTrimmedString(transfer.createdBy),
+      asTrimmedString(transfer.receivedAt),
+      asTrimmedString(transfer.receivedBy),
+      asTrimmedString(transfer.cancelledAt),
+      asTrimmedString(transfer.cancelledBy),
+      transfer.updatedAt || new Date().toISOString(),
+      asTrimmedString(transfer.updatedBy || transfer.createdBy)
+    ]
+  );
+
+  return mapDbBoxTransferRow(row);
 }
 
 async function deleteBoxRecord(client, orgId, boxId) {
@@ -4347,6 +4645,356 @@ async function listRollHistoryByJob(client, orgId, jobNumber) {
   return rows.map(mapDbRollHistoryRow);
 }
 
+async function listActiveAllocationTransferTargetsForBox(client, orgId, boxId) {
+  const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
+  const rows = await queryRows(
+    client,
+    `
+      select
+        a.allocation_id,
+        a.job_number,
+        j.warehouse as job_warehouse
+      from app.allocations a
+      left join app.jobs j
+        on j.org_id = a.org_id
+       and upper(trim(j.job_number)) = upper(trim(a.job_number))
+      where a.org_id = $1
+        and a.box_id = $2
+        and a.status = 'ACTIVE'
+      order by a.created_at asc, a.allocation_id asc
+    `,
+    [orgId, canonicalBoxId]
+  );
+
+  return rows.map((row) => ({
+    allocationId: asTrimmedString(row.allocation_id),
+    jobNumber: asTrimmedString(row.job_number),
+    jobWarehouse: asTrimmedString(row.job_warehouse).toUpperCase()
+  }));
+}
+
+function getTransferStartGuardForBox(box, activeTargets) {
+  const sourceWarehouse = asTrimmedString(box?.warehouse).toUpperCase();
+  const normalizedTargets = Array.isArray(activeTargets) ? activeTargets : [];
+  const distinctDestinations = new Set();
+  let hasSameWarehouseAllocation = false;
+
+  for (let index = 0; index < normalizedTargets.length; index += 1) {
+    const destinationWarehouse = asTrimmedString(normalizedTargets[index]?.jobWarehouse).toUpperCase();
+    if (!destinationWarehouse) {
+      continue;
+    }
+
+    if (destinationWarehouse === sourceWarehouse) {
+      hasSameWarehouseAllocation = true;
+      continue;
+    }
+
+    distinctDestinations.add(destinationWarehouse);
+  }
+
+  if (hasSameWarehouseAllocation) {
+    return {
+      suggestedDestinationWarehouse: '',
+      blockingMessage:
+        `Box ${box.boxId} still has active allocations for jobs in ${sourceWarehouse}. Remove those same-warehouse allocations before starting a transfer.`
+    };
+  }
+
+  if (distinctDestinations.size > 1) {
+    return {
+      suggestedDestinationWarehouse: '',
+      blockingMessage:
+        `Box ${box.boxId} has active allocations for multiple destination warehouses. Clear the conflicting allocations before starting a transfer.`
+    };
+  }
+
+  return {
+    suggestedDestinationWarehouse: Array.from(distinctDestinations)[0] || '',
+    blockingMessage: ''
+  };
+}
+
+async function boxIdOrAliasExists(client, orgId, boxId, excludedBoxRecordId = '') {
+  const normalizedBoxId = requireString(boxId, 'BoxID').toUpperCase();
+  const existingBox = await queryRow(
+    client,
+    `
+      select id
+      from app.boxes
+      where org_id = $1
+        and box_id = $2
+      limit 1
+    `,
+    [orgId, normalizedBoxId]
+  );
+
+  const aliasRow = await queryRow(
+    client,
+    `
+      select
+        a.canonical_box_id,
+        b.id as canonical_box_record_id
+      from app.box_id_aliases a
+      left join app.boxes b
+        on b.org_id = a.org_id
+       and b.box_id = a.canonical_box_id
+      where a.org_id = $1
+        and a.old_box_id = $2
+      limit 1
+    `,
+    [orgId, normalizedBoxId]
+  );
+
+  if (existingBox) {
+    if (!excludedBoxRecordId || asTrimmedString(existingBox.id) !== asTrimmedString(excludedBoxRecordId)) {
+      return true;
+    }
+  }
+
+  if (
+    aliasRow &&
+    excludedBoxRecordId &&
+    asTrimmedString(aliasRow.canonical_box_record_id) === asTrimmedString(excludedBoxRecordId)
+  ) {
+    return false;
+  }
+
+  return Boolean(aliasRow);
+}
+
+async function releaseReusableBoxIdAlias(client, orgId, boxId, boxRecordId) {
+  const normalizedBoxId = requireString(boxId, 'BoxID').toUpperCase();
+  const normalizedBoxRecordId = requireString(boxRecordId, 'Box record ID');
+  const aliasRow = await queryRow(
+    client,
+    `
+      select
+        a.old_box_id,
+        a.canonical_box_id,
+        b.id as canonical_box_record_id
+      from app.box_id_aliases a
+      left join app.boxes b
+        on b.org_id = a.org_id
+       and b.box_id = a.canonical_box_id
+      where a.org_id = $1
+        and a.old_box_id = $2
+      limit 1
+    `,
+    [orgId, normalizedBoxId]
+  );
+
+  if (!aliasRow) {
+    return false;
+  }
+
+  if (asTrimmedString(aliasRow.canonical_box_record_id) !== normalizedBoxRecordId) {
+    return false;
+  }
+
+  await client.query(
+    `
+      delete from app.box_id_aliases
+      where org_id = $1
+        and old_box_id = $2
+    `,
+    [orgId, normalizedBoxId]
+  );
+
+  return true;
+}
+
+async function applyReceivedBoxTransfer(client, orgId, box, destinationWarehouse, destinationBoxId, actor) {
+  const sourceBoxId = requireString(box?.boxId, 'SourceBoxID').toUpperCase();
+  const sourceBoxRecordId = requireString(box?.id, 'Box record ID');
+  const normalizedDestinationWarehouse = normalizeWarehouseCodeFormat(destinationWarehouse, 'ToWarehouse');
+  const normalizedDestinationBoxId = requireString(destinationBoxId, 'DestinationBoxID').toUpperCase();
+  const normalizedActor = asTrimmedString(actor);
+  const nowIso = new Date().toISOString();
+
+  await client.query(
+    `
+      update app.boxes
+      set
+        box_id = $3,
+        warehouse = $4,
+        status = 'IN_STOCK',
+        updated_at = $5::timestamptz,
+        updated_by = $6
+      where org_id = $1
+        and id = $2::uuid
+    `,
+    [orgId, sourceBoxRecordId, normalizedDestinationBoxId, normalizedDestinationWarehouse, nowIso, normalizedActor]
+  );
+
+  await client.query(
+    `
+      update app.allocations
+      set
+        box_id = $3,
+        warehouse = $4
+      where org_id = $1
+        and box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId, normalizedDestinationWarehouse]
+  );
+
+  await client.query(
+    `
+      update app.audit_log
+      set box_id = $3
+      where org_id = $1
+        and box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId]
+  );
+
+  await client.query(
+    `
+      update app.roll_weight_log
+      set box_id = $3
+      where org_id = $1
+        and box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId]
+  );
+
+  await client.query(
+    `
+      update app.film_order_box_links
+      set box_id = $3
+      where org_id = $1
+        and box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId]
+  );
+
+  await client.query(
+    `
+      update app.film_orders
+      set source_box_id = $3
+      where org_id = $1
+        and source_box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId]
+  );
+
+  await client.query(
+    `
+      update app.film_catalog
+      set
+        source_box_id = $3,
+        updated_at = $4::timestamptz
+      where org_id = $1
+        and source_box_id = $2
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId, nowIso]
+  );
+
+  await client.query(
+    `
+      update app.box_id_aliases
+      set
+        updated_at = $3::timestamptz,
+        updated_by = $4
+      where org_id = $1
+        and canonical_box_id = $2
+    `,
+    [orgId, normalizedDestinationBoxId, nowIso, normalizedActor]
+  );
+
+  await client.query(
+    `
+      insert into app.box_id_aliases (
+        org_id,
+        old_box_id,
+        canonical_box_id,
+        expires_at,
+        created_by,
+        updated_by,
+        updated_at
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        now() + interval '365 days',
+        $4,
+        $4,
+        $5::timestamptz
+      )
+      on conflict (org_id, old_box_id) do update set
+        canonical_box_id = excluded.canonical_box_id,
+        expires_at = excluded.expires_at,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+    `,
+    [orgId, sourceBoxId, normalizedDestinationBoxId, normalizedActor, nowIso]
+  );
+
+  return findBoxById(client, orgId, normalizedDestinationBoxId);
+}
+
+function buildFilmTransferAlertMessage(alerts, context) {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return '';
+  }
+
+  const actionLabel = context === 'staging' ? 'staging this job' : 'checking out this job';
+  return `Receive transferred film before ${actionLabel}.`;
+}
+
+function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingTransferByBoxRecordId = {}) {
+  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
+  if (!normalizedJobWarehouse) {
+    return [];
+  }
+
+  const entries = Array.isArray(allocations) ? allocations : [];
+  const alerts = [];
+  const seen = new Set();
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const allocation = entries[index];
+    if (!allocation || allocation.status !== 'ACTIVE' || !allocation.boxId) {
+      continue;
+    }
+
+    const box = boxById[allocation.boxId] || null;
+    if (!box) {
+      continue;
+    }
+
+    const sourceWarehouse = asTrimmedString(box.warehouse).toUpperCase();
+    if (!sourceWarehouse || sourceWarehouse === normalizedJobWarehouse) {
+      continue;
+    }
+
+    const pendingTransfer = box.id ? pendingTransferByBoxRecordId[box.id] || null : null;
+    const state =
+      pendingTransfer && pendingTransfer.destinationWarehouse === normalizedJobWarehouse
+        ? 'TRANSFER_PENDING'
+        : 'NEEDS_TRANSFER';
+    const dedupeKey = `${box.boxId}:${normalizedJobWarehouse}:${state}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    alerts.push({
+      boxId: box.boxId,
+      sourceWarehouse,
+      destinationWarehouse: normalizedJobWarehouse,
+      state,
+      transferId: pendingTransfer ? pendingTransfer.transferId : '',
+      startedAt: pendingTransfer ? pendingTransfer.createdAt : '',
+      startedBy: pendingTransfer ? pendingTransfer.createdBy : ''
+    });
+  }
+
+  return alerts;
+}
+
 function toUsageTimestampSortValue(entry) {
   return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || '';
 }
@@ -5325,7 +5973,14 @@ function hasUncheckedOutCaulkAllocations(caulkAllocations) {
   return false;
 }
 
-function getJobStagingBlockingReason(requirements, caulkRequirements, allocations, filmOrders, caulkAllocations) {
+function getJobStagingBlockingReason(
+  requirements,
+  caulkRequirements,
+  allocations,
+  filmOrders,
+  caulkAllocations,
+  filmTransferAlerts = []
+) {
   const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
   if (!hasMaterialRequirements) {
     return '';
@@ -5335,6 +5990,10 @@ function getJobStagingBlockingReason(requirements, caulkRequirements, allocation
   const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
   if (hasRemainingFilm || hasRemainingCaulk) {
     return 'All required film and caulk must be fully allocated before staging this job.';
+  }
+
+  if (Array.isArray(filmTransferAlerts) && filmTransferAlerts.length > 0) {
+    return buildFilmTransferAlertMessage(filmTransferAlerts, 'staging');
   }
 
   if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
@@ -6875,6 +7534,22 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
   }
 
   const warnings = [];
+  const jobHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
+  const jobWarehouse = asTrimmedString(jobHeader?.warehouse).toUpperCase();
+  if (box.status === 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is pending transfer and must be received before it can be checked out.`
+    );
+  }
+
+  if (jobWarehouse && asTrimmedString(box.warehouse).toUpperCase() !== jobWarehouse) {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} must be transferred from ${box.warehouse} to ${jobWarehouse} before checkout.`
+    );
+  }
+
   const isCheckedOutOnThisJob =
     box.status === 'CHECKED_OUT' && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobKey;
 
@@ -7043,6 +7718,23 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     boxById[boxes[index].boxId] = boxes[index];
   }
 
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id)
+    )
+  );
+  const preCheckoutTransferAlerts = buildJobFilmTransferAlerts(
+    existingJob.warehouse,
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId
+  );
+  if (preCheckoutTransferAlerts.length > 0) {
+    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutTransferAlerts, 'checkout'));
+  }
+
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
     if (allocation.status !== 'ACTIVE' || !allocation.boxId || seenBoxIds[allocation.boxId]) {
@@ -7116,12 +7808,26 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     refreshedCaulkRequirements,
     refreshedCaulkAllocations
   );
+  const refreshedPendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      refreshedBoxes.map((box) => box.id)
+    )
+  );
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    existingJob.warehouse,
+    refreshedAllocations,
+    refreshedBoxById,
+    refreshedPendingTransfersByBoxRecordId
+  );
   const blockingReason = getJobStagingBlockingReason(
     publicRequirements,
     publicCaulkRequirements,
     refreshedAllocations,
     refreshedFilmOrders,
-    refreshedCaulkAllocations
+    refreshedCaulkAllocations,
+    filmTransferAlerts
   );
   if (blockingReason) {
     throw new HttpError(400, blockingReason);
@@ -7930,9 +8636,23 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
   for (let index = 0; index < boxes.length; index += 1) {
     boxById[boxes[index].boxId] = boxes[index];
   }
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id)
+    )
+  );
 
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const jobWarehouse = header?.warehouse || '';
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    jobWarehouse,
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId
+  );
 
   return {
     summary: buildAllocationJobSummary(
@@ -7954,7 +8674,8 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations,
     caulkCheckouts,
-    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders)
+    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmTransferAlerts
   };
 }
 
@@ -8064,62 +8785,11 @@ async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStat
 
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
-  const queryValue = BigInt(queryCanonical);
-  const ranked = [];
   const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
-
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index];
-    const lifecycle = asTrimmedString(entry.lifecycleStatus || 'ACTIVE').toUpperCase();
-    if (lifecycle !== lifecycleFilter) {
-      continue;
-    }
-    if (lifecycleFilter === 'COMPLETED' && entry.status !== 'COMPLETED') {
-      continue;
-    }
-
-    const jobDigits = extractJobNumberDigitsForSearch(entry.jobNumber);
-    if (!jobDigits) {
-      continue;
-    }
-
-    const jobCanonical = canonicalizeNumericDigits(jobDigits);
-    const jobValue = BigInt(jobCanonical);
-    const isPrefixMatch = jobCanonical.startsWith(queryCanonical);
-    ranked.push({
-      entry,
-      isPrefixMatch,
-      isExactMatch: jobCanonical === queryCanonical,
-      distance: absoluteBigInt(jobValue - queryValue),
-      lengthDelta: Math.abs(jobCanonical.length - queryCanonical.length)
-    });
-  }
-
-  ranked.sort((left, right) => {
-    if (left.isPrefixMatch !== right.isPrefixMatch) {
-      return left.isPrefixMatch ? -1 : 1;
-    }
-
-    if (left.isPrefixMatch && right.isPrefixMatch) {
-      if (left.isExactMatch !== right.isExactMatch) {
-        return left.isExactMatch ? -1 : 1;
-      }
-
-      if (left.lengthDelta !== right.lengthDelta) {
-        return left.lengthDelta - right.lengthDelta;
-      }
-    }
-
-    const distanceOrder = compareBigInt(left.distance, right.distance);
-    if (distanceOrder !== 0) {
-      return distanceOrder;
-    }
-
-    return compareJobsListEntries(left.entry, right.entry);
+  return rankJobNumberSearchCandidates(entries, normalizedQueryDigits, {
+    compareWithinMatch: compareJobsListEntries,
+    limit: normalizedLimit
   });
-
-  return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
 }
 
 function normalizeCalendarMonth(value) {
@@ -8263,9 +8933,22 @@ async function buildJobDetail(client, orgId, jobNumber) {
   for (let index = 0; index < boxes.length; index += 1) {
     boxById[boxes[index].boxId] = boxes[index];
   }
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id)
+    )
+  );
 
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    header?.warehouse || '',
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId
+  );
   return {
     summary: buildJobListEntry(
       header,
@@ -8282,7 +8965,8 @@ async function buildJobDetail(client, orgId, jobNumber) {
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations,
     caulkCheckouts,
-    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders)
+    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmTransferAlerts
   };
 }
 
@@ -8350,12 +9034,26 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
 
     const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+    const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+      await listPendingBoxTransfersByBoxRecordIds(
+        client,
+        orgId,
+        boxes.map((box) => box.id)
+      )
+    );
+    const filmTransferAlerts = buildJobFilmTransferAlerts(
+      existingJob.warehouse,
+      allocations,
+      boxById,
+      pendingTransfersByBoxRecordId
+    );
     const blockingReason = getJobStagingBlockingReason(
       publicRequirements,
       publicCaulkRequirements,
       allocations,
       filmOrders,
-      caulkAllocations
+      caulkAllocations,
+      filmTransferAlerts
     );
 
     if (blockingReason) {
@@ -8869,6 +9567,13 @@ async function updateBox(client, orgId, payload, actor) {
     throw new HttpError(404, 'Box not found.');
   }
 
+  if (existing.status === 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${existing.boxId} has a pending transfer and can only be received or have the transfer cancelled.`
+    );
+  }
+
   if (existing.status === 'ZEROED') {
     const requestedReactivateFromZeroed =
       payload.reactivateFromZeroed === true || String(payload.reactivateFromZeroed) === 'true';
@@ -9017,6 +9722,13 @@ async function setBoxStatus(client, orgId, payload, actor) {
   const existing = await findBoxById(client, orgId, payload.boxId);
   if (!existing) {
     throw new HttpError(404, 'Box not found.');
+  }
+
+  if (existing.status === 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${existing.boxId} has a pending transfer and can only be received or have the transfer cancelled.`
+    );
   }
 
   if (deriveLifecycleStatus(existing.receivedDate) === 'ORDERED') {
@@ -9248,6 +9960,288 @@ async function setBoxStatus(client, orgId, payload, actor) {
   );
 
   return ok({ box: publicAfter, logId }, warnings);
+}
+
+async function getBoxTransferByBox(client, orgId, boxId) {
+  const resolved = await getLatestBoxTransferByBoxId(client, orgId, boxId);
+  if (!resolved.box) {
+    throw new HttpError(404, 'Box not found.');
+  }
+
+  return toPublicBoxTransfer(resolved.transfer);
+}
+
+async function startBoxTransfer(client, orgId, payload, actor) {
+  const box = await findBoxById(client, orgId, payload.boxId);
+  if (!box) {
+    throw new HttpError(404, 'Box not found.');
+  }
+
+  if (box.status !== 'IN_STOCK') {
+    throw new HttpError(400, `Only in-stock boxes can start a transfer. Box ${box.boxId} is ${box.status}.`);
+  }
+
+  const existingPendingTransfer = await findPendingBoxTransferByBoxRecordId(client, orgId, box.id);
+  if (existingPendingTransfer) {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} already has a pending transfer to ${existingPendingTransfer.destinationWarehouse}.`
+    );
+  }
+
+  const sourceWarehouse = await findWarehouseEntry(client, orgId, box.warehouse, 'FromWarehouse');
+  const destinationWarehouse = await findWarehouseEntry(client, orgId, payload.toWarehouse, 'ToWarehouse');
+  if (destinationWarehouse.code === sourceWarehouse.code) {
+    throw new HttpError(400, 'Transfer destination must be different from the current warehouse.');
+  }
+
+  const activeTargets = await listActiveAllocationTransferTargetsForBox(client, orgId, box.boxId);
+  const transferGuard = getTransferStartGuardForBox(box, activeTargets);
+  if (transferGuard.blockingMessage) {
+    throw new HttpError(400, transferGuard.blockingMessage);
+  }
+
+  if (
+    transferGuard.suggestedDestinationWarehouse &&
+    transferGuard.suggestedDestinationWarehouse !== destinationWarehouse.code
+  ) {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is currently allocated to a ${transferGuard.suggestedDestinationWarehouse} job and must be transferred there.`
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  const transfer = await saveBoxTransferRecord(client, orgId, {
+    transferId: createTransferId(),
+    boxRecordId: box.id,
+    sourceBoxId: box.boxId,
+    destinationBoxId: buildTransferredBoxId(
+      box.boxId,
+      sourceWarehouse.boxIdPrefix || sourceWarehouse.code,
+      destinationWarehouse.boxIdPrefix || destinationWarehouse.code
+    ),
+    sourceWarehouse: sourceWarehouse.code,
+    destinationWarehouse: destinationWarehouse.code,
+    status: 'PENDING',
+    notes: asTrimmedString(payload.notes),
+    createdAt: nowIso,
+    createdBy: actor,
+    receivedAt: '',
+    receivedBy: '',
+    cancelledAt: '',
+    cancelledBy: '',
+    updatedAt: nowIso,
+    updatedBy: actor
+  });
+
+  const beforeState = toPublicBox(box);
+  const nextBox = await saveBoxRecord(client, orgId, {
+    ...cloneValue(box),
+    status: 'TRANSFER'
+  });
+  const afterState = toPublicBox(nextBox);
+  const logId = await appendAuditEntry(
+    client,
+    orgId,
+    'START_TRANSFER',
+    nextBox.boxId,
+    beforeState,
+    afterState,
+    actor,
+    asTrimmedString(payload.notes) || `Started transfer from ${sourceWarehouse.code} to ${destinationWarehouse.code}.`
+  );
+
+  return ok(
+    {
+      box: afterState,
+      transfer: toPublicBoxTransfer(transfer),
+      logId,
+      cancelledAllocationCount: 0,
+      releasedFeet: 0
+    },
+    []
+  );
+}
+
+async function receiveBoxTransfer(client, orgId, payload, actor) {
+  const transfer = await findBoxTransferByTransferId(client, orgId, payload.transferId);
+  if (!transfer) {
+    throw new HttpError(404, 'Transfer not found.');
+  }
+
+  if (transfer.status !== 'PENDING') {
+    throw new HttpError(400, `Transfer ${transfer.transferId} is already ${transfer.status}.`);
+  }
+
+  const box = await findBoxByRecordId(client, orgId, transfer.boxRecordId);
+  if (!box) {
+    throw new HttpError(404, 'Box not found for this transfer.');
+  }
+
+  if (box.status !== 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is no longer pending transfer and cannot be received from this workflow.`
+    );
+  }
+
+  const sourceWarehouse = await findWarehouseEntry(client, orgId, transfer.sourceWarehouse, 'FromWarehouse');
+  const destinationWarehouse = await findWarehouseEntry(client, orgId, transfer.destinationWarehouse, 'ToWarehouse');
+  const nextBoxId = buildTransferredBoxId(
+    transfer.sourceBoxId,
+    sourceWarehouse.boxIdPrefix || sourceWarehouse.code,
+    destinationWarehouse.boxIdPrefix || destinationWarehouse.code
+  );
+
+  if (await boxIdOrAliasExists(client, orgId, nextBoxId, box.id)) {
+    throw new HttpError(
+      400,
+      `Transfer cannot be received because BoxID ${nextBoxId} already exists or is reserved by an alias.`
+    );
+  }
+
+  await releaseReusableBoxIdAlias(client, orgId, nextBoxId, box.id);
+
+  const beforeState = toPublicBox(box);
+  const receivedBox = await applyReceivedBoxTransfer(
+    client,
+    orgId,
+    box,
+    destinationWarehouse.code,
+    nextBoxId,
+    actor
+  );
+  if (!receivedBox) {
+    throw new HttpError(500, 'Transfer was received but the updated box could not be reloaded.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const savedTransfer = await saveBoxTransferRecord(client, orgId, {
+    ...transfer,
+    destinationBoxId: nextBoxId,
+    status: 'RECEIVED',
+    receivedAt: nowIso,
+    receivedBy: actor,
+    updatedAt: nowIso,
+    updatedBy: actor
+  });
+
+  const afterState = toPublicBox(receivedBox);
+  const logId = await appendAuditEntry(
+    client,
+    orgId,
+    'RECEIVE_TRANSFER',
+    receivedBox.boxId,
+    beforeState,
+    afterState,
+    actor,
+    `Received transfer from ${transfer.sourceWarehouse} into ${transfer.destinationWarehouse}.`
+  );
+
+  return ok(
+    {
+      box: afterState,
+      transfer: toPublicBoxTransfer(savedTransfer),
+      logId,
+      cancelledAllocationCount: 0,
+      releasedFeet: 0
+    },
+    []
+  );
+}
+
+async function cancelBoxTransfer(client, orgId, payload, actor) {
+  const transfer = await findBoxTransferByTransferId(client, orgId, payload.transferId);
+  if (!transfer) {
+    throw new HttpError(404, 'Transfer not found.');
+  }
+
+  if (transfer.status !== 'PENDING') {
+    throw new HttpError(400, `Transfer ${transfer.transferId} is already ${transfer.status}.`);
+  }
+
+  const box = await findBoxByRecordId(client, orgId, transfer.boxRecordId);
+  if (!box) {
+    throw new HttpError(404, 'Box not found for this transfer.');
+  }
+
+  if (box.status !== 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is no longer pending transfer and cannot be cancelled from this workflow.`
+    );
+  }
+
+  const activeTargets = await listActiveAllocationTransferTargetsForBox(client, orgId, box.boxId);
+  const cancelReason =
+    asTrimmedString(payload.reason) ||
+    `Cancelled transfer from ${transfer.sourceWarehouse} to ${transfer.destinationWarehouse}.`;
+  let cancelledAllocationCount = 0;
+  let releasedFeet = 0;
+
+  for (let index = 0; index < activeTargets.length; index += 1) {
+    const target = activeTargets[index];
+    if (target.jobWarehouse !== transfer.destinationWarehouse) {
+      continue;
+    }
+
+    const removal = await removeAllocationFromJob(
+      client,
+      orgId,
+      target.jobNumber,
+      target.allocationId,
+      actor,
+      cancelReason
+    );
+    cancelledAllocationCount += integerOrZero(removal.removedAllocationCount);
+    releasedFeet += integerOrZero(removal.releasedFeet);
+  }
+
+  const refreshedBox = await findBoxByRecordId(client, orgId, transfer.boxRecordId);
+  if (!refreshedBox) {
+    throw new HttpError(404, 'Box not found for this transfer.');
+  }
+
+  const beforeState = toPublicBox(refreshedBox);
+  const savedBox = await saveBoxRecord(client, orgId, {
+    ...cloneValue(refreshedBox),
+    status: 'IN_STOCK'
+  });
+
+  const nowIso = new Date().toISOString();
+  const savedTransfer = await saveBoxTransferRecord(client, orgId, {
+    ...transfer,
+    status: 'CANCELLED',
+    notes: cancelReason,
+    cancelledAt: nowIso,
+    cancelledBy: actor,
+    updatedAt: nowIso,
+    updatedBy: actor
+  });
+
+  const afterState = toPublicBox(savedBox);
+  const logId = await appendAuditEntry(
+    client,
+    orgId,
+    'CANCEL_TRANSFER',
+    savedBox.boxId,
+    beforeState,
+    afterState,
+    actor,
+    cancelReason
+  );
+
+  return ok(
+    {
+      box: afterState,
+      transfer: toPublicBoxTransfer(savedTransfer),
+      logId,
+      cancelledAllocationCount,
+      releasedFeet
+    },
+    []
+  );
 }
 
 async function createJob(client, orgId, payload, actor) {
@@ -10263,6 +11257,17 @@ async function undoAudit(client, orgId, payload, actor) {
 
   if (!auditEntry) {
     throw new HttpError(404, 'Audit entry not found.');
+  }
+
+  if (
+    auditEntry.action === 'START_TRANSFER' ||
+    auditEntry.action === 'RECEIVE_TRANSFER' ||
+    auditEntry.action === 'CANCEL_TRANSFER'
+  ) {
+    throw new HttpError(
+      400,
+      'Transfer history cannot be undone from audit undo. Use the transfer receive or cancel actions instead.'
+    );
   }
 
   const current = await findBoxById(client, orgId, auditEntry.boxId);
@@ -11415,6 +12420,8 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
             }
             return ok(toPublicBox(found));
           }
+          case '/boxes/transfer/by-box':
+            return ok(await getBoxTransferByBox(client, authContext.orgId, params.boxId));
           case '/audit/list':
             return ok({ entries: await listAudit(client, authContext.orgId, params) });
           case '/audit/by-box':
@@ -11614,6 +12621,12 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           return ok(await transferCaulkStock(client, authContext.orgId, authContext.actor, params));
         case '/boxes/add':
           return addBox(client, authContext.orgId, params, authContext.actor);
+        case '/boxes/transfer/start':
+          return startBoxTransfer(client, authContext.orgId, params, authContext.actor);
+        case '/boxes/transfer/receive':
+          return receiveBoxTransfer(client, authContext.orgId, params, authContext.actor);
+        case '/boxes/transfer/cancel':
+          return cancelBoxTransfer(client, authContext.orgId, params, authContext.actor);
         case '/allocations/add':
         case '/allocations/apply':
           return applyAllocationPlan(client, authContext.orgId, params, authContext.actor);

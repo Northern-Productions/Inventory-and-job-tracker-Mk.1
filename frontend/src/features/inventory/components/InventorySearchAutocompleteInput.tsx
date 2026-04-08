@@ -21,10 +21,9 @@ export function InventorySearchAutocompleteInput({
   const [isFocused, setIsFocused] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [lockedSuggestionLength, setLockedSuggestionLength] = useState<number | null>(null);
+  const [lockedSuggestionValue, setLockedSuggestionValue] = useState<string | null>(null);
   const listboxId = useId();
-  const isSuggestionLocked =
-    lockedSuggestionLength !== null && value.length === lockedSuggestionLength;
+  const isSuggestionLocked = lockedSuggestionValue !== null && value === lockedSuggestionValue;
 
   useEffect(() => {
     if (!isFocused || !value.trim() || suggestions.length === 0 || isSuggestionLocked) {
@@ -38,8 +37,8 @@ export function InventorySearchAutocompleteInput({
   }, [isFocused, isSuggestionLocked, suggestions, value]);
 
   const selectSuggestion = (entry: InventorySearchSuggestion) => {
-    setLockedSuggestionLength(entry.boxId.length);
-    onChange(entry.boxId);
+    setLockedSuggestionValue(entry.filmName);
+    onChange(entry.filmName);
     setIsOpen(false);
     setHighlightedIndex(-1);
   };
@@ -103,8 +102,8 @@ export function InventorySearchAutocompleteInput({
           onChange={(event) => {
             const nextValue = event.target.value;
             onChange(nextValue);
-            if (lockedSuggestionLength !== null && nextValue.length !== lockedSuggestionLength) {
-              setLockedSuggestionLength(null);
+            if (lockedSuggestionValue !== null && nextValue !== lockedSuggestionValue) {
+              setLockedSuggestionValue(null);
             }
             setHighlightedIndex(-1);
           }}
@@ -139,7 +138,7 @@ export function InventorySearchAutocompleteInput({
               const isActive = highlightedIndex === index;
               return (
                 <li
-                  key={entry.boxId}
+                  key={entry.suggestionKey}
                   id={`${listboxId}-option-${index}`}
                   role="option"
                   aria-selected={isActive}
@@ -151,7 +150,6 @@ export function InventorySearchAutocompleteInput({
                   onMouseEnter={() => setHighlightedIndex(index)}
                 >
                   <span className="inventory-search-autocomplete-title">{entry.filmName}</span>
-                  <small>{entry.manufacturer} | {entry.boxId}</small>
                 </li>
               );
             })}

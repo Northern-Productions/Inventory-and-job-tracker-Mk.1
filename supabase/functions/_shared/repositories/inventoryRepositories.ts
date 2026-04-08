@@ -10,6 +10,14 @@ type RepositoryDeps = {
 };
 
 export function createInventoryRepositories(deps: RepositoryDeps) {
+  function isPresent<T>(value: T | null | undefined): value is T {
+    return value !== null && value !== undefined;
+  }
+
+  function mapRows<T>(rows: any[], mapper: (row: any) => T | null): T[] {
+    return rows.map(mapper).filter(isPresent);
+  }
+
   function normalizeAllocationKind(value: unknown) {
     return deps.asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
   }
@@ -381,7 +389,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   async function listBoxes(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_boxes", { p_org_id: orgId });
-    return rows.map(mapDbBoxRow);
+    return mapRows(rows, mapDbBoxRow);
   }
 
   async function findBoxById(client: any, orgId: string, boxId: string) {
@@ -394,12 +402,12 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   async function listFilmCatalog(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_film_catalog", { p_org_id: orgId });
-    return rows.map(mapDbFilmCatalogRow);
+    return mapRows(rows, mapDbFilmCatalogRow);
   }
 
   async function listAllocations(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_allocations", { p_org_id: orgId });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listAllocationsByBox(client: any, orgId: string, boxId: string) {
@@ -407,7 +415,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_box_id: boxId,
     });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listAllocationsByJob(client: any, orgId: string, jobNumber: string) {
@@ -415,7 +423,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listAllocationsByFilmOrderId(client: any, orgId: string, filmOrderId: string) {
@@ -423,7 +431,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_film_order_id: filmOrderId,
     });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listAllocationsByIds(client: any, orgId: string, allocationIds: string[]) {
@@ -431,17 +439,17 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_allocation_ids: allocationIds,
     });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listActiveAllocations(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_active_allocations", { p_org_id: orgId });
-    return rows.map(mapDbAllocationRow);
+    return mapRows(rows, mapDbAllocationRow);
   }
 
   async function listFilmOrders(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_film_orders", { p_org_id: orgId });
-    return rows.map(mapDbFilmOrderRow);
+    return mapRows(rows, mapDbFilmOrderRow);
   }
 
   async function listFilmOrdersByJob(client: any, orgId: string, jobNumber: string) {
@@ -449,7 +457,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbFilmOrderRow);
+    return mapRows(rows, mapDbFilmOrderRow);
   }
 
   async function findFilmOrderById(client: any, orgId: string, filmOrderId: string) {
@@ -469,7 +477,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   async function listJobs(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs", { p_org_id: orgId });
-    return rows.map(mapDbJobRow);
+    return mapRows(rows, mapDbJobRow);
   }
 
   async function listJobsCalendar(client: any, orgId: string, month: string, lifecycleStatus?: unknown) {
@@ -478,7 +486,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_month: month,
       p_lifecycle_status: lifecycleStatus ?? null,
     });
-    return rows.map(mapDbJobRow);
+    return mapRows(rows, mapDbJobRow);
   }
 
   async function findJobByNumber(client: any, orgId: string, jobNumber: string) {
@@ -491,7 +499,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   async function listJobRequirements(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_requirements", { p_org_id: orgId });
-    return rows.map(mapDbRequirementRow);
+    return mapRows(rows, mapDbRequirementRow);
   }
 
   async function listJobRequirementsByJob(client: any, orgId: string, jobNumber: string) {
@@ -499,7 +507,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbRequirementRow);
+    return mapRows(rows, mapDbRequirementRow);
   }
 
   async function listJobCaulkRequirementsByJob(client: any, orgId: string, jobNumber: string) {
@@ -507,7 +515,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbCaulkJobRequirementRow);
+    return mapRows(rows, mapDbCaulkJobRequirementRow);
   }
 
   async function listCaulkJobAllocationsByJob(client: any, orgId: string, jobNumber: string) {
@@ -515,7 +523,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbCaulkJobAllocationRow);
+    return mapRows(rows, mapDbCaulkJobAllocationRow);
   }
 
   async function listCaulkJobCheckoutsByJob(client: any, orgId: string, jobNumber: string) {
@@ -523,12 +531,12 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_job_number: jobNumber,
     });
-    return rows.map(mapDbCaulkJobCheckoutRow);
+    return mapRows(rows, mapDbCaulkJobCheckoutRow);
   }
 
   async function listAuditEntries(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_audit_entries", { p_org_id: orgId });
-    return rows.map(mapDbAuditRow);
+    return mapRows(rows, mapDbAuditRow);
   }
 
   async function listAuditEntriesByBox(client: any, orgId: string, boxId: string) {
@@ -536,7 +544,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_box_id: boxId,
     });
-    return rows.map(mapDbAuditRow);
+    return mapRows(rows, mapDbAuditRow);
   }
 
   async function listRollHistoryByBox(client: any, orgId: string, boxId: string) {
@@ -544,7 +552,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_box_id: boxId,
     });
-    return rows.map(mapDbRollHistoryRow);
+    return mapRows(rows, mapDbRollHistoryRow);
   }
 
   return {

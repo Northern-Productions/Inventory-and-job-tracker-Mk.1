@@ -1333,6 +1333,67 @@ textarea {
   margin-top: 2rem;
 }
 
+.transfer-status-card,
+.job-transfer-alert-panel {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid rgba(18, 52, 59, 0.08);
+}
+
+.transfer-status-copy,
+.job-transfer-alert-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.transfer-status-copy h3,
+.job-transfer-alert-panel h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.transfer-status-grid {
+  margin-top: 0.9rem;
+}
+
+.transfer-status-actions {
+  justify-content: flex-end;
+}
+
+.job-transfer-alert-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.9rem;
+}
+
+.job-transfer-alert-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(109, 79, 188, 0.16);
+  border-radius: 1rem;
+  background: rgba(121, 83, 182, 0.07);
+}
+
+.job-transfer-alert-link {
+  width: auto;
+  text-align: left;
+  font-size: 1rem;
+}
+
+.job-transfer-alert-meta {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: 0.9rem;
+}
+
+.transfer-box-dialog {
+  width: min(100%, 560px);
+}
+
 .allocation-header-actions {
   justify-content: flex-end;
 }
@@ -1927,6 +1988,11 @@ textarea {
 .badge-CHECKED_OUT {
   background: #fff0d8;
   color: #8a5a04;
+}
+
+.badge-TRANSFER {
+  background: #efe7fb;
+  color: #6a42b6;
 }
 
 .badge-RETIRED {

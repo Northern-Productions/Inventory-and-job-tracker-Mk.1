@@ -42,6 +42,7 @@ import { shouldPromptForLaborOnlyConfirmation } from '../utils/laborOnlyJobs';
 import {
   getJobListDisplayStatus,
   JOB_SORT_OPTIONS,
+  sortSearchedJobs,
   sortJobs,
   type JobSortOption
 } from '../utils/jobSorts';
@@ -168,14 +169,16 @@ export default function AllocationsPage({
   const isCompletedWorkflow = jobsWorkflowView === 'completed';
   const listJobsSource = isSearchingListJobs ? jobsSearchQuery.data || [] : jobsQuery.data || [];
   const listJobs = useMemo(
-    () =>
-      sortJobs(
-        isCompletedWorkflow
-          ? listJobsSource.filter((entry) => entry.status === 'COMPLETED')
-          : listJobsSource,
-        jobSort
-      ),
-    [isCompletedWorkflow, listJobsSource, jobSort]
+    () => {
+      const scopedEntries = isCompletedWorkflow
+        ? listJobsSource.filter((entry) => entry.status === 'COMPLETED')
+        : listJobsSource;
+
+      return isSearchingListJobs
+        ? sortSearchedJobs(scopedEntries, listSearchQuery, jobSort)
+        : sortJobs(scopedEntries, jobSort);
+    },
+    [isCompletedWorkflow, isSearchingListJobs, jobSort, listJobsSource, listSearchQuery]
   );
   const requestedCalendarSnapshot = useMemo(
     () =>
@@ -698,7 +701,7 @@ export default function AllocationsPage({
         {!isCalendarView && listJobs.length ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
-              {listJobs.map((entry) => {
+              {listJobs.map((entry: JobListEntry) => {
                 const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
                 return (
                   <MobileRecordCard key={entry.jobNumber}>
@@ -735,7 +738,7 @@ export default function AllocationsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {listJobs.map((entry) => {
+                  {listJobs.map((entry: JobListEntry) => {
                     const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
                     return (
                       <tr key={entry.jobNumber}>

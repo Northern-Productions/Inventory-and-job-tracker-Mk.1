@@ -63,6 +63,7 @@ export function InventoryFilters({
             { label: 'Ordered', value: 'ORDERED' },
             { label: 'In Stock', value: 'IN_STOCK' },
             { label: 'Checked Out', value: 'CHECKED_OUT' },
+            { label: 'Transfer', value: 'TRANSFER' },
             { label: 'Zeroed', value: 'ZEROED' }
           ]}
         />

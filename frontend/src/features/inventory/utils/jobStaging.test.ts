@@ -185,6 +185,37 @@ describe('jobStaging', () => {
     expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(true);
   });
 
+  it('blocks staging while cross-warehouse film is still waiting on transfer', () => {
+    const detail = buildDetail({
+      summary: {
+        ...buildDetail().summary,
+        warehouse: 'MS1'
+      },
+      allocations: [
+        buildFilmAllocation({
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          status: 'ACTIVE',
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        })
+      ],
+      filmTransferAlerts: [
+        {
+          boxId: 'IL1-100',
+          sourceWarehouse: 'IL1',
+          destinationWarehouse: 'MS1',
+          state: 'NEEDS_TRANSFER'
+        }
+      ]
+    });
+
+    expect(getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true })).toBe(
+      'Receive transferred film before staging this job.'
+    );
+    expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(false);
+  });
+
   it('allows staging when requirements are covered even if a film order record is still open', () => {
     const detail = buildDetail({
       filmOrders: [

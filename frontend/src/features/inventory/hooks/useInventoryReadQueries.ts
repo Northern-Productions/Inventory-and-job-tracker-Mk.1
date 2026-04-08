@@ -9,7 +9,7 @@ import {
 } from '../../../api/features/allocationsClient';
 import { getAuditByBox, getRollHistoryByBox, listAudit } from '../../../api/features/auditClient';
 import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersClient';
-import { getBox, searchBoxes } from '../../../api/features/inventoryClient';
+import { getBox, getBoxTransfer, searchBoxes } from '../../../api/features/inventoryClient';
 import {
   getJob,
   getJobsCalendarEntries,
@@ -87,6 +87,14 @@ export function useBox(boxId: string) {
   return useInventoryReadQuery({
     queryKey: inventoryKeys.box(boxId),
     queryFn: () => getBox(boxId),
+    enabled: Boolean(boxId)
+  });
+}
+
+export function useBoxTransfer(boxId: string) {
+  return useInventoryReadQuery({
+    queryKey: inventoryKeys.boxTransfer(boxId),
+    queryFn: () => getBoxTransfer(boxId),
     enabled: Boolean(boxId)
   });
 }

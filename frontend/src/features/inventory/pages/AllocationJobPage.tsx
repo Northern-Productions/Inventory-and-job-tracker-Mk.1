@@ -20,6 +20,7 @@ import type {
   CaulkJobAllocationEntry,
   CaulkJobCheckoutEntry,
   FilmOrderEntry,
+  JobFilmTransferAlert,
   JobCaulkRequirementLine,
   JobDetail,
   UpdateJobPayload,
@@ -144,6 +145,34 @@ function formatUsageQuantity(quantity: number, unit: 'LF' | 'TUBES') {
   return `${quantity} ${unit}`;
 }
 
+function buildFilmTransferCheckoutMessage(alert: JobFilmTransferAlert) {
+  if (alert.state === 'TRANSFER_PENDING') {
+    return `Box ${alert.boxId} is transferring from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}. Receive it there before checking it out for this job.`;
+  }
+
+  return `Box ${alert.boxId} must be transferred from ${alert.sourceWarehouse} to ${alert.destinationWarehouse} before it can be checked out for this job.`;
+}
+
+function getFilmTransferBulkCheckoutMessage(alerts: JobFilmTransferAlert[]) {
+  if (!alerts.length) {
+    return '';
+  }
+
+  return 'Receive transferred film before checking out this job.';
+}
+
+function describeFilmTransferAlert(alert: JobFilmTransferAlert) {
+  if (alert.state === 'TRANSFER_PENDING') {
+    return `Transfer in progress from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`;
+  }
+
+  return `Send this box from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`;
+}
+
+function formatFilmTransferStateLabel(alert: JobFilmTransferAlert) {
+  return alert.state === 'TRANSFER_PENDING' ? 'Transfer Pending' : 'Needs Transfer';
+}
+
 function buildAddBoxTarget(order: FilmOrderEntry) {
   const params = new URLSearchParams({
     filmOrderId: order.filmOrderId,
@@ -219,6 +248,14 @@ export default function AllocationJobPage() {
   const filmCheckinBoxQuery = useBox(filmCheckinEntry?.boxId || '');
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
+  const filmTransferAlerts = detail?.filmTransferAlerts || [];
+  const filmTransferAlertsByBoxId = useMemo(
+    () =>
+      Object.fromEntries(
+        filmTransferAlerts.map((alert) => [alert.boxId, alert])
+      ) as Record<string, JobFilmTransferAlert>,
+    [filmTransferAlerts]
+  );
   const usageTimeline = detail?.usageTimeline || [];
   const caulkRequirements = detail?.caulkRequirements || [];
   const caulkAllocations = detail?.caulkAllocations || [];
@@ -370,7 +407,11 @@ export default function AllocationJobPage() {
   const hasCheckoutableMaterials = useMemo(
     () =>
       visibleAllocations.some(
-        (entry) => entry.status === 'ACTIVE' && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
+        (entry) =>
+          entry.status === 'ACTIVE' &&
+          entry.boxStatus === 'IN_STOCK' &&
+          !entry.checkedOutOnThisJob &&
+          !filmTransferAlertsByBoxId[entry.boxId]
       ) ||
       visibleCaulkAllocations.some(
         (entry) =>
@@ -378,7 +419,12 @@ export default function AllocationJobPage() {
           entry.reservedTubesRemaining > 0 &&
           !openCaulkCheckoutByAllocationId[entry.caulkAllocationId]
       ),
-    [openCaulkCheckoutByAllocationId, visibleAllocations, visibleCaulkAllocations]
+    [
+      filmTransferAlertsByBoxId,
+      openCaulkCheckoutByAllocationId,
+      visibleAllocations,
+      visibleCaulkAllocations
+    ]
   );
   const totalRequiredCaulkTubes = useMemo(
     () => caulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0),
@@ -599,6 +645,16 @@ export default function AllocationJobPage() {
       return;
     }
 
+    const transferBlockingMessage = getFilmTransferBulkCheckoutMessage(filmTransferAlerts);
+    if (transferBlockingMessage) {
+      toast.push({
+        title: 'Receive transfer first',
+        description: transferBlockingMessage,
+        variant: 'error'
+      });
+      return;
+    }
+
     try {
       const { warnings } = await checkoutAllJobMaterialsMutation.mutateAsync({
         jobNumber: summary.jobNumber
@@ -756,6 +812,16 @@ export default function AllocationJobPage() {
     }
 
     if (entry.checkedOutOnThisJob) {
+      return;
+    }
+
+    const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
+    if (transferAlert) {
+      toast.push({
+        title: 'Transfer required',
+        description: buildFilmTransferCheckoutMessage(transferAlert),
+        variant: 'error'
+      });
       return;
     }
 
@@ -1406,6 +1472,7 @@ export default function AllocationJobPage() {
                   variant="secondary"
                   onClick={() => void handleCheckoutAllMaterials()}
                   disabled={
+                    filmTransferAlerts.length > 0 ||
                     !hasCheckoutableMaterials ||
                     checkoutAllJobMaterialsMutation.isPending ||
                     setJobStagedForPickupMutation.isPending
@@ -1441,6 +1508,47 @@ export default function AllocationJobPage() {
             )}
           </div>
         </div>
+        {filmTransferAlerts.length ? (
+          <div className="job-transfer-alert-panel">
+            <div className="panel-title-row">
+              <div className="transfer-status-copy">
+                <p className="eyebrow">Film Transfer Alerts</p>
+                <h3>Cross-warehouse film still needs movement</h3>
+                <p className="muted-text">
+                  Transfer boxes to {summary.warehouse} before checking them out or marking this job staged for pickup.
+                </p>
+              </div>
+            </div>
+            <div className="job-transfer-alert-list">
+              {filmTransferAlerts.map((alert) => (
+                <div
+                  key={`${alert.boxId}-${alert.destinationWarehouse}-${alert.state}`}
+                  className="job-transfer-alert-row"
+                >
+                  <div className="job-transfer-alert-copy">
+                    <button
+                      type="button"
+                      className="row-button job-transfer-alert-link"
+                      onClick={() => navigate(`/inventory/${encodeURIComponent(alert.boxId)}`)}
+                    >
+                      {alert.boxId}
+                    </button>
+                    <p className="muted-text">
+                      {describeFilmTransferAlert(alert)}
+                    </p>
+                    {alert.state === 'TRANSFER_PENDING' && (alert.startedAt || alert.startedBy) ? (
+                      <p className="job-transfer-alert-meta">
+                        Started {renderDateTime(alert.startedAt || '')}
+                        {alert.startedBy ? ` by ${alert.startedBy}` : ''}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span className="badge badge-TRANSFER">{formatFilmTransferStateLabel(alert)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel">
@@ -1580,8 +1688,10 @@ export default function AllocationJobPage() {
           <div className="empty-state">No allocations are tied to this job yet.</div>
         ) : isPhoneLayout ? (
           <div className="mobile-record-list">
-            {visibleAllocations.map((entry) => (
-              <MobileRecordCard key={entry.allocationId}>
+            {visibleAllocations.map((entry) => {
+              const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
+              return (
+                <MobileRecordCard key={entry.allocationId}>
                 <MobileRecordHeader
                   title={entry.boxId}
                   subtitle={`${entry.manufacturer} ${entry.filmName}`}
@@ -1610,6 +1720,8 @@ export default function AllocationJobPage() {
                         >
                           Check In
                         </Button>
+                      ) : transferAlert ? (
+                        <span className="muted-text">{formatFilmTransferStateLabel(transferAlert)}</span>
                       ) : entry.boxStatus === 'IN_STOCK' ? (
                         <Button
                           type="button"
@@ -1635,8 +1747,9 @@ export default function AllocationJobPage() {
                     </>
                   )}
                 </div>
-              </MobileRecordCard>
-            ))}
+                </MobileRecordCard>
+              );
+            })}
           </div>
         ) : (
           <div className="table-wrap">
@@ -1672,43 +1785,52 @@ export default function AllocationJobPage() {
                     <td>{renderDateTime(entry.createdAt)}</td>
                     <td>{renderDateTime(entry.resolvedAt)}</td>
                     <td>
-                      {isReadOnlyJob ? (
-                        <span className="muted-text">Read-only</span>
-                      ) : (
-                        <div className="film-order-actions">
-                          {entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT' ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={() => openFilmCheckinDialog(entry)}
-                              disabled={setBoxStatusMutation.isPending}
-                            >
-                              Check In
-                            </Button>
-                          ) : entry.boxStatus === 'IN_STOCK' ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={() => void handleCheckoutAllocation(entry)}
-                              disabled={setBoxStatusMutation.isPending}
-                            >
-                              Check Out
-                            </Button>
-                          ) : (
-                            <span className="muted-text">Not in stock</span>
-                          )}
-                          {!entry.checkedOutOnThisJob ? (
-                            <Button
-                              type="button"
-                              variant="danger"
-                              onClick={() => setAllocationToRemove(entry)}
-                              disabled={isAllocationRemovalPending(entry.allocationId) || setBoxStatusMutation.isPending}
-                            >
-                              Remove
-                            </Button>
-                          ) : null}
-                        </div>
-                      )}
+                      {(() => {
+                        const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
+                        if (isReadOnlyJob) {
+                          return <span className="muted-text">Read-only</span>;
+                        }
+
+                        return (
+                          <div className="film-order-actions">
+                            {entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT' ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => openFilmCheckinDialog(entry)}
+                                disabled={setBoxStatusMutation.isPending}
+                              >
+                                Check In
+                              </Button>
+                            ) : transferAlert ? (
+                              <span className="muted-text">{formatFilmTransferStateLabel(transferAlert)}</span>
+                            ) : entry.boxStatus === 'IN_STOCK' ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void handleCheckoutAllocation(entry)}
+                                disabled={setBoxStatusMutation.isPending}
+                              >
+                                Check Out
+                              </Button>
+                            ) : (
+                              <span className="muted-text">Not in stock</span>
+                            )}
+                            {!entry.checkedOutOnThisJob ? (
+                              <Button
+                                type="button"
+                                variant="danger"
+                                onClick={() => setAllocationToRemove(entry)}
+                                disabled={
+                                  isAllocationRemovalPending(entry.allocationId) || setBoxStatusMutation.isPending
+                                }
+                              >
+                                Remove
+                              </Button>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

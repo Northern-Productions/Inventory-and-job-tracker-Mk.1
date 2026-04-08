@@ -51,6 +51,8 @@ export interface AddWarehousePayload {
 
 export const BOX_STATUSES = [...RUNTIME_BOX_STATUSES] as const;
 export type BoxStatus = (typeof BOX_STATUSES)[number];
+export const BOX_TRANSFER_STATUSES = ['PENDING', 'RECEIVED', 'CANCELLED'] as const;
+export type BoxTransferStatus = (typeof BOX_TRANSFER_STATUSES)[number];
 export const CORE_TYPES = [
   'White plastic',
   'Red plastic',
@@ -161,6 +163,21 @@ export interface SetBoxStatusPayload {
   auditNote?: string;
 }
 
+export interface StartBoxTransferPayload {
+  boxId: string;
+  toWarehouse: Warehouse;
+  notes?: string;
+}
+
+export interface ReceiveBoxTransferPayload {
+  transferId: string;
+}
+
+export interface CancelBoxTransferPayload {
+  transferId: string;
+  reason?: string;
+}
+
 export interface AllocateBoxPayload {
   boxId: string;
   jobNumber: string;
@@ -201,6 +218,9 @@ export type AuditAction =
   | 'UPDATE_BOX'
   | 'ZERO_OUT_BOX'
   | 'SET_STATUS'
+  | 'START_TRANSFER'
+  | 'RECEIVE_TRANSFER'
+  | 'CANCEL_TRANSFER'
   | 'UNDO'
   | 'UNDO_ADD_DELETE';
 
@@ -357,6 +377,41 @@ export interface AllocationJobSummary {
   boxCount: number;
 }
 
+export interface BoxTransferEntry {
+  transferId: string;
+  boxId: string;
+  sourceBoxId: string;
+  destinationBoxId: string;
+  sourceWarehouse: Warehouse;
+  destinationWarehouse: Warehouse;
+  status: BoxTransferStatus;
+  createdAt: string;
+  createdBy: string;
+  receivedAt: string;
+  receivedBy: string;
+  cancelledAt: string;
+  cancelledBy: string;
+  notes: string;
+}
+
+export interface BoxTransferMutationResult {
+  box: Box;
+  transfer: BoxTransferEntry;
+  logId: string;
+  cancelledAllocationCount: number;
+  releasedFeet: number;
+}
+
+export interface JobFilmTransferAlert {
+  boxId: string;
+  sourceWarehouse: Warehouse;
+  destinationWarehouse: Warehouse;
+  state: 'NEEDS_TRANSFER' | 'TRANSFER_PENDING';
+  transferId?: string;
+  startedAt?: string;
+  startedBy?: string;
+}
+
 export interface AllocationJobDetailEntry extends AllocationEntry {
   manufacturer: string;
   filmName: string;
@@ -374,6 +429,7 @@ export interface AllocationJobDetail {
   caulkAllocations: CaulkJobAllocationEntry[];
   caulkCheckouts: CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
+  filmTransferAlerts?: JobFilmTransferAlert[];
 }
 
 export interface JobUsageEntry {
@@ -514,6 +570,7 @@ export interface JobDetail {
   caulkAllocations: CaulkJobAllocationEntry[];
   caulkCheckouts: CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
+  filmTransferAlerts?: JobFilmTransferAlert[];
 }
 
 export interface CreateJobPayload {

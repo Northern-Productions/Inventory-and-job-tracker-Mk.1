@@ -2,7 +2,13 @@ import type { JobDetail } from '../../../domain';
 
 type StagingDetail = Pick<
   JobDetail,
-  'summary' | 'requirements' | 'allocations' | 'caulkRequirements' | 'caulkAllocations' | 'filmOrders'
+  | 'summary'
+  | 'requirements'
+  | 'allocations'
+  | 'caulkRequirements'
+  | 'caulkAllocations'
+  | 'filmOrders'
+  | 'filmTransferAlerts'
 >;
 
 export function getJobStagingBlockingMessage(detail: StagingDetail | null | undefined) {
@@ -31,6 +37,10 @@ export function getJobStagingBlockingMessageWithOptions(
   const hasRemainingCaulk = caulkRequirements.some((entry) => entry.remainingTubes > 0);
   if (hasRemainingFilm || hasRemainingCaulk) {
     return 'Allocate all required film and caulk before staging this job.';
+  }
+
+  if ((detail?.filmTransferAlerts || []).length > 0) {
+    return 'Receive transferred film before staging this job.';
   }
 
   if (options.allowAutoCheckout) {

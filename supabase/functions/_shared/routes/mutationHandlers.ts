@@ -32,6 +32,9 @@ export type MutationHandlerDeps = {
   ) => Promise<any>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
   toPublicBox: (box: any) => Record<string, unknown>;
+  startBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  receiveBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  cancelBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   ensureBoxCheckoutCrewCompatibility: (client: any, orgId: string, payload: Record<string, unknown>) => Promise<void>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
   normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
@@ -216,6 +219,15 @@ const mutationHandlers: Record<string, MutationHandler> = {
       },
       result.warnings || [],
     );
+  },
+  "/boxes/transfer/start": async ({ client, identity, normalizedPayload }, deps) => {
+    return await deps.startBoxTransfer(client, identity, normalizedPayload);
+  },
+  "/boxes/transfer/receive": async ({ client, identity, normalizedPayload }, deps) => {
+    return await deps.receiveBoxTransfer(client, identity, normalizedPayload);
+  },
+  "/boxes/transfer/cancel": async ({ client, identity, normalizedPayload }, deps) => {
+    return await deps.cancelBoxTransfer(client, identity, normalizedPayload);
   },
   "/allocations/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");

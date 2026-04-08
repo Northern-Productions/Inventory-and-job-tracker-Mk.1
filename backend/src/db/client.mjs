@@ -52,6 +52,8 @@ export async function withMutation(callback) {
     await client.query(`
       lock table
         app.boxes,
+        app.box_id_aliases,
+        app.box_transfers,
         app.allocations,
         app.film_orders,
         app.film_order_box_links,

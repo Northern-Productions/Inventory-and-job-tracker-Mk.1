@@ -31,26 +31,25 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
 }
 
 describe('rankActiveJobsByNumericCloseness', () => {
-  it('puts prefix matches ahead of non-prefix numeric neighbors', () => {
+  it('puts prefix matches ahead of broader contains matches', () => {
     const entries = [
-      buildJob({ jobNumber: '4217', dueDate: '2026-03-16' }),
       buildJob({ jobNumber: '18542', dueDate: '2026-03-18' }),
-      buildJob({ jobNumber: '17045', dueDate: '2026-03-13' })
+      buildJob({ jobNumber: '11854', dueDate: '2026-03-13' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '1854', 25);
-    expect(result.map((entry) => entry.jobNumber)).toEqual(['18542', '4217', '17045']);
+    expect(result.map((entry) => entry.jobNumber)).toEqual(['18542', '11854']);
   });
 
   it('prioritizes exact numeric match first', () => {
     const entries = [
       buildJob({ jobNumber: '000120' }),
       buildJob({ jobNumber: '000123' }),
-      buildJob({ jobNumber: '000130' })
+      buildJob({ jobNumber: '9000123' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '123', 25);
-    expect(result.map((entry) => entry.jobNumber)).toEqual(['000123', '000120', '000130']);
+    expect(result.map((entry) => entry.jobNumber)).toEqual(['000123', '9000123']);
   });
 
   it('treats leading zeros as equivalent for matching', () => {
@@ -78,21 +77,31 @@ describe('rankActiveJobsByNumericCloseness', () => {
   it('filters to active jobs only', () => {
     const entries = [
       buildJob({ jobNumber: '123', lifecycleStatus: 'COMPLETED' }),
-      buildJob({ jobNumber: '124', lifecycleStatus: 'CANCELLED' }),
-      buildJob({ jobNumber: '125', lifecycleStatus: 'ACTIVE' })
+      buildJob({ jobNumber: '1234', lifecycleStatus: 'CANCELLED' }),
+      buildJob({ jobNumber: '1235', lifecycleStatus: 'ACTIVE' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '123', 25);
-    expect(result.map((entry) => entry.jobNumber)).toEqual(['125']);
+    expect(result.map((entry) => entry.jobNumber)).toEqual(['1235']);
   });
 
-  it('uses due date recency as a deterministic tie-breaker', () => {
+  it('uses due date recency as a deterministic tie-breaker within the same match tier', () => {
     const entries = [
-      buildJob({ jobNumber: '121', dueDate: '2026-04-10' }),
-      buildJob({ jobNumber: '125', dueDate: '2026-04-12' })
+      buildJob({ jobNumber: '1234', dueDate: '2026-04-10' }),
+      buildJob({ jobNumber: '1235', dueDate: '2026-04-12' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '123', 25);
-    expect(result.map((entry) => entry.jobNumber)).toEqual(['125', '121']);
+    expect(result.map((entry) => entry.jobNumber)).toEqual(['1235', '1234']);
+  });
+
+  it('does not fall back to unrelated near-number jobs', () => {
+    const entries = [
+      buildJob({ jobNumber: '121' }),
+      buildJob({ jobNumber: '125' })
+    ];
+
+    const result = rankActiveJobsByNumericCloseness(entries, '123', 25);
+    expect(result).toEqual([]);
   });
 });

@@ -6,18 +6,16 @@ import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
 import { searchBoxes } from '../../../api/features/inventoryClient';
 import { useAuth } from '../../auth/AuthContext';
-import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
+import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
+import type { AllocationPreview, FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
+  useAllocationPreview,
   useCreateFilmOrder
 } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
-import {
-  autoSelectCandidateBoxIds,
-  planSelectedCandidateAllocation,
-  prioritizeCandidateBoxes
-} from '../utils/jobAllocationSelection';
+import { prioritizeCandidateBoxes } from '../utils/jobAllocationSelection';
 import { canJobPlanningFilmSatisfyRequirement } from '../utils/jobPlanningFilmIdentity';
 
 interface JobAllocateDialogProps {
@@ -78,6 +76,83 @@ function formatPlannedFeet(allocatedFeet: number, coveredFeet: number) {
   }
 
   return String(allocatedFeet);
+}
+
+function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBoxIds: string[]) {
+  const selected = new Set(selectedSuggestionBoxIds);
+  const allocations: Array<{ boxId: string; allocatedFeet: number; coveredFeet: number }> = [];
+  let remaining = preview.requestedFeet;
+
+  if (preview.sourceSuggestedFeet > 0) {
+    const sourcePlan = planCoverageAllocation(
+      remaining,
+      preview.sourceSuggestedFeet,
+      preview.sourceWidthIn,
+      preview.requestedWidthIn
+    );
+    allocations.push({
+      boxId: preview.sourceBoxId,
+      allocatedFeet: sourcePlan.allocatedFeet,
+      coveredFeet: sourcePlan.coveredFeet
+    });
+    remaining = sourcePlan.remainingCoveredFeet;
+  }
+
+  for (let index = 0; index < preview.suggestions.length; index += 1) {
+    const suggestion = preview.suggestions[index];
+    if (!selected.has(suggestion.boxId) || remaining <= 0) {
+      continue;
+    }
+
+    const nextPlan = planCoverageAllocation(
+      remaining,
+      suggestion.availableFeet,
+      suggestion.widthIn,
+      preview.requestedWidthIn
+    );
+    allocations.push({
+      boxId: suggestion.boxId,
+      allocatedFeet: nextPlan.allocatedFeet,
+      coveredFeet: nextPlan.coveredFeet
+    });
+    remaining = nextPlan.remainingCoveredFeet;
+  }
+
+  return {
+    allocations,
+    coveredFeet: preview.requestedFeet - remaining,
+    remainingFeet: remaining
+  };
+}
+
+function previewMatchesPayload(
+  preview: AllocationPreview | null | undefined,
+  payload:
+    | {
+        boxId: string;
+        jobNumber: string;
+        jobDate: string;
+        crewLeader: string;
+        requestedFeet: number;
+        requestedWidthIn: number;
+        requirementId: string;
+        crossWarehouse: boolean;
+        jobWarehouse: Warehouse;
+      }
+    | null
+) {
+  if (!preview || !payload) {
+    return false;
+  }
+
+  return (
+    preview.sourceBoxId === payload.boxId &&
+    preview.jobNumber === payload.jobNumber &&
+    String(preview.jobDate || '') === String(payload.jobDate || '') &&
+    String(preview.crewLeader || '') === String(payload.crewLeader || '') &&
+    preview.requestedFeet === payload.requestedFeet &&
+    preview.requestedWidthIn === payload.requestedWidthIn
+  );
 }
 
 export function JobAllocateDialog({
@@ -171,22 +246,68 @@ export function JobAllocateDialog({
 
     return Math.floor(parsed);
   }, [requestedFeet]);
+  const selectedSourceBox = useMemo(
+    () =>
+      prioritizedMatchingBoxes.find((box) => selectedBoxIds.includes(box.boxId)) ||
+      prioritizedMatchingBoxes[0] ||
+      null,
+    [prioritizedMatchingBoxes, selectedBoxIds]
+  );
+  const previewPayload = useMemo(
+    () =>
+      open && selectedRequirement && requestedFeetValue > 0 && selectedSourceBox
+        ? {
+            boxId: selectedSourceBox.boxId,
+            jobNumber,
+            jobDate: dueDate || '',
+            crewLeader: crewLeader || '',
+            requestedFeet: requestedFeetValue,
+            requestedWidthIn: selectedRequirement.widthIn,
+            requirementId: selectedRequirement.requirementId,
+            crossWarehouse: true,
+            jobWarehouse: warehouse
+          }
+        : null,
+    [crewLeader, dueDate, jobNumber, open, requestedFeetValue, selectedRequirement, selectedSourceBox, warehouse]
+  );
+  const previewQuery = useAllocationPreview(previewPayload);
+  const preview = previewQuery.data;
+  const activePreview = useMemo(
+    () => (previewMatchesPayload(preview, previewPayload) ? preview : null),
+    [preview, previewPayload]
+  );
+  const previewSuggestionBoxIdSet = useMemo(
+    () => new Set((activePreview?.suggestions || []).map((entry) => entry.boxId)),
+    [activePreview]
+  );
+  const selectedPreviewSuggestionBoxIds = useMemo(
+    () =>
+      activePreview
+        ? selectedBoxIds.filter(
+            (boxId) => boxId !== activePreview.sourceBoxId && previewSuggestionBoxIdSet.has(boxId)
+          )
+        : [],
+    [activePreview, previewSuggestionBoxIdSet, selectedBoxIds]
+  );
   const isMatchingBoxesLoading = matchingBoxesQueries.some(
     (query) => query.isLoading || query.isFetching
   );
+  const isAllocationPreviewLoading =
+    Boolean(previewPayload) && !activePreview && !previewQuery.isError;
   const isOrderFilmMode =
     !isMatchingBoxesLoading &&
     Boolean(selectedRequirement) &&
     !prioritizedMatchingBoxes.length;
   const plannedSelection = useMemo(
     () =>
-      planSelectedCandidateAllocation(
-        prioritizedMatchingBoxes,
-        requestedFeetValue,
-        selectedBoxIds,
-        selectedRequirement?.widthIn || 0
-      ),
-    [prioritizedMatchingBoxes, requestedFeetValue, selectedBoxIds, selectedRequirement?.widthIn]
+      activePreview
+        ? buildSelectionSummary(activePreview, selectedPreviewSuggestionBoxIds)
+        : {
+            allocations: [],
+            coveredFeet: 0,
+            remainingFeet: requestedFeetValue
+          },
+    [activePreview, requestedFeetValue, selectedPreviewSuggestionBoxIds]
   );
   const plannedFeetByBox = useMemo(() => {
     const mapped = new Map<string, { allocatedFeet: number; coveredFeet: number }>();
@@ -259,34 +380,53 @@ export function JobAllocateDialog({
   }
 
   useEffect(() => {
-    if (!open || !selectedRequirement || requestedFeetValue <= 0 || !prioritizedMatchingBoxes.length) {
+    if (!open || !selectedRequirement || requestedFeetValue <= 0 || !selectedSourceBox) {
       return;
     }
 
-    const preferredKey = Array.from(preferredLinkedBoxIds).sort().join(',');
-    const candidateKey = prioritizedMatchingBoxes.map((box) => `${box.boxId}:${box.feetAvailable}`).join('|');
-    const nextKey = `${selectedRequirement.requirementId}|${requestedFeetValue}|${preferredKey}|${candidateKey}`;
+    const nextKey = activePreview
+      ? `${selectedRequirement.requirementId}|${requestedFeetValue}|${activePreview.sourceBoxId}|${activePreview.suggestions
+          .map(
+            (suggestion) =>
+              `${suggestion.boxId}:${suggestion.availableFeet}:${suggestion.suggestedFeet}:${suggestion.suggestedCoveredFeet}`
+          )
+          .join('|')}`
+      : `${selectedRequirement.requirementId}|${requestedFeetValue}|${selectedSourceBox.boxId}`;
     if (autoSelectionKeyRef.current === nextKey) {
       return;
     }
 
     autoSelectionKeyRef.current = nextKey;
-    setSelectedBoxIds(
-      autoSelectCandidateBoxIds(
-        prioritizedMatchingBoxes,
-        requestedFeetValue,
-        preferredLinkedBoxIds,
-        '',
-        selectedRequirement.widthIn
-      )
-    );
-  }, [open, preferredLinkedBoxIds, prioritizedMatchingBoxes, requestedFeetValue, selectedRequirement]);
+    if (activePreview) {
+      setSelectedBoxIds([
+        activePreview.sourceBoxId,
+        ...activePreview.suggestions
+          .filter((suggestion) => suggestion.suggestedCoveredFeet > 0)
+          .map((suggestion) => suggestion.boxId)
+      ]);
+      return;
+    }
+
+    setSelectedBoxIds([selectedSourceBox.boxId]);
+  }, [activePreview, open, requestedFeetValue, selectedRequirement, selectedSourceBox]);
 
   if (!open) {
     return null;
   }
 
   function toggleBox(boxId: string) {
+    const isSelectableSuggestion =
+      activePreview &&
+      boxId !== activePreview.sourceBoxId &&
+      previewSuggestionBoxIdSet.has(boxId);
+
+    if (!isSelectableSuggestion) {
+      autoSelectionKeyRef.current = '';
+      setSelectedBoxIds([boxId]);
+      setError('');
+      return;
+    }
+
     setSelectedBoxIds((current) =>
       current.includes(boxId) ? current.filter((value) => value !== boxId) : [...current, boxId]
     );
@@ -309,10 +449,19 @@ export function JobAllocateDialog({
       return;
     }
 
-    const orderedSelectedBoxes = prioritizedMatchingBoxes.filter((box) => selectedBoxIds.includes(box.boxId));
-    const sourceBox = orderedSelectedBoxes[0];
+    const sourceBox = selectedSourceBox;
     if (!sourceBox) {
       setError('Select at least one valid box to allocate.');
+      return;
+    }
+
+    if (previewQuery.isError && !activePreview) {
+      setError(previewQuery.error.message || 'Unable to load the live allocation plan.');
+      return;
+    }
+
+    if (previewPayload && !activePreview) {
+      setError('Loading the live allocation plan. Try again in a moment.');
       return;
     }
 
@@ -335,7 +484,7 @@ export function JobAllocateDialog({
         requestedFeet: requestedFeetValue,
         requestedWidthIn: selectedRequirement.widthIn,
         requirementId: selectedRequirement.requirementId,
-        selectedSuggestionBoxIds: orderedSelectedBoxes.slice(1).map((entry) => entry.boxId),
+        selectedSuggestionBoxIds: activePreview ? selectedPreviewSuggestionBoxIds : [],
         extraAllocations: [],
         crossWarehouse: true,
         jobWarehouse: warehouse
@@ -465,6 +614,9 @@ export function JobAllocateDialog({
         </div>
 
         {isMatchingBoxesLoading ? <p className="muted-text">Loading compatible boxes...</p> : null}
+        {!isMatchingBoxesLoading && isAllocationPreviewLoading ? (
+          <p className="muted-text">Loading the live allocation plan...</p>
+        ) : null}
         {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxes.length ? (
           <p className="muted-text">
             No compatible boxes were found for this requirement (matching film family, width at or above
@@ -477,6 +629,13 @@ export function JobAllocateDialog({
         {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxes.length ? (
           <p className="muted-text">
             Boxes linked to this job's film orders are prioritized and auto-selected first.
+          </p>
+        ) : null}
+        {!isMatchingBoxesLoading && previewQuery.isError && !activePreview ? (
+          <p className="error-text">
+            {previewQuery.error instanceof Error
+              ? previewQuery.error.message
+              : 'Unable to load the live allocation plan.'}
           </p>
         ) : null}
 
@@ -551,7 +710,7 @@ export function JobAllocateDialog({
             variant="secondary"
             fullWidth
             onClick={isOrderFilmMode ? () => void handleOrderFilm() : () => void handleAllocate()}
-            disabled={isMatchingBoxesLoading || isSubmitting}
+            disabled={isMatchingBoxesLoading || isAllocationPreviewLoading || isSubmitting}
           >
             {isOrderFilmMode
               ? createFilmOrderMutation.isPending

@@ -2283,7 +2283,8 @@ export function syncJobSummaryCachesFromDetail(
             caulkRequirements: detail.caulkRequirements,
             caulkAllocations: detail.caulkAllocations,
             caulkCheckouts: detail.caulkCheckouts,
-            filmOrders: detail.filmOrders
+            filmOrders: detail.filmOrders,
+            filmTransferAlerts: detail.filmTransferAlerts || []
           }
         : current
   );

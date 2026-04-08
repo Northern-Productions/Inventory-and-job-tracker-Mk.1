@@ -18,8 +18,11 @@ import {
 } from '../../../api/features/filmOrdersClient';
 import {
   addBox,
+  cancelBoxTransfer,
   deleteBox,
+  receiveBoxTransfer,
   setBoxStatus,
+  startBoxTransfer,
   updateBox
 } from '../../../api/features/inventoryClient';
 import {
@@ -39,6 +42,7 @@ import type {
   AddBoxPayload,
   ApplyAllocationPlanPayload,
   Box,
+  CancelBoxTransferPayload,
   CaulkJobAllocationEntry,
   CaulkJobCheckoutEntry,
   CaulkProductEntry,
@@ -51,10 +55,12 @@ import type {
   FilmOrderEntry,
   JobDetail,
   JobListEntry,
+  ReceiveBoxTransferPayload,
   SetJobStagedForPickupPayload,
   RemoveJobBoxAllocationsPayload,
   RemoveCaulkJobAllocationPayload,
   SetBoxStatusPayload,
+  StartBoxTransferPayload,
   UndoAuditPayload,
   UpdateCaulkJobAllocationPayload,
   UpdateBoxPayload,
@@ -1551,6 +1557,87 @@ export function useSetBoxStatus() {
     },
     onSettled: (_data, _error, _variables, context) => {
       context?.operation?.finish();
+    }
+  });
+}
+
+export function useStartBoxTransfer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.startBoxTransferMutation,
+    mutationFn: (payload: StartBoxTransferPayload) => startBoxTransfer(payload),
+    onSuccess: async ({ result }, variables) => {
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.box(variables.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransfer(variables.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot })
+      ]);
+      void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useReceiveBoxTransfer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.receiveBoxTransferMutation,
+    mutationFn: (payload: ReceiveBoxTransferPayload) => receiveBoxTransfer(payload),
+    onSuccess: async ({ result }) => {
+      const boxIds = Array.from(
+        new Set([
+          result.transfer.sourceBoxId,
+          result.transfer.destinationBoxId,
+          result.box.boxId
+        ].filter(Boolean))
+      );
+
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        ...boxIds.map((boxId) =>
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.rollHistory(boxId) })
+        )
+      ]);
+      void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useCancelBoxTransfer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.cancelBoxTransferMutation,
+    mutationFn: (payload: CancelBoxTransferPayload) => cancelBoxTransfer(payload),
+    onSuccess: async ({ result }) => {
+      const boxIds = Array.from(
+        new Set([
+          result.transfer.sourceBoxId,
+          result.transfer.destinationBoxId,
+          result.box.boxId
+        ].filter(Boolean))
+      );
+
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        ...boxIds.map((boxId) =>
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.rollHistory(boxId) })
+        )
+      ]);
+      void syncOfflineInventoryQueries(queryClient);
     }
   });
 }

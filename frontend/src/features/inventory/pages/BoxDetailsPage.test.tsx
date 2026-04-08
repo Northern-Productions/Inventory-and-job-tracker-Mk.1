@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { Box, BoxMutationResult, BoxStatus, UpdateBoxPayload } from '../../../domain';
+import type { Box, BoxMutationResult, BoxTransferMutationResult, BoxStatus, UpdateBoxPayload } from '../../../domain';
 import BoxDetailsPage from './BoxDetailsPage';
 
 const navigateMock = vi.fn();
@@ -15,9 +16,14 @@ const useBoxAllocationsMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useIsAddBoxPendingMock = vi.fn();
 const useDeleteBoxMock = vi.fn();
+const useBoxTransferMock = vi.fn();
+const useStartBoxTransferMock = vi.fn();
+const useReceiveBoxTransferMock = vi.fn();
+const useCancelBoxTransferMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
+const useWarehouseRegistryMock = vi.fn();
 const parseUpdateBoxDraftMock = vi.fn();
 const qrCodeToDataUrlMock = vi.fn();
 let nextBoxFormSubmitDraft: unknown = {};
@@ -48,13 +54,21 @@ vi.mock('../../auth/AuthContext', () => ({
 
 vi.mock('../hooks/useInventoryQueries', () => ({
   useBox: () => useBoxMock(),
+  useBoxTransfer: () => useBoxTransferMock(),
   useBoxAllocations: () => useBoxAllocationsMock(),
   useFilmCatalog: () => useFilmCatalogMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
   useDeleteBox: () => useDeleteBoxMock(),
+  useStartBoxTransfer: () => useStartBoxTransferMock(),
+  useReceiveBoxTransfer: () => useReceiveBoxTransferMock(),
+  useCancelBoxTransfer: () => useCancelBoxTransferMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpdateBox: () => useUpdateBoxMock()
+}));
+
+vi.mock('../hooks/useWarehouseRegistry', () => ({
+  useWarehouseRegistry: () => useWarehouseRegistryMock()
 }));
 
 vi.mock('../schemas/boxSchemas', () => ({
@@ -151,11 +165,40 @@ function buildBox(overrides: Partial<Box> = {}): Box {
 }
 
 function renderPage() {
-  return renderToStaticMarkup(<BoxDetailsPage />);
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity
+      }
+    }
+  });
+
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <BoxDetailsPage />
+    </QueryClientProvider>
+  );
+
+  queryClient.clear();
+  return html;
 }
 
 function renderInteractivePage() {
-  return render(<BoxDetailsPage />);
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity
+      }
+    }
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <BoxDetailsPage />
+    </QueryClientProvider>
+  );
 }
 
 function buildUpdateBoxResult(overrides: Partial<Box> = {}) {
@@ -164,6 +207,34 @@ function buildUpdateBoxResult(overrides: Partial<Box> = {}) {
       box: buildBox(overrides),
       logId: 'log-1'
     } satisfies BoxMutationResult,
+    warnings: []
+  };
+}
+
+function buildTransferResult(overrides: Partial<Box> = {}) {
+  return {
+    result: {
+      box: buildBox({ status: 'TRANSFER', ...overrides }),
+      transfer: {
+        transferId: 'TRF-1',
+        boxId: 'IL1-1234',
+        sourceBoxId: 'IL1-1234',
+        destinationBoxId: 'MS1-1234',
+        sourceWarehouse: 'IL1',
+        destinationWarehouse: 'MS1',
+        status: 'PENDING',
+        createdAt: '2026-04-07T12:00:00Z',
+        createdBy: 'tester',
+        receivedAt: '',
+        receivedBy: '',
+        cancelledAt: '',
+        cancelledBy: '',
+        notes: 'Move for job 17170'
+      },
+      logId: 'log-transfer',
+      cancelledAllocationCount: 0,
+      releasedFeet: 0
+    } satisfies BoxTransferMutationResult,
     warnings: []
   };
 }
@@ -231,11 +302,26 @@ describe('BoxDetailsPage', () => {
       isLoading: false,
       error: null
     });
+    useBoxTransferMock.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: false,
+      error: null
+    });
     useIsAddBoxPendingMock.mockReturnValue(false);
     useDeleteBoxMock.mockReturnValue(buildMutationState());
+    useStartBoxTransferMock.mockReturnValue(buildMutationState());
+    useReceiveBoxTransferMock.mockReturnValue(buildMutationState());
+    useCancelBoxTransferMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [
+        { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+      ]
+    });
   });
 
   it('renders the box summary, QR section, and detail actions without needing browser interactions', () => {
@@ -248,6 +334,52 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('Copy QR Code');
     expect(html).toContain('Available Feet');
     expect(html).toContain('420');
+    expect(html).toContain('Transfer Box');
+  });
+
+  it('starts a transfer from the box details dialog', async () => {
+    const startTransferState = buildMutationState();
+    startTransferState.mutateAsync.mockResolvedValue(buildTransferResult());
+    useStartBoxTransferMock.mockReturnValue(startTransferState);
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer Box' }));
+    fireEvent.change(screen.getByLabelText('Send To'), { target: { value: 'MS1' } });
+    fireEvent.change(screen.getByLabelText('Transfer Notes'), {
+      target: { value: 'Move this for the Mississippi crew.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() =>
+      expect(startTransferState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234',
+        toWarehouse: 'MS1',
+        notes: 'Move this for the Mississippi crew.'
+      })
+    );
+  });
+
+  it('shows pending transfer actions when a box is already transferring', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({ status: 'TRANSFER' }),
+      error: null
+    });
+    useBoxTransferMock.mockReturnValueOnce({
+      data: buildTransferResult().result.transfer,
+      isLoading: false,
+      isError: false,
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Pending Transfer');
+    expect(html).toContain('Receive Box');
+    expect(html).toContain('Cancel Transfer');
+    expect(html).not.toContain('>Transfer Box</button>');
   });
 
   it('auto-opens the QR section when showQr=1 is present in the search params', () => {

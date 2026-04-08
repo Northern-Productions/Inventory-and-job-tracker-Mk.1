@@ -57,6 +57,7 @@ export async function invalidateGlobalPlanningQueries(queryClient: QueryClient) 
   await invalidateQueryKeys(queryClient, [
     inventoryKeys.listRoot,
     inventoryKeys.boxRoot,
+    inventoryKeys.boxTransferRoot,
     inventoryKeys.allocationsRoot,
     inventoryKeys.jobs,
     inventoryKeys.jobsCalendarRoot,

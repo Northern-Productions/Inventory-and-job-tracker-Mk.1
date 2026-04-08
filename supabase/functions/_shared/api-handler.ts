@@ -36,6 +36,7 @@ import {
   describeJobPlanningFilm as describeSharedJobPlanningFilm,
   getJobPlanningFilmMatch as getSharedJobPlanningFilmMatch,
 } from "../../../frontend/src/domain/jobPlanningFilmMatcher.mjs";
+import { rankJobNumberSearchCandidates } from "../../../frontend/src/domain/jobNumberSearchMatcher.mjs";
 
 type CacheEntry = {
   expiresAt: number;
@@ -1459,6 +1460,580 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
     mapDbRollHistoryRow,
   });
 }
+
+function createTransferId(): string {
+  return `TRF-${createLogId()}`.toUpperCase();
+}
+
+function mapDbBoxTransferRow(row: any) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    transferId: asTrimmedString(row.transfer_id).toUpperCase(),
+    boxRecordId: row.box_record_id,
+    sourceBoxId: asTrimmedString(row.source_box_id).toUpperCase(),
+    destinationBoxId: asTrimmedString(row.destination_box_id).toUpperCase(),
+    sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
+    destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    status: asTrimmedString(row.status).toUpperCase() || "PENDING",
+    notes: asTrimmedString(row.notes),
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+    receivedAt: formatTimestamp(row.received_at),
+    receivedBy: asTrimmedString(row.received_by),
+    cancelledAt: formatTimestamp(row.cancelled_at),
+    cancelledBy: asTrimmedString(row.cancelled_by),
+    updatedAt: formatTimestamp(row.updated_at),
+    updatedBy: asTrimmedString(row.updated_by),
+  };
+}
+
+function toPublicBoxTransfer(transfer: any) {
+  if (!transfer) {
+    return null;
+  }
+
+  return {
+    transferId: transfer.transferId,
+    boxId: transfer.status === "RECEIVED" ? transfer.destinationBoxId : transfer.sourceBoxId,
+    sourceBoxId: transfer.sourceBoxId,
+    destinationBoxId: transfer.destinationBoxId,
+    sourceWarehouse: transfer.sourceWarehouse,
+    destinationWarehouse: transfer.destinationWarehouse,
+    status: transfer.status,
+    createdAt: transfer.createdAt,
+    createdBy: transfer.createdBy,
+    receivedAt: transfer.receivedAt,
+    receivedBy: transfer.receivedBy,
+    cancelledAt: transfer.cancelledAt,
+    cancelledBy: transfer.cancelledBy,
+    notes: transfer.notes,
+  };
+}
+
+async function findWarehouseEntry(client: any, orgId: string, warehouseCode: unknown, fieldName = "warehouse") {
+  const normalizedCode = requireString(warehouseCode, fieldName).toUpperCase();
+  const warehouseRows = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
+    p_org_id: orgId,
+  });
+  const matchingRow = (warehouseRows || []).find((row) => asTrimmedString(row.code).toUpperCase() === normalizedCode);
+  if (!matchingRow) {
+    throw new HttpError(400, `${fieldName} is not configured.`);
+  }
+
+  return {
+    code: normalizedCode,
+    name: asTrimmedString(matchingRow.name),
+    boxIdPrefix: asTrimmedString(matchingRow.box_id_prefix).toUpperCase() || normalizedCode,
+  };
+}
+
+function getBoxIdPrefixToken(prefix: unknown): string {
+  return requireString(prefix, "BoxID prefix")
+    .toUpperCase()
+    .replace(/-+$/, "");
+}
+
+function getTransferredBoxIdSuffix(boxId: unknown, sourcePrefix: unknown): string {
+  const normalizedBoxId = requireString(boxId, "BoxID").toUpperCase();
+  const normalizedSourcePrefix = getBoxIdPrefixToken(sourcePrefix);
+  const prefixWithDash = `${normalizedSourcePrefix}-`;
+  if (normalizedBoxId.startsWith(prefixWithDash)) {
+    return normalizedBoxId.slice(prefixWithDash.length);
+  }
+
+  const dashIndex = normalizedBoxId.indexOf("-");
+  if (dashIndex >= 0 && dashIndex < normalizedBoxId.length - 1) {
+    return normalizedBoxId.slice(dashIndex + 1);
+  }
+
+  return normalizedBoxId;
+}
+
+function buildTransferredBoxId(boxId: unknown, sourcePrefix: unknown, destinationPrefix: unknown): string {
+  return `${getBoxIdPrefixToken(destinationPrefix)}-${getTransferredBoxIdSuffix(boxId, sourcePrefix)}`.toUpperCase();
+}
+
+async function findBoxByRecordId(client: any, orgId: string, boxRecordId: string) {
+  if (!boxRecordId) {
+    return null;
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("box_id")
+    .eq("org_id", orgId)
+    .eq("id", boxRecordId)
+    .maybeSingle();
+  throwOnSupabaseError(error, "Unable to load box");
+
+  const boxId = asTrimmedString((data || {}).box_id);
+  if (!boxId) {
+    return null;
+  }
+
+  return await findBoxById(client, orgId, boxId);
+}
+
+async function findBoxTransferByTransferId(client: any, orgId: string, transferId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("transfer_id", requireString(transferId, "TransferID").toUpperCase())
+    .maybeSingle();
+  throwOnSupabaseError(error, "Unable to load box transfer");
+  return mapDbBoxTransferRow(data);
+}
+
+async function listBoxTransfersByBoxRecordId(client: any, orgId: string, boxRecordId: string) {
+  if (!boxRecordId) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("box_record_id", boxRecordId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load box transfer history");
+  return (Array.isArray(data) ? data : []).map(mapDbBoxTransferRow);
+}
+
+async function getLatestBoxTransferByBoxId(client: any, orgId: string, boxId: string) {
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    return { box: null, transfer: null };
+  }
+
+  const transfers = await listBoxTransfersByBoxRecordId(client, orgId, box.id);
+  return {
+    box,
+    transfer: transfers[0] || null,
+  };
+}
+
+async function findPendingBoxTransferByBoxRecordId(client: any, orgId: string, boxRecordId: string) {
+  if (!boxRecordId) {
+    return null;
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("box_record_id", boxRecordId)
+    .eq("status", "PENDING")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  throwOnSupabaseError(error, "Unable to load pending transfer");
+  return mapDbBoxTransferRow(data);
+}
+
+async function listPendingBoxTransfersByBoxRecordIds(client: any, orgId: string, boxRecordIds: string[]) {
+  const normalizedIds = Array.from(new Set((Array.isArray(boxRecordIds) ? boxRecordIds : []).filter(Boolean)));
+  if (!normalizedIds.length) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("status", "PENDING")
+    .in("box_record_id", normalizedIds)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load pending transfers");
+  return (Array.isArray(data) ? data : []).map(mapDbBoxTransferRow);
+}
+
+function indexPendingBoxTransfersByBoxRecordId(transfers: any[]) {
+  const indexed: Record<string, any> = {};
+  for (const transfer of Array.isArray(transfers) ? transfers : []) {
+    if (!transfer?.boxRecordId || indexed[transfer.boxRecordId]) {
+      continue;
+    }
+    indexed[transfer.boxRecordId] = transfer;
+  }
+  return indexed;
+}
+
+async function saveBoxTransferRecord(client: any, orgId: string, transfer: Record<string, unknown>) {
+  const serviceClient = requireServiceRoleClient();
+  const row = {
+    org_id: orgId,
+    transfer_id: requireString(transfer.transferId, "TransferID").toUpperCase(),
+    box_record_id: requireString(transfer.boxRecordId, "BoxRecordID"),
+    source_box_id: requireString(transfer.sourceBoxId, "SourceBoxID").toUpperCase(),
+    destination_box_id: requireString(transfer.destinationBoxId, "DestinationBoxID").toUpperCase(),
+    source_warehouse: requireString(transfer.sourceWarehouse, "SourceWarehouse").toUpperCase(),
+    destination_warehouse: requireString(transfer.destinationWarehouse, "DestinationWarehouse").toUpperCase(),
+    status: requireString(transfer.status, "TransferStatus").toUpperCase(),
+    notes: asTrimmedString(transfer.notes),
+    created_at: asTrimmedString(transfer.createdAt) || new Date().toISOString(),
+    created_by: asTrimmedString(transfer.createdBy),
+    received_at: asTrimmedString(transfer.receivedAt) || null,
+    received_by: asTrimmedString(transfer.receivedBy) || null,
+    cancelled_at: asTrimmedString(transfer.cancelledAt) || null,
+    cancelled_by: asTrimmedString(transfer.cancelledBy) || null,
+    updated_at: asTrimmedString(transfer.updatedAt) || new Date().toISOString(),
+    updated_by: asTrimmedString(transfer.updatedBy || transfer.createdBy),
+  };
+
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .upsert(row, { onConflict: "org_id,transfer_id" })
+    .select("*")
+    .single();
+  throwOnSupabaseError(error, "Unable to save box transfer");
+  return mapDbBoxTransferRow(data);
+}
+
+async function appendAuditEntry(
+  orgId: string,
+  action: string,
+  boxId: string,
+  beforeState: unknown,
+  afterState: unknown,
+  actor: string,
+  notes: unknown,
+) {
+  const serviceClient = requireServiceRoleClient();
+  const logId = createLogId();
+  const { error } = await serviceClient
+    .schema("app")
+    .from("audit_log")
+    .insert({
+      org_id: orgId,
+      log_id: logId,
+      action,
+      box_id: boxId,
+      before_state: beforeState === null ? null : beforeState,
+      after_state: afterState === null ? null : afterState,
+      actor: asTrimmedString(actor),
+      notes: asTrimmedString(notes),
+      created_at: new Date().toISOString(),
+    });
+  throwOnSupabaseError(error, "Unable to write audit entry");
+  return logId;
+}
+
+async function listActiveAllocationTransferTargetsForBox(client: any, orgId: string, boxId: string) {
+  const activeAllocations = (await listAllocationsByBox(client, orgId, boxId)).filter(
+    (entry) => entry.status === "ACTIVE" && asTrimmedString(entry.jobNumber),
+  );
+  const distinctJobNumbers = Array.from(new Set(activeAllocations.map((entry) => asTrimmedString(entry.jobNumber))));
+  const jobs = await Promise.all(distinctJobNumbers.map((jobNumber) => findJobByNumber(client, orgId, jobNumber)));
+  const warehouseByJobNumber = Object.fromEntries(
+    distinctJobNumbers.map((jobNumber, index) => [jobNumber, asTrimmedString(jobs[index]?.warehouse).toUpperCase()]),
+  );
+
+  return activeAllocations.map((entry) => ({
+    allocationId: asTrimmedString(entry.allocationId),
+    jobNumber: asTrimmedString(entry.jobNumber),
+    jobWarehouse: warehouseByJobNumber[asTrimmedString(entry.jobNumber)] || "",
+  }));
+}
+
+function getTransferStartGuardForBox(box: any, activeTargets: any[]) {
+  const sourceWarehouse = asTrimmedString(box?.warehouse).toUpperCase();
+  const distinctDestinations = new Set<string>();
+  let hasSameWarehouseAllocation = false;
+
+  for (const target of Array.isArray(activeTargets) ? activeTargets : []) {
+    const destinationWarehouse = asTrimmedString(target?.jobWarehouse).toUpperCase();
+    if (!destinationWarehouse) {
+      continue;
+    }
+
+    if (destinationWarehouse === sourceWarehouse) {
+      hasSameWarehouseAllocation = true;
+      continue;
+    }
+
+    distinctDestinations.add(destinationWarehouse);
+  }
+
+  if (hasSameWarehouseAllocation) {
+    return {
+      suggestedDestinationWarehouse: "",
+      blockingMessage:
+        `Box ${box.boxId} still has active allocations for jobs in ${sourceWarehouse}. Remove those same-warehouse allocations before starting a transfer.`,
+    };
+  }
+
+  if (distinctDestinations.size > 1) {
+    return {
+      suggestedDestinationWarehouse: "",
+      blockingMessage:
+        `Box ${box.boxId} has active allocations for multiple destination warehouses. Clear the conflicting allocations before starting a transfer.`,
+    };
+  }
+
+  return {
+    suggestedDestinationWarehouse: Array.from(distinctDestinations)[0] || "",
+    blockingMessage: "",
+  };
+}
+
+async function boxIdOrAliasExists(orgId: string, boxId: string, excludedBoxRecordId = "") {
+  const normalizedBoxId = requireString(boxId, "BoxID").toUpperCase();
+  const serviceClient = requireServiceRoleClient();
+  const { data: existingBox, error: existingBoxError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("box_id", normalizedBoxId)
+    .maybeSingle();
+  throwOnSupabaseError(existingBoxError, "Unable to check box ID availability");
+
+  const { data: aliasRow, error: aliasError } = await serviceClient
+    .schema("app")
+    .from("box_id_aliases")
+    .select("canonical_box_id")
+    .eq("org_id", orgId)
+    .eq("old_box_id", normalizedBoxId)
+    .maybeSingle();
+  throwOnSupabaseError(aliasError, "Unable to check box ID aliases");
+
+  if (existingBox && (!excludedBoxRecordId || asTrimmedString((existingBox as Record<string, unknown>).id) !== excludedBoxRecordId)) {
+    return true;
+  }
+
+  if (aliasRow && excludedBoxRecordId) {
+    const canonicalBoxId = asTrimmedString((aliasRow as Record<string, unknown>).canonical_box_id);
+    if (canonicalBoxId) {
+      const { data: canonicalBox, error: canonicalBoxError } = await serviceClient
+        .schema("app")
+        .from("boxes")
+        .select("id")
+        .eq("org_id", orgId)
+        .eq("box_id", canonicalBoxId)
+        .maybeSingle();
+      throwOnSupabaseError(canonicalBoxError, "Unable to resolve alias owner");
+      if (canonicalBox && asTrimmedString((canonicalBox as Record<string, unknown>).id) === excludedBoxRecordId) {
+        return false;
+      }
+    }
+  }
+
+  return Boolean(aliasRow);
+}
+
+async function releaseReusableBoxIdAlias(orgId: string, boxId: string, boxRecordId: string) {
+  const normalizedBoxId = requireString(boxId, "BoxID").toUpperCase();
+  const normalizedBoxRecordId = requireString(boxRecordId, "BoxRecordID");
+  const serviceClient = requireServiceRoleClient();
+  const { data: aliasRow, error: aliasError } = await serviceClient
+    .schema("app")
+    .from("box_id_aliases")
+    .select("canonical_box_id")
+    .eq("org_id", orgId)
+    .eq("old_box_id", normalizedBoxId)
+    .maybeSingle();
+  throwOnSupabaseError(aliasError, "Unable to load reusable box ID alias");
+
+  if (!aliasRow) {
+    return false;
+  }
+
+  const canonicalBoxId = asTrimmedString((aliasRow as Record<string, unknown>).canonical_box_id);
+  if (!canonicalBoxId) {
+    return false;
+  }
+
+  const { data: canonicalBox, error: canonicalBoxError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("box_id", canonicalBoxId)
+    .maybeSingle();
+  throwOnSupabaseError(canonicalBoxError, "Unable to resolve reusable alias owner");
+
+  if (!canonicalBox || asTrimmedString((canonicalBox as Record<string, unknown>).id) !== normalizedBoxRecordId) {
+    return false;
+  }
+
+  const { error: deleteAliasError } = await serviceClient
+    .schema("app")
+    .from("box_id_aliases")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("old_box_id", normalizedBoxId);
+  throwOnSupabaseError(deleteAliasError, "Unable to release reusable box ID alias");
+
+  return true;
+}
+
+async function applyReceivedBoxTransfer(
+  client: any,
+  orgId: string,
+  box: any,
+  destinationWarehouse: string,
+  destinationBoxId: string,
+  actor: string,
+) {
+  const serviceClient = requireServiceRoleClient();
+  const sourceBoxId = requireString(box?.boxId, "SourceBoxID").toUpperCase();
+  const sourceBoxRecordId = requireString(box?.id, "BoxRecordID");
+  const normalizedDestinationWarehouse = requireString(destinationWarehouse, "ToWarehouse").toUpperCase();
+  const normalizedDestinationBoxId = requireString(destinationBoxId, "DestinationBoxID").toUpperCase();
+  const nowIso = new Date().toISOString();
+  const normalizedActor = asTrimmedString(actor);
+
+  const { error: updateBoxError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .update({
+      box_id: normalizedDestinationBoxId,
+      warehouse: normalizedDestinationWarehouse,
+      status: "IN_STOCK",
+      updated_at: nowIso,
+      updated_by: normalizedActor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", sourceBoxRecordId);
+  throwOnSupabaseError(updateBoxError, `Unable to update box ${sourceBoxId}`);
+
+  const updateByBoxId = async (table: string, column: string, updateValues: Record<string, unknown>) => {
+    const { error } = await serviceClient
+      .schema("app")
+      .from(table)
+      .update(updateValues)
+      .eq("org_id", orgId)
+      .eq(column, sourceBoxId);
+    throwOnSupabaseError(error, `Unable to update ${table}`);
+  };
+
+  await updateByBoxId("allocations", "box_id", {
+    box_id: normalizedDestinationBoxId,
+    warehouse: normalizedDestinationWarehouse,
+  });
+  await updateByBoxId("audit_log", "box_id", { box_id: normalizedDestinationBoxId });
+  await updateByBoxId("roll_weight_log", "box_id", { box_id: normalizedDestinationBoxId });
+  await updateByBoxId("film_order_box_links", "box_id", { box_id: normalizedDestinationBoxId });
+  await updateByBoxId("film_orders", "source_box_id", { source_box_id: normalizedDestinationBoxId });
+  await updateByBoxId("film_catalog", "source_box_id", {
+    source_box_id: normalizedDestinationBoxId,
+    updated_at: nowIso,
+  });
+
+  const { error: touchAliasError } = await serviceClient
+    .schema("app")
+    .from("box_id_aliases")
+    .update({
+      updated_at: nowIso,
+      updated_by: normalizedActor,
+    })
+    .eq("org_id", orgId)
+    .eq("canonical_box_id", normalizedDestinationBoxId);
+  throwOnSupabaseError(touchAliasError, "Unable to update box aliases");
+
+  const { error: aliasUpsertError } = await serviceClient
+    .schema("app")
+    .from("box_id_aliases")
+    .upsert(
+      {
+        org_id: orgId,
+        old_box_id: sourceBoxId,
+        canonical_box_id: normalizedDestinationBoxId,
+        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        created_by: normalizedActor,
+        updated_by: normalizedActor,
+        updated_at: nowIso,
+      },
+      { onConflict: "org_id,old_box_id" },
+    );
+  throwOnSupabaseError(aliasUpsertError, "Unable to save box alias");
+
+  return await findBoxById(client, orgId, normalizedDestinationBoxId);
+}
+
+function buildFilmTransferAlertMessage(alerts: any[], context: "staging" | "checkout") {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return "";
+  }
+
+  const actionLabel = context === "staging" ? "staging this job" : "checking out this job";
+  return `Receive transferred film before ${actionLabel}.`;
+}
+
+function buildJobFilmTransferAlerts(
+  jobWarehouse: unknown,
+  allocations: any[],
+  boxById: Record<string, any>,
+  pendingTransferByBoxRecordId: Record<string, any> = {},
+) {
+  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
+  if (!normalizedJobWarehouse) {
+    return [];
+  }
+
+  const alerts: any[] = [];
+  const seen = new Set<string>();
+
+  for (const allocation of Array.isArray(allocations) ? allocations : []) {
+    if (!allocation || allocation.status !== "ACTIVE" || !allocation.boxId) {
+      continue;
+    }
+
+    const box = boxById[allocation.boxId] || null;
+    if (!box) {
+      continue;
+    }
+
+    const sourceWarehouse = asTrimmedString(box.warehouse).toUpperCase();
+    if (!sourceWarehouse || sourceWarehouse === normalizedJobWarehouse) {
+      continue;
+    }
+
+    const pendingTransfer = box.id ? pendingTransferByBoxRecordId[box.id] || null : null;
+    const state =
+      pendingTransfer && pendingTransfer.destinationWarehouse === normalizedJobWarehouse
+        ? "TRANSFER_PENDING"
+        : "NEEDS_TRANSFER";
+    const dedupeKey = `${box.boxId}:${normalizedJobWarehouse}:${state}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    alerts.push({
+      boxId: box.boxId,
+      sourceWarehouse,
+      destinationWarehouse: normalizedJobWarehouse,
+      state,
+      transferId: pendingTransfer ? pendingTransfer.transferId : "",
+      startedAt: pendingTransfer ? pendingTransfer.createdAt : "",
+      startedBy: pendingTransfer ? pendingTransfer.createdBy : "",
+    });
+  }
+
+  return alerts;
+}
+
 function toUsageTimestampSortValue(entry: any) {
   return getRollHistoryActivityTimestamp(entry);
 }
@@ -2218,6 +2793,7 @@ function getJobStagingBlockingReason(
   allocations: any[],
   filmOrders: any[],
   caulkAllocations: any[],
+  filmTransferAlerts: any[] = [],
 ) {
   const hasMaterialRequirements =
     requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
@@ -2229,6 +2805,9 @@ function getJobStagingBlockingReason(
   const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
   if (hasRemainingFilm || hasRemainingCaulk) {
     return "All required film and caulk must be fully allocated before staging this job.";
+  }
+  if (filmTransferAlerts.length > 0) {
+    return buildFilmTransferAlertMessage(filmTransferAlerts, "staging");
   }
   if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
     return "All required film must be checked out before staging this job.";
@@ -2592,6 +3171,11 @@ function buildAllocationPreviewPlan(
     selectedRequirement?: any;
   },
 ) {
+  type CandidatePreviewEntry = {
+    candidate: any;
+    filmMatch: ReturnType<typeof getPlanningFilmMatch>;
+  };
+
   const requested = coerceFeetValue(requestedFeet, "RequestedFeet", [], true);
   if (requested <= 0) {
     throw new HttpError(400, "RequestedFeet must be greater than zero.");
@@ -2624,17 +3208,18 @@ function buildAllocationPreviewPlan(
   const candidateBoxes = options.crossWarehouse
     ? options.allBoxes
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
-  const filteredCandidates = candidateBoxes.flatMap((candidate) => {
+  const filteredCandidates: CandidatePreviewEntry[] = [];
+  for (const candidate of candidateBoxes) {
     if (
       candidate.boxId === sourceBox.boxId ||
       candidate.status !== "IN_STOCK" ||
       candidate.feetAvailable <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
-      return [];
+      continue;
     }
 
-    let filmMatch = null;
+    let filmMatch: ReturnType<typeof getPlanningFilmMatch> = null;
     if (selectedRequirement) {
       filmMatch = getPlanningFilmMatch(
         candidate.manufacturer,
@@ -2643,20 +3228,19 @@ function buildAllocationPreviewPlan(
         selectedRequirement.filmName,
       );
       if (!filmMatch) {
-        return [];
+        continue;
       }
-      return [{ candidate, filmMatch }];
+      filteredCandidates.push({ candidate, filmMatch });
+      continue;
     }
 
     if (
       normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) ===
       normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName)
     ) {
-      return [{ candidate, filmMatch }];
+      filteredCandidates.push({ candidate, filmMatch });
     }
-
-    return [];
-  });
+  }
   filteredCandidates.sort((leftEntry, rightEntry) => {
     if (selectedRequirement && leftEntry.filmMatch && rightEntry.filmMatch) {
       const filmComparison = compareSharedJobPlanningFilmMatches(leftEntry.filmMatch, rightEntry.filmMatch);
@@ -2958,10 +3542,23 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   }
   const boxes = await listBoxes(client, orgId);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id).filter(Boolean),
+    ),
+  );
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
   const publicRequirements = header
     ? buildPublicJobRequirementEntries(await listJobRequirementsByJob(client, orgId, normalizedJobNumber), allocations, boxById)
     : [];
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    header?.warehouse || "",
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId,
+  );
   return {
     summary: buildAllocationJobSummary(
       normalizedJobNumber,
@@ -2982,6 +3579,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmTransferAlerts,
   };
 }
 
@@ -3088,67 +3686,11 @@ async function buildJobsSearchResults(
 
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const queryCanonical = canonicalizeNumericDigits(normalizedQueryDigits);
-  const queryValue = BigInt(queryCanonical);
-  const ranked: Array<{
-    entry: any;
-    isPrefixMatch: boolean;
-    isExactMatch: boolean;
-    distance: bigint;
-    lengthDelta: number;
-  }> = [];
   const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
-
-  for (const entry of entries) {
-    const lifecycle = asTrimmedString((entry as Record<string, unknown>).lifecycleStatus || "ACTIVE").toUpperCase();
-    if (lifecycle !== lifecycleFilter) {
-      continue;
-    }
-    if (lifecycleFilter === "COMPLETED" && entry.status !== "COMPLETED") {
-      continue;
-    }
-
-    const jobDigits = normalizeJobNumberDigits((entry as Record<string, unknown>).jobNumber);
-    if (!jobDigits) {
-      continue;
-    }
-
-    const jobCanonical = canonicalizeNumericDigits(jobDigits);
-    const jobValue = BigInt(jobCanonical);
-    const isPrefixMatch = jobCanonical.startsWith(queryCanonical);
-    ranked.push({
-      entry,
-      isPrefixMatch,
-      isExactMatch: jobCanonical === queryCanonical,
-      distance: absoluteBigInt(jobValue - queryValue),
-      lengthDelta: Math.abs(jobCanonical.length - queryCanonical.length),
-    });
-  }
-
-  ranked.sort((left, right) => {
-    if (left.isPrefixMatch !== right.isPrefixMatch) {
-      return left.isPrefixMatch ? -1 : 1;
-    }
-
-    if (left.isPrefixMatch && right.isPrefixMatch) {
-      if (left.isExactMatch !== right.isExactMatch) {
-        return left.isExactMatch ? -1 : 1;
-      }
-
-      if (left.lengthDelta !== right.lengthDelta) {
-        return left.lengthDelta - right.lengthDelta;
-      }
-    }
-
-    const distanceOrder = compareBigInt(left.distance, right.distance);
-    if (distanceOrder !== 0) {
-      return distanceOrder;
-    }
-
-    return compareJobsListEntries(left.entry, right.entry);
+  return rankJobNumberSearchCandidates(entries, normalizedQueryDigits, {
+    compareWithinMatch: compareJobsListEntries,
+    limit: normalizedLimit,
   });
-
-  return ranked.slice(0, normalizedLimit).map((entry) => entry.entry);
 }
 
 async function buildJobsCalendar(
@@ -3202,8 +3744,21 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   }
   const boxes = await listBoxes(client, orgId);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id).filter(Boolean),
+    ),
+  );
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    header?.warehouse || "",
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId,
+  );
   return {
     summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements),
     requirements: publicRequirements,
@@ -3214,6 +3769,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmTransferAlerts,
   };
 }
 
@@ -3510,12 +4066,16 @@ function throwOnSupabaseError(error: any, messagePrefix: string): void {
   throw new HttpError(500, `${messagePrefix}: ${asTrimmedString(error.message) || "Unexpected database error."}`);
 }
 
-function requireServiceRoleClientForJobs() {
+function requireServiceRoleClient() {
   const serviceClient = createServiceRoleClient();
   if (!serviceClient) {
-    throw new HttpError(500, "SUPABASE_SERVICE_ROLE_KEY is required for job lifecycle close-out operations.");
+    throw new HttpError(500, "SUPABASE_SERVICE_ROLE_KEY is required for this inventory mutation.");
   }
   return serviceClient;
+}
+
+function requireServiceRoleClientForJobs() {
+  return requireServiceRoleClient();
 }
 
 async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
@@ -3527,7 +4087,7 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
   const { data: jobRow, error: jobError } = await serviceClient
     .schema("app")
     .from("jobs")
-    .select("id, lifecycle_status")
+    .select("id, lifecycle_status, warehouse")
     .eq("org_id", orgId)
     .eq("job_number", jobNumber)
     .maybeSingle();
@@ -3550,6 +4110,22 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
     listBoxes(client, orgId)
   ]);
   const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id).filter(Boolean),
+    ),
+  );
+  const preCheckoutTransferAlerts = buildJobFilmTransferAlerts(
+    asTrimmedString((jobRow as Record<string, unknown>).warehouse),
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId,
+  );
+  if (preCheckoutTransferAlerts.length > 0) {
+    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutTransferAlerts, "checkout"));
+  }
   const seenBoxIds: Record<string, boolean> = {};
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
@@ -3638,6 +4214,13 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
   const refreshedCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
   const refreshedBoxes = await listBoxes(client, orgId);
   const refreshedBoxById = Object.fromEntries(refreshedBoxes.map((box) => [box.boxId, box]));
+  const refreshedPendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      refreshedBoxes.map((box) => box.id).filter(Boolean),
+    ),
+  );
   const publicRequirements = buildPublicJobRequirementEntries(
     refreshedRequirements,
     refreshedAllocations,
@@ -3653,6 +4236,12 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
     refreshedAllocations,
     refreshedFilmOrders,
     refreshedCaulkAllocations,
+    buildJobFilmTransferAlerts(
+      asTrimmedString((jobRow as Record<string, unknown>).warehouse),
+      refreshedAllocations,
+      refreshedBoxById,
+      refreshedPendingTransfersByBoxRecordId,
+    ),
   );
   if (blockingReason) {
     throw new HttpError(400, blockingReason);
@@ -3690,7 +4279,7 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
   const { data: jobRow, error: jobError } = await serviceClient
     .schema("app")
     .from("jobs")
-    .select("id, lifecycle_status")
+    .select("id, lifecycle_status, warehouse")
     .eq("org_id", orgId)
     .eq("job_number", jobNumber)
     .maybeSingle();
@@ -3723,6 +4312,13 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
     ]);
     const boxes = await listBoxes(client, orgId);
     const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+    const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+      await listPendingBoxTransfersByBoxRecordIds(
+        client,
+        orgId,
+        boxes.map((box) => box.id).filter(Boolean),
+      ),
+    );
     const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
     const blockingReason = getJobStagingBlockingReason(
@@ -3731,6 +4327,12 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
       allocations,
       filmOrders,
       caulkAllocations,
+      buildJobFilmTransferAlerts(
+        asTrimmedString((jobRow as Record<string, unknown>).warehouse),
+        allocations,
+        boxById,
+        pendingTransfersByBoxRecordId,
+      ),
     );
     if (blockingReason) {
       throw new HttpError(400, blockingReason);
@@ -3750,6 +4352,277 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
   throwOnSupabaseError(updateError, "Unable to update staged pickup");
 
   return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+}
+
+async function getBoxTransferByBox(client: any, orgId: string, boxId: string) {
+  const { box, transfer } = await getLatestBoxTransferByBoxId(client, orgId, boxId);
+  if (!box) {
+    throw new HttpError(404, "Box not found.");
+  }
+
+  return ok(toPublicBoxTransfer(transfer));
+}
+
+async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const warnings: string[] = [];
+  const boxId = requireString(payload.boxId, "BoxID").toUpperCase();
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    throw new HttpError(404, `Box ${boxId} was not found.`);
+  }
+
+  if (asTrimmedString(box.status).toUpperCase() !== "IN_STOCK") {
+    throw new HttpError(400, `Box ${box.boxId} must be in stock before it can be transferred.`);
+  }
+
+  const existingPendingTransfer = await findPendingBoxTransferByBoxRecordId(client, orgId, box.id);
+  if (existingPendingTransfer) {
+    throw new HttpError(400, `Box ${box.boxId} already has a pending transfer.`);
+  }
+
+  const sourceWarehouse = await findWarehouseEntry(client, orgId, box.warehouse, "CurrentWarehouse");
+  const destinationWarehouse = await findWarehouseEntry(client, orgId, payload.toWarehouse, "ToWarehouse");
+  if (sourceWarehouse.code === destinationWarehouse.code) {
+    throw new HttpError(400, "Choose a different destination warehouse.");
+  }
+
+  const activeTargets = await listActiveAllocationTransferTargetsForBox(client, orgId, box.boxId);
+  const transferGuard = getTransferStartGuardForBox(box, activeTargets);
+  if (transferGuard.blockingMessage) {
+    throw new HttpError(400, transferGuard.blockingMessage);
+  }
+  if (
+    transferGuard.suggestedDestinationWarehouse &&
+    transferGuard.suggestedDestinationWarehouse !== destinationWarehouse.code
+  ) {
+    throw new HttpError(
+      400,
+      `Box ${box.boxId} is already allocated to a job in ${transferGuard.suggestedDestinationWarehouse}. Start the transfer to that warehouse or remove the allocation first.`,
+    );
+  }
+
+  const transfer = await saveBoxTransferRecord(client, orgId, {
+    transferId: createTransferId(),
+    boxRecordId: box.id,
+    sourceBoxId: box.boxId,
+    destinationBoxId: buildTransferredBoxId(box.boxId, sourceWarehouse.boxIdPrefix, destinationWarehouse.boxIdPrefix),
+    sourceWarehouse: sourceWarehouse.code,
+    destinationWarehouse: destinationWarehouse.code,
+    status: "PENDING",
+    notes: asTrimmedString(payload.notes),
+    createdAt: new Date().toISOString(),
+    createdBy: actor,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  });
+
+  const serviceClient = requireServiceRoleClient();
+  const { error: updateBoxError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .update({
+      status: "TRANSFER",
+      updated_at: new Date().toISOString(),
+      updated_by: actor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", box.id);
+  throwOnSupabaseError(updateBoxError, `Unable to update box ${box.boxId}`);
+
+  const updatedBox = await findBoxById(client, orgId, box.boxId);
+  if (!updatedBox) {
+    throw new HttpError(500, "Transfer started but the box could not be reloaded.");
+  }
+
+  const logId = await appendAuditEntry(
+    orgId,
+    "START_TRANSFER",
+    updatedBox.boxId,
+    toPublicBox(box),
+    toPublicBox(updatedBox),
+    actor,
+    asTrimmedString(payload.notes) || `Started transfer to ${destinationWarehouse.code}.`,
+  );
+
+  return ok(
+    {
+      box: toPublicBox(updatedBox),
+      transfer: toPublicBoxTransfer(transfer),
+      logId,
+      cancelledAllocationCount: 0,
+      releasedFeet: 0,
+    },
+    warnings,
+  );
+}
+
+async function receiveBoxTransfer(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const warnings: string[] = [];
+  const transfer = await findBoxTransferByTransferId(client, orgId, requireString(payload.transferId, "TransferID"));
+  if (!transfer) {
+    throw new HttpError(404, "Transfer not found.");
+  }
+  if (transfer.status !== "PENDING") {
+    throw new HttpError(400, `Transfer ${transfer.transferId} is already ${transfer.status.toLowerCase()}.`);
+  }
+
+  const box = await findBoxByRecordId(client, orgId, transfer.boxRecordId);
+  if (!box) {
+    throw new HttpError(404, "The source box for this transfer was not found.");
+  }
+  if (asTrimmedString(box.status).toUpperCase() !== "TRANSFER") {
+    throw new HttpError(400, `Box ${box.boxId} is not in transfer status.`);
+  }
+
+  const sourceWarehouse = await findWarehouseEntry(client, orgId, transfer.sourceWarehouse, "SourceWarehouse");
+  const destinationWarehouse = await findWarehouseEntry(client, orgId, transfer.destinationWarehouse, "DestinationWarehouse");
+  const destinationBoxId = buildTransferredBoxId(box.boxId, sourceWarehouse.boxIdPrefix, destinationWarehouse.boxIdPrefix);
+  if (await boxIdOrAliasExists(orgId, destinationBoxId, box.id)) {
+    throw new HttpError(
+      400,
+      `Cannot receive transfer because ${destinationBoxId} is already in use. The suffix must stay fixed during warehouse transfers.`,
+    );
+  }
+
+  await releaseReusableBoxIdAlias(orgId, destinationBoxId, box.id);
+
+  const beforeBox = box;
+  const updatedBox = await applyReceivedBoxTransfer(
+    client,
+    orgId,
+    box,
+    destinationWarehouse.code,
+    destinationBoxId,
+    actor,
+  );
+  if (!updatedBox) {
+    throw new HttpError(500, "Transfer received but the updated box could not be reloaded.");
+  }
+
+  const savedTransfer = await saveBoxTransferRecord(client, orgId, {
+    ...transfer,
+    destinationBoxId,
+    status: "RECEIVED",
+    receivedAt: new Date().toISOString(),
+    receivedBy: actor,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  });
+
+  const logId = await appendAuditEntry(
+    orgId,
+    "RECEIVE_TRANSFER",
+    updatedBox.boxId,
+    toPublicBox(beforeBox),
+    toPublicBox(updatedBox),
+    actor,
+    `Received transfer into ${destinationWarehouse.code}.`,
+  );
+
+  return ok(
+    {
+      box: toPublicBox(updatedBox),
+      transfer: toPublicBoxTransfer(savedTransfer),
+      logId,
+      cancelledAllocationCount: 0,
+      releasedFeet: 0,
+    },
+    warnings,
+  );
+}
+
+async function cancelBoxTransfer(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const warnings: string[] = [];
+  const transfer = await findBoxTransferByTransferId(client, orgId, requireString(payload.transferId, "TransferID"));
+  if (!transfer) {
+    throw new HttpError(404, "Transfer not found.");
+  }
+  if (transfer.status !== "PENDING") {
+    throw new HttpError(400, `Transfer ${transfer.transferId} is already ${transfer.status.toLowerCase()}.`);
+  }
+
+  const box = await findBoxByRecordId(client, orgId, transfer.boxRecordId);
+  if (!box) {
+    throw new HttpError(404, "The source box for this transfer was not found.");
+  }
+
+  let cancelledAllocationCount = 0;
+  let releasedFeet = 0;
+  const activeAllocations = await listAllocationsByBox(client, orgId, box.boxId);
+  for (const allocation of activeAllocations) {
+    if (allocation.status !== "ACTIVE" || !allocation.jobNumber) {
+      continue;
+    }
+
+    const job = await findJobByNumber(client, orgId, allocation.jobNumber);
+    if (!job || asTrimmedString(job.warehouse).toUpperCase() !== transfer.destinationWarehouse) {
+      continue;
+    }
+
+    const removal = await removeJobBoxAllocation(client, identity, {
+      jobNumber: allocation.jobNumber,
+      allocationId: allocation.allocationId,
+      reason:
+        asTrimmedString(payload.reason) ||
+        `Removed allocation ${allocation.allocationId} after cancelling transfer ${transfer.transferId}.`,
+    });
+    const removalResult = removal.data as Record<string, unknown>;
+    cancelledAllocationCount += integerOrZero(removalResult.removedAllocationCount);
+    releasedFeet += integerOrZero(removalResult.releasedFeet);
+    warnings.push(...(removal.warnings || []));
+  }
+
+  const refreshedBox = (await findBoxByRecordId(client, orgId, transfer.boxRecordId)) || box;
+  const serviceClient = requireServiceRoleClient();
+  const { error: updateBoxError } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .update({
+      status: "IN_STOCK",
+      updated_at: new Date().toISOString(),
+      updated_by: actor,
+    })
+    .eq("org_id", orgId)
+    .eq("id", transfer.boxRecordId);
+  throwOnSupabaseError(updateBoxError, `Unable to restore box ${refreshedBox.boxId}`);
+
+  const updatedBox = (await findBoxByRecordId(client, orgId, transfer.boxRecordId)) || refreshedBox;
+  const savedTransfer = await saveBoxTransferRecord(client, orgId, {
+    ...transfer,
+    status: "CANCELLED",
+    cancelledAt: new Date().toISOString(),
+    cancelledBy: actor,
+    notes: asTrimmedString(payload.reason) || transfer.notes,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+  });
+
+  const logId = await appendAuditEntry(
+    orgId,
+    "CANCEL_TRANSFER",
+    updatedBox.boxId,
+    toPublicBox(refreshedBox),
+    toPublicBox(updatedBox),
+    actor,
+    asTrimmedString(payload.reason) || `Cancelled transfer to ${transfer.destinationWarehouse}.`,
+  );
+
+  return ok(
+    {
+      box: toPublicBox(updatedBox),
+      transfer: toPublicBoxTransfer(savedTransfer),
+      logId,
+      cancelledAllocationCount,
+      releasedFeet,
+    },
+    warnings,
+  );
 }
 
 async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
@@ -3987,7 +4860,10 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     throw new HttpError(403, "Admin or owner access is required.");
   }
 
-  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, "Job ID number");
+  const jobNumber = normalizeJobNumberDigits(requireString(payload.jobNumber, "Job ID number"));
+  if (!jobNumber) {
+    throw new HttpError(400, "Job ID number must include at least one digit.");
+  }
   const existingJob = await findJobByNumber(client, orgId, jobNumber);
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
@@ -4495,6 +5371,7 @@ async function dispatchRead(client: any, orgId: string, logicalPath: string, par
     enrichAdminPermissionEntries,
     buildSearchBoxes,
     findBoxById,
+    getBoxTransferByBox,
     toPublicBox,
     listAudit,
     listAuditEntriesByBox,
@@ -4536,6 +5413,9 @@ async function dispatchMutation(
     callMutationRpc,
     findBoxById,
     toPublicBox,
+    startBoxTransfer,
+    receiveBoxTransfer,
+    cancelBoxTransfer,
     ensureBoxCheckoutCrewCompatibility,
     findJobByNumber,
     normalizeJobLifecycleStatus,

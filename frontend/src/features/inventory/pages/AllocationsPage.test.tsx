@@ -134,6 +134,10 @@ function renderPage(props: {
   return html;
 }
 
+function findRenderedJobButtonIndex(html: string, jobNumber: string) {
+  return html.indexOf(`>${jobNumber}</button>`);
+}
+
 describe('AllocationsPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
@@ -249,6 +253,82 @@ describe('AllocationsPage', () => {
     });
   });
 
+  it('keeps the closest job-number match first while searching in list mode', () => {
+    useJobsSearchMock.mockImplementation((query?: unknown, _limit?: unknown, options?: { lifecycleStatus?: string }) => ({
+      data: query
+        ? [
+            buildJob({
+              jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '2171705' : '2171705',
+              dueDate: '2026-04-20',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            }),
+            buildJob({
+              jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '171700' : '171700',
+              dueDate: '2026-04-22',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            }),
+            buildJob({
+              jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '17170' : '17170',
+              dueDate: '2026-04-01',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            })
+          ]
+        : [],
+      isLoading: false,
+      error: null
+    }));
+
+    const html = renderPage({
+      initialJobsViewMode: 'list',
+      initialJobSearchInput: '17170',
+      initialJobSort: 'install_date'
+    });
+
+    expect(findRenderedJobButtonIndex(html, '17170')).toBeLessThan(findRenderedJobButtonIndex(html, '171700'));
+    expect(findRenderedJobButtonIndex(html, '171700')).toBeLessThan(findRenderedJobButtonIndex(html, '2171705'));
+  });
+
+  it('uses the selected sort as a tie-breaker within the same search match tier', () => {
+    useJobsSearchMock.mockImplementation((query?: unknown, _limit?: unknown, options?: { lifecycleStatus?: string }) => ({
+      data: query
+        ? [
+            buildJob({
+              jobNumber: '171701',
+              dueDate: '2026-04-09',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            }),
+            buildJob({
+              jobNumber: '171700',
+              dueDate: '2026-04-12',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            }),
+            buildJob({
+              jobNumber: '17170',
+              dueDate: '2026-04-01',
+              lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
+              status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
+            })
+          ]
+        : [],
+      isLoading: false,
+      error: null
+    }));
+
+    const html = renderPage({
+      initialJobsViewMode: 'list',
+      initialJobSearchInput: '17170',
+      initialJobSort: 'install_date'
+    });
+
+    expect(findRenderedJobButtonIndex(html, '17170')).toBeLessThan(findRenderedJobButtonIndex(html, '171700'));
+    expect(findRenderedJobButtonIndex(html, '171700')).toBeLessThan(findRenderedJobButtonIndex(html, '171701'));
+  });
+
   it('shows the completed-history empty state when no completed list jobs are returned', () => {
     useJobsListMock.mockReturnValue({
       data: [],
@@ -288,6 +368,26 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Showing</span><strong class="hero-metric-value inventory-summary-value">1</strong>');
     expect(html).toContain('19339');
     expect(html).not.toContain('16961');
+  });
+
+  it('restores normal list sorting when the search is empty', () => {
+    useJobsListMock.mockReturnValue({
+      data: [
+        buildJob({ jobNumber: '200' }),
+        buildJob({ jobNumber: '15' }),
+        buildJob({ jobNumber: '1000' })
+      ],
+      isLoading: false,
+      error: null
+    });
+
+    const html = renderPage({
+      initialJobsViewMode: 'list',
+      initialJobSort: 'job_number_asc'
+    });
+
+    expect(findRenderedJobButtonIndex(html, '15')).toBeLessThan(findRenderedJobButtonIndex(html, '200'));
+    expect(findRenderedJobButtonIndex(html, '200')).toBeLessThan(findRenderedJobButtonIndex(html, '1000'));
   });
 
   it('renders calendar week mode with an explicit search button and cross-workflow search queries', () => {

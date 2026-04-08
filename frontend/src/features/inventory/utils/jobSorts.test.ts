@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JobListEntry } from '../../../domain';
-import { sortJobs } from './jobSorts';
+import { sortJobs, sortSearchedJobs } from './jobSorts';
 
 function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
   const { jobNumber: overrideJobNumber, ...rest } = overrides;
@@ -93,5 +93,33 @@ describe('sortJobs', () => {
 
     expect(sortJobs(entries, 'allocate').map((entry) => entry.jobNumber)).toEqual(['2', '3', '1']);
     expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['3', '2', '1']);
+  });
+
+  it('keeps exact search matches ahead of prefix and contains matches', () => {
+    const entries = [
+      buildJob({ jobNumber: '2171705', dueDate: '2026-04-20' }),
+      buildJob({ jobNumber: '171700', dueDate: '2026-04-22' }),
+      buildJob({ jobNumber: '17170', dueDate: '2026-04-01' })
+    ];
+
+    expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([
+      '17170',
+      '171700',
+      '2171705'
+    ]);
+  });
+
+  it('uses the selected sort inside the same search match tier', () => {
+    const entries = [
+      buildJob({ jobNumber: '171701', dueDate: '2026-04-09' }),
+      buildJob({ jobNumber: '171700', dueDate: '2026-04-12' }),
+      buildJob({ jobNumber: '17170', dueDate: '2026-04-01' })
+    ];
+
+    expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([
+      '17170',
+      '171700',
+      '171701'
+    ]);
   });
 });

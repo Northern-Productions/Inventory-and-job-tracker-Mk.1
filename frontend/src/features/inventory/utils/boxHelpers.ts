@@ -43,7 +43,7 @@ export const CORE_TYPE_OPTIONS = [
 ] as const;
 export const CORE_REFERENCE_WIDTH_IN = 72;
 export const LOW_STOCK_THRESHOLD_LF = 10;
-const ACTIVE_CANONICAL_BOX_STATUSES: readonly BoxStatus[] = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT'];
+const ACTIVE_CANONICAL_BOX_STATUSES: readonly BoxStatus[] = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'TRANSFER'];
 const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS: Record<CoreType, number> = {
   'White plastic': 2,
   'Red plastic': 1.85,

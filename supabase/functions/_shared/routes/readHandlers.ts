@@ -8,6 +8,12 @@ type ReadContext = {
   params: Record<string, unknown>;
 };
 
+type JobContext = {
+  jobNumber: string;
+  jobDate: string;
+  crewLeader: string;
+};
+
 export type ReadHandlerDeps = {
   asTrimmedString: (value: unknown) => string;
   requireString: (value: unknown, fieldName: string) => string;
@@ -16,6 +22,7 @@ export type ReadHandlerDeps = {
   enrichAdminPermissionEntries: (entriesRaw: unknown[]) => Promise<Record<string, unknown>[]>;
   buildSearchBoxes: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
+  getBoxTransferByBox: (client: any, orgId: string, boxId: string) => Promise<Record<string, unknown>>;
   toPublicBox: (box: any) => Record<string, unknown>;
   listAudit: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown[]>;
   listAuditEntriesByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
@@ -26,10 +33,10 @@ export type ReadHandlerDeps = {
   buildAllocationPreviewPlan: (
     source: any,
     requestedFeet: unknown,
-    jobContext: unknown,
+    jobContext: JobContext,
     options: {
       crossWarehouse: boolean;
-      minimumWidthIn: unknown;
+      minimumWidthIn?: unknown;
       allBoxes: any[];
       activeAllocationsByBox: Record<string, any[]>;
       selectedRequirement?: any;
@@ -41,7 +48,7 @@ export type ReadHandlerDeps = {
     jobNumber: unknown,
     jobDate: unknown,
     crewLeader: unknown,
-  ) => Promise<unknown>;
+  ) => Promise<JobContext>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
   listJobRequirementsByJob: (client: any, orgId: string, jobNumber: string) => Promise<any[]>;
@@ -51,6 +58,8 @@ export type ReadHandlerDeps = {
   buildJobsCalendar: (
     client: any,
     orgId: string,
+    view: unknown,
+    anchorDate: unknown,
     month: unknown,
     lifecycleStatus?: unknown
   ) => Promise<unknown[]>;
@@ -235,6 +244,9 @@ const readHandlers: Record<string, ReadHandler> = {
       throw new HttpError(404, "Box not found.");
     }
     return ok(deps.toPublicBox(found));
+  },
+  "/boxes/transfer/by-box": async ({ client, orgId, params }, deps) => {
+    return await deps.getBoxTransferByBox(client, orgId, deps.requireString(params.boxId, "boxId"));
   },
   "/audit/list": async ({ client, orgId, params }, deps) => {
     return ok({ entries: await deps.listAudit(client, orgId, params) });

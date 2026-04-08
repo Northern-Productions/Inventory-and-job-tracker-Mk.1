@@ -4,11 +4,16 @@ import type {
   ApplyAllocationPlanPayload,
   ApplyAllocationPlanResult,
   Box,
+  BoxTransferEntry,
+  BoxTransferMutationResult,
+  CancelBoxTransferPayload,
   BoxMutationResult,
   DeleteBoxPayload,
   DeleteBoxResult,
   SearchBoxesParams,
+  ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
+  StartBoxTransferPayload,
   UpdateBoxPayload,
   Warehouse
 } from '../../domain';
@@ -84,6 +89,15 @@ export async function getBox(boxId: string): Promise<Box> {
   }
 }
 
+export async function getBoxTransfer(boxId: string): Promise<BoxTransferEntry | null> {
+  assertFeatureAccess('inventory', 'read');
+  return requestReadWithFallback<BoxTransferEntry | null>(
+    '/boxes/transfer/by-box',
+    { boxId },
+    { boxId }
+  );
+}
+
 export async function addBox(
   payload: AddBoxPayload
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
@@ -122,6 +136,39 @@ export async function setBoxStatus(
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/set-status', { body: payload });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function startBoxTransfer(
+  payload: StartBoxTransferPayload
+): Promise<{ result: BoxTransferMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/start', { body: payload });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function receiveBoxTransfer(
+  payload: ReceiveBoxTransferPayload
+): Promise<{ result: BoxTransferMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/receive', { body: payload });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function cancelBoxTransfer(
+  payload: CancelBoxTransferPayload
+): Promise<{ result: BoxTransferMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/cancel', { body: payload });
   return {
     result: response.data,
     warnings: response.warnings

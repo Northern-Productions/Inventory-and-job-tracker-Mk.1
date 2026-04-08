@@ -1,4 +1,5 @@
 import type { JobListEntry } from '../../../domain';
+import { rankJobNumberSearchCandidates } from '../../../domain/jobNumberSearchMatcher.mjs';
 
 export type JobSortOption =
   | 'install_date'
@@ -93,40 +94,49 @@ export function describeJobSort(sort: JobSortOption) {
   }
 }
 
-export function sortJobs(entries: JobListEntry[], sort: JobSortOption) {
-  return entries.slice().sort((left, right) => {
-    switch (sort) {
-      case 'job_number_asc':
-        return compareJobNumberAscending(left, right);
-      case 'job_number_desc':
-        return compareJobNumberDescending(left, right);
-      case 'date_added_newest':
-        return (
-          compareTimestampDescending(left.createdAt || left.updatedAt, right.createdAt || right.updatedAt) ||
-          compareJobNumberDescending(left, right)
-        );
-      case 'date_added_oldest':
-        return (
-          compareTimestampAscending(left.createdAt || left.updatedAt, right.createdAt || right.updatedAt) ||
-          compareJobNumberAscending(left, right)
-        );
-      case 'allocate': {
-        const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
-        const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-        const leftRank = leftDisplayStatus === 'ALLOCATE' ? 0 : 1;
-        const rightRank = rightDisplayStatus === 'ALLOCATE' ? 0 : 1;
-        return compareNumbers(leftRank, rightRank) || fallbackJobSort(left, right);
-      }
-      case 'film_order': {
-        const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
-        const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-        const leftRank = leftDisplayStatus === 'FILM_ORDER' ? 0 : 1;
-        const rightRank = rightDisplayStatus === 'FILM_ORDER' ? 0 : 1;
-        return compareNumbers(leftRank, rightRank) || fallbackJobSort(left, right);
-      }
-      case 'install_date':
-      default:
-        return fallbackJobSort(left, right);
+export function compareJobsBySort(left: JobListEntry, right: JobListEntry, sort: JobSortOption) {
+  switch (sort) {
+    case 'job_number_asc':
+      return compareJobNumberAscending(left, right);
+    case 'job_number_desc':
+      return compareJobNumberDescending(left, right);
+    case 'date_added_newest':
+      return (
+        compareTimestampDescending(left.createdAt || left.updatedAt, right.createdAt || right.updatedAt) ||
+        compareJobNumberDescending(left, right)
+      );
+    case 'date_added_oldest':
+      return (
+        compareTimestampAscending(left.createdAt || left.updatedAt, right.createdAt || right.updatedAt) ||
+        compareJobNumberAscending(left, right)
+      );
+    case 'allocate': {
+      const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
+      const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
+      const leftRank = leftDisplayStatus === 'ALLOCATE' ? 0 : 1;
+      const rightRank = rightDisplayStatus === 'ALLOCATE' ? 0 : 1;
+      return compareNumbers(leftRank, rightRank) || fallbackJobSort(left, right);
     }
-  });
+    case 'film_order': {
+      const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
+      const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
+      const leftRank = leftDisplayStatus === 'FILM_ORDER' ? 0 : 1;
+      const rightRank = rightDisplayStatus === 'FILM_ORDER' ? 0 : 1;
+      return compareNumbers(leftRank, rightRank) || fallbackJobSort(left, right);
+    }
+    case 'install_date':
+    default:
+      return fallbackJobSort(left, right);
+  }
+}
+
+export function sortJobs(entries: JobListEntry[], sort: JobSortOption) {
+  return entries.slice().sort((left, right) => compareJobsBySort(left, right, sort));
+}
+
+export function sortSearchedJobs(entries: JobListEntry[], query: string, sort: JobSortOption) {
+  return rankJobNumberSearchCandidates(entries, query, {
+    compareWithinMatch: (left: JobListEntry, right: JobListEntry) =>
+      compareJobsBySort(left, right, sort)
+  }) as JobListEntry[];
 }

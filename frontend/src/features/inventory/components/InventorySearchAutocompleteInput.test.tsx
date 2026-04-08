@@ -6,19 +6,16 @@ import { InventorySearchAutocompleteInput } from './InventorySearchAutocompleteI
 
 const suggestions = [
   {
-    boxId: 'IL1-6727',
-    manufacturer: 'SOLYX',
+    suggestionKey: 'frosted stripes sxc-1418',
     filmName: 'Frosted Stripes SXC-1418'
   },
   {
-    boxId: 'IL1-6854',
-    manufacturer: 'SOLYX',
-    filmName: 'Frosted Stripes SXC-1418'
-  },
-  {
-    boxId: 'IL1-6901',
-    manufacturer: 'SOLYX',
+    suggestionKey: 'sx-1418 frosted',
     filmName: 'SX-1418 Frosted'
+  },
+  {
+    suggestionKey: 'sx-1418 privacy',
+    filmName: 'SX-1418 Privacy'
   }
 ];
 
@@ -27,7 +24,7 @@ afterEach(() => {
 });
 
 describe('InventorySearchAutocompleteInput', () => {
-  it('renders the provided top-three suggestions and supports keyboard selection', () => {
+  it('renders the provided top-three film suggestions and supports keyboard selection', () => {
     const onChange = vi.fn();
 
     render(
@@ -45,11 +42,8 @@ describe('InventorySearchAutocompleteInput', () => {
     const options = screen.getAllByRole('option');
     expect(options).toHaveLength(3);
     expect(options[0].textContent).toContain('Frosted Stripes SXC-1418');
-    expect(options[1].textContent).toContain('Frosted Stripes SXC-1418');
-    expect(options[2].textContent).toContain('SX-1418 Frosted');
-    expect(options[0].textContent).toContain('IL1-6727');
-    expect(options[1].textContent).toContain('IL1-6854');
-    expect(options[2].textContent).toContain('IL1-6901');
+    expect(options[1].textContent).toContain('SX-1418 Frosted');
+    expect(options[2].textContent).toContain('SX-1418 Privacy');
 
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(screen.getAllByRole('option')[0].getAttribute('aria-selected')).toBe('true');
@@ -58,7 +52,7 @@ describe('InventorySearchAutocompleteInput', () => {
     expect(screen.getAllByRole('option')[1].getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onChange).toHaveBeenLastCalledWith('IL1-6854');
+    expect(onChange).toHaveBeenLastCalledWith('SX-1418 Frosted');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
@@ -81,6 +75,6 @@ describe('InventorySearchAutocompleteInput', () => {
 
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.mouseDown(screen.getAllByRole('option')[0]);
-    expect(onChange).toHaveBeenLastCalledWith('IL1-6727');
+    expect(onChange).toHaveBeenLastCalledWith('Frosted Stripes SXC-1418');
   });
 });

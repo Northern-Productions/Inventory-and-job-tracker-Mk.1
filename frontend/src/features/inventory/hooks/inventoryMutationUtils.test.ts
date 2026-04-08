@@ -1689,6 +1689,85 @@ describe('inventoryMutationUtils', () => {
     ]);
   });
 
+  it('treats an explicit requirement-bound RN07 family allocation as authoritative coverage for that requirement', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-base',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requiredFeet: 15,
+        allocatedFeet: 10,
+        remainingFeet: 5
+      }
+    ]);
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, withCoveredFeetEntries([
+      {
+        allocationId: 'alloc-rn07-base',
+        boxId: 'IL1-6769',
+        warehouse: 'IL1',
+        jobNumber: '17170',
+        jobDate: '2026-04-15',
+        crewLeader: 'Danny',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        requirementId: 'req-base',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-07T16:00:00Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      },
+      {
+        allocationId: 'alloc-rn07-desc',
+        boxId: 'IL1-6915',
+        warehouse: 'IL1',
+        jobNumber: '17170',
+        jobDate: '2026-04-15',
+        crewLeader: 'Danny',
+        allocatedFeet: 5,
+        coveredFeet: 5,
+        requirementId: 'req-base',
+        allocationKind: 'REQUIREMENT',
+        status: 'ACTIVE',
+        createdAt: '2026-04-07T16:00:05Z',
+        createdBy: 'tester',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ]));
+
+    expect(nextDetail.summary.allocatedFeet).toBe(15);
+    expect(nextDetail.summary.remainingFeet).toBe(0);
+    expect(nextDetail.requirements).toEqual([
+      {
+        requirementId: 'req-base',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requiredFeet: 15,
+        allocatedFeet: 15,
+        remainingFeet: 0
+      }
+    ]);
+  });
+
   it('keeps 18959-style wider-box requirement coverage at 32 allocated and 2 remaining instead of the old 12/22 undercount', () => {
     const detail = {
       summary: {

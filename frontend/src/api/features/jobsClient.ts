@@ -41,7 +41,8 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],
     caulkAllocations: detail.caulkAllocations || [],
-    caulkCheckouts: detail.caulkCheckouts || []
+    caulkCheckouts: detail.caulkCheckouts || [],
+    filmTransferAlerts: detail.filmTransferAlerts || []
   };
 }
 

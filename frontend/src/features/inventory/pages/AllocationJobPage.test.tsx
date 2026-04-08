@@ -28,6 +28,7 @@ const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
 const useCreateFilmOrderMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
+const useAllocationPreviewMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
@@ -62,6 +63,7 @@ vi.mock('../../../api/features/caulkClient', () => ({
 
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJob: () => useJobMock(),
+  useAllocationPreview: () => useAllocationPreviewMock(),
   useUpdateJob: () => useUpdateJobMock(),
   useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
   useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),
@@ -257,6 +259,13 @@ describe('AllocationJobPage', () => {
     });
     useAllocateBoxMock.mockReturnValue(buildMutationState());
     useCreateFilmOrderMock.mockReturnValue(buildMutationState());
+    useAllocationPreviewMock.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null
+    });
     useFilmCatalogMock.mockReturnValue({
       data: [],
       isLoading: false,
@@ -476,6 +485,41 @@ describe('AllocationJobPage', () => {
     expect(closedHtml).toContain('Closed jobs keep the saved pickup state for history.');
     expect(closedHtml).not.toContain('Mark Staged for Pickup');
     expect(closedHtml).not.toContain('Checkout All');
+  });
+
+  it('renders film transfer alerts and replaces direct checkout with transfer guidance', () => {
+    const detail = buildMaterialJobDetail({
+      summary: buildSummary({
+        warehouse: 'MS1',
+        status: 'ALLOCATE',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
+      }) as JobDetail['summary'],
+      filmTransferAlerts: [
+        {
+          boxId: 'IL1-100',
+          sourceWarehouse: 'IL1',
+          destinationWarehouse: 'MS1',
+          state: 'NEEDS_TRANSFER'
+        }
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Film Transfer Alerts');
+    expect(html).toContain('Cross-warehouse film still needs movement');
+    expect(html).toContain('Needs Transfer');
+    expect(html).toContain('Send this box from IL1 to MS1.');
+    expect(html).not.toContain('>Check Out</button>');
   });
 
   it('renders a labor-only pickup display without staging actions when no materials are required', () => {
