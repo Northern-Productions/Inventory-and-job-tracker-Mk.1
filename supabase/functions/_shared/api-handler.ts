@@ -52,12 +52,22 @@ const filmNameAliasCache = new Map<string, {
   expiresAt: number;
   aliases: Record<string, string>;
 }>();
+const BOX_TRANSFER_QUERY_BATCH_SIZE = 100;
 
 function asTrimmedString(value: unknown): string {
   if (value === null || value === undefined) {
     return "";
   }
   return String(value).trim();
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const normalizedSize = Number.isFinite(size) && size > 0 ? Math.floor(size) : values.length || 1;
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += normalizedSize) {
+    chunks.push(values.slice(index, index + normalizedSize));
+  }
+  return chunks;
 }
 
 function requireString(value: unknown, fieldName: string): string {
@@ -629,6 +639,29 @@ function normalizeCanonicalManufacturerAndFilm(
   };
 }
 
+function normalizeCatalogWriteManufacturerAndFilm(
+  manufacturer: unknown,
+  filmName: unknown,
+): { manufacturer: string; filmName: string } {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const solarNormalized = normalize3MSolarNightVisionManufacturerAndFilm(
+    normalizedManufacturer,
+    normalizedFilmName,
+  );
+  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+    solarNormalized.manufacturer,
+    solarNormalized.filmName,
+  );
+  return {
+    manufacturer: solarNormalized.manufacturer,
+    filmName: normalizeAveryNaturaShadeFilmName(
+      solarNormalized.manufacturer,
+      prefixPolicyNormalizedFilmName,
+    ),
+  };
+}
+
 function normalizeCatalogManufacturerLookupKey(value: unknown): string {
   return normalizeCatalogLookupKey(canonicalizeManufacturerLabel(value));
 }
@@ -639,6 +672,16 @@ function buildFilmKey(manufacturer: unknown, filmName: unknown): string {
 
 function normalizeFilmKeyInput(manufacturer: unknown, filmName: unknown, filmKeyInput: unknown): string {
   const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
+  void filmKeyInput;
+  return buildFilmKey(normalized.manufacturer, normalized.filmName);
+}
+
+function normalizeCatalogWriteFilmKeyInput(
+  manufacturer: unknown,
+  filmName: unknown,
+  filmKeyInput: unknown,
+): string {
+  const normalized = normalizeCatalogWriteManufacturerAndFilm(manufacturer, filmName);
   void filmKeyInput;
   return buildFilmKey(normalized.manufacturer, normalized.filmName);
 }
@@ -1391,6 +1434,19 @@ async function resolveCanonicalFilmEntry(
   return normalizeCanonicalManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
 }
 
+async function resolveCatalogWriteFilmEntry(
+  client: any,
+  orgId: string,
+  manufacturer: unknown,
+  filmName: unknown,
+): Promise<{ manufacturer: string; filmName: string }> {
+  // Preserve explicit normalized labels on direct box/catalog writes.
+  // Alias resolution is still used for requirement/order matching, but box edits
+  // must be able to introduce a new canonical descriptive label instead of
+  // collapsing it back to an older alias target.
+  return normalizeCatalogWriteManufacturerAndFilm(manufacturer, filmName);
+}
+
 const inventoryRepositories = createInventoryRepositories({
   rpcOrThrow,
   asTrimmedString,
@@ -1653,17 +1709,35 @@ async function listPendingBoxTransfersByBoxRecordIds(client: any, orgId: string,
   }
 
   const serviceClient = requireServiceRoleClient();
-  const { data, error } = await serviceClient
-    .schema("app")
-    .from("box_transfers")
-    .select("*")
-    .eq("org_id", orgId)
-    .eq("status", "PENDING")
-    .in("box_record_id", normalizedIds)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false });
-  throwOnSupabaseError(error, "Unable to load pending transfers");
-  return (Array.isArray(data) ? data : []).map(mapDbBoxTransferRow);
+  const rows: any[] = [];
+
+  for (const batchIds of chunkValues(normalizedIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("box_transfers")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("status", "PENDING")
+      .in("box_record_id", batchIds)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    throwOnSupabaseError(error, "Unable to load pending transfers");
+
+    if (Array.isArray(data) && data.length > 0) {
+      rows.push(...data);
+    }
+  }
+
+  rows.sort((left, right) => {
+    const createdAtDelta = formatTimestamp(right.created_at).localeCompare(formatTimestamp(left.created_at));
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+
+    return Number(right.id || 0) - Number(left.id || 0);
+  });
+
+  return rows.map(mapDbBoxTransferRow);
 }
 
 function indexPendingBoxTransfersByBoxRecordId(transfers: any[]) {
@@ -4051,7 +4125,7 @@ async function buildFilmCatalog(client: any, orgId: string) {
   const entries = await listFilmCatalog(client, orgId);
   const dedupedByKey: Record<string, any> = {};
   for (const entry of entries) {
-    const canonical = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const canonical = normalizeCatalogWriteManufacturerAndFilm(entry.manufacturer, entry.filmName);
     const manufacturer = normalizeCollapsedCatalogLabel(canonical.manufacturer);
     const filmName = normalizeCollapsedCatalogLabel(canonical.filmName);
     const manufacturerKey = normalizeCatalogLookupKey(manufacturer);
@@ -5353,10 +5427,14 @@ async function canonicalizeMutationPayloadForRoute(
 
   if (logicalPath === "/boxes/add" || logicalPath === "/boxes/update") {
     assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");
-    const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
+    const canonical = await resolveCatalogWriteFilmEntry(client, orgId, next.manufacturer, next.filmName);
     next.manufacturer = canonical.manufacturer;
     next.filmName = canonical.filmName;
-    next.filmKey = normalizeFilmKeyInput(canonical.manufacturer, canonical.filmName, next.filmKey);
+    next.filmKey = normalizeCatalogWriteFilmKeyInput(
+      canonical.manufacturer,
+      canonical.filmName,
+      next.filmKey,
+    );
     return next;
   }
 

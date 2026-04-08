@@ -164,6 +164,21 @@ describe('getFilmNameSuggestions', () => {
     ]);
   });
 
+  it('keeps descriptive Security Madico variants available as distinct suggestions', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('Security', 'Madico Safetyshield 800'),
+      catalogEntry('Security', 'Madico Safetyshield 800 Silver 20')
+    ];
+
+    expect(getFilmNameSuggestions(entries, 'Security', 'silver').map((entry) => entry.filmName)).toEqual([
+      'Madico Safetyshield 800 Silver 20'
+    ]);
+    expect(getFilmNameSuggestions(entries, 'Security', 'safetyshield 800').map((entry) => entry.filmName)).toEqual([
+      'Madico Safetyshield 800',
+      'Madico Safetyshield 800 Silver 20'
+    ]);
+  });
+
   it('dedupes repeated manufacturer and film-name combinations using the latest entry', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('Madico', 'Graffiti Free 600 PS SR', 'OLD'),

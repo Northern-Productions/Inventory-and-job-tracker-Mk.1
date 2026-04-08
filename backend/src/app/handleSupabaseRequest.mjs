@@ -1074,8 +1074,34 @@ function normalizeCanonicalManufacturerAndFilm(manufacturer, filmName) {
   };
 }
 
+function normalizeCatalogWriteManufacturerAndFilm(manufacturer, filmName) {
+  const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
+  const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
+  const solarNormalized = normalize3MSolarNightVisionManufacturerAndFilm(
+    normalizedManufacturer,
+    normalizedFilmName
+  );
+  const prefixPolicyNormalizedFilmName = normalizeManufacturerPrefixPolicyFilmName(
+    solarNormalized.manufacturer,
+    solarNormalized.filmName
+  );
+  return {
+    manufacturer: solarNormalized.manufacturer,
+    filmName: normalizeAveryNaturaShadeFilmName(
+      solarNormalized.manufacturer,
+      prefixPolicyNormalizedFilmName
+    )
+  };
+}
+
 function normalizeFilmKeyInput(manufacturer, filmName, filmKeyInput) {
   const normalized = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
+  void filmKeyInput;
+  return buildFilmKey(normalized.manufacturer, normalized.filmName);
+}
+
+function normalizeCatalogWriteFilmKeyInput(manufacturer, filmName, filmKeyInput) {
+  const normalized = normalizeCatalogWriteManufacturerAndFilm(manufacturer, filmName);
   void filmKeyInput;
   return buildFilmKey(normalized.manufacturer, normalized.filmName);
 }
@@ -1136,6 +1162,14 @@ async function resolveCanonicalFilmEntry(client, orgId, manufacturer, filmName) 
     normalized.filmName
   );
   return normalizeCanonicalManufacturerAndFilm(normalized.manufacturer, aliasResolvedFilmName);
+}
+
+async function resolveCatalogWriteFilmEntry(client, orgId, manufacturer, filmName) {
+  // Preserve explicit normalized labels on direct box/catalog writes.
+  // Alias resolution is still used for requirement/order matching, but box edits
+  // must be able to introduce a new canonical descriptive label instead of
+  // collapsing it back to an older alias target.
+  return normalizeCatalogWriteManufacturerAndFilm(manufacturer, filmName);
 }
 
 function dedupeNormalizedJobRequirements(requirements) {
@@ -1788,6 +1822,7 @@ function mapDbCaulkJobAllocationRow(row) {
   return {
     caulkAllocationId: asTrimmedString(row.caulk_allocation_id),
     requirementId: asTrimmedString(row.requirement_id),
+    jobNumber: asTrimmedString(row.job_number),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
     manufacturer: asTrimmedString(row.manufacturer),
@@ -3041,10 +3076,10 @@ async function findBoxById(client, orgId, boxId) {
 }
 
 async function saveBoxRecord(client, orgId, box) {
-  const canonical = await resolveCanonicalFilmEntry(client, orgId, box.manufacturer, box.filmName);
+  const canonical = await resolveCatalogWriteFilmEntry(client, orgId, box.manufacturer, box.filmName);
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
-  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, box.filmKey);
+  const filmKey = normalizeCatalogWriteFilmKeyInput(manufacturer, filmName, box.filmKey);
   const row = await queryRow(
     client,
     `
@@ -3385,9 +3420,14 @@ async function findFilmCatalogByFilmKey(client, orgId, filmKey) {
 }
 
 async function seedFilmCatalogRecordIfMissing(client, orgId, record) {
-  const normalizedFilmKey = asTrimmedString(record.filmKey).toUpperCase();
-  const normalizedManufacturer = canonicalizeManufacturerLabel(record.manufacturer);
-  const normalizedFilmName = normalizeCollapsedCatalogLabel(record.filmName);
+  const normalized = normalizeCatalogWriteManufacturerAndFilm(record.manufacturer, record.filmName);
+  const normalizedManufacturer = normalized.manufacturer;
+  const normalizedFilmName = normalized.filmName;
+  const normalizedFilmKey = normalizeCatalogWriteFilmKeyInput(
+    normalizedManufacturer,
+    normalizedFilmName,
+    record.filmKey
+  );
   const normalizedSourceBoxId = asTrimmedString(record.sourceBoxId);
 
   if (!normalizedFilmKey || !normalizedManufacturer || !normalizedFilmName) {
@@ -3413,10 +3453,10 @@ async function seedFilmCatalogRecordIfMissing(client, orgId, record) {
 }
 
 async function upsertFilmCatalogRecord(client, orgId, record) {
-  const canonical = await resolveCanonicalFilmEntry(client, orgId, record.manufacturer, record.filmName);
+  const canonical = await resolveCatalogWriteFilmEntry(client, orgId, record.manufacturer, record.filmName);
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
-  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, record.filmKey);
+  const filmKey = normalizeCatalogWriteFilmKeyInput(manufacturer, filmName, record.filmKey);
   const row = await queryRow(
     client,
     `
@@ -8021,7 +8061,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
   const sourceFilmName = requireString(payload.filmName, 'FilmName');
   assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
-  const canonical = await resolveCanonicalFilmEntry(
+  const canonical = await resolveCatalogWriteFilmEntry(
     client,
     orgId,
     sourceManufacturer,
@@ -8039,7 +8079,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   const hasSubmittedLastWeighedDate = Object.prototype.hasOwnProperty.call(payload, 'lastWeighedDate');
   const hasSubmittedCoreType = Object.prototype.hasOwnProperty.call(payload, 'coreType');
   const hasSubmittedCurrentFeetOnRoll = Object.prototype.hasOwnProperty.call(payload, 'currentFeetOnRoll');
-  const filmKey = normalizeFilmKeyInput(manufacturer, filmName, payload.filmKey);
+  const filmKey = normalizeCatalogWriteFilmKeyInput(manufacturer, filmName, payload.filmKey);
   const initialWeightInput = coerceOptionalNonNegativeNumber(payload.initialWeightLbs, 'InitialWeightLbs');
   const lastRollWeightInput = coerceOptionalNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const lastWeighedDateInput = normalizeDateString(payload.lastWeighedDate, 'LastWeighedDate', true);
@@ -9697,6 +9737,13 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
   }
+
+  await seedFilmCatalogRecordIfMissing(client, orgId, {
+    filmKey: updatedBox.filmKey,
+    manufacturer: updatedBox.manufacturer,
+    filmName: updatedBox.filmName,
+    sourceBoxId: updatedBox.boxId
+  });
 
   const publicBefore = toPublicBox(existing);
   const publicAfter = toPublicBox(updatedBox);
@@ -11422,7 +11469,7 @@ async function buildFilmCatalog(client, orgId) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const normalized = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
+    const normalized = normalizeCatalogWriteManufacturerAndFilm(entry.manufacturer, entry.filmName);
     const manufacturer = normalized.manufacturer;
     const filmName = normalized.filmName;
     const manufacturerKey = normalizeCatalogManufacturerLookupKey(manufacturer);
@@ -11433,7 +11480,7 @@ async function buildFilmCatalog(client, orgId) {
     }
 
     dedupedByKey[`${manufacturerKey}|${filmNameKey}`] = {
-      filmKey: asTrimmedString(entry.filmKey).toUpperCase(),
+      filmKey: buildFilmKey(manufacturer, filmName),
       manufacturer,
       filmName,
       updatedAt: asTrimmedString(entry.updatedAt)

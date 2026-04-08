@@ -136,6 +136,30 @@ describe('BoxForm', () => {
     expect(lastRollWeightInput.value).toBe('');
   });
 
+  it('keeps initial feet editable separately in received edit mode', () => {
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-initial-feet"
+        mode="edit"
+        preserveInitialFeetInEdit
+        submitLabel="Save Changes"
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const initialFeetInput = screen.getByLabelText('Initial Linear Feet') as HTMLInputElement;
+    const currentFeetInput = screen.getByLabelText('Current Linear Feet') as HTMLInputElement;
+
+    expect(initialFeetInput.value).toBe('100');
+    expect(currentFeetInput.value).toBe('50');
+
+    fireEvent.change(initialFeetInput, { target: { value: '125' } });
+
+    expect(initialFeetInput.value).toBe('125');
+    expect(currentFeetInput.value).toBe('50');
+  });
+
   it('auto-fills current feet from roll weight until the feet field is manually edited', () => {
     render(
       <BoxForm
