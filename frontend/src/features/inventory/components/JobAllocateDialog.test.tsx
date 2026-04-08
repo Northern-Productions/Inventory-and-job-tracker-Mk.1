@@ -190,7 +190,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('searches with manufacturer plus q and ranks exact RN07-family boxes ahead of descriptive variants', async () => {
+  it('searches with manufacturer plus q and lets the user manually choose RN07-family boxes', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
       payload?.boxId === 'IL1-RN07'
         ? buildPreviewState({
@@ -360,15 +360,29 @@ describe('JobAllocateDialog', () => {
     expect(rows[2].textContent || '').toContain('RN 07 Refl. One Way Mirror');
 
     const checkboxes = within(table).getAllByRole('checkbox');
-    await waitFor(() => {
-      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
-      expect((checkboxes[1] as HTMLInputElement).checked).toBe(true);
-      expect((checkboxes[2] as HTMLInputElement).checked).toBe(false);
-    });
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
+    expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+    expect((checkboxes[2] as HTMLInputElement).checked).toBe(false);
     const statGrid = document.querySelector('.allocation-stat-grid');
     expect(statGrid).not.toBeNull();
-    expect(statGrid?.textContent || '').toMatch(/Covered\s*15/i);
-    expect(statGrid?.textContent || '').toMatch(/Still Short\s*0/i);
+    expect(statGrid?.textContent || '').toMatch(/Covered\s*0/i);
+    expect(statGrid?.textContent || '').toMatch(/Still Short\s*15/i);
+
+    fireEvent.click(checkboxes[0]);
+
+    await waitFor(() => {
+      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*10/i);
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*5/i);
+    });
+
+    fireEvent.click(checkboxes[1]);
+
+    await waitFor(() => {
+      expect((checkboxes[1] as HTMLInputElement).checked).toBe(true);
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i);
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*0/i);
+    });
 
     const firstRowCells = within(rows[0]).getAllByRole('cell');
     const secondRowCells = within(rows[1]).getAllByRole('cell');
@@ -380,7 +394,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('switches to a broader-matched source box only after the live preview confirms that plan', async () => {
+  it('allocates from a manually selected broader-matched source box', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({
       result: {
         allocations: [
@@ -531,10 +545,10 @@ describe('JobAllocateDialog', () => {
     const rows = within(table).getAllByRole('row').slice(1);
     const checkboxes = within(table).getAllByRole('checkbox');
     expect(rows).toHaveLength(2);
-    expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
     expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
-    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*10/i);
-    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*5/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*0/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*15/i);
 
     fireEvent.click(checkboxes[1]);
 
@@ -561,7 +575,104 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('prefers same-warehouse boxes before closer cross-warehouse matches and forwards jobWarehouse to preview', async () => {
+  it('starts with no boxes selected and lets the user uncheck the only selected box', async () => {
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'MS1-487'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '17872',
+              jobDate: '',
+              crewLeader: '',
+              requestedFeet: 85,
+              requestedWidthIn: 36,
+              sourceBoxId: 'MS1-487',
+              sourceWarehouse: 'MS1',
+              sourceWidthIn: 60,
+              sourceBoxFeetAvailable: 86,
+              sourceSuggestedFeet: 85,
+              sourceSuggestedCoveredFeet: 85,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 85,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([
+      {
+        boxId: 'MS1-487',
+        warehouse: 'MS1',
+        manufacturer: 'Security',
+        filmName: '3M Ultra S800',
+        widthIn: 60,
+        initialFeet: 86,
+        feetAvailable: 86,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-01',
+        receivedDate: '2026-01-01',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      }
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17872',
+      warehouse: 'MS1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Security',
+          filmName: '3M Ultra S800',
+          widthIn: 36,
+          requiredFeet: 85,
+          allocatedFeet: 0,
+          remainingFeet: 85
+        }
+      ]
+    });
+
+    const checkbox = (await screen.findByRole('checkbox')) as HTMLInputElement;
+    const allocateButton = screen.getByRole('button', { name: 'Allocate' });
+
+    expect(checkbox.checked).toBe(false);
+    expect((allocateButton as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*0/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*85/i);
+
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(checkbox.checked).toBe(true));
+    expect((allocateButton as HTMLButtonElement).disabled).toBe(false);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*85/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*0/i);
+
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(checkbox.checked).toBe(false));
+    expect((allocateButton as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*0/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*85/i);
+
+    queryClient.clear();
+  });
+
+  it('prefers same-warehouse boxes before closer cross-warehouse matches and only previews after manual selection', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
       payload?.boxId === 'IL1-6915'
         ? buildPreviewState({
@@ -675,6 +786,12 @@ describe('JobAllocateDialog', () => {
     expect(rows[0].textContent || '').toContain('IL1-6915');
     expect(rows[1].textContent || '').toContain('MS1-127');
 
+    const checkboxes = within(table).getAllByRole('checkbox');
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
+    expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(checkboxes[0]);
+
     await waitFor(() =>
       expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -684,14 +801,13 @@ describe('JobAllocateDialog', () => {
       )
     );
 
-    const checkboxes = within(table).getAllByRole('checkbox');
     expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
     expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
 
     queryClient.clear();
   });
 
-  it('lets a suggestion row become the source after a deliberate source switch', async () => {
+  it('lets the user reassign the source by unchecking the current box after selecting another one', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) => {
       if (payload?.boxId === 'MS1-127') {
         return buildPreviewState({
@@ -839,10 +955,27 @@ describe('JobAllocateDialog', () => {
     let checkboxes = within(table).getAllByRole('checkbox');
     expect(rows[0].textContent || '').toContain('MS1-127');
     expect(rows[1].textContent || '').toContain('IL1-6915');
-    expect((checkboxes[0] as HTMLInputElement).checked).toBe(true);
+    expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
     expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
 
+    fireEvent.click(checkboxes[0]);
+
+    await waitFor(() => {
+      const refreshedCheckboxes = within(table).getAllByRole('checkbox');
+      expect((refreshedCheckboxes[0] as HTMLInputElement).checked).toBe(true);
+      expect((refreshedCheckboxes[1] as HTMLInputElement).checked).toBe(false);
+    });
+
     fireEvent.click(checkboxes[1]);
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          boxId: 'MS1-127',
+          jobWarehouse: 'MS1'
+        })
+      )
+    );
 
     await waitFor(() => {
       const refreshedCheckboxes = within(table).getAllByRole('checkbox');
@@ -850,16 +983,7 @@ describe('JobAllocateDialog', () => {
       expect((refreshedCheckboxes[1] as HTMLInputElement).checked).toBe(true);
     });
 
-    fireEvent.click(rows[1]);
-
-    await waitFor(() =>
-      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          boxId: 'IL1-6915',
-          jobWarehouse: 'MS1'
-        })
-      )
-    );
+    fireEvent.click(checkboxes[0]);
 
     rows = within(table).getAllByRole('row').slice(1);
     checkboxes = within(table).getAllByRole('checkbox');
@@ -871,6 +995,15 @@ describe('JobAllocateDialog', () => {
     const secondRowCells = within(rows[1]).getAllByRole('cell');
     expect(secondRowCells[6].textContent || '').toBe('5');
     expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*5/i);
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-6915',
+          jobWarehouse: 'MS1'
+        })
+      )
+    );
 
     queryClient.clear();
   });

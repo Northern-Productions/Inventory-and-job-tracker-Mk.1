@@ -13,6 +13,7 @@ export const inventoryKeys = {
   root: ['inventory'] as const,
   listRoot: ['inventory', 'list'] as const,
   list: (params: SearchBoxesParams) => ['inventory', 'list', params] as const,
+  searchRoot: ['inventory', 'search'] as const,
   boxRoot: ['inventory', 'box'] as const,
   box: (boxId: string) => ['inventory', 'box', boxId] as const,
   boxTransferRoot: ['inventory', 'box-transfer'] as const,

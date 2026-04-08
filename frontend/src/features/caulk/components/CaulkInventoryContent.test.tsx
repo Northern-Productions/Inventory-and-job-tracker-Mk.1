@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { CaulkInventoryContent } from './CaulkInventoryContent';
 
 const useWarehouseRegistryMock = vi.fn();
@@ -57,9 +58,11 @@ function renderCaulkInventory() {
   queryClient.setQueryData(['caulk', 'stock', 'ALL', '', ''], sampleStockRows);
 
   const html = renderToStaticMarkup(
-    <QueryClientProvider client={queryClient}>
-      <CaulkInventoryContent />
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <CaulkInventoryContent />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 
   queryClient.clear();
@@ -103,5 +106,12 @@ describe('CaulkInventoryContent', () => {
     ]);
     expect(html).not.toContain('<th>Code</th>');
     expect(html).not.toContain('<th>CODE</th>');
+  });
+
+  it('renders the warehouse prefix as a details link', () => {
+    const html = renderCaulkInventory();
+
+    expect(html).toContain('href="/caulk/IL1/p1"');
+    expect(html).toContain('>IL1</a>');
   });
 });

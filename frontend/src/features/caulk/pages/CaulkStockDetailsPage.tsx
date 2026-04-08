@@ -1,0 +1,361 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Button } from '../../../components/Button';
+import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
+import { Input, TextArea } from '../../../components/Input';
+import { useToast } from '../../../components/Toast';
+import {
+  listCaulkStock,
+  listCaulkTransactions,
+  mutateCaulkStock
+} from '../../../api/features/caulkClient';
+import type { Warehouse } from '../../../domain';
+import { useAuth } from '../../auth/AuthContext';
+import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
+import {
+  normalizeWholeNumberInput,
+  toFullCasesFromTubes,
+  toLooseTubesFromTubes,
+  toTubesFromCasesAndLoose
+} from '../utils/stockMath';
+
+function formatDateLabel(value: string) {
+  const parsed = new Date(value);
+  if (!value || Number.isNaN(parsed.getTime())) {
+    return '--';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(parsed);
+}
+
+export default function CaulkStockDetailsPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const auth = useAuth();
+  const warehouseRegistry = useWarehouseRegistry();
+  const { warehouse: rawWarehouse = '', productId: rawProductId = '' } = useParams();
+  const warehouse = String(rawWarehouse || '').trim() as Warehouse;
+  const productId = String(rawProductId || '').trim();
+  const [casesInput, setCasesInput] = useState('');
+  const [looseTubesInput, setLooseTubesInput] = useState('');
+  const [notes, setNotes] = useState('');
+  const [formError, setFormError] = useState('');
+
+  const stockQuery = useQuery({
+    queryKey: ['caulk', 'stock', 'detail', warehouse, productId],
+    queryFn: () => listCaulkStock({ warehouse, productId }),
+    enabled: Boolean(warehouse && productId)
+  });
+  const transactionsQuery = useQuery({
+    queryKey: ['caulk', 'transactions', warehouse, productId, 50],
+    queryFn: () => listCaulkTransactions({ warehouse, productId, limit: 50 }),
+    enabled: Boolean(warehouse && productId)
+  });
+  const stockEntry = (stockQuery.data || [])[0] || null;
+  const tubesPerCase = stockEntry?.tubesPerCase || 16;
+  const warehouseLabel =
+    warehouseRegistry.entries.find((entry) => entry.code === warehouse)?.name || warehouse;
+  const canEdit = auth.hasFeatureAccess('inventory', 'write');
+
+  useEffect(() => {
+    if (!stockEntry) {
+      return;
+    }
+
+    setCasesInput(String(toFullCasesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)));
+    setLooseTubesInput(String(toLooseTubesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)));
+  }, [stockEntry?.productId, stockEntry?.tubesOnHand, stockEntry?.tubesPerCase, stockEntry?.warehouse]);
+
+  const desiredTotalResult = useMemo(() => {
+    const normalizedCases = normalizeWholeNumberInput(casesInput);
+    if (normalizedCases.error) {
+      return { desiredTotal: 0, error: normalizedCases.error };
+    }
+
+    const normalizedLooseTubes = normalizeWholeNumberInput(looseTubesInput);
+    if (normalizedLooseTubes.error) {
+      return { desiredTotal: 0, error: normalizedLooseTubes.error };
+    }
+
+    if (normalizedLooseTubes.value >= tubesPerCase) {
+      return {
+        desiredTotal: 0,
+        error: `Loose tubes must be less than ${tubesPerCase} for this product.`
+      };
+    }
+
+    return {
+      desiredTotal: toTubesFromCasesAndLoose(
+        normalizedCases.value,
+        normalizedLooseTubes.value,
+        tubesPerCase
+      ),
+      error: ''
+    };
+  }, [casesInput, looseTubesInput, tubesPerCase]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!stockEntry) {
+        throw new Error('Caulk stock details are not available yet.');
+      }
+
+      if (desiredTotalResult.error) {
+        throw new Error(desiredTotalResult.error);
+      }
+
+      const deltaTubes = desiredTotalResult.desiredTotal - stockEntry.tubesOnHand;
+      if (deltaTubes === 0) {
+        return null;
+      }
+
+      return mutateCaulkStock({
+        action: 'ADJUST',
+        productId: stockEntry.productId,
+        warehouse: stockEntry.warehouse,
+        deltaTubes,
+        reason: 'Inventory edit',
+        notes: notes.trim()
+      });
+    },
+    onSuccess: async (result) => {
+      if (!stockEntry) {
+        return;
+      }
+
+      if (!result) {
+        toast.push({
+          title: 'No changes to save',
+          description: 'The caulk counts already match the values you entered.',
+          variant: 'warning'
+        });
+        return;
+      }
+
+      setNotes('');
+      setFormError('');
+      setCasesInput(String(toFullCasesFromTubes(result.tubesOnHand, result.tubesPerCase)));
+      setLooseTubesInput(String(toLooseTubesFromTubes(result.tubesOnHand, result.tubesPerCase)));
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions', stockEntry.warehouse, stockEntry.productId] })
+      ]);
+
+      toast.push({
+        title: 'Caulk inventory updated',
+        description: `${result.productName} now has ${result.tubesOnHand} tubes available in ${result.warehouse}.`,
+        variant: 'success'
+      });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'The caulk inventory could not be updated.';
+      setFormError(message);
+      toast.push({
+        title: 'Unable to save caulk inventory',
+        description: message,
+        variant: 'error'
+      });
+    }
+  });
+
+  function handleSave() {
+    setFormError('');
+    void saveMutation.mutateAsync();
+  }
+
+  return (
+    <>
+      <section className="panel">
+        <div className="panel-title-row">
+          <div>
+            <span className="eyebrow">Consumables</span>
+            <h2>Caulk Details</h2>
+            <p className="muted-text">
+              Review and edit the caulk inventory counts for this warehouse and product.
+            </p>
+          </div>
+          <div className="detail-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => navigate(`/?inventoryView=caulk&warehouse=${encodeURIComponent(warehouse)}`)}
+            >
+              Back
+            </Button>
+          </div>
+        </div>
+
+        {!warehouse || !productId ? (
+          <p className="error-text">The caulk detail route is missing a warehouse or product identifier.</p>
+        ) : null}
+        {stockQuery.isError ? (
+          <p className="error-text">
+            {stockQuery.error instanceof Error ? stockQuery.error.message : 'Caulk stock details failed to load.'}
+          </p>
+        ) : null}
+        <DeferredLoadingState
+          when={stockQuery.isLoading && !stockEntry}
+          label="Loading caulk stock details..."
+        />
+
+        {stockEntry ? (
+          <>
+            <div className="stat-grid allocation-stat-grid">
+              <div className="key-value">
+                <dt>Warehouse</dt>
+                <dd>{warehouseLabel}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Manufacturer</dt>
+                <dd>{stockEntry.manufacturer}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Product</dt>
+                <dd>{stockEntry.productName}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Product Code</dt>
+                <dd>{stockEntry.productCode || '--'}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Tubes / Case</dt>
+                <dd>{stockEntry.tubesPerCase}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Tubes Available</dt>
+                <dd>{stockEntry.tubesOnHand}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Full Cases</dt>
+                <dd>{toFullCasesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Loose Tubes</dt>
+                <dd>{toLooseTubesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Updated</dt>
+                <dd>{formatDateLabel(stockEntry.updatedAt)}</dd>
+              </div>
+              <div className="key-value">
+                <dt>Updated By</dt>
+                <dd>{stockEntry.updatedBy || '--'}</dd>
+              </div>
+            </div>
+
+            <div className="panel-title-row">
+              <div>
+                <h2>Edit Inventory</h2>
+                <p className="muted-text">
+                  Set the exact number of full cases and loose tubes currently on hand.
+                </p>
+              </div>
+            </div>
+            <div className="form-grid">
+              <Input
+                label="Cases Available"
+                inputMode="numeric"
+                value={casesInput}
+                onChange={(event) => setCasesInput(event.target.value.replace(/[^0-9]/g, ''))}
+                disabled={!canEdit || saveMutation.isPending}
+                error={formError && !casesInput.trim() ? 'Enter a value greater than or equal to zero.' : ''}
+              />
+              <Input
+                label="Loose Tubes Available"
+                inputMode="numeric"
+                value={looseTubesInput}
+                onChange={(event) => setLooseTubesInput(event.target.value.replace(/[^0-9]/g, ''))}
+                hint={`Use 0 to ${Math.max(0, tubesPerCase - 1)} loose tubes.`}
+                disabled={!canEdit || saveMutation.isPending}
+              />
+            </div>
+            <TextArea
+              label="Adjustment Notes"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={3}
+              disabled={!canEdit || saveMutation.isPending}
+              hint="Optional notes for the inventory adjustment history."
+            />
+            {desiredTotalResult.error ? <p className="error-text">{desiredTotalResult.error}</p> : null}
+            {formError && !desiredTotalResult.error ? <p className="error-text">{formError}</p> : null}
+            {!canEdit ? <p className="muted-text">You have read-only access to caulk inventory.</p> : null}
+            <div className="detail-actions">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleSave}
+                disabled={!canEdit || !stockEntry || Boolean(desiredTotalResult.error)}
+                loading={saveMutation.isPending}
+                loadingLabel="Saving..."
+              >
+                Save Changes
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2>Recent Transactions</h2>
+          <span className="muted-text">{(transactionsQuery.data || []).length} entries</span>
+        </div>
+        {transactionsQuery.isError ? (
+          <p className="error-text">
+            {transactionsQuery.error instanceof Error
+              ? transactionsQuery.error.message
+              : 'Caulk transaction history failed to load.'}
+          </p>
+        ) : null}
+        <DeferredLoadingState
+          when={transactionsQuery.isLoading && !transactionsQuery.data}
+          label="Loading caulk transactions..."
+        />
+        {!transactionsQuery.isLoading ? (
+          <div className="table-wrap">
+            <table className="inventory-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Delta Tubes</th>
+                  <th>Resulting Tubes</th>
+                  <th>Reason</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(transactionsQuery.data || []).length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="muted-text">
+                      No transaction history has been recorded for this caulk stock yet.
+                    </td>
+                  </tr>
+                ) : (
+                  (transactionsQuery.data || []).map((entry) => (
+                    <tr key={entry.transactionId}>
+                      <td>{entry.action}</td>
+                      <td>{entry.deltaTubes}</td>
+                      <td>{entry.resultingTubesOnHand}</td>
+                      <td>{entry.reason || '--'}</td>
+                      <td>{formatDateLabel(entry.createdAt)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    </>
+  );
+}

@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { Input } from '../../../components/Input';
@@ -8,13 +9,7 @@ import {
   listCaulkStock
 } from '../../../api/features/caulkClient';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
-
-const CAULK_TUBES_PER_CASE = 16;
-
-function toFullCasesFromTubes(totalTubes: number) {
-  const normalized = Number.isFinite(totalTubes) ? Math.max(0, Math.trunc(totalTubes)) : 0;
-  return Math.floor(normalized / CAULK_TUBES_PER_CASE);
-}
+import { toFullCasesFromTubes } from '../utils/stockMath';
 
 interface CaulkInventoryContentProps {
   headerActions?: ReactNode;
@@ -134,11 +129,18 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
                 ) : (
                   stockRows.map((entry) => (
                     <tr key={`${entry.warehouse}:${entry.productId}`}>
-                      <td>{entry.warehouse}</td>
+                      <td>
+                        <Link
+                          className="caulk-stock-warehouse-link"
+                          to={`/caulk/${encodeURIComponent(entry.warehouse)}/${encodeURIComponent(entry.productId)}`}
+                        >
+                          {entry.warehouse}
+                        </Link>
+                      </td>
                       <td>{entry.manufacturer}</td>
                       <td>{entry.productName}</td>
                       <td>{entry.tubesOnHand}</td>
-                      <td>{toFullCasesFromTubes(entry.tubesOnHand)}</td>
+                      <td>{toFullCasesFromTubes(entry.tubesOnHand, entry.tubesPerCase)}</td>
                     </tr>
                   ))
                 )}

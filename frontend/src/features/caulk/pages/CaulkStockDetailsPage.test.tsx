@@ -1,0 +1,179 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import CaulkStockDetailsPage from './CaulkStockDetailsPage';
+
+const toastPushMock = vi.fn();
+const listCaulkStockMock = vi.fn();
+const listCaulkTransactionsMock = vi.fn();
+const mutateCaulkStockMock = vi.fn();
+
+vi.mock('../../../components/Toast', () => ({
+  useToast: () => ({ push: toastPushMock })
+}));
+
+vi.mock('../../../api/features/caulkClient', () => ({
+  listCaulkStock: (params: unknown) => listCaulkStockMock(params),
+  listCaulkTransactions: (params: unknown) => listCaulkTransactionsMock(params),
+  mutateCaulkStock: (payload: unknown) => mutateCaulkStockMock(payload)
+}));
+
+vi.mock('../../auth/AuthContext', () => ({
+  useAuth: () => ({
+    hasFeatureAccess: () => true
+  })
+}));
+
+vi.mock('../../inventory/hooks/useWarehouseRegistry', () => ({
+  useWarehouseRegistry: () => ({
+    entries: [{ code: 'IL1', name: 'Wauconda IL1' }]
+  })
+}));
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity
+      }
+    }
+  });
+}
+
+function renderPage() {
+  const queryClient = createQueryClient();
+  const view = render(
+    <MemoryRouter initialEntries={['/caulk/IL1/p1']}>
+      <QueryClientProvider client={queryClient}>
+        <Routes>
+          <Route path="/caulk/:warehouse/:productId" element={<CaulkStockDetailsPage />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+
+  return {
+    ...view,
+    queryClient
+  };
+}
+
+describe('CaulkStockDetailsPage', () => {
+  beforeEach(() => {
+    toastPushMock.mockReset();
+    listCaulkStockMock.mockReset();
+    listCaulkTransactionsMock.mockReset();
+    mutateCaulkStockMock.mockReset();
+
+    listCaulkStockMock.mockResolvedValue([
+      {
+        warehouse: 'IL1',
+        productId: 'p1',
+        manufacturerId: 'm1',
+        manufacturer: '3M',
+        productName: '3M IPA White',
+        productCode: 'IPA-W',
+        tubesPerCase: 16,
+        tubesOnHand: 33,
+        casesOnHand: 2,
+        looseTubes: 1,
+        updatedAt: '2026-04-08T12:00:00Z',
+        updatedBy: 'tester'
+      }
+    ]);
+    listCaulkTransactionsMock.mockResolvedValue([
+      {
+        transactionId: 'tx-1',
+        productId: 'p1',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        productName: '3M IPA White',
+        productCode: 'IPA-W',
+        action: 'ADJUST',
+        deltaTubes: 2,
+        resultingTubesOnHand: 33,
+        tubesPerCase: 16,
+        reason: 'Inventory edit',
+        notes: '',
+        transferId: '',
+        sourceBoxId: '',
+        createdAt: '2026-04-08T12:00:00Z',
+        createdBy: 'tester'
+      }
+    ]);
+    mutateCaulkStockMock.mockResolvedValue({
+      transactionId: 'tx-2',
+      productId: 'p1',
+      manufacturer: '3M',
+      productName: '3M IPA White',
+      productCode: 'IPA-W',
+      warehouse: 'IL1',
+      action: 'ADJUST',
+      deltaTubes: 16,
+      tubesPerCase: 16,
+      tubesBefore: 33,
+      tubesOnHand: 49,
+      casesOnHand: 3,
+      looseTubes: 1
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('loads the stock row and transaction history', async () => {
+    const { queryClient } = renderPage();
+
+    expect(await screen.findByText('Caulk Details')).toBeTruthy();
+    expect(await screen.findByText('3M IPA White')).toBeTruthy();
+    expect(await screen.findByText('Recent Transactions')).toBeTruthy();
+    expect(await screen.findByText('Inventory edit')).toBeTruthy();
+
+    queryClient.clear();
+  });
+
+  it('saves an adjusted tube delta from cases and loose tube edits', async () => {
+    const { queryClient } = renderPage();
+
+    const casesInput = await screen.findByLabelText('Cases Available');
+    const looseInput = screen.getByLabelText(/Loose Tubes Available/i);
+    fireEvent.change(casesInput, { target: { value: '3' } });
+    fireEvent.change(looseInput, { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() =>
+      expect(mutateCaulkStockMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ADJUST',
+          warehouse: 'IL1',
+          productId: 'p1',
+          deltaTubes: 16
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('does not call the mutation when the inventory counts are unchanged', async () => {
+    const { queryClient } = renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'No changes to save',
+          variant: 'warning'
+        })
+      )
+    );
+    expect(mutateCaulkStockMock).not.toHaveBeenCalled();
+
+    queryClient.clear();
+  });
+});

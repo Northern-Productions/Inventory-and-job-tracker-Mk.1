@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
-import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
 import { searchBoxes } from '../../../api/features/inventoryClient';
 import { useAuth } from '../../auth/AuthContext';
-import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
 import type { AllocationPreview, FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
@@ -16,7 +14,15 @@ import {
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
 import { prioritizeCandidateBoxes } from '../utils/jobAllocationSelection';
-import { canJobPlanningFilmSatisfyRequirement } from '../utils/jobPlanningFilmIdentity';
+import { ActionBar } from './job-allocate-dialog/ActionBar';
+import { AllocationPlanTable } from './job-allocate-dialog/AllocationPlanTable';
+import { RequirementFields } from './job-allocate-dialog/RequirementFields';
+import { StatusMessages } from './job-allocate-dialog/StatusMessages';
+import {
+  buildSelectionSummary,
+  collectPreferredLinkedBoxIds,
+  previewMatchesPayload
+} from './job-allocate-dialog/helpers';
 
 interface JobAllocateDialogProps {
   open: boolean;
@@ -27,132 +33,6 @@ interface JobAllocateDialogProps {
   requirements: JobRequirementLine[];
   filmOrders: FilmOrderEntry[];
   onCancel: () => void;
-}
-
-function collectPreferredLinkedBoxIds(
-  requirement: JobRequirementLine | null,
-  filmOrders: FilmOrderEntry[]
-) {
-  if (!requirement) {
-    return new Set<string>();
-  }
-  const preferred = new Set<string>();
-
-  for (let index = 0; index < filmOrders.length; index += 1) {
-    const order = filmOrders[index];
-    if (order.status === 'CANCELLED') {
-      continue;
-    }
-
-    if (
-      !canJobPlanningFilmSatisfyRequirement(
-        order.manufacturer,
-        order.filmName,
-        requirement.manufacturer,
-        requirement.filmName
-      )
-    ) {
-      continue;
-    }
-
-    if (order.widthIn < requirement.widthIn) {
-      continue;
-    }
-
-    for (let linkIndex = 0; linkIndex < order.linkedBoxes.length; linkIndex += 1) {
-      const boxId = String(order.linkedBoxes[linkIndex].boxId || '').trim();
-      if (boxId) {
-        preferred.add(boxId);
-      }
-    }
-  }
-
-  return preferred;
-}
-
-function formatPlannedFeet(allocatedFeet: number, coveredFeet: number) {
-  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
-    return `${allocatedFeet} physical / ${coveredFeet} covered`;
-  }
-
-  return String(allocatedFeet);
-}
-
-function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBoxIds: string[]) {
-  const selected = new Set(selectedSuggestionBoxIds);
-  const allocations: Array<{ boxId: string; allocatedFeet: number; coveredFeet: number }> = [];
-  let remaining = preview.requestedFeet;
-
-  if (preview.sourceSuggestedFeet > 0) {
-    const sourcePlan = planCoverageAllocation(
-      remaining,
-      preview.sourceSuggestedFeet,
-      preview.sourceWidthIn,
-      preview.requestedWidthIn
-    );
-    allocations.push({
-      boxId: preview.sourceBoxId,
-      allocatedFeet: sourcePlan.allocatedFeet,
-      coveredFeet: sourcePlan.coveredFeet
-    });
-    remaining = sourcePlan.remainingCoveredFeet;
-  }
-
-  for (let index = 0; index < preview.suggestions.length; index += 1) {
-    const suggestion = preview.suggestions[index];
-    if (!selected.has(suggestion.boxId) || remaining <= 0) {
-      continue;
-    }
-
-    const nextPlan = planCoverageAllocation(
-      remaining,
-      suggestion.availableFeet,
-      suggestion.widthIn,
-      preview.requestedWidthIn
-    );
-    allocations.push({
-      boxId: suggestion.boxId,
-      allocatedFeet: nextPlan.allocatedFeet,
-      coveredFeet: nextPlan.coveredFeet
-    });
-    remaining = nextPlan.remainingCoveredFeet;
-  }
-
-  return {
-    allocations,
-    coveredFeet: preview.requestedFeet - remaining,
-    remainingFeet: remaining
-  };
-}
-
-function previewMatchesPayload(
-  preview: AllocationPreview | null | undefined,
-  payload:
-    | {
-        boxId: string;
-        jobNumber: string;
-        jobDate: string;
-        crewLeader: string;
-        requestedFeet: number;
-        requestedWidthIn: number;
-        requirementId: string;
-        crossWarehouse: boolean;
-        jobWarehouse: Warehouse;
-      }
-    | null
-) {
-  if (!preview || !payload) {
-    return false;
-  }
-
-  return (
-    preview.sourceBoxId === payload.boxId &&
-    preview.jobNumber === payload.jobNumber &&
-    String(preview.jobDate || '') === String(payload.jobDate || '') &&
-    String(preview.crewLeader || '') === String(payload.crewLeader || '') &&
-    preview.requestedFeet === payload.requestedFeet &&
-    preview.requestedWidthIn === payload.requestedWidthIn
-  );
 }
 
 export function JobAllocateDialog({
@@ -171,11 +51,9 @@ export function JobAllocateDialog({
   const createFilmOrderMutation = useCreateFilmOrder();
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [requestedFeet, setRequestedFeet] = useState('');
-  const [selectedSourceBoxId, setSelectedSourceBoxId] = useState('');
-  const [selectedSuggestionBoxIds, setSelectedSuggestionBoxIds] = useState<string[]>([]);
+  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
-  const autoSelectionKeyRef = useRef('');
   const allocatableRequirements = useMemo(
     () => requirements.filter((entry) => entry.remainingFeet > 0),
     [requirements]
@@ -247,11 +125,10 @@ export function JobAllocateDialog({
 
     return Math.floor(parsed);
   }, [requestedFeet]);
+  const selectedSourceBoxId = selectedBoxIds[0] || '';
+  const selectedSuggestionBoxIds = selectedBoxIds.slice(1);
   const selectedSourceBox = useMemo(
-    () =>
-      prioritizedMatchingBoxes.find((box) => box.boxId === selectedSourceBoxId) ||
-      prioritizedMatchingBoxes[0] ||
-      null,
+    () => prioritizedMatchingBoxes.find((box) => box.boxId === selectedSourceBoxId) || null,
     [prioritizedMatchingBoxes, selectedSourceBoxId]
   );
   const previewPayload = useMemo(
@@ -324,11 +201,9 @@ export function JobAllocateDialog({
     if (!open) {
       setSelectedRequirementId('');
       setRequestedFeet('');
-      setSelectedSourceBoxId('');
-      setSelectedSuggestionBoxIds([]);
+      setSelectedBoxIds([]);
       setError('');
       setCompletedRequirementIds([]);
-      autoSelectionKeyRef.current = '';
       return;
     }
 
@@ -348,15 +223,12 @@ export function JobAllocateDialog({
   useEffect(() => {
     if (!selectedRequirement) {
       setRequestedFeet('');
-      setSelectedSourceBoxId('');
-      setSelectedSuggestionBoxIds([]);
+      setSelectedBoxIds([]);
       return;
     }
 
     setRequestedFeet(String(Math.max(selectedRequirement.remainingFeet, 0)));
-    setSelectedSourceBoxId('');
-    setSelectedSuggestionBoxIds([]);
-    autoSelectionKeyRef.current = '';
+    setSelectedBoxIds([]);
     setError('');
   }, [selectedRequirement?.requirementId]);
 
@@ -376,76 +248,24 @@ export function JobAllocateDialog({
 
     setSelectedRequirementId(nextRequirement.requirementId);
     setRequestedFeet(String(Math.max(nextRequirement.remainingFeet, 0)));
-    setSelectedSourceBoxId('');
-    setSelectedSuggestionBoxIds([]);
-    autoSelectionKeyRef.current = '';
+    setSelectedBoxIds([]);
     setError('');
   }
-
-  useEffect(() => {
-    if (!open || !selectedRequirement || requestedFeetValue <= 0 || !selectedSourceBox) {
-      return;
-    }
-
-    const nextKey = activePreview
-      ? `${selectedRequirement.requirementId}|${requestedFeetValue}|${activePreview.sourceBoxId}|${activePreview.suggestions
-          .map(
-            (suggestion) =>
-              `${suggestion.boxId}:${suggestion.availableFeet}:${suggestion.suggestedFeet}:${suggestion.suggestedCoveredFeet}`
-          )
-          .join('|')}`
-      : `${selectedRequirement.requirementId}|${requestedFeetValue}|${selectedSourceBox.boxId}`;
-    if (autoSelectionKeyRef.current === nextKey) {
-      return;
-    }
-
-    autoSelectionKeyRef.current = nextKey;
-    if (activePreview) {
-      setSelectedSourceBoxId(activePreview.sourceBoxId);
-      setSelectedSuggestionBoxIds(
-        activePreview.suggestions
-          .filter((suggestion) => suggestion.suggestedCoveredFeet > 0)
-          .map((suggestion) => suggestion.boxId)
-      );
-      return;
-    }
-
-    setSelectedSourceBoxId(selectedSourceBox.boxId);
-    setSelectedSuggestionBoxIds([]);
-  }, [activePreview, open, requestedFeetValue, selectedRequirement, selectedSourceBox]);
 
   if (!open) {
     return null;
   }
 
-  function promoteSourceBox(boxId: string) {
-    if (!boxId || boxId === selectedSourceBox?.boxId) {
-      return;
-    }
-
-    autoSelectionKeyRef.current = '';
-    setSelectedSourceBoxId(boxId);
-    setSelectedSuggestionBoxIds([]);
-    setError('');
-  }
-
   function toggleBox(boxId: string) {
-    if (boxId === selectedSourceBox?.boxId) {
+    const normalizedBoxId = String(boxId || '').trim();
+    if (!normalizedBoxId) {
       return;
     }
 
-    const isSelectableSuggestion =
-      activePreview &&
-      boxId !== activePreview.sourceBoxId &&
-      previewSuggestionBoxIdSet.has(boxId);
-
-    if (!isSelectableSuggestion) {
-      promoteSourceBox(boxId);
-      return;
-    }
-
-    setSelectedSuggestionBoxIds((current) =>
-      current.includes(boxId) ? current.filter((value) => value !== boxId) : [...current, boxId]
+    setSelectedBoxIds((current) =>
+      current.includes(normalizedBoxId)
+        ? current.filter((value) => value !== normalizedBoxId)
+        : [...current, normalizedBoxId]
     );
     setError('');
   }
@@ -596,152 +416,55 @@ export function JobAllocateDialog({
           </button>
         </div>
 
-        <div className="form-grid">
-          <label className="field">
-            <span className="field-label">Requirement</span>
-            <select
-              className="field-input"
-              value={selectedRequirementId}
-              onChange={(event) => setSelectedRequirementId(event.target.value)}
-            >
-              {allocatableRequirements.map((entry) => (
-                <option key={entry.requirementId} value={entry.requirementId}>
-                  {entry.manufacturer} {entry.filmName} {entry.widthIn}" ({entry.remainingFeet} LF remaining)
-                </option>
-              ))}
-            </select>
-          </label>
-          <Input
-            label="Requested LF"
-            value={requestedFeet}
-            inputMode="numeric"
-            pattern="[0-9]*"
-            onChange={(event) => {
-              setRequestedFeet(event.target.value.replace(/[^0-9]/g, ''));
-              setSelectedSourceBoxId('');
-              setSelectedSuggestionBoxIds([]);
-              autoSelectionKeyRef.current = '';
-              setError('');
-            }}
-          />
-        </div>
+        <RequirementFields
+          allocatableRequirements={allocatableRequirements}
+          selectedRequirementId={selectedRequirementId}
+          requestedFeet={requestedFeet}
+          onRequirementChange={setSelectedRequirementId}
+          onRequestedFeetChange={(nextRequestedFeet) => {
+            setRequestedFeet(nextRequestedFeet.replace(/[^0-9]/g, ''));
+            setSelectedBoxIds([]);
+            setError('');
+          }}
+        />
 
-        {isMatchingBoxesLoading ? <p className="muted-text">Loading compatible boxes...</p> : null}
-        {!isMatchingBoxesLoading && isAllocationPreviewLoading ? (
-          <p className="muted-text">Loading the live allocation plan...</p>
-        ) : null}
-        {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxes.length ? (
-          <p className="muted-text">
-            No compatible boxes were found for this requirement (matching film family, width at or above
-            requested). Create a film-order alert instead.
-          </p>
-        ) : null}
-        {dueDate.trim() && !crewLeader.trim() ? (
-          <p className="error-text">CrewLeader is required when JobDate is set.</p>
-        ) : null}
-        {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxes.length ? (
-          <p className="muted-text">
-            Boxes linked to this job's film orders are prioritized and auto-selected first.
-          </p>
-        ) : null}
-        {!isMatchingBoxesLoading && previewQuery.isError && !activePreview ? (
-          <p className="error-text">
-            {previewQuery.error instanceof Error
-              ? previewQuery.error.message
-              : 'Unable to load the live allocation plan.'}
-          </p>
-        ) : null}
-
-        {error ? <p className="error-text">{error}</p> : null}
+        <StatusMessages
+          selectedRequirement={selectedRequirement}
+          isMatchingBoxesLoading={isMatchingBoxesLoading}
+          isAllocationPreviewLoading={isAllocationPreviewLoading}
+          prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
+          selectedBoxCount={selectedBoxIds.length}
+          hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
+          dueDate={dueDate}
+          crewLeader={crewLeader}
+          previewError={previewQuery.isError && previewQuery.error instanceof Error ? previewQuery.error : null}
+          activePreviewLoaded={Boolean(activePreview)}
+          error={error}
+        />
 
         {!isMatchingBoxesLoading && prioritizedMatchingBoxes.length ? (
-          <div className="allocation-preview">
-            <div className="stat-grid allocation-stat-grid">
-              <div className="key-value">
-                <dt>Requested</dt>
-                <dd>{requestedFeetValue}</dd>
-              </div>
-              <div className="key-value">
-                <dt>Covered</dt>
-                <dd>{plannedSelection.coveredFeet}</dd>
-              </div>
-              <div className="key-value">
-                <dt>Still Short</dt>
-                <dd>{plannedSelection.remainingFeet}</dd>
-              </div>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Use</th>
-                    <th>Box</th>
-                    <th>Manufacturer</th>
-                    <th>Film Name</th>
-                    <th>Width</th>
-                    <th>Avail LF</th>
-                    <th>Planned LF</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prioritizedMatchingBoxes.map((box) => (
-                    <tr
-                      key={box.boxId}
-                      className={box.boxId === selectedSourceBox?.boxId ? 'allocation-source-row' : undefined}
-                      onClick={() => promoteSourceBox(box.boxId)}
-                    >
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={
-                            box.boxId === selectedSourceBox?.boxId ||
-                            selectedPreviewSuggestionBoxIds.includes(box.boxId)
-                          }
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={() => toggleBox(box.boxId)}
-                        />
-                      </td>
-                      <td>{box.boxId}</td>
-                      <td>{box.manufacturer}</td>
-                      <td>{box.filmName}</td>
-                      <td>{box.widthIn}</td>
-                      <td>{box.feetAvailable}</td>
-                      <td>
-                        {plannedFeetByBox.has(box.boxId)
-                          ? formatPlannedFeet(
-                              plannedFeetByBox.get(box.boxId)?.allocatedFeet || 0,
-                              plannedFeetByBox.get(box.boxId)?.coveredFeet || 0
-                            )
-                          : '0'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <AllocationPlanTable
+            boxes={prioritizedMatchingBoxes}
+            requestedFeetValue={requestedFeetValue}
+            coveredFeet={plannedSelection.coveredFeet}
+            remainingFeet={plannedSelection.remainingFeet}
+            selectedBoxIds={selectedBoxIds}
+            plannedFeetByBox={plannedFeetByBox}
+            onToggleBox={toggleBox}
+          />
         ) : null}
 
-        <div className="dialog-actions dialog-actions-sticky-footer">
-          <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            onClick={isOrderFilmMode ? () => void handleOrderFilm() : () => void handleAllocate()}
-            disabled={isMatchingBoxesLoading || isAllocationPreviewLoading || isSubmitting}
-          >
-            {isOrderFilmMode
-              ? createFilmOrderMutation.isPending
-                ? 'Ordering...'
-                : 'Order Film'
-              : allocateMutation.isPending
-                ? 'Saving...'
-                : 'Allocate'}
-          </Button>
-        </div>
+        <ActionBar
+          isSubmitting={isSubmitting}
+          isOrderFilmMode={isOrderFilmMode}
+          isMatchingBoxesLoading={isMatchingBoxesLoading}
+          isAllocationPreviewLoading={isAllocationPreviewLoading}
+          isAllocatePending={allocateMutation.isPending}
+          isCreateFilmOrderPending={createFilmOrderMutation.isPending}
+          canSubmit={isOrderFilmMode || selectedBoxIds.length > 0}
+          onCancel={onCancel}
+          onSubmit={isOrderFilmMode ? () => void handleOrderFilm() : () => void handleAllocate()}
+        />
     </DialogSurface>
   );
 }

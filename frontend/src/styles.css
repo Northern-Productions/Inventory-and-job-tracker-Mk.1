@@ -2550,6 +2550,7 @@ td.col-available-linear-ft {
   background: rgba(19, 96, 100, 0.05);
 }
 
+.dialog-job-allocate .allocation-preview tbody tr.allocation-selected-row,
 .dialog-job-allocate .allocation-preview tbody tr.allocation-source-row {
   background: rgba(19, 96, 100, 0.08);
 }
@@ -2971,6 +2972,23 @@ td.col-available-linear-ft {
 
 .film-orders-job-link:hover,
 .film-orders-job-link:focus-visible {
+  color: #154c9d;
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.caulk-stock-warehouse-link {
+  color: #1d62c4;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(29, 98, 196, 0.34);
+  text-underline-offset: 0.12em;
+  transition:
+    text-decoration-color 120ms ease;
+}
+
+.caulk-stock-warehouse-link:hover,
+.caulk-stock-warehouse-link:focus-visible {
   color: #154c9d;
   text-decoration-color: currentColor;
   outline: none;
