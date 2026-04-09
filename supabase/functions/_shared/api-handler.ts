@@ -1384,22 +1384,24 @@ async function listInternalBoxRecordIdsByBoxId(orgId: string, boxIds: string[]) 
   }
 
   const serviceClient = requireServiceRoleClient();
-  const { data, error } = await serviceClient
-    .schema("app")
-    .from("boxes")
-    .select("id, box_id")
-    .eq("org_id", orgId)
-    .in("box_id", normalizedBoxIds);
-  throwOnSupabaseError(error, "Unable to load internal box identities");
-
   const idsByBoxId: Record<string, string> = {};
-  for (const row of Array.isArray(data) ? data : []) {
-    const boxId = asTrimmedString((row as Record<string, unknown>).box_id).toUpperCase();
-    const internalId = asTrimmedString((row as Record<string, unknown>).id);
-    if (!boxId || !internalId) {
-      continue;
+  for (const batchIds of chunkValues(normalizedBoxIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("id, box_id")
+      .eq("org_id", orgId)
+      .in("box_id", batchIds);
+    throwOnSupabaseError(error, "Unable to load internal box identities");
+
+    for (const row of Array.isArray(data) ? data : []) {
+      const boxId = asTrimmedString((row as Record<string, unknown>).box_id).toUpperCase();
+      const internalId = asTrimmedString((row as Record<string, unknown>).id);
+      if (!boxId || !internalId) {
+        continue;
+      }
+      idsByBoxId[boxId] = internalId;
     }
-    idsByBoxId[boxId] = internalId;
   }
   return idsByBoxId;
 }
