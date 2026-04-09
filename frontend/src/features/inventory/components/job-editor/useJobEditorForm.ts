@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CaulkProductEntry,
   FilmCatalogEntry,
@@ -61,6 +61,7 @@ export function useJobEditorForm({
 }: UseJobEditorFormOptions) {
   const warehouseRegistry = useWarehouseRegistry();
   const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
+  const resetTargetKey = mode === 'edit' ? `edit:${initialJobNumber}` : 'create';
   const manufacturerOptions = useMemo(
     () => getManufacturerOptionsWithCatalog(filmCatalogEntries),
     [filmCatalogEntries]
@@ -105,6 +106,9 @@ export function useJobEditorForm({
   const [error, setError] = useState('');
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
+  const wasOpenRef = useRef(false);
+  const lastResetTargetKeyRef = useRef('');
+  const previousManufacturerOptionsLengthRef = useRef(0);
 
   const hasCustomWidth =
     widthIn.trim() !== '' &&
@@ -114,11 +118,7 @@ export function useJobEditorForm({
     Number.isFinite(Number(customWidthDraft)) &&
     Number(customWidthDraft) > 0;
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
+  const initializeFormState = useCallback(() => {
     setJobNumber(initialJobNumber);
     setWarehouse(initialWarehouse || defaultWarehouse);
     setSections(getSectionsInputValue(initialSections));
@@ -145,15 +145,45 @@ export function useJobEditorForm({
     initialSections,
     initialWarehouse,
     manufacturerOptions,
-    open,
     preferredCaulkProductId
   ]);
 
   useEffect(() => {
-    if (!caulkProductId && caulkProductOptions.length > 0) {
+    const becameOpen = open && !wasOpenRef.current;
+    const targetChangedWhileOpen =
+      open &&
+      wasOpenRef.current &&
+      lastResetTargetKeyRef.current !== resetTargetKey;
+
+    if (becameOpen || targetChangedWhileOpen) {
+      initializeFormState();
+      lastResetTargetKeyRef.current = resetTargetKey;
+    } else if (!open) {
+      lastResetTargetKeyRef.current = '';
+    }
+
+    wasOpenRef.current = open;
+  }, [initializeFormState, open, resetTargetKey]);
+
+  useEffect(() => {
+    if (open && !warehouse && defaultWarehouse) {
+      setWarehouse(defaultWarehouse);
+    }
+  }, [defaultWarehouse, open, warehouse]);
+
+  useEffect(() => {
+    const hadManufacturerOptions = previousManufacturerOptionsLengthRef.current > 0;
+    if (open && !manufacturer && manufacturerOptions.length > 0 && !hadManufacturerOptions) {
+      setManufacturer(manufacturerOptions[0]);
+    }
+    previousManufacturerOptionsLengthRef.current = manufacturerOptions.length;
+  }, [manufacturer, manufacturerOptions, open]);
+
+  useEffect(() => {
+    if (open && !caulkProductId && caulkProductOptions.length > 0) {
       setCaulkProductId(preferredCaulkProductId || caulkProductOptions[0].value);
     }
-  }, [caulkProductId, caulkProductOptions, preferredCaulkProductId]);
+  }, [caulkProductId, caulkProductOptions, open, preferredCaulkProductId]);
 
   function clearError() {
     setError('');

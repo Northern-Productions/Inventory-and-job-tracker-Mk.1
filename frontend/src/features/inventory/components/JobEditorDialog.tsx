@@ -10,6 +10,10 @@ import type {
   JobEditorSubmitPayload,
   JobRequirementEditorLine
 } from './job-editor/types';
+import {
+  EMPTY_CAULK_REQUIREMENT_LINES,
+  EMPTY_REQUIREMENT_LINES
+} from './job-editor/helpers';
 import { useJobEditorForm } from './job-editor/useJobEditorForm';
 
 export type {
@@ -52,8 +56,8 @@ export function JobEditorDialog({
   initialSections = null,
   initialDueDate = '',
   initialCrewLeader = '',
-  initialRequirements = [],
-  initialCaulkRequirements = [],
+  initialRequirements = EMPTY_REQUIREMENT_LINES,
+  initialCaulkRequirements = EMPTY_CAULK_REQUIREMENT_LINES,
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
