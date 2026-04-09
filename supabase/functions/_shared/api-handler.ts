@@ -1848,9 +1848,9 @@ async function saveBoxTransferRecord(client: any, orgId: string, transfer: Recor
     created_at: asTrimmedString(transfer.createdAt) || new Date().toISOString(),
     created_by: asTrimmedString(transfer.createdBy),
     received_at: asTrimmedString(transfer.receivedAt) || null,
-    received_by: asTrimmedString(transfer.receivedBy) || null,
+    received_by: asTrimmedString(transfer.receivedBy),
     cancelled_at: asTrimmedString(transfer.cancelledAt) || null,
-    cancelled_by: asTrimmedString(transfer.cancelledBy) || null,
+    cancelled_by: asTrimmedString(transfer.cancelledBy),
     updated_at: asTrimmedString(transfer.updatedAt) || new Date().toISOString(),
     updated_by: asTrimmedString(transfer.updatedBy || transfer.createdBy),
   };
