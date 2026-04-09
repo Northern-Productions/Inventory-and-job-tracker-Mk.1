@@ -54,6 +54,37 @@ function formatFieldList(fieldLabels: string[]) {
   return `${fieldLabels.slice(0, -1).join(', ')}, and ${fieldLabels[fieldLabels.length - 1]}`;
 }
 
+function asTrimmedString(value: unknown) {
+  return String(value ?? '').trim();
+}
+
+function isExplicitZeroNumber(value: unknown) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  const rawValue = asTrimmedString(value);
+  if (!rawValue) {
+    return false;
+  }
+
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue <= 0;
+}
+
+function hasExplicitLinearFeetZeroSignal(payload: UpdateBoxPayload) {
+  const hasSubmittedCurrentFeetOnRoll = Object.prototype.hasOwnProperty.call(
+    payload,
+    'currentFeetOnRoll'
+  );
+
+  if (hasSubmittedCurrentFeetOnRoll) {
+    return isExplicitZeroNumber(payload.currentFeetOnRoll);
+  }
+
+  return isExplicitZeroNumber(payload.feetAvailable);
+}
+
 export function getIncompleteBoxHistoryFieldsForZeroedEdit(
   currentBox: Box | null | undefined,
   payload: UpdateBoxPayload
@@ -71,22 +102,19 @@ export function getZeroedInventoryEditTrigger(
     return null;
   }
 
-  if (
-    currentBox &&
-    currentBox.initialFeet > 0 &&
-    Boolean(currentBox.receivedDate) &&
-    payload.initialFeet === 0
-  ) {
-    return 'linearFeet';
-  }
-
-  if (payload.lastRollWeightLbs !== 0) {
+  if (!Boolean(payload.receivedDate || currentBox?.receivedDate)) {
     return null;
   }
 
-  return getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload).length > 0
-    ? 'lastRollWeight'
-    : null;
+  if (hasExplicitLinearFeetZeroSignal(payload)) {
+    return 'linearFeet';
+  }
+
+  if (!isExplicitZeroNumber(payload.lastRollWeightLbs)) {
+    return null;
+  }
+
+  return 'lastRollWeight';
 }
 
 export function shouldPromptZeroedInventoryWarningOnEdit(
@@ -107,7 +135,7 @@ export function buildZeroedInventoryPayloadForEdit(
       initialFeet: currentBox?.initialFeet ?? payload.initialFeet,
       feetAvailable: 0,
       moveToZeroed: true,
-      auditNote: 'Confirmed zero Linear Feet edit save'
+      auditNote: 'Confirmed zero Current Linear Feet edit save'
     };
   }
 
@@ -144,13 +172,11 @@ export function buildZeroedInventoryWarningMessage(
   trigger: ZeroedInventoryEditTrigger = 'lastRollWeight'
 ) {
   const missingFieldsText = formatFieldList(fieldLabels);
-  const historySentence = missingFieldsText
-    ? `This box is missing ${missingFieldsText}.`
-    : 'This box has incomplete history.';
+  const historySentence = missingFieldsText ? `This box is missing ${missingFieldsText}. ` : '';
 
   if (trigger === 'linearFeet') {
-    return `${historySentence} If you continue, saving Linear Feet as 0 will move the box to zeroed inventory, preserve its original starting footage for history, set Available Feet to 0, and cancel any active allocations tied to this box.`;
+    return `${historySentence}Saving Current Linear Feet as 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and cancel any active allocations tied to this box.`;
   }
 
-  return `${historySentence} If you continue, saving a Last Roll Weight of 0 will move the box to zeroed inventory, set Available Feet to 0, and cancel any active allocations tied to this box.`;
+  return `${historySentence}Saving a Last Roll Weight of 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and cancel any active allocations tied to this box.`;
 }

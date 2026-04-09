@@ -51,6 +51,7 @@ function createPayload(overrides: Partial<UpdateBoxPayload> = {}): UpdateBoxPayl
     filmName: 'Ultra 70',
     widthIn: 30,
     initialFeet: 500,
+    currentFeetOnRoll: 420,
     feetAvailable: 420,
     lotRun: 'LR-1',
     orderDate: '2026-03-20',
@@ -70,7 +71,15 @@ function createPayload(overrides: Partial<UpdateBoxPayload> = {}): UpdateBoxPayl
 }
 
 describe('boxZeroedTransition', () => {
-  it('prompts when Last Roll Weight is 0 and any required history field is missing', () => {
+  it('prompts when Last Roll Weight is 0, even if the box history is complete', () => {
+    const currentBox = createBox();
+    const payload = createPayload();
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBe('lastRollWeight');
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
+  });
+
+  it('still reports missing history fields when Last Roll Weight is 0 and the box history is incomplete', () => {
     const currentBox = createBox({ receivedDate: '' });
     const payload = createPayload();
 
@@ -79,9 +88,13 @@ describe('boxZeroedTransition', () => {
     expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain('Received Date');
   });
 
-  it('prompts when a received box is edited to 0 linear feet and preserves the original starting footage', () => {
+  it('prompts when a received box is edited to 0 current linear feet and preserves the original starting footage', () => {
     const currentBox = createBox({ initialFeet: 500, feetAvailable: 420 });
-    const payload = createPayload({ initialFeet: 0, feetAvailable: 420, lastRollWeightLbs: 11.9 });
+    const payload = createPayload({
+      currentFeetOnRoll: 0,
+      feetAvailable: 0,
+      lastRollWeightLbs: 11.9
+    });
 
     expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBe('linearFeet');
     expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
@@ -89,8 +102,29 @@ describe('boxZeroedTransition', () => {
       initialFeet: 500,
       feetAvailable: 0,
       moveToZeroed: true,
-      auditNote: 'Confirmed zero Linear Feet edit save'
+      auditNote: 'Confirmed zero Current Linear Feet edit save'
     });
+  });
+
+  it('does not prompt for zeroed inventory when Current Linear Feet stays above 0 but Available Feet derives to 0', () => {
+    const currentBox = createBox({ initialFeet: 500, feetAvailable: 120 });
+    const payload = createPayload({
+      currentFeetOnRoll: 120,
+      feetAvailable: 0,
+      lastRollWeightLbs: 11.9
+    });
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBeNull();
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(false);
+  });
+
+  it('falls back to Available Feet only when Current Linear Feet is not submitted', () => {
+    const currentBox = createBox({ initialFeet: 500, feetAvailable: 120 });
+    const payload = createPayload({ feetAvailable: 0, lastRollWeightLbs: 11.9 });
+    delete payload.currentFeetOnRoll;
+
+    expect(getZeroedInventoryEditTrigger(currentBox, payload)).toBe('linearFeet');
+    expect(shouldPromptZeroedInventoryWarningOnEdit(currentBox, payload)).toBe(true);
   });
 
   it('prompts zeroed boxes for reactivation when weight returns above 0 even if available feet stays 0', () => {
@@ -126,7 +160,7 @@ describe('boxZeroedTransition', () => {
     expect(shouldPromptZeroedInventoryReactivationOnEdit(currentBox, payload)).toBe(false);
   });
 
-  it('prompts when the current saved box is incomplete even if the submitted values fill the gap', () => {
+  it('reports missing history when the current saved box is incomplete even if the submitted values fill the gap', () => {
     const currentBox = createBox({ coreWeightLbs: null });
     const payload = createPayload({ coreWeightLbs: 1.2 });
 
@@ -134,7 +168,7 @@ describe('boxZeroedTransition', () => {
     expect(getIncompleteBoxHistoryFieldsForZeroedEdit(currentBox, payload)).toContain('Core Weight');
   });
 
-  it('prompts when the submitted values remain incomplete even if the current box is complete', () => {
+  it('reports missing history when the submitted values remain incomplete even if the current box is complete', () => {
     const currentBox = createBox();
     const payload = createPayload({ lastWeighedDate: '' });
 
@@ -144,7 +178,7 @@ describe('boxZeroedTransition', () => {
     );
   });
 
-  it('does not prompt for blank, null, or non-zero Last Roll Weight values', () => {
+  it('does not prompt for blank, null, or non-zero values when current linear feet also stays above 0', () => {
     const currentBox = createBox({ receivedDate: '' });
 
     expect(
@@ -155,9 +189,9 @@ describe('boxZeroedTransition', () => {
     ).toBe(false);
   });
 
-  it('does not prompt when both current and submitted history are complete, and builds the warning copy', () => {
+  it('does not prompt when the received box stays above 0 and builds the warning copy', () => {
     const currentBox = createBox();
-    const payload = createPayload();
+    const payload = createPayload({ lastRollWeightLbs: 11.9, currentFeetOnRoll: 420, feetAvailable: 420 });
     const message = buildZeroedInventoryWarningMessage(['Received Date', 'Core Weight']);
     const zeroLinearFeetMessage = buildZeroedInventoryWarningMessage([], 'linearFeet');
 
@@ -166,9 +200,9 @@ describe('boxZeroedTransition', () => {
       'Do you want to move this box back to the active IN_STOCK inventory?'
     );
     expect(message).toContain('Received Date and Core Weight');
-    expect(message).toContain('move the box to zeroed inventory');
+    expect(message).toContain('can move this box to zeroed inventory');
     expect(message).toContain('cancel any active allocations');
-    expect(zeroLinearFeetMessage).toContain('saving Linear Feet as 0');
-    expect(zeroLinearFeetMessage).toContain('preserve its original starting footage');
+    expect(zeroLinearFeetMessage).toContain('Saving Current Linear Feet as 0');
+    expect(zeroLinearFeetMessage).toContain('Choose Keep Active');
   });
 });

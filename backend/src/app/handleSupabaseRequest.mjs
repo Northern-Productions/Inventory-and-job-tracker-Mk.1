@@ -500,12 +500,12 @@ function hasIncompleteBoxHistoryForZeroedEdit(box) {
   );
 }
 
-function hasExplicitZeroFeetAvailableInput(payload) {
-  if (!payload || payload.feetAvailable === undefined || payload.feetAvailable === null) {
+function hasExplicitZeroNumericInput(value) {
+  if (value === null || value === undefined) {
     return false;
   }
 
-  const rawValue = asTrimmedString(payload.feetAvailable);
+  const rawValue = asTrimmedString(value);
   if (!rawValue) {
     return false;
   }
@@ -514,13 +514,21 @@ function hasExplicitZeroFeetAvailableInput(payload) {
   return Number.isFinite(parsedValue) && parsedValue <= 0;
 }
 
-function shouldAutoMoveToZeroed(existingBox, nextBox) {
-  return (
-    Boolean(nextBox.receivedDate) &&
-    existingBox &&
-    hasPositivePhysicalFeet(existingBox) &&
-    (nextBox.feetAvailable === 0 || nextBox.lastRollWeightLbs === 0)
+function hasExplicitZeroFeetAvailableInput(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+
+  const hasSubmittedCurrentFeetOnRoll = Object.prototype.hasOwnProperty.call(
+    payload,
+    'currentFeetOnRoll'
   );
+
+  if (hasSubmittedCurrentFeetOnRoll) {
+    return hasExplicitZeroNumericInput(payload.currentFeetOnRoll);
+  }
+
+  return hasExplicitZeroNumericInput(payload.feetAvailable);
 }
 
 function determineZeroedReason(box) {
@@ -7292,10 +7300,7 @@ async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNu
   }
 
   const jobAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  if (
-    mode === 'backfill' &&
-    hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, normalizedJobNumber)
-  ) {
+  if (hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, normalizedJobNumber)) {
     return {
       created: false,
       allocatedFeet: 0,
@@ -7519,6 +7524,10 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
   const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
   const resolvedAt = new Date().toISOString();
+  const resolvedBy = asTrimmedString(user);
+  const checkoutMarkerNote = `Checked out for job ${jobNumber}.`;
+  // Keep legacy field names to avoid wider call-site churn; these counts now track
+  // same-job allocations that stay ACTIVE so checkout coverage is preserved.
   const result = {
     fulfilledCount: 0,
     fulfilledFeet: 0,
@@ -7529,11 +7538,27 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
   for (let index = 0; index < active.length; index += 1) {
     const entry = cloneValue(active[index]);
     if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
-      entry.status = 'FULFILLED';
-      entry.resolvedAt = resolvedAt;
-      entry.resolvedBy = asTrimmedString(user);
-      entry.notes = `Fulfilled by checkout for job ${jobNumber}.`;
-      await saveAllocationRecord(client, orgId, entry);
+      let shouldSave = false;
+
+      if (!entry.resolvedAt) {
+        entry.resolvedAt = resolvedAt;
+        shouldSave = true;
+      }
+
+      if (!entry.resolvedBy && resolvedBy) {
+        entry.resolvedBy = resolvedBy;
+        shouldSave = true;
+      }
+
+      if (entry.notes !== checkoutMarkerNote) {
+        entry.notes = checkoutMarkerNote;
+        shouldSave = true;
+      }
+
+      if (shouldSave) {
+        await saveAllocationRecord(client, orgId, entry);
+      }
+
       result.fulfilledCount += 1;
       result.fulfilledFeet += entry.allocatedFeet;
       continue;
@@ -7647,7 +7672,7 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
     );
     if (allocationResolution.fulfilledCount > 0) {
       warnings.push(
-        `Fulfilled ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF for job ${normalizedJobNumber}.`
+        `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${normalizedJobNumber} after checkout.`
       );
     }
 
@@ -7672,7 +7697,7 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
   );
   if (allocationResolution.fulfilledCount > 0) {
     warnings.push(
-      `Fulfilled ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF for job ${normalizedJobNumber}.`
+      `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${normalizedJobNumber} after checkout.`
     );
   }
 
@@ -7935,15 +7960,16 @@ async function cancelAllocationsForZeroedBox(client, orgId, boxId, user) {
 
 async function reactivateFulfilledAllocationsForUndo(client, orgId, boxId, jobNumber) {
   const entries = await listAllocationsByBox(client, orgId, boxId);
-  const expectedNote = `Fulfilled by checkout for job ${jobNumber}.`;
+  const checkoutMarkerNote = `Checked out for job ${jobNumber}.`;
+  const legacyCheckoutNote = `Fulfilled by checkout for job ${jobNumber}.`;
   let count = 0;
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = cloneValue(entries[index]);
     if (
-      entry.status === 'FULFILLED' &&
+      (entry.status === 'ACTIVE' || entry.status === 'FULFILLED') &&
       normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(jobNumber) &&
-      entry.notes === expectedNote
+      (entry.notes === checkoutMarkerNote || entry.notes === legacyCheckoutNote)
     ) {
       entry.status = 'ACTIVE';
       entry.resolvedAt = '';
@@ -9679,7 +9705,11 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox.feetAvailable = 0;
   }
 
-  const autoMoveToZeroed = shouldAutoMoveToZeroed(existing, updatedBox);
+  const confirmedExplicitWeightMoveToZeroed =
+    requestedMoveToZeroed &&
+    Boolean(existing.receivedDate) &&
+    hasPositivePhysicalFeet(existing) &&
+    updatedBox.lastRollWeightLbs === 0;
   const confirmedIncompleteHistoryMoveToZeroed =
     requestedMoveToZeroed &&
     updatedBox.lastRollWeightLbs === 0 &&
@@ -9687,13 +9717,14 @@ async function updateBox(client, orgId, payload, actor) {
   const moveToZeroed =
     confirmedIncompleteHistoryMoveToZeroed ||
     confirmedExplicitFeetMoveToZeroed ||
-    autoMoveToZeroed;
-  const reachedZeroState =
-    Boolean(updatedBox.receivedDate) &&
-    (updatedBox.feetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
+    confirmedExplicitWeightMoveToZeroed;
 
   if (moveToZeroed) {
-    if (!autoMoveToZeroed && !confirmedIncompleteHistoryMoveToZeroed && !confirmedExplicitFeetMoveToZeroed) {
+    if (
+      !confirmedIncompleteHistoryMoveToZeroed &&
+      !confirmedExplicitFeetMoveToZeroed &&
+      !confirmedExplicitWeightMoveToZeroed
+    ) {
       throw new HttpError(
         400,
         'Received boxes move to zeroed out inventory only after they have had Available Feet above 0 and then reach 0 Available Feet or 0 Last Roll Weight.'
@@ -9716,11 +9747,11 @@ async function updateBox(client, orgId, payload, actor) {
       );
     } else if (confirmedExplicitFeetMoveToZeroed) {
       warnings.push(
-        'Box was moved to zeroed out inventory after confirming an Available Feet value of 0 on a received box with recorded physical feet.'
+        'Box was moved to zeroed out inventory after confirming a Current Linear Feet value of 0 on a received box with recorded physical feet.'
       );
-    } else if (autoMoveToZeroed && !requestedMoveToZeroed) {
+    } else if (confirmedExplicitWeightMoveToZeroed) {
       warnings.push(
-        'Box was automatically moved to zeroed out inventory because Available Feet or Last Roll Weight reached 0.'
+        'Box was moved to zeroed out inventory after confirming a Last Roll Weight value of 0 on a received box with recorded physical feet.'
       );
     }
 
@@ -9730,10 +9761,6 @@ async function updateBox(client, orgId, payload, actor) {
       );
     }
   } else {
-    if (reachedZeroState && !hasPositivePhysicalFeet(existing)) {
-      warnings.push('Box stayed in active inventory because it has not had Available Feet above 0 yet.');
-    }
-
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
   }
@@ -9857,7 +9884,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     );
     if (allocationResolution.fulfilledCount > 0) {
       warnings.push(
-        `Fulfilled ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF for job ${jobNumber}.`
+        `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${jobNumber} after checkout.`
       );
     }
 
