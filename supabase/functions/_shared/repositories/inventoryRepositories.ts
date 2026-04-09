@@ -7,6 +7,7 @@ type RepositoryDeps = {
   integerOrNull: (value: unknown) => number | null;
   formatDateValue: (value: unknown) => string;
   formatTimestamp: (value: unknown) => string;
+  listInternalBoxRecordIdsByBoxId: (orgId: string, boxIds: string[]) => Promise<Record<string, string>>;
 };
 
 export function createInventoryRepositories(deps: RepositoryDeps) {
@@ -100,6 +101,31 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       createdAt: deps.formatTimestamp(readValue("created_at", "createdAt")),
       updatedAt: deps.formatTimestamp(readValue("updated_at", "updatedAt")),
     };
+  }
+
+  async function enrichBoxesWithInternalIds(orgId: string, boxes: any[]) {
+    const missingBoxIds = Array.from(
+      new Set(
+        boxes
+          .filter((box) => !deps.asTrimmedString(box?.id))
+          .map((box) => deps.asTrimmedString(box?.boxId).toUpperCase())
+          .filter(Boolean),
+      ),
+    );
+    if (!missingBoxIds.length) {
+      return boxes;
+    }
+
+    const internalIdsByBoxId = await deps.listInternalBoxRecordIdsByBoxId(orgId, missingBoxIds);
+    return boxes.map((box) => {
+      if (!box || deps.asTrimmedString(box.id)) {
+        return box;
+      }
+
+      const normalizedBoxId = deps.asTrimmedString(box.boxId).toUpperCase();
+      const internalId = deps.asTrimmedString(internalIdsByBoxId[normalizedBoxId]);
+      return internalId ? { ...box, id: internalId } : box;
+    });
   }
 
   function toPublicBox(box: any) {
@@ -432,7 +458,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   async function listBoxes(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_boxes", { p_org_id: orgId });
-    return mapRows(rows, mapDbBoxRow);
+    return await enrichBoxesWithInternalIds(orgId, mapRows(rows, mapDbBoxRow));
   }
 
   async function findBoxById(client: any, orgId: string, boxId: string) {
@@ -440,7 +466,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_org_id: orgId,
       p_box_id: boxId,
     });
-    return mapDbBoxRow(row);
+    const boxes = await enrichBoxesWithInternalIds(orgId, mapRows([row], mapDbBoxRow));
+    return boxes[0] || null;
   }
 
   async function listFilmCatalog(client: any, orgId: string) {

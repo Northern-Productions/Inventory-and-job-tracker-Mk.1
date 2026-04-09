@@ -1,4 +1,5 @@
 // Purpose: Lightweight backend contract smoke checks for route wiring and response envelopes.
+import '../load-env.mjs';
 import { handleSupabaseRequest } from '../supabase-backend.mjs';
 
 function buildRequestUrl(path, query = {}) {
@@ -77,12 +78,16 @@ async function runCase(testCase, token) {
     );
   }
 
-  return response.statusCode;
+  return response;
 }
 
 async function main() {
   const token = String(process.env.SMOKE_AUTH_TOKEN || '').trim();
   const includeMutations = String(process.env.SMOKE_INCLUDE_MUTATIONS || '').trim().toLowerCase() === 'true';
+  const transferBoxId = String(process.env.SMOKE_TRANSFER_BOX_ID || '').trim().toUpperCase();
+  const transferDestinationWarehouse = String(process.env.SMOKE_TRANSFER_DEST_WAREHOUSE || '')
+    .trim()
+    .toUpperCase();
 
   const cases = [
     { method: 'GET', path: '/health', expectedStatuses: [200], requiresAuth: false },
@@ -209,10 +214,75 @@ async function main() {
       continue;
     }
 
-    const status = await runCase(testCase, token);
+    const response = await runCase(testCase, token);
     passed += 1;
     // eslint-disable-next-line no-console
-    console.log(`PASS ${testCase.method} ${testCase.path} -> ${status}`);
+    console.log(`PASS ${testCase.method} ${testCase.path} -> ${response.statusCode}`);
+  }
+
+  if (includeMutations) {
+    if (token && transferBoxId && transferDestinationWarehouse) {
+      const transferNote = `Smoke transfer ${new Date().toISOString()}`;
+      const startTransferResponse = await runCase(
+        {
+          method: 'POST',
+          path: '/boxes/transfer/start',
+          body: {
+            boxId: transferBoxId,
+            toWarehouse: transferDestinationWarehouse,
+            notes: transferNote
+          },
+          expectedStatuses: [200]
+        },
+        token
+      );
+      passed += 1;
+      // eslint-disable-next-line no-console
+      console.log(`PASS POST /boxes/transfer/start -> ${startTransferResponse.statusCode}`);
+
+      const transferId = String(startTransferResponse.payload?.data?.transfer?.transferId || '').trim().toUpperCase();
+      if (!transferId) {
+        throw new Error('/boxes/transfer/start: expected transferId in payload.data.transfer.transferId');
+      }
+
+      const transferLookupResponse = await runCase(
+        {
+          method: 'GET',
+          path: '/boxes/transfer/by-box',
+          query: { boxId: transferBoxId },
+          expectedStatuses: [200]
+        },
+        token
+      );
+      passed += 1;
+      const pendingTransferId = String(transferLookupResponse.payload?.data?.transferId || '').trim().toUpperCase();
+      if (pendingTransferId !== transferId) {
+        throw new Error(
+          `/boxes/transfer/by-box: expected transferId ${transferId}, received ${pendingTransferId || '<empty>'}`
+        );
+      }
+      // eslint-disable-next-line no-console
+      console.log(`PASS GET /boxes/transfer/by-box -> ${transferLookupResponse.statusCode}`);
+
+      const cancelTransferResponse = await runCase(
+        {
+          method: 'POST',
+          path: '/boxes/transfer/cancel',
+          body: { transferId },
+          expectedStatuses: [200]
+        },
+        token
+      );
+      passed += 1;
+      // eslint-disable-next-line no-console
+      console.log(`PASS POST /boxes/transfer/cancel -> ${cancelTransferResponse.statusCode}`);
+    } else {
+      skipped += 1;
+      // eslint-disable-next-line no-console
+      console.log(
+        'SKIP transfer mutation smoke (set SMOKE_AUTH_TOKEN, SMOKE_TRANSFER_BOX_ID, and SMOKE_TRANSFER_DEST_WAREHOUSE)'
+      );
+    }
   }
 
   // eslint-disable-next-line no-console

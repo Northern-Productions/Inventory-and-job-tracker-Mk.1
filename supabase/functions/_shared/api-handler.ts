@@ -1375,6 +1375,35 @@ function isFilmNameAliasRpcUnavailable(message: string): boolean {
   );
 }
 
+async function listInternalBoxRecordIdsByBoxId(orgId: string, boxIds: string[]) {
+  const normalizedBoxIds = Array.from(
+    new Set(boxIds.map((boxId) => asTrimmedString(boxId).toUpperCase()).filter(Boolean)),
+  );
+  if (!normalizedBoxIds.length) {
+    return {};
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("id, box_id")
+    .eq("org_id", orgId)
+    .in("box_id", normalizedBoxIds);
+  throwOnSupabaseError(error, "Unable to load internal box identities");
+
+  const idsByBoxId: Record<string, string> = {};
+  for (const row of Array.isArray(data) ? data : []) {
+    const boxId = asTrimmedString((row as Record<string, unknown>).box_id).toUpperCase();
+    const internalId = asTrimmedString((row as Record<string, unknown>).id);
+    if (!boxId || !internalId) {
+      continue;
+    }
+    idsByBoxId[boxId] = internalId;
+  }
+  return idsByBoxId;
+}
+
 function pruneFilmNameAliasCache() {
   const now = Date.now();
   for (const [key, entry] of filmNameAliasCache.entries()) {
@@ -1477,6 +1506,7 @@ const inventoryRepositories = createInventoryRepositories({
   integerOrNull,
   formatDateValue,
   formatTimestamp,
+  listInternalBoxRecordIdsByBoxId,
 });
 const {
   mapDbRollHistoryRow,
@@ -1636,6 +1666,19 @@ function buildTransferredBoxId(boxId: unknown, sourcePrefix: unknown, destinatio
   return `${getBoxIdPrefixToken(destinationPrefix)}-${getTransferredBoxIdSuffix(boxId, sourcePrefix)}`.toUpperCase();
 }
 
+function requireBoxRecordId(box: any, operation: string) {
+  const boxRecordId = asTrimmedString(box?.id);
+  if (boxRecordId) {
+    return boxRecordId;
+  }
+
+  const boxId = asTrimmedString(box?.boxId).toUpperCase() || "unknown box";
+  throw new HttpError(
+    500,
+    `Internal box identity could not be resolved for ${boxId} while ${operation}.`,
+  );
+}
+
 async function findBoxByRecordId(client: any, orgId: string, boxRecordId: string) {
   if (!boxRecordId) {
     return null;
@@ -1645,7 +1688,7 @@ async function findBoxByRecordId(client: any, orgId: string, boxRecordId: string
   const { data, error } = await serviceClient
     .schema("app")
     .from("boxes")
-    .select("box_id")
+    .select("id, box_id")
     .eq("org_id", orgId)
     .eq("id", boxRecordId)
     .maybeSingle();
@@ -1656,7 +1699,20 @@ async function findBoxByRecordId(client: any, orgId: string, boxRecordId: string
     return null;
   }
 
-  return await findBoxById(client, orgId, boxId);
+  const box = await findBoxById(client, orgId, boxId);
+  if (!box) {
+    return null;
+  }
+
+  const internalId = asTrimmedString((data || {}).id);
+  if (internalId && !asTrimmedString(box.id)) {
+    return {
+      ...box,
+      id: internalId,
+    };
+  }
+
+  return box;
 }
 
 async function findBoxTransferByTransferId(client: any, orgId: string, transferId: string) {
@@ -1696,7 +1752,11 @@ async function getLatestBoxTransferByBoxId(client: any, orgId: string, boxId: st
     return { box: null, transfer: null };
   }
 
-  const transfers = await listBoxTransfersByBoxRecordId(client, orgId, box.id);
+  const transfers = await listBoxTransfersByBoxRecordId(
+    client,
+    orgId,
+    requireBoxRecordId(box, "loading box transfer history"),
+  );
   return {
     box,
     transfer: transfers[0] || null,
@@ -4642,7 +4702,8 @@ async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Re
     throw new HttpError(400, `Box ${box.boxId} must be in stock before it can be transferred.`);
   }
 
-  const existingPendingTransfer = await findPendingBoxTransferByBoxRecordId(client, orgId, box.id);
+  const boxRecordId = requireBoxRecordId(box, "starting a box transfer");
+  const existingPendingTransfer = await findPendingBoxTransferByBoxRecordId(client, orgId, boxRecordId);
   if (existingPendingTransfer) {
     throw new HttpError(400, `Box ${box.boxId} already has a pending transfer.`);
   }
@@ -4670,7 +4731,7 @@ async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Re
 
   const transfer = await saveBoxTransferRecord(client, orgId, {
     transferId: createTransferId(),
-    boxRecordId: box.id,
+    boxRecordId,
     sourceBoxId: box.boxId,
     destinationBoxId: buildTransferredBoxId(box.boxId, sourceWarehouse.boxIdPrefix, destinationWarehouse.boxIdPrefix),
     sourceWarehouse: sourceWarehouse.code,
@@ -4693,7 +4754,7 @@ async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Re
       updated_by: actor,
     })
     .eq("org_id", orgId)
-    .eq("id", box.id);
+    .eq("id", boxRecordId);
   throwOnSupabaseError(updateBoxError, `Unable to update box ${box.boxId}`);
 
   const updatedBox = await findBoxById(client, orgId, box.boxId);
