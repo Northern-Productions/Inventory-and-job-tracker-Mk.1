@@ -1,8 +1,6 @@
 import "../load-env.mjs";
-import fs from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { Client } from "pg";
+import { buildJobDetail, buildJobsList } from "../src/app/internal.mjs";
 
 function asTrimmedString(value) {
   return String(value || "").trim();
@@ -47,23 +45,6 @@ function summariesMatch(left, right) {
   return JSON.stringify(leftComparable) === JSON.stringify(rightComparable);
 }
 
-async function loadDebugBuilders() {
-  const appDir = path.resolve("src", "app");
-  const sourcePath = path.join(appDir, "handleSupabaseRequest.mjs");
-  const tempPath = path.join(appDir, `__tmp_verify_job_summary_parity_${process.pid}_${Date.now()}.mjs`);
-  const exportLine =
-    "\nexport { buildJobsList, buildJobDetail };\n";
-
-  fs.copyFileSync(sourcePath, tempPath);
-  fs.appendFileSync(tempPath, exportLine, "utf8");
-
-  try {
-    return await import(`${pathToFileURL(tempPath).href}?t=${Date.now()}`);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
-  }
-}
-
 async function main() {
   const client = new Client({
     connectionString: requireDatabaseUrl(),
@@ -71,7 +52,6 @@ async function main() {
   });
   const orgId = requireOrgId();
   const lifecycleFilters = ["ACTIVE", "COMPLETED"];
-  const { buildJobsList, buildJobDetail } = await loadDebugBuilders();
 
   await client.connect();
 

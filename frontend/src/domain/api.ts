@@ -1,4 +1,7 @@
 import type {
+  AppAttentionSummary,
+} from './app';
+import type {
   AllocationEntry,
   AllocationJobDetail,
   AllocationJobSummary,
@@ -121,6 +124,8 @@ export interface OwnerAdminPermissionsResponse {
 }
 
 export interface AuthContextResponse extends EffectiveAccessContext {}
+
+export interface AppAttentionSummaryResponse extends AppAttentionSummary {}
 
 export interface OwnerNotificationPreferencesResponse extends OwnerNotificationPreferences {}
 

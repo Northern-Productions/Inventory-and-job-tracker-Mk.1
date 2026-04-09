@@ -8,6 +8,17 @@ function buildRequestUrl(path, query = {}) {
     if (value === undefined || value === null || value === '') {
       return;
     }
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (entry === undefined || entry === null || entry === '') {
+          return;
+        }
+        url.searchParams.append(key, String(entry));
+      });
+      return;
+    }
+
     url.searchParams.set(key, String(value));
   });
   return url;
@@ -83,7 +94,22 @@ async function main() {
       expectedStatuses: [200],
       requiresAuth: true
     },
+    {
+      method: 'GET',
+      path: '/boxes/search',
+      query: { warehouses: ['IL1', 'MS1'] },
+      expectedStatuses: [200],
+      requiresAuth: true
+    },
+    { method: 'GET', path: '/app/attention-summary', expectedStatuses: [200], requiresAuth: true },
     { method: 'GET', path: '/jobs/list', expectedStatuses: [200], requiresAuth: true },
+    {
+      method: 'GET',
+      path: '/jobs/list',
+      query: { limit: 0, jobNumbers: ['000123', '000124'] },
+      expectedStatuses: [200],
+      requiresAuth: true
+    },
     { method: 'GET', path: '/jobs/search', query: { query: '4524', limit: 5 }, expectedStatuses: [200], requiresAuth: true },
     { method: 'GET', path: '/film-orders/list', expectedStatuses: [200], requiresAuth: true },
     { method: 'GET', path: '/film-data/catalog', expectedStatuses: [200], requiresAuth: true },

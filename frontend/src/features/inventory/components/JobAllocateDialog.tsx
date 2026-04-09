@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQueries } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
 import { useToast } from '../../../components/Toast';
-import { searchBoxes } from '../../../api/features/inventoryClient';
 import { useAuth } from '../../auth/AuthContext';
 import type { AllocationPreview, FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
   useAllocationPreview,
-  useCreateFilmOrder
+  useCreateFilmOrder,
+  useSearchBoxesWithOptions
 } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
@@ -77,31 +76,18 @@ export function JobAllocateDialog({
   const searchableFilmName = selectedRequirement ? selectedRequirement.filmName.trim() : '';
   const searchableManufacturer = selectedRequirement ? selectedRequirement.manufacturer.trim() : '';
   const shouldSearchMatchingBoxes = open && Boolean(selectedRequirement);
-  const matchingBoxesQueries = useQueries({
-    queries: searchableWarehouses.map((warehouseCode) => ({
-      queryKey: [
-        'inventory',
-        'search',
-        'job-allocate',
-        warehouseCode,
-        searchableManufacturer,
-        searchableFilmName,
-        'active'
-      ] as const,
-      queryFn: () =>
-        searchBoxes({
-          warehouse: warehouseCode,
-          manufacturer: searchableManufacturer,
-          q: searchableFilmName,
-          showRetired: false
-        }),
+  const matchingBoxesQuery = useSearchBoxesWithOptions(
+    {
+      warehouses: searchableWarehouses,
+      manufacturer: searchableManufacturer,
+      q: searchableFilmName,
+      showRetired: false
+    },
+    {
       enabled: shouldSearchMatchingBoxes
-    }))
-  });
-  const searchableBoxes = useMemo(
-    () => matchingBoxesQueries.flatMap((query) => query.data || []),
-    [matchingBoxesQueries]
+    }
   );
+  const searchableBoxes = matchingBoxesQuery.data || [];
   const matchingBoxes = useMemo(() => {
     if (!selectedRequirement) {
       return [];
@@ -165,9 +151,8 @@ export function JobAllocateDialog({
         : [],
     [activePreview, previewSuggestionBoxIdSet, selectedSuggestionBoxIds]
   );
-  const isMatchingBoxesLoading = matchingBoxesQueries.some(
-    (query) => query.isLoading || query.isFetching
-  );
+  const isMatchingBoxesLoading =
+    matchingBoxesQuery.isLoading || matchingBoxesQuery.isFetching;
   const isAllocationPreviewLoading =
     Boolean(previewPayload) && !activePreview && !previewQuery.isError;
   const isOrderFilmMode =

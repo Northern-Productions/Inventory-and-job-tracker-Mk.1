@@ -24,6 +24,7 @@
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
     "verify:allocation-covered-feet-parity": "node scripts/verify-allocation-covered-feet-parity.mjs",
     "verify:allocation-film-parity": "node scripts/verify-allocation-film-match-parity.mjs",
+    "verify:internal-exports": "node scripts/verify-internal-exports.mjs",
     "verify:job-summary-parity": "node scripts/verify-job-summary-parity.mjs",
     "verify:ordered-box-local-fallback-routes": "node scripts/verify-ordered-box-local-fallback-routes.mjs",
     "verify:ordered-box-allocation-flow": "node scripts/verify-ordered-box-allocation-flow.mjs",

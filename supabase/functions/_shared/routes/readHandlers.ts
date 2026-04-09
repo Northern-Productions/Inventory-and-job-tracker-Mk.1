@@ -1,11 +1,13 @@
 // Purpose: Route-handler map for Edge API read endpoints.
 import { HttpError, ok } from "../http.ts";
+import type { AuthIdentity } from "../types.ts";
 
 type ReadContext = {
   client: any;
   orgId: string;
   logicalPath: string;
   params: Record<string, unknown>;
+  identity: AuthIdentity;
 };
 
 type JobContext = {
@@ -15,6 +17,11 @@ type JobContext = {
 };
 
 export type ReadHandlerDeps = {
+  buildAppAttentionSummary: (
+    client: any,
+    orgId: string,
+    identity: AuthIdentity,
+  ) => Promise<Record<string, unknown>>;
   asTrimmedString: (value: unknown) => string;
   requireString: (value: unknown, fieldName: string) => string;
   integerOrZero: (value: unknown) => number;
@@ -56,7 +63,13 @@ export type ReadHandlerDeps = {
   listJobRequirementsByJob: (client: any, orgId: string, jobNumber: string) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
-  buildJobsList: (client: any, orgId: string, limit: number, lifecycleStatus?: unknown) => Promise<unknown[]>;
+  buildJobsList: (
+    client: any,
+    orgId: string,
+    limit: number,
+    lifecycleStatus?: unknown,
+    jobNumbers?: unknown,
+  ) => Promise<unknown[]>;
   buildJobsCalendar: (
     client: any,
     orgId: string,
@@ -90,6 +103,9 @@ type ReadHandler = (
 ) => Promise<Record<string, unknown>>;
 
 const readHandlers: Record<string, ReadHandler> = {
+  "/app/attention-summary": async ({ client, orgId, identity }, deps) => {
+    return ok(await deps.buildAppAttentionSummary(client, orgId, identity));
+  },
   "/admin/access/requests": async ({ client, orgId, params }, deps) => {
     const status = deps.asTrimmedString(params.status);
     const entries = await deps.rpcOrThrow<any[]>(client, "api_list_access_requests", {
@@ -310,8 +326,13 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/jobs/list": async ({ client, orgId, params }, deps) => {
     const limitValue = Number(params.limit);
-    const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
-    return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus) });
+    const limit = Number.isFinite(limitValue) && limitValue >= 0 ? Math.floor(limitValue) : 25;
+    const jobNumbers = Array.isArray(params.jobNumbers)
+      ? params.jobNumbers
+      : typeof params.jobNumbers === "string"
+      ? [params.jobNumbers]
+      : [];
+    return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus, jobNumbers) });
   },
   "/jobs/calendar": async ({ client, orgId, params }, deps) => {
     return ok({
@@ -363,11 +384,12 @@ export async function dispatchReadWithHandlers(
   orgId: string,
   logicalPath: string,
   params: Record<string, unknown>,
+  identity: AuthIdentity,
   deps: ReadHandlerDeps,
 ) {
   const handler = readHandlers[logicalPath];
   if (!handler) {
     throw new HttpError(404, `Route not found: ${logicalPath || "/"}`);
   }
-  return await handler({ client, orgId, logicalPath, params }, deps);
+  return await handler({ client, orgId, logicalPath, params, identity }, deps);
 }

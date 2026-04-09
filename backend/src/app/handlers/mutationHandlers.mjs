@@ -1,0 +1,180 @@
+// Purpose: Mutation-route dispatch map for the modular backend handler.
+import { HttpError, ok } from '../../lib/http.mjs';
+import { requireString } from '../core/helpers.mjs';
+import { applyAllocationPlan, checkoutAllJobMaterials, removeAllocationFromJob } from '../services/allocations.mjs';
+import { undoAudit } from '../services/audit.mjs';
+import {
+  mutateCaulkStock,
+  ownerUpsertCaulkManufacturer,
+  transferCaulkStock,
+  upsertCaulkProduct,
+} from '../services/caulk.mjs';
+import { createFilmOrder, deleteFilmOrder } from '../services/filmOrders.mjs';
+import {
+  buildJobDetail,
+  cancelJob,
+  completeJob,
+  createJob,
+  deleteJob,
+  reopenJob,
+  setJobLaborAssigned,
+  setJobStagedPickup,
+  updateJob,
+} from '../services/jobs.mjs';
+import {
+  addBox,
+  cancelBoxTransfer,
+  deleteBox,
+  receiveBoxTransfer,
+  setBoxStatus,
+  startBoxTransfer,
+  updateBox,
+} from '../services/boxes.mjs';
+import {
+  approveAccessRequestByUserId,
+  approveUsernameChangeRequestByUserId,
+  demoteAdminToMemberInternal,
+  denyAccessRequestByUserId,
+  denyUsernameChangeRequestByUserId,
+  promoteAdminToOwnerInternal,
+  promoteMemberToAdminInternal,
+  requestUsernameChange,
+  updateAdminFeaturePermissionsInternal,
+  updateMemberFeaturePermissionsInternal,
+  updateOwnerNotificationPreferencesInternal,
+  updateUserFeaturePermissionsInternal,
+} from '../services/access.mjs';
+import { withMutation } from '../../db/client.mjs';
+
+const mutationHandlers = {
+  '/profile/username': async ({ client, orgId, authContext, params }) =>
+    ok(await requestUsernameChange(client, orgId, authContext, params)),
+  '/admin/access/requests/approve': async ({ client, orgId, authContext, params }) =>
+    ok(await approveAccessRequestByUserId(client, orgId, authContext.actor, params, authContext.userId)),
+  '/admin/access/requests/deny': async ({ client, orgId, authContext, params }) =>
+    ok(await denyAccessRequestByUserId(client, orgId, authContext.actor, params, authContext.userId)),
+  '/admin/username-requests/approve': async ({ client, orgId, authContext, params }) =>
+    ok(await approveUsernameChangeRequestByUserId(client, orgId, authContext.actor, params, authContext.userId)),
+  '/admin/username-requests/deny': async ({ client, orgId, authContext, params }) =>
+    ok(await denyUsernameChangeRequestByUserId(client, orgId, authContext.actor, params, authContext.userId)),
+  '/admin/member-permissions': async ({ client, orgId, authContext, params }) =>
+    ok({ permissions: await updateMemberFeaturePermissionsInternal(client, orgId, authContext.actor, params) }),
+  '/admin/user-permissions': async ({ client, orgId, authContext, params }) =>
+    ok({ permissions: await updateUserFeaturePermissionsInternal(client, orgId, authContext.actor, params) }),
+  '/owner/admin-permissions': async ({ client, orgId, authContext, params }) =>
+    ok({ permissions: await updateAdminFeaturePermissionsInternal(client, orgId, authContext.actor, params) }),
+  '/admin/roles/promote-member-to-admin': async ({ client, orgId, authContext, params }) =>
+    ok(await promoteMemberToAdminInternal(client, orgId, authContext.actor, params, authContext.userId)),
+  '/owner/roles/demote-admin-to-member': async ({ client, orgId, params }) =>
+    ok(await demoteAdminToMemberInternal(client, orgId, params)),
+  '/owner/roles/promote-admin-to-owner': async ({ client, orgId, authContext, params }) =>
+    ok(await promoteAdminToOwnerInternal(client, orgId, authContext.actor, params)),
+  '/owner/notification-preferences': async ({ client, orgId, authContext, params }) =>
+    ok(
+      await updateOwnerNotificationPreferencesInternal(
+        client,
+        orgId,
+        authContext.userId,
+        authContext.actor,
+        params
+      )
+    ),
+  '/owner/caulk/manufacturers/upsert': async ({ client, orgId, authContext, params }) =>
+    ok(await ownerUpsertCaulkManufacturer(client, orgId, authContext.actor, params)),
+  '/caulk/products/upsert': async ({ client, orgId, authContext, params }) =>
+    ok(await upsertCaulkProduct(client, orgId, authContext.actor, params)),
+  '/caulk/mutate': async ({ client, orgId, authContext, params }) =>
+    ok(await mutateCaulkStock(client, orgId, authContext.actor, params)),
+  '/caulk/transfer': async ({ client, orgId, authContext, params }) =>
+    ok(await transferCaulkStock(client, orgId, authContext.actor, params)),
+  '/boxes/add': async ({ client, orgId, authContext, params }) =>
+    addBox(client, orgId, params, authContext.actor),
+  '/boxes/transfer/start': async ({ client, orgId, authContext, params }) =>
+    startBoxTransfer(client, orgId, params, authContext.actor),
+  '/boxes/transfer/receive': async ({ client, orgId, authContext, params }) =>
+    receiveBoxTransfer(client, orgId, params, authContext.actor),
+  '/boxes/transfer/cancel': async ({ client, orgId, authContext, params }) =>
+    cancelBoxTransfer(client, orgId, params, authContext.actor),
+  '/allocations/add': async ({ client, orgId, authContext, params }) =>
+    applyAllocationPlan(client, orgId, params, authContext.actor),
+  '/allocations/apply': async ({ client, orgId, authContext, params }) =>
+    applyAllocationPlan(client, orgId, params, authContext.actor),
+  '/allocations/remove-box': async ({ client, orgId, authContext, params }) =>
+    removeAllocationFromJob(client, orgId, params, authContext.actor),
+  '/jobs/create': async ({ client, orgId, authContext, params }) =>
+    createJob(client, orgId, params, authContext.actor),
+  '/jobs/update': async ({ client, orgId, authContext, params }) =>
+    updateJob(client, orgId, params, authContext.actor),
+  '/jobs/set-staged-pickup': async ({ client, orgId, authContext, params }) => {
+    const jobNumber = requireString(params.jobNumber, 'JobNumber');
+    const result = await setJobStagedPickup(
+      client,
+      orgId,
+      jobNumber,
+      params && params.isStagedForPickup,
+      authContext.actor,
+      params
+    );
+    if (!result) {
+      throw new HttpError(500, 'Job staged pickup update failed.');
+    }
+    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+  },
+  '/jobs/checkout-all': async ({ client, orgId, authContext, params }) => {
+    const jobNumber = requireString(params.jobNumber, 'JobNumber');
+    const result = await applyCheckoutAllJobMaterials(client, orgId, jobNumber, authContext.actor);
+    if (!result) {
+      throw new HttpError(500, 'Job checkout-all update failed.');
+    }
+    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+  },
+  '/jobs/set-labor-assigned': async ({ client, orgId, authContext, params }) => {
+    const jobNumber = requireString(params.jobNumber, 'JobNumber');
+    const result = await setJobLaborAssigned(
+      client,
+      orgId,
+      jobNumber,
+      params && params.isLaborAssigned,
+      authContext.actor
+    );
+    if (!result) {
+      throw new HttpError(500, 'Job labor assignment update failed.');
+    }
+    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+  },
+  '/jobs/complete': async ({ client, orgId, authContext, params }) =>
+    completeJob(client, orgId, params, authContext.actor),
+  '/jobs/delete': async ({ client, orgId, authContext, params }) =>
+    deleteJob(client, orgId, params, authContext.actor, authContext.role),
+  '/jobs/reopen': async ({ client, orgId, authContext, params }) =>
+    reopenJob(client, orgId, params, authContext.actor),
+  '/film-orders/create': async ({ client, orgId, authContext, params }) =>
+    createFilmOrder(client, orgId, params, authContext.actor),
+  '/film-orders/cancel': async ({ client, orgId, authContext, params }) =>
+    cancelJob(client, orgId, params, authContext.actor),
+  '/film-orders/delete': async ({ client, orgId, authContext, params }) =>
+    deleteFilmOrder(client, orgId, params, authContext.actor),
+  '/boxes/update': async ({ client, orgId, authContext, params }) =>
+    updateBox(client, orgId, params, authContext.actor),
+  '/boxes/delete': async ({ client, orgId, authContext, params }) =>
+    deleteBox(client, orgId, params, authContext.actor),
+  '/boxes/set-status': async ({ client, orgId, authContext, params }) =>
+    setBoxStatus(client, orgId, params, authContext.actor),
+  '/audit/undo': async ({ client, orgId, authContext, params }) =>
+    undoAudit(client, orgId, params, authContext.actor),
+};
+
+async function applyCheckoutAllJobMaterials(client, orgId, jobNumber, actor) {
+  return checkoutAllJobMaterials(client, orgId, jobNumber, actor);
+}
+
+export async function dispatchMutationWithHandlers(logicalPath, params, authContext) {
+  return withMutation(async (client) => {
+    const handler = mutationHandlers[logicalPath];
+    if (!handler) {
+      throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);
+    }
+
+    return handler({ client, orgId: authContext.orgId, params, authContext });
+  });
+}

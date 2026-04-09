@@ -1,6 +1,7 @@
 import {
   WAREHOUSE_CODES,
   type Box,
+  type JobListEntry,
   type SetBoxStatusPayload,
   type Warehouse
 } from '../../../../domain';
@@ -24,8 +25,8 @@ export function createStatusConfirmState(
 export function buildTransferDestinationAnalysis(
   box: Box | undefined,
   allocations: Array<{ status: string; jobNumber: string }>,
-  allocationJobs: Array<{ summary?: { warehouse?: Warehouse } } | null>,
-  allocationQueryStates: Array<{ isLoading?: boolean; isFetching?: boolean; isError?: boolean }>
+  allocationJobs: Array<Pick<JobListEntry, 'jobNumber' | 'warehouse'>>,
+  allocationQueryState: { isLoading?: boolean; isFetching?: boolean; isError?: boolean }
 ): TransferDestinationAnalysis {
   if (!box) {
     return {
@@ -49,9 +50,8 @@ export function buildTransferDestinationAnalysis(
     };
   }
 
-  const isResolvingAllocations = allocationQueryStates.some(
-    (query) => query.isLoading || query.isFetching
-  );
+  const isResolvingAllocations =
+    Boolean(allocationQueryState.isLoading) || Boolean(allocationQueryState.isFetching);
 
   if (isResolvingAllocations) {
     return {
@@ -62,7 +62,7 @@ export function buildTransferDestinationAnalysis(
     };
   }
 
-  if (allocationQueryStates.some((query) => query.isError)) {
+  if (allocationQueryState.isError) {
     return {
       suggestedDestination: '',
       conflictMessage: '',
@@ -72,11 +72,21 @@ export function buildTransferDestinationAnalysis(
     };
   }
 
+  const destinationWarehouseByJobNumber = new Map<string, Warehouse>();
+  for (let index = 0; index < allocationJobs.length; index += 1) {
+    const entry = allocationJobs[index];
+    if (!entry?.jobNumber || !entry?.warehouse) {
+      continue;
+    }
+
+    destinationWarehouseByJobNumber.set(entry.jobNumber, entry.warehouse);
+  }
+
   const destinationWarehouses = new Set<Warehouse>();
   let hasSameWarehouseAllocation = false;
 
   for (let index = 0; index < activeJobAllocations.length; index += 1) {
-    const destinationWarehouse = allocationJobs[index]?.summary?.warehouse;
+    const destinationWarehouse = destinationWarehouseByJobNumber.get(activeJobAllocations[index].jobNumber.trim());
     if (!destinationWarehouse) {
       continue;
     }

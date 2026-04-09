@@ -79,6 +79,31 @@ describe('http request envelope parsing', () => {
       message: expect.stringContaining('The API returned HTML instead of JSON.')
     });
   });
+
+  it('serializes repeated query values for array params', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, data: { value: 1 }, warnings: [] }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+
+    await request<{ value: number }>('GET', '/boxes/search', {
+      query: {
+        warehouses: ['IL1', 'MS1'],
+        manufacturer: 'Llumar'
+      }
+    });
+
+    const requestUrl = String(fetchMock.mock.calls[0]?.[0] || '');
+    expect(requestUrl).toContain('warehouses=IL1');
+    expect(requestUrl).toContain('warehouses=MS1');
+    expect(requestUrl).toContain('manufacturer=Llumar');
+  });
 });
 
 describe('resolveApiBaseUrlFromConfig', () => {

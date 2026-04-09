@@ -1,6 +1,7 @@
 // Purpose: Backward-compatible export surface for inventory query and mutation hooks.
 export { inventoryKeys } from './inventoryQueryKeys';
 export {
+  useAppAttentionSummary,
   useAllocationJob,
   useAllocationJobs,
   useAllocationPreview,
@@ -13,6 +14,7 @@ export {
   useFilmOrders,
   useIsAddBoxPending,
   useJob,
+  useJobSummariesByNumbers,
   useJobsCalendarEntries,
   useJobsCalendarMonth,
   useJobsList,

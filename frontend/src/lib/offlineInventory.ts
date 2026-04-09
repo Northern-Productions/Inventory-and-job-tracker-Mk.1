@@ -15,8 +15,9 @@ export interface OfflineInventorySyncMeta {
   lastSyncedAt: string;
 }
 
-export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse'> {
-  warehouse: Warehouse | '';
+export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse' | 'warehouses'> {
+  warehouse?: Warehouse | '';
+  warehouses?: Warehouse[];
   widths?: string[];
 }
 
@@ -34,12 +35,13 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
     ...(params.widths || []),
     params.width || ''
   ]);
+  const selectedWarehouses = normalizeOfflineSelectedWarehouses(params);
   const filtered: Box[] = [];
 
   for (let index = 0; index < boxes.length; index += 1) {
     const box = boxes[index];
 
-    if (params.warehouse && box.warehouse !== params.warehouse) {
+    if (selectedWarehouses.length && !selectedWarehouses.includes(box.warehouse)) {
       continue;
     }
 
@@ -91,7 +93,9 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
 }
 
 export async function searchOfflineBoxes(params: OfflineSearchBoxesParams): Promise<Box[]> {
-  const boxes = await getOfflineInventorySnapshotBoxes(params.warehouse);
+  const snapshotWarehouse =
+    !params.warehouses?.length && params.warehouse ? params.warehouse : '';
+  const boxes = await getOfflineInventorySnapshotBoxes(snapshotWarehouse || '');
   return filterOfflineBoxes(boxes, params);
 }
 
@@ -319,6 +323,16 @@ function normalizeOfflineWidthToken(value: unknown): string {
   }
 
   return String(parsed);
+}
+
+function normalizeOfflineSelectedWarehouses(params: OfflineSearchBoxesParams): Warehouse[] {
+  return Array.from(
+    new Set(
+      [...(params.warehouses || []), params.warehouse || '']
+        .map((entry) => String(entry || '').trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
 }
 
 function normalizeOfflineSelectedWidths(values: readonly unknown[]): string[] {

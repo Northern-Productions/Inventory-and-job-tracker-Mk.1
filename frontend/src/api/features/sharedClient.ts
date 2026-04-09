@@ -300,7 +300,7 @@ export function assertFeatureAccess(feature: FeatureArea, mode: FeatureAccessMod
 export async function requestReadWithFallback<T>(
   path: string,
   _body: Record<string, unknown>,
-  query: Record<string, string | number | boolean | undefined>
+  query: Record<string, string | number | boolean | string[] | readonly string[] | undefined>
 ): Promise<T> {
   if (!isReadRoute(path)) {
     throw new APIError(`Route is not configured as a read route: ${path}`);

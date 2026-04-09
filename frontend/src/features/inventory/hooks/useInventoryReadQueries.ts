@@ -1,6 +1,7 @@
 // Purpose: Read-only React Query hooks for inventory, jobs, film orders, and reports.
 import { useEffect, useMemo, useRef } from 'react';
 import { useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getAppAttentionSummary } from '../../../api/features/appClient';
 import {
   getAllocationsByBox,
   getAllocationJob,
@@ -26,8 +27,10 @@ import {
 import type {
   AddBoxPayload,
   AllocateBoxPayload,
+  AppAttentionSummary,
   AuditListParams,
   FilmOrderEntry,
+  JobListEntry,
   JobDetail,
   RemoveJobBoxAllocationsPayload,
   ReportsSummaryFilters,
@@ -121,18 +124,65 @@ export function useJobsList(
     enabled?: boolean;
     refetchOnWindowFocus?: boolean;
     lifecycleStatus?: JobLifecycleFilter;
+    jobNumbers?: string[];
   } = {}
 ) {
+  const normalizedJobNumbers = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (options.jobNumbers || [])
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+        )
+      ).sort(),
+    [options.jobNumbers]
+  );
+
   return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.jobsList({
       limit,
-      lifecycleStatus: options.lifecycleStatus
+      lifecycleStatus: options.lifecycleStatus,
+      jobNumbers: normalizedJobNumbers
     }),
-    queryFn: () => getJobs(limit, { lifecycleStatus: options.lifecycleStatus }),
+    queryFn: () =>
+      getJobs(limit, {
+        lifecycleStatus: options.lifecycleStatus,
+        jobNumbers: normalizedJobNumbers
+      }),
     enabled: options.enabled ?? true,
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
+  });
+}
+
+export function useJobSummariesByNumbers(jobNumbers: string[], options: { enabled?: boolean } = {}) {
+  const normalizedJobNumbers = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (jobNumbers || [])
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+        )
+      ).sort(),
+    [jobNumbers]
+  );
+
+  return useCachedInventoryReadQuery<JobListEntry[]>({
+    queryKey: inventoryKeys.jobsList({
+      limit: 0,
+      jobNumbers: normalizedJobNumbers
+    }),
+    queryFn: () =>
+      getJobs(0, {
+        jobNumbers: normalizedJobNumbers
+      }),
+    enabled: (options.enabled ?? true) && normalizedJobNumbers.length > 0,
+    staleTime: 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 }
 
@@ -269,6 +319,17 @@ export function useFilmOrders(options: { enabled?: boolean; refetchOnWindowFocus
     queryFn: () => getFilmOrders(),
     enabled: options.enabled ?? true,
     refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
+  });
+}
+
+export function useAppAttentionSummary(options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
+  return useCachedInventoryReadQuery<AppAttentionSummary>({
+    queryKey: inventoryKeys.appAttentionSummary,
+    queryFn: () => getAppAttentionSummary(),
+    enabled: options.enabled ?? true,
+    staleTime: 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true
   });
 }
 

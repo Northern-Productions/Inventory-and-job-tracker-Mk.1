@@ -7,8 +7,7 @@ import { AppLayout } from './AppLayout';
 
 const useAuthMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
-const useJobsListMock = vi.fn();
-const useFilmOrdersMock = vi.fn();
+const useAppAttentionSummaryMock = vi.fn();
 
 vi.mock('../features/auth/AuthContext', () => ({
   useAuth: () => useAuthMock()
@@ -18,9 +17,8 @@ vi.mock('../hooks/useIsPhoneLayout', () => ({
   useIsPhoneLayout: () => useIsPhoneLayoutMock()
 }));
 
-vi.mock('../features/inventory/hooks/useInventoryReadQueries', () => ({
-  useJobsList: (...args: unknown[]) => useJobsListMock(...args),
-  useFilmOrders: (...args: unknown[]) => useFilmOrdersMock(...args)
+vi.mock('../features/inventory/hooks/useInventoryQueries', () => ({
+  useAppAttentionSummary: (...args: unknown[]) => useAppAttentionSummaryMock(...args)
 }));
 
 vi.mock('../features/auth/AccountControl', () => ({
@@ -79,8 +77,13 @@ describe('AppLayout', () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue(buildAuth());
     useIsPhoneLayoutMock.mockReturnValue(false);
-    useJobsListMock.mockReturnValue(buildQueryState([]));
-    useFilmOrdersMock.mockReturnValue(buildQueryState([]));
+    useAppAttentionSummaryMock.mockReturnValue(
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention: false,
+        pendingAccessRequests: false
+      })
+    );
   });
 
   afterEach(() => {
@@ -89,13 +92,12 @@ describe('AppLayout', () => {
   });
 
   it('shows the Film Orders attention dot on desktop when an unresolved film order has an install date', () => {
-    useFilmOrdersMock.mockReturnValue(
-      buildQueryState([
-        {
-          status: 'FILM_ORDER',
-          jobDate: '2026-04-13'
-        }
-      ])
+    useAppAttentionSummaryMock.mockReturnValue(
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention: true,
+        pendingAccessRequests: false
+      })
     );
 
     renderLayout('/');
@@ -105,13 +107,12 @@ describe('AppLayout', () => {
 
   it('shows the install-dated film-orders dot on mobile More and inside the sheet', () => {
     useIsPhoneLayoutMock.mockReturnValue(true);
-    useFilmOrdersMock.mockReturnValue(
-      buildQueryState([
-        {
-          status: 'FILM_ON_THE_WAY',
-          jobDate: '2026-04-13'
-        }
-      ])
+    useAppAttentionSummaryMock.mockReturnValue(
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention: true,
+        pendingAccessRequests: false
+      })
     );
 
     renderLayout('/');
@@ -125,43 +126,46 @@ describe('AppLayout', () => {
   });
 
   it('does not show the film-orders attention dot for unresolved orders without an install date', () => {
-    useFilmOrdersMock.mockReturnValue(
-      buildQueryState([
-        {
-          status: 'FILM_ORDER',
-          jobDate: ''
-        }
-      ])
-    );
-
     renderLayout('/');
 
     expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
   });
 
   it('clears the desktop film-orders attention dot as soon as the last install date disappears', () => {
-    let filmOrders = [{ status: 'FILM_ORDER', jobDate: '2026-04-13' }];
-    useFilmOrdersMock.mockImplementation(() => buildQueryState(filmOrders));
+    let hasFilmOrdersNeedingAttention = true;
+    useAppAttentionSummaryMock.mockImplementation(() =>
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention,
+        pendingAccessRequests: false
+      })
+    );
 
     const view = renderLayout('/');
 
     expect(screen.getByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeTruthy();
 
-    filmOrders = [{ status: 'FILM_ORDER', jobDate: '' }];
+    hasFilmOrdersNeedingAttention = false;
     view.rerender(buildLayoutTree('/'));
 
     expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
   });
 
   it('shows the desktop film-orders attention dot as soon as an unresolved order gains an install date', () => {
-    let filmOrders = [{ status: 'FILM_ORDER', jobDate: '' }];
-    useFilmOrdersMock.mockImplementation(() => buildQueryState(filmOrders));
+    let hasFilmOrdersNeedingAttention = false;
+    useAppAttentionSummaryMock.mockImplementation(() =>
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention,
+        pendingAccessRequests: false
+      })
+    );
 
     const view = renderLayout('/');
 
     expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
 
-    filmOrders = [{ status: 'FILM_ORDER', jobDate: '2026-04-13' }];
+    hasFilmOrdersNeedingAttention = true;
     view.rerender(buildLayoutTree('/'));
 
     expect(screen.getByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeTruthy();

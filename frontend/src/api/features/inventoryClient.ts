@@ -58,6 +58,7 @@ function normalizeBox(box: Box): Box {
 function buildSearchBoxFilters(params: SearchBoxesParams) {
   return {
     warehouse: params.warehouse,
+    warehouses: params.warehouses,
     manufacturer: params.manufacturer,
     q: params.q,
     status: params.status,

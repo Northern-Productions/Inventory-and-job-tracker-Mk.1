@@ -19,6 +19,7 @@ import { createInventoryRepositories } from "./repositories/inventoryRepositorie
 import { routeParams as routeParamsFromModule } from "./routes/params.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
+import { buildAppAttentionSummary as buildAppAttentionSummaryFromService } from "./services/appAttention.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
 import type { AuthIdentity } from "./types.ts";
 import {
@@ -76,6 +77,27 @@ function requireString(value: unknown, fieldName: string): string {
     throw new HttpError(400, `${fieldName} is required.`);
   }
   return trimmed;
+}
+
+function normalizeStringArrayParam(value: unknown): string[] {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawValue of rawValues) {
+    const tokens = typeof rawValue === "string" ? rawValue.split(",") : [rawValue];
+    for (const token of tokens) {
+      const trimmed = asTrimmedString(token);
+      if (!trimmed || seen.has(trimmed)) {
+        continue;
+      }
+
+      seen.add(trimmed);
+      normalized.push(trimmed);
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeDateString(value: unknown, fieldName: string, allowBlank: boolean): string {
@@ -3581,23 +3603,31 @@ function matchesClosedJobReportFilters(jobEntry: any, filters: any): boolean {
 }
 
 async function buildSearchBoxes(client: any, orgId: string, params: Record<string, unknown>) {
-  const warehouse = requireString(params.warehouse, "warehouse").toUpperCase();
+  const requestedWarehouses = normalizeStringArrayParam([
+    params.warehouse,
+    ...(Array.isArray(params.warehouses) ? params.warehouses : [params.warehouses]),
+  ]).map((entry) => entry.toUpperCase());
   const warehouseRows = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
     p_org_id: orgId,
   });
-  const isConfiguredWarehouse = (warehouseRows || []).some((row) =>
-    asTrimmedString(row.code).toUpperCase() === warehouse
+  const configuredWarehouses = new Set(
+    (warehouseRows || []).map((row) => asTrimmedString(row.code).toUpperCase()).filter(Boolean)
   );
-  if (!isConfiguredWarehouse) {
+  const warehouseFilters = requestedWarehouses.length
+    ? requestedWarehouses
+    : [requireString(params.warehouse, "warehouse").toUpperCase()];
+  const invalidWarehouse = warehouseFilters.find((warehouse) => !configuredWarehouses.has(warehouse));
+  if (invalidWarehouse) {
     throw new HttpError(400, "warehouse is not configured.");
   }
+  const warehouseFilterSet = new Set(warehouseFilters);
   const manufacturerFilterKey = normalizeCatalogManufacturerLookupKey(params.manufacturer);
   const query = asTrimmedString(params.q).toLowerCase();
   const status = asTrimmedString(params.status).toUpperCase();
   const film = asTrimmedString(params.film).toLowerCase();
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === "true";
-  const boxes = (await listBoxes(client, orgId)).filter((box) => box.warehouse === warehouse);
+  const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
   let filtered = boxes.filter((box) => {
     if (!showRetired && !status && (box.status === "ZEROED" || box.status === "RETIRED")) {
       return false;
@@ -3812,8 +3842,15 @@ async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumb
   };
 }
 
-async function buildJobsList(client: any, orgId: string, limit: number, lifecycleStatus?: unknown) {
+async function buildJobsList(
+  client: any,
+  orgId: string,
+  limit: number,
+  lifecycleStatus?: unknown,
+  jobNumbers: unknown = [],
+) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
+  const jobNumberFilterSet = new Set(normalizeStringArrayParam(jobNumbers));
   const jobs = await listJobs(client, orgId);
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
@@ -3826,10 +3863,16 @@ async function buildJobsList(client: any, orgId: string, limit: number, lifecycl
   const boxById = Object.fromEntries(allBoxes.map((box) => [box.boxId, box]));
 
   for (const job of jobs) {
+    if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(job.jobNumber)) {
+      continue;
+    }
     byJobNumber[job.jobNumber] = job;
   }
   for (const allocation of allAllocations) {
     if (allocation.jobNumber) {
+      if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(allocation.jobNumber)) {
+        continue;
+      }
       byJobNumber[allocation.jobNumber] = byJobNumber[allocation.jobNumber] || null;
       if (!groupedAllocations[allocation.jobNumber]) {
         groupedAllocations[allocation.jobNumber] = [];
@@ -3839,6 +3882,9 @@ async function buildJobsList(client: any, orgId: string, limit: number, lifecycl
   }
   for (const filmOrder of allFilmOrders) {
     if (filmOrder.jobNumber) {
+      if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(filmOrder.jobNumber)) {
+        continue;
+      }
       byJobNumber[filmOrder.jobNumber] = byJobNumber[filmOrder.jobNumber] || null;
       if (!groupedFilmOrders[filmOrder.jobNumber]) {
         groupedFilmOrders[filmOrder.jobNumber] = [];
@@ -3847,6 +3893,9 @@ async function buildJobsList(client: any, orgId: string, limit: number, lifecycl
     }
   }
   for (const requirement of allRequirements) {
+    if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(requirement.jobNumber)) {
+      continue;
+    }
     if (!groupedRequirements[requirement.jobNumber]) {
       groupedRequirements[requirement.jobNumber] = [];
     }
@@ -5589,8 +5638,19 @@ async function callMutationRpc(client: any, fn: string, orgId: string, actor: st
   });
 }
 
-async function dispatchRead(client: any, orgId: string, logicalPath: string, params: Record<string, unknown>) {
-  return dispatchReadWithHandlers(client, orgId, logicalPath, params, {
+async function dispatchRead(
+  client: any,
+  identity: AuthIdentity,
+  logicalPath: string,
+  params: Record<string, unknown>,
+) {
+  return dispatchReadWithHandlers(client, identity.orgId, logicalPath, params, identity, {
+    buildAppAttentionSummary: (readClient, readOrgId, identity) =>
+      buildAppAttentionSummaryFromService(readClient, readOrgId, identity, {
+        buildJobsList,
+        buildFilmOrdersList,
+        rpcOrThrow,
+      }),
     asTrimmedString,
     requireString,
     integerOrZero,
@@ -5741,7 +5801,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
 
     const params = routeParams(request.method, requestUrl, bodyJson);
     const payload = request.method === "GET"
-      ? await dispatchRead(client, identity.orgId, logicalPath, params)
+      ? await dispatchRead(client, identity, logicalPath, params)
       : await dispatchMutation(client, identity, logicalPath, params);
 
     const responseBody = JSON.stringify(payload);

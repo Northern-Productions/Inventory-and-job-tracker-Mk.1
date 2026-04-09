@@ -19,6 +19,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
 ]);
 
 export const LOCAL_FALLBACK_READ_PATHS = new Set([
+  '/app/attention-summary',
   '/boxes/search',
   '/boxes/get',
   '/allocations/by-box',

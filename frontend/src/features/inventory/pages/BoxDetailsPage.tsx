@@ -1,7 +1,5 @@
-import { useQueries } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { getJob } from '../../../api/features/jobsClient';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
@@ -22,6 +20,7 @@ import {
   useDeleteBox,
   useFilmCatalog,
   useIsAddBoxPending,
+  useJobSummariesByNumbers,
   useReceiveBoxTransfer,
   useStartBoxTransfer,
   useSetBoxStatus,
@@ -29,7 +28,6 @@ import {
   useUpdateBox
 } from '../hooks/useInventoryQueries';
 import { useActionAccess } from '../hooks/useActionAccess';
-import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import {
   boxNeedsAllocationsToResolveCurrentFeet,
@@ -93,22 +91,18 @@ export default function BoxDetailsPage() {
       ),
     [allocations]
   );
-  const activeAllocationJobQueries = useQueries({
-    queries: activeAllocationJobNumbers.map((jobNumber) => ({
-      queryKey: inventoryKeys.job(jobNumber),
-      queryFn: () => getJob(jobNumber),
-      enabled: Boolean(box?.boxId)
-    }))
+  const activeAllocationJobsQuery = useJobSummariesByNumbers(activeAllocationJobNumbers, {
+    enabled: Boolean(box?.boxId)
   });
   const transferDestinationAnalysis = useMemo(
     () =>
       buildTransferDestinationAnalysis(
         box,
         allocations,
-        activeAllocationJobQueries.map((query) => query.data || null),
-        activeAllocationJobQueries
+        activeAllocationJobsQuery.data || [],
+        activeAllocationJobsQuery
       ),
-    [activeAllocationJobQueries, allocations, box]
+    [activeAllocationJobsQuery, allocations, box]
   );
   const transferDestinationOptions = useMemo(() => {
     const seenCodes = new Set<string>();

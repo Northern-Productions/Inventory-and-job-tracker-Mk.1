@@ -64,6 +64,13 @@ vi.mock('../../../api/features/caulkClient', () => ({
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJob: () => useJobMock(),
   useAllocationPreview: () => useAllocationPreviewMock(),
+  useSearchBoxesWithOptions: () => ({
+    data: [],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+    error: null
+  }),
   useUpdateJob: () => useUpdateJobMock(),
   useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
   useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),

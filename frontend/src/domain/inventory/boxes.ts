@@ -33,7 +33,8 @@ export interface Box {
 }
 
 export interface SearchBoxesParams {
-  warehouse: Warehouse;
+  warehouse?: Warehouse;
+  warehouses?: Warehouse[];
   manufacturer?: string;
   q?: string;
   status?: BoxStatus | '';

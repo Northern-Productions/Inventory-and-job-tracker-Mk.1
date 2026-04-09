@@ -20,6 +20,7 @@ const useBoxTransferMock = vi.fn();
 const useStartBoxTransferMock = vi.fn();
 const useReceiveBoxTransferMock = vi.fn();
 const useCancelBoxTransferMock = vi.fn();
+const useJobSummariesByNumbersMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
@@ -62,6 +63,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useStartBoxTransfer: () => useStartBoxTransferMock(),
   useReceiveBoxTransfer: () => useReceiveBoxTransferMock(),
   useCancelBoxTransfer: () => useCancelBoxTransferMock(),
+  useJobSummariesByNumbers: () => useJobSummariesByNumbersMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpdateBox: () => useUpdateBoxMock()
@@ -314,6 +316,13 @@ describe('BoxDetailsPage', () => {
     useStartBoxTransferMock.mockReturnValue(buildMutationState());
     useReceiveBoxTransferMock.mockReturnValue(buildMutationState());
     useCancelBoxTransferMock.mockReturnValue(buildMutationState());
+    useJobSummariesByNumbersMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null
+    });
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());

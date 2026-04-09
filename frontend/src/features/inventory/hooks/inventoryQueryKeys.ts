@@ -11,6 +11,7 @@ type JobsCalendarView = 'week' | 'month';
 // Purpose: Centralized React Query keys for inventory feature queries/mutations.
 export const inventoryKeys = {
   root: ['inventory'] as const,
+  appAttentionSummary: ['inventory', 'app-attention-summary'] as const,
   listRoot: ['inventory', 'list'] as const,
   list: (params: SearchBoxesParams) => ['inventory', 'list', params] as const,
   searchRoot: ['inventory', 'search'] as const,
@@ -24,7 +25,7 @@ export const inventoryKeys = {
   allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
   jobs: ['inventory', 'jobs'] as const,
   jobsListRoot: ['inventory', 'jobs', 'list'] as const,
-  jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter }) =>
+  jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[] }) =>
     ['inventory', 'jobs', 'list', params] as const,
   jobsCalendarRoot: ['inventory', 'jobs', 'calendar'] as const,
   jobsCalendarPeriod: (params: {

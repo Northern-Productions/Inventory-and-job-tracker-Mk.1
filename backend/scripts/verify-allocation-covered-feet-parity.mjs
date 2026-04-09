@@ -1,8 +1,6 @@
 import "../load-env.mjs";
-import fs from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { Client } from "pg";
+import { buildJobDetail } from "../src/app/internal.mjs";
 
 function asTrimmedString(value) {
   return String(value || "").trim();
@@ -30,22 +28,6 @@ function assert(condition, message) {
   }
 }
 
-async function loadDebugBuilders() {
-  const appDir = path.resolve("src", "app");
-  const sourcePath = path.join(appDir, "handleSupabaseRequest.mjs");
-  const tempPath = path.join(appDir, `__tmp_verify_allocation_covered_feet_${process.pid}_${Date.now()}.mjs`);
-  const exportLine = "\nexport { buildJobDetail };\n";
-
-  fs.copyFileSync(sourcePath, tempPath);
-  fs.appendFileSync(tempPath, exportLine, "utf8");
-
-  try {
-    return await import(`${pathToFileURL(tempPath).href}?t=${Date.now()}`);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
-  }
-}
-
 function findRequirement(detail, manufacturer, filmName, widthIn) {
   return (detail?.requirements || []).find((entry) =>
     asTrimmedString(entry?.manufacturer) === manufacturer
@@ -60,7 +42,6 @@ async function main() {
     ssl: { rejectUnauthorized: false },
   });
   const orgId = requireOrgId();
-  const { buildJobDetail } = await loadDebugBuilders();
 
   await client.connect();
 

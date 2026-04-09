@@ -1,9 +1,15 @@
 import "../load-env.mjs";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { Client } from "pg";
+import {
+  addBox,
+  applyAllocationPlan,
+  buildJobDetail,
+  findBoxById,
+  previewAllocationPlan,
+  removeAllocationFromJob,
+  updateBox,
+} from "../src/app/internal.mjs";
 
 function asTrimmedString(value) {
   return String(value || "").trim();
@@ -28,23 +34,6 @@ function requireOrgId() {
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
-  }
-}
-
-async function loadDebugBuilders() {
-  const appDir = path.resolve("src", "app");
-  const sourcePath = path.join(appDir, "handleSupabaseRequest.mjs");
-  const tempPath = path.join(appDir, `__tmp_verify_ordered_box_allocation_flow_${process.pid}_${Date.now()}.mjs`);
-  const exportLine =
-    "\nexport { addBox, updateBox, previewAllocationPlan, applyAllocationPlan, removeAllocationFromJob, buildJobDetail, findBoxById };\n";
-
-  fs.copyFileSync(sourcePath, tempPath);
-  fs.appendFileSync(tempPath, exportLine, "utf8");
-
-  try {
-    return await import(`${pathToFileURL(tempPath).href}?t=${Date.now()}`);
-  } finally {
-    fs.rmSync(tempPath, { force: true });
   }
 }
 
@@ -181,15 +170,6 @@ async function main() {
   });
   const orgId = requireOrgId();
   const actor = "ordered-box-flow-verifier";
-  const {
-    addBox,
-    updateBox,
-    previewAllocationPlan,
-    applyAllocationPlan,
-    removeAllocationFromJob,
-    buildJobDetail,
-    findBoxById
-  } = await loadDebugBuilders();
   let transactionStarted = false;
 
   await client.connect();

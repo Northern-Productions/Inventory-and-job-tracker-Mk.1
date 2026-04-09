@@ -61,6 +61,7 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
+    hasOrderedAllocations: false,
     createdAt: '',
     updatedAt: '',
     notes: '',
@@ -97,6 +98,20 @@ describe('jobs API client canonical routes', () => {
     expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
       query: { limit: 25, lifecycleStatus: 'COMPLETED' }
+    });
+  });
+
+  it('passes jobNumbers through GET /jobs/list as repeated query params', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
+      warnings: []
+    });
+
+    const entries = await getJobs(0, { jobNumbers: ['000123', '000124', '000123'] });
+
+    expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
+      query: { limit: 0, jobNumbers: ['000123', '000124'] }
     });
   });
 

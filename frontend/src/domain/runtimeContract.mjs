@@ -102,6 +102,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
 export const READ_PATHS = Object.freeze([
   '/health',
   '/auth/context',
+  '/app/attention-summary',
   '/boxes/search',
   '/boxes/get',
   '/boxes/transfer/by-box',

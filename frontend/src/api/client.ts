@@ -6,6 +6,7 @@ export {
   requestUsernameChange,
   setClientAccessContext
 } from './features/authClient';
+export { getAppAttentionSummary } from './features/appClient';
 export {
   approveAccessRequest,
   approveUsernameChangeRequest,

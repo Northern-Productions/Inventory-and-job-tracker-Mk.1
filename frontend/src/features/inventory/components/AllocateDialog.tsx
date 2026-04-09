@@ -9,14 +9,17 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
-import type { AllocationPreview, Box } from '../../../domain';
+import type { Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
-import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
 import {
   useAllocateBox,
   useAllocationPreview,
   useJob
 } from '../hooks/useInventoryQueries';
+import {
+  buildSelectionSummary,
+  formatPlannedFeet
+} from './job-allocate-dialog/helpers';
 import { findCompatibleRequirementsForBox } from '../utils/jobAllocationMatching';
 
 interface AllocateDialogProps {
@@ -27,60 +30,6 @@ interface AllocateDialogProps {
 
 function formatBoxStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
-}
-
-function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBoxIds: string[]) {
-  const selected = new Set(selectedSuggestionBoxIds);
-  const allocations: Array<{ boxId: string; allocatedFeet: number; coveredFeet: number }> = [];
-  let remaining = preview.requestedFeet;
-
-  if (preview.sourceSuggestedFeet > 0) {
-    const sourcePlan = planCoverageAllocation(
-      remaining,
-      preview.sourceSuggestedFeet,
-      preview.sourceWidthIn,
-      preview.requestedWidthIn
-    );
-    allocations.push({
-      boxId: preview.sourceBoxId,
-      allocatedFeet: sourcePlan.allocatedFeet,
-      coveredFeet: sourcePlan.coveredFeet
-    });
-    remaining = sourcePlan.remainingCoveredFeet;
-  }
-
-  for (const suggestion of preview.suggestions) {
-    if (!selected.has(suggestion.boxId) || remaining <= 0) {
-      continue;
-    }
-
-    const nextPlan = planCoverageAllocation(
-      remaining,
-      suggestion.planningFeet ?? suggestion.availableFeet,
-      suggestion.widthIn,
-      preview.requestedWidthIn
-    );
-    allocations.push({
-      boxId: suggestion.boxId,
-      allocatedFeet: nextPlan.allocatedFeet,
-      coveredFeet: nextPlan.coveredFeet
-    });
-    remaining = nextPlan.remainingCoveredFeet;
-  }
-
-  return {
-    allocations,
-    coveredFeet: preview.requestedFeet - remaining,
-    remainingFeet: remaining
-  };
-}
-
-function formatPlannedFeet(allocatedFeet: number, coveredFeet: number) {
-  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
-    return `${allocatedFeet} physical / ${coveredFeet} covered`;
-  }
-
-  return String(allocatedFeet);
 }
 
 export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {

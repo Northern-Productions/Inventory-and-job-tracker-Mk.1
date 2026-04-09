@@ -60,7 +60,7 @@ export class APIError extends Error {
 }
 
 interface RequestOptions {
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, string | number | boolean | readonly string[] | string[] | undefined>;
   body?: unknown;
   timeoutMs?: number;
 }
@@ -93,6 +93,18 @@ function buildUrl(path: string, query?: RequestOptions['query']): URL {
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined || value === '') {
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((entry) => {
+          const normalized = String(entry || '').trim();
+          if (!normalized) {
+            return;
+          }
+
+          url.searchParams.append(key, normalized);
+        });
         return;
       }
 

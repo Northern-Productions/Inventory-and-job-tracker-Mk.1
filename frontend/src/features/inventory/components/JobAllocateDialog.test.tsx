@@ -31,11 +31,18 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
   })
 }));
 
-vi.mock('../hooks/useInventoryQueries', () => ({
-  useAllocateBox: () => useAllocateBoxMock(),
-  useAllocationPreview: (payload: unknown) => useAllocationPreviewMock(payload),
-  useCreateFilmOrder: () => useCreateFilmOrderMock()
-}));
+vi.mock('../hooks/useInventoryQueries', async () => {
+  const actual = await vi.importActual<typeof import('../hooks/useInventoryQueries')>(
+    '../hooks/useInventoryQueries'
+  );
+
+  return {
+    ...actual,
+    useAllocateBox: () => useAllocateBoxMock(),
+    useAllocationPreview: (payload: unknown) => useAllocationPreviewMock(payload),
+    useCreateFilmOrder: () => useCreateFilmOrderMock()
+  };
+});
 
 vi.mock('../../../api/features/inventoryClient', () => ({
   searchBoxes: (...args: unknown[]) => searchBoxesMock(...args)
@@ -322,116 +329,102 @@ describe('JobAllocateDialog', () => {
         : buildPreviewState()
     );
 
-    searchBoxesMock.mockImplementation(async (params: { warehouse: string }) => {
-      if (params.warehouse === 'IL1') {
-        return [
-          {
-            boxId: 'IL1-RN07',
-            warehouse: 'IL1',
-            manufacturer: 'Llumar',
-            filmName: 'RN07',
-            widthIn: 48,
-            initialFeet: 10,
-            feetAvailable: 10,
-            lotRun: '',
-            status: 'IN_STOCK',
-            orderDate: '2026-01-05',
-            receivedDate: '2026-01-05',
-            initialWeightLbs: null,
-            lastRollWeightLbs: null,
-            lastWeighedDate: '',
-            filmKey: '',
-            coreType: '',
-            coreWeightLbs: null,
-            lfWeightLbsPerFt: null,
-            pricePerLf: null,
-            purchaseCost: null,
-            notes: '',
-            hasEverBeenCheckedOut: false,
-            lastCheckoutJob: '',
-            lastCheckoutDate: '',
-            zeroedDate: '',
-            zeroedReason: '',
-            zeroedBy: ''
-          },
-          {
-            boxId: 'IL1-LEGACY',
-            warehouse: 'IL1',
-            manufacturer: 'Llumar',
-            filmName: 'Llumar RN07',
-            widthIn: 48,
-            initialFeet: 10,
-            feetAvailable: 10,
-            lotRun: '',
-            status: 'IN_STOCK',
-            orderDate: '2026-01-06',
-            receivedDate: '2026-01-06',
-            initialWeightLbs: null,
-            lastRollWeightLbs: null,
-            lastWeighedDate: '',
-            filmKey: '',
-            coreType: '',
-            coreWeightLbs: null,
-            lfWeightLbsPerFt: null,
-            pricePerLf: null,
-            purchaseCost: null,
-            notes: '',
-            hasEverBeenCheckedOut: false,
-            lastCheckoutJob: '',
-            lastCheckoutDate: '',
-            zeroedDate: '',
-            zeroedReason: '',
-            zeroedBy: ''
-          },
-          {
-            boxId: 'IL1-REFL',
-            warehouse: 'IL1',
-            manufacturer: 'Llumar',
-            filmName: 'RN 07 Refl. One Way Mirror',
-            widthIn: 48,
-            initialFeet: 10,
-            feetAvailable: 10,
-            lotRun: '',
-            status: 'IN_STOCK',
-            orderDate: '2026-01-01',
-            receivedDate: '2026-01-01',
-            initialWeightLbs: null,
-            lastRollWeightLbs: null,
-            lastWeighedDate: '',
-            filmKey: '',
-            coreType: '',
-            coreWeightLbs: null,
-            lfWeightLbsPerFt: null,
-            pricePerLf: null,
-            purchaseCost: null,
-            notes: '',
-            hasEverBeenCheckedOut: false,
-            lastCheckoutJob: '',
-            lastCheckoutDate: '',
-            zeroedDate: '',
-            zeroedReason: '',
-            zeroedBy: ''
-          }
-        ];
+    searchBoxesMock.mockResolvedValue([
+      {
+        boxId: 'IL1-RN07',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN07',
+        widthIn: 48,
+        initialFeet: 10,
+        feetAvailable: 10,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-05',
+        receivedDate: '2026-01-05',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: 'IL1-LEGACY',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'Llumar RN07',
+        widthIn: 48,
+        initialFeet: 10,
+        feetAvailable: 10,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-06',
+        receivedDate: '2026-01-06',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: 'IL1-REFL',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        initialFeet: 10,
+        feetAvailable: 10,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-01',
+        receivedDate: '2026-01-01',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
       }
-
-      return [];
-    });
+    ]);
 
     const { queryClient } = renderDialog();
 
-    await waitFor(() => expect(searchBoxesMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(searchBoxesMock).toHaveBeenCalledTimes(1));
     expect(searchBoxesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        warehouse: 'IL1',
-        manufacturer: 'Llumar',
-        q: 'RN 07',
-        showRetired: false
-      })
-    );
-    expect(searchBoxesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        warehouse: 'MS1',
+        warehouses: ['IL1', 'MS1'],
         manufacturer: 'Llumar',
         q: 'RN 07',
         showRetired: false
@@ -782,73 +775,66 @@ describe('JobAllocateDialog', () => {
           })
         : buildPreviewState()
     );
-    searchBoxesMock.mockImplementation(async (params: { warehouse: string }) => {
-      if (params.warehouse === 'IL1') {
-        return [
-          {
-            boxId: 'IL1-6915',
-            warehouse: 'IL1',
-            manufacturer: 'Llumar',
-            filmName: 'RN 07 Refl. One Way Mirror',
-            widthIn: 48,
-            initialFeet: 25,
-            feetAvailable: 25,
-            lotRun: '',
-            status: 'IN_STOCK',
-            orderDate: '2026-01-01',
-            receivedDate: '2026-01-01',
-            initialWeightLbs: null,
-            lastRollWeightLbs: null,
-            lastWeighedDate: '',
-            filmKey: '',
-            coreType: '',
-            coreWeightLbs: null,
-            lfWeightLbsPerFt: null,
-            pricePerLf: null,
-            purchaseCost: null,
-            notes: '',
-            hasEverBeenCheckedOut: false,
-            lastCheckoutJob: '',
-            lastCheckoutDate: '',
-            zeroedDate: '',
-            zeroedReason: '',
-            zeroedBy: ''
-          }
-        ];
+    searchBoxesMock.mockResolvedValue([
+      {
+        boxId: 'IL1-6915',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        initialFeet: 25,
+        feetAvailable: 25,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-01',
+        receivedDate: '2026-01-01',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: 'MS1-127',
+        warehouse: 'MS1',
+        manufacturer: 'Llumar',
+        filmName: 'RN07',
+        widthIn: 60,
+        initialFeet: 24,
+        feetAvailable: 24,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-02',
+        receivedDate: '2026-01-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
       }
-
-      return [
-        {
-          boxId: 'MS1-127',
-          warehouse: 'MS1',
-          manufacturer: 'Llumar',
-          filmName: 'RN07',
-          widthIn: 60,
-          initialFeet: 24,
-          feetAvailable: 24,
-          lotRun: '',
-          status: 'IN_STOCK',
-          orderDate: '2026-01-02',
-          receivedDate: '2026-01-02',
-          initialWeightLbs: null,
-          lastRollWeightLbs: null,
-          lastWeighedDate: '',
-          filmKey: '',
-          coreType: '',
-          coreWeightLbs: null,
-          lfWeightLbsPerFt: null,
-          pricePerLf: null,
-          purchaseCost: null,
-          notes: '',
-          hasEverBeenCheckedOut: false,
-          lastCheckoutJob: '',
-          lastCheckoutDate: '',
-          zeroedDate: '',
-          zeroedReason: '',
-          zeroedBy: ''
-        }
-      ];
-    });
+    ]);
 
     const { queryClient } = renderDialog({
       jobNumber: '17170',
@@ -952,73 +938,66 @@ describe('JobAllocateDialog', () => {
 
       return buildPreviewState();
     });
-    searchBoxesMock.mockImplementation(async (params: { warehouse: string }) => {
-      if (params.warehouse === 'MS1') {
-        return [
-          {
-            boxId: 'MS1-127',
-            warehouse: 'MS1',
-            manufacturer: 'Llumar',
-            filmName: 'RN07',
-            widthIn: 60,
-            initialFeet: 24,
-            feetAvailable: 24,
-            lotRun: '',
-            status: 'IN_STOCK',
-            orderDate: '2026-01-02',
-            receivedDate: '2026-01-02',
-            initialWeightLbs: null,
-            lastRollWeightLbs: null,
-            lastWeighedDate: '',
-            filmKey: '',
-            coreType: '',
-            coreWeightLbs: null,
-            lfWeightLbsPerFt: null,
-            pricePerLf: null,
-            purchaseCost: null,
-            notes: '',
-            hasEverBeenCheckedOut: false,
-            lastCheckoutJob: '',
-            lastCheckoutDate: '',
-            zeroedDate: '',
-            zeroedReason: '',
-            zeroedBy: ''
-          }
-        ];
+    searchBoxesMock.mockResolvedValue([
+      {
+        boxId: 'MS1-127',
+        warehouse: 'MS1',
+        manufacturer: 'Llumar',
+        filmName: 'RN07',
+        widthIn: 60,
+        initialFeet: 24,
+        feetAvailable: 24,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-02',
+        receivedDate: '2026-01-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: 'IL1-6915',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        initialFeet: 25,
+        feetAvailable: 25,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-01-01',
+        receivedDate: '2026-01-01',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
       }
-
-      return [
-        {
-          boxId: 'IL1-6915',
-          warehouse: 'IL1',
-          manufacturer: 'Llumar',
-          filmName: 'RN 07 Refl. One Way Mirror',
-          widthIn: 48,
-          initialFeet: 25,
-          feetAvailable: 25,
-          lotRun: '',
-          status: 'IN_STOCK',
-          orderDate: '2026-01-01',
-          receivedDate: '2026-01-01',
-          initialWeightLbs: null,
-          lastRollWeightLbs: null,
-          lastWeighedDate: '',
-          filmKey: '',
-          coreType: '',
-          coreWeightLbs: null,
-          lfWeightLbsPerFt: null,
-          pricePerLf: null,
-          purchaseCost: null,
-          notes: '',
-          hasEverBeenCheckedOut: false,
-          lastCheckoutJob: '',
-          lastCheckoutDate: '',
-          zeroedDate: '',
-          zeroedReason: '',
-          zeroedBy: ''
-        }
-      ];
-    });
+    ]);
 
     const { queryClient } = renderDialog({
       jobNumber: '17170',

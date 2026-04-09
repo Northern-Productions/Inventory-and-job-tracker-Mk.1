@@ -48,7 +48,7 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
 }
 
 function buildJobsQuery(limit: number, lifecycleStatus?: JobLifecycleFilter) {
-  const params: Record<string, number | JobLifecycleFilter> = { limit };
+  const params: Record<string, number | JobLifecycleFilter | string[]> = { limit };
   if (lifecycleStatus) {
     params.lifecycleStatus = lifecycleStatus;
   }
@@ -57,10 +57,20 @@ function buildJobsQuery(limit: number, lifecycleStatus?: JobLifecycleFilter) {
 
 export async function getJobs(
   limit = 25,
-  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+  options: { lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[] } = {}
 ): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
   const params = buildJobsQuery(limit, options.lifecycleStatus);
+  const normalizedJobNumbers = Array.from(
+    new Set(
+      (options.jobNumbers || [])
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+  if (normalizedJobNumbers.length) {
+    params.jobNumbers = normalizedJobNumbers;
+  }
   const data = await requestReadWithFallback<JobListResponse>('/jobs/list', params, params);
   return (data.entries || []).map(normalizeJobListEntry);
 }

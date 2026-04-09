@@ -92,6 +92,23 @@ export default defineConfig(({ mode }) => {
         }
       })
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return undefined;
+            }
+
+            if (id.includes('html5-qrcode') || id.includes('qrcode')) {
+              return 'vendor-scanner';
+            }
+
+            return 'vendor';
+          }
+        }
+      }
+    },
     server: proxyUrl
       ? {
           proxy: {

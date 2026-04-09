@@ -176,10 +176,21 @@ function matchesSearchBoxesParams(box: Box, params: Partial<SearchBoxesParams> |
     return true;
   }
 
+  const normalizedWarehouses = Array.from(
+    new Set(
+      [params.warehouse || '', ...(params.warehouses || [])]
+        .map((entry) => String(entry || '').trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  if (normalizedWarehouses.length && !normalizedWarehouses.includes(box.warehouse)) {
+    return false;
+  }
+
   const normalizedWarehouse = String(params.warehouse || '')
     .trim()
     .toUpperCase();
-  if (normalizedWarehouse && box.warehouse !== normalizedWarehouse) {
+  if (!normalizedWarehouses.length && normalizedWarehouse && box.warehouse !== normalizedWarehouse) {
     return false;
   }
 
