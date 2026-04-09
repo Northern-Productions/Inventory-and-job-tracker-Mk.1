@@ -1,0 +1,443 @@
+import { useEffect, useState } from 'react';
+import type { NavigateFunction } from 'react-router-dom';
+import { APIError } from '../../../../api/http';
+import type { useToast } from '../../../../components/Toast';
+import type {
+  AllocationEntry,
+  Box,
+  BoxMutationResult,
+  DeleteBoxPayload,
+  DeleteBoxResult,
+  SetBoxStatusPayload,
+  UndoAuditPayload,
+  UndoMutationResult,
+  UpdateBoxPayload
+} from '../../../../domain';
+import type { BoxDraft } from '../../utils/boxHelpers';
+import { deriveFeetAvailableFromRollWeight } from '../../utils/boxHelpers';
+import {
+  confirmWarnings,
+  getAddOrEditWarnings,
+  getCheckInWarnings,
+  getCheckoutWarnings
+} from '../../utils/boxWarnings';
+import {
+  buildZeroedInventoryPayloadForEdit,
+  buildZeroedInventoryReactivationPayloadForEdit,
+  getZeroedInventoryEditTrigger,
+  getIncompleteBoxHistoryFieldsForZeroedEdit,
+  shouldPromptZeroedInventoryReactivationOnEdit
+} from '../../utils/boxZeroedTransition';
+import { parseUpdateBoxDraft } from '../../schemas/boxSchemas';
+import { createStatusConfirmState } from './helpers';
+import type {
+  ConfirmState,
+  PendingZeroedEditState,
+  PendingZeroedReactivationState
+} from './types';
+
+type PushToast = ReturnType<typeof useToast>['push'];
+type UpdateMutationFn = (payload: UpdateBoxPayload) => Promise<{
+  result: BoxMutationResult;
+  warnings: string[];
+}>;
+type DeleteMutationFn = (payload: DeleteBoxPayload) => Promise<{
+  result: DeleteBoxResult;
+  warnings: string[];
+}>;
+type SetStatusMutationFn = (payload: SetBoxStatusPayload) => Promise<{
+  result: BoxMutationResult;
+  warnings: string[];
+}>;
+type UndoMutationFn = (payload: UndoAuditPayload) => Promise<{
+  result: UndoMutationResult;
+  warnings: string[];
+}>;
+
+interface UseBoxDetailActionsArgs {
+  box: Box | undefined;
+  boxId: string;
+  allocations: AllocationEntry[];
+  allocationsLoading: boolean;
+  allocationsError: boolean;
+  checkoutJobOptions: Array<{ label: string; value: string }>;
+  ensureSignedIn: (actionLabel: string, feature?: 'inventory' | 'allocations') => boolean;
+  navigate: NavigateFunction;
+  pushToast: PushToast;
+  onEditComplete: () => void;
+  updateBox: UpdateMutationFn;
+  deleteBox: DeleteMutationFn;
+  setBoxStatus: SetStatusMutationFn;
+  undoAudit: UndoMutationFn;
+}
+
+export function useBoxDetailActions({
+  box,
+  boxId,
+  allocations,
+  allocationsLoading,
+  allocationsError,
+  checkoutJobOptions,
+  ensureSignedIn,
+  navigate,
+  pushToast,
+  onEditComplete,
+  updateBox,
+  deleteBox,
+  setBoxStatus,
+  undoAudit
+}: UseBoxDetailActionsArgs) {
+  const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
+  const [pendingZeroedReactivationState, setPendingZeroedReactivationState] =
+    useState<PendingZeroedReactivationState | null>(null);
+
+  useEffect(() => {
+    setConfirmState(null);
+    setPendingZeroedEditState(null);
+    setPendingZeroedReactivationState(null);
+  }, [boxId]);
+
+  async function pushUndoToast(
+    logId: string,
+    title: string,
+    boxIdValue: string,
+    warnings: string[],
+    successDescription = `${boxIdValue} was saved successfully.`,
+    onUndoSuccess?: (restoredBox: Box | null) => void
+  ) {
+    pushToast({
+      title,
+      description: warnings.join(' ') || successDescription,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        try {
+          const undone = await undoAudit({
+            logId,
+            reason: 'Undo from success toast'
+          });
+
+          pushToast({
+            title: 'Undo completed',
+            description: undone.warnings.join(' ') || `${boxIdValue} was reverted.`,
+            variant: 'success'
+          });
+          onUndoSuccess?.(undone.result.box);
+        } catch (error) {
+          pushToast({
+            title: 'Undo failed',
+            description:
+              error instanceof Error ? error.message : 'The undo request could not be completed.',
+            variant: 'error'
+          });
+        }
+      }
+    });
+  }
+
+  async function handleDeleteBox() {
+    if (!box) {
+      return;
+    }
+
+    if (!ensureSignedIn('delete this box', 'inventory')) {
+      return;
+    }
+
+    try {
+      const deletePromise = deleteBox({
+        boxId: box.boxId,
+        reason: 'Deleted from box details.'
+      });
+      navigate('/', { replace: true });
+      await deletePromise;
+    } catch (error) {
+      navigate(`/inventory/${encodeURIComponent(box.boxId)}`, { replace: true });
+      pushToast({
+        title: 'Delete failed',
+        description:
+          error instanceof APIError || error instanceof Error
+            ? error.message
+            : 'The box could not be deleted.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function submitUpdate(payload: UpdateBoxPayload) {
+    try {
+      const { result, warnings } = await updateBox(payload);
+      onEditComplete();
+
+      const didMoveToZeroed = result.box.status === 'ZEROED';
+      const wasZeroedBeforeUpdate = box?.status === 'ZEROED';
+      const didTransitionToZeroed = didMoveToZeroed && !wasZeroedBeforeUpdate;
+      const successTitle = didTransitionToZeroed ? 'Moved to zeroed out inventory' : 'Box updated';
+      const successDescription = didTransitionToZeroed
+        ? `${result.box.boxId} was moved to zeroed out inventory.`
+        : undefined;
+
+      await pushUndoToast(result.logId, successTitle, result.box.boxId, warnings, successDescription);
+
+      if (didTransitionToZeroed) {
+        navigate('/');
+      }
+    } catch (error) {
+      pushToast({
+        title: 'Update failed',
+        description:
+          error instanceof APIError || error instanceof Error
+            ? error.message
+            : 'The update could not be completed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function runStandardUpdateFlow(payload: UpdateBoxPayload) {
+    const addOrEditWarnings = getAddOrEditWarnings(payload, box, allocations);
+    if (!confirmWarnings(addOrEditWarnings)) {
+      return;
+    }
+
+    await submitUpdate({
+      ...payload,
+      auditNote:
+        payload.auditNote?.trim() ||
+        (payload.moveToZeroed ? 'Confirmed zeroed inventory edit save' : 'Inventory metadata update')
+    });
+  }
+
+  async function handleEditSubmit(draft: BoxDraft) {
+    if (!ensureSignedIn('save box changes', 'inventory')) {
+      return;
+    }
+
+    try {
+      if (draft.receivedDate && (allocationsLoading || allocationsError)) {
+        pushToast({
+          title: 'Allocation data unavailable',
+          description: allocationsLoading
+            ? 'Wait for allocation data to finish loading, then try saving again.'
+            : 'Refresh the box allocations and try saving again.',
+          variant: 'error'
+        });
+        return;
+      }
+
+      const payload = parseUpdateBoxDraft(draft, box, allocations);
+      if (shouldPromptZeroedInventoryReactivationOnEdit(box, payload)) {
+        setPendingZeroedReactivationState({
+          payload: buildZeroedInventoryReactivationPayloadForEdit(payload)
+        });
+        return;
+      }
+
+      const zeroedTrigger = getZeroedInventoryEditTrigger(box, payload);
+
+      if (zeroedTrigger) {
+        setPendingZeroedEditState({
+          activePayload: payload,
+          zeroedPayload: buildZeroedInventoryPayloadForEdit(box, payload, zeroedTrigger),
+          missingFields: getIncompleteBoxHistoryFieldsForZeroedEdit(box, payload),
+          trigger: zeroedTrigger
+        });
+        return;
+      }
+
+      await runStandardUpdateFlow(payload);
+    } catch (error) {
+      pushToast({
+        title: 'Validation failed',
+        description:
+          error instanceof Error ? error.message : 'Review the form values and try again.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleStatusChange(status: SetBoxStatusPayload['status']) {
+    if (!box) {
+      return;
+    }
+
+    if (!ensureSignedIn('change box status', 'inventory')) {
+      return;
+    }
+
+    if (status === 'CHECKED_OUT') {
+      const checkoutMessage =
+        checkoutJobOptions.length > 0
+          ? "Select one of this box's active allocated jobs, or choose Enter New Job Number if this checkout is for something else."
+          : 'Enter the job number for this checkout. It will be saved in the box history.';
+
+      setConfirmState(createStatusConfirmState(box.boxId, status, checkoutMessage));
+      return;
+    }
+
+    setConfirmState(
+      createStatusConfirmState(
+        box.boxId,
+        status,
+        'Enter the latest roll weight in pounds to complete the check-in.'
+      )
+    );
+  }
+
+  function handleCancelConfirm() {
+    setConfirmState(null);
+  }
+
+  async function handleConfirm(reason: string) {
+    if (!confirmState) {
+      return;
+    }
+
+    if (!box) {
+      setConfirmState(null);
+      return;
+    }
+
+    if (confirmState.type === 'checkout') {
+      const warnings = getCheckoutWarnings(box);
+      if (!confirmWarnings(warnings)) {
+        return;
+      }
+
+      const payload = {
+        ...confirmState.payload,
+        auditNote: `Checked out for job ${reason}`
+      };
+
+      try {
+        setConfirmState(null);
+        const { result, warnings: responseWarnings } = await setBoxStatus(payload);
+        await pushUndoToast(result.logId, 'Box checked out', result.box.boxId, responseWarnings);
+      } catch (error) {
+        pushToast({
+          title: 'Status change failed',
+          description:
+            error instanceof Error ? error.message : 'The status update could not be completed.',
+          variant: 'error'
+        });
+      }
+
+      return;
+    }
+
+    const parsedWeight = Number(reason);
+    if (!Number.isFinite(parsedWeight) || parsedWeight < 0) {
+      pushToast({
+        title: 'Roll weight required',
+        description: 'Enter a valid non-negative roll weight in pounds before checking the box in.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const checkInWarnings = getCheckInWarnings(box, parsedWeight);
+    if (!confirmWarnings(checkInWarnings)) {
+      return;
+    }
+
+    const payload = {
+      ...confirmState.payload,
+      lastRollWeightLbs: parsedWeight,
+      auditNote: `Checked in at ${parsedWeight} lbs`
+    };
+
+    try {
+      const priorCheckoutJobNumber = box.lastCheckoutJob.trim();
+      setConfirmState(null);
+
+      const { result, warnings } = await setBoxStatus(payload);
+      const returnedBox = result.box;
+      const didPersistWeight = returnedBox.lastRollWeightLbs === parsedWeight;
+      const didPersistFeet =
+        returnedBox.coreWeightLbs !== null && returnedBox.lfWeightLbsPerFt !== null
+          ? returnedBox.feetAvailable <=
+            deriveFeetAvailableFromRollWeight(
+              parsedWeight,
+              returnedBox.coreWeightLbs,
+              returnedBox.lfWeightLbsPerFt,
+              returnedBox.initialFeet
+            )
+          : true;
+
+      if (!didPersistWeight || !didPersistFeet) {
+        pushToast({
+          title: 'Check-in did not apply the new roll weight',
+          description:
+            'The backend responded without saving the submitted weight. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
+          variant: 'error'
+        });
+        return;
+      }
+
+      const didMoveToZeroed = result.box.status === 'ZEROED';
+      await pushUndoToast(
+        result.logId,
+        didMoveToZeroed ? 'Moved to zeroed out inventory' : 'Box checked in',
+        result.box.boxId,
+        warnings,
+        didMoveToZeroed ? `${result.box.boxId} was moved to zeroed out inventory.` : undefined
+      );
+
+      if (!priorCheckoutJobNumber && didMoveToZeroed) {
+        navigate('/');
+      }
+    } catch (error) {
+      pushToast({
+        title: 'Status change failed',
+        description:
+          error instanceof Error ? error.message : 'The status update could not be completed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  function resetEditWorkflow() {
+    setPendingZeroedEditState(null);
+    setPendingZeroedReactivationState(null);
+  }
+
+  function handleCancelZeroedEdit() {
+    resetEditWorkflow();
+  }
+
+  function handleKeepActiveZeroedEdit(payload: PendingZeroedEditState['activePayload']) {
+    resetEditWorkflow();
+    void runStandardUpdateFlow(payload);
+  }
+
+  function handleConfirmZeroedEdit(payload: PendingZeroedEditState['zeroedPayload']) {
+    resetEditWorkflow();
+    void runStandardUpdateFlow(payload);
+  }
+
+  function handleCancelZeroedReactivation() {
+    resetEditWorkflow();
+  }
+
+  function handleConfirmZeroedReactivation(payload: PendingZeroedReactivationState['payload']) {
+    resetEditWorkflow();
+    void runStandardUpdateFlow(payload);
+  }
+
+  return {
+    confirmState,
+    pendingZeroedEditState,
+    pendingZeroedReactivationState,
+    handleDeleteBox,
+    handleEditSubmit,
+    handleStatusChange,
+    handleCancelConfirm,
+    handleConfirm,
+    resetEditWorkflow,
+    handleCancelZeroedEdit,
+    handleKeepActiveZeroedEdit,
+    handleConfirmZeroedEdit,
+    handleCancelZeroedReactivation,
+    handleConfirmZeroedReactivation
+  };
+}

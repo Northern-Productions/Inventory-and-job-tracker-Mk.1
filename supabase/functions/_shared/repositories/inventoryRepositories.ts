@@ -289,6 +289,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return {
       caulkAllocationId: deps.asTrimmedString(row.caulk_allocation_id),
       requirementId: deps.asTrimmedString(row.requirement_id),
+      jobNumber: deps.asTrimmedString(row.job_number),
       productId: deps.asTrimmedString(row.product_id),
       manufacturerId: deps.asTrimmedString(row.manufacturer_id),
       manufacturer: deps.asTrimmedString(row.manufacturer),

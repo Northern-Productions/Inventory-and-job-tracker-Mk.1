@@ -1,10 +1,20 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { checkoutAllJobMaterials, setJobStagedForPickup } from '../../../../../api/features/jobsClient';
-import type { SetJobStagedForPickupPayload } from '../../../../../domain';
+import {
+  checkoutAllJobMaterials,
+  setJobStagedForPickup
+} from '../../../../../api/features/jobsClient';
+import type {
+  JobDetail,
+  SetJobStagedForPickupPayload
+} from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
 import { applyCheckoutAllToCaches } from '../../../cache/jobMaterialMutations';
-import { beginImmediateOptimisticMutation, restoreSnapshots } from '../../../cache/shared';
-import { cancelJobMaterialQueries, syncAndInvalidateJobDetail } from './shared';
+import { syncJobDetailCaches } from '../../../cache/jobs';
+import {
+  beginImmediateOptimisticMutation,
+  restoreSnapshots
+} from '../../../cache/shared';
+import { invalidateJobAndFilmOrderQueries } from '../../inventoryInvalidation';
 
 export function useSetJobStagedForPickup() {
   const queryClient = useQueryClient();
@@ -12,7 +22,14 @@ export function useSetJobStagedForPickup() {
   return useMutation({
     mutationFn: (payload: SetJobStagedForPickupPayload) => setJobStagedForPickup(payload),
     onMutate: async (payload) => {
-      await cancelJobMaterialQueries(queryClient, payload.jobNumber);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot })
+      ]);
 
       return beginImmediateOptimisticMutation(
         queryClient,
@@ -28,6 +45,21 @@ export function useSetJobStagedForPickup() {
           if (payload.autoCheckoutRemaining) {
             applyCheckoutAllToCaches(queryClient, payload.jobNumber);
           }
+
+          const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
+          if (!currentJob) {
+            return;
+          }
+
+          const nextJob = {
+            ...currentJob,
+            summary: {
+              ...currentJob.summary,
+              isStagedForPickup: payload.isStagedForPickup,
+              status: payload.isStagedForPickup ? 'READY' : currentJob.summary.status
+            }
+          };
+          syncJobDetailCaches(queryClient, nextJob, { syncAllocationJobDetail: true });
         }
       );
     },
@@ -35,11 +67,8 @@ export function useSetJobStagedForPickup() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await syncAndInvalidateJobDetail(queryClient, result);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot })
-      ]);
+      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
 }
@@ -50,7 +79,14 @@ export function useCheckoutAllJobMaterials() {
   return useMutation({
     mutationFn: (payload: { jobNumber: string }) => checkoutAllJobMaterials(payload),
     onMutate: async (payload) => {
-      await cancelJobMaterialQueries(queryClient, payload.jobNumber);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot })
+      ]);
 
       return beginImmediateOptimisticMutation(
         queryClient,
@@ -71,8 +107,9 @@ export function useCheckoutAllJobMaterials() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await syncAndInvalidateJobDetail(queryClient, result);
+      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
       await Promise.all([
+        invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot })
       ]);

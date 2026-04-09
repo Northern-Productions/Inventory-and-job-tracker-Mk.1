@@ -1,4 +1,4 @@
-import type { Role } from '../../../domain';
+import type { Role } from '../../../../domain';
 
 export type PermissionsBaseRole = 'member' | 'admin';
 export type PermissionsRoleDraft = PermissionsBaseRole | 'owner';
@@ -10,6 +10,18 @@ interface PermissionsSaveLabelOptions {
   isPromoteToOwnerPending?: boolean;
   isDemotePending?: boolean;
   isSavePending?: boolean;
+}
+
+interface PermissionsSaveDisabledOptions {
+  hasPermissionsDraft: boolean;
+  isDemotePending?: boolean;
+  isOwner: boolean;
+  isPermissionsLoading?: boolean;
+  isPromotePending?: boolean;
+  isPromoteToOwnerPending?: boolean;
+  isSavePending?: boolean;
+  permissionsBaseRole: PermissionsBaseRole;
+  permissionsRoleDraft: PermissionsRoleDraft;
 }
 
 export function getPermissionsBaseRole(currentRole: Role): PermissionsBaseRole {
@@ -38,7 +50,9 @@ export function getPermissionsRoleChangeMessage(currentRole: Role, draftRole: Pe
     return 'This will promote the user to Owner.';
   }
 
-  return draftRole === 'admin' ? 'This will promote the user to Admin.' : 'This will demote the user to Regular.';
+  return draftRole === 'admin'
+    ? 'This will promote the user to Admin.'
+    : 'This will demote the user to Regular.';
 }
 
 export function shouldRenderPermissionsGrid(
@@ -79,4 +93,30 @@ export function getPermissionsSaveLabel({
   }
 
   return 'Save Permissions';
+}
+
+export function getPermissionsSaveDisabled({
+  hasPermissionsDraft,
+  isDemotePending = false,
+  isOwner,
+  isPermissionsLoading = false,
+  isPromotePending = false,
+  isPromoteToOwnerPending = false,
+  isSavePending = false,
+  permissionsBaseRole,
+  permissionsRoleDraft
+}: PermissionsSaveDisabledOptions): boolean {
+  if (!isOwner) {
+    return true;
+  }
+
+  if (isPromotePending || isPromoteToOwnerPending || isDemotePending || isSavePending) {
+    return true;
+  }
+
+  return (
+    permissionsRoleDraft !== 'owner' &&
+    permissionsBaseRole === permissionsRoleDraft &&
+    (isPermissionsLoading || !hasPermissionsDraft)
+  );
 }

@@ -33,7 +33,7 @@ import type {
   ReportsSummaryFilters,
   SearchBoxesParams
 } from '../../../domain';
-import { syncJobSummaryCachesFromDetail } from './inventoryMutationUtils';
+import { syncJobSummaryCachesFromDetail } from '../cache/jobs';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 const DEFAULT_READ_STALE_TIME_MS = 2 * 60 * 1000;

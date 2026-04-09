@@ -1,26 +1,34 @@
 # DRY Audit
 
-## Summary
-- Scope: long-lived app code first across `frontend`, `backend/src`, and `supabase/functions`.
-- Review stance: mirrored local-backend and shared-edge implementations are acceptable when contract behavior stays aligned.
-- This pass implemented the lowest-risk, highest-repeat frontend consolidations and documented the remaining top hotspots.
+The repo-wide cleanup program now lives under [`docs/convergence`](./docs/convergence/README.md).
 
-## Prioritized Findings
+## Current Audit Home
+- [Phase 1 Light Pass](./docs/convergence/phase-1-light-pass.md)
+- [Phase 2 Medium Pass](./docs/convergence/phase-2-medium-pass.md)
+- [Phase 3 Deep Pass](./docs/convergence/phase-3-deep-pass.md)
 
-| Rank | Hotspot | Classification | Recommended Action | Refactor Risk | Concrete Seam |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Inventory page auth/config/permission guards | `extract now` | Extract shared action-access helper and reuse it in large pages | Low | `frontend/src/features/inventory/hooks/useActionAccess.ts` |
-| 2 | Repeated React Query read option shapes | `extract now` | Centralize default query option builders for inventory read hooks | Low | `frontend/src/features/inventory/hooks/useInventoryReadQueries.ts` |
-| 3 | Repeated job cache sync and caulk invalidation logic | `extract now` | Move common cache update/invalidation behavior into hook utilities | Low | `frontend/src/features/inventory/hooks/inventoryMutationUtils.ts`, `inventoryInvalidation.ts` |
-| 4 | Local backend host vs shared edge job-status logic | `intentional mirror` | Keep mirrored implementations, protect with contract/parity checks, avoid premature extraction | Medium | `backend/src/app/handleSupabaseRequest.mjs`, `supabase/functions/_shared/api-handler.ts` |
-| 5 | Feature API client wrappers and stylesheet repetition | `leave as-is` | Only extract further if readability improves or repetition starts drifting behavior | Medium | `frontend/src/api/features/*`, `frontend/src/styles.css` |
+## Why This Moved
+- the repo now needs a broader convergence program, not just a narrow DRY note
+- oversized files and folder structure are now first-class audit targets
+- source-of-truth ownership and parity checks are part of the same program
 
-## Implemented In This Pass
-- Shared page-level action access checks now flow through one helper instead of repeating auth/config/permission toast logic in each large inventory page.
-- Inventory read hooks now use shared internal query builders for common `enabled`, `staleTime`, `gcTime`, and `refetchOnWindowFocus` patterns.
-- Job-result cache syncing now uses a shared helper, and repeated caulk mutation invalidations now route through shared invalidation utilities.
+## Existing Low-Risk Consolidations Still Stand
+- shared page-level action access checks
+- shared inventory read-query option builders
+- shared job cache sync and caulk invalidation helpers
 
-## Deferred / Documented
-- Backend mirrored business rules remain duplicated by design because the local host and shared edge handler run in different environments. Current recommendation is to keep the mirror and strengthen parity coverage rather than forcing a shared runtime layer.
-- API feature clients still contain some repeated “request + normalize” wrappers, but the current repetition is shallow and type-local. Extract only if more routes start sharing the same mapper/shape.
-- `styles.css` contains repeated badge/pill/calendar styling patterns, but broad consolidation would be higher-risk than value for this pass.
+## Latest Snapshot
+- latest hotspot scan date: `2026-04-09`
+- no app files remain in the `800+` split bucket
+- remaining priority hotspots are `backend/src/app/handleSupabaseRequest.mjs` and `supabase/functions/_shared/api-handler.ts`
+- `frontend/src/features/inventory/components/BoxForm.tsx` and `frontend/src/features/inventory/utils/boxHelpers.ts` are no longer in the review-tier hotspot queue after the latest frontend split
+- current review-tier cleanup queue now lives in the convergence phase docs
+
+## Repeatable Baseline Scan
+Run:
+
+```bash
+npm --prefix backend run audit:repo:hotspots
+```
+
+Use that output as the current hotspot baseline before starting a new cleanup batch.

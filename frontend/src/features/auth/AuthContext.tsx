@@ -1,28 +1,26 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Session, User } from '@supabase/supabase-js';
 import type {
   AuthSession,
-  AuthUser,
   EffectiveAccessContext,
   FeatureAccessMode,
   FeatureArea
 } from '../../domain';
-import { createDefaultFeatureAccessMap } from '../../domain';
 import {
   getAuthContext,
-  requestUsernameChange as requestUsernameChangeApi,
   setClientAccessContext
 } from '../../api/features/authClient';
 import { getStoredAuthSession, setStoredAuthSession } from '../../lib/storage';
 import { getSupabaseClient, isSupabaseAuthConfigured } from '../../lib/supabase';
+import { isPasswordRecoveryUrl } from './authRecovery';
+import { clearRecoveryUrlState, normalizeAccessContext } from './authAccessHelpers';
+import { mapAccessContextErrorMessage, isSessionExpiredOrMissingError } from './authErrors';
+import { buildAuthProviderActions } from './authProviderActions';
 import {
-  PASSWORD_RESET_INVALID_LINK_MESSAGE,
-  PASSWORD_RESET_REQUEST_MESSAGE,
-  PASSWORD_RESET_SUCCESS_MESSAGE,
-  buildPasswordResetRedirectUrl,
-  isPasswordRecoveryUrl,
-  stripPasswordRecoveryUrlState
-} from './authRecovery';
+  useAuthAccessRefreshEffects,
+  useSupabaseAuthSessionLifecycle
+} from './authProviderEffects';
+import { buildAuthScopeSignature } from './authSession';
 
 interface AuthContextValue {
   accessContext: EffectiveAccessContext | null;
@@ -63,6 +61,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const ACCESS_REFRESH_THROTTLE_MS = 15_000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const authConfigured = isSupabaseAuthConfigured();
   const [errorMessage, setErrorMessage] = useState('');
@@ -79,41 +78,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accessContextRef = useRef<EffectiveAccessContext | null>(null);
   const accessRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const accessRefreshTokenRef = useRef('');
-  const lastAutoRefreshAtRef = useRef(0);
   const sessionTokenRef = useRef(session?.token || '');
+  const resolvedAuthScopeSignatureRef = useRef('');
   const isAuthenticated = Boolean(session?.token && session.user?.email && session.user?.name);
+
+  const resetAppQueryCache = useCallback(() => {
+    void queryClient.cancelQueries();
+    queryClient.clear();
+  }, [queryClient]);
 
   const applyAccessContext = useCallback((nextContext: EffectiveAccessContext | null) => {
     accessContextRef.current = nextContext;
     setAccessContext(nextContext);
     setClientAccessContext(nextContext);
-  }, []);
-
-  const normalizeAccessContext = useCallback((nextContext: EffectiveAccessContext): EffectiveAccessContext => {
-    return {
-      ...nextContext,
-      permissions: {
-        ...createDefaultFeatureAccessMap(),
-        ...nextContext.permissions
-      }
-    };
-  }, []);
-
-  const clearRecoveryUrlState = useCallback(() => {
-    if (
-      typeof window === 'undefined' ||
-      !window.history ||
-      typeof window.history.replaceState !== 'function'
-    ) {
-      return;
-    }
-
-    const currentRelativeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    const nextRelativeUrl = stripPasswordRecoveryUrlState(window.location);
-
-    if (nextRelativeUrl !== currentRelativeUrl) {
-      window.history.replaceState({}, document.title, nextRelativeUrl);
-    }
   }, []);
 
   const finalizeSignedOutState = useCallback(
@@ -124,21 +101,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       nextErrorMessage?: string;
       nextPasswordResetMessage?: string;
     } = {}) => {
+      resetAppQueryCache();
       setErrorMessage(nextErrorMessage);
       setPasswordResetMessage(nextPasswordResetMessage);
       sessionTokenRef.current = '';
+      resolvedAuthScopeSignatureRef.current = '';
       setStoredAuthSession(null);
       setSession(null);
       applyAccessContext(null);
       accessRefreshPromiseRef.current = null;
       accessRefreshTokenRef.current = '';
-      lastAutoRefreshAtRef.current = 0;
       setAccessRefreshError('');
       setIsAccessReady(true);
       setIsPasswordRecovery(false);
       clearRecoveryUrlState();
     },
-    [applyAccessContext, clearRecoveryUrlState]
+    [applyAccessContext, clearRecoveryUrlState, resetAppQueryCache]
   );
 
   const performSignOut = useCallback(
@@ -183,6 +161,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         const normalizedContext = normalizeAccessContext(nextContext);
+        const nextScopeSignature = buildAuthScopeSignature(session, normalizedContext);
+        const currentScopeSignature = resolvedAuthScopeSignatureRef.current;
+        if (
+          currentScopeSignature &&
+          nextScopeSignature &&
+          currentScopeSignature !== nextScopeSignature
+        ) {
+          resetAppQueryCache();
+        }
+        resolvedAuthScopeSignatureRef.current = nextScopeSignature;
         applyAccessContext(normalizedContext);
         setErrorMessage('');
       } catch (error) {
@@ -224,392 +212,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authConfigured,
     finalizeSignedOutState,
     isPasswordRecovery,
-    normalizeAccessContext,
-    session?.token
+    resetAppQueryCache,
+    session,
+    session?.token,
+    session?.user?.sub
   ]);
 
   useEffect(() => {
     sessionTokenRef.current = session?.token || '';
   }, [session?.token]);
+  useSupabaseAuthSessionLifecycle({
+    applyAccessContext,
+    authConfigured,
+    clearRecoveryUrlState,
+    finalizeSignedOutState,
+    resolvedAuthScopeSignatureRef,
+    setAccessRefreshError,
+    setErrorMessage,
+    setIsAccessReady,
+    setIsPasswordRecovery,
+    setIsReady,
+    setPasswordResetMessage,
+    setSession,
+    supabase
+  });
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    if (!authConfigured || !supabase) {
-      setStoredAuthSession(null);
-      setSession(null);
-      applyAccessContext(null);
-      setErrorMessage('');
-      setPasswordResetMessage('');
-      setAccessRefreshError('');
-      setIsReady(true);
-      setIsAccessReady(true);
-      setIsPasswordRecovery(false);
-      return () => {
-        isCancelled = true;
-      };
-    }
-
-    const supabaseClient = supabase;
-
-    async function hydrateAuthSession() {
-      const hasRecoveryParams = isPasswordRecoveryUrl(window.location);
-
-      try {
-        const { data, error } = await supabaseClient.auth.getSession();
-        if (isCancelled) {
-          return;
-        }
-
-        if (error) {
-          throw error;
-        }
-
-        const nextSession = mapSupabaseSession(data.session);
-        setStoredAuthSession(nextSession);
-        setSession(nextSession);
-        if (!nextSession) {
-          applyAccessContext(null);
-          setAccessRefreshError('');
-          setIsAccessReady(true);
-          setIsPasswordRecovery(false);
-          if (hasRecoveryParams) {
-            clearRecoveryUrlState();
-            setErrorMessage(PASSWORD_RESET_INVALID_LINK_MESSAGE);
-          } else {
-            setErrorMessage('');
-          }
-        } else {
-          if (hasRecoveryParams) {
-            applyAccessContext(null);
-            setAccessRefreshError('');
-            setIsAccessReady(true);
-            setIsPasswordRecovery(true);
-            setPasswordResetMessage('');
-            clearRecoveryUrlState();
-          } else {
-            setAccessRefreshError('');
-            setIsAccessReady(false);
-          }
-          setErrorMessage('');
-        }
-      } catch (error) {
-        if (!isCancelled) {
-          setStoredAuthSession(null);
-          setSession(null);
-          applyAccessContext(null);
-          setAccessRefreshError('');
-          setPasswordResetMessage('');
-          setIsAccessReady(true);
-          setIsPasswordRecovery(false);
-          setErrorMessage(
-            error instanceof Error && error.message ? error.message : 'Sign-in could not be initialized.'
-          );
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsReady(true);
-        }
-      }
-    }
-
-    hydrateAuthSession();
-
-    const {
-      data: { subscription }
-    } = supabaseClient.auth.onAuthStateChange((event, nextSession) => {
-      if (isCancelled) {
-        return;
-      }
-
-      const mapped = mapSupabaseSession(nextSession);
-      setStoredAuthSession(mapped);
-      setSession(mapped);
-      if (!mapped) {
-        applyAccessContext(null);
-        setAccessRefreshError('');
-        setIsAccessReady(true);
-        setIsPasswordRecovery(false);
-      } else {
-        const shouldEnterPasswordRecovery =
-          event === 'PASSWORD_RECOVERY' || isPasswordRecoveryUrl(window.location);
-        if (shouldEnterPasswordRecovery) {
-          applyAccessContext(null);
-          setAccessRefreshError('');
-          setIsAccessReady(true);
-          setIsPasswordRecovery(true);
-          setPasswordResetMessage('');
-          setErrorMessage('');
-          clearRecoveryUrlState();
-        } else {
-          setAccessRefreshError('');
-          setIsAccessReady(false);
-        }
-      }
-    });
-
-    return () => {
-      isCancelled = true;
-      subscription.unsubscribe();
-    };
-  }, [applyAccessContext, authConfigured, supabase]);
-
-  useEffect(() => {
-    void refreshAccessContext();
-  }, [refreshAccessContext]);
-
-  useEffect(() => {
-    if (!authConfigured || !session?.token) {
-      return;
-    }
-
-    const maybeAutoRefresh = () => {
-      if (document.visibilityState !== 'visible') {
-        return;
-      }
-
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastAutoRefreshAtRef.current < ACCESS_REFRESH_THROTTLE_MS) {
-        return;
-      }
-
-      lastAutoRefreshAtRef.current = now;
-      void refreshAccessContext();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        maybeAutoRefresh();
-      }
-    };
-
-    window.addEventListener('focus', maybeAutoRefresh);
-    window.addEventListener('online', maybeAutoRefresh);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('focus', maybeAutoRefresh);
-      window.removeEventListener('online', maybeAutoRefresh);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [authConfigured, refreshAccessContext, session?.token]);
-
-  async function signInWithPassword(email: string, password: string) {
-    if (!authConfigured || !supabase) {
-      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable sign-in.');
-    }
-
-    setIsBusy(true);
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    setAccessRefreshError('');
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      const mapped = mapSupabaseSession(data.session);
-      if (!mapped) {
-        throw new Error('Sign-in succeeded but no active session was returned.');
-      }
-
-      setStoredAuthSession(mapped);
-      setSession(mapped);
-      setIsAccessReady(false);
-    } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : 'Sign-in failed.';
-      setErrorMessage(message);
-      throw new Error(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function signUpWithPassword(username: string, email: string, password: string) {
-    if (!authConfigured || !supabase) {
-      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable sign-in.');
-    }
-
-    const trimmedEmail = email.trim();
-    const trimmedUsername = username.trim();
-    const fallbackName = trimmedUsername || deriveNameFromEmail(trimmedEmail);
-
-    setIsBusy(true);
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    setAccessRefreshError('');
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: {
-          data: {
-            name: fallbackName,
-            full_name: fallbackName
-          }
-        }
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      const mapped = mapSupabaseSession(data.session);
-      if (mapped) {
-        setStoredAuthSession(mapped);
-        setSession(mapped);
-        setIsAccessReady(false);
-        return { sessionCreated: true };
-      }
-
-      applyAccessContext(null);
-      setAccessRefreshError('');
-      setIsAccessReady(true);
-      setErrorMessage('');
-      return { sessionCreated: false };
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message ? error.message : 'Account creation failed.';
-      setErrorMessage(message);
-      throw new Error(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function requestPasswordReset(email: string) {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      throw new Error('Email is required.');
-    }
-
-    if (!authConfigured || !supabase) {
-      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable password reset.');
-    }
-
-    setIsBusy(true);
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    setAccessRefreshError('');
-
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: buildPasswordResetRedirectUrl(window.location)
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      setPasswordResetMessage(PASSWORD_RESET_REQUEST_MESSAGE);
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : 'Password reset could not be requested.';
-      setErrorMessage(message);
-      throw new Error(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function completePasswordReset(password: string) {
-    if (!authConfigured || !supabase) {
-      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable password reset.');
-    }
-
-    if (!isPasswordRecovery || !session?.token) {
-      throw new Error('Open the password reset link from your email before setting a new password.');
-    }
-
-    setIsBusy(true);
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    setAccessRefreshError('');
-
-    try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) {
-        throw error;
-      }
-
-      await performSignOut({
-        nextPasswordResetMessage: PASSWORD_RESET_SUCCESS_MESSAGE
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message ? error.message : 'Password reset failed.';
-      setErrorMessage(message);
-      throw new Error(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function requestUsernameChange(username: string) {
-    const trimmed = username.trim();
-    if (!trimmed) {
-      throw new Error('Username is required.');
-    }
-
-    if (!authConfigured || !supabase) {
-      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable username updates.');
-    }
-
-    setIsBusy(true);
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    setAccessRefreshError('');
-    try {
-      const result = await requestUsernameChangeApi({ username: trimmed });
-
-      if (result.status === 'approved') {
-        const { data, error } = await supabase.auth.refreshSession();
-        if (error) {
-          throw error;
-        }
-
-        const mapped = mapSupabaseSession(data.session);
-        if (mapped) {
-          setStoredAuthSession(mapped);
-          setSession(mapped);
-        }
-
-        await refreshAccessContext();
-      }
-
-      return result;
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message ? error.message : 'Username update failed.';
-      setErrorMessage(message);
-      throw new Error(message);
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function signOut() {
-    await performSignOut();
-  }
-
-  function exitPasswordRecovery() {
-    setErrorMessage('');
-    setPasswordResetMessage('');
-    void performSignOut();
-  }
+  useAuthAccessRefreshEffects({
+    authConfigured,
+    refreshAccessContext,
+    sessionToken: session?.token || '',
+    throttleMs: ACCESS_REFRESH_THROTTLE_MS
+  });
+  const {
+    completePasswordReset,
+    exitPasswordRecovery,
+    requestPasswordReset,
+    requestUsernameChange,
+    signInWithPassword,
+    signOut,
+    signUpWithPassword
+  } = buildAuthProviderActions({
+    applyAccessContext,
+    authConfigured,
+    isPasswordRecovery,
+    performSignOut,
+    refreshAccessContext,
+    session,
+    setAccessRefreshError,
+    setErrorMessage,
+    setIsAccessReady,
+    setIsBusy,
+    setPasswordResetMessage,
+    setSession,
+    supabase
+  });
 
   const accessStatus = accessContext?.accessStatus || '';
   const isApproved = accessStatus === 'approved';
@@ -675,79 +331,4 @@ export function useAuth(): AuthContextValue {
   }
 
   return context;
-}
-
-function deriveNameFromEmail(email: string): string {
-  const localPart = email.split('@')[0] || '';
-  const sanitized = localPart.replace(/[._-]+/g, ' ').trim();
-  return sanitized || 'Inventory User';
-}
-
-function mapAccessContextErrorMessage(error: unknown): string {
-  const message = error instanceof Error && error.message ? error.message : '';
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes('relation "app.general_feature_permissions" does not exist') ||
-    normalized.includes('relation "app.admin_feature_permissions" does not exist') ||
-    normalized.includes('relation "app.access_requests" does not exist') ||
-    normalized.includes('relation "app.username_change_requests" does not exist') ||
-    normalized.includes('column "requested_by_name" does not exist') ||
-    (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist'))
-  ) {
-    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, and 0009_user_feature_overrides.sql are required. Run all four in Supabase, then refresh.';
-  }
-
-  return message || 'Your access details could not be loaded.';
-}
-
-function isSessionExpiredOrMissingError(error: unknown): boolean {
-  const message = error instanceof Error && error.message ? error.message.toLowerCase() : '';
-  return (
-    message.includes('authenticated session is required') ||
-    message.includes('jwt') && message.includes('invalid') ||
-    message.includes('token') && message.includes('expired')
-  );
-}
-
-function readUserMetadataField(user: User, key: string): string {
-  const value = user.user_metadata && typeof user.user_metadata === 'object' ? user.user_metadata[key] : '';
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function mapSupabaseSession(session: Session | null): AuthSession | null {
-  if (!session || !session.access_token || !session.user || !session.user.email) {
-    return null;
-  }
-
-  const email = session.user.email.trim();
-  if (!email) {
-    return null;
-  }
-
-  const profileName =
-    readUserMetadataField(session.user, 'full_name') ||
-    readUserMetadataField(session.user, 'name') ||
-    deriveNameFromEmail(email);
-  const avatarUrl = readUserMetadataField(session.user, 'avatar_url');
-
-  const authUser: AuthUser = {
-    email,
-    hasProfileName: true,
-    name: profileName,
-    picture: avatarUrl,
-    sub: session.user.id
-  };
-
-  const issuedAt = Date.now();
-  const expiresAt =
-    Number.isFinite(session.expires_at) && session.expires_at
-      ? session.expires_at * 1000
-      : issuedAt + 60 * 60 * 1000;
-
-  return {
-    token: session.access_token,
-    user: authUser,
-    issuedAt,
-    expiresAt
-  };
 }

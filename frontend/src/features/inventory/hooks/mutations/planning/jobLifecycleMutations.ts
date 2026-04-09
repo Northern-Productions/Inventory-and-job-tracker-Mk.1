@@ -20,7 +20,10 @@ import {
   applyOptimisticJobScheduleSyncToCaches,
   createOptimisticAllocationJobSummaryFromJobDetail,
   createOptimisticJobDetailFromCreatePayload,
-  removeJobPlanningCaches
+  removeJobPlanningCaches,
+  syncJobDetailCaches,
+  upsertAllocationJobSummaryCaches,
+  upsertJobListCaches
 } from '../../../cache/jobs';
 import {
   beginDelayedOptimisticMutation,
@@ -29,10 +32,10 @@ import {
 } from '../../../cache/shared';
 import {
   invalidateGlobalPlanningQueries,
+  invalidateJobAndFilmOrderQueries,
   invalidateJobLifecycleQueries
 } from '../../inventoryInvalidation';
 import { syncOfflineInventoryQueries } from '../../useInventoryOfflineSync';
-import { cancelJobPlanningQueries, syncAndInvalidateJobDetail } from './shared';
 
 export function useCreateJob() {
   const queryClient = useQueryClient();
@@ -40,7 +43,12 @@ export function useCreateJob() {
   return useMutation({
     mutationFn: (payload: CreateJobPayload) => createJob(payload),
     onMutate: async (payload) => {
-      await cancelJobPlanningQueries(queryClient, payload.jobNumber);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+      ]);
 
       const optimisticDetail = createOptimisticJobDetailFromCreatePayload(
         payload,
@@ -67,6 +75,11 @@ export function useCreateJob() {
             caulkCheckouts: [],
             filmOrders: []
           });
+          upsertJobListCaches(queryClient, optimisticDetail.summary);
+          upsertAllocationJobSummaryCaches(
+            queryClient,
+            createOptimisticAllocationJobSummaryFromJobDetail(optimisticDetail)
+          );
         }
       );
     },
@@ -74,7 +87,8 @@ export function useCreateJob() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await syncAndInvalidateJobDetail(queryClient, result);
+      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
 }
@@ -86,7 +100,10 @@ export function useUpdateJob() {
     mutationFn: (payload: UpdateJobPayload) => updateJob(payload),
     onMutate: async (payload) => {
       await Promise.all([
-        cancelJobPlanningQueries(queryClient, payload.jobNumber),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
       ]);
 
@@ -108,7 +125,8 @@ export function useUpdateJob() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await syncAndInvalidateJobDetail(queryClient, result);
+      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
+      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
     }
   });
 }
@@ -186,11 +204,13 @@ export function useCompleteJob() {
       context?.operation?.cancel();
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }, _variables, context) => {
+    onSuccess: async ({ result }, variables, context) => {
       await context?.operation?.waitForApply();
-      await syncAndInvalidateJobDetail(queryClient, result, { syncAllocationJobDetail: false });
+      syncJobDetailCaches(queryClient, result);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(result.summary.jobNumber) })
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
       ]);
       void syncOfflineInventoryQueries(queryClient);
     },

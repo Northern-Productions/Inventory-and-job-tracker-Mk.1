@@ -2236,6 +2236,111 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
+  it('reduces available feet inside job-allocate search caches after an optimistic allocation', () => {
+    const queryClient = createQueryClient();
+    const jobAllocateSearchKey = [
+      'inventory',
+      'search',
+      'job-allocate',
+      'MS1',
+      'Avery Dennison',
+      'Natura 15',
+      'active'
+    ] as const;
+
+    queryClient.setQueryData(jobAllocateSearchKey, [
+      {
+        boxId: 'MS1-965',
+        warehouse: 'MS1',
+        manufacturer: 'Avery Dennison',
+        filmName: 'Natura 15',
+        widthIn: 72,
+        initialFeet: 100,
+        feetAvailable: 100,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-04-01',
+        receivedDate: '2026-04-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: 'AVERY DENNISON|NATURA 15',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: 'MS1-966',
+        warehouse: 'MS1',
+        manufacturer: 'Avery Dennison',
+        filmName: 'Natura 15',
+        widthIn: 72,
+        initialFeet: 100,
+        feetAvailable: 100,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-04-01',
+        receivedDate: '2026-04-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: 'AVERY DENNISON|NATURA 15',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      }
+    ]);
+
+    const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'MS1-965',
+      jobNumber: '18764',
+      requestedFeet: 100,
+      requestedWidthIn: 72,
+      requirementId: 'req-72',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
+      crossWarehouse: false,
+      jobWarehouse: 'MS1'
+    });
+
+    expect(result.allocations).toMatchObject([
+      {
+        boxId: 'MS1-965',
+        allocatedFeet: 100,
+        coveredFeet: 100,
+        requirementId: 'req-72'
+      }
+    ]);
+    expect(queryClient.getQueryData(jobAllocateSearchKey)).toMatchObject([
+      {
+        boxId: 'MS1-965',
+        feetAvailable: 0
+      },
+      {
+        boxId: 'MS1-966',
+        feetAvailable: 100
+      }
+    ]);
+  });
+
   it('applies optimistic allocation removal across job, summary, box, and allocation caches', () => {
     const queryClient = createQueryClient();
     const detail = {

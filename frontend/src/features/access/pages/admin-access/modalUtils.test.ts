@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   getPermissionsRoleOptions,
+  getPermissionsSaveDisabled,
   getPermissionsSaveLabel,
   shouldRenderPermissionsGrid
-} from './adminAccessModalUtils';
+} from './modalUtils';
 
-describe('adminAccessModalUtils', () => {
+describe('modalUtils', () => {
   it('shows Owner as a selectable role only for owner-managed admin accounts', () => {
     expect(getPermissionsRoleOptions('admin', true)).toEqual(['member', 'admin', 'owner']);
   });
@@ -26,5 +27,17 @@ describe('adminAccessModalUtils', () => {
   it('hides the permissions grid when the owner draft is selected', () => {
     expect(shouldRenderPermissionsGrid('admin', 'owner', true)).toBe(false);
     expect(shouldRenderPermissionsGrid('admin', 'admin', true)).toBe(true);
+  });
+
+  it('disables save while the current role is loading its unchanged permissions draft', () => {
+    expect(
+      getPermissionsSaveDisabled({
+        hasPermissionsDraft: false,
+        isOwner: true,
+        isPermissionsLoading: true,
+        permissionsBaseRole: 'admin',
+        permissionsRoleDraft: 'admin'
+      })
+    ).toBe(true);
   });
 });
