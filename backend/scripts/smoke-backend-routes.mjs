@@ -166,9 +166,8 @@ async function main() {
 
   const mutationCases = [
     {
-      method: 'POST',
+      method: 'GET',
       path: '/allocations/preview',
-      body: {},
       expectedStatuses: [400],
       requiresAuth: true,
       safe: true
