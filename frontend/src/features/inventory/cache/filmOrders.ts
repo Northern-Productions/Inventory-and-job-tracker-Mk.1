@@ -10,7 +10,12 @@ import type {
   JobDetail,
   JobListEntry
 } from '../../../domain';
-import { createOptimisticBoxFromAddPayload, updateBoxCaches, upsertBoxInSearchCaches } from './boxes';
+import {
+  createOptimisticBoxFromAddPayload,
+  releasePlanningAllocationFromCachedBox,
+  updateBoxCaches,
+  upsertBoxInSearchCaches
+} from './boxes';
 import {
   buildAllocationJobSummaryFromAllocations,
   createOptimisticJobDetailAfterFilmOrderDeletion,
@@ -526,10 +531,7 @@ export function applyOptimisticFilmOrderDeletionToCaches(
         return box;
       }
 
-      return {
-        ...box,
-        feetAvailable: Math.min(box.initialFeet, Math.max(0, box.feetAvailable + releasedFeet))
-      };
+      return releasePlanningAllocationFromCachedBox(box, releasedFeet);
     });
   }
 

@@ -1,4 +1,4 @@
-import type { FilmOrderEntry, JobFilmTransferAlert } from '../../../../domain';
+import type { FilmOrderEntry, JobDetail, JobFilmTransferAlert } from '../../../../domain';
 import { formatDate, formatDateTime } from '../../../../lib/date';
 
 export function renderDate(value: string) {
@@ -51,6 +51,22 @@ export function getFilmTransferBulkCheckoutMessage(alerts: JobFilmTransferAlert[
   }
 
   return 'Receive transferred film before checking out this job.';
+}
+
+export function getOrderedReceiptBulkCheckoutMessage(
+  detail: Pick<JobDetail, 'allocations'> | null | undefined
+) {
+  const hasOrderedRequirementAllocations = (detail?.allocations || []).some(
+    (entry) =>
+      entry.status === 'ACTIVE' &&
+      entry.allocationKind !== 'EXTRA' &&
+      entry.allocatedFeet > 0 &&
+      entry.boxStatus === 'ORDERED'
+  );
+
+  return hasOrderedRequirementAllocations
+    ? 'Receive ordered film before checking out all materials for this job.'
+    : '';
 }
 
 export function describeFilmTransferAlert(alert: JobFilmTransferAlert) {

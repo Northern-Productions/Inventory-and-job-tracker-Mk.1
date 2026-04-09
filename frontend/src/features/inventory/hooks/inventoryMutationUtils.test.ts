@@ -79,6 +79,7 @@ function buildFilmRequirementCoverageDetail(
       requirementCount: requirements.length,
       allocationCount: 0,
       filmOrderCount: 0,
+      hasOrderedAllocations: false,
       createdAt: '2026-04-06T00:00:00Z',
       updatedAt: '2026-04-06T00:00:00Z',
       notes: ''
@@ -281,6 +282,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 2,
         allocationCount: 2,
         filmOrderCount: 2,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -314,6 +316,7 @@ describe('inventoryMutationUtils', () => {
       requirementCount: 0,
       allocationCount: 0,
       filmOrderCount: 0,
+      hasOrderedAllocations: false,
       createdAt: '2026-03-23T00:00:00Z',
       updatedAt: '2026-03-23T00:00:00Z',
       notes: ''
@@ -378,6 +381,7 @@ describe('inventoryMutationUtils', () => {
       requirementCount: 1,
       allocationCount: 1,
       filmOrderCount: 1,
+      hasOrderedAllocations: false,
       createdAt: '2026-04-02T00:00:00Z',
       updatedAt: '2026-04-02T00:00:00Z',
       notes: ''
@@ -435,7 +439,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.job('555555555'), {
@@ -461,7 +466,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -570,7 +576,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -617,7 +624,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 44,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       }
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('18798'))).toMatchObject({
@@ -659,6 +667,7 @@ describe('inventoryMutationUtils', () => {
       requirementCount: 3,
       allocationCount: 2,
       filmOrderCount: 0,
+      hasOrderedAllocations: false,
       createdAt: '2026-04-03T17:19:35.984Z',
       updatedAt: '2026-04-03T17:20:34.647Z',
       notes: ''
@@ -804,7 +813,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.allocationJob('18959'), {
@@ -819,7 +829,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -859,7 +870,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 2
+        boxCount: 2,
+        hasOrderedAllocations: false
       }
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('18959'))).toMatchObject({
@@ -868,7 +880,8 @@ describe('inventoryMutationUtils', () => {
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 32,
-        boxCount: 2
+        boxCount: 2,
+        hasOrderedAllocations: false
       },
       caulkRequirements: [],
       filmOrders: []
@@ -935,6 +948,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 2,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-02T00:00:00Z',
         updatedAt: '2026-04-02T00:00:00Z',
         notes: ''
@@ -1049,6 +1063,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 2,
         filmOrderCount: 1,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-02T00:00:00Z',
         updatedAt: '2026-04-02T00:00:00Z',
         notes: ''
@@ -1171,6 +1186,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 2,
         allocationCount: 2,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-03T00:00:00Z',
         updatedAt: '2026-04-03T00:00:00Z',
         notes: ''
@@ -1301,6 +1317,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 2,
         allocationCount: 1,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-03T00:00:00Z',
         updatedAt: '2026-04-03T00:00:00Z',
         notes: ''
@@ -1789,6 +1806,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 3,
         allocationCount: 2,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-03T00:00:00Z',
         updatedAt: '2026-04-03T00:00:00Z',
         notes: ''
@@ -1953,6 +1971,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 0,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -1990,7 +2009,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -2097,6 +2117,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 2,
         allocationCount: 0,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-03T00:00:00Z',
         updatedAt: '2026-04-03T00:00:00Z',
         notes: ''
@@ -2143,7 +2164,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -2225,7 +2247,8 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('29003'))).toMatchObject({
       summary: {
         activeAllocatedFeet: 12,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [
         expect.objectContaining({
@@ -2363,6 +2386,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 2,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-02T00:00:00Z',
         updatedAt: '2026-04-02T00:00:00Z',
         notes: ''
@@ -2448,7 +2472,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 2
+        boxCount: 2,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.allocationJob('555'), {
@@ -2463,7 +2488,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 2
+        boxCount: 2,
+        hasOrderedAllocations: false
       },
       allocations: detail.allocations,
       usage: [],
@@ -2560,7 +2586,8 @@ describe('inventoryMutationUtils', () => {
       summary: {
         status: 'ALLOCATE',
         activeAllocatedFeet: 9,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [
         expect.objectContaining({
@@ -2582,6 +2609,135 @@ describe('inventoryMutationUtils', () => {
         allocationCount: 1
       })
     ]);
+  });
+
+  it('keeps ordered box on-hand feet at 0 while optimistic allocations update planning feet and ordered flags', () => {
+    const queryClient = createQueryClient();
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-ordered',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 40,
+        allocatedFeet: 0,
+        remainingFeet: 40
+      }
+    ]);
+    const orderedBox = {
+      boxId: 'IL1-ORDERED',
+      warehouse: 'IL1',
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60',
+      widthIn: 60,
+      initialFeet: 80,
+      feetAvailable: 0,
+      allocationPlanningFeet: 80,
+      lotRun: '',
+      status: 'ORDERED' as const,
+      orderDate: '2026-04-06',
+      receivedDate: '',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M SOLAR|PRESTIGE 60',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    };
+
+    queryClient.setQueryData(inventoryKeys.job('29050'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('29050'), {
+      summary: {
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0,
+        hasOrderedAllocations: false
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+    queryClient.setQueryData(inventoryKeys.box('IL1-ORDERED'), orderedBox);
+    queryClient.setQueryData(inventoryKeys.allocations('IL1-ORDERED'), []);
+
+    const addition = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-ORDERED',
+      jobNumber: '29050',
+      requestedFeet: 40,
+      requestedWidthIn: 60,
+      requirementId: 'req-ordered',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: []
+    });
+
+    expect(addition.allocations).toHaveLength(1);
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-ORDERED'))).toMatchObject({
+      feetAvailable: 0,
+      allocationPlanningFeet: 40,
+      status: 'ORDERED'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.job('29050'))).toMatchObject({
+      summary: {
+        allocatedFeet: 40,
+        remainingFeet: 0,
+        hasOrderedAllocations: true
+      },
+      allocations: [
+        expect.objectContaining({
+          boxId: 'IL1-ORDERED',
+          boxStatus: 'ORDERED'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('29050'))).toMatchObject({
+      summary: {
+        activeAllocatedFeet: 40,
+        hasOrderedAllocations: true
+      }
+    });
+
+    applyOptimisticAllocationRemovalToCaches(queryClient, '29050', addition.allocations[0].allocationId);
+
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-ORDERED'))).toMatchObject({
+      feetAvailable: 0,
+      allocationPlanningFeet: 80,
+      status: 'ORDERED'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.job('29050'))).toMatchObject({
+      summary: {
+        allocatedFeet: 0,
+        remainingFeet: 40,
+        hasOrderedAllocations: false
+      }
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('29050'))).toMatchObject({
+      summary: {
+        activeAllocatedFeet: 0,
+        hasOrderedAllocations: false
+      }
+    });
   });
 
   it('restores only the failed allocation when optimistic removals overlap', () => {
@@ -2606,6 +2762,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 2,
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-02T00:00:00Z',
         updatedAt: '2026-04-02T00:00:00Z',
         notes: ''
@@ -2690,7 +2847,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 0,
-        boxCount: 2
+        boxCount: 2,
+        hasOrderedAllocations: false
       },
       allocations: detail.allocations,
       usage: [],
@@ -2923,6 +3081,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 1,
         filmOrderCount: 1,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3032,6 +3191,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 1,
         filmOrderCount: 1,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3073,7 +3233,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
@@ -3088,7 +3249,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [allocation],
       usage: [],
@@ -3184,6 +3346,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         status: 'ALLOCATE',
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         allocatedFeet: 0,
         remainingFeet: 60
       })
@@ -3193,7 +3356,8 @@ describe('inventoryMutationUtils', () => {
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       },
       allocations: [],
       filmOrders: []
@@ -3204,7 +3368,8 @@ describe('inventoryMutationUtils', () => {
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
         openFilmOrderCount: 0,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-6396'))).toMatchObject({
@@ -3245,6 +3410,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 1,
         filmOrderCount: 1,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3262,7 +3428,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
 
@@ -3277,6 +3444,7 @@ describe('inventoryMutationUtils', () => {
       expect.objectContaining({
         jobNumber: '2941',
         filmOrderCount: 0,
+        hasOrderedAllocations: false,
         updatedAt: '2026-04-06T12:30:00Z'
       })
     ]);
@@ -3335,6 +3503,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 1,
         filmOrderCount: 1,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3376,7 +3545,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [allocation],
       usage: [],
@@ -3398,7 +3568,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.box('IL1-6396'), {
@@ -3485,7 +3656,8 @@ describe('inventoryMutationUtils', () => {
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [expect.objectContaining({ allocationId: 'alloc-fo-1', status: 'ACTIVE' })],
       filmOrders: [filmOrder]
@@ -3496,7 +3668,8 @@ describe('inventoryMutationUtils', () => {
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-6396'))).toMatchObject({
@@ -3546,6 +3719,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 1,
         filmOrderCount: 2,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3590,7 +3764,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
@@ -3605,7 +3780,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 1
+        boxCount: 1,
+        hasOrderedAllocations: false
       },
       allocations: [],
       usage: [],
@@ -3719,6 +3895,7 @@ describe('inventoryMutationUtils', () => {
         requirementCount: 1,
         allocationCount: 0,
         filmOrderCount: 2,
+        hasOrderedAllocations: false,
         createdAt: '2026-04-06T00:00:00Z',
         updatedAt: '2026-04-06T00:00:00Z',
         notes: ''
@@ -3744,7 +3921,8 @@ describe('inventoryMutationUtils', () => {
         allocatedTubes: 0,
         remainingTubes: 0,
         openFilmOrderCount: 1,
-        boxCount: 0
+        boxCount: 0,
+        hasOrderedAllocations: false
       }
     ]);
     queryClient.setQueryData(inventoryKeys.filmOrders, [openFilmOrder, resolvedFilmOrder]);

@@ -24,6 +24,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
+    hasOrderedAllocations: false,
     createdAt: '2026-03-20T00:00:00Z',
     updatedAt: '2026-03-20T00:00:00Z',
     notes: '',

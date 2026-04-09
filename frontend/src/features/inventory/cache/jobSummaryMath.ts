@@ -113,6 +113,7 @@ export function createOptimisticJobDetailFromCreatePayload(
       requirementCount: requirements.length,
       allocationCount: 0,
       filmOrderCount: 0,
+      hasOrderedAllocations: false,
       createdAt,
       updatedAt: createdAt,
       notes: payload.notes || ''
@@ -139,6 +140,12 @@ export function getAllocationCoveredFeet(
   return Math.max(0, Number(allocation.allocatedFeet || 0));
 }
 
+function hasOrderedAllocations(entries: Array<Pick<AllocationJobDetailEntry, 'status' | 'boxStatus'>>) {
+  return entries.some(
+    (entry) => entry.status === 'ACTIVE' && String(entry.boxStatus || '').trim().toUpperCase() === 'ORDERED'
+  );
+}
+
 export function createOptimisticAllocationJobSummaryFromJobDetail(detail: JobDetail): AllocationJobSummary {
   const activeAllocatedFeet = detail.allocations.reduce(
     (sum, entry) => (entry.status === 'ACTIVE' ? sum + getAllocationCoveredFeet(entry) : sum),
@@ -161,7 +168,8 @@ export function createOptimisticAllocationJobSummaryFromJobDetail(detail: JobDet
     allocatedTubes: detail.summary.allocatedTubes,
     remainingTubes: detail.summary.remainingTubes,
     openFilmOrderCount,
-    boxCount: new Set(detail.allocations.map((entry) => entry.boxId).filter(Boolean)).size
+    boxCount: new Set(detail.allocations.map((entry) => entry.boxId).filter(Boolean)).size,
+    hasOrderedAllocations: hasOrderedAllocations(detail.allocations)
   };
 }
 
@@ -193,6 +201,7 @@ export function buildAllocationJobSummaryFromAllocations(
       0
     ),
     openFilmOrderCount: countUnresolvedFilmOrders(filmOrders),
-    boxCount: new Set(allocations.map((entry) => entry.boxId).filter(Boolean)).size
+    boxCount: new Set(allocations.map((entry) => entry.boxId).filter(Boolean)).size,
+    hasOrderedAllocations: hasOrderedAllocations(allocations)
   };
 }

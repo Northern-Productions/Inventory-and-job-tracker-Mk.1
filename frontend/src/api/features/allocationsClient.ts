@@ -29,7 +29,37 @@ function normalizeAllocationJobSummary(summary: AllocationJobSummary): Allocatio
     ...summary,
     requiredTubes: Math.max(0, Number(summary.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(summary.allocatedTubes || 0)),
-    remainingTubes: Math.max(0, Number(summary.remainingTubes || 0))
+    remainingTubes: Math.max(0, Number(summary.remainingTubes || 0)),
+    hasOrderedAllocations: Boolean(summary.hasOrderedAllocations)
+  };
+}
+
+function normalizeAllocationPreview(preview: AllocationPreview): AllocationPreview {
+  return {
+    ...preview,
+    sourceBoxFeetAvailable: Math.max(0, Number(preview.sourceBoxFeetAvailable || 0)),
+    sourceBoxPlanningFeet: Math.max(
+      0,
+      Number(
+        preview.sourceBoxPlanningFeet === undefined || preview.sourceBoxPlanningFeet === null
+          ? preview.sourceBoxFeetAvailable
+          : preview.sourceBoxPlanningFeet
+      )
+    ),
+    sourceBoxStatus: preview.sourceBoxStatus || 'ORDERED',
+    suggestions: (preview.suggestions || []).map((suggestion) => ({
+      ...suggestion,
+      availableFeet: Math.max(0, Number(suggestion.availableFeet || 0)),
+      planningFeet: Math.max(
+        0,
+        Number(
+          suggestion.planningFeet === undefined || suggestion.planningFeet === null
+            ? suggestion.availableFeet
+            : suggestion.planningFeet
+        )
+      ),
+      boxStatus: suggestion.boxStatus || 'ORDERED'
+    }))
   };
 }
 
@@ -83,7 +113,9 @@ export async function previewAllocationPlan(payload: AllocateBoxPayload): Promis
     jobWarehouse: payload.jobWarehouse
   };
 
-  return requestReadWithFallback<AllocationPreview>('/allocations/preview', params, params);
+  return normalizeAllocationPreview(
+    await requestReadWithFallback<AllocationPreview>('/allocations/preview', params, params)
+  );
 }
 
 export async function applyAllocationPlan(

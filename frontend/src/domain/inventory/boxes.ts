@@ -9,6 +9,7 @@ export interface Box {
   widthIn: number;
   initialFeet: number;
   feetAvailable: number;
+  allocationPlanningFeet: number;
   lotRun: string;
   status: BoxStatus;
   orderDate: string;

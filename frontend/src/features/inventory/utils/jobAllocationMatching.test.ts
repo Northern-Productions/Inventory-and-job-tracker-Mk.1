@@ -11,6 +11,7 @@ function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' |
     widthIn: overrides.widthIn,
     initialFeet: overrides.initialFeet ?? 100,
     feetAvailable: overrides.feetAvailable ?? 100,
+    allocationPlanningFeet: overrides.allocationPlanningFeet ?? overrides.feetAvailable ?? 100,
     lotRun: overrides.lotRun || '',
     status: overrides.status || 'IN_STOCK',
     orderDate: overrides.orderDate || '',
@@ -47,7 +48,7 @@ function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequi
 }
 
 describe('findMatchingBoxesForRequirement', () => {
-  it('matches manufacturer and film name while allowing widths that meet or exceed the requirement', () => {
+  it('matches eligible in-stock and ordered boxes, using planning feet and preferring in-stock first', () => {
     const requirement = buildRequirement({ widthIn: 60 });
     const matching = findMatchingBoxesForRequirement(
       [
@@ -68,13 +69,15 @@ describe('findMatchingBoxesForRequirement', () => {
           manufacturer: 'Madico',
           filmName: 'Graffiti Free 6MIL',
           widthIn: 60,
-          status: 'ORDERED'
+          status: 'ORDERED',
+          feetAvailable: 0,
+          allocationPlanningFeet: 55
         })
       ],
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-72-CHECKED']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-60-C']);
   });
 
   it('treats legacy manufacturer aliases as equivalent for matching', () => {

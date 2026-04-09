@@ -27,6 +27,7 @@ function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
     ...entry,
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
+    hasOrderedAllocations: Boolean(entry.hasOrderedAllocations),
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0))

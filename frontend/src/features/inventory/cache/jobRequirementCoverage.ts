@@ -302,6 +302,9 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
   const requiredFeet = nextRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
   const allocatedFeet = nextRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
   const remainingFeet = nextRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
+  const hasOrderedAllocations = detail.allocations.some(
+    (entry) => entry.status === 'ACTIVE' && entry.boxStatus === 'ORDERED'
+  );
 
   return {
     ...detail,
@@ -312,7 +315,8 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
       allocatedFeet,
       remainingFeet,
       allocationCount: detail.allocations.length,
-      filmOrderCount: detail.filmOrders.length
+      filmOrderCount: detail.filmOrders.length,
+      hasOrderedAllocations
     },
     requirements: nextRequirements
   };

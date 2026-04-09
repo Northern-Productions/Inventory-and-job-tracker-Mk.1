@@ -4,6 +4,9 @@ export interface AllocationCandidateBox {
   boxId: string;
   warehouse?: string;
   feetAvailable: number;
+  planningFeet?: number;
+  boxStatus?: string;
+  status?: string;
   widthIn?: number;
 }
 
@@ -37,6 +40,28 @@ function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
   return selected;
 }
 
+function getCandidatePlanningFeet(candidate: AllocationCandidateBox) {
+  return Math.max(0, Math.floor(Number((candidate.planningFeet ?? candidate.feetAvailable) || 0)));
+}
+
+function getCandidateStatusRank(candidate: AllocationCandidateBox) {
+  const normalizedStatus = String(candidate.boxStatus || candidate.status || '').trim().toUpperCase();
+  if (normalizedStatus === 'IN_STOCK') {
+    return 0;
+  }
+
+  if (normalizedStatus === 'ORDERED') {
+    return 1;
+  }
+
+  return 2;
+}
+
+function isAllocatableCandidate(candidate: AllocationCandidateBox) {
+  const normalizedStatus = String(candidate.boxStatus || candidate.status || '').trim().toUpperCase();
+  return normalizedStatus === '' || normalizedStatus === 'IN_STOCK' || normalizedStatus === 'ORDERED';
+}
+
 export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
   candidates: T[],
   preferredBoxIds: Iterable<string> = [],
@@ -51,6 +76,12 @@ export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
   }
 
   return candidates.slice().sort((left, right) => {
+    const leftStatusRank = getCandidateStatusRank(left);
+    const rightStatusRank = getCandidateStatusRank(right);
+    if (leftStatusRank !== rightStatusRank) {
+      return leftStatusRank - rightStatusRank;
+    }
+
     const leftPreferredWarehouse = String(left.warehouse || '').trim() === preferredWarehouse;
     const rightPreferredWarehouse = String(right.warehouse || '').trim() === preferredWarehouse;
     if (leftPreferredWarehouse !== rightPreferredWarehouse) {
@@ -88,15 +119,15 @@ export function autoSelectCandidateBoxIds(
     }
 
     const candidate = prioritized[index];
-    const availableFeet = Math.max(0, Math.floor(Number(candidate.feetAvailable || 0)));
-    if (availableFeet <= 0) {
+    const planningFeet = getCandidatePlanningFeet(candidate);
+    if (!isAllocatableCandidate(candidate) || planningFeet <= 0) {
       continue;
     }
 
     selected.push(candidate.boxId);
     remainingCoverageFeet = planCoverageAllocation(
       remainingCoverageFeet,
-      availableFeet,
+      planningFeet,
       candidate.widthIn,
       requirementWidthIn
     ).remainingCoveredFeet;
@@ -139,14 +170,14 @@ export function planSelectedCandidateAllocation(
       continue;
     }
 
-    const availableFeet = Math.max(0, Math.floor(Number(candidate.feetAvailable || 0)));
-    if (availableFeet <= 0) {
+    const planningFeet = getCandidatePlanningFeet(candidate);
+    if (!isAllocatableCandidate(candidate) || planningFeet <= 0) {
       continue;
     }
 
     const nextPlan = planCoverageAllocation(
       remainingCoverageFeet,
-      availableFeet,
+      planningFeet,
       candidate.widthIn,
       requirementWidthIn
     );
@@ -224,6 +255,13 @@ export function buildValidatedExtraAllocations(
       };
     }
 
+    if (!isAllocatableCandidate(candidate)) {
+      return {
+        extraAllocations: [],
+        error: `Box ${boxId} is no longer allocatable.`
+      };
+    }
+
     const rawFeet = String(extraFeetByBoxId[boxId] ?? '').trim();
     if (!rawFeet) {
       return {
@@ -241,11 +279,11 @@ export function buildValidatedExtraAllocations(
     }
 
     const allocatedFeet = Math.floor(parsedFeet);
-    const availableFeet = Math.max(0, Math.floor(Number(candidate.feetAvailable || 0)));
-    if (allocatedFeet > availableFeet) {
+    const planningFeet = getCandidatePlanningFeet(candidate);
+    if (allocatedFeet > planningFeet) {
       return {
         extraAllocations: [],
-        error: `Extra LF for box ${boxId} cannot exceed ${availableFeet}.`
+        error: `Extra LF for box ${boxId} cannot exceed ${planningFeet} planning LF.`
       };
     }
 

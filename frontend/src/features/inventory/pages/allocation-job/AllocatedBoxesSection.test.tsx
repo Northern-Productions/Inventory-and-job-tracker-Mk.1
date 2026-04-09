@@ -1,0 +1,62 @@
+// @vitest-environment jsdom
+
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { AllocationJobDetailEntry } from '../../../../domain';
+import { AllocatedBoxesSection } from './AllocatedBoxesSection';
+
+function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): AllocationJobDetailEntry {
+  return {
+    allocationId: 'alloc-1',
+    boxId: 'IL1-ORDERED',
+    warehouse: 'IL1',
+    jobNumber: '000123',
+    jobDate: '2026-04-01',
+    crewLeader: 'Crew',
+    allocatedFeet: 40,
+    coveredFeet: 40,
+    requirementId: 'req-1',
+    allocationKind: 'REQUIREMENT',
+    status: 'ACTIVE',
+    createdAt: '2026-04-01T12:00:00Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    filmOrderId: '',
+    notes: '',
+    manufacturer: '3M Solar',
+    filmName: 'Prestige 60',
+    widthIn: 60,
+    boxStatus: 'ORDERED',
+    checkedOutOnThisJob: false,
+    ...overrides
+  };
+}
+
+describe('AllocatedBoxesSection', () => {
+  it('shows ordered allocations as waiting for receipt with no checkout action', () => {
+    render(
+      <AllocatedBoxesSection
+        entries={[buildEntry()]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        canOpenAllocateDialog={true}
+        isAuthenticated={true}
+        clientIdConfigured={true}
+        isStatusMutationPending={false}
+        filmTransferAlertsByBoxId={{}}
+        onOpenAllocateDialog={vi.fn()}
+        onOpenBox={vi.fn()}
+        onOpenFilmCheckin={vi.fn()}
+        onCheckoutAllocation={vi.fn()}
+        onRemoveAllocation={vi.fn()}
+        isAllocationRemovalPending={() => false}
+      />
+    );
+
+    expect(screen.getByText('ORDERED')).toBeTruthy();
+    expect(screen.getByText('Waiting for receipt')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+  });
+});

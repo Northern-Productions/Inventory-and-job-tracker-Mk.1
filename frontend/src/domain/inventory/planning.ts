@@ -64,6 +64,8 @@ export interface AllocationPreviewSuggestion {
   warehouse: Warehouse;
   widthIn: number;
   availableFeet: number;
+  planningFeet: number;
+  boxStatus: BoxStatus;
   suggestedFeet: number;
   suggestedCoveredFeet: number;
   receivedDate: string;
@@ -80,6 +82,8 @@ export interface AllocationPreview {
   sourceWarehouse: Warehouse;
   sourceWidthIn: number;
   sourceBoxFeetAvailable: number;
+  sourceBoxPlanningFeet: number;
+  sourceBoxStatus: BoxStatus;
   sourceSuggestedFeet: number;
   sourceSuggestedCoveredFeet: number;
   sourceConflicts: string[];
@@ -149,6 +153,7 @@ export interface AllocationJobSummary {
   remainingTubes: number;
   openFilmOrderCount: number;
   boxCount: number;
+  hasOrderedAllocations: boolean;
 }
 
 export interface JobFilmTransferAlert {
@@ -226,6 +231,7 @@ export interface JobListEntry {
   requirementCount: number;
   allocationCount: number;
   filmOrderCount: number;
+  hasOrderedAllocations: boolean;
   createdAt: string;
   updatedAt: string;
   notes: string;

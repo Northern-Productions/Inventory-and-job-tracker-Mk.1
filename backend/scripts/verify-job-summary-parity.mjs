@@ -28,6 +28,7 @@ function buildComparableSummary(summary) {
   return {
     status: asTrimmedString(summary?.status),
     lifecycleStatus: asTrimmedString(summary?.lifecycleStatus),
+    hasOrderedAllocations: Boolean(summary?.hasOrderedAllocations),
     requiredFeet: Number(summary?.requiredFeet || 0),
     allocatedFeet: Number(summary?.allocatedFeet || 0),
     remainingFeet: Number(summary?.remainingFeet || 0),

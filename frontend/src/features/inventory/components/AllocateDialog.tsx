@@ -25,6 +25,10 @@ interface AllocateDialogProps {
   onCancel: () => void;
 }
 
+function formatBoxStatusLabel(status: string) {
+  return status.replace(/_/g, ' ');
+}
+
 function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBoxIds: string[]) {
   const selected = new Set(selectedSuggestionBoxIds);
   const allocations: Array<{ boxId: string; allocatedFeet: number; coveredFeet: number }> = [];
@@ -52,7 +56,7 @@ function buildSelectionSummary(preview: AllocationPreview, selectedSuggestionBox
 
     const nextPlan = planCoverageAllocation(
       remaining,
-      suggestion.availableFeet,
+      suggestion.planningFeet ?? suggestion.availableFeet,
       suggestion.widthIn,
       preview.requestedWidthIn
     );
@@ -266,7 +270,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                   : `${entry.boxId}: ${entry.allocatedFeet} LF`
               )
               .join(', ')}`
-          : 'No in-stock boxes could cover the request.';
+          : 'No allocatable boxes could cover the request.';
       const filmOrderSummary = result.filmOrder
         ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
         : '';
@@ -300,7 +304,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
           Request LF for a job, then review compatible boxes in the same warehouse before saving.
         </p>
         <p className="muted-text">
-          This source box currently has {box.feetAvailable} LF available to allocate.
+          This source box is {formatBoxStatusLabel(box.status)} with {box.allocationPlanningFeet} LF of planning capacity.
         </p>
       </div>
         <div className="form-grid">
@@ -408,7 +412,8 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
               </p>
             ) : (
               <p className="muted-text">
-                {box.boxId} will cover {formatPlannedFeet(preview.sourceSuggestedFeet, preview.sourceSuggestedCoveredFeet)}.
+                {box.boxId} ({formatBoxStatusLabel(preview.sourceBoxStatus)}) will cover{' '}
+                {formatPlannedFeet(preview.sourceSuggestedFeet, preview.sourceSuggestedCoveredFeet)}.
               </p>
             )}
 
@@ -427,7 +432,15 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                         <MobileRecordHeader title={suggestion.boxId} />
                         <MobileFieldList>
                           <MobileField label="Use" value={selected ? 'Yes' : 'No'} />
-                          <MobileField label="Avail LF" value={suggestion.availableFeet} />
+                          <MobileField
+                            label="Status"
+                            value={
+                              <span className={`badge badge-${suggestion.boxStatus}`}>
+                                {formatBoxStatusLabel(suggestion.boxStatus)}
+                              </span>
+                            }
+                          />
+                          <MobileField label="Planning LF" value={suggestion.planningFeet} />
                           <MobileField
                             label="Planned LF"
                             value={formatPlannedFeet(selectedPlanFeet.allocatedFeet, selectedPlanFeet.coveredFeet)}
@@ -453,7 +466,8 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                       <tr>
                         <th>Use</th>
                         <th>Box</th>
-                        <th>Avail LF</th>
+                        <th>Status</th>
+                        <th>Planning LF</th>
                         <th>Planned LF</th>
                         <th>Received</th>
                       </tr>
@@ -476,7 +490,12 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
                               />
                             </td>
                             <td>{suggestion.boxId}</td>
-                            <td>{suggestion.availableFeet}</td>
+                            <td>
+                              <span className={`badge badge-${suggestion.boxStatus}`}>
+                                {formatBoxStatusLabel(suggestion.boxStatus)}
+                              </span>
+                            </td>
+                            <td>{suggestion.planningFeet}</td>
                             <td>{formatPlannedFeet(selectedPlanFeet.allocatedFeet, selectedPlanFeet.coveredFeet)}</td>
                             <td>{suggestion.receivedDate || '--'}</td>
                           </tr>

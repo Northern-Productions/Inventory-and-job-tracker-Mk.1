@@ -36,6 +36,7 @@ function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber
     requirementCount: 0,
     allocationCount: 0,
     filmOrderCount: 0,
+    hasOrderedAllocations: false,
     createdAt: '',
     updatedAt: '',
     notes: '',

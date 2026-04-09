@@ -156,6 +156,7 @@ export function createFallbackBox(boxId: string): Box {
     widthIn: 36,
     initialFeet: 0,
     feetAvailable: 0,
+    allocationPlanningFeet: 0,
     lotRun: '',
     status: 'ORDERED',
     orderDate: '',

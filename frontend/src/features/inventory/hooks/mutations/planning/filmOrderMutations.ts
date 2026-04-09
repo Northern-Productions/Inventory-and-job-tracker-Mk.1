@@ -77,6 +77,7 @@ export function useCreateFilmOrder() {
               requirementCount: 0,
               allocationCount: 0,
               filmOrderCount: 0,
+              hasOrderedAllocations: false,
               createdAt: optimisticFilmOrder.createdAt,
               updatedAt: optimisticFilmOrder.createdAt,
               notes: ''
@@ -120,7 +121,8 @@ export function useCreateFilmOrder() {
               allocatedTubes: 0,
               remainingTubes: 0,
               openFilmOrderCount: 0,
-              boxCount: 0
+              boxCount: 0,
+              hasOrderedAllocations: false
             }),
             status: 'FILM_ORDER',
             openFilmOrderCount:

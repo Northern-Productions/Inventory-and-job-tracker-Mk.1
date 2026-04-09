@@ -140,6 +140,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
     widthIn: 30,
     initialFeet: 500,
     feetAvailable: 420,
+    allocationPlanningFeet: 420,
     lotRun: 'LR-1',
     status: 'IN_STOCK',
     orderDate: '2026-03-20',
@@ -335,6 +336,38 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('Available Feet');
     expect(html).toContain('420');
     expect(html).toContain('Transfer Box');
+  });
+
+  it('keeps Allocate enabled for ordered boxes with planning feet and shows the planning feet stat', async () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        feetAvailable: 0,
+        allocationPlanningFeet: 35,
+        receivedDate: '',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    expect(screen.getByText('Planning Feet')).toBeTruthy();
+    expect(screen.getByText('35')).toBeTruthy();
+
+    const allocateButton = screen.getByRole('button', { name: 'Allocate' }) as HTMLButtonElement;
+    expect(allocateButton.disabled).toBe(false);
+
+    fireEvent.click(allocateButton);
+
+    expect(screen.getByTestId('allocate-dialog')).toBeTruthy();
   });
 
   it('starts a transfer from the box details dialog', async () => {

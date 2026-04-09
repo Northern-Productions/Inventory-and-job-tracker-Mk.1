@@ -2319,6 +2319,98 @@ function normalizeAllocationKind(value: unknown): "REQUIREMENT" | "EXTRA" {
   return asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
 }
 
+function isAllocatableBoxStatus(value: unknown) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  return normalized === "IN_STOCK" || normalized === "ORDERED";
+}
+
+function computeAllocationPlanningFeet(
+  status: unknown,
+  initialFeet: unknown,
+  feetAvailable: unknown,
+  activeAllocatedFeet: unknown,
+) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  if (normalizedStatus === "IN_STOCK") {
+    return Math.max(0, integerOrZero(feetAvailable));
+  }
+
+  if (normalizedStatus === "ORDERED") {
+    return Math.max(0, integerOrZero(initialFeet) - integerOrZero(activeAllocatedFeet));
+  }
+
+  return 0;
+}
+
+function getBoxAllocationPlanningFeet(box: any, activeAllocationsByBox?: Record<string, any[]>) {
+  if (!box) {
+    return 0;
+  }
+
+  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
+    return Math.max(0, integerOrZero(box.allocationPlanningFeet));
+  }
+
+  const activeAllocatedFeet =
+    box.activeAllocatedFeet !== undefined && box.activeAllocatedFeet !== null
+      ? integerOrZero(box.activeAllocatedFeet)
+      : getActiveAllocationsForBox(box.boxId, activeAllocationsByBox || {}).reduce(
+          (sum, entry) => sum + integerOrZero(entry.allocatedFeet),
+          0,
+        );
+
+  return computeAllocationPlanningFeet(box.status, box.initialFeet, box.feetAvailable, activeAllocatedFeet);
+}
+
+function boxUsesOrderedPlanning(box: any) {
+  return asTrimmedString(box?.status).toUpperCase() === "ORDERED";
+}
+
+function boxCanReceiveReleasedAllocationFeet(box: any) {
+  const normalizedStatus = asTrimmedString(box?.status).toUpperCase();
+  return normalizedStatus !== "ZEROED" && normalizedStatus !== "RETIRED" && normalizedStatus !== "ORDERED";
+}
+
+function hasActiveOrderedAllocations(allocations: any[], boxById: Record<string, any> = {}) {
+  return allocations.some(
+    (entry) =>
+      asTrimmedString(entry?.status).toUpperCase() === "ACTIVE" &&
+      boxUsesOrderedPlanning(boxById[asTrimmedString(entry?.boxId)] || null),
+  );
+}
+
+function hasActiveOrderedRequirementAllocations(allocations: any[], boxById: Record<string, any> = {}) {
+  return allocations.some(
+    (entry) =>
+      asTrimmedString(entry?.status).toUpperCase() === "ACTIVE" &&
+      normalizeAllocationKind(entry?.allocationKind) !== "EXTRA" &&
+      integerOrZero(entry?.allocatedFeet) > 0 &&
+      boxUsesOrderedPlanning(boxById[asTrimmedString(entry?.boxId)] || null),
+  );
+}
+
+function buildOrderedAllocationReceiptMessage(action: "checkout" | "staging") {
+  return action === "checkout"
+    ? "Receive ordered film before checking out all materials for this job."
+    : "Receive ordered film before staging this job.";
+}
+
+function getNextFeetAvailableAfterAllocationRelease(box: any, releasedFeet: unknown) {
+  const nextReleasedFeet = Math.max(0, integerOrZero(releasedFeet));
+  if (boxUsesOrderedPlanning(box)) {
+    return 0;
+  }
+
+  if (!boxCanReceiveReleasedAllocationFeet(box)) {
+    return integerOrZero(box?.feetAvailable);
+  }
+
+  return Math.min(
+    integerOrZero(box?.initialFeet),
+    Math.max(0, integerOrZero(box?.feetAvailable) + nextReleasedFeet),
+  );
+}
+
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation: any, box: any) {
   if (!box || allocation.status !== "ACTIVE") {
     return false;
@@ -2610,6 +2702,7 @@ function buildAllocationJobSummary(
   isStagedForPickup = false,
   fallbackJobDate = "",
   fallbackCrewLeader = "",
+  boxById: Record<string, any> = {},
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
@@ -2626,6 +2719,7 @@ function buildAllocationJobSummary(
   const hasMaterialRequirements =
     requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
     caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
+  const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
 
   for (const allocation of allocations) {
     if (allocation.boxId) {
@@ -2695,6 +2789,7 @@ function buildAllocationJobSummary(
     remainingTubes: caulkTotals.remainingTubes,
     openFilmOrderCount,
     boxCount: Object.keys(distinctBoxes).length,
+    hasOrderedAllocations,
   };
 }
 
@@ -2868,6 +2963,7 @@ function getJobStagingBlockingReason(
   filmOrders: any[],
   caulkAllocations: any[],
   filmTransferAlerts: any[] = [],
+  boxById: Record<string, any> = {},
 ) {
   const hasMaterialRequirements =
     requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
@@ -2883,8 +2979,8 @@ function getJobStagingBlockingReason(
   if (filmTransferAlerts.length > 0) {
     return buildFilmTransferAlertMessage(filmTransferAlerts, "staging");
   }
-  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
-    return "All required film must be checked out before staging this job.";
+  if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
+    return buildOrderedAllocationReceiptMessage("staging");
   }
   if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
     return "All required caulk must be checked out before staging this job.";
@@ -2898,6 +2994,7 @@ function buildJobListEntry(
   allocations: any[],
   filmOrders: any[],
   caulkRequirements: any[] = [],
+  boxById: Record<string, any> = {},
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
@@ -2945,6 +3042,7 @@ function buildJobListEntry(
     requirementCount: requirements.length,
     allocationCount: allocations.length,
     filmOrderCount: filmOrders.length,
+    hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
     updatedAt: jobHeader.updatedAt || "",
     notes: jobHeader.notes || "",
   };
@@ -3285,10 +3383,11 @@ function buildAllocationPreviewPlan(
   if (sourceBox.widthIn < minimumWidthIn) {
     throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
+  const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, options.activeAllocationsByBox);
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, options.activeAllocationsByBox);
   const sourcePlan = sourceConflicts.length
     ? { allocatedFeet: 0, coveredFeet: 0, remainingCoveredFeet: requested }
-    : planCoverageAllocation(requested, sourceBox.feetAvailable, sourceBox.widthIn, minimumWidthIn);
+    : planCoverageAllocation(requested, sourcePlanningFeet, sourceBox.widthIn, minimumWidthIn);
   const sourceSuggestedFeet = sourcePlan.allocatedFeet;
   const sourceSuggestedCoveredFeet = sourcePlan.coveredFeet;
   let remaining = sourcePlan.remainingCoveredFeet;
@@ -3297,10 +3396,11 @@ function buildAllocationPreviewPlan(
     : options.allBoxes.filter((box) => box.warehouse === sourceBox.warehouse);
   const filteredCandidates: CandidatePreviewEntry[] = [];
   for (const candidate of candidateBoxes) {
+    const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, options.activeAllocationsByBox);
     if (
       candidate.boxId === sourceBox.boxId ||
-      candidate.status !== "IN_STOCK" ||
-      candidate.feetAvailable <= 0 ||
+      !isAllocatableBoxStatus(candidate.status) ||
+      candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
       continue;
@@ -3329,10 +3429,17 @@ function buildAllocationPreviewPlan(
     }
   }
   filteredCandidates.sort((leftEntry, rightEntry) => {
+    const left = leftEntry.candidate;
+    const right = rightEntry.candidate;
+    const leftStatusRank = boxUsesOrderedPlanning(left) ? 1 : 0;
+    const rightStatusRank = boxUsesOrderedPlanning(right) ? 1 : 0;
+    if (leftStatusRank !== rightStatusRank) {
+      return leftStatusRank - rightStatusRank;
+    }
+
     if (preferredWarehouse) {
-      const leftPreferredWarehouse = asTrimmedString(leftEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
-      const rightPreferredWarehouse =
-        asTrimmedString(rightEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+      const leftPreferredWarehouse = asTrimmedString(left.warehouse).toUpperCase() === preferredWarehouse;
+      const rightPreferredWarehouse = asTrimmedString(right.warehouse).toUpperCase() === preferredWarehouse;
       if (leftPreferredWarehouse !== rightPreferredWarehouse) {
         return leftPreferredWarehouse ? -1 : 1;
       }
@@ -3344,9 +3451,6 @@ function buildAllocationPreviewPlan(
         return filmComparison;
       }
     }
-
-    const left = leftEntry.candidate;
-    const right = rightEntry.candidate;
     const leftIsExactMatch = left.widthIn === minimumWidthIn;
     const rightIsExactMatch = right.widthIn === minimumWidthIn;
     if (leftIsExactMatch !== rightIsExactMatch) {
@@ -3379,16 +3483,19 @@ function buildAllocationPreviewPlan(
   const suggestions: any[] = [];
   for (const entry of filteredCandidates) {
     const candidate = entry.candidate;
+    const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, options.activeAllocationsByBox);
     const conflicts = getDateConflictJobsForBox(candidate.boxId, jobContext, options.activeAllocationsByBox);
     if (conflicts.length) {
       continue;
     }
-    const candidatePlan = planCoverageAllocation(remaining, candidate.feetAvailable, candidate.widthIn, minimumWidthIn);
+    const candidatePlan = planCoverageAllocation(remaining, candidatePlanningFeet, candidate.widthIn, minimumWidthIn);
     suggestions.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
       widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
+      planningFeet: candidatePlanningFeet,
+      boxStatus: candidate.status,
       suggestedFeet: candidatePlan.allocatedFeet,
       suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
@@ -3409,6 +3516,8 @@ function buildAllocationPreviewPlan(
     sourceWarehouse: sourceBox.warehouse,
     sourceWidthIn: sourceBox.widthIn,
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
+    sourceBoxPlanningFeet: sourcePlanningFeet,
+    sourceBoxStatus: sourceBox.status,
     sourceSuggestedFeet,
     sourceSuggestedCoveredFeet,
     sourceConflicts,
@@ -3617,6 +3726,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         Boolean(header?.isStagedForPickup),
         header?.dueDate || "",
         header?.crewLeader || "",
+        boxById,
       );
     })
     .filter((entry): entry is any => Boolean(entry));
@@ -3667,6 +3777,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
       Boolean(header?.isStagedForPickup),
       header?.dueDate || "",
       header?.crewLeader || "",
+      boxById,
     ),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
@@ -3753,7 +3864,7 @@ async function buildJobsList(client: any, orgId: string, limit: number, lifecycl
     );
     const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
-    const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements);
+    const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements, boxById);
     if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
       return entries;
     }
@@ -3856,7 +3967,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     pendingTransfersByBoxRecordId,
   );
   return {
-    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements),
+    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
@@ -4222,6 +4333,9 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
   if (preCheckoutTransferAlerts.length > 0) {
     throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutTransferAlerts, "checkout"));
   }
+  if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
+    throw new HttpError(400, buildOrderedAllocationReceiptMessage("checkout"));
+  }
   const seenBoxIds: Record<string, boolean> = {};
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
@@ -4234,6 +4348,10 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
     const box = boxById[allocation.boxId];
     if (!box) {
       throw new HttpError(404, `Box ${allocation.boxId} was not found.`);
+    }
+
+    if (boxUsesOrderedPlanning(box)) {
+      continue;
     }
 
     const normalizedBoxStatus = asTrimmedString(box.status).toUpperCase();
@@ -4337,6 +4455,7 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
       refreshedBoxById,
       refreshedPendingTransfersByBoxRecordId,
     ),
+    refreshedBoxById,
   );
   if (blockingReason) {
     throw new HttpError(400, blockingReason);
@@ -4428,6 +4547,7 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
         boxById,
         pendingTransfersByBoxRecordId,
       ),
+      boxById,
     );
     if (blockingReason) {
       throw new HttpError(400, blockingReason);
@@ -4827,7 +4947,7 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     const { data: boxRow, error: boxError } = await serviceClient
       .schema("app")
       .from("boxes")
-      .select("id, status, feet_available")
+      .select("id, status, feet_available, initial_feet")
       .eq("org_id", orgId)
       .eq("box_id", boxId)
       .maybeSingle();
@@ -4841,7 +4961,11 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
       continue;
     }
 
-    const nextFeetAvailable = Math.max(0, integerOrZero((boxRow as Record<string, unknown>).feet_available) + releasedFeet);
+    const nextFeetAvailable = getNextFeetAvailableAfterAllocationRelease({
+      status: boxStatus,
+      feetAvailable: integerOrZero((boxRow as Record<string, unknown>).feet_available),
+      initialFeet: integerOrZero((boxRow as Record<string, unknown>).initial_feet),
+    }, releasedFeet);
     const { error: updateBoxError } = await serviceClient
       .schema("app")
       .from("boxes")
@@ -5041,7 +5165,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     const { data: boxRow, error: boxError } = await serviceClient
       .schema("app")
       .from("boxes")
-      .select("id, status, feet_available")
+      .select("id, status, feet_available, initial_feet")
       .eq("org_id", orgId)
       .eq("box_id", boxId)
       .maybeSingle();
@@ -5055,7 +5179,11 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
       continue;
     }
 
-    const nextFeetAvailable = Math.max(0, integerOrZero((boxRow as Record<string, unknown>).feet_available) + releasedFeet);
+    const nextFeetAvailable = getNextFeetAvailableAfterAllocationRelease({
+      status: boxStatus,
+      feetAvailable: integerOrZero((boxRow as Record<string, unknown>).feet_available),
+      initialFeet: integerOrZero((boxRow as Record<string, unknown>).initial_feet),
+    }, releasedFeet);
     const { error: updateBoxError } = await serviceClient
       .schema("app")
       .from("boxes")
@@ -5309,7 +5437,7 @@ async function removeJobBoxAllocation(client: any, identity: AuthIdentity, paylo
   throwOnSupabaseError(updateAllocationError, `Unable to remove allocation ${target.allocationId}`);
 
   if (releasedFeet > 0 && box && box.status !== "ZEROED" && box.status !== "RETIRED") {
-    const nextFeetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + releasedFeet);
+    const nextFeetAvailable = getNextFeetAvailableAfterAllocationRelease(box, releasedFeet);
     const { error: updateBoxError } = await serviceClient
       .schema("app")
       .from("boxes")
@@ -5327,7 +5455,7 @@ async function removeJobBoxAllocation(client: any, identity: AuthIdentity, paylo
   }
 
   warnings.push(
-    `Removed allocation ${target.allocationId} for box ${target.boxId} on job ${jobNumber}. Released ${releasedFeet} LF back to box availability.`,
+    `Removed allocation ${target.allocationId} for box ${target.boxId} on job ${jobNumber}. Released ${releasedFeet} LF back to planning capacity.`,
   );
 
   return ok({

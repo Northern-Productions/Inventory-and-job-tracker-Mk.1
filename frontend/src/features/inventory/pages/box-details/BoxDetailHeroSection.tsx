@@ -185,6 +185,10 @@ export function BoxDetailHeroSection({
           <dd>{box.feetAvailable}</dd>
         </div>
         <div className="key-value">
+          <dt className="detail-label-pill detail-label-pill-orange">Planning Feet</dt>
+          <dd>{box.allocationPlanningFeet}</dd>
+        </div>
+        <div className="key-value">
           <dt className="detail-label-pill detail-label-pill-red">Allocated Feet</dt>
           <dd>{allocationsLoading ? '...' : displayedAllocatedFeet}</dd>
         </div>
@@ -380,11 +384,11 @@ export function BoxDetailHeroSection({
               disabled={
                 isAddBoxPending ||
                 statusPending ||
-                (box.status !== 'IN_STOCK' && box.status !== 'CHECKED_OUT') ||
+                (box.status !== 'IN_STOCK' && box.status !== 'ORDERED') ||
                 box.status === 'TRANSFER' ||
                 !isAuthenticated ||
                 !clientIdConfigured ||
-                box.feetAvailable <= 0 ||
+                box.allocationPlanningFeet <= 0 ||
                 !canWriteAllocations
               }
             >

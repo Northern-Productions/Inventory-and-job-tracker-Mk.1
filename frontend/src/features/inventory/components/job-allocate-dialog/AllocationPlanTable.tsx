@@ -5,7 +5,12 @@ interface AllocationCandidate {
   manufacturer: string;
   filmName: string;
   widthIn: number;
-  feetAvailable: number;
+  allocationPlanningFeet: number;
+  status: string;
+}
+
+function formatBoxStatusLabel(status: string) {
+  return status.replace(/_/g, ' ');
 }
 
 interface AllocationPlanTableProps {
@@ -52,7 +57,8 @@ export function AllocationPlanTable({
               <th>Manufacturer</th>
               <th>Film Name</th>
               <th>Width</th>
-              <th>Avail LF</th>
+              <th>Status</th>
+              <th>Planning LF</th>
               <th>Planned LF</th>
             </tr>
           </thead>
@@ -75,7 +81,10 @@ export function AllocationPlanTable({
                 <td>{box.manufacturer}</td>
                 <td>{box.filmName}</td>
                 <td>{box.widthIn}</td>
-                <td>{box.feetAvailable}</td>
+                <td>
+                  <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+                </td>
+                <td>{box.allocationPlanningFeet}</td>
                 <td>
                   {plannedFeetByBox.has(box.boxId)
                     ? formatPlannedFeet(

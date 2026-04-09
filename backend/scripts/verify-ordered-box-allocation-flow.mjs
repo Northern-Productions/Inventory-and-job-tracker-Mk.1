@@ -1,0 +1,363 @@
+import "../load-env.mjs";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { Client } from "pg";
+
+function asTrimmedString(value) {
+  return String(value || "").trim();
+}
+
+function requireDatabaseUrl() {
+  const databaseUrl = asTrimmedString(process.env.DATABASE_URL);
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required.");
+  }
+  return databaseUrl;
+}
+
+function requireOrgId() {
+  const orgId = asTrimmedString(process.env.VERIFY_DB_PARITY_ORG_ID || process.env.DEFAULT_ORG_ID);
+  if (!orgId) {
+    throw new Error("VERIFY_DB_PARITY_ORG_ID or DEFAULT_ORG_ID is required.");
+  }
+  return orgId;
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+async function loadDebugBuilders() {
+  const appDir = path.resolve("src", "app");
+  const sourcePath = path.join(appDir, "handleSupabaseRequest.mjs");
+  const tempPath = path.join(appDir, `__tmp_verify_ordered_box_allocation_flow_${process.pid}_${Date.now()}.mjs`);
+  const exportLine =
+    "\nexport { addBox, updateBox, previewAllocationPlan, applyAllocationPlan, removeAllocationFromJob, buildJobDetail, findBoxById };\n";
+
+  fs.copyFileSync(sourcePath, tempPath);
+  fs.appendFileSync(tempPath, exportLine, "utf8");
+
+  try {
+    return await import(`${pathToFileURL(tempPath).href}?t=${Date.now()}`);
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
+}
+
+function buildUniqueSuffix() {
+  const now = Date.now().toString();
+  const random = Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, "0");
+  return `${now.slice(-8)}${random}`;
+}
+
+function buildBoxPayload(boxId, orderDate) {
+  return {
+    boxId,
+    manufacturer: "3M Solar",
+    filmName: "Prestige 60",
+    widthIn: 60,
+    initialFeet: 80,
+    orderDate,
+    receivedDate: "",
+    notes: "Ordered allocation flow verification box."
+  };
+}
+
+function buildUpdatePayload(box, overrides = {}) {
+  return {
+    boxId: box.boxId,
+    manufacturer: box.manufacturer,
+    filmName: box.filmName,
+    widthIn: box.widthIn,
+    initialFeet: box.initialFeet,
+    orderDate: box.orderDate,
+    receivedDate: box.receivedDate,
+    notes: box.notes || "",
+    ...overrides
+  };
+}
+
+async function resolveWarehouseCode(client, orgId) {
+  const warehouseRow = await client.query(
+    `
+      select code::text as code
+      from app.warehouses
+      where org_id = $1::uuid
+      order by code
+      limit 1
+    `,
+    [orgId]
+  );
+  return asTrimmedString(warehouseRow.rows[0]?.code) || "IL1";
+}
+
+async function getTableColumns(client, tableName) {
+  const result = await client.query(
+    `
+      select column_name
+      from information_schema.columns
+      where table_schema = 'app'
+        and table_name = $1::text
+      order by ordinal_position
+    `,
+    [tableName]
+  );
+
+  return new Set(result.rows.map((row) => asTrimmedString(row.column_name)));
+}
+
+async function insertAppRow(client, tableName, availableColumns, valuesByColumn) {
+  const columns = Object.keys(valuesByColumn).filter((column) => availableColumns.has(column));
+  assert(columns.length > 0, `No insertable columns were resolved for app.${tableName}.`);
+  const values = columns.map((column) => valuesByColumn[column]);
+  const placeholders = columns.map((_, index) => `$${index + 1}`);
+
+  await client.query(
+    `
+      insert into app.${tableName} (${columns.join(", ")})
+      values (${placeholders.join(", ")})
+    `,
+    values
+  );
+}
+
+async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDate, actor) {
+  const nowIso = new Date().toISOString();
+  const jobId = crypto.randomUUID();
+  const requirementId = crypto.randomUUID();
+  const jobColumns = await getTableColumns(client, "jobs");
+  const requirementColumns = await getTableColumns(client, "job_requirements");
+
+  await insertAppRow(client, "jobs", jobColumns, {
+    id: jobId,
+    org_id: orgId,
+    job_number: jobNumber,
+    warehouse,
+    sections: null,
+    due_date: dueDate,
+    lifecycle_status: "ACTIVE",
+    notes: "Ordered allocation flow verification job.",
+    created_at: nowIso,
+    created_by: actor,
+    updated_at: nowIso,
+    updated_by: actor,
+    crew_leader: "Ordered Flow",
+    is_staged_for_pickup: false,
+    is_labor_only: false,
+    is_labor_assigned: false
+  });
+
+  await insertAppRow(client, "job_requirements", requirementColumns, {
+    id: requirementId,
+    org_id: orgId,
+    job_id: jobId,
+    manufacturer: "3M Solar",
+    film_name: "Prestige 60",
+    width_in: 60,
+    required_feet: 40,
+    notes: "",
+    created_at: nowIso,
+    created_by: actor,
+    updated_at: nowIso,
+    updated_by: actor
+  });
+
+  return {
+    jobId,
+    requirementId
+  };
+}
+
+async function main() {
+  const client = new Client({
+    connectionString: requireDatabaseUrl(),
+    ssl: { rejectUnauthorized: false }
+  });
+  const orgId = requireOrgId();
+  const actor = "ordered-box-flow-verifier";
+  const {
+    addBox,
+    updateBox,
+    previewAllocationPlan,
+    applyAllocationPlan,
+    removeAllocationFromJob,
+    buildJobDetail,
+    findBoxById
+  } = await loadDebugBuilders();
+  let transactionStarted = false;
+
+  await client.connect();
+
+  try {
+    await client.query("begin");
+    transactionStarted = true;
+
+    const warehouse = await resolveWarehouseCode(client, orgId);
+    const uniqueSuffix = buildUniqueSuffix();
+    const boxId = `${warehouse}-ORD-${uniqueSuffix}`;
+    const jobNumber = `99${uniqueSuffix}`;
+    const dueDate = new Date().toISOString().slice(0, 10);
+
+    const createdJob = await insertVerificationJob(client, orgId, jobNumber, warehouse, dueDate, actor);
+    const requirementId = asTrimmedString(createdJob?.requirementId);
+    assert(requirementId, "Failed to create a verification job requirement.");
+
+    const addedBox = await addBox(client, orgId, buildBoxPayload(boxId, dueDate), actor);
+    const orderedBox = addedBox?.data?.box;
+    assert(orderedBox, "Failed to create the ordered verification box.");
+    assert(orderedBox.status === "ORDERED", `Expected ORDERED status after add, received ${orderedBox.status}.`);
+    assert(Number(orderedBox.feetAvailable || 0) === 0, `Expected ordered box feetAvailable to stay 0, received ${orderedBox.feetAvailable}.`);
+    assert(
+      Number(orderedBox.allocationPlanningFeet || 0) === 80,
+      `Expected ordered box planning feet to start at 80, received ${orderedBox.allocationPlanningFeet}.`
+    );
+
+    const preview = await previewAllocationPlan(client, orgId, {
+      boxId,
+      jobNumber,
+      requestedFeet: 40,
+      requestedWidthIn: 60,
+      requirementId,
+      jobWarehouse: warehouse
+    });
+    assert(preview.sourceBoxStatus === "ORDERED", `Expected preview source box to stay ORDERED, received ${preview.sourceBoxStatus}.`);
+    assert(
+      Number(preview.sourceBoxPlanningFeet || 0) >= 40,
+      `Expected preview planning feet to cover 40 LF, received ${preview.sourceBoxPlanningFeet}.`
+    );
+
+    const applyResult = await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId,
+        jobNumber,
+        requestedFeet: 40,
+        requestedWidthIn: 60,
+        requirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      },
+      actor
+    );
+    const createdAllocation = (applyResult?.data?.allocations || []).find((entry) => entry.boxId === boxId);
+    assert(createdAllocation, "Expected ordered allocation apply to create a box allocation.");
+    assert(
+      Number(createdAllocation.allocatedFeet || 0) === 40,
+      `Expected ordered allocation to reserve 40 LF, received ${createdAllocation?.allocatedFeet}.`
+    );
+
+    let refreshedBox = await findBoxById(client, orgId, boxId);
+    assert(refreshedBox, "Created ordered box could not be reloaded after apply.");
+    assert(Number(refreshedBox.feetAvailable || 0) === 0, `Expected ordered box feetAvailable to remain 0 after apply, received ${refreshedBox.feetAvailable}.`);
+    assert(
+      Number(refreshedBox.allocationPlanningFeet || 0) === 40,
+      `Expected ordered box planning feet to drop to 40 after apply, received ${refreshedBox.allocationPlanningFeet}.`
+    );
+
+    let jobDetail = await buildJobDetail(client, orgId, jobNumber);
+    assert(jobDetail?.summary?.hasOrderedAllocations === true, "Expected job summary to report ordered allocations after apply.");
+    assert(Number(jobDetail?.summary?.allocatedFeet || 0) >= 40, `Expected job allocated feet to increase after apply, received ${jobDetail?.summary?.allocatedFeet}.`);
+
+    const removal = await removeAllocationFromJob(
+      client,
+      orgId,
+      jobNumber,
+      createdAllocation.allocationId,
+      actor,
+      "Ordered allocation flow verification cleanup."
+    );
+    assert(Number(removal?.removedAllocationCount || 0) === 1, "Expected ordered allocation removal to cancel exactly one allocation.");
+
+    refreshedBox = await findBoxById(client, orgId, boxId);
+    assert(refreshedBox, "Ordered box could not be reloaded after removal.");
+    assert(
+      Number(refreshedBox.feetAvailable || 0) === 0,
+      `Expected ordered box feetAvailable to remain 0 after removal, received ${refreshedBox.feetAvailable}.`
+    );
+    assert(
+      Number(refreshedBox.allocationPlanningFeet || 0) === 80,
+      `Expected ordered box planning feet to restore to 80 after removal, received ${refreshedBox.allocationPlanningFeet}.`
+    );
+
+    const reapplyResult = await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId,
+        jobNumber,
+        requestedFeet: 40,
+        requestedWidthIn: 60,
+        requirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      },
+      actor
+    );
+    const reappliedAllocation = (reapplyResult?.data?.allocations || []).find((entry) => entry.boxId === boxId);
+    assert(reappliedAllocation, "Expected ordered allocation reapply to create a fresh allocation.");
+
+    refreshedBox = await findBoxById(client, orgId, boxId);
+    const receiptResult = await updateBox(
+      client,
+      orgId,
+      buildUpdatePayload(refreshedBox, {
+        receivedDate: dueDate,
+        currentFeetOnRoll: 80
+      }),
+      actor
+    );
+    const receivedBox = receiptResult?.data?.box;
+    assert(receivedBox, "Expected first receipt update to return the received box.");
+    assert(receivedBox.status === "IN_STOCK", `Expected first receipt to move the box to IN_STOCK, received ${receivedBox.status}.`);
+
+    refreshedBox = await findBoxById(client, orgId, boxId);
+    assert(refreshedBox, "Received box could not be reloaded.");
+    assert(Number(refreshedBox.feetAvailable || 0) === 40, `Expected received box feetAvailable to equal physical minus active allocations (40), received ${refreshedBox.feetAvailable}.`);
+
+    jobDetail = await buildJobDetail(client, orgId, jobNumber);
+    assert(jobDetail?.summary?.hasOrderedAllocations === false, "Expected ordered allocation pill to clear after first receipt.");
+
+    let belowAllocatedError = null;
+    try {
+      await updateBox(
+        client,
+        orgId,
+        buildUpdatePayload(refreshedBox, {
+          receivedDate: dueDate,
+          currentFeetOnRoll: 20
+        }),
+        actor
+      );
+    } catch (error) {
+      belowAllocatedError = error;
+    }
+
+    assert(belowAllocatedError, "Expected reducing CurrentFeetOnRoll below active allocations to fail.");
+    assert(
+      /active allocated feet/i.test(asTrimmedString(belowAllocatedError?.message)),
+      `Expected below-allocation rejection to mention active allocated feet, received ${belowAllocatedError?.message}.`
+    );
+
+    console.log("Ordered box allocation flow OK.");
+  } finally {
+    if (transactionStarted) {
+      await client.query("rollback");
+    }
+    await client.end();
+  }
+}
+
+main().catch((error) => {
+  console.error(
+    "Ordered box allocation flow verification failed:",
+    error instanceof Error ? error.message : error
+  );
+  process.exit(1);
+});

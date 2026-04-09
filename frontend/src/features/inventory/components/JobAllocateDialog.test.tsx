@@ -123,6 +123,40 @@ function renderDialog(
   };
 }
 
+function buildSearchBox(overrides: Record<string, unknown> = {}) {
+  return {
+    boxId: 'IL1-BOX',
+    warehouse: 'IL1',
+    manufacturer: 'Llumar',
+    filmName: 'RN 07',
+    widthIn: 48,
+    initialFeet: 50,
+    feetAvailable: 50,
+    allocationPlanningFeet: 50,
+    lotRun: '',
+    status: 'IN_STOCK',
+    orderDate: '2026-01-01',
+    receivedDate: '2026-01-01',
+    initialWeightLbs: null,
+    lastRollWeightLbs: null,
+    lastWeighedDate: '',
+    filmKey: '',
+    coreType: '',
+    coreWeightLbs: null,
+    lfWeightLbsPerFt: null,
+    pricePerLf: null,
+    purchaseCost: null,
+    notes: '',
+    hasEverBeenCheckedOut: false,
+    lastCheckoutJob: '',
+    lastCheckoutDate: '',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: '',
+    ...overrides
+  };
+}
+
 describe('JobAllocateDialog', () => {
   afterEach(() => {
     cleanup();
@@ -187,6 +221,58 @@ describe('JobAllocateDialog', () => {
     const optionLabels = Array.from(screen.getAllByRole('option')).map((entry) => entry.textContent || '');
     expect(optionLabels.some((label) => label.includes('Affinity 15 50" (0 LF remaining)'))).toBe(false);
     expect(optionLabels.some((label) => label.includes('Affinity 15 72" (2 LF remaining)'))).toBe(true);
+    queryClient.clear();
+  });
+
+  it('shows status and planning LF for ordered candidates while keeping in-stock boxes first', async () => {
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'IL1-IN-STOCK',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        initialFeet: 20,
+        feetAvailable: 20,
+        allocationPlanningFeet: 20,
+        status: 'IN_STOCK'
+      }),
+      buildSearchBox({
+        boxId: 'IL1-ORDERED',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        initialFeet: 80,
+        feetAvailable: 0,
+        allocationPlanningFeet: 40,
+        status: 'ORDERED',
+        receivedDate: ''
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '29088',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          requiredFeet: 40,
+          allocatedFeet: 0,
+          remainingFeet: 40
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent || '').toContain('IL1-IN-STOCK');
+    expect(rows[1].textContent || '').toContain('IL1-ORDERED');
+    expect(within(rows[1]).getByText('ORDERED')).toBeTruthy();
+    expect(within(rows[1]).getByText('40')).toBeTruthy();
+
     queryClient.clear();
   });
 
@@ -387,9 +473,9 @@ describe('JobAllocateDialog', () => {
     const firstRowCells = within(rows[0]).getAllByRole('cell');
     const secondRowCells = within(rows[1]).getAllByRole('cell');
     const thirdRowCells = within(rows[2]).getAllByRole('cell');
-    expect(firstRowCells[6].textContent || '').toBe('10');
-    expect(secondRowCells[6].textContent || '').toBe('5');
-    expect(thirdRowCells[6].textContent || '').toBe('0');
+    expect(firstRowCells[firstRowCells.length - 1].textContent || '').toBe('10');
+    expect(secondRowCells[secondRowCells.length - 1].textContent || '').toBe('5');
+    expect(thirdRowCells[thirdRowCells.length - 1].textContent || '').toBe('0');
 
     queryClient.clear();
   });
@@ -993,7 +1079,7 @@ describe('JobAllocateDialog', () => {
     });
     expect(rows[1].textContent || '').toContain('IL1-6915');
     const secondRowCells = within(rows[1]).getAllByRole('cell');
-    expect(secondRowCells[6].textContent || '').toBe('5');
+    expect(secondRowCells[secondRowCells.length - 1].textContent || '').toBe('5');
     expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*5/i);
 
     await waitFor(() =>

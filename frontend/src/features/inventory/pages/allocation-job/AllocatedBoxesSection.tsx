@@ -25,6 +25,10 @@ interface AllocatedBoxesSectionProps {
   isAllocationRemovalPending: (allocationId: string) => boolean;
 }
 
+function formatBoxStatusLabel(status: string) {
+  return status ? status.replace(/_/g, ' ') : '--';
+}
+
 function renderAllocationActions({
   entry,
   isReadOnlyJob,
@@ -61,6 +65,8 @@ function renderAllocationActions({
         </Button>
       ) : transferAlert ? (
         <span className="muted-text">{formatFilmTransferStateLabel(transferAlert)}</span>
+      ) : entry.boxStatus === 'ORDERED' ? (
+        <span className="muted-text">Waiting for receipt</span>
       ) : entry.boxStatus === 'IN_STOCK' ? (
         <Button
           type="button"
@@ -135,6 +141,10 @@ export function AllocatedBoxesSection({
                 <MobileFieldList>
                   <MobileField label="Width" value={entry.widthIn || '--'} />
                   <MobileField
+                    label="Status"
+                    value={<span className={`badge badge-${entry.boxStatus}`}>{formatBoxStatusLabel(entry.boxStatus)}</span>}
+                  />
+                  <MobileField
                     label="Allocated LF"
                     value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.allocationKind)}
                   />
@@ -163,6 +173,7 @@ export function AllocatedBoxesSection({
                 <th>Box</th>
                 <th>Film</th>
                 <th>Width</th>
+                <th>Status</th>
                 <th>LF</th>
                 <th>Created</th>
                 <th>Resolved</th>
@@ -187,6 +198,9 @@ export function AllocatedBoxesSection({
                       {entry.manufacturer} {entry.filmName}
                     </td>
                     <td>{entry.widthIn || '--'}</td>
+                    <td>
+                      <span className={`badge badge-${entry.boxStatus}`}>{formatBoxStatusLabel(entry.boxStatus)}</span>
+                    </td>
                     <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.allocationKind)}</td>
                     <td>{renderDateTime(entry.createdAt)}</td>
                     <td>{renderDateTime(entry.resolvedAt)}</td>

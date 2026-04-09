@@ -57,6 +57,7 @@ function buildDetail(overrides: Partial<JobDetail> = {}): JobDetail {
       requirementCount: 1,
       allocationCount: 1,
       filmOrderCount: 0,
+      hasOrderedAllocations: false,
       createdAt: '',
       updatedAt: '',
       notes: ''
@@ -93,22 +94,23 @@ describe('jobStaging', () => {
     expect(canMarkJobStagedForPickup(detail)).toBe(true);
   });
 
-  it('blocks staging while required film is still only allocated', () => {
+  it('blocks staging while required ordered film is still waiting for receipt', () => {
     const detail = buildDetail({
       allocations: [
         buildFilmAllocation({
           ...buildDetail().allocations[0],
           status: 'ACTIVE',
-          boxStatus: 'IN_STOCK',
+          boxStatus: 'ORDERED',
           checkedOutOnThisJob: false
         })
       ]
     });
 
     expect(getJobStagingBlockingMessage(detail)).toBe(
-      'Check out the allocated film before staging this job.'
+      'Receive ordered film before staging this job.'
     );
     expect(canMarkJobStagedForPickup(detail)).toBe(false);
+    expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(false);
   });
 
   it('blocks staging while required caulk is still reserved', () => {
@@ -178,10 +180,21 @@ describe('jobStaging', () => {
     expect(canMarkJobStagedForPickup(detail)).toBe(false);
   });
 
-  it('allows auto-checkout staging when only unchecked-out allocations remain', () => {
-    const detail = buildDetail();
+  it('allows staging when the remaining film is allocated from in-stock boxes', () => {
+    const detail = buildDetail({
+      allocations: [
+        buildFilmAllocation({
+          ...buildDetail().allocations[0],
+          status: 'ACTIVE',
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        })
+      ]
+    });
 
+    expect(getJobStagingBlockingMessage(detail)).toBe('');
     expect(getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true })).toBe('');
+    expect(canMarkJobStagedForPickup(detail)).toBe(true);
     expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(true);
   });
 

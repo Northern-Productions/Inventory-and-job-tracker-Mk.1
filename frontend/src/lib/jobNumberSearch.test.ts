@@ -24,6 +24,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     requirementCount: rest.requirementCount || 0,
     allocationCount: rest.allocationCount || 0,
     filmOrderCount: rest.filmOrderCount || 0,
+    hasOrderedAllocations: rest.hasOrderedAllocations ?? false,
     createdAt: rest.createdAt || '',
     updatedAt: rest.updatedAt || '',
     notes: rest.notes || ''

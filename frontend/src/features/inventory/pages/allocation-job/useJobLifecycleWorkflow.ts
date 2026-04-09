@@ -16,7 +16,7 @@ import {
   summarizeReturnedMaterials
 } from '../../utils/jobReturnedMaterials';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
-import { getFilmTransferBulkCheckoutMessage } from './helpers';
+import { getFilmTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
@@ -255,6 +255,16 @@ export function useJobLifecycleWorkflow({
       pushToast({
         title: 'Receive transfer first',
         description: transferBlockingMessage,
+        variant: 'error'
+      });
+      return;
+    }
+
+    const orderedReceiptMessage = getOrderedReceiptBulkCheckoutMessage(detail);
+    if (orderedReceiptMessage) {
+      pushToast({
+        title: 'Receive ordered film first',
+        description: orderedReceiptMessage,
         variant: 'error'
       });
       return;

@@ -15,6 +15,16 @@ export function getJobStagingBlockingMessage(detail: StagingDetail | null | unde
   return getJobStagingBlockingMessageWithOptions(detail);
 }
 
+function hasActiveOrderedRequirementAllocations(detail: StagingDetail | null | undefined) {
+  return (detail?.allocations || []).some(
+    (entry) =>
+      entry.status === 'ACTIVE' &&
+      entry.allocationKind !== 'EXTRA' &&
+      entry.allocatedFeet > 0 &&
+      entry.boxStatus === 'ORDERED'
+  );
+}
+
 export function getJobStagingBlockingMessageWithOptions(
   detail: StagingDetail | null | undefined,
   options: { allowAutoCheckout?: boolean } = {}
@@ -43,18 +53,8 @@ export function getJobStagingBlockingMessageWithOptions(
     return 'Receive transferred film before staging this job.';
   }
 
-  if (options.allowAutoCheckout) {
-    return '';
-  }
-
-  const hasUncheckedOutFilm = (detail?.allocations || []).some(
-    (entry) =>
-      entry.status === 'ACTIVE' &&
-      entry.allocationKind !== 'EXTRA' &&
-      entry.allocatedFeet > 0
-  );
-  if (hasUncheckedOutFilm) {
-    return 'Check out the allocated film before staging this job.';
+  if (hasActiveOrderedRequirementAllocations(detail)) {
+    return 'Receive ordered film before staging this job.';
   }
 
   const hasUncheckedOutCaulk = (detail?.caulkAllocations || []).some(
@@ -65,6 +65,10 @@ export function getJobStagingBlockingMessageWithOptions(
   );
   if (hasUncheckedOutCaulk) {
     return 'Check out the allocated caulk before staging this job.';
+  }
+
+  if (options.allowAutoCheckout) {
+    return '';
   }
 
   return '';

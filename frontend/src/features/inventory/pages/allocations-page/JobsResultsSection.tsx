@@ -14,6 +14,19 @@ function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
+function renderStatusBadges(entry: JobListEntry) {
+  const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
+
+  return (
+    <div className="detail-actions">
+      <span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>
+      {entry.hasOrderedAllocations && displayStatus !== 'ON_ORDER' ? (
+        <span className="badge badge-ON_ORDER">ON ORDER</span>
+      ) : null}
+    </div>
+  );
+}
+
 interface JobsResultsSectionProps {
   isCalendarView: boolean;
   workflowTitle: string;
@@ -115,13 +128,12 @@ export function JobsResultsSection({
         isPhoneLayout ? (
           <div className="mobile-record-list">
             {listJobs.map((entry) => {
-              const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
               return (
                 <MobileRecordCard key={entry.jobNumber}>
                   <MobileRecordHeader
                     title={entry.jobNumber}
                     subtitle={`${entry.warehouse} warehouse`}
-                    badge={<span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>}
+                    badge={renderStatusBadges(entry)}
                     onTitleClick={() => onOpenJob(entry.jobNumber)}
                   />
                   <MobileFieldList>
@@ -152,7 +164,6 @@ export function JobsResultsSection({
               </thead>
               <tbody>
                 {listJobs.map((entry) => {
-                  const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
                   return (
                     <tr key={entry.jobNumber}>
                       <td>
@@ -167,9 +178,7 @@ export function JobsResultsSection({
                       <td>{formatDate(entry.dueDate)}</td>
                       <td>{entry.sections ?? '--'}</td>
                       <td>{entry.warehouse}</td>
-                      <td>
-                        <span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>
-                      </td>
+                      <td>{renderStatusBadges(entry)}</td>
                       <td>{entry.requiredFeet}</td>
                       <td>{entry.allocatedFeet}</td>
                       <td>{entry.remainingFeet}</td>

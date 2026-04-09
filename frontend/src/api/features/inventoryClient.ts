@@ -31,6 +31,30 @@ import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 import { applyAllocationPlan } from './allocationsClient';
 import { listWarehouses } from './warehouseClient';
 
+function normalizeBox(box: Box): Box {
+  const onHandFeet = Math.max(0, Number(box.feetAvailable || 0));
+  const initialFeet = Math.max(0, Number(box.initialFeet || 0));
+  const activeAllocatedFeet = Math.max(
+    0,
+    Number((box as Box & { activeAllocatedFeet?: number }).activeAllocatedFeet || 0)
+  );
+  const activePlanningFeet =
+    box.allocationPlanningFeet === undefined || box.allocationPlanningFeet === null
+      ? box.status === 'IN_STOCK'
+        ? onHandFeet
+        : box.status === 'ORDERED'
+          ? Math.max(0, initialFeet - activeAllocatedFeet)
+          : 0
+      : Math.max(0, Number(box.allocationPlanningFeet || 0));
+
+  return {
+    ...box,
+    initialFeet,
+    feetAvailable: onHandFeet,
+    allocationPlanningFeet: activePlanningFeet
+  };
+}
+
 function buildSearchBoxFilters(params: SearchBoxesParams) {
   return {
     warehouse: params.warehouse,
@@ -49,7 +73,9 @@ function shouldUseOfflineInventoryFallback(error: unknown): error is APIError {
 
 async function fetchRemoteBoxes(params: SearchBoxesParams): Promise<Box[]> {
   const filters = buildSearchBoxFilters(params);
-  return dedupeBoxesByDisplayBoxId(await requestReadWithFallback<Box[]>('/boxes/search', filters, filters));
+  return dedupeBoxesByDisplayBoxId(
+    (await requestReadWithFallback<Box[]>('/boxes/search', filters, filters)).map(normalizeBox)
+  );
 }
 
 export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
@@ -68,7 +94,7 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
 export async function getBox(boxId: string): Promise<Box> {
   assertFeatureAccess('inventory', 'read');
   try {
-    const box = await requestReadWithFallback<Box>('/boxes/get', { boxId }, { boxId });
+    const box = normalizeBox(await requestReadWithFallback<Box>('/boxes/get', { boxId }, { boxId }));
 
     try {
       await upsertOfflineInventoryBox(box);
@@ -104,7 +130,10 @@ export async function addBox(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/add', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }
@@ -115,7 +144,10 @@ export async function updateBox(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/update', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }
@@ -137,7 +169,10 @@ export async function setBoxStatus(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/set-status', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }
@@ -148,7 +183,10 @@ export async function startBoxTransfer(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/start', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }
@@ -159,7 +197,10 @@ export async function receiveBoxTransfer(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/receive', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }
@@ -170,7 +211,10 @@ export async function cancelBoxTransfer(
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxTransferMutationResult>('POST', '/boxes/transfer/cancel', { body: payload });
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
     warnings: response.warnings
   };
 }

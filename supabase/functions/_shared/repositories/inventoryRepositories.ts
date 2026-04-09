@@ -22,6 +22,24 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return deps.asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
   }
 
+  function computeAllocationPlanningFeet(
+    status: unknown,
+    initialFeet: unknown,
+    feetAvailable: unknown,
+    activeAllocatedFeet: unknown,
+  ) {
+    const normalizedStatus = deps.asTrimmedString(status).toUpperCase();
+    if (normalizedStatus === "IN_STOCK") {
+      return Math.max(0, deps.integerOrZero(feetAvailable));
+    }
+
+    if (normalizedStatus === "ORDERED") {
+      return Math.max(0, deps.integerOrZero(initialFeet) - deps.integerOrZero(activeAllocatedFeet));
+    }
+
+    return 0;
+  }
+
   function mapDbBoxRow(row: any) {
     if (!row) {
       return null;
@@ -36,6 +54,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: deps.numericOrNull(row.width_in) ?? 0,
       initialFeet: deps.integerOrZero(row.initial_feet),
       feetAvailable: deps.integerOrZero(row.feet_available),
+      activeAllocatedFeet: deps.integerOrZero(row.active_allocated_feet),
+      allocationPlanningFeet:
+        row.allocation_planning_feet === undefined || row.allocation_planning_feet === null
+          ? computeAllocationPlanningFeet(
+              row.status,
+              row.initial_feet,
+              row.feet_available,
+              row.active_allocated_feet,
+            )
+          : deps.integerOrZero(row.allocation_planning_feet),
       lotRun: deps.asTrimmedString(row.lot_run),
       status: deps.asTrimmedString(row.status) || "ORDERED",
       orderDate: deps.formatDateValue(row.order_date),
@@ -70,6 +98,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: box.widthIn,
       initialFeet: box.initialFeet,
       feetAvailable: box.feetAvailable,
+      allocationPlanningFeet: Math.max(0, deps.integerOrZero(box.allocationPlanningFeet)),
       lotRun: box.lotRun,
       status: box.status,
       orderDate: box.orderDate,

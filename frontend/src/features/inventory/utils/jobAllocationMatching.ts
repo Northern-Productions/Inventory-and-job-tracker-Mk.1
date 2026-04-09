@@ -7,6 +7,34 @@ import {
   getJobPlanningFilmMatch
 } from './jobPlanningFilmIdentity';
 
+function getBoxPlanningFeet(box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable' | 'allocationPlanningFeet'>) {
+  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
+    return Math.max(0, Number(box.allocationPlanningFeet || 0));
+  }
+
+  if (box.status === 'IN_STOCK') {
+    return Math.max(0, Number(box.feetAvailable || 0));
+  }
+
+  if (box.status === 'ORDERED') {
+    return Math.max(0, Number(box.initialFeet || 0));
+  }
+
+  return 0;
+}
+
+function getAllocationStatusRank(status: Box['status']) {
+  if (status === 'IN_STOCK') {
+    return 0;
+  }
+
+  if (status === 'ORDERED') {
+    return 1;
+  }
+
+  return 2;
+}
+
 function compareDates(leftDate: string, rightDate: string) {
   if (leftDate === rightDate) {
     return 0;
@@ -24,6 +52,12 @@ function compareBoxesByClosestCompatibleWidth(
   right: Box,
   requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
 ) {
+  const leftStatusRank = getAllocationStatusRank(left.status);
+  const rightStatusRank = getAllocationStatusRank(right.status);
+  if (leftStatusRank !== rightStatusRank) {
+    return leftStatusRank - rightStatusRank;
+  }
+
   const minimumWidthIn = requirement.widthIn;
   const leftIsExactMatch = left.widthIn === minimumWidthIn;
   const rightIsExactMatch = right.widthIn === minimumWidthIn;
@@ -57,8 +91,10 @@ function compareBoxesByClosestCompatibleWidth(
     return dateComparison;
   }
 
-  if (left.feetAvailable !== right.feetAvailable) {
-    return right.feetAvailable - left.feetAvailable;
+  const leftPlanningFeet = getBoxPlanningFeet(left);
+  const rightPlanningFeet = getBoxPlanningFeet(right);
+  if (leftPlanningFeet !== rightPlanningFeet) {
+    return rightPlanningFeet - leftPlanningFeet;
   }
 
   return left.boxId.localeCompare(right.boxId);
@@ -71,14 +107,14 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
   for (let index = 0; index < boxes.length; index += 1) {
     const candidate = boxes[index];
     const existing = dedupedByBoxId.get(candidate.boxId);
-    if (!existing || candidate.feetAvailable > existing.feetAvailable) {
+    if (!existing || getBoxPlanningFeet(candidate) > getBoxPlanningFeet(existing)) {
       dedupedByBoxId.set(candidate.boxId, candidate);
     }
   }
 
   const rankedMatches = Array.from(dedupedByBoxId.values()).flatMap((box) => {
-    const isAllocatableStatus = box.status === 'IN_STOCK' || box.status === 'CHECKED_OUT';
-    if (!isAllocatableStatus || box.feetAvailable <= 0) {
+    const isAllocatableStatus = box.status === 'IN_STOCK' || box.status === 'ORDERED';
+    if (!isAllocatableStatus || getBoxPlanningFeet(box) <= 0) {
       return [];
     }
 
@@ -106,6 +142,7 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
 
   rankedMatches.sort(
     (left, right) =>
+      getAllocationStatusRank(left.box.status) - getAllocationStatusRank(right.box.status) ||
       compareJobPlanningFilmMatches(left.filmMatch, right.filmMatch) ||
       compareBoxesByClosestCompatibleWidth(left.box, right.box, requirement)
   );

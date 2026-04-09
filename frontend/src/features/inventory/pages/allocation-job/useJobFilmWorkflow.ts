@@ -141,7 +141,9 @@ export function useJobFilmWorkflow({
 
     if (entry.boxStatus !== 'IN_STOCK') {
       const detailText =
-        entry.boxStatus === 'CHECKED_OUT'
+        entry.boxStatus === 'ORDERED'
+          ? `Box ${entry.boxId} is still waiting for receipt and cannot be checked out yet.`
+          : entry.boxStatus === 'CHECKED_OUT'
           ? `Box ${entry.boxId} is already checked out on another job.`
           : `Box ${entry.boxId} is ${entry.boxStatus || 'not in stock'} and cannot be checked out from this view.`;
       pushToast({

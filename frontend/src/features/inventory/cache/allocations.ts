@@ -11,12 +11,17 @@ import type {
 } from '../../../domain';
 import { WAREHOUSE_CODES } from '../../../domain';
 import { planCoverageAllocation } from '../../../domain/allocationCoverageContract.mjs';
-import { findCachedBoxById, updateBoxCaches } from './boxes';
+import {
+  applyPlanningAllocationToCachedBox,
+  findCachedBoxById,
+  getBoxAllocationPlanningFeet,
+  releasePlanningAllocationFromCachedBox,
+  updateBoxCaches
+} from './boxes';
 import {
   buildAllocationJobSummaryFromAllocations,
   createOptimisticJobDetailAfterAllocationAddition,
   createOptimisticJobDetailAfterAllocationRemoval,
-  getAllocationCoveredFeet,
   syncJobDetailCaches,
   upsertAllocationJobSummaryCaches
 } from './jobs';
@@ -85,14 +90,15 @@ function buildOptimisticAllocationRows(
 
   function addOptimisticAllocation(
     boxId: string,
-    availableFeet: number,
+    planningFeet: number,
     options: {
       warehouse?: string;
       widthIn?: number;
+      boxStatus?: Box['status'];
       box?: Box | null;
     } = {}
   ) {
-    if (availableFeet <= 0 || remainingFeet <= 0) {
+    if (planningFeet <= 0 || remainingFeet <= 0) {
       return;
     }
 
@@ -100,7 +106,8 @@ function buildOptimisticAllocationRows(
     const warehouse =
       options.warehouse || box?.warehouse || payload.jobWarehouse || detail?.summary.warehouse || WAREHOUSE_CODES[0];
     const widthIn = options.widthIn || box?.widthIn || requirementWidthIn || 0;
-    const nextPlan = planCoverageAllocation(remainingFeet, availableFeet, widthIn, requirementWidthIn);
+    const boxStatus = options.boxStatus || box?.status || 'ORDERED';
+    const nextPlan = planCoverageAllocation(remainingFeet, planningFeet, widthIn, requirementWidthIn);
     const nextAllocatedFeet = nextPlan.allocatedFeet;
     const nextCoveredFeet = nextPlan.coveredFeet;
     if (nextAllocatedFeet <= 0 || nextCoveredFeet <= 0) {
@@ -152,7 +159,7 @@ function buildOptimisticAllocationRows(
       manufacturer,
       filmName,
       widthIn,
-      boxStatus: 'IN_STOCK',
+      boxStatus,
       checkedOutOnThisJob: false
     });
 
@@ -164,7 +171,8 @@ function buildOptimisticAllocationRows(
     if (preview.sourceSuggestedFeet > 0) {
       addOptimisticAllocation(preview.sourceBoxId, preview.sourceSuggestedFeet, {
         warehouse: preview.sourceWarehouse,
-        widthIn: findCachedBoxById(queryClient, preview.sourceBoxId)?.widthIn || Number(payload.requestedWidthIn) || 0
+        widthIn: findCachedBoxById(queryClient, preview.sourceBoxId)?.widthIn || Number(payload.requestedWidthIn) || 0,
+        boxStatus: preview.sourceBoxStatus
       });
     }
 
@@ -174,9 +182,10 @@ function buildOptimisticAllocationRows(
         continue;
       }
 
-      addOptimisticAllocation(suggestion.boxId, suggestion.availableFeet, {
+      addOptimisticAllocation(suggestion.boxId, suggestion.planningFeet, {
         warehouse: suggestion.warehouse,
-        widthIn: suggestion.widthIn
+        widthIn: suggestion.widthIn,
+        boxStatus: suggestion.boxStatus
       });
     }
   } else {
@@ -184,7 +193,7 @@ function buildOptimisticAllocationRows(
     for (let index = 0; index < orderedBoxIds.length && remainingFeet > 0; index += 1) {
       const boxId = orderedBoxIds[index];
       const box = findCachedBoxById(queryClient, boxId);
-      addOptimisticAllocation(boxId, Math.max(0, Number(box?.feetAvailable || remainingFeet)), {
+      addOptimisticAllocation(boxId, Math.max(0, Number(box ? getBoxAllocationPlanningFeet(box) : remainingFeet)), {
         box
       });
     }
@@ -307,10 +316,7 @@ export function applyOptimisticAllocationRemovalToCaches(
         return box;
       }
 
-      return {
-        ...box,
-        feetAvailable: Math.min(box.initialFeet, Math.max(0, box.feetAvailable + releasedFeet))
-      };
+      return releasePlanningAllocationFromCachedBox(box, releasedFeet);
     });
   }
 
@@ -433,10 +439,7 @@ export function rollbackOptimisticAllocationRemovalInCaches(
         return box;
       }
 
-      return {
-        ...box,
-        feetAvailable: Math.max(0, Math.min(box.initialFeet, box.feetAvailable - allocation.allocatedFeet))
-      };
+      return applyPlanningAllocationToCachedBox(box, allocation.allocatedFeet);
     });
   }
 }
@@ -467,18 +470,7 @@ export function applyOptimisticAllocationAdditionToCaches(
       const nextAllocations = [...current.allocations, ...optimisticRows.jobAllocations];
       return {
         ...current,
-        summary: {
-          ...current.summary,
-          activeAllocatedFeet: nextAllocations.reduce(
-            (sum, entry) => (entry.status === 'ACTIVE' ? sum + getAllocationCoveredFeet(entry) : sum),
-            0
-          ),
-          fulfilledAllocatedFeet: nextAllocations.reduce(
-            (sum, entry) => (entry.status === 'FULFILLED' ? sum + getAllocationCoveredFeet(entry) : sum),
-            0
-          ),
-          boxCount: new Set(nextAllocations.map((entry) => entry.boxId).filter(Boolean)).size
-        },
+        summary: buildAllocationJobSummaryFromAllocations(current.summary, nextAllocations, current.filmOrders),
         allocations: nextAllocations
       };
     });
@@ -501,8 +493,7 @@ export function applyOptimisticAllocationAdditionToCaches(
     }
 
     updateBoxCaches(queryClient, boxId, (box) => ({
-      ...box,
-      feetAvailable: Math.max(0, box.feetAvailable - allocatedFeet)
+      ...applyPlanningAllocationToCachedBox(box, allocatedFeet)
     }));
   }
 

@@ -20,6 +20,7 @@ function createBox(overrides: Partial<Box> = {}): Box {
     widthIn: 30,
     initialFeet: 500,
     feetAvailable: 420,
+    allocationPlanningFeet: 420,
     lotRun: 'LR-1',
     status: 'IN_STOCK',
     orderDate: '2026-03-20',

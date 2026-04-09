@@ -2,6 +2,7 @@ import './load-env.mjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { handleSupabaseRequest } from './supabase-backend.mjs';
+import { shouldUseLocalFallbackRoute } from './src/routes/localFallbackRoutes.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
 const EDGE_API_BASE_URL = resolveEdgeApiBaseUrl_();
@@ -16,24 +17,6 @@ const CORS_ALLOWED_ORIGINS = String(process.env.CORS_ALLOWED_ORIGINS || '*')
   .filter(Boolean);
 
 const cache = new Map();
-const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
-  '/admin/member-permissions',
-  '/admin/user-permissions',
-  '/owner/admin-permissions',
-  '/owner/notification-preferences',
-  '/jobs/set-staged-pickup',
-  '/jobs/checkout-all',
-  '/jobs/set-labor-assigned'
-]);
-const LOCAL_FALLBACK_READ_PATHS = new Set([
-  '/allocations/by-job',
-  '/allocations/jobs',
-  '/owner/reports/asset-total-cost',
-  '/jobs/calendar',
-  '/jobs/get',
-  '/jobs/list',
-  '/jobs/search'
-]);
 
 function resolveEdgeApiBaseUrl_() {
   const explicit = String(process.env.EDGE_API_BASE_URL || '').trim();
@@ -314,9 +297,7 @@ const server = http.createServer(async (req, res) => {
   const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
   const effectiveHeaders = buildEffectiveHeaders(req.headers, bodyJson);
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
-  const shouldUseLocalFallback =
-    (req.method === 'GET' && LOCAL_FALLBACK_READ_PATHS.has(logicalPath)) ||
-    (req.method === 'POST' && LOCAL_FALLBACK_MUTATION_PATHS.has(logicalPath));
+  const shouldUseLocalFallback = shouldUseLocalFallbackRoute(req.method, logicalPath);
   const authKey = hashBody(String(effectiveHeaders.authorization || effectiveHeaders.Authorization || ''));
   const useCache = shouldUseCache(req.method, logicalPath) && !shouldUseLocalFallback;
   const cacheRouteKey =

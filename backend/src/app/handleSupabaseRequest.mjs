@@ -139,7 +139,130 @@ function assertBoxStatus(value) {
 
 function isAllocatableBoxStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === 'IN_STOCK';
+  return normalized === 'IN_STOCK' || normalized === 'ORDERED';
+}
+
+function computeAllocationPlanningFeet(status, initialFeet, feetAvailable, activeAllocatedFeet) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  if (normalizedStatus === 'IN_STOCK') {
+    return Math.max(0, integerOrZero(feetAvailable));
+  }
+
+  if (normalizedStatus === 'ORDERED') {
+    return Math.max(0, integerOrZero(initialFeet) - integerOrZero(activeAllocatedFeet));
+  }
+
+  return 0;
+}
+
+function getBoxAllocationPlanningFeet(box, activeAllocationsByBox) {
+  if (!box) {
+    return 0;
+  }
+
+  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
+    return Math.max(0, integerOrZero(box.allocationPlanningFeet));
+  }
+
+  const activeAllocatedFeet =
+    box.activeAllocatedFeet !== undefined && box.activeAllocatedFeet !== null
+      ? integerOrZero(box.activeAllocatedFeet)
+      : getActiveAllocatedFeetForBox(box.boxId, activeAllocationsByBox);
+
+  return computeAllocationPlanningFeet(box.status, box.initialFeet, box.feetAvailable, activeAllocatedFeet);
+}
+
+function boxUsesOrderedPlanning(box) {
+  return asTrimmedString(box?.status).toUpperCase() === 'ORDERED';
+}
+
+function boxCanReceiveReleasedAllocationFeet(box) {
+  const normalizedStatus = asTrimmedString(box?.status).toUpperCase();
+  return normalizedStatus !== 'ZEROED' && normalizedStatus !== 'RETIRED' && normalizedStatus !== 'ORDERED';
+}
+
+function applyPlanningAllocationToBox(box, allocatedFeet) {
+  const nextAllocatedFeet = Math.max(0, integerOrZero(allocatedFeet));
+  const nextActiveAllocatedFeet = integerOrZero(box.activeAllocatedFeet) + nextAllocatedFeet;
+  const nextFeetAvailable = boxUsesOrderedPlanning(box)
+    ? 0
+    : Math.max(0, integerOrZero(box.feetAvailable) - nextAllocatedFeet);
+
+  return {
+    ...box,
+    activeAllocatedFeet: nextActiveAllocatedFeet,
+    feetAvailable: nextFeetAvailable,
+    allocationPlanningFeet: computeAllocationPlanningFeet(
+      box.status,
+      box.initialFeet,
+      nextFeetAvailable,
+      nextActiveAllocatedFeet
+    )
+  };
+}
+
+function releaseAllocationFeetFromBox(box, releasedFeet) {
+  const nextReleasedFeet = Math.max(0, integerOrZero(releasedFeet));
+  const nextActiveAllocatedFeet = Math.max(0, integerOrZero(box.activeAllocatedFeet) - nextReleasedFeet);
+  const nextFeetAvailable = boxUsesOrderedPlanning(box)
+    ? 0
+    : boxCanReceiveReleasedAllocationFeet(box)
+    ? Math.min(integerOrZero(box.initialFeet), Math.max(0, integerOrZero(box.feetAvailable) + nextReleasedFeet))
+    : integerOrZero(box.feetAvailable);
+
+  return {
+    ...box,
+    activeAllocatedFeet: nextActiveAllocatedFeet,
+    feetAvailable: nextFeetAvailable,
+    allocationPlanningFeet: computeAllocationPlanningFeet(
+      box.status,
+      box.initialFeet,
+      nextFeetAvailable,
+      nextActiveAllocatedFeet
+    )
+  };
+}
+
+function hasActiveOrderedAllocations(allocations, boxById = {}) {
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = allocations[index];
+    if (asTrimmedString(entry?.status).toUpperCase() !== 'ACTIVE') {
+      continue;
+    }
+
+    const box = boxById[asTrimmedString(entry?.boxId)] || null;
+    if (boxUsesOrderedPlanning(box)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasActiveOrderedRequirementAllocations(allocations, boxById = {}) {
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = allocations[index];
+    if (
+      asTrimmedString(entry?.status).toUpperCase() !== 'ACTIVE' ||
+      normalizeAllocationKind(entry?.allocationKind) === 'EXTRA' ||
+      integerOrZero(entry?.allocatedFeet) <= 0
+    ) {
+      continue;
+    }
+
+    const box = boxById[asTrimmedString(entry?.boxId)] || null;
+    if (boxUsesOrderedPlanning(box)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildOrderedAllocationReceiptMessage(action) {
+  return action === 'checkout'
+    ? 'Receive ordered film before checking out all materials for this job.'
+    : 'Receive ordered film before staging this job.';
 }
 
 function parseBooleanFlag(value) {
@@ -1501,6 +1624,16 @@ function mapDbBoxRow(row) {
     widthIn: numericOrNull(row.width_in) ?? 0,
     initialFeet: integerOrZero(row.initial_feet),
     feetAvailable: integerOrZero(row.feet_available),
+    activeAllocatedFeet: integerOrZero(row.active_allocated_feet),
+    allocationPlanningFeet:
+      row.allocation_planning_feet === undefined || row.allocation_planning_feet === null
+        ? computeAllocationPlanningFeet(
+            row.status,
+            row.initial_feet,
+            row.feet_available,
+            row.active_allocated_feet
+          )
+        : integerOrZero(row.allocation_planning_feet),
     lotRun: asTrimmedString(row.lot_run),
     status: asTrimmedString(row.status) || 'ORDERED',
     orderDate: formatDateValue(row.order_date),
@@ -1535,6 +1668,7 @@ function toPublicBox(box) {
     widthIn: box.widthIn,
     initialFeet: box.initialFeet,
     feetAvailable: box.feetAvailable,
+    allocationPlanningFeet: getBoxAllocationPlanningFeet(box),
     lotRun: box.lotRun,
     status: box.status,
     orderDate: box.orderDate,
@@ -3053,13 +3187,35 @@ async function resolveWarehouseFromBoxId(client, orgId, boxId) {
   return resolved;
 }
 
+function buildBoxSelectColumns(alias) {
+  return `
+    ${alias}.*,
+    coalesce(active_allocations.active_allocated_feet, 0)::integer as active_allocated_feet,
+    case
+      when upper(coalesce(${alias}.status::text, 'ORDERED')) = 'IN_STOCK' then greatest(coalesce(${alias}.feet_available, 0), 0)
+      when upper(coalesce(${alias}.status::text, 'ORDERED')) = 'ORDERED' then greatest(
+        coalesce(${alias}.initial_feet, 0) - coalesce(active_allocations.active_allocated_feet, 0),
+        0
+      )
+      else 0
+    end::integer as allocation_planning_feet
+  `;
+}
+
 async function listBoxes(client, orgId) {
   const rows = await queryRows(
     client,
     `
-      select *
-      from app.boxes
-      where org_id = $1
+      select ${buildBoxSelectColumns('b')}
+      from app.boxes b
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = b.org_id
+          and a.box_id = b.box_id
+          and a.status = 'ACTIVE'
+      ) active_allocations on true
+      where b.org_id = $1
     `,
     [orgId]
   );
@@ -3072,10 +3228,17 @@ async function findBoxById(client, orgId, boxId) {
   const row = await queryRow(
     client,
     `
-      select *
-      from app.boxes
-      where org_id = $1
-        and box_id = $2
+      select ${buildBoxSelectColumns('b')}
+      from app.boxes b
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = b.org_id
+          and a.box_id = b.box_id
+          and a.status = 'ACTIVE'
+      ) active_allocations on true
+      where b.org_id = $1
+        and b.box_id = $2
     `,
     [orgId, canonicalBoxId]
   );
@@ -3091,74 +3254,85 @@ async function saveBoxRecord(client, orgId, box) {
   const row = await queryRow(
     client,
     `
-      insert into app.boxes (
-        org_id,
-        box_id,
-        warehouse,
-        manufacturer,
-        film_name,
-        width_in,
-        initial_feet,
-        feet_available,
-        lot_run,
-        status,
-        order_date,
-        received_date,
-        initial_weight_lbs,
-        last_roll_weight_lbs,
-        last_weighed_date,
-        film_key,
-        core_type,
-        core_weight_lbs,
-        lf_weight_lbs_per_ft,
-        price_per_lf,
-        purchase_cost,
-        notes,
-        has_ever_been_checked_out,
-        last_checkout_job,
-        last_checkout_date,
-        zeroed_date,
-        zeroed_reason,
-        zeroed_by
+      with saved_box as (
+        insert into app.boxes (
+          org_id,
+          box_id,
+          warehouse,
+          manufacturer,
+          film_name,
+          width_in,
+          initial_feet,
+          feet_available,
+          lot_run,
+          status,
+          order_date,
+          received_date,
+          initial_weight_lbs,
+          last_roll_weight_lbs,
+          last_weighed_date,
+          film_key,
+          core_type,
+          core_weight_lbs,
+          lf_weight_lbs_per_ft,
+          price_per_lf,
+          purchase_cost,
+          notes,
+          has_ever_been_checked_out,
+          last_checkout_job,
+          last_checkout_date,
+          zeroed_date,
+          zeroed_reason,
+          zeroed_by
+        )
+        values (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+          nullif($12, '')::date,
+          $13,$14,
+          nullif($15, '')::date,
+          $16,$17,$18,$19,$20,$21,$22,$23,$24,
+          nullif($25, '')::date,
+          nullif($26, '')::date,
+          $27,$28
+        )
+        on conflict (org_id, box_id) do update set
+          warehouse = excluded.warehouse,
+          manufacturer = excluded.manufacturer,
+          film_name = excluded.film_name,
+          width_in = excluded.width_in,
+          initial_feet = excluded.initial_feet,
+          feet_available = excluded.feet_available,
+          lot_run = excluded.lot_run,
+          status = excluded.status,
+          order_date = excluded.order_date,
+          received_date = excluded.received_date,
+          initial_weight_lbs = excluded.initial_weight_lbs,
+          last_roll_weight_lbs = excluded.last_roll_weight_lbs,
+          last_weighed_date = excluded.last_weighed_date,
+          film_key = excluded.film_key,
+          core_type = excluded.core_type,
+          core_weight_lbs = excluded.core_weight_lbs,
+          lf_weight_lbs_per_ft = excluded.lf_weight_lbs_per_ft,
+          price_per_lf = excluded.price_per_lf,
+          purchase_cost = excluded.purchase_cost,
+          notes = excluded.notes,
+          has_ever_been_checked_out = excluded.has_ever_been_checked_out,
+          last_checkout_job = excluded.last_checkout_job,
+          last_checkout_date = excluded.last_checkout_date,
+          zeroed_date = excluded.zeroed_date,
+          zeroed_reason = excluded.zeroed_reason,
+          zeroed_by = excluded.zeroed_by
+        returning *
       )
-      values (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-        nullif($12, '')::date,
-        $13,$14,
-        nullif($15, '')::date,
-        $16,$17,$18,$19,$20,$21,$22,$23,$24,
-        nullif($25, '')::date,
-        nullif($26, '')::date,
-        $27,$28
-      )
-      on conflict (org_id, box_id) do update set
-        warehouse = excluded.warehouse,
-        manufacturer = excluded.manufacturer,
-        film_name = excluded.film_name,
-        width_in = excluded.width_in,
-        initial_feet = excluded.initial_feet,
-        feet_available = excluded.feet_available,
-        lot_run = excluded.lot_run,
-        status = excluded.status,
-        order_date = excluded.order_date,
-        received_date = excluded.received_date,
-        initial_weight_lbs = excluded.initial_weight_lbs,
-        last_roll_weight_lbs = excluded.last_roll_weight_lbs,
-        last_weighed_date = excluded.last_weighed_date,
-        film_key = excluded.film_key,
-        core_type = excluded.core_type,
-        core_weight_lbs = excluded.core_weight_lbs,
-        lf_weight_lbs_per_ft = excluded.lf_weight_lbs_per_ft,
-        price_per_lf = excluded.price_per_lf,
-        purchase_cost = excluded.purchase_cost,
-        notes = excluded.notes,
-        has_ever_been_checked_out = excluded.has_ever_been_checked_out,
-        last_checkout_job = excluded.last_checkout_job,
-        last_checkout_date = excluded.last_checkout_date,
-        zeroed_date = excluded.zeroed_date,
-        zeroed_reason = excluded.zeroed_reason,
-        zeroed_by = excluded.zeroed_by
-      returning *
+      select ${buildBoxSelectColumns('saved_box')}
+      from saved_box
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = saved_box.org_id
+          and a.box_id = saved_box.box_id
+          and a.status = 'ACTIVE'
+      ) active_allocations on true
     `,
     [
       orgId,
@@ -3203,10 +3377,17 @@ async function findBoxByRecordId(client, orgId, boxRecordId) {
   const row = await queryRow(
     client,
     `
-      select *
-      from app.boxes
-      where org_id = $1
-        and id = $2::uuid
+      select ${buildBoxSelectColumns('b')}
+      from app.boxes b
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = b.org_id
+          and a.box_id = b.box_id
+          and a.status = 'ACTIVE'
+      ) active_allocations on true
+      where b.org_id = $1
+        and b.id = $2::uuid
     `,
     [orgId, boxRecordId]
   );
@@ -5723,7 +5904,8 @@ function buildAllocationJobSummary(
   isLaborAssigned = false,
   isStagedForPickup = false,
   fallbackJobDate = '',
-  fallbackCrewLeader = ''
+  fallbackCrewLeader = '',
+  boxById = {}
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
@@ -5738,6 +5920,7 @@ function buildAllocationJobSummary(
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
+  const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
@@ -5823,7 +6006,8 @@ function buildAllocationJobSummary(
     allocatedTubes: caulkTotals.allocatedTubes,
     remainingTubes: caulkTotals.remainingTubes,
     openFilmOrderCount,
-    boxCount: Object.keys(distinctBoxes).length
+    boxCount: Object.keys(distinctBoxes).length,
+    hasOrderedAllocations
   };
 }
 
@@ -6027,7 +6211,8 @@ function getJobStagingBlockingReason(
   allocations,
   filmOrders,
   caulkAllocations,
-  filmTransferAlerts = []
+  filmTransferAlerts = [],
+  boxById = {}
 ) {
   const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
   if (!hasMaterialRequirements) {
@@ -6044,8 +6229,8 @@ function getJobStagingBlockingReason(
     return buildFilmTransferAlertMessage(filmTransferAlerts, 'staging');
   }
 
-  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
-    return 'All required film must be checked out before staging this job.';
+  if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
+    return buildOrderedAllocationReceiptMessage('staging');
   }
 
   if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
@@ -6113,7 +6298,8 @@ function buildJobListEntry(
   allocations,
   filmOrders,
   allAllocations = [],
-  caulkRequirements = []
+  caulkRequirements = [],
+  boxById = {}
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let dueDate = jobHeader.dueDate;
@@ -6173,6 +6359,7 @@ function buildJobListEntry(
     requirementCount: requirements.length,
     allocationCount: allocations.length,
     filmOrderCount: filmOrders.length,
+    hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
     createdAt: jobHeader.createdAt || '',
     updatedAt: jobHeader.updatedAt || '',
     notes: jobHeader.notes || ''
@@ -6379,10 +6566,11 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
   }
   const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
+  const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, activeAllocationsByBox);
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, activeAllocationsByBox);
   const sourcePlan = sourceConflicts.length
     ? { allocatedFeet: 0, coveredFeet: 0, remainingCoveredFeet: requested }
-    : planCoverageAllocation(requested, sourceBox.feetAvailable, sourceBox.widthIn, minimumWidthIn);
+    : planCoverageAllocation(requested, sourcePlanningFeet, sourceBox.widthIn, minimumWidthIn);
   const sourceSuggestedFeet = sourcePlan.allocatedFeet;
   const sourceSuggestedCoveredFeet = sourcePlan.coveredFeet;
   let remaining = sourcePlan.remainingCoveredFeet;
@@ -6394,10 +6582,11 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
 
   for (let index = 0; index < candidateBoxes.length; index += 1) {
     const candidate = candidateBoxes[index];
+    const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, activeAllocationsByBox);
     if (
       candidate.boxId === sourceBox.boxId ||
       !isAllocatableBoxStatus(candidate.status) ||
-      candidate.feetAvailable <= 0 ||
+      candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
       continue;
@@ -6428,11 +6617,19 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
 
   filteredCandidates.sort((leftEntry, rightEntry) => {
+    const left = leftEntry.candidate;
+    const right = rightEntry.candidate;
+    const leftStatusRank = boxUsesOrderedPlanning(left) ? 1 : 0;
+    const rightStatusRank = boxUsesOrderedPlanning(right) ? 1 : 0;
+    if (leftStatusRank !== rightStatusRank) {
+      return leftStatusRank - rightStatusRank;
+    }
+
     if (preferredWarehouse) {
       const leftPreferredWarehouse =
-        asTrimmedString(leftEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+        asTrimmedString(left.warehouse).toUpperCase() === preferredWarehouse;
       const rightPreferredWarehouse =
-        asTrimmedString(rightEntry.candidate.warehouse).toUpperCase() === preferredWarehouse;
+        asTrimmedString(right.warehouse).toUpperCase() === preferredWarehouse;
       if (leftPreferredWarehouse !== rightPreferredWarehouse) {
         return leftPreferredWarehouse ? -1 : 1;
       }
@@ -6445,8 +6642,6 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       }
     }
 
-    const left = leftEntry.candidate;
-    const right = rightEntry.candidate;
     const leftIsExactMatch = left.widthIn === minimumWidthIn;
     const rightIsExactMatch = right.widthIn === minimumWidthIn;
     if (leftIsExactMatch !== rightIsExactMatch) {
@@ -6478,17 +6673,20 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
 
   for (let index = 0; index < filteredCandidates.length; index += 1) {
     const candidate = filteredCandidates[index].candidate;
+    const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, activeAllocationsByBox);
     const conflicts = getDateConflictJobsForBox(candidate.boxId, jobContext, activeAllocationsByBox);
     if (conflicts.length) {
       continue;
     }
 
-    const candidatePlan = planCoverageAllocation(remaining, candidate.feetAvailable, candidate.widthIn, minimumWidthIn);
+    const candidatePlan = planCoverageAllocation(remaining, candidatePlanningFeet, candidate.widthIn, minimumWidthIn);
     candidates.push({
       boxId: candidate.boxId,
       warehouse: candidate.warehouse,
       widthIn: candidate.widthIn,
       availableFeet: candidate.feetAvailable,
+      planningFeet: candidatePlanningFeet,
+      boxStatus: candidate.status,
       suggestedFeet: candidatePlan.allocatedFeet,
       suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
@@ -6510,6 +6708,8 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     sourceWarehouse: sourceBox.warehouse,
     sourceWidthIn: sourceBox.widthIn,
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
+    sourceBoxPlanningFeet: sourcePlanningFeet,
+    sourceBoxStatus: sourceBox.status,
     sourceSuggestedFeet,
     sourceSuggestedCoveredFeet,
     sourceConflicts,
@@ -6551,7 +6751,7 @@ function calculateSelectedSuggestionAllocations(plan, selectedBoxIds) {
 
     const nextPlan = planCoverageAllocation(
       remaining,
-      suggestion.availableFeet,
+      integerOrZero(suggestion.planningFeet ?? suggestion.availableFeet),
       suggestion.widthIn,
       plan.requestedWidthIn
     );
@@ -6830,12 +7030,11 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
 
   for (const boxId of Object.keys(activeByBoxId)) {
     const box = await findBoxById(client, orgId, boxId);
-    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+    if (!box || asTrimmedString(box.status).toUpperCase() === 'ZEROED' || asTrimmedString(box.status).toUpperCase() === 'RETIRED') {
       continue;
     }
 
-    box.feetAvailable += activeByBoxId[boxId];
-    await saveBoxRecord(client, orgId, box);
+    await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, activeByBoxId[boxId]));
   }
 
   for (let index = 0; index < filmOrders.length; index += 1) {
@@ -6905,12 +7104,11 @@ async function prepareDeletedJobCleanup(client, orgId, jobNumber, user, reason) 
 
   for (const boxId of Object.keys(releasedFeetByBox)) {
     const box = await findBoxById(client, orgId, boxId);
-    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+    if (!box || asTrimmedString(box.status).toUpperCase() === 'ZEROED' || asTrimmedString(box.status).toUpperCase() === 'RETIRED') {
       continue;
     }
 
-    box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(releasedFeetByBox[boxId]));
-    await saveBoxRecord(client, orgId, box);
+    await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, releasedFeetByBox[boxId]));
     affectedBoxCount += 1;
   }
 
@@ -7039,9 +7237,8 @@ async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, u
   await saveAllocationRecord(client, orgId, entry);
 
   if (releasedFeet > 0) {
-    if (box && box.status !== 'ZEROED' && box.status !== 'RETIRED') {
-      box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + releasedFeet);
-      await saveBoxRecord(client, orgId, box);
+    if (box && asTrimmedString(box.status).toUpperCase() !== 'ZEROED' && asTrimmedString(box.status).toUpperCase() !== 'RETIRED') {
+      await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, releasedFeet));
     }
   }
 
@@ -7086,12 +7283,11 @@ async function cancelFilmOrderAndReleaseAllocations(client, orgId, filmOrderId, 
 
   for (const boxId of Object.keys(activeByBoxId)) {
     const box = await findBoxById(client, orgId, boxId);
-    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+    if (!box || asTrimmedString(box.status).toUpperCase() === 'ZEROED' || asTrimmedString(box.status).toUpperCase() === 'RETIRED') {
       continue;
     }
 
-    box.feetAvailable += activeByBoxId[boxId];
-    await saveBoxRecord(client, orgId, box);
+    await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, activeByBoxId[boxId]));
   }
 
   await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
@@ -7811,6 +8007,10 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutTransferAlerts, 'checkout'));
   }
 
+  if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
+    throw new HttpError(400, buildOrderedAllocationReceiptMessage('checkout'));
+  }
+
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
     if (allocation.status !== 'ACTIVE' || !allocation.boxId || seenBoxIds[allocation.boxId]) {
@@ -7818,6 +8018,11 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     }
 
     seenBoxIds[allocation.boxId] = true;
+    const currentBox = boxById[allocation.boxId];
+    if (boxUsesOrderedPlanning(currentBox)) {
+      continue;
+    }
+
     const checkoutResult = await checkoutBoxForJob(
       client,
       orgId,
@@ -7903,7 +8108,8 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     refreshedAllocations,
     refreshedFilmOrders,
     refreshedCaulkAllocations,
-    filmTransferAlerts
+    filmTransferAlerts,
+    refreshedBoxById
   );
   if (blockingReason) {
     throw new HttpError(400, blockingReason);
@@ -8404,6 +8610,12 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
     if (usedPartialReceivingMetrics) {
       if (currentFeetOnRollInput !== null) {
+        if (currentFeetOnRollInput < activeAllocatedFeet) {
+          throw new HttpError(
+            400,
+            `CurrentFeetOnRoll cannot be lower than the box's active allocated feet (${activeAllocatedFeet}).`
+          );
+        }
         feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - activeAllocatedFeet, initialFeet);
       } else {
         feetAvailable = clampFeetToInitialRange(feetAvailable, initialFeet);
@@ -8442,6 +8654,12 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         resolvedLfWeightLbsPerFt,
         initialFeet
       );
+      if (physicalFeetAvailable < activeAllocatedFeet) {
+        throw new HttpError(
+          400,
+          `Received physical LF cannot be lower than the box's active allocated feet (${activeAllocatedFeet}).`
+        );
+      }
       const shouldRepairStaleFeet =
         Boolean(existingBox && existingBox.receivedDate) &&
         Math.max(existingBox ? existingBox.feetAvailable : 0, 0) === 0 &&
@@ -8678,14 +8896,15 @@ async function buildAllocationJobList(client, orgId) {
         allocations,
         filmOrders,
         requirements,
-      publicCaulkRequirements,
-      header?.lifecycleStatus || 'ACTIVE',
-      Boolean(header?.isLaborOnly),
-      Boolean(header?.isLaborAssigned),
-      Boolean(header?.isStagedForPickup),
-      header?.dueDate || '',
-      header?.crewLeader || ''
-    )
+        publicCaulkRequirements,
+        header?.lifecycleStatus || 'ACTIVE',
+        Boolean(header?.isLaborOnly),
+        Boolean(header?.isLaborAssigned),
+        Boolean(header?.isStagedForPickup),
+        header?.dueDate || '',
+        header?.crewLeader || '',
+        boxById
+      )
     );
   }
 
@@ -8743,7 +8962,8 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
       Boolean(header?.isLaborAssigned),
       Boolean(header?.isStagedForPickup),
       header?.dueDate || '',
-      header?.crewLeader || ''
+      header?.crewLeader || '',
+      boxById
     ),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
@@ -8832,7 +9052,8 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus) {
       allocations,
       filmOrders,
       allAllocations,
-      publicCaulkRequirements
+      publicCaulkRequirements,
+      boxById
     );
 
     if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
@@ -9033,7 +9254,8 @@ async function buildJobDetail(client, orgId, jobNumber) {
       allocations,
       filmOrders,
       allAllocations,
-      publicCaulkRequirements
+      publicCaulkRequirements,
+      boxById
     ),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
@@ -9130,7 +9352,8 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
       allocations,
       filmOrders,
       caulkAllocations,
-      filmTransferAlerts
+      filmTransferAlerts,
+      boxById
     );
 
     if (blockingReason) {
@@ -9924,6 +10147,13 @@ async function setBoxStatus(client, orgId, payload, actor) {
       }
     }
 
+    if (activeAllocatedFeetAfterCheckIn > physicalFeetAvailable) {
+      throw new HttpError(
+        400,
+        `Received physical LF cannot be lower than the box's active allocated feet (${activeAllocatedFeetAfterCheckIn}).`
+      );
+    }
+
     updatedBox.feetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeetAfterCheckIn, 0);
     const willAutoZero =
       Boolean(updatedBox.receivedDate) &&
@@ -9931,11 +10161,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
       (physicalFeetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
 
     applyCheckInWarnings(warnings, existing, updatedBox, willAutoZero);
-    if (activeAllocatedFeetAfterCheckIn > physicalFeetAvailable) {
-      warnings.push(
-        'This box now has more LF allocated to future jobs than the weight-based remaining feet.'
-      );
-    } else if (activeAllocatedFeetAfterCheckIn > 0 && updatedBox.feetAvailable === 0) {
+    if (activeAllocatedFeetAfterCheckIn > 0 && updatedBox.feetAvailable === 0) {
       warnings.push('All remaining LF on this box is reserved by active allocations.');
     }
 
@@ -10688,12 +10914,11 @@ async function completeJob(client, orgId, payload, actor) {
 
   for (const boxId of Object.keys(releasedFeetByBox)) {
     const box = await findBoxById(client, orgId, boxId);
-    if (!box || box.status === 'ZEROED' || box.status === 'RETIRED') {
+    if (!box || asTrimmedString(box.status).toUpperCase() === 'ZEROED' || asTrimmedString(box.status).toUpperCase() === 'RETIRED') {
       continue;
     }
 
-    box.feetAvailable = Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(releasedFeetByBox[boxId]));
-    await saveBoxRecord(client, orgId, box);
+    await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, releasedFeetByBox[boxId]));
   }
 
   const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, jobNumber));
@@ -10910,7 +11135,7 @@ async function removeJobBoxAllocation(client, orgId, payload, actor) {
     warnings.push(`Allocation ${allocationId} was already cancelled for job ${jobNumber}.`);
   } else {
     warnings.push(
-      `Removed allocation ${result.allocationId} for box ${result.boxId} on job ${jobNumber}. Released ${result.releasedFeet} LF back to box availability.`
+      `Removed allocation ${result.allocationId} for box ${result.boxId} on job ${jobNumber}. Released ${result.releasedFeet} LF back to planning capacity.`
     );
   }
 
@@ -11019,7 +11244,7 @@ async function previewAllocationPlan(client, orgId, payload) {
   }
 
   if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
+    throw new HttpError(400, 'Only in-stock or ordered boxes can be allocated.');
   }
 
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
@@ -11085,7 +11310,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   }
 
   if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock boxes can be allocated.');
+    throw new HttpError(400, 'Only in-stock or ordered boxes can be allocated.');
   }
 
   const requestedFeet = coerceFeetValue(payload.requestedFeet ?? 0, 'RequestedFeet', warnings, false);
@@ -11188,8 +11413,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
     }
 
-    if (currentBox.feetAvailable < plannedAllocation.allocatedFeet) {
-      throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough available LF.`);
+    if (getBoxAllocationPlanningFeet(currentBox) < plannedAllocation.allocatedFeet) {
+      throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough planning LF.`);
     }
 
     const allocation = await createAllocationRecord(
@@ -11204,8 +11429,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       'REQUIREMENT',
       selectedRequirement ? selectedRequirement.id : ''
     );
-    currentBox.feetAvailable = Math.max(currentBox.feetAvailable - plannedAllocation.allocatedFeet, 0);
-    boxById[currentBox.boxId] = await saveBoxRecord(client, orgId, currentBox);
+    boxById[currentBox.boxId] = await saveBoxRecord(
+      client,
+      orgId,
+      applyPlanningAllocationToBox(currentBox, plannedAllocation.allocatedFeet)
+    );
     createdAllocations.push(toPublicAllocation(allocation));
   }
 
@@ -11248,8 +11476,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       throw new HttpError(400, `Extra box ${currentBox.boxId} must meet or exceed ${minimumWidthIn}" width.`);
     }
 
-    if (currentBox.feetAvailable < plannedExtra.allocatedFeet) {
-      throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough available LF.`);
+    if (getBoxAllocationPlanningFeet(currentBox) < plannedExtra.allocatedFeet) {
+      throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough planning LF.`);
     }
 
     const allocation = await createAllocationRecord(
@@ -11263,8 +11491,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       '',
       'EXTRA'
     );
-    currentBox.feetAvailable = Math.max(currentBox.feetAvailable - plannedExtra.allocatedFeet, 0);
-    boxById[currentBox.boxId] = await saveBoxRecord(client, orgId, currentBox);
+    boxById[currentBox.boxId] = await saveBoxRecord(
+      client,
+      orgId,
+      applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet)
+    );
     createdAllocations.push(toPublicAllocation(allocation));
   }
 

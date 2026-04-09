@@ -274,8 +274,8 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!source) {
       throw new HttpError(404, "Box not found.");
     }
-    if (source.status !== "IN_STOCK") {
-      throw new HttpError(400, "Only in-stock boxes can be allocated.");
+    if (source.status !== "IN_STOCK" && source.status !== "ORDERED") {
+      throw new HttpError(400, "Only in-stock or ordered boxes can be allocated.");
     }
     const jobContext = await deps.resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader);
     const requirementId = deps.asTrimmedString(params.requirementId);

@@ -79,7 +79,7 @@ export function buildSelectionSummary(preview: AllocationPreview, selectedSugges
 
     const nextPlan = planCoverageAllocation(
       remaining,
-      suggestion.availableFeet,
+      suggestion.planningFeet ?? suggestion.availableFeet,
       suggestion.widthIn,
       preview.requestedWidthIn
     );

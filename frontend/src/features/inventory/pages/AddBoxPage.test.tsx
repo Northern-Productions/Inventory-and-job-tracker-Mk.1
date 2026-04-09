@@ -99,6 +99,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
     widthIn: 72,
     initialFeet: 100,
     feetAvailable: 100,
+    allocationPlanningFeet: 100,
     lotRun: '',
     status: 'ORDERED',
     orderDate: '2026-04-06',
@@ -170,6 +171,7 @@ function buildJobDetail(filmOrder: FilmOrderEntry): JobDetail {
       requirementCount: 1,
       allocationCount: 0,
       filmOrderCount: 1,
+      hasOrderedAllocations: false,
       createdAt: '2026-04-06T00:00:00Z',
       updatedAt: '2026-04-06T00:00:00Z',
       notes: ''
@@ -208,7 +210,8 @@ function buildAllocationJobDetail(filmOrder: FilmOrderEntry): AllocationJobDetai
       allocatedTubes: 0,
       remainingTubes: 0,
       openFilmOrderCount: 1,
-      boxCount: 0
+      boxCount: 0,
+      hasOrderedAllocations: false
     },
     allocations: [],
     usage: [],
