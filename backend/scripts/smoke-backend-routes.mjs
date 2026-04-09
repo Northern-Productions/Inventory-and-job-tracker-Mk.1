@@ -101,6 +101,13 @@ async function main() {
       expectedStatuses: [200],
       requiresAuth: true
     },
+    {
+      method: 'GET',
+      path: '/boxes/search',
+      query: { warehouse: 'ALL' },
+      expectedStatuses: [200],
+      requiresAuth: true
+    },
     { method: 'GET', path: '/app/attention-summary', expectedStatuses: [200], requiresAuth: true },
     { method: 'GET', path: '/jobs/list', expectedStatuses: [200], requiresAuth: true },
     {

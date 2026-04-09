@@ -44,48 +44,61 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     if (!row) {
       return null;
     }
+    const readValue = (...keys: string[]) => {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(row, key)) {
+          return row[key];
+        }
+      }
+      return undefined;
+    };
+    const status = readValue("status");
+    const initialFeet = readValue("initial_feet", "initialFeet");
+    const feetAvailable = readValue("feet_available", "feetAvailable");
+    const activeAllocatedFeet = readValue("active_allocated_feet", "activeAllocatedFeet");
+    const allocationPlanningFeet = readValue("allocation_planning_feet", "allocationPlanningFeet");
     return {
-      id: row.id,
-      orgId: row.org_id,
-      boxId: deps.asTrimmedString(row.box_id),
-      warehouse: deps.asTrimmedString(row.warehouse),
-      manufacturer: deps.asTrimmedString(row.manufacturer),
-      filmName: deps.asTrimmedString(row.film_name),
-      widthIn: deps.numericOrNull(row.width_in) ?? 0,
-      initialFeet: deps.integerOrZero(row.initial_feet),
-      feetAvailable: deps.integerOrZero(row.feet_available),
-      activeAllocatedFeet: deps.integerOrZero(row.active_allocated_feet),
+      id: readValue("id"),
+      orgId: readValue("org_id", "orgId"),
+      boxId: deps.asTrimmedString(readValue("box_id", "boxId")),
+      warehouse: deps.asTrimmedString(readValue("warehouse")),
+      manufacturer: deps.asTrimmedString(readValue("manufacturer")),
+      filmName: deps.asTrimmedString(readValue("film_name", "filmName")),
+      widthIn: deps.numericOrNull(readValue("width_in", "widthIn")) ?? 0,
+      initialFeet: deps.integerOrZero(initialFeet),
+      feetAvailable: deps.integerOrZero(feetAvailable),
+      activeAllocatedFeet: deps.integerOrZero(activeAllocatedFeet),
       allocationPlanningFeet:
-        row.allocation_planning_feet === undefined || row.allocation_planning_feet === null
+        allocationPlanningFeet === undefined || allocationPlanningFeet === null
           ? computeAllocationPlanningFeet(
-              row.status,
-              row.initial_feet,
-              row.feet_available,
-              row.active_allocated_feet,
+              status,
+              initialFeet,
+              feetAvailable,
+              activeAllocatedFeet,
             )
-          : deps.integerOrZero(row.allocation_planning_feet),
-      lotRun: deps.asTrimmedString(row.lot_run),
-      status: deps.asTrimmedString(row.status) || "ORDERED",
-      orderDate: deps.formatDateValue(row.order_date),
-      receivedDate: deps.formatDateValue(row.received_date),
-      initialWeightLbs: deps.numericOrNull(row.initial_weight_lbs),
-      lastRollWeightLbs: deps.numericOrNull(row.last_roll_weight_lbs),
-      lastWeighedDate: deps.formatDateValue(row.last_weighed_date),
-      filmKey: deps.asTrimmedString(row.film_key).toUpperCase(),
-      coreType: deps.asTrimmedString(row.core_type),
-      coreWeightLbs: deps.numericOrNull(row.core_weight_lbs),
-      lfWeightLbsPerFt: deps.numericOrNull(row.lf_weight_lbs_per_ft),
-      pricePerLf: deps.numericOrNull(row.price_per_lf),
-      purchaseCost: deps.numericOrNull(row.purchase_cost),
-      notes: deps.asTrimmedString(row.notes),
-      hasEverBeenCheckedOut: Boolean(row.has_ever_been_checked_out),
-      lastCheckoutJob: deps.asTrimmedString(row.last_checkout_job),
-      lastCheckoutDate: deps.formatDateValue(row.last_checkout_date),
-      zeroedDate: deps.formatDateValue(row.zeroed_date),
-      zeroedReason: deps.asTrimmedString(row.zeroed_reason),
-      zeroedBy: deps.asTrimmedString(row.zeroed_by),
-      createdAt: deps.formatTimestamp(row.created_at),
-      updatedAt: deps.formatTimestamp(row.updated_at),
+          : deps.integerOrZero(allocationPlanningFeet),
+      lotRun: deps.asTrimmedString(readValue("lot_run", "lotRun")),
+      status: deps.asTrimmedString(status) || "ORDERED",
+      orderDate: deps.formatDateValue(readValue("order_date", "orderDate")),
+      receivedDate: deps.formatDateValue(readValue("received_date", "receivedDate")),
+      initialWeightLbs: deps.numericOrNull(readValue("initial_weight_lbs", "initialWeightLbs")),
+      lastRollWeightLbs: deps.numericOrNull(readValue("last_roll_weight_lbs", "lastRollWeightLbs")),
+      lastWeighedDate: deps.formatDateValue(readValue("last_weighed_date", "lastWeighedDate")),
+      filmKey: deps.asTrimmedString(readValue("film_key", "filmKey")).toUpperCase(),
+      coreType: deps.asTrimmedString(readValue("core_type", "coreType")),
+      coreWeightLbs: deps.numericOrNull(readValue("core_weight_lbs", "coreWeightLbs")),
+      lfWeightLbsPerFt: deps.numericOrNull(readValue("lf_weight_lbs_per_ft", "lfWeightLbsPerFt")),
+      pricePerLf: deps.numericOrNull(readValue("price_per_lf", "pricePerLf")),
+      purchaseCost: deps.numericOrNull(readValue("purchase_cost", "purchaseCost")),
+      notes: deps.asTrimmedString(readValue("notes")),
+      hasEverBeenCheckedOut: Boolean(readValue("has_ever_been_checked_out", "hasEverBeenCheckedOut")),
+      lastCheckoutJob: deps.asTrimmedString(readValue("last_checkout_job", "lastCheckoutJob")),
+      lastCheckoutDate: deps.formatDateValue(readValue("last_checkout_date", "lastCheckoutDate")),
+      zeroedDate: deps.formatDateValue(readValue("zeroed_date", "zeroedDate")),
+      zeroedReason: deps.asTrimmedString(readValue("zeroed_reason", "zeroedReason")),
+      zeroedBy: deps.asTrimmedString(readValue("zeroed_by", "zeroedBy")),
+      createdAt: deps.formatTimestamp(readValue("created_at", "createdAt")),
+      updatedAt: deps.formatTimestamp(readValue("updated_at", "updatedAt")),
     };
   }
 

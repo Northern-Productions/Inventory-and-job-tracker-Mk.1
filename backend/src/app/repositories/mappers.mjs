@@ -16,48 +16,63 @@ function mapDbBoxRow(row) {
     return null;
   }
 
+  const readValue = (...keys) => {
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) {
+        return row[key];
+      }
+    }
+    return undefined;
+  };
+
+  const status = readValue('status');
+  const initialFeet = readValue('initial_feet', 'initialFeet');
+  const feetAvailable = readValue('feet_available', 'feetAvailable');
+  const activeAllocatedFeet = readValue('active_allocated_feet', 'activeAllocatedFeet');
+  const allocationPlanningFeet = readValue('allocation_planning_feet', 'allocationPlanningFeet');
+
   return {
-    id: row.id,
-    orgId: row.org_id,
-    boxId: asTrimmedString(row.box_id),
-    warehouse: asTrimmedString(row.warehouse),
-    manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
-    filmName: asTrimmedString(row.film_name),
-    widthIn: numericOrNull(row.width_in) ?? 0,
-    initialFeet: integerOrZero(row.initial_feet),
-    feetAvailable: integerOrZero(row.feet_available),
-    activeAllocatedFeet: integerOrZero(row.active_allocated_feet),
+    id: readValue('id'),
+    orgId: readValue('org_id', 'orgId'),
+    boxId: asTrimmedString(readValue('box_id', 'boxId')),
+    warehouse: asTrimmedString(readValue('warehouse')),
+    manufacturer: canonicalizeManufacturerLabel(readValue('manufacturer')),
+    filmName: asTrimmedString(readValue('film_name', 'filmName')),
+    widthIn: numericOrNull(readValue('width_in', 'widthIn')) ?? 0,
+    initialFeet: integerOrZero(initialFeet),
+    feetAvailable: integerOrZero(feetAvailable),
+    activeAllocatedFeet: integerOrZero(activeAllocatedFeet),
     allocationPlanningFeet:
-      row.allocation_planning_feet === undefined || row.allocation_planning_feet === null
+      allocationPlanningFeet === undefined || allocationPlanningFeet === null
         ? computeAllocationPlanningFeet(
-            row.status,
-            row.initial_feet,
-            row.feet_available,
-            row.active_allocated_feet
+            status,
+            initialFeet,
+            feetAvailable,
+            activeAllocatedFeet
           )
-        : integerOrZero(row.allocation_planning_feet),
-    lotRun: asTrimmedString(row.lot_run),
-    status: asTrimmedString(row.status) || 'ORDERED',
-    orderDate: formatDateValue(row.order_date),
-    receivedDate: formatDateValue(row.received_date),
-    initialWeightLbs: numericOrNull(row.initial_weight_lbs),
-    lastRollWeightLbs: numericOrNull(row.last_roll_weight_lbs),
-    lastWeighedDate: formatDateValue(row.last_weighed_date),
-    filmKey: asTrimmedString(row.film_key).toUpperCase(),
-    coreType: asTrimmedString(row.core_type),
-    coreWeightLbs: numericOrNull(row.core_weight_lbs),
-    lfWeightLbsPerFt: numericOrNull(row.lf_weight_lbs_per_ft),
-    pricePerLf: numericOrNull(row.price_per_lf),
-    purchaseCost: numericOrNull(row.purchase_cost),
-    notes: asTrimmedString(row.notes),
-    hasEverBeenCheckedOut: Boolean(row.has_ever_been_checked_out),
-    lastCheckoutJob: asTrimmedString(row.last_checkout_job),
-    lastCheckoutDate: formatDateValue(row.last_checkout_date),
-    zeroedDate: formatDateValue(row.zeroed_date),
-    zeroedReason: asTrimmedString(row.zeroed_reason),
-    zeroedBy: asTrimmedString(row.zeroed_by),
-    createdAt: formatTimestamp(row.created_at),
-    updatedAt: formatTimestamp(row.updated_at),
+        : integerOrZero(allocationPlanningFeet),
+    lotRun: asTrimmedString(readValue('lot_run', 'lotRun')),
+    status: asTrimmedString(status) || 'ORDERED',
+    orderDate: formatDateValue(readValue('order_date', 'orderDate')),
+    receivedDate: formatDateValue(readValue('received_date', 'receivedDate')),
+    initialWeightLbs: numericOrNull(readValue('initial_weight_lbs', 'initialWeightLbs')),
+    lastRollWeightLbs: numericOrNull(readValue('last_roll_weight_lbs', 'lastRollWeightLbs')),
+    lastWeighedDate: formatDateValue(readValue('last_weighed_date', 'lastWeighedDate')),
+    filmKey: asTrimmedString(readValue('film_key', 'filmKey')).toUpperCase(),
+    coreType: asTrimmedString(readValue('core_type', 'coreType')),
+    coreWeightLbs: numericOrNull(readValue('core_weight_lbs', 'coreWeightLbs')),
+    lfWeightLbsPerFt: numericOrNull(readValue('lf_weight_lbs_per_ft', 'lfWeightLbsPerFt')),
+    pricePerLf: numericOrNull(readValue('price_per_lf', 'pricePerLf')),
+    purchaseCost: numericOrNull(readValue('purchase_cost', 'purchaseCost')),
+    notes: asTrimmedString(readValue('notes')),
+    hasEverBeenCheckedOut: Boolean(readValue('has_ever_been_checked_out', 'hasEverBeenCheckedOut')),
+    lastCheckoutJob: asTrimmedString(readValue('last_checkout_job', 'lastCheckoutJob')),
+    lastCheckoutDate: formatDateValue(readValue('last_checkout_date', 'lastCheckoutDate')),
+    zeroedDate: formatDateValue(readValue('zeroed_date', 'zeroedDate')),
+    zeroedReason: asTrimmedString(readValue('zeroed_reason', 'zeroedReason')),
+    zeroedBy: asTrimmedString(readValue('zeroed_by', 'zeroedBy')),
+    createdAt: formatTimestamp(readValue('created_at', 'createdAt')),
+    updatedAt: formatTimestamp(readValue('updated_at', 'updatedAt')),
   };
 }
 

@@ -695,13 +695,14 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
 async function buildSearchBoxes(client, orgId, params) {
   const configuredWarehouses = await listWarehouseCodes(client, orgId);
-  const requestedWarehouses = normalizeStringArrayParam([
+  const requestedWarehouseTokens = normalizeStringArrayParam([
     params?.warehouse,
     ...(Array.isArray(params?.warehouses) ? params.warehouses : [params?.warehouses])
-  ]).map((entry) => normalizeWarehouseCodeFormat(entry, 'warehouse'));
-  const warehouseFilters = requestedWarehouses.length
-    ? requestedWarehouses
-    : [await requireConfiguredWarehouse(client, orgId, params.warehouse, 'warehouse')];
+  ]).map((entry) => asTrimmedString(entry).toUpperCase());
+  const warehouseFilters =
+    requestedWarehouseTokens.length === 0 || requestedWarehouseTokens.includes('ALL')
+      ? [...configuredWarehouses]
+      : requestedWarehouseTokens.map((entry) => normalizeWarehouseCodeFormat(entry, 'warehouse'));
   const invalidWarehouse = warehouseFilters.find((entry) => !configuredWarehouses.includes(entry));
   if (invalidWarehouse) {
     throw new HttpError(400, 'warehouse is not configured.');

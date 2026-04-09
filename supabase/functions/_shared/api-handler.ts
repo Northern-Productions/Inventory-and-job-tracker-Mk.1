@@ -3603,7 +3603,7 @@ function matchesClosedJobReportFilters(jobEntry: any, filters: any): boolean {
 }
 
 async function buildSearchBoxes(client: any, orgId: string, params: Record<string, unknown>) {
-  const requestedWarehouses = normalizeStringArrayParam([
+  const requestedWarehouseTokens = normalizeStringArrayParam([
     params.warehouse,
     ...(Array.isArray(params.warehouses) ? params.warehouses : [params.warehouses]),
   ]).map((entry) => entry.toUpperCase());
@@ -3613,9 +3613,10 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   const configuredWarehouses = new Set(
     (warehouseRows || []).map((row) => asTrimmedString(row.code).toUpperCase()).filter(Boolean)
   );
-  const warehouseFilters = requestedWarehouses.length
-    ? requestedWarehouses
-    : [requireString(params.warehouse, "warehouse").toUpperCase()];
+  const warehouseFilters =
+    requestedWarehouseTokens.length === 0 || requestedWarehouseTokens.includes("ALL")
+      ? Array.from(configuredWarehouses)
+      : requestedWarehouseTokens;
   const invalidWarehouse = warehouseFilters.find((warehouse) => !configuredWarehouses.has(warehouse));
   if (invalidWarehouse) {
     throw new HttpError(400, "warehouse is not configured.");
