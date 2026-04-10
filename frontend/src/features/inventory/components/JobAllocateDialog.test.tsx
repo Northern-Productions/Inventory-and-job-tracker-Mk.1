@@ -93,6 +93,8 @@ function renderDialog(
     crewLeader: string;
     requirements: JobRequirementLine[];
     filmOrders: FilmOrderEntry[];
+    isExtraFilmMode: boolean;
+    onCancel: () => void;
   }> = {}
 ) {
   const queryClient = createQueryClient();
@@ -119,7 +121,8 @@ function renderDialog(
           ]
         }
         filmOrders={overrides.filmOrders || []}
-        onCancel={() => undefined}
+        isExtraFilmMode={overrides.isExtraFilmMode || false}
+        onCancel={overrides.onCancel || (() => undefined)}
       />
     </QueryClientProvider>
   );
@@ -228,6 +231,138 @@ describe('JobAllocateDialog', () => {
     const optionLabels = Array.from(screen.getAllByRole('option')).map((entry) => entry.textContent || '');
     expect(optionLabels.some((label) => label.includes('Affinity 15 50" (0 LF remaining)'))).toBe(false);
     expect(optionLabels.some((label) => label.includes('Affinity 15 72" (2 LF remaining)'))).toBe(true);
+    queryClient.clear();
+  });
+
+  it('keeps the dialog open in extra mode and lists fulfilled requirement lines', async () => {
+    searchBoxesMock.mockResolvedValue([]);
+    const onCancel = vi.fn();
+    const { queryClient } = renderDialog({
+      isExtraFilmMode: true,
+      onCancel,
+      requirements: [
+        {
+          requirementId: 'req-50',
+          manufacturer: '3M Solar',
+          filmName: 'Affinity 15',
+          widthIn: 50,
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        },
+        {
+          requirementId: 'req-72',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 50',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 12,
+          remainingFeet: 0
+        }
+      ]
+    });
+
+    expect(screen.getByRole('heading', { name: 'Allocate Extra Job Film' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Allocate Extra' })).toBeTruthy();
+    expect(screen.queryByLabelText('Requested LF')).toBeNull();
+
+    const optionLabels = Array.from(screen.getAllByRole('option')).map((entry) => entry.textContent || '');
+    expect(optionLabels.some((label) => label.includes('Affinity 15 50" (20 LF required)'))).toBe(true);
+    expect(optionLabels.some((label) => label.includes('Prestige 50 72" (12 LF required)'))).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
+
+    queryClient.clear();
+  });
+
+  it('allocates selected fulfilled-requirement boxes as full-box extra film', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-extra',
+            boxId: 'IL1-EXTRA',
+            warehouse: 'IL1',
+            jobNumber: '29010',
+            jobDate: '',
+            crewLeader: '',
+            allocatedFeet: 44,
+            coveredFeet: 44,
+            requirementId: '',
+            allocationKind: 'EXTRA',
+            status: 'ACTIVE',
+            createdAt: '2026-04-10T12:00:00Z',
+            createdBy: 'tester',
+            resolvedAt: '',
+            resolvedBy: '',
+            filmOrderId: '',
+            notes: ''
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'IL1-EXTRA',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 50',
+        widthIn: 72,
+        feetAvailable: 44,
+        allocationPlanningFeet: 44
+      })
+    ]);
+    const onCancel = vi.fn();
+
+    const { queryClient } = renderDialog({
+      jobNumber: '29010',
+      isExtraFilmMode: true,
+      onCancel,
+      requirements: [
+        {
+          requirementId: 'req-fulfilled',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 50',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 12,
+          remainingFeet: 0
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const checkbox = within(table).getByRole('checkbox') as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    await waitFor(() => {
+      expect(checkbox.checked).toBe(true);
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Extra LF\s*44/i);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate Extra' }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-EXTRA',
+          requestedFeet: 0,
+          requestedWidthIn: 72,
+          requirementId: 'req-fulfilled',
+          selectedSuggestionBoxIds: [],
+          extraAllocations: [{ boxId: 'IL1-EXTRA', allocatedFeet: 44 }],
+          crossWarehouse: true,
+          jobWarehouse: 'IL1'
+        })
+      )
+    );
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
     queryClient.clear();
   });
 

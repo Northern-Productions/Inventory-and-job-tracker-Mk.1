@@ -117,13 +117,14 @@ export default function CaulkStockDetailsPage() {
         return null;
       }
 
+      const adjustmentNotes = notes.trim();
       return mutateCaulkStock({
         action: 'ADJUST',
         productId: stockEntry.productId,
         warehouse: stockEntry.warehouse,
         deltaTubes,
-        reason: 'Inventory edit',
-        notes: notes.trim()
+        reason: adjustmentNotes || 'Inventory edit',
+        notes: adjustmentNotes
       });
     },
     onSuccess: async (result) => {

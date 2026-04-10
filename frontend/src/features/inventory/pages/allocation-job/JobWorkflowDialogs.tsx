@@ -65,6 +65,7 @@ type JobWorkflowDialogsProps = {
   onCancelLaborOnly: () => void;
   onConfirmLaborOnly: () => void;
   isAllocateOpen: boolean;
+  isExtraFilmMode: boolean;
   onCancelAllocate: () => void;
 };
 
@@ -111,6 +112,7 @@ export function JobWorkflowDialogs({
   onCancelLaborOnly,
   onConfirmLaborOnly,
   isAllocateOpen,
+  isExtraFilmMode,
   onCancelAllocate
 }: JobWorkflowDialogsProps) {
   return (
@@ -188,6 +190,7 @@ export function JobWorkflowDialogs({
         crewLeader={crewLeader}
         requirements={requirements}
         filmOrders={filmOrders}
+        isExtraFilmMode={isExtraFilmMode}
         onCancel={onCancelAllocate}
       />
     </>

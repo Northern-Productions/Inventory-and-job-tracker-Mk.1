@@ -41,6 +41,7 @@ describe('AllocatedBoxesSection', () => {
         isPhoneLayout={false}
         isReadOnlyJob={false}
         canOpenAllocateDialog={true}
+        allocateButtonLabel="Allocate Film"
         isAuthenticated={true}
         clientIdConfigured={true}
         isStatusMutationPending={false}

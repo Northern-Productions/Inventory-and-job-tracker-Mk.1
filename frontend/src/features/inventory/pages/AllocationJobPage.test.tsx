@@ -583,6 +583,29 @@ describe('AllocationJobPage', () => {
     expect(html).not.toContain('Check out the allocated film before staging this job.');
   });
 
+  it('labels the film allocation action as extra when all film requirements are fulfilled', () => {
+    const detail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'READY',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0
+      }) as JobDetail['summary']
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Allocate Extra');
+    expect(html).not.toContain('Allocate Film');
+  });
+
   it('enforces closed-job read-only behavior for caulk allocation actions', () => {
     const detail: JobDetail = {
       ...baseDetail,

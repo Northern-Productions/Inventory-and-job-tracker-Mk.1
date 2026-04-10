@@ -1,7 +1,7 @@
 // Purpose: Mutation-route dispatch map for the modular backend handler.
 import { HttpError, ok } from '../../lib/http.mjs';
 import { requireString } from '../core/helpers.mjs';
-import { applyAllocationPlan, checkoutAllJobMaterials, removeAllocationFromJob } from '../services/allocations.mjs';
+import { applyAllocationPlan, checkoutAllJobMaterials } from '../services/allocations.mjs';
 import { undoAudit } from '../services/audit.mjs';
 import {
   mutateCaulkStock,
@@ -16,6 +16,7 @@ import {
   completeJob,
   createJob,
   deleteJob,
+  removeJobBoxAllocation,
   reopenJob,
   setJobLaborAssigned,
   setJobStagedPickup,
@@ -100,7 +101,7 @@ const mutationHandlers = {
   '/allocations/apply': async ({ client, orgId, authContext, params }) =>
     applyAllocationPlan(client, orgId, params, authContext.actor),
   '/allocations/remove-box': async ({ client, orgId, authContext, params }) =>
-    removeAllocationFromJob(client, orgId, params, authContext.actor),
+    removeJobBoxAllocation(client, orgId, params, authContext.actor),
   '/jobs/create': async ({ client, orgId, authContext, params }) =>
     createJob(client, orgId, params, authContext.actor),
   '/jobs/update': async ({ client, orgId, authContext, params }) =>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   autoSelectCandidateBoxIds,
+  buildFullBoxExtraAllocations,
   buildValidatedExtraAllocations,
   canSubmitAllocationRequest,
   getSelectedExtraBoxIds,
@@ -162,5 +163,22 @@ describe('jobAllocationSelection', () => {
     const invalidValidation = buildValidatedExtraAllocations(candidates, extraBoxIds, { A: '100' });
     expect(invalidValidation.error).toContain('cannot exceed');
     expect(canSubmitAllocationRequest(0, invalidValidation.extraAllocations.length)).toBe(false);
+  });
+
+  it('builds full-box extra allocations in the user selected order', () => {
+    const validation = buildFullBoxExtraAllocations(
+      [
+        { ...buildCandidate('A', 25), planningFeet: 20 },
+        buildCandidate('B', 40),
+        { ...buildCandidate('C', 15), status: 'ORDERED', planningFeet: 15 }
+      ],
+      ['C', 'A']
+    );
+
+    expect(validation.error).toBe('');
+    expect(validation.extraAllocations).toEqual([
+      { boxId: 'C', allocatedFeet: 15, coveredFeet: 15 },
+      { boxId: 'A', allocatedFeet: 20, coveredFeet: 20 }
+    ]);
   });
 });

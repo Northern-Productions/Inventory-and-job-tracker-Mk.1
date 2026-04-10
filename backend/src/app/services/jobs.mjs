@@ -15,4 +15,5 @@ export {
   reopenJob,
   deleteJob,
   cancelJob,
+  removeJobBoxAllocation,
 } from './runtime/runtimeJobsMutations.mjs';

@@ -2,6 +2,7 @@ import type { JobRequirementLine } from '../../../../domain';
 
 interface StatusMessagesProps {
   selectedRequirement: JobRequirementLine | null;
+  isExtraFilmMode: boolean;
   isMatchingBoxesLoading: boolean;
   isAllocationPreviewLoading: boolean;
   prioritizedMatchingBoxesCount: number;
@@ -16,6 +17,7 @@ interface StatusMessagesProps {
 
 export function StatusMessages({
   selectedRequirement,
+  isExtraFilmMode,
   isMatchingBoxesLoading,
   isAllocationPreviewLoading,
   prioritizedMatchingBoxesCount,
@@ -35,8 +37,14 @@ export function StatusMessages({
       ) : null}
       {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxesCount ? (
         <p className="muted-text">
-          No compatible boxes were found for this requirement (matching film family, width at or above
-          requested). Create a film-order alert instead.
+          {isExtraFilmMode
+            ? 'No compatible boxes were found for this extra film type.'
+            : 'No compatible boxes were found for this requirement (matching film family, width at or above requested). Create a film-order alert instead.'}
+        </p>
+      ) : null}
+      {!isMatchingBoxesLoading && isExtraFilmMode && selectedRequirement && prioritizedMatchingBoxesCount > 0 ? (
+        <p className="muted-text">
+          Select the whole boxes installers should carry as extra film for this job.
         </p>
       ) : null}
       {dueDate.trim() && !crewLeader.trim() ? (
@@ -46,7 +54,11 @@ export function StatusMessages({
       prioritizedMatchingBoxesCount > 0 &&
       selectedBoxCount === 0 &&
       !isAllocationPreviewLoading ? (
-        <p className="muted-text">No boxes are selected yet. Check the boxes you want to use for this requirement.</p>
+        <p className="muted-text">
+          {isExtraFilmMode
+            ? 'No boxes are selected yet. Check the boxes you want to add as extra film.'
+            : 'No boxes are selected yet. Check the boxes you want to use for this requirement.'}
+        </p>
       ) : null}
       {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxesCount ? (
         <p className="muted-text">

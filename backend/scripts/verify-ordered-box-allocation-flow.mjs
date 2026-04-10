@@ -8,6 +8,7 @@ import {
   findBoxById,
   previewAllocationPlan,
   removeAllocationFromJob,
+  removeJobBoxAllocation,
   updateBox,
 } from "../src/app/internal.mjs";
 
@@ -45,7 +46,7 @@ function buildUniqueSuffix() {
   return `${now.slice(-8)}${random}`;
 }
 
-function buildBoxPayload(boxId, orderDate) {
+function buildBoxPayload(boxId, orderDate, overrides = {}) {
   return {
     boxId,
     manufacturer: "3M Solar",
@@ -54,7 +55,8 @@ function buildBoxPayload(boxId, orderDate) {
     initialFeet: 80,
     orderDate,
     receivedDate: "",
-    notes: "Ordered allocation flow verification box."
+    notes: "Ordered allocation flow verification box.",
+    ...overrides
   };
 }
 
@@ -244,6 +246,97 @@ async function main() {
     let jobDetail = await buildJobDetail(client, orgId, jobNumber);
     assert(jobDetail?.summary?.hasOrderedAllocations === true, "Expected job summary to report ordered allocations after apply.");
     assert(Number(jobDetail?.summary?.allocatedFeet || 0) >= 40, `Expected job allocated feet to increase after apply, received ${jobDetail?.summary?.allocatedFeet}.`);
+
+    const extraBoxId = `${warehouse}-EXT-${uniqueSuffix}`;
+    const addedExtraBox = await addBox(client, orgId, buildBoxPayload(extraBoxId, dueDate), actor);
+    const extraBox = addedExtraBox?.data?.box;
+    assert(extraBox, "Failed to create the extra verification box.");
+
+    const extraApplyResult = await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId: extraBoxId,
+        jobNumber,
+        requestedFeet: 0,
+        requestedWidthIn: 60,
+        requirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: [{ boxId: extraBoxId, allocatedFeet: 80 }]
+      },
+      actor
+    );
+    const extraAllocation = (extraApplyResult?.data?.allocations || []).find((entry) => entry.boxId === extraBoxId);
+    assert(extraAllocation, "Expected extra-only allocation apply to create an allocation.");
+    assert(extraAllocation.allocationKind === "EXTRA", `Expected extra allocation kind, received ${extraAllocation.allocationKind}.`);
+    assert(
+      Number(extraAllocation.allocatedFeet || 0) === 80,
+      `Expected extra allocation to reserve the whole 80 LF box, received ${extraAllocation.allocatedFeet}.`
+    );
+
+    jobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const fulfilledRequirement = (jobDetail?.requirements || []).find((entry) => entry.requirementId === requirementId);
+    assert(fulfilledRequirement, "Expected fulfilled requirement to stay visible after extra allocation.");
+    assert(
+      Number(fulfilledRequirement.allocatedFeet || 0) === 40,
+      `Expected extra allocation not to increase requirement coverage, received ${fulfilledRequirement.allocatedFeet}.`
+    );
+    assert(
+      Number(fulfilledRequirement.remainingFeet || 0) === 0,
+      `Expected fulfilled requirement to remain fulfilled after extra allocation, received ${fulfilledRequirement.remainingFeet}.`
+    );
+
+    const mismatchBoxId = `${warehouse}-BAD-${uniqueSuffix}`;
+    await addBox(
+      client,
+      orgId,
+      buildBoxPayload(mismatchBoxId, dueDate, {
+        manufacturer: "Llumar",
+        filmName: "RN 07"
+      }),
+      actor
+    );
+    let incompatibleExtraError = null;
+    try {
+      await applyAllocationPlan(
+        client,
+        orgId,
+        {
+          boxId: mismatchBoxId,
+          jobNumber,
+          requestedFeet: 0,
+          requestedWidthIn: 60,
+          requirementId,
+          selectedSuggestionBoxIds: [],
+          extraAllocations: [{ boxId: mismatchBoxId, allocatedFeet: 80 }]
+        },
+        actor
+      );
+    } catch (error) {
+      incompatibleExtraError = error;
+    }
+    assert(incompatibleExtraError, "Expected incompatible extra allocation to fail.");
+    assert(
+      /does not match requirement|compatible film/i.test(asTrimmedString(incompatibleExtraError?.message)),
+      `Expected incompatible extra rejection to mention requirement compatibility, received ${incompatibleExtraError?.message}.`
+    );
+
+    const extraRemovalEnvelope = await removeJobBoxAllocation(
+      client,
+      orgId,
+      {
+        jobNumber,
+        allocationId: extraAllocation.allocationId,
+        reason: "Extra allocation verification cleanup."
+      },
+      actor
+    );
+    const extraRemoval = extraRemovalEnvelope?.data;
+    assert(Number(extraRemoval?.removedAllocationCount || 0) === 1, "Expected extra allocation cleanup to cancel exactly one allocation.");
+    assert(
+      extraRemoval?.jobNumber === jobNumber,
+      `Expected extra allocation removal response to include job ${jobNumber}, received ${extraRemoval?.jobNumber}.`
+    );
 
     const removal = await removeAllocationFromJob(
       client,

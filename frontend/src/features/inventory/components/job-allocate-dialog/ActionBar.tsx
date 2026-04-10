@@ -8,6 +8,7 @@ interface ActionBarProps {
   isAllocatePending: boolean;
   isCreateFilmOrderPending: boolean;
   canSubmit: boolean;
+  allocateLabel?: string;
   onCancel: () => void;
   onSubmit: () => void;
 }
@@ -20,6 +21,7 @@ export function ActionBar({
   isAllocatePending,
   isCreateFilmOrderPending,
   canSubmit,
+  allocateLabel = 'Allocate',
   onCancel,
   onSubmit
 }: ActionBarProps) {
@@ -41,7 +43,7 @@ export function ActionBar({
             : 'Order Film'
           : isAllocatePending
             ? 'Saving...'
-            : 'Allocate'}
+            : allocateLabel}
       </Button>
     </div>
   );

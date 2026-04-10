@@ -14,6 +14,7 @@ function formatBoxStatusLabel(status: string) {
 }
 
 interface AllocationPlanTableProps {
+  isExtraFilmMode: boolean;
   boxes: AllocationCandidate[];
   requestedFeetValue: number;
   coveredFeet: number;
@@ -24,6 +25,7 @@ interface AllocationPlanTableProps {
 }
 
 export function AllocationPlanTable({
+  isExtraFilmMode,
   boxes,
   requestedFeetValue,
   coveredFeet,
@@ -35,18 +37,37 @@ export function AllocationPlanTable({
   return (
     <div className="allocation-preview">
       <div className="stat-grid allocation-stat-grid">
-        <div className="key-value">
-          <dt>Requested</dt>
-          <dd>{requestedFeetValue}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Covered</dt>
-          <dd>{coveredFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Still Short</dt>
-          <dd>{remainingFeet}</dd>
-        </div>
+        {isExtraFilmMode ? (
+          <>
+            <div className="key-value">
+              <dt>Selected</dt>
+              <dd>{selectedBoxIds.length}</dd>
+            </div>
+            <div className="key-value">
+              <dt>Extra LF</dt>
+              <dd>{coveredFeet}</dd>
+            </div>
+            <div className="key-value">
+              <dt>Mode</dt>
+              <dd>Extra</dd>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="key-value">
+              <dt>Requested</dt>
+              <dd>{requestedFeetValue}</dd>
+            </div>
+            <div className="key-value">
+              <dt>Covered</dt>
+              <dd>{coveredFeet}</dd>
+            </div>
+            <div className="key-value">
+              <dt>Still Short</dt>
+              <dd>{remainingFeet}</dd>
+            </div>
+          </>
+        )}
       </div>
       <div className="table-wrap">
         <table>
@@ -59,7 +80,7 @@ export function AllocationPlanTable({
               <th>Width</th>
               <th>Status</th>
               <th>Planning LF</th>
-              <th>Planned LF</th>
+              <th>{isExtraFilmMode ? 'Extra LF' : 'Planned LF'}</th>
             </tr>
           </thead>
           <tbody>

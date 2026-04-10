@@ -192,7 +192,13 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
-import { buildActiveAllocationsByBoxIndex, buildJobRequirementsByLookupKey, allocationMatchesRequirement } from './runtimeAllocationCoverage.mjs';
+import {
+  buildActiveAllocationsByBoxIndex,
+  buildJobRequirementsByLookupKey,
+  allocationMatchesRequirement,
+  normalizeRequirementFilmKey,
+  planningFilmCanSatisfyRequirement
+} from './runtimeAllocationCoverage.mjs';
 import { resolveExistingOrLegacyJobHeader } from './runtimeJobsRead.mjs';
 import {
   resolveJobContext,
@@ -329,11 +335,15 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     payload.jobDate,
     payload.crewLeader
   );
+  const requirementId = asTrimmedString(payload.requirementId);
+  if (requestedFeet > 0 && !requirementId) {
+    throw new HttpError(400, 'RequirementId is required for film allocations.');
+  }
   const jobRequirements =
-    requestedFeet > 0 ? await listJobRequirementsByJob(client, orgId, jobContext.jobNumber) : [];
+    requirementId ? await listJobRequirementsByJob(client, orgId, jobContext.jobNumber) : [];
   const selectedRequirement =
-    requestedFeet > 0
-      ? resolveSelectedRequirement(jobRequirements, payload.requirementId, source, jobContext.jobNumber)
+    requirementId
+      ? resolveSelectedRequirement(jobRequirements, requirementId, source, jobContext.jobNumber)
       : null;
   const minimumWidthValue = Number(payload.requestedWidthIn);
   const minimumWidthIn = selectedRequirement

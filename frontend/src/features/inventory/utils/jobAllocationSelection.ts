@@ -5,6 +5,7 @@ export interface AllocationCandidateBox {
   warehouse?: string;
   feetAvailable: number;
   planningFeet?: number;
+  allocationPlanningFeet?: number;
   boxStatus?: string;
   status?: string;
   widthIn?: number;
@@ -41,7 +42,10 @@ function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
 }
 
 function getCandidatePlanningFeet(candidate: AllocationCandidateBox) {
-  return Math.max(0, Math.floor(Number((candidate.planningFeet ?? candidate.feetAvailable) || 0)));
+  return Math.max(
+    0,
+    Math.floor(Number((candidate.planningFeet ?? candidate.allocationPlanningFeet ?? candidate.feetAvailable) || 0))
+  );
 }
 
 function getCandidateStatusRank(candidate: AllocationCandidateBox) {
@@ -284,6 +288,56 @@ export function buildValidatedExtraAllocations(
       return {
         extraAllocations: [],
         error: `Extra LF for box ${boxId} cannot exceed ${planningFeet} planning LF.`
+      };
+    }
+
+    extras.push({ boxId, allocatedFeet, coveredFeet: allocatedFeet });
+  }
+
+  return {
+    extraAllocations: extras,
+    error: ''
+  };
+}
+
+export function buildFullBoxExtraAllocations(
+  candidates: AllocationCandidateBox[],
+  selectedBoxIds: Iterable<string>
+): BuildExtraAllocationsResult {
+  const candidateById = new Map<string, AllocationCandidateBox>();
+  for (let index = 0; index < candidates.length; index += 1) {
+    candidateById.set(candidates[index].boxId, candidates[index]);
+  }
+
+  const extras: PlannedCandidateAllocation[] = [];
+  const seen = new Set<string>();
+  for (const rawBoxId of selectedBoxIds) {
+    const boxId = String(rawBoxId || '').trim();
+    if (!boxId || seen.has(boxId)) {
+      continue;
+    }
+    seen.add(boxId);
+
+    const candidate = candidateById.get(boxId);
+    if (!candidate) {
+      return {
+        extraAllocations: [],
+        error: `Box ${boxId} is not a valid extra-allocation candidate.`
+      };
+    }
+
+    if (!isAllocatableCandidate(candidate)) {
+      return {
+        extraAllocations: [],
+        error: `Box ${boxId} is no longer allocatable.`
+      };
+    }
+
+    const allocatedFeet = getCandidatePlanningFeet(candidate);
+    if (allocatedFeet <= 0) {
+      return {
+        extraAllocations: [],
+        error: `Box ${boxId} does not have planning LF available for extra allocation.`
       };
     }
 

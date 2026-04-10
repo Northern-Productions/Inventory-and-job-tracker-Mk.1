@@ -168,7 +168,16 @@ async function listCaulkTransactions(client, orgId, params) {
         t.delta_tubes,
         t.resulting_tubes_on_hand,
         t.tubes_per_case,
-        t.reason,
+        case
+          when t.action = 'JOB_CHECKIN_UNUSED'
+            and btrim(coalesce(a.job_number, '')) <> ''
+            then format('Checked in unused caulk from job %s.', a.job_number)
+          when t.action = 'ADJUST'
+            and lower(btrim(coalesce(t.reason, ''))) = 'inventory edit'
+            and btrim(coalesce(t.notes, '')) <> ''
+            then btrim(t.notes)
+          else t.reason
+        end as reason,
         t.notes,
         t.transfer_id,
         t.source_box_id,
@@ -181,6 +190,9 @@ async function listCaulkTransactions(client, orgId, params) {
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
+      left join app.caulk_job_allocations a
+        on a.org_id = t.org_id
+       and a.caulk_allocation_id = t.source_box_id
       where t.org_id = $1::uuid
         and ($2::text = '' or t.warehouse = $2::text)
         and ($3::uuid is null or t.product_id = $3::uuid)
@@ -328,8 +340,11 @@ async function mutateCaulkStock(client, orgId, actor, payload) {
     payload.deltaTubes === undefined || payload.deltaTubes === ''
       ? null
       : parseIntegerInput(payload.deltaTubes, 'DeltaTubes');
-  const reason = asTrimmedString(payload.reason) || action;
   const notes = asTrimmedString(payload.notes);
+  let reason = asTrimmedString(payload.reason) || action;
+  if (action === 'ADJUST' && notes && reason.toLowerCase() === 'inventory edit') {
+    reason = notes;
+  }
 
   let delta = deltaOverride !== null ? deltaOverride : cases * tubesPerCase + tubes;
   if (action === 'RECEIVE') {

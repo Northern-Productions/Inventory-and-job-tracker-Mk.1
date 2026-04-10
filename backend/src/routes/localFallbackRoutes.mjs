@@ -30,7 +30,8 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   '/jobs/calendar',
   '/jobs/get',
   '/jobs/list',
-  '/jobs/search'
+  '/jobs/search',
+  '/caulk/transactions/list'
 ]);
 
 export function shouldUseLocalFallbackRoute(method, logicalPath) {

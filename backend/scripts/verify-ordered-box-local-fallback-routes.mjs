@@ -15,7 +15,8 @@ const REQUIRED_READ_PATHS = [
   '/allocations/jobs',
   '/jobs/get',
   '/jobs/list',
-  '/jobs/search'
+  '/jobs/search',
+  '/caulk/transactions/list'
 ];
 
 const REQUIRED_MUTATION_PATHS = [

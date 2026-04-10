@@ -7,7 +7,11 @@ import { Client } from "pg";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendDir = path.resolve(__dirname, "..");
-const migrationPath = path.join(backendDir, "migrations", "0030_caulk_job_allocation_workflow.sql");
+const migrationPaths = [
+  path.join(backendDir, "migrations", "0030_caulk_job_allocation_workflow.sql"),
+  path.join(backendDir, "migrations", "0055_caulk_checkin_job_number_reasons.sql"),
+  path.join(backendDir, "migrations", "0056_caulk_adjustment_notes_reasons.sql"),
+];
 
 function assertOk(condition, message) {
   if (!condition) {
@@ -108,9 +112,10 @@ async function main() {
   const orgId = String(process.env.DEFAULT_ORG_ID || "").trim();
   assertOk(databaseUrl, "DATABASE_URL or SUPABASE_DB_URL is required.");
   assertOk(orgId, "DEFAULT_ORG_ID is required.");
-  assertOk(fs.existsSync(migrationPath), `Missing migration file: ${migrationPath}`);
+  for (const migrationPath of migrationPaths) {
+    assertOk(fs.existsSync(migrationPath), `Missing migration file: ${migrationPath}`);
+  }
 
-  const migrationSql = fs.readFileSync(migrationPath, "utf8");
   const client = new Client({
     connectionString: databaseUrl,
     ssl: /localhost|127\.0\.0\.1/i.test(databaseUrl) ? undefined : { rejectUnauthorized: false },
@@ -118,12 +123,15 @@ async function main() {
   await client.connect();
 
   try {
-    console.log("[0030] Applying migration...");
-    await client.query(migrationSql);
-    console.log("[0030] Migration applied.");
+    for (const migrationPath of migrationPaths) {
+      const migrationName = path.basename(migrationPath, ".sql");
+      console.log(`[${migrationName}] Applying migration...`);
+      await client.query(fs.readFileSync(migrationPath, "utf8"));
+      console.log(`[${migrationName}] Migration applied.`);
+    }
 
     await ensureMigrationObjects(client);
-    console.log("[0030] Required tables/functions/constraint checks passed.");
+    console.log("[caulk] Required tables/functions/constraint checks passed.");
 
     const actorMemberRes = await client.query(
       `
@@ -315,6 +323,28 @@ async function main() {
         JSON.stringify({ caulkCheckoutId: checkout1Id, unusedTubes: 2 }),
       ]);
       assertOk((await getStockTubes(client, orgId, productId, warehouse)) === 42, "Check-in unused did not return stock.");
+
+      step = "checkin reason uses job number";
+      const checkinReasonRes = await client.query(
+        `
+          select reason, source_box_id
+          from public.api_acl_list_caulk_transactions($1::uuid, $2::text, $3::uuid, $4::integer)
+          where action = 'JOB_CHECKIN_UNUSED'
+            and source_box_id = $5::text
+          order by created_at desc
+          limit 1
+        `,
+        [orgId, warehouse, productId, 20, allocationId],
+      );
+      const checkinReason = String(checkinReasonRes.rows[0]?.reason || "").trim();
+      assertOk(
+        checkinReason === `Checked in unused caulk from job ${jobNumber}.`,
+        `Expected caulk check-in reason to use job number, received "${checkinReason}".`,
+      );
+      assertOk(
+        String(checkinReasonRes.rows[0]?.source_box_id || "").trim() === allocationId,
+        "Caulk check-in transaction no longer carries the allocation id for traceability.",
+      );
 
       step = "checkout 2";
       const checkout2Res = await client.query(

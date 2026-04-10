@@ -13,6 +13,7 @@ interface AllocatedBoxesSectionProps {
   isPhoneLayout: boolean;
   isReadOnlyJob: boolean;
   canOpenAllocateDialog: boolean;
+  allocateButtonLabel: string;
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   isStatusMutationPending: boolean;
@@ -98,6 +99,7 @@ export function AllocatedBoxesSection({
   isPhoneLayout,
   isReadOnlyJob,
   canOpenAllocateDialog,
+  allocateButtonLabel,
   isAuthenticated,
   clientIdConfigured,
   isStatusMutationPending,
@@ -120,7 +122,7 @@ export function AllocatedBoxesSection({
               onClick={onOpenAllocateDialog}
               disabled={!canOpenAllocateDialog || !isAuthenticated || !clientIdConfigured}
             >
-              Allocate Film
+              {allocateButtonLabel}
             </Button>
           ) : null}
         </div>

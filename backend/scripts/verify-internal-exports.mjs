@@ -6,6 +6,7 @@ const REQUIRED_EXPORTS = [
   'previewAllocationPlan',
   'applyAllocationPlan',
   'removeAllocationFromJob',
+  'removeJobBoxAllocation',
   'buildJobDetail',
   'buildJobsList',
   'findBoxById',

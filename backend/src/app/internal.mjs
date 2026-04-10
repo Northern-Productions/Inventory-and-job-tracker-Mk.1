@@ -11,4 +11,5 @@ export {
 export {
   buildJobDetail,
   buildJobsList,
+  removeJobBoxAllocation,
 } from './services/jobs.mjs';

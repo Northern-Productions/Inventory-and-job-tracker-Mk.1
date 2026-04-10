@@ -119,6 +119,10 @@ export default function AllocationJobPage() {
     [allocations]
   );
   const filmOrders = detail?.filmOrders || [];
+  const isExtraFilmMode = useMemo(
+    () => requirements.length > 0 && requirements.every((entry) => entry.remainingFeet <= 0),
+    [requirements]
+  );
   const canAllocate = useMemo(
     () => !isReadOnlyJob && requirements.length > 0,
     [isReadOnlyJob, requirements.length]
@@ -349,6 +353,7 @@ export default function AllocationJobPage() {
         isPhoneLayout={isPhoneLayout}
         isReadOnlyJob={isReadOnlyJob}
         canOpenAllocateDialog={canAllocate}
+        allocateButtonLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate Film'}
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         isStatusMutationPending={setBoxStatusMutation.isPending}
@@ -528,6 +533,7 @@ export default function AllocationJobPage() {
           void lifecycleWorkflow.submitUpdateJob(lifecycleWorkflow.pendingLaborOnlyUpdate, true);
         }}
         isAllocateOpen={filmWorkflow.isAllocateOpen}
+        isExtraFilmMode={isExtraFilmMode}
         onCancelAllocate={filmWorkflow.closeAllocateDialog}
       />
     </>

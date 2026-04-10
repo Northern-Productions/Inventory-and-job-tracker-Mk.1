@@ -92,15 +92,33 @@ describe('CaulkStockDetailsPage', () => {
         manufacturer: '3M',
         productName: '3M IPA White',
         productCode: 'IPA-W',
-        action: 'ADJUST',
+        action: 'JOB_CHECKIN_UNUSED',
         deltaTubes: 2,
         resultingTubesOnHand: 33,
         tubesPerCase: 16,
-        reason: 'Inventory edit',
+        reason: 'Checked in unused caulk from job 18782.',
         notes: '',
         transferId: '',
-        sourceBoxId: '',
+        sourceBoxId: '20260323212436379-623',
         createdAt: '2026-04-08T12:00:00Z',
+        createdBy: 'tester'
+      },
+      {
+        transactionId: 'tx-3',
+        productId: 'p1',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        productName: '3M IPA White',
+        productCode: 'IPA-W',
+        action: 'ADJUST',
+        deltaTubes: -23,
+        resultingTubesOnHand: 10,
+        tubesPerCase: 16,
+        reason: 'physical count after shelf audit',
+        notes: 'physical count after shelf audit',
+        transferId: '',
+        sourceBoxId: '',
+        createdAt: '2026-04-10T12:55:00Z',
         createdBy: 'tester'
       }
     ]);
@@ -131,12 +149,42 @@ describe('CaulkStockDetailsPage', () => {
     expect(await screen.findByText('Caulk Details')).toBeTruthy();
     expect(await screen.findByText('3M IPA White')).toBeTruthy();
     expect(await screen.findByText('Recent Transactions')).toBeTruthy();
-    expect(await screen.findByText('Inventory edit')).toBeTruthy();
+    expect(await screen.findByText('Checked in unused caulk from job 18782.')).toBeTruthy();
+    expect(await screen.findByText('physical count after shelf audit')).toBeTruthy();
+    expect(screen.queryByText(/20260323212436379-623/)).toBeNull();
 
     queryClient.clear();
   });
 
   it('saves an adjusted tube delta from cases and loose tube edits', async () => {
+    const { queryClient } = renderPage();
+
+    const casesInput = await screen.findByLabelText('Cases Available');
+    const looseInput = screen.getByLabelText(/Loose Tubes Available/i);
+    const notesInput = screen.getByText('Adjustment Notes').closest('label')?.querySelector('textarea');
+    expect(notesInput).toBeTruthy();
+    fireEvent.change(casesInput, { target: { value: '3' } });
+    fireEvent.change(looseInput, { target: { value: '1' } });
+    fireEvent.change(notesInput as HTMLTextAreaElement, { target: { value: 'cycle count correction' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() =>
+      expect(mutateCaulkStockMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ADJUST',
+          warehouse: 'IL1',
+          productId: 'p1',
+          deltaTubes: 16,
+          reason: 'cycle count correction',
+          notes: 'cycle count correction'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('uses Inventory edit as the adjustment reason when notes are blank', async () => {
     const { queryClient } = renderPage();
 
     const casesInput = await screen.findByLabelText('Cases Available');
@@ -149,9 +197,8 @@ describe('CaulkStockDetailsPage', () => {
       expect(mutateCaulkStockMock).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'ADJUST',
-          warehouse: 'IL1',
-          productId: 'p1',
-          deltaTubes: 16
+          reason: 'Inventory edit',
+          notes: ''
         })
       )
     );
