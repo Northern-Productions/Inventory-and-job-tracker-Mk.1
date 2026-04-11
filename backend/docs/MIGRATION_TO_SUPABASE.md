@@ -155,7 +155,8 @@ Recommended checks:
 4. jobs list and job detail load
 5. checkout/check-in writes succeed
 6. audit and roll history entries land in Postgres
-7. `npm --prefix backend run verify:edge:live` passes with an authenticated `SMOKE_AUTH_TOKEN`
+7. `npm --prefix backend run verify:edge:live` passes with an authenticated smoke user
+   configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`
 
 ## Notes
 

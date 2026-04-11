@@ -1,6 +1,7 @@
 // Purpose: Verify the live Supabase Edge runtime version and one authenticated job summary end-to-end.
 import '../load-env.mjs';
 import { execSync } from 'node:child_process';
+import { resolveSmokeAuthToken } from './lib/smoke-auth.mjs';
 
 function asTrimmedString(value) {
   return String(value || '').trim();
@@ -18,6 +19,15 @@ function integerEnv(name, fallback) {
   }
 
   return Math.trunc(parsed);
+}
+
+function hasExplicitExpectedSummary() {
+  return [
+    'VERIFY_EDGE_EXPECTED_STATUS',
+    'VERIFY_EDGE_EXPECTED_REQUIRED_FEET',
+    'VERIFY_EDGE_EXPECTED_ALLOCATED_FEET',
+    'VERIFY_EDGE_EXPECTED_REMAINING_FEET'
+  ].some((name) => asTrimmedString(process.env[name]));
 }
 
 function resolveExpectedBuildSha() {
@@ -115,23 +125,56 @@ function assertJobSummary(label, summary, expected) {
       `${label}: expected remainingFeet ${expected.remainingFeet}, received ${actual.remainingFeet}`
     );
   }
+
+  return actual;
+}
+
+function assertSmokeSummaryShape(label, summary) {
+  if (!summary || typeof summary !== 'object') {
+    throw new Error(`${label}: missing summary object`);
+  }
+
+  const actual = {
+    status: asTrimmedString(summary.status),
+    requiredFeet: Number(summary.requiredFeet || 0),
+    allocatedFeet: Number(summary.allocatedFeet || 0),
+    remainingFeet: Number(summary.remainingFeet || 0)
+  };
+
+  if (!actual.status) {
+    throw new Error(`${label}: status must be non-empty.`);
+  }
+  if (!Number.isFinite(actual.requiredFeet)) {
+    throw new Error(`${label}: requiredFeet must be numeric.`);
+  }
+  if (!Number.isFinite(actual.allocatedFeet)) {
+    throw new Error(`${label}: allocatedFeet must be numeric.`);
+  }
+  if (!Number.isFinite(actual.remainingFeet)) {
+    throw new Error(`${label}: remainingFeet must be numeric.`);
+  }
+
+  return actual;
 }
 
 async function main() {
   const apiBaseUrl = resolveApiBaseUrl();
-  const token = asTrimmedString(process.env.SMOKE_AUTH_TOKEN);
+  const { token, source } = await resolveSmokeAuthToken({
+    required: true,
+    requiredFor: 'live Edge verification'
+  });
   const expectedBuildSha = resolveExpectedBuildSha();
   const jobNumber = asTrimmedString(process.env.VERIFY_EDGE_JOB_NUMBER || '18959');
-  const expected = {
-    status: asTrimmedString(process.env.VERIFY_EDGE_EXPECTED_STATUS || 'ALLOCATE'),
-    requiredFeet: integerEnv('VERIFY_EDGE_EXPECTED_REQUIRED_FEET', 34),
-    allocatedFeet: integerEnv('VERIFY_EDGE_EXPECTED_ALLOCATED_FEET', 32),
-    remainingFeet: integerEnv('VERIFY_EDGE_EXPECTED_REMAINING_FEET', 2)
-  };
+  const hasExplicitExpected = hasExplicitExpectedSummary();
+  const expected = hasExplicitExpected
+    ? {
+        status: asTrimmedString(process.env.VERIFY_EDGE_EXPECTED_STATUS || 'ALLOCATE'),
+        requiredFeet: integerEnv('VERIFY_EDGE_EXPECTED_REQUIRED_FEET', 34),
+        allocatedFeet: integerEnv('VERIFY_EDGE_EXPECTED_ALLOCATED_FEET', 32),
+        remainingFeet: integerEnv('VERIFY_EDGE_EXPECTED_REMAINING_FEET', 2)
+      }
+    : null;
 
-  if (!token) {
-    throw new Error('SMOKE_AUTH_TOKEN is required.');
-  }
   if (!jobNumber) {
     throw new Error('VERIFY_EDGE_JOB_NUMBER is required.');
   }
@@ -150,7 +193,9 @@ async function main() {
   }
 
   const jobDetail = await fetchEnvelope(apiBaseUrl, '/jobs/get', { jobNumber }, token);
-  assertJobSummary('/jobs/get', jobDetail.summary, expected);
+  const resolvedExpected = hasExplicitExpected
+    ? assertJobSummary('/jobs/get', jobDetail.summary, expected)
+    : assertSmokeSummaryShape('/jobs/get', jobDetail.summary);
 
   const jobsList = await fetchEnvelope(
     apiBaseUrl,
@@ -163,10 +208,11 @@ async function main() {
   if (!jobEntry) {
     throw new Error(`/jobs/list: unable to find job ${jobNumber} in active entries.`);
   }
-  assertJobSummary('/jobs/list', jobEntry, expected);
+  assertJobSummary('/jobs/list', jobEntry, resolvedExpected);
 
   console.log(
-    `Live Edge verification passed for ${jobNumber}: ${expected.status} ${expected.requiredFeet}/${expected.allocatedFeet}/${expected.remainingFeet}`
+    `Live Edge verification passed for ${jobNumber}: ${resolvedExpected.status} ${resolvedExpected.requiredFeet}/${resolvedExpected.allocatedFeet}/${resolvedExpected.remainingFeet}` +
+      ` (auth source=${source}, expected source=${hasExplicitExpected ? 'env' : '/jobs/get'})`
   );
 }
 

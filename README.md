@@ -176,7 +176,28 @@ npm run dev
 2. Run `npm --prefix backend run check:schema:0006` against the target DB.
 3. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
 4. Deploy Supabase function `api`.
-5. Run `npm --prefix backend run verify:edge:live` with an authenticated `SMOKE_AUTH_TOKEN`.
+5. Run `npm --prefix backend run verify:edge:live` with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
 6. Deploy frontend after API verification is live.
 
 Changes under `supabase/functions/api` or `supabase/functions/_shared` require a Supabase Edge deploy even if the frontend is already on the correct git commit.
+
+### Backend Smoke Auth Setup
+
+For repeatable local backend verification, add a dedicated smoke user to `backend/.env`:
+
+```env
+SMOKE_AUTH_TOKEN=
+SMOKE_USER_EMAIL=smoke-user@example.com
+SMOKE_USER_PASSWORD=your-local-smoke-password
+```
+
+The backend smoke scripts prefer `SMOKE_AUTH_TOKEN` when present, but they can also
+mint a fresh token automatically from `SMOKE_USER_EMAIL` and `SMOKE_USER_PASSWORD`.
+That is the recommended setup because copied access tokens expire.
+
+If you want the backend to provision a dedicated low-privilege smoke user locally
+and persist those credentials into `backend/.env`, run:
+
+```bash
+npm --prefix backend run smoke:provision-user
+```

@@ -51,7 +51,30 @@ Live Edge verification:
 npm run verify:edge:live
 ```
 
-Set `SMOKE_AUTH_TOKEN` before running the verification command.
+Authenticated smoke setup:
+
+```env
+SMOKE_AUTH_TOKEN=
+SMOKE_USER_EMAIL=smoke-user@example.com
+SMOKE_USER_PASSWORD=your-local-smoke-password
+```
+
+`SMOKE_AUTH_TOKEN` still works, but it expires. For repeatable local runs, prefer
+setting `SMOKE_USER_EMAIL` and `SMOKE_USER_PASSWORD` in `backend/.env`; the smoke
+scripts will mint a fresh access token automatically when needed.
+
+To create a dedicated local smoke user and persist those credentials into
+`backend/.env`, run:
+
+```bash
+npm run smoke:provision-user
+```
+
+You can print the currently resolved token with:
+
+```bash
+npm run smoke:token
+```
 
 ## Frontend Pairing
 

@@ -1,6 +1,7 @@
 // Purpose: Lightweight backend contract smoke checks for route wiring and response envelopes.
 import '../load-env.mjs';
 import { handleSupabaseRequest } from '../supabase-backend.mjs';
+import { buildSmokeAuthSetupMessage, resolveSmokeAuthToken } from './lib/smoke-auth.mjs';
 
 function buildRequestUrl(path, query = {}) {
   const url = new URL('http://localhost/api');
@@ -82,12 +83,20 @@ async function runCase(testCase, token) {
 }
 
 async function main() {
-  const token = String(process.env.SMOKE_AUTH_TOKEN || '').trim();
+  const { token, source } = await resolveSmokeAuthToken({
+    required: false,
+    requiredFor: 'authenticated backend smoke routes'
+  });
   const includeMutations = String(process.env.SMOKE_INCLUDE_MUTATIONS || '').trim().toLowerCase() === 'true';
   const transferBoxId = String(process.env.SMOKE_TRANSFER_BOX_ID || '').trim().toUpperCase();
   const transferDestinationWarehouse = String(process.env.SMOKE_TRANSFER_DEST_WAREHOUSE || '')
     .trim()
     .toUpperCase();
+
+  if (token && source === 'SMOKE_USER_EMAIL') {
+    // eslint-disable-next-line no-console
+    console.log('INFO authenticated smoke routes will use a token minted from SMOKE_USER_EMAIL.');
+  }
 
   const cases = [
     { method: 'GET', path: '/health', expectedStatuses: [200], requiresAuth: false },
@@ -209,7 +218,9 @@ async function main() {
     if (testCase.requiresAuth && !token) {
       skipped += 1;
       // eslint-disable-next-line no-console
-      console.log(`SKIP ${testCase.method} ${testCase.path} (set SMOKE_AUTH_TOKEN to include auth checks)`);
+      console.log(
+        `SKIP ${testCase.method} ${testCase.path} (${buildSmokeAuthSetupMessage('authenticated backend smoke routes')})`
+      );
       continue;
     }
 
@@ -279,7 +290,9 @@ async function main() {
       skipped += 1;
       // eslint-disable-next-line no-console
       console.log(
-        'SKIP transfer mutation smoke (set SMOKE_AUTH_TOKEN, SMOKE_TRANSFER_BOX_ID, and SMOKE_TRANSFER_DEST_WAREHOUSE)'
+        'SKIP transfer mutation smoke (' +
+          `${buildSmokeAuthSetupMessage('authenticated backend smoke routes')} ` +
+          'Also set SMOKE_TRANSFER_BOX_ID and SMOKE_TRANSFER_DEST_WAREHOUSE.)'
       );
     }
   }

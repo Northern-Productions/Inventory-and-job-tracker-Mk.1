@@ -50,7 +50,14 @@ After deploy, run:
 npm --prefix backend run verify:edge:live
 ```
 
-Set `SMOKE_AUTH_TOKEN` before running the command. Override `VERIFY_EDGE_JOB_NUMBER` and the `VERIFY_EDGE_EXPECTED_*` env vars when you need to verify a different live job.
+Set `SMOKE_AUTH_TOKEN` before running the command, or configure
+`SMOKE_USER_EMAIL` and `SMOKE_USER_PASSWORD` in `backend/.env` so the backend
+script can mint a fresh token automatically. Override `VERIFY_EDGE_JOB_NUMBER`
+and the `VERIFY_EDGE_EXPECTED_*` env vars when you need to verify a different
+live job.
+
+To provision a dedicated local smoke user and persist those credentials into
+`backend/.env`, run `npm --prefix backend run smoke:provision-user`.
 
 ## Frontend Env
 

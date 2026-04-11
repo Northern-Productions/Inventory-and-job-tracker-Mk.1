@@ -23,12 +23,10 @@ export async function buildAppAttentionSummary(client, orgId, authContext) {
   const canReadJobs = canReadFeature(authContext, 'jobs') || canReadFeature(authContext, 'allocations');
   const canReadFilmOrders = canReadFeature(authContext, 'film_orders');
   const canReviewAccessRequests = authContext?.role === 'owner';
-
-  const [jobs, filmOrders, accessRequests] = await Promise.all([
-    canReadJobs ? buildJobsList(client, orgId, 0, 'ACTIVE') : Promise.resolve([]),
-    canReadFilmOrders ? buildFilmOrdersList(client, orgId) : Promise.resolve([]),
-    canReviewAccessRequests ? listAccessRequests(client, orgId, 'pending') : Promise.resolve([])
-  ]);
+  const jobs = canReadJobs ? await buildJobsList(client, orgId, 0, 'ACTIVE') : [];
+  // Shared pg clients are request-scoped and must not fan out concurrent queries.
+  const filmOrders = canReadFilmOrders ? await buildFilmOrdersList(client, orgId) : [];
+  const accessRequests = canReviewAccessRequests ? await listAccessRequests(client, orgId, 'pending') : [];
 
   return {
     hasJobsNeedingAllocation: jobs.some(
