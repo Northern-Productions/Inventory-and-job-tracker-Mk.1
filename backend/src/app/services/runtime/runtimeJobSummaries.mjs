@@ -1,4 +1,5 @@
 // Purpose: Job summary, lifecycle, and linked film-order presentation helpers.
+import { buildCurrentCheckedOutAllocationIdSet } from '../../../../../shared/checkoutSemantics.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -555,7 +556,7 @@ function buildJobListEntry(
 }
 
 function buildPublicAllocationEntriesForJob(allocations, boxById) {
-  return allocations
+  const sortedAllocations = allocations
     .slice()
     .sort((left, right) => {
       if (left.status !== right.status) {
@@ -577,23 +578,20 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
       }
 
       return left.createdAt < right.createdAt ? -1 : left.createdAt > right.createdAt ? 1 : 0;
-    })
-    .map((entry) => {
-      const box = boxById[entry.boxId];
-      const checkedOutOnThisJob = Boolean(
-        box &&
-          box.status === 'CHECKED_OUT' &&
-          normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(entry.jobNumber)
-      );
-      return {
-        ...toPublicAllocation(entry),
-        manufacturer: box ? box.manufacturer : '',
-        filmName: box ? box.filmName : '',
-        widthIn: box ? box.widthIn : 0,
-        boxStatus: box ? box.status : '',
-        checkedOutOnThisJob
-      };
     });
+  const currentCheckedOutAllocationIds = buildCurrentCheckedOutAllocationIdSet(sortedAllocations, boxById);
+
+  return sortedAllocations.map((entry) => {
+    const box = boxById[entry.boxId];
+    return {
+      ...toPublicAllocation(entry),
+      manufacturer: box ? box.manufacturer : '',
+      filmName: box ? box.filmName : '',
+      widthIn: box ? box.widthIn : 0,
+      boxStatus: box ? box.status : '',
+      checkedOutOnThisJob: Boolean(currentCheckedOutAllocationIds[entry.allocationId])
+    };
+  });
 }
 
 async function buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId) {

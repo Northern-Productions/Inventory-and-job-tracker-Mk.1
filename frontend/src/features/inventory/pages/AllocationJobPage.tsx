@@ -115,7 +115,12 @@ export default function AllocationJobPage() {
     [detail]
   );
   const visibleAllocations = useMemo(
-    () => allocations.filter((entry) => entry.status === 'ACTIVE' || entry.checkedOutOnThisJob),
+    () =>
+      allocations.filter(
+        (entry) =>
+          entry.status === 'ACTIVE' &&
+          (!String(entry.resolvedAt || '').trim() || entry.checkedOutOnThisJob)
+      ),
     [allocations]
   );
   const filmOrders = detail?.filmOrders || [];

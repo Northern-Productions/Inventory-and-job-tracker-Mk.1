@@ -28,6 +28,10 @@ function updateJobDetailQueries<T>(
   }
 }
 
+function isCurrentFilmAllocationRow(entry: { status: string; resolvedAt: string }) {
+  return entry.status === 'ACTIVE' && !String(entry.resolvedAt || '').trim();
+}
+
 export function updateCheckedOutBoxCaches(
   queryClient: QueryClient,
   boxId: string,
@@ -40,7 +44,7 @@ export function updateCheckedOutBoxCaches(
         ? {
             ...entry,
             boxStatus: status,
-            checkedOutOnThisJob: status === 'CHECKED_OUT'
+            checkedOutOnThisJob: status === 'CHECKED_OUT' ? isCurrentFilmAllocationRow(entry) : false
           }
         : entry
     )
@@ -53,7 +57,7 @@ export function updateCheckedOutBoxCaches(
         ? {
             ...entry,
             boxStatus: status,
-            checkedOutOnThisJob: status === 'CHECKED_OUT'
+            checkedOutOnThisJob: status === 'CHECKED_OUT' ? isCurrentFilmAllocationRow(entry) : false
           }
         : entry
     )
@@ -265,7 +269,7 @@ function applyCheckoutAllToJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
     allocations: detail.allocations.map((entry) =>
-      entry.status === 'ACTIVE' && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
+      isCurrentFilmAllocationRow(entry) && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
         ? {
             ...entry,
             boxStatus: 'CHECKED_OUT' as const,
@@ -301,7 +305,7 @@ function applyCheckoutAllToAllocationJobDetail(detail: AllocationJobDetail): All
   return {
     ...detail,
     allocations: detail.allocations.map((entry) =>
-      entry.status === 'ACTIVE' && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
+      isCurrentFilmAllocationRow(entry) && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob
         ? {
             ...entry,
             boxStatus: 'CHECKED_OUT' as const,
@@ -339,7 +343,7 @@ export function applyCheckoutAllToCaches(queryClient: QueryClient, jobNumber: st
   if (currentJob) {
     for (let index = 0; index < currentJob.allocations.length; index += 1) {
       const entry = currentJob.allocations[index];
-      if (entry.status === 'ACTIVE' && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob) {
+      if (isCurrentFilmAllocationRow(entry) && entry.boxStatus === 'IN_STOCK' && !entry.checkedOutOnThisJob) {
         touchedBoxIds.add(entry.boxId);
       }
     }

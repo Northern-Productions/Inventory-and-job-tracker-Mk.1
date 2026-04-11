@@ -21,6 +21,10 @@ import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
 import { buildAppAttentionSummary as buildAppAttentionSummaryFromService } from "./services/appAttention.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
+import {
+  buildCurrentCheckedOutAllocationIdSet,
+  buildFilmCheckoutActionPlan,
+} from "../../../shared/checkoutSemantics.mjs";
 import type { AuthIdentity } from "./types.ts";
 import {
   computeCoveredFeetForAllocation,
@@ -3199,7 +3203,7 @@ async function ensureBoxCheckoutCrewCompatibility(client: any, orgId: string, pa
 }
 
 function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<string, any>) {
-  return allocations
+  const sortedAllocations = allocations
     .slice()
     .sort((left, right) => {
       if (left.status !== right.status) {
@@ -3223,23 +3227,20 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
         }
       }
       return left.createdAt < right.createdAt ? -1 : left.createdAt > right.createdAt ? 1 : 0;
-    })
-    .map((entry) => {
-      const box = boxById[entry.boxId];
-      const checkedOutOnThisJob = Boolean(
-        box &&
-          box.status === "CHECKED_OUT" &&
-          normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(entry.jobNumber),
-      );
-      return {
-        ...toPublicAllocation(entry),
-        manufacturer: box ? box.manufacturer : "",
-        filmName: box ? box.filmName : "",
-        widthIn: box ? box.widthIn : 0,
-        boxStatus: box ? box.status : "",
-        checkedOutOnThisJob,
-      };
     });
+  const currentCheckedOutAllocationIds = buildCurrentCheckedOutAllocationIdSet(sortedAllocations, boxById);
+
+  return sortedAllocations.map((entry) => {
+    const box = boxById[entry.boxId];
+    return {
+      ...toPublicAllocation(entry),
+      manufacturer: box ? box.manufacturer : "",
+      filmName: box ? box.filmName : "",
+      widthIn: box ? box.widthIn : 0,
+      boxStatus: box ? box.status : "",
+      checkedOutOnThisJob: Boolean(currentCheckedOutAllocationIds[entry.allocationId]),
+    };
+  });
 }
 
 function parseCrossWarehouseFlag(value: unknown): boolean {
@@ -4397,6 +4398,71 @@ function requireServiceRoleClientForJobs() {
   return requireServiceRoleClient();
 }
 
+async function resolveAllocationsForCheckoutWithoutBoxMutation(
+  serviceClient: any,
+  client: any,
+  orgId: string,
+  boxId: string,
+  jobNumber: string,
+  actor: string,
+) {
+  const activeAllocations = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === "ACTIVE");
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const checkoutMarkerNote = `Checked out for job ${jobNumber}.`;
+  const nowIso = new Date().toISOString();
+  const otherJobs: string[] = [];
+  const seenOtherJobs: Record<string, boolean> = {};
+  let fulfilledCount = 0;
+  let fulfilledFeet = 0;
+
+  for (const entry of activeAllocations) {
+    if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
+      const allocationId = asTrimmedString(entry.allocationId);
+      if (!allocationId) {
+        continue;
+      }
+
+      const nextResolvedAt = entry.resolvedAt || nowIso;
+      const nextResolvedBy = entry.resolvedBy || actor;
+      const nextNotes = entry.notes === checkoutMarkerNote ? entry.notes : checkoutMarkerNote;
+
+      if (
+        entry.resolvedAt !== nextResolvedAt ||
+        entry.resolvedBy !== nextResolvedBy ||
+        entry.notes !== nextNotes
+      ) {
+        const { error: updateAllocationError } = await serviceClient
+          .schema("app")
+          .from("allocations")
+          .update({
+            resolved_at: nextResolvedAt,
+            resolved_by: nextResolvedBy,
+            notes: nextNotes,
+          })
+          .eq("org_id", orgId)
+          .eq("id", allocationId);
+        throwOnSupabaseError(updateAllocationError, `Unable to resolve allocation ${allocationId}`);
+      }
+
+      fulfilledCount += 1;
+      fulfilledFeet += integerOrZero(entry.allocatedFeet);
+      continue;
+    }
+
+    const otherJobNumber = asTrimmedString(entry.jobNumber);
+    if (otherJobNumber && !seenOtherJobs[otherJobNumber]) {
+      seenOtherJobs[otherJobNumber] = true;
+      otherJobs.push(otherJobNumber);
+    }
+  }
+
+  return {
+    fulfilledCount,
+    fulfilledFeet,
+    otherJobs,
+  };
+}
+
 async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
@@ -4448,18 +4514,14 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
   if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
     throw new HttpError(400, buildOrderedAllocationReceiptMessage("checkout"));
   }
-  const seenBoxIds: Record<string, boolean> = {};
+  const checkoutPlan = buildFilmCheckoutActionPlan(allocations, boxById, jobNumber);
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
 
-  for (const allocation of allocations) {
-    if (allocation.status !== "ACTIVE" || !allocation.boxId || seenBoxIds[allocation.boxId]) {
-      continue;
-    }
-    seenBoxIds[allocation.boxId] = true;
-    const box = boxById[allocation.boxId];
+  for (const step of checkoutPlan) {
+    const box = boxById[step.boxId];
     if (!box) {
-      throw new HttpError(404, `Box ${allocation.boxId} was not found.`);
+      throw new HttpError(404, `Box ${step.boxId} was not found.`);
     }
 
     if (boxUsesOrderedPlanning(box)) {
@@ -4478,7 +4540,23 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
       );
     }
 
-    if (sameJobCheckedOut) {
+    if (step.action === "RESOLVE_ONLY" || sameJobCheckedOut) {
+      const allocationResolution = await resolveAllocationsForCheckoutWithoutBoxMutation(
+        serviceClient,
+        client,
+        orgId,
+        box.boxId,
+        jobNumber,
+        actor,
+      );
+      if (allocationResolution.fulfilledCount > 0) {
+        warnings.push(
+          `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? "" : "s"} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${jobNumber} after checkout.`,
+        );
+      }
+      if (allocationResolution.otherJobs.length > 0) {
+        warnings.push(`This box still has active allocations for ${allocationResolution.otherJobs.join(", ")}.`);
+      }
       continue;
     }
 

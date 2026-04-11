@@ -751,6 +751,74 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('Check Out');
   });
 
+  it('hides historical resolved allocation rows from Allocated Boxes while keeping the current checkout row', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-history',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 5,
+          coveredFeet: 5,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-19T08:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '2026-03-19T09:00:00Z',
+          resolvedBy: 'tester',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        },
+        {
+          allocationId: 'alloc-current',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          jobDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 8,
+          coveredFeet: 8,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T10:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '2026-03-20T10:15:00Z',
+          resolvedBy: 'tester',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html.match(/IL1-100/g)).toHaveLength(1);
+    expect(html).toContain('Check In');
+    expect(html).not.toContain('>Check Out</button>');
+  });
+
   it('only disables the allocation row that is currently being removed', () => {
     const detail: JobDetail = {
       ...baseDetail,

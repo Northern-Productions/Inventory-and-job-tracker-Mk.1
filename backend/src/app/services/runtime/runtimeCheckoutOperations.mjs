@@ -1,4 +1,5 @@
 // Purpose: Checkout, check-in, and allocation resolution runtime helpers.
+import { buildFilmCheckoutActionPlan } from '../../../../../shared/checkoutSemantics.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -463,7 +464,6 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
   const boxes = await listBoxes(client, orgId);
   const boxById = {};
   const warnings = [];
-  const seenBoxIds = {};
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
 
@@ -492,14 +492,11 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     throw new HttpError(400, buildOrderedAllocationReceiptMessage('checkout'));
   }
 
-  for (let index = 0; index < allocations.length; index += 1) {
-    const allocation = allocations[index];
-    if (allocation.status !== 'ACTIVE' || !allocation.boxId || seenBoxIds[allocation.boxId]) {
-      continue;
-    }
+  const checkoutPlan = buildFilmCheckoutActionPlan(allocations, boxById, normalizedJobNumber);
 
-    seenBoxIds[allocation.boxId] = true;
-    const currentBox = boxById[allocation.boxId];
+  for (let index = 0; index < checkoutPlan.length; index += 1) {
+    const step = checkoutPlan[index];
+    const currentBox = boxById[step.boxId];
     if (boxUsesOrderedPlanning(currentBox)) {
       continue;
     }
@@ -507,7 +504,7 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     const checkoutResult = await checkoutBoxForJob(
       client,
       orgId,
-      allocation.boxId,
+      step.boxId,
       normalizedJobNumber,
       user
     );
