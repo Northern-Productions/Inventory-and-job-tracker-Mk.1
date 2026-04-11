@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useOptimisticQueue } from '../../../../components/OptimisticQueue';
 import {
   addCaulkJobAllocation,
   applyAllocationPlan,
@@ -26,6 +25,7 @@ import { inventoryKeys } from '../inventoryQueryKeys';
 import {
   applyOptimisticAllocationAdditionToCaches,
   applyOptimisticAllocationRemovalToCaches,
+  rollbackOptimisticAllocationAdditionInCaches,
   rollbackOptimisticAllocationRemovalInCaches,
   type OptimisticAllocationRemovalRollback
 } from '../../cache/allocations';
@@ -34,7 +34,6 @@ import {
   updateCaulkCheckoutCaches
 } from '../../cache/jobMaterialMutations';
 import {
-  beginDelayedOptimisticMutation,
   beginImmediateOptimisticMutation,
   restoreSnapshots
 } from '../../cache/shared';
@@ -46,7 +45,6 @@ import { syncOfflineInventoryQueries } from '../useInventoryOfflineSync';
 
 export function useAllocateBox() {
   const queryClient = useQueryClient();
-  const optimisticQueue = useOptimisticQueue();
 
   return useMutation({
     mutationFn: (payload: ApplyAllocationPlanPayload) => applyAllocationPlan(payload),
@@ -62,30 +60,24 @@ export function useAllocateBox() {
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
       ]);
 
-      return beginDelayedOptimisticMutation(
-        queryClient,
-        optimisticQueue,
-        `Allocating film for ${payload.jobNumber}`,
-        [
-          inventoryKeys.boxRoot,
-          inventoryKeys.listRoot,
-          inventoryKeys.allocationsRoot,
-          inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
-          inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber)
-        ],
-        () => {
-          applyOptimisticAllocationAdditionToCaches(queryClient, payload);
-        }
-      );
+      const optimisticResult = applyOptimisticAllocationAdditionToCaches(queryClient, payload);
+
+      return {
+        snapshots: [],
+        optimisticAllocationJobNumber: payload.jobNumber,
+        optimisticAllocationIds: optimisticResult.allocations.map((entry) => entry.allocationId)
+      };
     },
     onError: (_error, _variables, context) => {
-      context?.operation?.cancel();
-      restoreSnapshots(queryClient, context?.snapshots);
+      if (context?.optimisticAllocationJobNumber && context.optimisticAllocationIds?.length) {
+        rollbackOptimisticAllocationAdditionInCaches(
+          queryClient,
+          context.optimisticAllocationJobNumber,
+          context.optimisticAllocationIds
+        );
+      }
     },
-    onSuccess: async ({ result }, variables, context) => {
-      await context?.operation?.waitForApply();
+    onSuccess: async ({ result }, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.searchRoot }),
@@ -103,9 +95,6 @@ export function useAllocateBox() {
       );
 
       void syncOfflineInventoryQueries(queryClient);
-    },
-    onSettled: (_data, _error, _variables, context) => {
-      context?.operation?.finish();
     }
   });
 }

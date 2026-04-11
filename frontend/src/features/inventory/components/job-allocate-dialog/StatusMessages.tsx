@@ -5,6 +5,7 @@ interface StatusMessagesProps {
   isExtraFilmMode: boolean;
   isMatchingBoxesLoading: boolean;
   isAllocationPreviewLoading: boolean;
+  pendingAllocationCount: number;
   prioritizedMatchingBoxesCount: number;
   selectedBoxCount: number;
   hasPreferredLinkedBoxes: boolean;
@@ -20,6 +21,7 @@ export function StatusMessages({
   isExtraFilmMode,
   isMatchingBoxesLoading,
   isAllocationPreviewLoading,
+  pendingAllocationCount,
   prioritizedMatchingBoxesCount,
   selectedBoxCount,
   hasPreferredLinkedBoxes,
@@ -34,6 +36,11 @@ export function StatusMessages({
       {isMatchingBoxesLoading ? <p className="muted-text">Loading compatible boxes...</p> : null}
       {!isMatchingBoxesLoading && isAllocationPreviewLoading ? (
         <p className="muted-text">Loading the live allocation plan...</p>
+      ) : null}
+      {pendingAllocationCount > 0 ? (
+        <p className="muted-text">
+          {pendingAllocationCount} allocation{pendingAllocationCount === 1 ? '' : 's'} saving in background...
+        </p>
       ) : null}
       {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxesCount ? (
         <p className="muted-text">

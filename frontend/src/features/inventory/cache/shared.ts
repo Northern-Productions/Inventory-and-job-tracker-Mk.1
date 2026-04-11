@@ -12,6 +12,8 @@ export interface MutationOptimisticContext {
   snapshots: QuerySnapshot[];
   deletedBox?: Box;
   pendingFilmOrderId?: string;
+  optimisticAllocationJobNumber?: string;
+  optimisticAllocationIds?: string[];
 }
 
 export function captureSnapshots(queryClient: QueryClient, queryKey: readonly unknown[]) {

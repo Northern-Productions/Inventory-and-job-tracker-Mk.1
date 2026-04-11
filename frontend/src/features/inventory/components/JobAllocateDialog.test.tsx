@@ -55,6 +55,21 @@ function buildMutationState() {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject
+  };
+}
+
 function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -782,6 +797,605 @@ describe('JobAllocateDialog', () => {
           selectedSuggestionBoxIds: [],
           requestedFeet: 15,
           requirementId: 'req-1'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('advances to the next requirement immediately after Allocate before the save resolves', async () => {
+    const firstSave = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const mutateAsync = vi.fn().mockImplementation(() => firstSave.promise);
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) => {
+      if (payload?.boxId === 'IL1-RN07') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 15,
+            requestedWidthIn: 48,
+            sourceBoxId: 'IL1-RN07',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 48,
+            sourceBoxFeetAvailable: 25,
+            sourceSuggestedFeet: 15,
+            sourceSuggestedCoveredFeet: 15,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 15,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      if (payload?.boxId === 'IL1-P60') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 12,
+            requestedWidthIn: 60,
+            sourceBoxId: 'IL1-P60',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 60,
+            sourceBoxFeetAvailable: 30,
+            sourceSuggestedFeet: 12,
+            sourceSuggestedCoveredFeet: 12,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 12,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      return buildPreviewState();
+    });
+    searchBoxesMock.mockImplementation(async (params: { q?: string; manufacturer?: string }) => {
+      if (params.q === 'RN 07') {
+        return [
+          buildSearchBox({
+            boxId: 'IL1-RN07',
+            manufacturer: 'Llumar',
+            filmName: 'RN 07',
+            widthIn: 48
+          })
+        ];
+      }
+
+      if (params.q === 'Prestige 60') {
+        return [
+          buildSearchBox({
+            boxId: 'IL1-P60',
+            manufacturer: '3M Solar',
+            filmName: 'Prestige 60',
+            widthIn: 60
+          })
+        ];
+      }
+
+      return [];
+    });
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        },
+        {
+          requirementId: 'req-2',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          requiredFeet: 12,
+          allocatedFeet: 0,
+          remainingFeet: 12
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const checkbox = within(table).getByRole('checkbox');
+    fireEvent.click(checkbox);
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+
+    const requirementSelect = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(requirementSelect.value).toBe('req-2');
+    expect(screen.getByDisplayValue('12')).toBeTruthy();
+    expect(screen.getByText(/1 allocation saving in background/i)).toBeTruthy();
+
+    firstSave.resolve({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-RN07',
+            allocatedFeet: 15,
+            coveredFeet: 15
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          variant: 'success'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('closes the dialog immediately after the final requirement submit before the save resolves', async () => {
+    const save = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const mutateAsync = vi.fn().mockImplementation(() => save.promise);
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'IL1-BOX'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '55555',
+              jobDate: '',
+              crewLeader: '',
+              requestedFeet: 15,
+              requestedWidthIn: 48,
+              sourceBoxId: 'IL1-BOX',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 48,
+              sourceBoxFeetAvailable: 50,
+              sourceSuggestedFeet: 15,
+              sourceSuggestedCoveredFeet: 15,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 15,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+    const onCancel = vi.fn();
+
+    const { queryClient } = renderDialog({
+      onCancel,
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    const checkbox = within(await screen.findByRole('table')).getByRole('checkbox');
+    fireEvent.click(checkbox);
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    expect(onCancel).toHaveBeenCalled();
+    expect(screen.getByText(/1 allocation saving in background/i)).toBeTruthy();
+
+    save.resolve({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-final',
+            boxId: 'IL1-BOX',
+            allocatedFeet: 15,
+            coveredFeet: 15
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          variant: 'success'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('allows a second allocation submit while the first allocation save is still pending', async () => {
+    const firstSave = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const secondSave = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const mutateAsync = vi
+      .fn()
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise);
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) => {
+      if (payload?.boxId === 'IL1-RN07') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 15,
+            requestedWidthIn: 48,
+            sourceBoxId: 'IL1-RN07',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 48,
+            sourceBoxFeetAvailable: 25,
+            sourceSuggestedFeet: 15,
+            sourceSuggestedCoveredFeet: 15,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 15,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      if (payload?.boxId === 'IL1-P60') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 12,
+            requestedWidthIn: 60,
+            sourceBoxId: 'IL1-P60',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 60,
+            sourceBoxFeetAvailable: 30,
+            sourceSuggestedFeet: 12,
+            sourceSuggestedCoveredFeet: 12,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 12,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      return buildPreviewState();
+    });
+    searchBoxesMock.mockImplementation(async (params: { q?: string }) => {
+      if (params.q === 'RN 07') {
+        return [buildSearchBox({ boxId: 'IL1-RN07', manufacturer: 'Llumar', filmName: 'RN 07', widthIn: 48 })];
+      }
+
+      if (params.q === 'Prestige 60') {
+        return [buildSearchBox({ boxId: 'IL1-P60', manufacturer: '3M Solar', filmName: 'Prestige 60', widthIn: 60 })];
+      }
+
+      return [];
+    });
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        },
+        {
+          requirementId: 'req-2',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          requiredFeet: 12,
+          allocatedFeet: 0,
+          remainingFeet: 12
+        }
+      ]
+    });
+
+    let table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2')
+    );
+
+    table = await screen.findByRole('table');
+    await waitFor(() => expect(table.textContent || '').toContain('IL1-P60'));
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*12/i)
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(/2 allocations saving in background/i)).toBeTruthy();
+
+    secondSave.resolve({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-2',
+            boxId: 'IL1-P60',
+            allocatedFeet: 12,
+            coveredFeet: 12
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    firstSave.resolve({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-RN07',
+            allocatedFeet: 15,
+            coveredFeet: 15
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          variant: 'success'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('shows a background allocation failure without locking the next requirement', async () => {
+    const firstSave = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const secondSave = createDeferred<{
+      result: {
+        allocations: Array<Record<string, unknown>>;
+        filmOrder: null;
+        remainingUncoveredFeet: number;
+      };
+      warnings: string[];
+    }>();
+    const mutateAsync = vi
+      .fn()
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => secondSave.promise);
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) => {
+      if (payload?.boxId === 'IL1-RN07') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 15,
+            requestedWidthIn: 48,
+            sourceBoxId: 'IL1-RN07',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 48,
+            sourceBoxFeetAvailable: 25,
+            sourceSuggestedFeet: 15,
+            sourceSuggestedCoveredFeet: 15,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 15,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      if (payload?.boxId === 'IL1-P60') {
+        return buildPreviewState({
+          data: {
+            jobNumber: '17170',
+            jobDate: '',
+            crewLeader: '',
+            requestedFeet: 12,
+            requestedWidthIn: 60,
+            sourceBoxId: 'IL1-P60',
+            sourceWarehouse: 'IL1',
+            sourceWidthIn: 60,
+            sourceBoxFeetAvailable: 30,
+            sourceSuggestedFeet: 12,
+            sourceSuggestedCoveredFeet: 12,
+            sourceConflicts: [],
+            suggestions: [],
+            defaultCoveredFeet: 12,
+            defaultRemainingFeet: 0
+          }
+        });
+      }
+
+      return buildPreviewState();
+    });
+    searchBoxesMock.mockImplementation(async (params: { q?: string }) => {
+      if (params.q === 'RN 07') {
+        return [buildSearchBox({ boxId: 'IL1-RN07', manufacturer: 'Llumar', filmName: 'RN 07', widthIn: 48 })];
+      }
+
+      if (params.q === 'Prestige 60') {
+        return [buildSearchBox({ boxId: 'IL1-P60', manufacturer: '3M Solar', filmName: 'Prestige 60', widthIn: 60 })];
+      }
+
+      return [];
+    });
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        },
+        {
+          requirementId: 'req-2',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 60',
+          widthIn: 60,
+          requiredFeet: 12,
+          allocatedFeet: 0,
+          remainingFeet: 12
+        }
+      ]
+    });
+
+    let table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2')
+    );
+
+    firstSave.reject(new Error('The allocation could not be completed.'));
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation failed',
+          description: 'The allocation could not be completed.',
+          variant: 'error'
+        })
+      )
+    );
+
+    table = await screen.findByRole('table');
+    await waitFor(() => expect(table.textContent || '').toContain('IL1-P60'));
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*12/i)
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+
+    secondSave.resolve({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-2',
+            boxId: 'IL1-P60',
+            allocatedFeet: 12,
+            coveredFeet: 12
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          variant: 'success'
         })
       )
     );

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
 import { useToast } from '../../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
-import type { AllocationPreview, FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
+import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
 import {
   useAllocateBox,
   useAllocationPreview,
@@ -55,6 +54,7 @@ export function JobAllocateDialog({
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
+  const [pendingAllocationCount, setPendingAllocationCount] = useState(0);
   const allocatableRequirements = useMemo(
     () =>
       isExtraFilmMode
@@ -295,7 +295,55 @@ export function JobAllocateDialog({
     setError('');
   }
 
-  async function handleAllocate() {
+  function formatAllocationSaveDescription(
+    result: Awaited<ReturnType<typeof allocateMutation.mutateAsync>>['result'],
+    warnings: string[]
+  ) {
+    const summary =
+      result.allocations.length > 0
+        ? result.allocations
+            .map((entry) =>
+              entry.coveredFeet !== entry.allocatedFeet
+                ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
+                : `${entry.boxId}: ${entry.allocatedFeet} LF`
+            )
+            .join(', ')
+        : 'No matching boxes covered this request.';
+    const filmOrderSuffix = result.filmOrder
+      ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
+      : '';
+
+    return warnings.join(' ') || `${summary}.${filmOrderSuffix}`.trim();
+  }
+
+  function submitAllocationInBackground(
+    payload: Parameters<typeof allocateMutation.mutateAsync>[0],
+    successTitle: string
+  ) {
+    setPendingAllocationCount((current) => current + 1);
+    const savePromise = allocateMutation.mutateAsync(payload);
+
+    void savePromise
+      .then(({ result, warnings }) => {
+        toast.push({
+          title: successTitle,
+          description: formatAllocationSaveDescription(result, warnings),
+          variant: 'success'
+        });
+      })
+      .catch((submitError) => {
+        toast.push({
+          title: 'Allocation failed',
+          description: submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
+          variant: 'error'
+        });
+      })
+      .finally(() => {
+        setPendingAllocationCount((current) => Math.max(0, current - 1));
+      });
+  }
+
+  function handleAllocate() {
     if (!selectedRequirement) {
       setError('Select a requirement line first.');
       return;
@@ -345,55 +393,33 @@ export function JobAllocateDialog({
       return;
     }
 
-    try {
-      const { result, warnings } = await allocateMutation.mutateAsync({
-        boxId: sourceBox.boxId,
-        jobNumber,
-        jobDate: dueDate || '',
-        crewLeader: crewLeader || '',
-        requestedFeet: isExtraFilmMode ? 0 : requestedFeetValue,
-        requestedWidthIn: selectedRequirement.widthIn,
-        requirementId: selectedRequirement.requirementId,
-        selectedSuggestionBoxIds: isExtraFilmMode || !activePreview ? [] : selectedPreviewSuggestionBoxIds,
-        extraAllocations: extraAllocations.extraAllocations.map(({ boxId, allocatedFeet }) => ({
-          boxId,
-          allocatedFeet
-        })),
-        crossWarehouse: true,
-        jobWarehouse: warehouse
-      });
+    const payload = {
+      boxId: sourceBox.boxId,
+      jobNumber,
+      jobDate: dueDate || '',
+      crewLeader: crewLeader || '',
+      requestedFeet: isExtraFilmMode ? 0 : requestedFeetValue,
+      requestedWidthIn: selectedRequirement.widthIn,
+      requirementId: selectedRequirement.requirementId,
+      selectedSuggestionBoxIds: isExtraFilmMode || !activePreview ? [] : selectedPreviewSuggestionBoxIds,
+      extraAllocations: extraAllocations.extraAllocations.map(({ boxId, allocatedFeet }) => ({
+        boxId,
+        allocatedFeet
+      })),
+      crossWarehouse: true,
+      jobWarehouse: warehouse
+    };
 
-      const summary =
-        result.allocations.length > 0
-          ? result.allocations
-              .map((entry) =>
-                entry.coveredFeet !== entry.allocatedFeet
-                  ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
-                  : `${entry.boxId}: ${entry.allocatedFeet} LF`
-              )
-              .join(', ')
-          : 'No matching boxes covered this request.';
-      const filmOrderSuffix = result.filmOrder
-        ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
-        : '';
+    const completedRequirementId = selectedRequirement.requirementId;
+    setError('');
+    submitAllocationInBackground(payload, isExtraFilmMode ? 'Extra film allocated' : 'Allocation saved');
 
-      toast.push({
-        title: isExtraFilmMode ? 'Extra film allocated' : 'Allocation saved',
-        description: warnings.join(' ') || `${summary}.${filmOrderSuffix}`.trim(),
-        variant: 'success'
-      });
-      if (isExtraFilmMode) {
-        onCancel();
-      } else {
-        advanceToNextRequirement(selectedRequirement.requirementId);
-      }
-    } catch (submitError) {
-      toast.push({
-        title: 'Allocation failed',
-        description: submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
-        variant: 'error'
-      });
+    if (isExtraFilmMode) {
+      onCancel();
+      return;
     }
+
+    advanceToNextRequirement(completedRequirementId);
   }
 
   async function handleOrderFilm() {
@@ -449,7 +475,7 @@ export function JobAllocateDialog({
     }
   }
 
-  const isSubmitting = allocateMutation.isPending || createFilmOrderMutation.isPending;
+  const isSubmitting = createFilmOrderMutation.isPending;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
 
   return (
@@ -481,6 +507,7 @@ export function JobAllocateDialog({
           isExtraFilmMode={isExtraFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
+          pendingAllocationCount={pendingAllocationCount}
           prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
@@ -509,7 +536,7 @@ export function JobAllocateDialog({
           isOrderFilmMode={isOrderFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
-          isAllocatePending={allocateMutation.isPending}
+          isAllocatePending={false}
           isCreateFilmOrderPending={createFilmOrderMutation.isPending}
           canSubmit={isOrderFilmMode || selectedBoxIds.length > 0}
           allocateLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate'}

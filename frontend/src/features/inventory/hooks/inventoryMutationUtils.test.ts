@@ -16,6 +16,7 @@ import {
   createOptimisticJobDetailAfterFilmOrderDeletion,
   createOptimisticJobDetailFromCreatePayload,
   resolveOptimisticFilmOrderScheduleFromCaches,
+  rollbackOptimisticAllocationAdditionInCaches,
   rollbackOptimisticAllocationRemovalInCaches,
   removeJobPlanningCaches,
   restoreSnapshots,
@@ -2738,6 +2739,191 @@ describe('inventoryMutationUtils', () => {
         hasOrderedAllocations: false
       }
     });
+  });
+
+  it('rolls back only the failed optimistic allocation addition when overlapping adds are present', () => {
+    const queryClient = createQueryClient();
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 15,
+        allocatedFeet: 0,
+        remainingFeet: 15
+      },
+      {
+        requirementId: 'req-2',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requiredFeet: 12,
+        allocatedFeet: 0,
+        remainingFeet: 12
+      }
+    ]);
+
+    queryClient.setQueryData(inventoryKeys.job('29050'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('29050'), {
+      summary: {
+        jobNumber: '29050',
+        jobDate: '2026-04-06',
+        crewLeader: 'Crew',
+        status: 'ALLOCATE',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 0,
+        boxCount: 0,
+        hasOrderedAllocations: false
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: []
+    });
+
+    for (const box of [
+      {
+        boxId: 'IL1-A',
+        widthIn: 60,
+        feetAvailable: 10
+      },
+      {
+        boxId: 'IL1-B',
+        widthIn: 60,
+        feetAvailable: 10
+      },
+      {
+        boxId: 'IL1-C',
+        widthIn: 60,
+        feetAvailable: 12
+      }
+    ]) {
+      queryClient.setQueryData(inventoryKeys.box(box.boxId), {
+        boxId: box.boxId,
+        warehouse: 'IL1',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: box.widthIn,
+        initialFeet: box.feetAvailable,
+        feetAvailable: box.feetAvailable,
+        allocationPlanningFeet: box.feetAvailable,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-04-06',
+        receivedDate: '2026-04-06',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '3M SOLAR|PRESTIGE 60',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      });
+      queryClient.setQueryData(inventoryKeys.allocations(box.boxId), []);
+    }
+
+    const firstAddition = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-A',
+      jobNumber: '29050',
+      requestedFeet: 15,
+      requestedWidthIn: 60,
+      requirementId: 'req-1',
+      selectedSuggestionBoxIds: ['IL1-B'],
+      extraAllocations: []
+    });
+    const secondAddition = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-C',
+      jobNumber: '29050',
+      requestedFeet: 12,
+      requestedWidthIn: 60,
+      requirementId: 'req-2',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: []
+    });
+
+    expect(firstAddition.allocations).toHaveLength(2);
+    expect(secondAddition.allocations).toHaveLength(1);
+
+    rollbackOptimisticAllocationAdditionInCaches(
+      queryClient,
+      '29050',
+      firstAddition.allocations.map((entry) => entry.allocationId)
+    );
+
+    expect(queryClient.getQueryData(inventoryKeys.job('29050'))).toMatchObject({
+      summary: {
+        allocatedFeet: 12,
+        remainingFeet: 15,
+        allocationCount: 1
+      },
+      requirements: [
+        expect.objectContaining({
+          requirementId: 'req-1',
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }),
+        expect.objectContaining({
+          requirementId: 'req-2',
+          allocatedFeet: 12,
+          remainingFeet: 0
+        })
+      ],
+      allocations: [
+        expect.objectContaining({
+          allocationId: secondAddition.allocations[0].allocationId,
+          boxId: 'IL1-C'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('29050'))).toMatchObject({
+      summary: {
+        activeAllocatedFeet: 12,
+        boxCount: 1
+      },
+      allocations: [
+        expect.objectContaining({
+          allocationId: secondAddition.allocations[0].allocationId,
+          boxId: 'IL1-C'
+        })
+      ]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-A'))).toMatchObject({
+      feetAvailable: 10,
+      allocationPlanningFeet: 10
+    });
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-B'))).toMatchObject({
+      feetAvailable: 10,
+      allocationPlanningFeet: 10
+    });
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-C'))).toMatchObject({
+      feetAvailable: 0,
+      allocationPlanningFeet: 0
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-A'))).toEqual([]);
+    expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-B'))).toEqual([]);
+    expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-C'))).toMatchObject([
+      expect.objectContaining({
+        allocationId: secondAddition.allocations[0].allocationId,
+        boxId: 'IL1-C'
+      })
+    ]);
   });
 
   it('restores only the failed allocation when optimistic removals overlap', () => {

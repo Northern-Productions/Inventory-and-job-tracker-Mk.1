@@ -444,6 +444,24 @@ export function rollbackOptimisticAllocationRemovalInCaches(
   }
 }
 
+export function rollbackOptimisticAllocationAdditionInCaches(
+  queryClient: QueryClient,
+  jobNumber: string,
+  allocationIds: readonly string[]
+) {
+  const uniqueAllocationIds = Array.from(
+    new Set(
+      allocationIds
+        .map((allocationId) => String(allocationId || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  for (let index = 0; index < uniqueAllocationIds.length; index += 1) {
+    applyOptimisticAllocationRemovalToCaches(queryClient, jobNumber, uniqueAllocationIds[index]);
+  }
+}
+
 export function applyOptimisticAllocationAdditionToCaches(
   queryClient: QueryClient,
   payload: ApplyAllocationPlanPayload
