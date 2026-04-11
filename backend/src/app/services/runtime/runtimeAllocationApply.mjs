@@ -197,7 +197,9 @@ import {
   buildJobRequirementsByLookupKey,
   allocationMatchesRequirement,
   normalizeRequirementFilmKey,
-  planningFilmCanSatisfyRequirement
+  planningFilmCanSatisfyRequirement,
+  getStoredAllocationCoveredFeet,
+  shouldIgnoreAllocationCoverageForBoxStatus
 } from './runtimeAllocationCoverage.mjs';
 import { resolveExistingOrLegacyJobHeader } from './runtimeJobsRead.mjs';
 import {
@@ -210,6 +212,7 @@ import {
   createFilmOrderForShortage,
 } from './runtimeAllocationPlanning.mjs';
 import { buildPublicFilmOrderLinkedBoxes } from './runtimeJobSummaries.mjs';
+import { deleteStaleAutoShortageFilmOrdersForRequirement } from './runtimeAllocationCleanup.mjs';
 
 async function previewAllocationPlan(client, orgId, payload) {
   const source = await findBoxById(client, orgId, payload.boxId);
@@ -271,6 +274,44 @@ function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobN
   }
 
   return selectedRequirement;
+}
+
+function calculateRemainingFeetForRequirement(requirement, allocations, boxById) {
+  if (!requirement) {
+    return 0;
+  }
+
+  const requirementId = asTrimmedString(requirement.id);
+  const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
+  if (!requirementId || requiredFeet <= 0) {
+    return 0;
+  }
+
+  let coveredFeet = 0;
+  const source = Array.isArray(allocations) ? allocations : [];
+  for (let index = 0; index < source.length; index += 1) {
+    const allocation = source[index];
+    if (
+      asTrimmedString(allocation.requirementId) !== requirementId ||
+      asTrimmedString(allocation.status).toUpperCase() === 'CANCELLED' ||
+      normalizeAllocationKind(allocation.allocationKind) === 'EXTRA'
+    ) {
+      continue;
+    }
+
+    const box = boxById[allocation.boxId];
+    if (!box || shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
+      continue;
+    }
+
+    if (!allocationMatchesRequirement(box, requirement)) {
+      continue;
+    }
+
+    coveredFeet += getStoredAllocationCoveredFeet(allocation);
+  }
+
+  return Math.max(0, requiredFeet - Math.min(requiredFeet, coveredFeet));
 }
 
 async function applyAllocationPlan(client, orgId, payload, actor) {
@@ -475,6 +516,29 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet)
     );
     createdAllocations.push(toPublicAllocation(allocation));
+  }
+
+  let remainingRequirementFeet = null;
+  if (requestedFeet > 0 && selectedRequirement) {
+    remainingRequirementFeet = calculateRemainingFeetForRequirement(
+      selectedRequirement,
+      await listAllocationsByJob(client, orgId, jobContext.jobNumber),
+      boxById
+    );
+    const deletedFilmOrders = await deleteStaleAutoShortageFilmOrdersForRequirement(
+      client,
+      orgId,
+      jobContext.jobNumber,
+      selectedRequirement,
+      remainingRequirementFeet
+    );
+    if (deletedFilmOrders.length > 0) {
+      warnings.push(
+        `Removed ${deletedFilmOrders.length} stale shortage film order${
+          deletedFilmOrders.length === 1 ? '' : 's'
+        } for job ${jobContext.jobNumber} after fulfilling the selected requirement.`
+      );
+    }
   }
 
   let publicFilmOrder = null;

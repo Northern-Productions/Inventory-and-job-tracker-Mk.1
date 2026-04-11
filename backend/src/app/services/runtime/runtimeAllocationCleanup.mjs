@@ -193,6 +193,146 @@ import {
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
 import { recalculateFilmOrder } from './runtimeAllocationPlanning.mjs';
+import { isUnresolvedFilmOrderStatus } from './runtimeFilmOrderSchedule.mjs';
+
+function countFilmOrderStateEntries(entry) {
+  if (Array.isArray(entry)) {
+    return entry.length;
+  }
+
+  return integerOrZero(entry);
+}
+
+function buildStaleAutoShortageFilmOrderCleanupCandidates({
+  jobNumber,
+  requirement,
+  remainingRequirementFeet,
+  filmOrders,
+  filmOrderLinksById = {},
+  filmOrderAllocationsById = {}
+}) {
+  if (!requirement || integerOrZero(remainingRequirementFeet) > 0) {
+    return [];
+  }
+
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const requirementKey = normalizeJobRequirementLookupKey(
+    requirement.manufacturer,
+    requirement.filmName,
+    requirement.widthIn
+  );
+  const source = Array.isArray(filmOrders) ? filmOrders : [];
+  const response = [];
+
+  for (let index = 0; index < source.length; index += 1) {
+    const filmOrder = source[index];
+    const filmOrderId = asTrimmedString(filmOrder && filmOrder.filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    if (!isUnresolvedFilmOrderStatus(filmOrder.status)) {
+      continue;
+    }
+
+    if (!asTrimmedString(filmOrder.sourceBoxId)) {
+      continue;
+    }
+
+    if (normalizedJobNumber && normalizeJobNumberKey(filmOrder.jobNumber) !== normalizedJobNumber) {
+      continue;
+    }
+
+    if (
+      normalizeJobRequirementLookupKey(
+        filmOrder.manufacturer,
+        filmOrder.filmName,
+        filmOrder.widthIn
+      ) !== requirementKey
+    ) {
+      continue;
+    }
+
+    if (countFilmOrderStateEntries(filmOrderLinksById[filmOrderId]) > 0) {
+      continue;
+    }
+
+    if (countFilmOrderStateEntries(filmOrderAllocationsById[filmOrderId]) > 0) {
+      continue;
+    }
+
+    response.push(filmOrder);
+  }
+
+  return response;
+}
+
+async function deleteStaleAutoShortageFilmOrdersForRequirement(
+  client,
+  orgId,
+  jobNumber,
+  requirement,
+  remainingRequirementFeet
+) {
+  if (!requirement || integerOrZero(remainingRequirementFeet) > 0) {
+    return [];
+  }
+
+  const requirementKey = normalizeJobRequirementLookupKey(
+    requirement.manufacturer,
+    requirement.filmName,
+    requirement.widthIn
+  );
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const filmOrderLinksById = {};
+  const filmOrderAllocationsById = {};
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const filmOrder = filmOrders[index];
+    const filmOrderId = asTrimmedString(filmOrder && filmOrder.filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    if (!isUnresolvedFilmOrderStatus(filmOrder.status) || !asTrimmedString(filmOrder.sourceBoxId)) {
+      continue;
+    }
+
+    if (
+      normalizeJobRequirementLookupKey(
+        filmOrder.manufacturer,
+        filmOrder.filmName,
+        filmOrder.widthIn
+      ) !== requirementKey
+    ) {
+      continue;
+    }
+
+    filmOrderLinksById[filmOrderId] = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+    filmOrderAllocationsById[filmOrderId] = await listAllocationsByFilmOrderId(client, orgId, filmOrderId);
+  }
+
+  const candidates = buildStaleAutoShortageFilmOrderCleanupCandidates({
+    jobNumber,
+    requirement,
+    remainingRequirementFeet,
+    filmOrders,
+    filmOrderLinksById,
+    filmOrderAllocationsById
+  });
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const filmOrderId = asTrimmedString(candidates[index].filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+    await deleteFilmOrderRecord(client, orgId, filmOrderId);
+  }
+
+  return candidates;
+}
 
 async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, reason) {
   const allocations = await listAllocationsByJob(client, orgId, jobNumber);
@@ -530,6 +670,7 @@ async function recalculateFilmOrdersForBoxLinks(client, orgId, boxId, user) {
 }
 
 export {
+  buildStaleAutoShortageFilmOrderCleanupCandidates,
   cancelJobAndReleaseAllocations,
   formatDeletedJobCleanupWarning,
   prepareDeletedJobCleanup,
@@ -537,4 +678,5 @@ export {
   cancelFilmOrderAndReleaseAllocations,
   cancelActiveFilmOrderAllocationsForBox,
   recalculateFilmOrdersForBoxLinks,
+  deleteStaleAutoShortageFilmOrdersForRequirement,
 };
