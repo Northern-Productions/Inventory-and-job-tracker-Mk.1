@@ -179,6 +179,28 @@ describe('getFilmNameSuggestions', () => {
     ]);
   });
 
+  it('keeps Security Madico Optivision variants distinct from the base Safetyshield label', () => {
+    const entries: FilmCatalogEntry[] = [
+      catalogEntry('Security', 'Madico Safetyshield 800'),
+      catalogEntry('Security', 'Madico Safetyshield 800 Optivision 15'),
+      catalogEntry('Security', 'Madico Safetyshield 800 Optivision 25')
+    ];
+
+    expect(
+      getFilmNameSuggestions(entries, 'Security', 'optivision').map((entry) => entry.filmName)
+    ).toEqual([
+      'Madico Safetyshield 800 Optivision 15',
+      'Madico Safetyshield 800 Optivision 25'
+    ]);
+    expect(
+      getFilmNameSuggestions(entries, 'Security', 'safetyshield 800').map((entry) => entry.filmName)
+    ).toEqual([
+      'Madico Safetyshield 800',
+      'Madico Safetyshield 800 Optivision 15',
+      'Madico Safetyshield 800 Optivision 25'
+    ]);
+  });
+
   it('dedupes repeated manufacturer and film-name combinations using the latest entry', () => {
     const entries: FilmCatalogEntry[] = [
       catalogEntry('Madico', 'Graffiti Free 600 PS SR', 'OLD'),
