@@ -12,7 +12,7 @@ type ReadContext = {
 
 type JobContext = {
   jobNumber: string;
-  jobDate: string;
+  installDate: string;
   crewLeader: string;
 };
 
@@ -62,7 +62,7 @@ export type ReadHandlerDeps = {
     client: any,
     orgId: string,
     jobNumber: unknown,
-    jobDate: unknown,
+    installDate: unknown,
     crewLeader: unknown,
   ) => Promise<JobContext>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
@@ -302,7 +302,13 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!source) {
       throw new HttpError(404, "Box not found.");
     }
-    const jobContext = await deps.resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader);
+    const jobContext = await deps.resolveJobContext(
+      client,
+      orgId,
+      params.jobNumber,
+      params.installDate ?? params.jobDate,
+      params.crewLeader,
+    );
     const allBoxes = await deps.listBoxes(client, orgId);
     const jobWarehouse = await deps.resolveAllocationJobWarehouse(
       client,

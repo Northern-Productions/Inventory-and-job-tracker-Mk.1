@@ -35,7 +35,7 @@ const requestMock = vi.mocked(request);
 function buildAllocationJobSummary(overrides: Record<string, unknown> = {}) {
   return {
     jobNumber: '000123',
-    jobDate: '2026-03-05',
+    installDate: '2026-03-05',
     crewLeader: '',
     status: 'ALLOCATE',
     activeAllocatedFeet: 0,
@@ -108,7 +108,7 @@ describe('allocations API client caulk routes', () => {
     requestMock.mockResolvedValueOnce({
       data: {
         jobNumber: '000123',
-        jobDate: '',
+        installDate: '',
         crewLeader: '',
         requestedFeet: 12,
         sourceBoxId: 'IL1-6502',
@@ -136,7 +136,7 @@ describe('allocations API client caulk routes', () => {
       query: {
         boxId: 'IL1-6502',
         jobNumber: '000123',
-        jobDate: undefined,
+        installDate: undefined,
         crewLeader: undefined,
         requestedFeet: 12,
         requestedWidthIn: 72,

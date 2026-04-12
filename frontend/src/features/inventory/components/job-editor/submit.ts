@@ -19,7 +19,7 @@ interface BuildJobEditorSubmitPayloadArgs {
   jobNumber: string;
   warehouse: Warehouse;
   sections: string;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   requirements: RequirementDraftLine[];
   caulkRequirements: CaulkRequirementDraftLine[];
@@ -40,7 +40,7 @@ export function buildJobEditorSubmitPayload({
   jobNumber,
   warehouse,
   sections,
-  dueDate,
+  installDate,
   crewLeader,
   requirements,
   caulkRequirements,
@@ -139,7 +139,7 @@ export function buildJobEditorSubmitPayload({
       jobNumber: mode === 'edit' ? initialJobNumber : normalizedJobNumber,
       warehouse,
       sections,
-      dueDate,
+      installDate,
       crewLeader: crewLeader.trim(),
       requirements: mergeRequirementLines(normalizedLines),
       caulkRequirements: normalizedCaulkLines

@@ -14,7 +14,7 @@ export function normalizeCompletedJobBackfillCandidate(row) {
   const candidate = {
     id: row?.id ?? null,
     jobNumber: asTrimmedString(row?.jobNumber || row?.job_number),
-    dueDate: row?.dueDate || row?.due_date || '',
+    installDate: row?.installDate || row?.due_date || '',
     lifecycleStatus: asTrimmedString(row?.lifecycleStatus || row?.lifecycle_status || 'ACTIVE').toUpperCase() || 'ACTIVE',
     activeAllocationCount: integerOrZero(row?.activeAllocationCount ?? row?.active_allocation_count),
     openFilmOrderCount: integerOrZero(row?.openFilmOrderCount ?? row?.open_film_order_count),

@@ -104,7 +104,7 @@ export async function previewAllocationPlan(payload: AllocateBoxPayload): Promis
   const params = {
     boxId: payload.boxId,
     jobNumber: payload.jobNumber,
-    jobDate: payload.jobDate,
+    installDate: payload.installDate,
     crewLeader: payload.crewLeader,
     requestedFeet: payload.requestedFeet,
     requestedWidthIn: payload.requestedWidthIn,

@@ -14,7 +14,7 @@ function buildAllocation(overrides: Record<string, unknown> = {}) {
     boxId: 'IL1-100',
     warehouse: 'IL1',
     jobNumber: '000123',
-    jobDate: '2026-03-20',
+    installDate: '2026-03-20',
     crewLeader: 'Crew',
     allocatedFeet,
     coveredFeet: Number(overrides.coveredFeet ?? allocatedFeet),

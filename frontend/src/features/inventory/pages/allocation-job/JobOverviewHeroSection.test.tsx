@@ -10,7 +10,7 @@ function buildSummary(overrides: Partial<JobDetail['summary']> = {}): JobDetail[
     jobNumber: '000123',
     warehouse: 'IL1',
     sections: null,
-    dueDate: '2026-04-01',
+    installDate: '2026-04-01',
     crewLeader: 'Crew',
     status: 'READY',
     lifecycleStatus: 'ACTIVE',

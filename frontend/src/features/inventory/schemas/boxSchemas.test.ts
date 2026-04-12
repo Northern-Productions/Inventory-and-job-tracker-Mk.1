@@ -60,7 +60,7 @@ function buildAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEn
     boxId: 'IL1-6919',
     warehouse: 'IL1',
     jobNumber: 'JOB-1',
-    jobDate: '2026-04-01',
+    installDate: '2026-04-01',
     crewLeader: 'Crew Lead',
     allocatedFeet: 5,
     coveredFeet: Number(overrides.coveredFeet ?? overrides.allocatedFeet ?? 5),

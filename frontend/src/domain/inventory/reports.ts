@@ -35,7 +35,7 @@ export interface ZeroedBoxRow {
 export interface ClosedJobReportRow {
   jobNumber: string;
   warehouse: Warehouse;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   status: JobStatus;
   lifecycleStatus: 'COMPLETED' | 'CANCELLED';

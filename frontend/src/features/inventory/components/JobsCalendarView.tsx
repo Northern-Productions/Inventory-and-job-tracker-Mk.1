@@ -21,7 +21,7 @@ interface JobsCalendarViewProps {
   jobs: JobListEntry[];
   highlightJobNumbers?: string[];
   targetJobNumber?: string;
-  targetJobDate?: string;
+  targetInstallDate?: string;
   targetNavigationToken?: number;
   requestedView?: JobCalendarView;
   requestedAnchorDate?: string;
@@ -120,7 +120,7 @@ export function JobsCalendarView({
   jobs,
   highlightJobNumbers = [],
   targetJobNumber = '',
-  targetJobDate = '',
+  targetInstallDate = '',
   targetNavigationToken = 0,
   requestedView,
   requestedAnchorDate,
@@ -168,7 +168,7 @@ export function JobsCalendarView({
         return;
       }
 
-      const fallbackDateKey = targetDay?.dateKey || String(targetJobDate || '').trim().slice(0, 10);
+      const fallbackDateKey = targetDay?.dateKey || String(targetInstallDate || '').trim().slice(0, 10);
       if (!fallbackDateKey) {
         return;
       }
@@ -177,7 +177,7 @@ export function JobsCalendarView({
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [calendar.days, targetJobDate, targetJobNumber, targetNavigationToken]);
+  }, [calendar.days, targetInstallDate, targetJobNumber, targetNavigationToken]);
 
   function openDay(day: JobCalendarDay) {
     if (!day.jobs.length) {

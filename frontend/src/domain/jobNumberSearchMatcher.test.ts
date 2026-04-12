@@ -7,13 +7,13 @@ import {
 
 interface SearchEntry {
   jobNumber: string;
-  dueDate: string;
+  installDate: string;
 }
 
-function buildEntry(jobNumber: string, dueDate = '2026-04-10'): SearchEntry {
+function buildEntry(jobNumber: string, installDate = '2026-04-10'): SearchEntry {
   return {
     jobNumber,
-    dueDate
+    installDate
   };
 }
 
@@ -58,7 +58,7 @@ describe('jobNumberSearchMatcher', () => {
       '17170',
       {
         compareWithinMatch: (left: SearchEntry, right: SearchEntry) =>
-          right.dueDate.localeCompare(left.dueDate)
+          right.installDate.localeCompare(left.installDate)
       }
     ) as SearchEntry[];
 

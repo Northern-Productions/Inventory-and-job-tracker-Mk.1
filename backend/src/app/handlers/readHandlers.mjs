@@ -75,7 +75,7 @@ const readHandlers = {
   '/allocations/by-job': async ({ client, orgId, params }) =>
     ok(await buildAllocationJobDetail(client, orgId, params.jobNumber)),
   '/allocations/preview': async ({ client, orgId, params }) =>
-    ok(await previewAllocationPlan(client, orgId, params)),
+    ok(await previewAllocationPlan(client, orgId, normalizeLegacyScheduleParams(params))),
   '/jobs/list': async ({ client, orgId, params }) => {
     const limitValue = Number(params && params.limit);
     const limit = Number.isFinite(limitValue) && limitValue >= 0 ? Math.floor(limitValue) : 25;
@@ -123,6 +123,21 @@ const readHandlers = {
   '/caulk/transactions/list': async ({ client, orgId, params }) =>
     ok({ entries: await listCaulkTransactions(client, orgId, params) }),
 };
+
+function normalizeLegacyScheduleParams(params) {
+  if (!params || typeof params !== 'object') {
+    return {};
+  }
+
+  if (params.installDate !== undefined || params.jobDate === undefined) {
+    return params;
+  }
+
+  return {
+    ...params,
+    installDate: params.jobDate
+  };
+}
 
 export async function dispatchReadWithHandlers(logicalPath, params, authContext) {
   return withReadClient(async (client) => {

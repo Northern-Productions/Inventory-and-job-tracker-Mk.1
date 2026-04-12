@@ -98,7 +98,7 @@ export function createOptimisticJobDetailFromCreatePayload(
         payload.sections === null || payload.sections === undefined || payload.sections === ''
           ? null
           : String(payload.sections),
-      dueDate: payload.dueDate || '',
+      installDate: payload.installDate || '',
       crewLeader: payload.crewLeader || '',
       status: computeOptimisticJobStatus(requiredFeet, requiredTubes, 0, Boolean(payload.isLaborOnly)),
       lifecycleStatus: payload.lifecycleStatus || 'ACTIVE',
@@ -159,7 +159,7 @@ export function createOptimisticAllocationJobSummaryFromJobDetail(detail: JobDet
 
   return {
     jobNumber: detail.summary.jobNumber,
-    jobDate: detail.summary.dueDate,
+    installDate: detail.summary.installDate,
     crewLeader: detail.summary.crewLeader,
     status: detail.summary.status,
     activeAllocatedFeet,

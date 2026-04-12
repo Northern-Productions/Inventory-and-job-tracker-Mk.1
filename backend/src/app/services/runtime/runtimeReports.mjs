@@ -375,7 +375,7 @@ async function buildReportsSummary(client, orgId, params) {
     const reportEntry = {
       jobNumber: jobEntry.jobNumber,
       warehouse: jobEntry.warehouse,
-      dueDate: jobEntry.dueDate,
+      installDate: jobEntry.installDate,
       crewLeader: jobEntry.crewLeader,
       status: jobEntry.status,
       lifecycleStatus,

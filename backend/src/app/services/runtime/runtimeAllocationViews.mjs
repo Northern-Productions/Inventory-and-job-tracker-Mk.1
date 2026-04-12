@@ -281,7 +281,7 @@ async function buildAllocationJobList(client, orgId) {
         Boolean(header?.isLaborOnly),
         Boolean(header?.isLaborAssigned),
         Boolean(header?.isStagedForPickup),
-        header?.dueDate || '',
+        header?.installDate || '',
         header?.crewLeader || '',
         boxById
       )
@@ -341,7 +341,7 @@ async function buildAllocationJobDetail(client, orgId, jobNumber) {
       Boolean(header?.isLaborOnly),
       Boolean(header?.isLaborAssigned),
       Boolean(header?.isStagedForPickup),
-      header?.dueDate || '',
+      header?.installDate || '',
       header?.crewLeader || '',
       boxById
     ),

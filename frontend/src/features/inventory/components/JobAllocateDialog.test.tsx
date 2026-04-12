@@ -104,7 +104,7 @@ function renderDialog(
   overrides: Partial<{
     jobNumber: string;
     warehouse: Warehouse;
-    dueDate: string;
+    installDate: string;
     crewLeader: string;
     requirements: JobRequirementLine[];
     filmOrders: FilmOrderEntry[];
@@ -120,7 +120,7 @@ function renderDialog(
         open
         jobNumber={overrides.jobNumber || '55555'}
         warehouse={overrides.warehouse || 'IL1'}
-        dueDate={overrides.dueDate || ''}
+        installDate={overrides.installDate || ''}
         crewLeader={overrides.crewLeader || ''}
         requirements={
           overrides.requirements || [
@@ -298,7 +298,7 @@ describe('JobAllocateDialog', () => {
             boxId: 'IL1-EXTRA',
             warehouse: 'IL1',
             jobNumber: '29010',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             allocatedFeet: 44,
             coveredFeet: 44,
@@ -439,7 +439,7 @@ describe('JobAllocateDialog', () => {
         ? buildPreviewState({
             data: {
               jobNumber: '4803',
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               requestedFeet: 13,
               requestedWidthIn: 72,
@@ -586,7 +586,7 @@ describe('JobAllocateDialog', () => {
         ? buildPreviewState({
             data: {
               jobNumber: '55555',
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               requestedFeet: 15,
               requestedWidthIn: 48,
@@ -779,7 +779,7 @@ describe('JobAllocateDialog', () => {
             boxId: 'IL1-6915',
             warehouse: 'IL1',
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             allocatedFeet: 15,
             coveredFeet: 15,
@@ -810,7 +810,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 15,
             requestedWidthIn: 48,
@@ -832,7 +832,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 15,
             requestedWidthIn: 48,
@@ -970,7 +970,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 15,
             requestedWidthIn: 48,
@@ -992,7 +992,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 12,
             requestedWidthIn: 60,
@@ -1126,7 +1126,7 @@ describe('JobAllocateDialog', () => {
         ? buildPreviewState({
             data: {
               jobNumber: '55555',
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               requestedFeet: 15,
               requestedWidthIn: 48,
@@ -1232,7 +1232,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 15,
             requestedWidthIn: 48,
@@ -1254,7 +1254,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 12,
             requestedWidthIn: 60,
@@ -1408,7 +1408,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 15,
             requestedWidthIn: 48,
@@ -1430,7 +1430,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 12,
             requestedWidthIn: 60,
@@ -1556,7 +1556,7 @@ describe('JobAllocateDialog', () => {
         ? buildPreviewState({
             data: {
               jobNumber: '17872',
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               requestedFeet: 85,
               requestedWidthIn: 36,
@@ -1653,7 +1653,7 @@ describe('JobAllocateDialog', () => {
         ? buildPreviewState({
             data: {
               jobNumber: '17170',
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               requestedFeet: 5,
               requestedWidthIn: 48,
@@ -1781,7 +1781,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 5,
             requestedWidthIn: 48,
@@ -1814,7 +1814,7 @@ describe('JobAllocateDialog', () => {
         return buildPreviewState({
           data: {
             jobNumber: '17170',
-            jobDate: '',
+            installDate: '',
             crewLeader: '',
             requestedFeet: 5,
             requestedWidthIn: 48,

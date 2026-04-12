@@ -65,7 +65,7 @@ function buildFilmRequirementCoverageDetail(
       jobNumber: '29050',
       warehouse: 'IL1',
       sections: null,
-      dueDate: '2026-04-06',
+      installDate: '2026-04-06',
       crewLeader: 'Crew',
       status: 'ALLOCATE',
       lifecycleStatus: 'ACTIVE',
@@ -108,7 +108,7 @@ function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrder
     coveredFeet: 16,
     orderedFeet: 0,
     remainingToOrderFeet: 44,
-    jobDate: '2026-04-13',
+    installDate: '2026-04-13',
     crewLeader: 'Crew',
     status: 'FILM_ORDER',
     sourceBoxId: '',
@@ -157,7 +157,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '18798',
         warehouse: 'IL1',
         sections: '99',
-        dueDate: '2026-03-30',
+        installDate: '2026-03-30',
         crewLeader: 'Napo',
         requirements: [
           {
@@ -210,7 +210,7 @@ describe('inventoryMutationUtils', () => {
       jobNumber: '4644',
       warehouse: 'IL1',
       sections: '1',
-      dueDate: '2026-03-31',
+      installDate: '2026-03-31',
       crewLeader: 'Napo',
       requirements: [],
       caulkRequirements: [],
@@ -252,12 +252,12 @@ describe('inventoryMutationUtils', () => {
         requestedFeet: 120
       },
       {
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Napo'
       }
     );
 
-    expect(optimisticFilmOrder.jobDate).toBe('2026-04-13');
+    expect(optimisticFilmOrder.installDate).toBe('2026-04-13');
     expect(optimisticFilmOrder.crewLeader).toBe('Napo');
   });
 
@@ -268,7 +268,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Napo',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -291,7 +291,7 @@ describe('inventoryMutationUtils', () => {
     ]);
 
     expect(resolveOptimisticFilmOrderScheduleFromCaches(queryClient, '2941')).toEqual({
-      jobDate: '2026-04-13',
+      installDate: '2026-04-13',
       crewLeader: 'Napo'
     });
   });
@@ -302,7 +302,7 @@ describe('inventoryMutationUtils', () => {
       jobNumber: '18798',
       warehouse: 'IL1',
       sections: '99',
-      dueDate: '2026-03-30',
+      installDate: '2026-03-30',
       crewLeader: 'Napo',
       status: 'ALLOCATE' as const,
       lifecycleStatus: 'ACTIVE' as const,
@@ -367,7 +367,7 @@ describe('inventoryMutationUtils', () => {
       jobNumber: '555555555',
       warehouse: 'IL1',
       sections: '1',
-      dueDate: '2026-04-03',
+      installDate: '2026-04-03',
       crewLeader: 'Crew',
       status: 'READY' as const,
       lifecycleStatus: 'ACTIVE' as const,
@@ -431,7 +431,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '555555555',
-        jobDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'READY',
         activeAllocatedFeet: 10,
@@ -458,7 +458,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('555555555'), {
       summary: {
         jobNumber: '555555555',
-        jobDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'READY',
         activeAllocatedFeet: 10,
@@ -490,7 +490,7 @@ describe('inventoryMutationUtils', () => {
         coveredFeet: 0,
         orderedFeet: 0,
         remainingToOrderFeet: 10,
-        jobDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         sourceBoxId: '',
@@ -539,7 +539,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '18798',
         warehouse: 'IL1',
         sections: '99',
-        dueDate: '2026-03-30',
+        installDate: '2026-03-30',
         crewLeader: 'Napo',
         requirements: [],
         caulkRequirements: [
@@ -568,7 +568,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('18798'), {
       summary: {
         jobNumber: '18798',
-        jobDate: '',
+        installDate: '',
         crewLeader: '',
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
@@ -616,7 +616,7 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
       {
         jobNumber: '18798',
-        jobDate: '2026-03-30',
+        installDate: '2026-03-30',
         crewLeader: 'Napo',
         status: 'READY',
         activeAllocatedFeet: 0,
@@ -631,7 +631,7 @@ describe('inventoryMutationUtils', () => {
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('18798'))).toMatchObject({
       summary: {
-        jobDate: '2026-03-30',
+        installDate: '2026-03-30',
         crewLeader: 'Napo',
         status: 'READY',
         requiredTubes: 44,
@@ -653,7 +653,7 @@ describe('inventoryMutationUtils', () => {
       jobNumber: '18959',
       warehouse: 'IL1',
       sections: '1',
-      dueDate: '',
+      installDate: '',
       crewLeader: '',
       status: 'ALLOCATE' as const,
       lifecycleStatus: 'ACTIVE' as const,
@@ -722,7 +722,7 @@ describe('inventoryMutationUtils', () => {
           widthIn: 60,
           allocatedFeet: 20,
           jobNumber: '18959',
-          jobDate: '',
+          installDate: '',
           crewLeader: 'Crew',
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:19:35.984Z',
@@ -745,7 +745,7 @@ describe('inventoryMutationUtils', () => {
           widthIn: 72,
           allocatedFeet: 2,
           jobNumber: '18959',
-          jobDate: '',
+          installDate: '',
           crewLeader: 'Crew',
           status: 'ACTIVE' as const,
           createdAt: '2026-04-06T07:03:24.227Z',
@@ -768,7 +768,7 @@ describe('inventoryMutationUtils', () => {
           widthIn: 72,
           allocatedFeet: 10,
           jobNumber: '18959',
-          jobDate: '',
+          installDate: '',
           crewLeader: 'Crew',
           status: 'ACTIVE' as const,
           createdAt: '2026-04-06T07:03:32.372Z',
@@ -805,7 +805,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '18959',
-        jobDate: '',
+        installDate: '',
         crewLeader: '',
         status: 'ALLOCATE',
         activeAllocatedFeet: 12,
@@ -821,7 +821,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('18959'), {
       summary: {
         jobNumber: '18959',
-        jobDate: '',
+        installDate: '',
         crewLeader: '',
         status: 'ALLOCATE',
         activeAllocatedFeet: 12,
@@ -862,7 +862,7 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
       {
         jobNumber: '18959',
-        jobDate: '',
+        installDate: '',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 32,
@@ -895,7 +895,7 @@ describe('inventoryMutationUtils', () => {
       jobNumber: '19000',
       warehouse: 'IL1',
       sections: '1',
-      dueDate: '2026-04-06',
+      installDate: '2026-04-06',
       crewLeader: 'Crew',
       requirements: [
         {
@@ -934,7 +934,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '555',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -971,7 +971,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6552',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
           allocationKind: 'REQUIREMENT' as const,
@@ -993,7 +993,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-5973',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
           allocationKind: 'REQUIREMENT' as const,
@@ -1049,7 +1049,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '555',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -1086,7 +1086,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6552',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
           allocationKind: 'REQUIREMENT' as const,
@@ -1108,7 +1108,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-5973',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
           allocationKind: 'REQUIREMENT' as const,
@@ -1143,7 +1143,7 @@ describe('inventoryMutationUtils', () => {
           coveredFeet: 0,
           orderedFeet: 0,
           remainingToOrderFeet: 11,
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           status: 'FILM_ORDER' as const,
           sourceBoxId: '',
@@ -1172,7 +1172,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '29001',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -1218,7 +1218,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '29001',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 2,
           requirementId: 'req-50',
@@ -1241,7 +1241,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '29001',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 10,
           requirementId: 'req-72',
@@ -1303,7 +1303,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '29002',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -1349,7 +1349,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '29002',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 10,
           requirementId: 'req-72',
@@ -1384,7 +1384,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '29002',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 2,
           requirementId: 'req-50',
@@ -1451,7 +1451,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-EXT',
         warehouse: 'IL1',
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         allocatedFeet: 20,
         coveredFeet: 20,
@@ -1522,7 +1522,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-INT',
         warehouse: 'IL1',
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         allocatedFeet: 20,
         coveredFeet: 20,
@@ -1593,7 +1593,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-EXT',
         warehouse: 'IL1',
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         allocatedFeet: 50,
         coveredFeet: 50,
@@ -1664,7 +1664,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-RN07-REFL',
         warehouse: 'IL1',
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         allocatedFeet: 10,
         coveredFeet: 10,
@@ -1726,7 +1726,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6769',
         warehouse: 'IL1',
         jobNumber: '17170',
-        jobDate: '2026-04-15',
+        installDate: '2026-04-15',
         crewLeader: 'Danny',
         allocatedFeet: 10,
         coveredFeet: 10,
@@ -1750,7 +1750,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6915',
         warehouse: 'IL1',
         jobNumber: '17170',
-        jobDate: '2026-04-15',
+        installDate: '2026-04-15',
         crewLeader: 'Danny',
         allocatedFeet: 5,
         coveredFeet: 5,
@@ -1792,7 +1792,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '18959',
         warehouse: 'IL1',
         sections: '1',
-        dueDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -1847,7 +1847,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6076',
           warehouse: 'IL1',
           jobNumber: '18959',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 20,
           requirementId: 'req-fasara',
@@ -1870,7 +1870,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '18959',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 10,
           requirementId: 'req-72',
@@ -1905,7 +1905,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6502',
           warehouse: 'IL1',
           jobNumber: '18959',
-          jobDate: '2026-04-03',
+          installDate: '2026-04-03',
           crewLeader: 'Crew',
           allocatedFeet: 2,
           requirementId: 'req-50',
@@ -1957,7 +1957,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '4803',
         warehouse: 'MS1',
         sections: '1',
-        dueDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -2001,7 +2001,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('4803'), {
       summary: {
         jobNumber: '4803',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
@@ -2103,7 +2103,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '29003',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -2156,7 +2156,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('29003'), {
       summary: {
         jobNumber: '29003',
-        jobDate: '2026-04-03',
+        installDate: '2026-04-03',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
@@ -2372,7 +2372,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '555',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -2409,7 +2409,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6552',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
           allocationKind: 'REQUIREMENT' as const,
@@ -2431,7 +2431,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-5973',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
           allocationKind: 'REQUIREMENT' as const,
@@ -2464,7 +2464,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY',
         activeAllocatedFeet: 20,
@@ -2480,7 +2480,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('555'), {
       summary: {
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY',
         activeAllocatedFeet: 20,
@@ -2538,7 +2538,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6552',
         warehouse: 'IL1',
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         allocatedFeet: 11,
         allocationKind: 'REQUIREMENT',
@@ -2660,7 +2660,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('29050'), {
       summary: {
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
@@ -2768,7 +2768,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('29050'), {
       summary: {
         jobNumber: '29050',
-        jobDate: '2026-04-06',
+        installDate: '2026-04-06',
         crewLeader: 'Crew',
         status: 'ALLOCATE',
         activeAllocatedFeet: 0,
@@ -2933,7 +2933,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '555',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -2970,7 +2970,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-6552',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
           coveredFeet: 11,
@@ -2993,7 +2993,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-5973',
           warehouse: 'IL1',
           jobNumber: '555',
-          jobDate: '2026-04-02',
+          installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
           coveredFeet: 9,
@@ -3024,7 +3024,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('555'), {
       summary: {
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         status: 'READY',
         activeAllocatedFeet: 20,
@@ -3108,7 +3108,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6552',
         warehouse: 'IL1',
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         allocatedFeet: 11,
         coveredFeet: 11,
@@ -3128,7 +3128,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-5973',
         warehouse: 'IL1',
         jobNumber: '555',
-        jobDate: '2026-04-02',
+        installDate: '2026-04-02',
         crewLeader: 'Crew',
         allocatedFeet: 9,
         coveredFeet: 9,
@@ -3252,7 +3252,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -3289,7 +3289,7 @@ describe('inventoryMutationUtils', () => {
           boxId: 'IL1-5000',
           warehouse: 'IL1',
           jobNumber: '2941',
-          jobDate: '2026-04-13',
+          installDate: '2026-04-13',
           crewLeader: 'Crew',
           allocatedFeet: 10,
           coveredFeet: 10,
@@ -3338,7 +3338,7 @@ describe('inventoryMutationUtils', () => {
       boxId: 'IL1-6396',
       warehouse: 'IL1',
       jobNumber: '2941',
-      jobDate: '2026-04-13',
+      installDate: '2026-04-13',
       crewLeader: 'Crew',
       allocatedFeet: 16,
       coveredFeet: 16,
@@ -3362,7 +3362,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -3410,7 +3410,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3426,7 +3426,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
       summary: {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3484,7 +3484,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6396',
         warehouse: 'IL1',
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         allocatedFeet: 16,
         status: 'ACTIVE',
@@ -3581,7 +3581,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER' as const,
         lifecycleStatus: 'ACTIVE' as const,
@@ -3605,7 +3605,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3650,7 +3650,7 @@ describe('inventoryMutationUtils', () => {
       boxId: 'IL1-6396',
       warehouse: 'IL1',
       jobNumber: '2941',
-      jobDate: '2026-04-13',
+      installDate: '2026-04-13',
       crewLeader: 'Crew',
       allocatedFeet: 16,
       coveredFeet: 16,
@@ -3674,7 +3674,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -3722,7 +3722,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
       summary: {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3745,7 +3745,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3796,7 +3796,7 @@ describe('inventoryMutationUtils', () => {
         boxId: 'IL1-6396',
         warehouse: 'IL1',
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         allocatedFeet: 16,
         status: 'ACTIVE',
@@ -3874,13 +3874,13 @@ describe('inventoryMutationUtils', () => {
     const queryClient = createQueryClient();
     const openFilmOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-OPEN',
-      jobDate: '',
+      installDate: '',
       crewLeader: 'Old Crew',
       status: 'FILM_ORDER'
     });
     const resolvedFilmOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-DONE',
-      jobDate: '2026-04-01',
+      installDate: '2026-04-01',
       crewLeader: 'Old Crew',
       status: 'FULFILLED',
       resolvedAt: '2026-04-02T00:00:00Z'
@@ -3890,7 +3890,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '',
+        installDate: '',
         crewLeader: 'Old Crew',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -3941,7 +3941,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '2941',
-        jobDate: '',
+        installDate: '',
         crewLeader: 'Old Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3957,7 +3957,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
       summary: {
         jobNumber: '2941',
-        jobDate: '',
+        installDate: '',
         crewLeader: 'Old Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 16,
@@ -3981,28 +3981,28 @@ describe('inventoryMutationUtils', () => {
 
     applyOptimisticJobScheduleSyncToCaches(queryClient, {
       jobNumber: '2941',
-      dueDate: '2026-04-13'
+      installDate: '2026-04-13'
     });
 
     expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('2941'))).toMatchObject({
       summary: {
-        dueDate: '2026-04-13'
+        installDate: '2026-04-13'
       },
       filmOrders: [
         expect.objectContaining({
           filmOrderId: 'FO-OPEN',
-          jobDate: '2026-04-13'
+          installDate: '2026-04-13'
         }),
         expect.objectContaining({
           filmOrderId: 'FO-DONE',
-          jobDate: '2026-04-01'
+          installDate: '2026-04-01'
         })
       ]
     });
     expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        dueDate: '2026-04-13'
+        installDate: '2026-04-13'
       })
     ]);
     expect(
@@ -4012,51 +4012,51 @@ describe('inventoryMutationUtils', () => {
     ).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        dueDate: '2026-04-13'
+        installDate: '2026-04-13'
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        jobDate: '2026-04-13'
+        installDate: '2026-04-13'
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('2941'))).toMatchObject({
       summary: {
-        jobDate: '2026-04-13'
+        installDate: '2026-04-13'
       },
       filmOrders: [
         expect.objectContaining({
           filmOrderId: 'FO-OPEN',
-          jobDate: '2026-04-13'
+          installDate: '2026-04-13'
         }),
         expect.objectContaining({
           filmOrderId: 'FO-DONE',
-          jobDate: '2026-04-01'
+          installDate: '2026-04-01'
         })
       ]
     });
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([
       expect.objectContaining({
         filmOrderId: 'FO-OPEN',
-        jobDate: '2026-04-13'
+        installDate: '2026-04-13'
       }),
       expect.objectContaining({
         filmOrderId: 'FO-DONE',
-        jobDate: '2026-04-01'
+        installDate: '2026-04-01'
       })
     ]);
   });
 
-  it('clears the install date from unresolved linked film orders immediately when the job date is removed', () => {
+  it('clears the install date from unresolved linked film orders immediately when the install date is removed', () => {
     const queryClient = createQueryClient();
     const openFilmOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-OPEN',
-      jobDate: '2026-04-13'
+      installDate: '2026-04-13'
     });
     const resolvedFilmOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-DONE',
-      jobDate: '2026-04-01',
+      installDate: '2026-04-01',
       status: 'CANCELLED',
       resolvedAt: '2026-04-02T00:00:00Z'
     });
@@ -4066,7 +4066,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         warehouse: 'IL1',
         sections: null,
-        dueDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         lifecycleStatus: 'ACTIVE',
@@ -4098,7 +4098,7 @@ describe('inventoryMutationUtils', () => {
     queryClient.setQueryData(inventoryKeys.allocationJobs, [
       {
         jobNumber: '2941',
-        jobDate: '2026-04-13',
+        installDate: '2026-04-13',
         crewLeader: 'Crew',
         status: 'FILM_ORDER',
         activeAllocatedFeet: 0,
@@ -4115,38 +4115,38 @@ describe('inventoryMutationUtils', () => {
 
     applyOptimisticJobScheduleSyncToCaches(queryClient, {
       jobNumber: '2941',
-      dueDate: ''
+      installDate: ''
     });
 
     expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('2941'))).toMatchObject({
       summary: {
-        dueDate: ''
+        installDate: ''
       },
       filmOrders: [
         expect.objectContaining({
           filmOrderId: 'FO-OPEN',
-          jobDate: ''
+          installDate: ''
         }),
         expect.objectContaining({
           filmOrderId: 'FO-DONE',
-          jobDate: '2026-04-01'
+          installDate: '2026-04-01'
         })
       ]
     });
     expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        jobDate: ''
+        installDate: ''
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([
       expect.objectContaining({
         filmOrderId: 'FO-OPEN',
-        jobDate: ''
+        installDate: ''
       }),
       expect.objectContaining({
         filmOrderId: 'FO-DONE',
-        jobDate: '2026-04-01'
+        installDate: '2026-04-01'
       })
     ]);
   });

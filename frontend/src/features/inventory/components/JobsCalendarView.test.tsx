@@ -11,7 +11,7 @@ function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber
     jobNumber,
     warehouse: 'IL1',
     sections: null,
-    dueDate: '2026-03-24',
+    installDate: '2026-03-24',
     crewLeader: '',
     status: 'READY',
     lifecycleStatus: 'ACTIVE',
@@ -42,15 +42,15 @@ describe('JobsCalendarView', () => {
           view="week"
           anchorDate="2026-03-24"
           jobs={[
-            buildJob({ jobNumber: '10001', dueDate: '2026-03-24', isStagedForPickup: true }),
+            buildJob({ jobNumber: '10001', installDate: '2026-03-24', isStagedForPickup: true }),
             buildJob({
               jobNumber: '10002',
-              dueDate: '2026-03-24',
+              installDate: '2026-03-24',
               status: 'COMPLETED',
               lifecycleStatus: 'COMPLETED'
             }),
-            buildJob({ jobNumber: '10003', dueDate: '2026-03-24', status: 'ALLOCATE' }),
-            buildJob({ jobNumber: '10004', dueDate: '2026-03-24' })
+            buildJob({ jobNumber: '10003', installDate: '2026-03-24', status: 'ALLOCATE' }),
+            buildJob({ jobNumber: '10004', installDate: '2026-03-24' })
           ]}
           navigationStatus={{ kind: 'loading', label: 'Loading Mar 29 - Apr 4, 2026...' }}
           transitionToken={1}
@@ -88,11 +88,11 @@ describe('JobsCalendarView', () => {
           view="month"
           anchorDate="2026-03-01"
           jobs={[
-            buildJob({ jobNumber: '10001', dueDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10002', dueDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10003', dueDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10004', dueDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10005', dueDate: '2026-03-24' })
+            buildJob({ jobNumber: '10001', installDate: '2026-03-24' }),
+            buildJob({ jobNumber: '10002', installDate: '2026-03-24' }),
+            buildJob({ jobNumber: '10003', installDate: '2026-03-24' }),
+            buildJob({ jobNumber: '10004', installDate: '2026-03-24' }),
+            buildJob({ jobNumber: '10005', installDate: '2026-03-24' })
           ]}
           onViewChange={() => {}}
           onAnchorDateChange={() => {}}
@@ -113,8 +113,8 @@ describe('JobsCalendarView', () => {
           view="week"
           anchorDate="2026-03-24"
           jobs={[
-            buildJob({ jobNumber: '10001', dueDate: '2026-03-22' }),
-            buildJob({ jobNumber: '10002', dueDate: '2026-03-24', isStagedForPickup: true })
+            buildJob({ jobNumber: '10001', installDate: '2026-03-22' }),
+            buildJob({ jobNumber: '10002', installDate: '2026-03-24', isStagedForPickup: true })
           ]}
           onViewChange={() => {}}
           onAnchorDateChange={() => {}}
@@ -139,7 +139,7 @@ describe('JobsCalendarView', () => {
         <JobsCalendarView
           view="month"
           anchorDate="2026-03-01"
-          jobs={[buildJob({ jobNumber: '10001', dueDate: '2026-03-24' })]}
+          jobs={[buildJob({ jobNumber: '10001', installDate: '2026-03-24' })]}
           navigationStatus={{ kind: 'error', label: 'Unable to load April 2026.' }}
           onViewChange={() => {}}
           onAnchorDateChange={() => {}}

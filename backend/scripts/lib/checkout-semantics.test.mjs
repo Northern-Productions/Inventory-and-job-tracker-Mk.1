@@ -10,7 +10,7 @@ function buildAllocation(overrides = {}) {
     boxId: 'IL1-100',
     warehouse: 'IL1',
     jobNumber: '000123',
-    jobDate: '2026-04-10',
+    installDate: '2026-04-10',
     crewLeader: 'Crew',
     allocatedFeet: 10,
     coveredFeet: 10,

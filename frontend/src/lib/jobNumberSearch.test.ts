@@ -9,7 +9,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     jobNumber: overrideJobNumber || '000001',
     warehouse: rest.warehouse || 'IL1',
     sections: rest.sections ?? null,
-    dueDate: rest.dueDate || '',
+    installDate: rest.installDate || '',
     crewLeader: rest.crewLeader || '',
     status: rest.status || 'ALLOCATE',
     lifecycleStatus: rest.lifecycleStatus || 'ACTIVE',
@@ -34,8 +34,8 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
 describe('rankActiveJobsByNumericCloseness', () => {
   it('puts prefix matches ahead of broader contains matches', () => {
     const entries = [
-      buildJob({ jobNumber: '18542', dueDate: '2026-03-18' }),
-      buildJob({ jobNumber: '11854', dueDate: '2026-03-13' })
+      buildJob({ jobNumber: '18542', installDate: '2026-03-18' }),
+      buildJob({ jobNumber: '11854', installDate: '2026-03-13' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '1854', 25);
@@ -86,10 +86,10 @@ describe('rankActiveJobsByNumericCloseness', () => {
     expect(result.map((entry) => entry.jobNumber)).toEqual(['1235']);
   });
 
-  it('uses due date recency as a deterministic tie-breaker within the same match tier', () => {
+  it('uses install date recency as a deterministic tie-breaker within the same match tier', () => {
     const entries = [
-      buildJob({ jobNumber: '1234', dueDate: '2026-04-10' }),
-      buildJob({ jobNumber: '1235', dueDate: '2026-04-12' })
+      buildJob({ jobNumber: '1234', installDate: '2026-04-10' }),
+      buildJob({ jobNumber: '1235', installDate: '2026-04-12' })
     ];
 
     const result = rankActiveJobsByNumericCloseness(entries, '123', 25);

@@ -1,14 +1,24 @@
 import type { FilmOrderEntry, FilmOrderStatus } from '../../../domain';
 
+type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
+  Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet' | 'installDate'>>;
+
 export function isUnresolvedFilmOrderStatus(status: FilmOrderStatus | string): boolean {
   const normalizedStatus = String(status || '').trim().toUpperCase();
   return normalizedStatus === 'FILM_ORDER' || normalizedStatus === 'FILM_ON_THE_WAY';
 }
 
 export function hasFilmOrderInstallDate(
-  order: Pick<FilmOrderEntry, 'jobDate'> | null | undefined
+  order: Partial<Pick<FilmOrderEntry, 'installDate'>> | null | undefined
 ): boolean {
-  return Boolean(String(order?.jobDate || '').trim());
+  return Boolean(String(order?.installDate || '').trim());
+}
+
+function hasRemainingFilmToOrder(
+  order: Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet'>> | null | undefined
+): boolean {
+  const remainingToOrderFeet = Number(order?.remainingToOrderFeet);
+  return Number.isFinite(remainingToOrderFeet) ? remainingToOrderFeet > 0 : true;
 }
 
 export function isUnresolvedFilmOrder(
@@ -18,9 +28,18 @@ export function isUnresolvedFilmOrder(
 }
 
 export function isFilmOrderNeedingAttention(
-  order: Pick<FilmOrderEntry, 'status' | 'jobDate'> | null | undefined
+  order: FilmOrderAttentionEntry | null | undefined
 ): boolean {
-  return Boolean(order && isUnresolvedFilmOrderStatus(order.status) && hasFilmOrderInstallDate(order));
+  if (!order) {
+    return false;
+  }
+
+  const normalizedStatus = String(order.status || '').trim().toUpperCase();
+  return (
+    normalizedStatus === 'FILM_ORDER' &&
+    hasFilmOrderInstallDate(order) &&
+    hasRemainingFilmToOrder(order)
+  );
 }
 
 export function countUnresolvedFilmOrders(
@@ -47,7 +66,7 @@ export function hasUnresolvedFilmOrders(
 }
 
 export function countFilmOrdersNeedingAttention(
-  entries: ReadonlyArray<Pick<FilmOrderEntry, 'status' | 'jobDate'>> | null | undefined
+  entries: ReadonlyArray<FilmOrderAttentionEntry> | null | undefined
 ): number {
   if (!entries?.length) {
     return 0;
@@ -64,7 +83,7 @@ export function countFilmOrdersNeedingAttention(
 }
 
 export function hasFilmOrdersNeedingAttention(
-  entries: ReadonlyArray<Pick<FilmOrderEntry, 'status' | 'jobDate'>> | null | undefined
+  entries: ReadonlyArray<FilmOrderAttentionEntry> | null | undefined
 ): boolean {
   return countFilmOrdersNeedingAttention(entries) > 0;
 }

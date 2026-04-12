@@ -260,6 +260,7 @@ async function previewAllocationPlan(client, orgId, payload) {
     throw new HttpError(404, 'Box not found.');
   }
 
+  const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
   const allBoxes = await listBoxes(client, orgId);
   const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
@@ -267,7 +268,7 @@ async function previewAllocationPlan(client, orgId, payload) {
     client,
     orgId,
     payload.jobNumber,
-    payload.jobDate,
+    installDate,
     payload.crewLeader
   );
   const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);
@@ -365,6 +366,7 @@ function calculateRemainingFeetForRequirement(requirement, allocations, boxById)
 async function applyAllocationPlan(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
+  const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
   const source = await findBoxById(client, orgId, boxId);
 
@@ -418,7 +420,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     client,
     orgId,
     payload.jobNumber,
-    payload.jobDate,
+    installDate,
     payload.crewLeader
   );
   const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);

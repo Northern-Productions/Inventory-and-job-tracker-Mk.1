@@ -35,26 +35,26 @@ function updateCachedJobSummaryCollections(
 
 export function applyOptimisticJobScheduleSyncToCaches(
   queryClient: QueryClient,
-  payload: Pick<UpdateJobPayload, 'jobNumber' | 'dueDate' | 'crewLeader'>
+  payload: Pick<UpdateJobPayload, 'jobNumber' | 'installDate' | 'crewLeader'>
 ) {
   const normalizedJobNumber = String(payload.jobNumber || '').trim();
   if (!normalizedJobNumber) {
     return;
   }
 
-  const hasDueDateUpdate = payload.dueDate !== undefined;
+  const hasInstallDateUpdate = payload.installDate !== undefined;
   const hasCrewLeaderUpdate = payload.crewLeader !== undefined;
-  if (!hasDueDateUpdate && !hasCrewLeaderUpdate) {
+  if (!hasInstallDateUpdate && !hasCrewLeaderUpdate) {
     return;
   }
 
-  const nextDueDate = hasDueDateUpdate ? String(payload.dueDate || '').trim() : undefined;
+  const nextInstallDate = hasInstallDateUpdate ? String(payload.installDate || '').trim() : undefined;
   const nextCrewLeader = hasCrewLeaderUpdate ? String(payload.crewLeader || '').trim() : undefined;
   const patchFilmOrder = (entry: FilmOrderEntry): FilmOrderEntry =>
     entry.jobNumber === normalizedJobNumber && isUnresolvedFilmOrder(entry)
       ? {
           ...entry,
-          ...(nextDueDate !== undefined ? { jobDate: nextDueDate } : {}),
+          ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
           ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
         }
       : entry;
@@ -67,7 +67,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
         ...currentJob,
         summary: {
           ...currentJob.summary,
-          ...(nextDueDate !== undefined ? { dueDate: nextDueDate } : {}),
+          ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
           ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
         },
         filmOrders: currentJob.filmOrders.map(patchFilmOrder)
@@ -78,7 +78,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
 
   updateCachedJobSummaryCollections(queryClient, normalizedJobNumber, (entry) => ({
     ...entry,
-    ...(nextDueDate !== undefined ? { dueDate: nextDueDate } : {}),
+    ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
     ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
   }));
 
@@ -88,7 +88,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
           entry.jobNumber === normalizedJobNumber
             ? {
                 ...entry,
-                ...(nextDueDate !== undefined ? { jobDate: nextDueDate } : {}),
+                ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
                 ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
               }
             : entry
@@ -104,7 +104,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
             ...current,
             summary: {
               ...current.summary,
-              ...(nextDueDate !== undefined ? { jobDate: nextDueDate } : {}),
+              ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
               ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
             },
             filmOrders: current.filmOrders.map(patchFilmOrder)

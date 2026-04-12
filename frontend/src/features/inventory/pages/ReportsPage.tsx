@@ -421,7 +421,7 @@ export default function ReportsPage() {
                         onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
                       />
                       <MobileFieldList>
-                        <MobileField label="Install Date" value={formatDate(row.dueDate)} />
+                        <MobileField label="Install Date" value={formatDate(row.installDate)} />
                         <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
                       </MobileFieldList>
                     </MobileRecordCard>
@@ -452,7 +452,7 @@ export default function ReportsPage() {
                             </button>
                           </td>
                           <td>{row.warehouse}</td>
-                          <td>{formatDate(row.dueDate)}</td>
+                          <td>{formatDate(row.installDate)}</td>
                           <td>{row.crewLeader || '--'}</td>
                           <td>
                             <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
@@ -479,7 +479,7 @@ export default function ReportsPage() {
                         onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
                       />
                       <MobileFieldList>
-                        <MobileField label="Install Date" value={formatDate(row.dueDate)} />
+                        <MobileField label="Install Date" value={formatDate(row.installDate)} />
                         <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
                         <MobileField label="Required LF" value={row.requiredFeet} />
                         <MobileField label="Allocated LF" value={row.allocatedFeet} />
@@ -518,7 +518,7 @@ export default function ReportsPage() {
                             </button>
                           </td>
                           <td>{row.warehouse}</td>
-                          <td>{formatDate(row.dueDate)}</td>
+                          <td>{formatDate(row.installDate)}</td>
                           <td>{row.crewLeader || '--'}</td>
                           <td>
                             <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>

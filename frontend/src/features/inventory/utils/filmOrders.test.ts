@@ -6,25 +6,36 @@ import {
 } from './filmOrders';
 
 describe('filmOrders helpers', () => {
-  it('treats unresolved film orders with an install date as needing attention', () => {
+  it('treats scheduled film orders that still need ordering as needing attention', () => {
     expect(
       isFilmOrderNeedingAttention({
         status: 'FILM_ORDER',
-        jobDate: '2026-04-13'
+        remainingToOrderFeet: 24,
+        installDate: '2026-04-13'
       })
     ).toBe(true);
   });
 
-  it('does not treat unresolved film orders without an install date as needing attention', () => {
+  it('does not treat unscheduled film orders as needing attention', () => {
     expect(
       isFilmOrderNeedingAttention({
-        status: 'FILM_ON_THE_WAY',
-        jobDate: ''
+        status: 'FILM_ORDER',
+        remainingToOrderFeet: 24
       })
     ).toBe(false);
     expect(
       hasFilmOrderInstallDate({
-        jobDate: '   '
+        installDate: '   '
+      })
+    ).toBe(false);
+  });
+
+  it('does not treat film that is already on the way as needing attention', () => {
+    expect(
+      isFilmOrderNeedingAttention({
+        status: 'FILM_ON_THE_WAY',
+        remainingToOrderFeet: 0,
+        installDate: '2026-04-13'
       })
     ).toBe(false);
   });
@@ -33,16 +44,28 @@ describe('filmOrders helpers', () => {
     expect(
       isFilmOrderNeedingAttention({
         status: 'FULFILLED',
-        jobDate: '2026-04-13'
+        remainingToOrderFeet: 0,
+        installDate: '2026-04-13'
       })
     ).toBe(false);
     expect(
       hasFilmOrdersNeedingAttention([
         {
           status: 'CANCELLED',
-          jobDate: '2026-04-13'
+          remainingToOrderFeet: 0,
+          installDate: '2026-04-13'
         }
       ])
+    ).toBe(false);
+  });
+
+  it('does not treat zero remaining film-order shortages as needing attention', () => {
+    expect(
+      isFilmOrderNeedingAttention({
+        status: 'FILM_ORDER',
+        remainingToOrderFeet: 0,
+        installDate: '2026-04-13'
+      })
     ).toBe(false);
   });
 });

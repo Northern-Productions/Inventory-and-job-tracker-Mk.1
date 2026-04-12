@@ -32,7 +32,7 @@ function mapToComputedNavItems(
       item.to === '/allocations' && options.allocationsAttention
         ? `${item.desktopLabel} (jobs need allocations)`
         : item.to === '/film-orders' && options.filmOrdersAttention
-          ? `${item.desktopLabel} (install-dated film orders)`
+          ? `${item.desktopLabel} (needs ordering)`
           : options.accessAttention && item.to === '/admin/access'
             ? `${item.desktopLabel} (pending approvals)`
             : undefined
@@ -49,7 +49,7 @@ function toMobileNavItems(items: ComputedNavItem[]) {
       item.to === '/allocations' && item.showAttentionDot
         ? `${item.mobileLabel} (jobs need allocations)`
         : item.to === '/film-orders' && item.showAttentionDot
-          ? `${item.mobileLabel} (install-dated film orders)`
+          ? `${item.mobileLabel} (needs ordering)`
           : item.to === '/admin/access' && item.showAttentionDot
             ? `${item.mobileLabel} (pending approvals)`
             : item.attentionAriaLabel
@@ -158,11 +158,11 @@ export function useAppLayoutNavigation(pathname: string): {
   );
   const mobileMoreAttentionAriaLabel = useMemo(() => {
     if (showAccessPendingAttention && showFilmOrdersAttention) {
-      return 'More (pending approvals and install-dated film orders)';
+      return 'More (pending approvals and film orders need ordering)';
     }
 
     if (showFilmOrdersAttention) {
-      return 'More (install-dated film orders)';
+      return 'More (film orders need ordering)';
     }
 
     if (showAccessPendingAttention) {

@@ -47,7 +47,7 @@ function createAllocation(overrides: Partial<AllocationEntry> = {}): AllocationE
     boxId: '2',
     warehouse: 'IL1',
     jobNumber: 'JOB-1',
-    jobDate: '2026-03-04',
+    installDate: '2026-03-04',
     crewLeader: 'Crew Lead',
     allocatedFeet: 20,
     coveredFeet: Number(overrides.coveredFeet ?? overrides.allocatedFeet ?? 20),

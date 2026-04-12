@@ -11,7 +11,7 @@ function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): Allocati
     boxId: 'IL1-ORDERED',
     warehouse: 'IL1',
     jobNumber: '000123',
-    jobDate: '2026-04-01',
+    installDate: '2026-04-01',
     crewLeader: 'Crew',
     allocatedFeet: 40,
     coveredFeet: 40,

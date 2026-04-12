@@ -62,7 +62,7 @@ function compareTimestampAscending(leftValue: string, rightValue: string) {
 }
 
 function fallbackJobSort(left: JobListEntry, right: JobListEntry) {
-  return compareTimestampDescending(left.dueDate, right.dueDate) || compareJobNumberDescending(left, right);
+  return compareTimestampDescending(left.installDate, right.installDate) || compareJobNumberDescending(left, right);
 }
 
 export function getJobListDisplayStatus(status: string, filmOrderCount: number) {

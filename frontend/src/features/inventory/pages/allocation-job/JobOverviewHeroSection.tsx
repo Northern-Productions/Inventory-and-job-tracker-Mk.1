@@ -97,7 +97,7 @@ export function JobOverviewHeroSection({
       <div className="stat-grid allocation-stat-grid">
         <div className="key-value">
           <dt>Install Date</dt>
-          <dd>{renderDate(summary.dueDate)}</dd>
+          <dd>{renderDate(summary.installDate)}</dd>
         </div>
         <div className="key-value">
           <dt>Warehouse</dt>

@@ -97,15 +97,25 @@ const mutationHandlers = {
   '/boxes/transfer/cancel': async ({ client, orgId, authContext, params }) =>
     cancelBoxTransfer(client, orgId, params, authContext.actor),
   '/allocations/add': async ({ client, orgId, authContext, params }) =>
-    applyAllocationPlan(client, orgId, params, authContext.actor),
+    applyAllocationPlan(
+      client,
+      orgId,
+      normalizeLegacySchedulePayload('/allocations/add', params),
+      authContext.actor
+    ),
   '/allocations/apply': async ({ client, orgId, authContext, params }) =>
-    applyAllocationPlan(client, orgId, params, authContext.actor),
+    applyAllocationPlan(
+      client,
+      orgId,
+      normalizeLegacySchedulePayload('/allocations/apply', params),
+      authContext.actor
+    ),
   '/allocations/remove-box': async ({ client, orgId, authContext, params }) =>
     removeJobBoxAllocation(client, orgId, params, authContext.actor),
   '/jobs/create': async ({ client, orgId, authContext, params }) =>
-    createJob(client, orgId, params, authContext.actor),
+    createJob(client, orgId, normalizeLegacySchedulePayload('/jobs/create', params), authContext.actor),
   '/jobs/update': async ({ client, orgId, authContext, params }) =>
-    updateJob(client, orgId, params, authContext.actor),
+    updateJob(client, orgId, normalizeLegacySchedulePayload('/jobs/update', params), authContext.actor),
   '/jobs/set-staged-pickup': async ({ client, orgId, authContext, params }) => {
     const jobNumber = requireString(params.jobNumber, 'JobNumber');
     const result = await setJobStagedPickup(
@@ -164,6 +174,36 @@ const mutationHandlers = {
   '/audit/undo': async ({ client, orgId, authContext, params }) =>
     undoAudit(client, orgId, params, authContext.actor),
 };
+
+function normalizeLegacySchedulePayload(logicalPath, params) {
+  if (!params || typeof params !== 'object') {
+    return {};
+  }
+
+  if (logicalPath === '/jobs/create' || logicalPath === '/jobs/update') {
+    if (params.installDate !== undefined || params.dueDate === undefined) {
+      return params;
+    }
+
+    return {
+      ...params,
+      installDate: params.dueDate
+    };
+  }
+
+  if (logicalPath === '/allocations/add' || logicalPath === '/allocations/apply') {
+    if (params.installDate !== undefined || params.jobDate === undefined) {
+      return params;
+    }
+
+    return {
+      ...params,
+      installDate: params.jobDate
+    };
+  }
+
+  return params;
+}
 
 async function applyCheckoutAllJobMaterials(client, orgId, jobNumber, actor) {
   return checkoutAllJobMaterials(client, orgId, jobNumber, actor);

@@ -9,7 +9,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     jobNumber: '1000',
     warehouse: 'IL1',
     sections: null,
-    dueDate: '2026-03-20',
+    installDate: '2026-03-20',
     crewLeader: '',
     status: 'ALLOCATE',
     lifecycleStatus: 'ACTIVE',
@@ -37,9 +37,9 @@ describe('sortJobs', () => {
   it('sorts by install date by default', () => {
     const result = sortJobs(
       [
-        buildJob({ jobNumber: '1001', dueDate: '2026-03-22' }),
-        buildJob({ jobNumber: '1002', dueDate: '2026-03-25' }),
-        buildJob({ jobNumber: '1003', dueDate: '2026-03-21' })
+        buildJob({ jobNumber: '1001', installDate: '2026-03-22' }),
+        buildJob({ jobNumber: '1002', installDate: '2026-03-25' }),
+        buildJob({ jobNumber: '1003', installDate: '2026-03-21' })
       ],
       'install_date'
     );
@@ -87,9 +87,9 @@ describe('sortJobs', () => {
 
   it('can prioritize allocate and film-order workflows', () => {
     const entries = [
-      buildJob({ jobNumber: '1', dueDate: '2026-03-21', status: 'READY' }),
-      buildJob({ jobNumber: '2', dueDate: '2026-03-22', status: 'ALLOCATE' }),
-      buildJob({ jobNumber: '3', dueDate: '2026-03-23', status: 'ALLOCATE', filmOrderCount: 2 })
+      buildJob({ jobNumber: '1', installDate: '2026-03-21', status: 'READY' }),
+      buildJob({ jobNumber: '2', installDate: '2026-03-22', status: 'ALLOCATE' }),
+      buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'ALLOCATE', filmOrderCount: 2 })
     ];
 
     expect(sortJobs(entries, 'allocate').map((entry) => entry.jobNumber)).toEqual(['2', '3', '1']);
@@ -98,9 +98,9 @@ describe('sortJobs', () => {
 
   it('keeps exact search matches ahead of prefix and contains matches', () => {
     const entries = [
-      buildJob({ jobNumber: '2171705', dueDate: '2026-04-20' }),
-      buildJob({ jobNumber: '171700', dueDate: '2026-04-22' }),
-      buildJob({ jobNumber: '17170', dueDate: '2026-04-01' })
+      buildJob({ jobNumber: '2171705', installDate: '2026-04-20' }),
+      buildJob({ jobNumber: '171700', installDate: '2026-04-22' }),
+      buildJob({ jobNumber: '17170', installDate: '2026-04-01' })
     ];
 
     expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([
@@ -112,9 +112,9 @@ describe('sortJobs', () => {
 
   it('uses the selected sort inside the same search match tier', () => {
     const entries = [
-      buildJob({ jobNumber: '171701', dueDate: '2026-04-09' }),
-      buildJob({ jobNumber: '171700', dueDate: '2026-04-12' }),
-      buildJob({ jobNumber: '17170', dueDate: '2026-04-01' })
+      buildJob({ jobNumber: '171701', installDate: '2026-04-09' }),
+      buildJob({ jobNumber: '171700', installDate: '2026-04-12' }),
+      buildJob({ jobNumber: '17170', installDate: '2026-04-01' })
     ];
 
     expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([

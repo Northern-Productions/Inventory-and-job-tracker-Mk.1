@@ -62,7 +62,7 @@ export function useCreateFilmOrder() {
               jobNumber: payload.jobNumber,
               warehouse: payload.warehouse,
               sections: null,
-              dueDate: '',
+              installDate: '',
               crewLeader: '',
               status: 'ALLOCATE',
               lifecycleStatus: 'ACTIVE',
@@ -112,7 +112,7 @@ export function useCreateFilmOrder() {
             ...(queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(payload.jobNumber))
               ?.summary || {
               jobNumber: payload.jobNumber,
-              jobDate: '',
+              installDate: '',
               crewLeader: '',
               status: 'ALLOCATE',
               activeAllocatedFeet: 0,

@@ -2,15 +2,15 @@ import type { JobListEntry } from '../domain';
 import { rankJobNumberSearchCandidates } from '../domain/jobNumberSearchMatcher.mjs';
 
 function compareJobsByDateAndId(left: JobListEntry, right: JobListEntry): number {
-  if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
-    return left.dueDate > right.dueDate ? -1 : 1;
+  if (left.installDate && right.installDate && left.installDate !== right.installDate) {
+    return left.installDate > right.installDate ? -1 : 1;
   }
 
-  if (left.dueDate && !right.dueDate) {
+  if (left.installDate && !right.installDate) {
     return -1;
   }
 
-  if (!left.dueDate && right.dueDate) {
+  if (!left.installDate && right.installDate) {
     return 1;
   }
 

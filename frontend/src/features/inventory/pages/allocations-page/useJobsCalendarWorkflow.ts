@@ -96,7 +96,7 @@ export function useJobsCalendarWorkflow({
   const [calendarSearchTarget, setCalendarSearchTarget] = useState<{
     jobNumber: string;
     lifecycleStatus: JobLifecycleFilter;
-    dueDate: string;
+    installDate: string;
   } | null>(null);
   const [calendarTargetNavigationToken, setCalendarTargetNavigationToken] = useState(0);
   const [calendarTransitionErrorMessage, setCalendarTransitionErrorMessage] = useState('');
@@ -212,7 +212,7 @@ export function useJobsCalendarWorkflow({
       : '';
   const visibleCalendarTargetDate =
     calendarSearchTarget?.lifecycleStatus === selectedLifecycleStatus
-      ? calendarSearchTarget.dueDate
+      ? calendarSearchTarget.installDate
       : '';
 
   function requestCalendarAnchorDate(nextAnchorDate: string) {
@@ -369,7 +369,7 @@ export function useJobsCalendarWorkflow({
       String(bestCalendarSearchMatch.lifecycleStatus || '').trim().toUpperCase() === 'COMPLETED'
         ? 'COMPLETED'
         : 'ACTIVE';
-    const targetAnchorDate = String(bestCalendarSearchMatch.dueDate || '')
+    const targetAnchorDate = String(bestCalendarSearchMatch.installDate || '')
       .trim()
       .slice(0, 10);
     const hasTargetAnchorDate = /^\d{4}-\d{2}-\d{2}$/.test(targetAnchorDate);
@@ -389,7 +389,7 @@ export function useJobsCalendarWorkflow({
     setCalendarSearchTarget({
       jobNumber: bestCalendarSearchMatch.jobNumber,
       lifecycleStatus: targetLifecycleStatus,
-      dueDate: hasTargetAnchorDate ? targetAnchorDate : ''
+      installDate: hasTargetAnchorDate ? targetAnchorDate : ''
     });
     setCalendarTargetNavigationToken((currentToken) => currentToken + 1);
   }, [

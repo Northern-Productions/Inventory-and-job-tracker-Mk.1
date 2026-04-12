@@ -4,7 +4,7 @@ import type { Warehouse } from './warehouses';
 export interface AllocateBoxPayload {
   boxId: string;
   jobNumber: string;
-  jobDate?: string;
+  installDate?: string;
   crewLeader?: string;
   requestedFeet: number;
   requestedWidthIn?: number;
@@ -40,7 +40,7 @@ export interface AllocationEntry {
   boxId: string;
   warehouse: Warehouse;
   jobNumber: string;
-  jobDate: string;
+  installDate: string;
   crewLeader: string;
   allocatedFeet: number;
   coveredFeet: number;
@@ -74,7 +74,7 @@ export interface AllocationPreviewSuggestion {
 
 export interface AllocationPreview {
   jobNumber: string;
-  jobDate: string;
+  installDate: string;
   crewLeader: string;
   requestedFeet: number;
   requestedWidthIn: number;
@@ -109,7 +109,7 @@ export interface FilmOrderEntry {
   coveredFeet: number;
   orderedFeet: number;
   remainingToOrderFeet: number;
-  jobDate: string;
+  installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
   sourceBoxId: string;
@@ -143,7 +143,7 @@ export interface CreateFilmOrderPayload {
 
 export interface AllocationJobSummary {
   jobNumber: string;
-  jobDate: string;
+  installDate: string;
   crewLeader: string;
   status: AllocationJobStatus;
   activeAllocatedFeet: number;
@@ -216,7 +216,7 @@ export interface JobListEntry {
   jobNumber: string;
   warehouse: Warehouse;
   sections: string | null;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   status: JobStatus;
   lifecycleStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -266,7 +266,7 @@ export interface CreateJobPayload {
   jobNumber: string;
   warehouse: Warehouse;
   sections?: string | number | null;
-  dueDate?: string;
+  installDate?: string;
   crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   isLaborOnly?: boolean;
@@ -288,7 +288,7 @@ export interface UpdateJobPayload {
   jobNumber: string;
   warehouse?: Warehouse;
   sections?: string | number | null;
-  dueDate?: string;
+  installDate?: string;
   crewLeader?: string;
   lifecycleStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   isLaborOnly?: boolean;

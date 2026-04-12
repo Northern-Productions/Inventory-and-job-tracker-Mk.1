@@ -36,7 +36,7 @@ interface UseJobEditorFormOptions {
   initialJobNumber: string;
   initialWarehouse?: Warehouse;
   initialSections?: string | number | null;
-  initialDueDate?: string;
+  initialInstallDate?: string;
   initialCrewLeader?: string;
   initialRequirements: JobRequirementEditorLine[];
   initialCaulkRequirements: JobCaulkRequirementEditorLine[];
@@ -51,7 +51,7 @@ export function useJobEditorForm({
   initialJobNumber,
   initialWarehouse,
   initialSections,
-  initialDueDate = '',
+  initialInstallDate = '',
   initialCrewLeader = '',
   initialRequirements,
   initialCaulkRequirements,
@@ -89,7 +89,7 @@ export function useJobEditorForm({
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
   const [warehouse, setWarehouse] = useState<Warehouse>(initialWarehouse || defaultWarehouse);
   const [sections, setSections] = useState(getSectionsInputValue(initialSections));
-  const [dueDate, setDueDate] = useState(initialDueDate);
+  const [installDate, setInstallDate] = useState(initialInstallDate);
   const [crewLeader, setCrewLeader] = useState(initialCrewLeader);
   const [requirements, setRequirements] = useState<RequirementDraftLine[]>(
     initialRequirements.map((entry) => createDraftLine(entry))
@@ -122,7 +122,7 @@ export function useJobEditorForm({
     setJobNumber(initialJobNumber);
     setWarehouse(initialWarehouse || defaultWarehouse);
     setSections(getSectionsInputValue(initialSections));
-    setDueDate(initialDueDate);
+    setInstallDate(initialInstallDate);
     setCrewLeader(initialCrewLeader);
     setRequirements(initialRequirements.map((entry) => createDraftLine(entry)));
     setCaulkRequirements(initialCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
@@ -139,7 +139,7 @@ export function useJobEditorForm({
     defaultWarehouse,
     initialCaulkRequirements,
     initialCrewLeader,
-    initialDueDate,
+    initialInstallDate,
     initialJobNumber,
     initialRequirements,
     initialSections,
@@ -352,7 +352,7 @@ export function useJobEditorForm({
       jobNumber,
       warehouse,
       sections,
-      dueDate,
+      installDate,
       crewLeader,
       requirements,
       caulkRequirements,
@@ -381,7 +381,7 @@ export function useJobEditorForm({
     closeCustomWidth,
     crewLeader,
     customWidthDraft,
-    dueDate,
+    installDate,
     error,
     filmName,
     handleAddCaulkRequirement,
@@ -404,7 +404,7 @@ export function useJobEditorForm({
     setCaulkRequiredTubes,
     setCrewLeader,
     setCustomWidthDraft,
-    setDueDate,
+    setInstallDate,
     setFilmName,
     setJobNumber,
     setManufacturer,

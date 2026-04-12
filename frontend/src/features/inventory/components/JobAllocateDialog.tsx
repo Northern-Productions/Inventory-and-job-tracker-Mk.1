@@ -26,7 +26,7 @@ interface JobAllocateDialogProps {
   open: boolean;
   jobNumber: string;
   warehouse: Warehouse;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   requirements: JobRequirementLine[];
   filmOrders: FilmOrderEntry[];
@@ -38,7 +38,7 @@ export function JobAllocateDialog({
   open,
   jobNumber,
   warehouse,
-  dueDate,
+  installDate,
   crewLeader,
   requirements,
   filmOrders,
@@ -132,7 +132,7 @@ export function JobAllocateDialog({
         ? {
             boxId: selectedSourceBox.boxId,
             jobNumber,
-            jobDate: dueDate || '',
+            installDate: installDate || '',
             crewLeader: crewLeader || '',
             requestedFeet: requestedFeetValue,
             requestedWidthIn: selectedRequirement.widthIn,
@@ -143,7 +143,7 @@ export function JobAllocateDialog({
         : null,
     [
       crewLeader,
-      dueDate,
+      installDate,
       isExtraFilmMode,
       jobNumber,
       open,
@@ -349,8 +349,8 @@ export function JobAllocateDialog({
       return;
     }
 
-    if (dueDate.trim() && !crewLeader.trim()) {
-      setError('CrewLeader is required when JobDate is set.');
+    if (installDate.trim() && !crewLeader.trim()) {
+      setError('Crew Leader is required when Install Date is set.');
       return;
     }
 
@@ -396,7 +396,7 @@ export function JobAllocateDialog({
     const payload = {
       boxId: sourceBox.boxId,
       jobNumber,
-      jobDate: dueDate || '',
+      installDate: installDate || '',
       crewLeader: crewLeader || '',
       requestedFeet: isExtraFilmMode ? 0 : requestedFeetValue,
       requestedWidthIn: selectedRequirement.widthIn,
@@ -513,7 +513,7 @@ export function JobAllocateDialog({
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
           hasTransferCandidates={hasTransferCandidates}
-          dueDate={dueDate}
+          installDate={installDate}
           crewLeader={crewLeader}
           previewError={previewQuery.isError && previewQuery.error instanceof Error ? previewQuery.error : null}
           activePreviewLoaded={Boolean(activePreview)}

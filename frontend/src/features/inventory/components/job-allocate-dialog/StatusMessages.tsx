@@ -10,7 +10,7 @@ interface StatusMessagesProps {
   selectedBoxCount: number;
   hasPreferredLinkedBoxes: boolean;
   hasTransferCandidates: boolean;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   previewError: Error | null;
   activePreviewLoaded: boolean;
@@ -27,7 +27,7 @@ export function StatusMessages({
   selectedBoxCount,
   hasPreferredLinkedBoxes,
   hasTransferCandidates,
-  dueDate,
+  installDate,
   crewLeader,
   previewError,
   activePreviewLoaded,
@@ -56,8 +56,8 @@ export function StatusMessages({
           Select the whole boxes installers should carry as extra film for this job.
         </p>
       ) : null}
-      {dueDate.trim() && !crewLeader.trim() ? (
-        <p className="error-text">CrewLeader is required when JobDate is set.</p>
+      {installDate.trim() && !crewLeader.trim() ? (
+        <p className="error-text">Crew Leader is required when Install Date is set.</p>
       ) : null}
       {!isMatchingBoxesLoading &&
       prioritizedMatchingBoxesCount > 0 &&

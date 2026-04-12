@@ -6,6 +6,20 @@ function isUnresolvedFilmOrderStatus(status) {
   return normalizedStatus === 'FILM_ORDER' || normalizedStatus === 'FILM_ON_THE_WAY';
 }
 
+function isFilmOrderNeedingAttention(order) {
+  const normalizedStatus = asTrimmedString(order?.status).toUpperCase();
+  if (normalizedStatus !== 'FILM_ORDER') {
+    return false;
+  }
+
+  if (!asTrimmedString(order?.installDate)) {
+    return false;
+  }
+
+  const remainingToOrderFeet = Number(order?.remainingToOrderFeet);
+  return Number.isFinite(remainingToOrderFeet) ? remainingToOrderFeet > 0 : true;
+}
+
 async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
   const jobHeaderCache = {};
   const response = [];
@@ -17,9 +31,9 @@ async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
       continue;
     }
 
-    const needsJobDate = !asTrimmedString(entry.jobDate);
+    const needsInstallDate = !asTrimmedString(entry.installDate);
     const needsCrewLeader = !asTrimmedString(entry.crewLeader);
-    if (!needsJobDate && !needsCrewLeader) {
+    if (!needsInstallDate && !needsCrewLeader) {
       response.push(entry);
       continue;
     }
@@ -43,8 +57,8 @@ async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
 
     response.push({
       ...entry,
-      ...(needsJobDate && asTrimmedString(jobHeader.dueDate)
-        ? { jobDate: asTrimmedString(jobHeader.dueDate) }
+      ...(needsInstallDate && asTrimmedString(jobHeader.installDate)
+        ? { installDate: asTrimmedString(jobHeader.installDate) }
         : {}),
       ...(needsCrewLeader && asTrimmedString(jobHeader.crewLeader)
         ? { crewLeader: asTrimmedString(jobHeader.crewLeader) }
@@ -57,5 +71,6 @@ async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
 
 export {
   enrichOpenFilmOrdersWithJobSchedule,
+  isFilmOrderNeedingAttention,
   isUnresolvedFilmOrderStatus,
 };

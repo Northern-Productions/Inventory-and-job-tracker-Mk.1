@@ -1,6 +1,7 @@
 import { buildFilmOrdersList } from './filmOrders.mjs';
 import { buildJobsList } from './jobs.mjs';
 import { listAccessRequests } from './access.mjs';
+import { isFilmOrderNeedingAttention } from './runtime/runtimeFilmOrderSchedule.mjs';
 
 function canReadFeature(authContext, feature) {
   if (authContext?.role === 'owner') {
@@ -8,15 +9,6 @@ function canReadFeature(authContext, feature) {
   }
 
   return Boolean(authContext?.permissions?.[feature]?.read);
-}
-
-function isFilmOrderNeedingAttention(order) {
-  const normalizedStatus = String(order?.status || '').trim().toUpperCase();
-  if (normalizedStatus !== 'FILM_ORDER' && normalizedStatus !== 'FILM_ON_THE_WAY') {
-    return false;
-  }
-
-  return Boolean(String(order?.jobDate || '').trim());
 }
 
 export async function buildAppAttentionSummary(client, orgId, authContext) {

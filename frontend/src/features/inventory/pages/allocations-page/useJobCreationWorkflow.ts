@@ -39,7 +39,7 @@ function buildCreateJobPayload(
     jobNumber: submitPayload.jobNumber,
     warehouse: submitPayload.warehouse,
     sections: submitPayload.sections,
-    dueDate: submitPayload.dueDate,
+    installDate: submitPayload.installDate,
     crewLeader: submitPayload.crewLeader,
     requirements: submitPayload.requirements,
     caulkRequirements: submitPayload.caulkRequirements,

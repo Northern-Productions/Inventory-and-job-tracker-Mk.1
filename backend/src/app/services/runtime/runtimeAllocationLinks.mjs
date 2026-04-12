@@ -283,7 +283,7 @@ async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, 
 
   return {
     jobNumber: normalizedJobNumber,
-    jobDate: asTrimmedString(header?.dueDate) || metadata.jobDate || '',
+    installDate: asTrimmedString(header?.installDate) || metadata.installDate || '',
     crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || ''
   };
 }

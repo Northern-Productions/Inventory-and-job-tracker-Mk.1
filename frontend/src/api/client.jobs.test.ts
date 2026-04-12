@@ -46,7 +46,7 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
     jobNumber: '000123',
     warehouse: 'IL1',
     sections: null,
-    dueDate: '2026-03-05',
+    installDate: '2026-03-05',
     crewLeader: '',
     status: 'ALLOCATE',
     lifecycleStatus: 'ACTIVE',

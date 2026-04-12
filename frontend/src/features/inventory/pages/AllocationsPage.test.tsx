@@ -59,7 +59,7 @@ function buildJob(overrides: Record<string, unknown> = {}) {
     jobNumber: '16961',
     warehouse: 'IL1',
     sections: '260',
-    dueDate: '2026-03-24',
+    installDate: '2026-03-24',
     crewLeader: '',
     status: 'READY',
     lifecycleStatus: 'ACTIVE',
@@ -259,19 +259,19 @@ describe('AllocationsPage', () => {
         ? [
             buildJob({
               jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '2171705' : '2171705',
-              dueDate: '2026-04-20',
+              installDate: '2026-04-20',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             }),
             buildJob({
               jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '171700' : '171700',
-              dueDate: '2026-04-22',
+              installDate: '2026-04-22',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             }),
             buildJob({
               jobNumber: options?.lifecycleStatus === 'COMPLETED' ? '17170' : '17170',
-              dueDate: '2026-04-01',
+              installDate: '2026-04-01',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             })
@@ -297,19 +297,19 @@ describe('AllocationsPage', () => {
         ? [
             buildJob({
               jobNumber: '171701',
-              dueDate: '2026-04-09',
+              installDate: '2026-04-09',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             }),
             buildJob({
               jobNumber: '171700',
-              dueDate: '2026-04-12',
+              installDate: '2026-04-12',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             }),
             buildJob({
               jobNumber: '17170',
-              dueDate: '2026-04-01',
+              installDate: '2026-04-01',
               lifecycleStatus: options?.lifecycleStatus || 'ACTIVE',
               status: options?.lifecycleStatus === 'COMPLETED' ? 'COMPLETED' : 'READY'
             })

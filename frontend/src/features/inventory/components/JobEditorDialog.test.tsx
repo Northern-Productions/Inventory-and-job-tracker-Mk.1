@@ -154,7 +154,7 @@ describe('JobEditorDialog', () => {
         initialJobNumber: '000123',
         initialWarehouse: 'IL1',
         initialSections: '5',
-        initialDueDate: '2026-04-10',
+        initialInstallDate: '2026-04-10',
         initialCrewLeader: 'Rob',
         initialRequirements: [
           {
@@ -191,7 +191,7 @@ describe('JobEditorDialog', () => {
         initialJobNumber: '000123',
         initialWarehouse: 'IL1',
         initialSections: '5',
-        initialDueDate: '2026-04-10',
+        initialInstallDate: '2026-04-10',
         initialCrewLeader: 'Rob',
         initialRequirements: [
           {
@@ -221,7 +221,7 @@ describe('JobEditorDialog', () => {
         initialJobNumber: '000123',
         initialWarehouse: 'IL1',
         initialSections: '5',
-        initialDueDate: '2026-04-10',
+        initialInstallDate: '2026-04-10',
         initialCrewLeader: 'Rob',
         initialRequirements: [
           {
@@ -245,7 +245,7 @@ describe('JobEditorDialog', () => {
         initialJobNumber: '000123',
         initialWarehouse: 'IL1',
         initialSections: '5',
-        initialDueDate: '2026-04-10',
+        initialInstallDate: '2026-04-10',
         initialCrewLeader: 'Rob',
         initialRequirements: [
           {
@@ -274,7 +274,7 @@ describe('JobEditorDialog', () => {
         initialJobNumber: '000124',
         initialWarehouse: 'IL1',
         initialSections: '9',
-        initialDueDate: '2026-06-02',
+        initialInstallDate: '2026-06-02',
         initialCrewLeader: 'Jamie',
         initialRequirements: [
           {

@@ -41,7 +41,7 @@ test('accepts a transfer source box when its pending transfer matches the job wa
   const plan = buildAllocationPreviewPlan(
     source,
     13,
-    { jobNumber: '4803', jobDate: '', crewLeader: '' },
+    { jobNumber: '4803', installDate: '', crewLeader: '' },
     {
       crossWarehouse: true,
       minimumWidthIn: 72,
@@ -111,7 +111,7 @@ test('includes matching transfer candidates between in-stock and ordered suggest
   const plan = buildAllocationPreviewPlan(
     source,
     70,
-    { jobNumber: '4803', jobDate: '', crewLeader: '' },
+    { jobNumber: '4803', installDate: '', crewLeader: '' },
     {
       crossWarehouse: true,
       minimumWidthIn: 72,
@@ -155,7 +155,7 @@ test('rejects a transfer source box when its pending transfer points to another 
       buildAllocationPreviewPlan(
         source,
         13,
-        { jobNumber: '4803', jobDate: '', crewLeader: '' },
+        { jobNumber: '4803', installDate: '', crewLeader: '' },
         {
           crossWarehouse: true,
           minimumWidthIn: 72,

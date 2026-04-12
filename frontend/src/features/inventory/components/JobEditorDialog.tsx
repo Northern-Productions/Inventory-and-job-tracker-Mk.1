@@ -31,7 +31,7 @@ interface JobEditorDialogProps {
   initialJobNumber?: string;
   initialWarehouse?: Warehouse;
   initialSections?: string | number | null;
-  initialDueDate?: string;
+  initialInstallDate?: string;
   initialCrewLeader?: string;
   initialRequirements?: JobRequirementEditorLine[];
   initialCaulkRequirements?: JobCaulkRequirementEditorLine[];
@@ -54,7 +54,7 @@ export function JobEditorDialog({
   initialJobNumber = '',
   initialWarehouse = '',
   initialSections = null,
-  initialDueDate = '',
+  initialInstallDate = '',
   initialCrewLeader = '',
   initialRequirements = EMPTY_REQUIREMENT_LINES,
   initialCaulkRequirements = EMPTY_CAULK_REQUIREMENT_LINES,
@@ -77,7 +77,7 @@ export function JobEditorDialog({
     closeCustomWidth,
     crewLeader,
     customWidthDraft,
-    dueDate,
+    installDate,
     error,
     filmName,
     handleAddCaulkRequirement,
@@ -100,7 +100,7 @@ export function JobEditorDialog({
     setCaulkRequiredTubes,
     setCrewLeader,
     setCustomWidthDraft,
-    setDueDate,
+    setInstallDate,
     setFilmName,
     setJobNumber,
     setManufacturer,
@@ -117,7 +117,7 @@ export function JobEditorDialog({
     initialJobNumber,
     initialWarehouse,
     initialSections,
-    initialDueDate,
+    initialInstallDate,
     initialCrewLeader,
     initialRequirements,
     initialCaulkRequirements,
@@ -161,12 +161,12 @@ export function JobEditorDialog({
           mode={mode}
           jobNumber={jobNumber}
           sections={sections}
-          dueDate={dueDate}
+          installDate={installDate}
           crewLeader={crewLeader}
           warehouse={warehouse}
           onJobNumberChange={setJobNumber}
           onSectionsChange={setSections}
-          onDueDateChange={setDueDate}
+          onInstallDateChange={setInstallDate}
           onCrewLeaderChange={setCrewLeader}
           onWarehouseChange={setWarehouse}
           onClearError={clearError}

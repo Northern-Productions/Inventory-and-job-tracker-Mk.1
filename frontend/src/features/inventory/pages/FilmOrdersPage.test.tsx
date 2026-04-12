@@ -49,7 +49,7 @@ function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrder
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: 60,
-    jobDate: '2026-04-13',
+    installDate: '2026-04-13',
     crewLeader: 'Crew',
     status: 'FILM_ORDER',
     sourceBoxId: '',
@@ -183,31 +183,41 @@ describe('FilmOrdersPage', () => {
     });
   });
 
-  it('surfaces install-dated unresolved orders first and renders blue job links on desktop', () => {
-    const undatedOrder = buildFilmOrderEntry({
+  it('surfaces film orders that still need ordering before on-the-way entries and renders blue job links on desktop', () => {
+    const onTheWayOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-1',
       jobNumber: '2941',
-      filmName: 'Prestige Undated',
-      jobDate: '',
+      filmName: 'Prestige On The Way',
+      status: 'FILM_ON_THE_WAY',
+      remainingToOrderFeet: 0,
+      orderedFeet: 60,
+      installDate: '2026-04-12',
       createdAt: '2026-04-06T00:00:00Z'
     });
     const datedLaterOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-2',
       jobNumber: '2942',
       filmName: 'Prestige Later',
-      jobDate: '2026-04-15',
+      installDate: '2026-04-15',
       createdAt: '2026-04-06T00:01:00Z'
     });
     const datedSoonerOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-3',
       jobNumber: '2943',
       filmName: 'Prestige Sooner',
-      jobDate: '2026-04-13',
+      installDate: '2026-04-13',
       createdAt: '2026-04-06T00:02:00Z'
     });
-    const resolvedOrder = buildFilmOrderEntry({
+    const unscheduledShortage = buildFilmOrderEntry({
       filmOrderId: 'FO-4',
       jobNumber: '2944',
+      filmName: 'Prestige Unscheduled',
+      installDate: '',
+      createdAt: '2026-04-06T00:00:30Z'
+    });
+    const resolvedOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-5',
+      jobNumber: '2945',
       filmName: 'Prestige Resolved',
       status: 'FULFILLED',
       resolvedAt: '2026-04-06T05:00:00Z',
@@ -215,9 +225,10 @@ describe('FilmOrdersPage', () => {
     });
 
     const { container } = renderPage([
-      undatedOrder,
+      onTheWayOrder,
       datedLaterOrder,
       datedSoonerOrder,
+      unscheduledShortage,
       resolvedOrder
     ]);
 
@@ -225,12 +236,13 @@ describe('FilmOrdersPage', () => {
     expect(screen.getByRole('link', { name: '2943' }).getAttribute('href')).toBe('/allocations/2943');
 
     const rows = Array.from(container.querySelectorAll('tbody tr'));
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect(rows.map((row) => row.querySelector('td:nth-child(2)')?.textContent?.trim())).toEqual([
       '2943',
       '2942',
       '2941',
-      '2944'
+      '2944',
+      '2945'
     ]);
   });
 

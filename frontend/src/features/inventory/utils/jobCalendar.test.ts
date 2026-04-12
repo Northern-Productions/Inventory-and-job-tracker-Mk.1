@@ -21,7 +21,7 @@ function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber
     jobNumber,
     warehouse: 'IL1',
     sections: null,
-    dueDate: '2026-03-24',
+    installDate: '2026-03-24',
     crewLeader: '',
     status: 'READY',
     lifecycleStatus: 'ACTIVE',
@@ -47,9 +47,9 @@ function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber
 describe('jobCalendar', () => {
   it('builds a 6-week month calendar and groups jobs by date', () => {
     const month = buildMonthCalendar('2026-03', [
-      buildJob({ jobNumber: '10001', dueDate: '2026-03-01' }),
-      buildJob({ jobNumber: '10002', dueDate: '2026-03-24' }),
-      buildJob({ jobNumber: '10003', dueDate: '' })
+      buildJob({ jobNumber: '10001', installDate: '2026-03-01' }),
+      buildJob({ jobNumber: '10002', installDate: '2026-03-24' }),
+      buildJob({ jobNumber: '10003', installDate: '' })
     ]);
 
     expect(month.monthLabel).toBe('March 2026');
@@ -64,9 +64,9 @@ describe('jobCalendar', () => {
 
   it('builds a Sunday-start week range and keeps cross-month jobs visible', () => {
     const week = buildWeekCalendar('2026-03-31', [
-      buildJob({ jobNumber: '10001', dueDate: '2026-03-29' }),
-      buildJob({ jobNumber: '10002', dueDate: '2026-04-04' }),
-      buildJob({ jobNumber: '10003', dueDate: '2026-04-05' })
+      buildJob({ jobNumber: '10001', installDate: '2026-03-29' }),
+      buildJob({ jobNumber: '10002', installDate: '2026-04-04' }),
+      buildJob({ jobNumber: '10003', installDate: '2026-04-05' })
     ]);
 
     expect(week.periodLabel).toBe('Mar 29 - Apr 4, 2026');
@@ -101,9 +101,9 @@ describe('jobCalendar', () => {
 
   it('finds the best match, preserves highlighted ordering, and formats calendar shifts', () => {
     const jobs = [
-      buildJob({ jobNumber: '20000', dueDate: '2026-04-01' }),
-      buildJob({ jobNumber: '10000', dueDate: '2026-04-01', isStagedForPickup: true }),
-      buildJob({ jobNumber: '30000', dueDate: '2026-04-01' })
+      buildJob({ jobNumber: '20000', installDate: '2026-04-01' }),
+      buildJob({ jobNumber: '10000', installDate: '2026-04-01', isStagedForPickup: true }),
+      buildJob({ jobNumber: '30000', installDate: '2026-04-01' })
     ];
 
     expect(findBestCalendarSearchMatch(jobs, '10000')?.jobNumber).toBe('10000');

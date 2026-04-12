@@ -136,7 +136,7 @@ function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrder
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: 123,
-    jobDate: '2026-04-13',
+    installDate: '2026-04-13',
     crewLeader: 'Crew',
     status: 'FILM_ORDER',
     sourceBoxId: '',
@@ -156,7 +156,7 @@ function buildJobDetail(filmOrder: FilmOrderEntry): JobDetail {
       jobNumber: filmOrder.jobNumber,
       warehouse: filmOrder.warehouse,
       sections: null,
-      dueDate: filmOrder.jobDate,
+      installDate: filmOrder.installDate,
       crewLeader: filmOrder.crewLeader,
       status: 'FILM_ORDER' as JobDetail['summary']['status'],
       lifecycleStatus: 'ACTIVE',
@@ -201,7 +201,7 @@ function buildAllocationJobDetail(filmOrder: FilmOrderEntry): AllocationJobDetai
   return {
     summary: {
       jobNumber: filmOrder.jobNumber,
-      jobDate: filmOrder.jobDate,
+      installDate: filmOrder.installDate,
       crewLeader: filmOrder.crewLeader,
       status: 'FILM_ORDER',
       activeAllocatedFeet: 0,

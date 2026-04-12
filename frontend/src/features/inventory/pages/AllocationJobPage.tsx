@@ -516,7 +516,7 @@ export default function AllocationJobPage() {
         jobNumber={summary.jobNumber}
         warehouse={summary.warehouse}
         sections={summary.sections}
-        dueDate={summary.dueDate}
+        installDate={summary.installDate}
         crewLeader={summary.crewLeader}
         requirements={requirements}
         filmOrders={filmOrders}

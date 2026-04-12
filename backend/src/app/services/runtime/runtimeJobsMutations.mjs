@@ -71,7 +71,11 @@ async function createJob(client, orgId, payload, actor) {
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
   const warehouse = normalizeJobWarehouse(payload.warehouse);
   const sections = normalizeJobSections(payload.sections);
-  const dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  const installDate = normalizeDateString(
+    payload.installDate !== undefined ? payload.installDate : payload.dueDate,
+    'Install Date',
+    true
+  );
   const crewLeader = asTrimmedString(payload.crewLeader);
   const lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   const notes = asTrimmedString(payload.notes);
@@ -96,7 +100,7 @@ async function createJob(client, orgId, payload, actor) {
       jobNumber,
       warehouse,
       sections,
-      dueDate,
+      installDate,
       crewLeader,
       lifecycleStatus,
       isLaborOnly: false,
@@ -114,7 +118,7 @@ async function createJob(client, orgId, payload, actor) {
       ...cloneValue(existingHeader),
       warehouse,
       sections,
-      dueDate,
+      installDate,
       crewLeader,
       lifecycleStatus,
       isLaborOnly: existingHeader.isLaborOnly,
@@ -204,7 +208,7 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
   client,
   orgId,
   jobNumber,
-  jobDate,
+  installDate,
   crewLeader
 ) {
   const allocations = await listAllocationsByJob(client, orgId, jobNumber);
@@ -218,11 +222,11 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       continue;
     }
 
-    if (allocation.jobDate === jobDate && allocation.crewLeader === crewLeader) {
+    if (allocation.installDate === installDate && allocation.crewLeader === crewLeader) {
       continue;
     }
 
-    allocation.jobDate = jobDate;
+    allocation.installDate = installDate;
     allocation.crewLeader = crewLeader;
     await saveAllocationRecord(client, orgId, allocation);
     updatedAllocationCount += 1;
@@ -234,11 +238,11 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       continue;
     }
 
-    if (filmOrder.jobDate === jobDate && filmOrder.crewLeader === crewLeader) {
+    if (filmOrder.installDate === installDate && filmOrder.crewLeader === crewLeader) {
       continue;
     }
 
-    filmOrder.jobDate = jobDate;
+    filmOrder.installDate = installDate;
     filmOrder.crewLeader = crewLeader;
     await saveFilmOrderRecord(client, orgId, filmOrder);
     updatedFilmOrderCount += 1;
@@ -281,8 +285,12 @@ async function updateJob(client, orgId, payload, actor) {
     nextHeader.sections = normalizeJobSections(payload.sections);
   }
 
-  if (payload.dueDate !== undefined) {
-    nextHeader.dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  if (payload.installDate !== undefined || payload.dueDate !== undefined) {
+    nextHeader.installDate = normalizeDateString(
+      payload.installDate !== undefined ? payload.installDate : payload.dueDate,
+      'Install Date',
+      true
+    );
   }
 
   if (payload.crewLeader !== undefined) {
@@ -328,15 +336,15 @@ async function updateJob(client, orgId, payload, actor) {
     nowIso
   );
 
-  const dueDateChanged = asTrimmedString(header.dueDate) !== asTrimmedString(savedHeader.dueDate);
+  const installDateChanged = asTrimmedString(header.installDate) !== asTrimmedString(savedHeader.installDate);
   const crewLeaderChanged =
     normalizeCrewLeaderKey(header.crewLeader) !== normalizeCrewLeaderKey(savedHeader.crewLeader);
-  if (dueDateChanged || crewLeaderChanged) {
+  if (installDateChanged || crewLeaderChanged) {
     const syncResult = await syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       client,
       orgId,
       jobNumber,
-      savedHeader.dueDate,
+      savedHeader.installDate,
       savedHeader.crewLeader
     );
     if (syncResult.updatedAllocationCount > 0 || syncResult.updatedFilmOrderCount > 0) {
@@ -595,7 +603,7 @@ async function createFilmOrder(client, orgId, payload, actor) {
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: requestedFeet,
-    jobDate: asTrimmedString(existingJob?.dueDate),
+    installDate: asTrimmedString(existingJob?.installDate),
     crewLeader: asTrimmedString(existingJob?.crewLeader),
     status: 'FILM_ORDER',
     sourceBoxId: '',

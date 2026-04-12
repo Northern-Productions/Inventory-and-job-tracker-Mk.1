@@ -10,11 +10,18 @@ function canReadFeature(identity: AuthIdentity, feature: string) {
 
 function isFilmOrderNeedingAttention(order: Record<string, unknown>) {
   const normalizedStatus = String(order.status || "").trim().toUpperCase();
-  if (normalizedStatus !== "FILM_ORDER" && normalizedStatus !== "FILM_ON_THE_WAY") {
+  if (normalizedStatus !== "FILM_ORDER") {
     return false;
   }
 
-  return Boolean(String(order.jobDate || "").trim());
+  if (!String(order.installDate ?? order.jobDate ?? "").trim()) {
+    return false;
+  }
+
+  const remainingToOrderFeet = Number(
+    order.remainingToOrderFeet ?? order.remaining_to_order_feet,
+  );
+  return Number.isFinite(remainingToOrderFeet) ? remainingToOrderFeet > 0 : true;
 }
 
 export async function buildAppAttentionSummary(

@@ -180,20 +180,20 @@ function buildJobsByDate(jobs: CalendarJob[], rangeStart: string, rangeEnd: stri
 
   for (let index = 0; index < jobs.length; index += 1) {
     const job = jobs[index];
-    const dueDate = String(job.dueDate || '').trim().slice(0, 10);
-    if (!dueDate) {
+    const installDate = String(job.installDate || '').trim().slice(0, 10);
+    if (!installDate) {
       unscheduledJobs.push(job);
       continue;
     }
 
-    if (dueDate < rangeStart || dueDate > rangeEnd) {
+    if (installDate < rangeStart || installDate > rangeEnd) {
       continue;
     }
 
-    if (!jobsByDate.has(dueDate)) {
-      jobsByDate.set(dueDate, []);
+    if (!jobsByDate.has(installDate)) {
+      jobsByDate.set(installDate, []);
     }
-    jobsByDate.get(dueDate)?.push(job);
+    jobsByDate.get(installDate)?.push(job);
   }
 
   return {

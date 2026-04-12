@@ -643,12 +643,12 @@ function summarizeCaulkRequirementCoverage(caulkRequirements) {
 }
 
 function resolveAllocationJobMetadata(allocations, filmOrders) {
-  let jobDate = '';
+  let installDate = '';
   let crewLeader = '';
 
   for (let index = 0; index < allocations.length; index += 1) {
-    if (!jobDate && allocations[index].jobDate) {
-      jobDate = allocations[index].jobDate;
+    if (!installDate && allocations[index].installDate) {
+      installDate = allocations[index].installDate;
     }
 
     if (!crewLeader && allocations[index].crewLeader) {
@@ -657,8 +657,8 @@ function resolveAllocationJobMetadata(allocations, filmOrders) {
   }
 
   for (let index = 0; index < filmOrders.length; index += 1) {
-    if (!jobDate && filmOrders[index].jobDate) {
-      jobDate = filmOrders[index].jobDate;
+    if (!installDate && filmOrders[index].installDate) {
+      installDate = filmOrders[index].installDate;
     }
 
     if (!crewLeader && filmOrders[index].crewLeader) {
@@ -666,7 +666,7 @@ function resolveAllocationJobMetadata(allocations, filmOrders) {
     }
   }
 
-  return { jobDate, crewLeader };
+  return { installDate, crewLeader };
 }
 
 function buildAllocationJobSummary(
@@ -679,7 +679,7 @@ function buildAllocationJobSummary(
   isLaborOnly = false,
   isLaborAssigned = false,
   isStagedForPickup = false,
-  fallbackJobDate = '',
+  fallbackInstallDate = '',
   fallbackCrewLeader = '',
   boxById = {}
 ) {
@@ -773,7 +773,7 @@ function buildAllocationJobSummary(
 
   return {
     jobNumber,
-    jobDate: metadata.jobDate || fallbackJobDate,
+    installDate: metadata.installDate || fallbackInstallDate,
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
     activeAllocatedFeet,

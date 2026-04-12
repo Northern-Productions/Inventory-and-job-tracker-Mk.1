@@ -943,26 +943,26 @@ function compareBoxesByOldestStock(left: any, right: any): number {
 }
 
 function compareAllocationJobSummaries(left: any, right: any): number {
-  if (left.jobDate && right.jobDate && left.jobDate !== right.jobDate) {
-    return left.jobDate < right.jobDate ? -1 : 1;
+  if (left.installDate && right.installDate && left.installDate !== right.installDate) {
+    return left.installDate < right.installDate ? -1 : 1;
   }
-  if (left.jobDate && !right.jobDate) {
+  if (left.installDate && !right.installDate) {
     return -1;
   }
-  if (!left.jobDate && right.jobDate) {
+  if (!left.installDate && right.installDate) {
     return 1;
   }
   return left.jobNumber < right.jobNumber ? -1 : left.jobNumber > right.jobNumber ? 1 : 0;
 }
 
 function compareJobsListEntries(left: any, right: any): number {
-  if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
-    return left.dueDate > right.dueDate ? -1 : 1;
+  if (left.installDate && right.installDate && left.installDate !== right.installDate) {
+    return left.installDate > right.installDate ? -1 : 1;
   }
-  if (left.dueDate && !right.dueDate) {
+  if (left.installDate && !right.installDate) {
     return -1;
   }
-  if (!left.dueDate && right.dueDate) {
+  if (!left.installDate && right.installDate) {
     return 1;
   }
   if (left.updatedAt && right.updatedAt && left.updatedAt !== right.updatedAt) {
@@ -2856,25 +2856,25 @@ function buildPublicJobRequirementEntries(requirements: any[], allocations: any[
 }
 
 function resolveAllocationJobMetadata(allocations: any[], filmOrders: any[]) {
-  let jobDate = "";
+  let installDate = "";
   let crewLeader = "";
   for (const allocation of allocations) {
-    if (!jobDate && allocation.jobDate) {
-      jobDate = allocation.jobDate;
+    if (!installDate && allocation.installDate) {
+      installDate = allocation.installDate;
     }
     if (!crewLeader && allocation.crewLeader) {
       crewLeader = allocation.crewLeader;
     }
   }
   for (const filmOrder of filmOrders) {
-    if (!jobDate && filmOrder.jobDate) {
-      jobDate = filmOrder.jobDate;
+    if (!installDate && filmOrder.installDate) {
+      installDate = filmOrder.installDate;
     }
     if (!crewLeader && filmOrder.crewLeader) {
       crewLeader = filmOrder.crewLeader;
     }
   }
-  return { jobDate, crewLeader };
+  return { installDate, crewLeader };
 }
 
 function buildAllocationJobSummary(
@@ -2886,7 +2886,7 @@ function buildAllocationJobSummary(
   lifecycleStatus = "ACTIVE",
   isLaborOnly = false,
   isStagedForPickup = false,
-  fallbackJobDate = "",
+  fallbackInstallDate = "",
   fallbackCrewLeader = "",
   boxById: Record<string, any> = {},
 ) {
@@ -2965,7 +2965,7 @@ function buildAllocationJobSummary(
 
   return {
     jobNumber,
-    jobDate: metadata.jobDate || fallbackJobDate,
+    installDate: metadata.installDate || fallbackInstallDate,
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
     activeAllocatedFeet,
@@ -3016,7 +3016,7 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
     jobNumber,
     warehouse: warehouse || "",
     sections: null,
-    dueDate: metadata.jobDate,
+    installDate: metadata.installDate,
     crewLeader: metadata.crewLeader,
     lifecycleStatus: "ACTIVE",
     isLaborOnly: false,
@@ -3183,9 +3183,9 @@ function buildJobListEntry(
   boxById: Record<string, any> = {},
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
-  let dueDate = jobHeader.dueDate;
-  if (!dueDate) {
-    dueDate = metadata.jobDate;
+  let installDate = jobHeader.installDate;
+  if (!installDate) {
+    installDate = metadata.installDate;
   }
   const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
   let requiredFeet = 0;
@@ -3205,7 +3205,7 @@ function buildJobListEntry(
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || "",
     sections: jobHeader.sections,
-    dueDate,
+    installDate,
     crewLeader,
     isLaborOnly: Boolean(jobHeader.isLaborOnly),
     isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
@@ -3313,14 +3313,14 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
           ? -1
           : 1;
       }
-      if (left.jobDate !== right.jobDate) {
-        if (left.jobDate && right.jobDate) {
-          return left.jobDate < right.jobDate ? -1 : 1;
+      if (left.installDate !== right.installDate) {
+        if (left.installDate && right.installDate) {
+          return left.installDate < right.installDate ? -1 : 1;
         }
-        if (left.jobDate) {
+        if (left.installDate) {
           return -1;
         }
-        if (right.jobDate) {
+        if (right.installDate) {
           return 1;
         }
       }
@@ -3358,10 +3358,10 @@ function normalizeOptionalWarehouse(value: unknown, fieldName = "Warehouse"): st
 
 function getDateConflictJobsForBox(
   boxId: string,
-  jobContext: { jobNumber: string; jobDate: string; crewLeader: string },
+  jobContext: { jobNumber: string; installDate: string; crewLeader: string },
   activeAllocationsByBox: Record<string, any[]>,
 ) {
-  if (!jobContext.jobDate) {
+  if (!jobContext.installDate) {
     return [];
   }
   const active = getActiveAllocationsForBox(boxId, activeAllocationsByBox);
@@ -3369,7 +3369,7 @@ function getDateConflictJobsForBox(
   const seen: Record<string, boolean> = {};
   for (const entry of active) {
     if (
-      entry.jobDate !== jobContext.jobDate ||
+      entry.installDate !== jobContext.installDate ||
       normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(jobContext.jobNumber)
     ) {
       continue;
@@ -3418,9 +3418,9 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
       continue;
     }
 
-    const needsJobDate = !asTrimmedString(entry.jobDate);
+    const needsInstallDate = !asTrimmedString(entry.installDate);
     const needsCrewLeader = !asTrimmedString(entry.crewLeader);
-    if (!needsJobDate && !needsCrewLeader) {
+    if (!needsInstallDate && !needsCrewLeader) {
       response.push(entry);
       continue;
     }
@@ -3443,8 +3443,8 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
 
     response.push({
       ...entry,
-      ...(needsJobDate && asTrimmedString(jobHeader.dueDate)
-        ? { jobDate: asTrimmedString(jobHeader.dueDate) }
+      ...(needsInstallDate && asTrimmedString(jobHeader.installDate)
+        ? { installDate: asTrimmedString(jobHeader.installDate) }
         : {}),
       ...(needsCrewLeader && asTrimmedString(jobHeader.crewLeader)
         ? { crewLeader: asTrimmedString(jobHeader.crewLeader) }
@@ -3460,8 +3460,8 @@ async function buildPublicFilmOrdersForJob(client: any, orgId: string, filmOrder
   const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
   const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
-      { jobDate: left.createdAt, jobNumber: left.filmOrderId },
-      { jobDate: right.createdAt, jobNumber: right.filmOrderId },
+      { installDate: left.createdAt, jobNumber: left.filmOrderId },
+      { installDate: right.createdAt, jobNumber: right.filmOrderId },
     )
   );
   for (const entry of sorted) {
@@ -3471,9 +3471,9 @@ async function buildPublicFilmOrdersForJob(client: any, orgId: string, filmOrder
   return response;
 }
 
-async function resolveJobContext(client: any, orgId: string, jobNumber: unknown, jobDate: unknown, crewLeader: unknown) {
+async function resolveJobContext(client: any, orgId: string, jobNumber: unknown, installDate: unknown, crewLeader: unknown) {
   const normalizedJobNumber = requireString(jobNumber, "JobNumber");
-  const normalizedJobDate = normalizeDateString(jobDate, "JobDate", true);
+  const normalizedInstallDate = normalizeDateString(installDate, "Install Date", true);
   const normalizedCrewLeader = asTrimmedString(crewLeader);
   const existingHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
   if (existingHeader && normalizeJobLifecycleStatus(existingHeader.lifecycleStatus) !== "ACTIVE") {
@@ -3481,46 +3481,46 @@ async function resolveJobContext(client: any, orgId: string, jobNumber: unknown,
   }
   const existingAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  let existingJobDate = existingHeader?.dueDate || "";
+  let existingInstallDate = existingHeader?.installDate || "";
   let existingCrewLeader = existingHeader?.crewLeader || "";
 
   for (const entry of existingAllocations) {
-    if (!existingJobDate && entry.jobDate) {
-      existingJobDate = entry.jobDate;
+    if (!existingInstallDate && entry.installDate) {
+      existingInstallDate = entry.installDate;
     }
     if (!existingCrewLeader && entry.crewLeader) {
       existingCrewLeader = entry.crewLeader;
     }
   }
   for (const entry of existingFilmOrders) {
-    if (!existingJobDate && entry.jobDate) {
-      existingJobDate = entry.jobDate;
+    if (!existingInstallDate && entry.installDate) {
+      existingInstallDate = entry.installDate;
     }
     if (!existingCrewLeader && entry.crewLeader) {
       existingCrewLeader = entry.crewLeader;
     }
   }
 
-  if (existingJobDate && normalizedJobDate && existingJobDate !== normalizedJobDate) {
-    throw new HttpError(400, "JobDate must stay the same for an existing Job Number.");
+  if (existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
+    throw new HttpError(400, "Install Date must stay the same for an existing Job Number.");
   }
   if (
     existingCrewLeader &&
     normalizedCrewLeader &&
     normalizeCrewLeaderKey(existingCrewLeader) !== normalizeCrewLeaderKey(normalizedCrewLeader)
   ) {
-    throw new HttpError(400, "CrewLeader must stay the same for an existing Job Number.");
+    throw new HttpError(400, "Crew Leader must stay the same for an existing Job Number.");
   }
 
-  const resolvedJobDate = normalizedJobDate || existingJobDate;
+  const resolvedInstallDate = normalizedInstallDate || existingInstallDate;
   const resolvedCrewLeader = normalizedCrewLeader || existingCrewLeader;
-  if (resolvedJobDate && !resolvedCrewLeader) {
-    throw new HttpError(400, "CrewLeader is required when JobDate is set.");
+  if (resolvedInstallDate && !resolvedCrewLeader) {
+    throw new HttpError(400, "Crew Leader is required when Install Date is set.");
   }
 
   return {
     jobNumber: normalizedJobNumber,
-    jobDate: resolvedJobDate,
+    installDate: resolvedInstallDate,
     crewLeader: resolvedCrewLeader,
   };
 }
@@ -3528,7 +3528,7 @@ async function resolveJobContext(client: any, orgId: string, jobNumber: unknown,
 function buildAllocationPreviewPlan(
   sourceBox: any,
   requestedFeet: unknown,
-  jobContext: { jobNumber: string; jobDate: string; crewLeader: string },
+  jobContext: { jobNumber: string; installDate: string; crewLeader: string },
   options: {
     crossWarehouse: boolean;
     minimumWidthIn?: unknown;
@@ -3706,7 +3706,7 @@ function buildAllocationPreviewPlan(
 
   return {
     jobNumber: jobContext.jobNumber,
-    jobDate: jobContext.jobDate,
+    installDate: jobContext.installDate,
     crewLeader: jobContext.crewLeader,
     requestedFeet: requested,
     requestedWidthIn: minimumWidthIn,
@@ -3949,7 +3949,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         header?.lifecycleStatus || "ACTIVE",
         Boolean(header?.isLaborOnly),
         Boolean(header?.isStagedForPickup),
-        header?.dueDate || "",
+        header?.installDate || "",
         header?.crewLeader || "",
         boxById,
       );
@@ -4000,7 +4000,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
       header?.lifecycleStatus || "ACTIVE",
       Boolean(header?.isLaborOnly),
       Boolean(header?.isStagedForPickup),
-      header?.dueDate || "",
+      header?.installDate || "",
       header?.crewLeader || "",
       boxById,
     ),
@@ -4160,13 +4160,13 @@ async function buildJobsCalendar(
     const weekStart = getCalendarWeekStart(normalizedAnchorDate);
     const weekEnd = shiftCalendarDate(weekStart, 6);
     return entries.filter((entry) => {
-      const dueDate = asTrimmedString((entry as Record<string, unknown>).dueDate);
-      return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= weekStart && dueDate <= weekEnd;
+      const installDate = asTrimmedString((entry as Record<string, unknown>).installDate);
+      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= weekStart && installDate <= weekEnd;
     });
   }
 
   const normalizedMonth = normalizedAnchorDate.slice(0, 7);
-  return entries.filter((entry) => asTrimmedString((entry as Record<string, unknown>).dueDate).slice(0, 7) === normalizedMonth);
+  return entries.filter((entry) => asTrimmedString((entry as Record<string, unknown>).installDate).slice(0, 7) === normalizedMonth);
 }
 
 async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
@@ -4336,7 +4336,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     const reportEntry = {
       jobNumber: jobEntry.jobNumber,
       warehouse: jobEntry.warehouse,
-      dueDate: jobEntry.dueDate,
+      installDate: jobEntry.installDate,
       crewLeader: jobEntry.crewLeader,
       status: jobEntry.status,
       lifecycleStatus,
@@ -5873,6 +5873,22 @@ async function canonicalizeMutationPayloadForRoute(
   payload: Record<string, unknown>,
 ) {
   const next = payload && typeof payload === "object" ? { ...payload } : {};
+
+  if (
+    (logicalPath === "/jobs/create" || logicalPath === "/jobs/update") &&
+    next.installDate === undefined &&
+    next.dueDate !== undefined
+  ) {
+    next.installDate = next.dueDate;
+  }
+
+  if (
+    (logicalPath === "/allocations/add" || logicalPath === "/allocations/apply") &&
+    next.installDate === undefined &&
+    next.jobDate !== undefined
+  ) {
+    next.installDate = next.jobDate;
+  }
 
   if (logicalPath === "/boxes/add" || logicalPath === "/boxes/update") {
     assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");

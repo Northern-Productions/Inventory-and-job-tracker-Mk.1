@@ -49,7 +49,7 @@ type JobWorkflowDialogsProps = {
   jobNumber: string;
   warehouse: Warehouse;
   sections: string | null;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   requirements: JobRequirementLine[];
   filmOrders: FilmOrderEntry[];
@@ -96,7 +96,7 @@ export function JobWorkflowDialogs({
   jobNumber,
   warehouse,
   sections,
-  dueDate,
+  installDate,
   crewLeader,
   requirements,
   filmOrders,
@@ -157,7 +157,7 @@ export function JobWorkflowDialogs({
         initialJobNumber={jobNumber}
         initialWarehouse={warehouse}
         initialSections={sections}
-        initialDueDate={dueDate}
+        initialInstallDate={installDate}
         initialCrewLeader={crewLeader}
         initialRequirements={requirements}
         initialCaulkRequirements={caulkRequirements.map((entry) => ({
@@ -186,7 +186,7 @@ export function JobWorkflowDialogs({
         open={isAllocateOpen}
         jobNumber={jobNumber}
         warehouse={warehouse}
-        dueDate={dueDate}
+        installDate={installDate}
         crewLeader={crewLeader}
         requirements={requirements}
         filmOrders={filmOrders}

@@ -205,7 +205,7 @@ export function applyOptimisticAddBoxToCaches(queryClient: QueryClient, payload:
 
 export function createOptimisticFilmOrderFromPayload(
   payload: CreateFilmOrderPayload,
-  scheduleMetadata: { jobDate?: string; crewLeader?: string } = {}
+  scheduleMetadata: { installDate?: string; crewLeader?: string } = {}
 ): FilmOrderEntry {
   const createdAt = new Date().toISOString();
 
@@ -220,7 +220,7 @@ export function createOptimisticFilmOrderFromPayload(
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: payload.requestedFeet,
-    jobDate: String(scheduleMetadata.jobDate || '').trim(),
+    installDate: String(scheduleMetadata.installDate || '').trim(),
     crewLeader: String(scheduleMetadata.crewLeader || '').trim(),
     status: 'FILM_ORDER',
     sourceBoxId: '',
@@ -240,7 +240,7 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
   const normalizedJobNumber = String(jobNumber || '').trim();
   if (!normalizedJobNumber) {
     return {
-      jobDate: '',
+      installDate: '',
       crewLeader: ''
     };
   }
@@ -248,7 +248,7 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
   const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
   if (currentJob?.summary) {
     return {
-      jobDate: String(currentJob.summary.dueDate || '').trim(),
+      installDate: String(currentJob.summary.installDate || '').trim(),
       crewLeader: String(currentJob.summary.crewLeader || '').trim()
     };
   }
@@ -258,7 +258,7 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
   );
   if (currentAllocationJob?.summary) {
     return {
-      jobDate: String(currentAllocationJob.summary.jobDate || '').trim(),
+      installDate: String(currentAllocationJob.summary.installDate || '').trim(),
       crewLeader: String(currentAllocationJob.summary.crewLeader || '').trim()
     };
   }
@@ -273,7 +273,7 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
       : null;
     if (match) {
       return {
-        jobDate: String(match.dueDate || '').trim(),
+        installDate: String(match.installDate || '').trim(),
         crewLeader: String(match.crewLeader || '').trim()
       };
     }
@@ -289,14 +289,14 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
       : null;
     if (match) {
       return {
-        jobDate: String(match.jobDate || '').trim(),
+        installDate: String(match.installDate || '').trim(),
         crewLeader: String(match.crewLeader || '').trim()
       };
     }
   }
 
   return {
-    jobDate: '',
+    installDate: '',
     crewLeader: ''
   };
 }

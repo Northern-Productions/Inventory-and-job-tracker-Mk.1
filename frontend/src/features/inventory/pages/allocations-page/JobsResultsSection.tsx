@@ -137,7 +137,7 @@ export function JobsResultsSection({
                     onTitleClick={() => onOpenJob(entry.jobNumber)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Install Date" value={formatDate(entry.dueDate)} />
+                    <MobileField label="Install Date" value={formatDate(entry.installDate)} />
                     <MobileField label="Sections" value={entry.sections ?? '--'} />
                     <MobileField label="Required LF" value={entry.requiredFeet} />
                     <MobileField label="Allocated LF" value={entry.allocatedFeet} />
@@ -175,7 +175,7 @@ export function JobsResultsSection({
                           {entry.jobNumber}
                         </button>
                       </td>
-                      <td>{formatDate(entry.dueDate)}</td>
+                      <td>{formatDate(entry.installDate)}</td>
                       <td>{entry.sections ?? '--'}</td>
                       <td>{entry.warehouse}</td>
                       <td>{renderStatusBadges(entry)}</td>
@@ -203,7 +203,7 @@ export function JobsResultsSection({
             jobs={calendarJobs}
             highlightJobNumbers={visibleCalendarTargetJobNumber ? [visibleCalendarTargetJobNumber] : []}
             targetJobNumber={visibleCalendarTargetJobNumber || undefined}
-            targetJobDate={visibleCalendarTargetDate}
+            targetInstallDate={visibleCalendarTargetDate}
             targetNavigationToken={visibleCalendarTargetJobNumber ? calendarTargetNavigationToken : 0}
             requestedView={calendarGranularity}
             requestedAnchorDate={calendarAnchorDate}

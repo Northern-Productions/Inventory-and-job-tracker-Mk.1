@@ -104,7 +104,7 @@ export function previewMatchesPayload(
     | {
         boxId: string;
         jobNumber: string;
-        jobDate: string;
+        installDate: string;
         crewLeader: string;
         requestedFeet: number;
         requestedWidthIn: number;
@@ -121,7 +121,7 @@ export function previewMatchesPayload(
   return (
     preview.sourceBoxId === payload.boxId &&
     preview.jobNumber === payload.jobNumber &&
-    String(preview.jobDate || '') === String(payload.jobDate || '') &&
+    String(preview.installDate || '') === String(payload.installDate || '') &&
     String(preview.crewLeader || '') === String(payload.crewLeader || '') &&
     preview.requestedFeet === payload.requestedFeet &&
     preview.requestedWidthIn === payload.requestedWidthIn

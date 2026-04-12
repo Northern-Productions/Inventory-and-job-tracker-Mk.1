@@ -12,7 +12,7 @@ export interface JobEditorSubmitPayload {
   jobNumber: string;
   warehouse: Warehouse;
   sections: string;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   requirements: JobRequirementEditorLine[];
   caulkRequirements: JobCaulkRequirementEditorLine[];

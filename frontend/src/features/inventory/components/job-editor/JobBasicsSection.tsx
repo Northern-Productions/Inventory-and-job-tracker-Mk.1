@@ -6,12 +6,12 @@ interface JobBasicsSectionProps {
   mode: 'create' | 'edit';
   jobNumber: string;
   sections: string;
-  dueDate: string;
+  installDate: string;
   crewLeader: string;
   warehouse: Warehouse;
   onJobNumberChange: (value: string) => void;
   onSectionsChange: (value: string) => void;
-  onDueDateChange: (value: string) => void;
+  onInstallDateChange: (value: string) => void;
   onCrewLeaderChange: (value: string) => void;
   onWarehouseChange: (value: Warehouse) => void;
   onClearError: () => void;
@@ -21,12 +21,12 @@ export function JobBasicsSection({
   mode,
   jobNumber,
   sections,
-  dueDate,
+  installDate,
   crewLeader,
   warehouse,
   onJobNumberChange,
   onSectionsChange,
-  onDueDateChange,
+  onInstallDateChange,
   onCrewLeaderChange,
   onWarehouseChange,
   onClearError
@@ -73,9 +73,9 @@ export function JobBasicsSection({
           <Input
             label="Install Date"
             type="date"
-            value={dueDate}
+            value={installDate}
             onChange={(event) => {
-              onDueDateChange(event.target.value);
+              onInstallDateChange(event.target.value);
               onClearError();
             }}
           />

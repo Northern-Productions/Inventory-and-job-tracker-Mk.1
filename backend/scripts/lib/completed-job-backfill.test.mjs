@@ -58,7 +58,7 @@ test('normalizes aggregate rows into reusable backfill candidates', () => {
   assert.deepEqual(candidate, {
     id: 'job-id-1',
     jobNumber: '19339',
-    dueDate: '2026-03-17',
+    installDate: '2026-03-17',
     lifecycleStatus: 'ACTIVE',
     activeAllocationCount: 0,
     openFilmOrderCount: 0,

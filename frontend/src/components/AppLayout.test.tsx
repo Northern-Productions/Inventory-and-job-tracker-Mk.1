@@ -91,7 +91,7 @@ describe('AppLayout', () => {
     vi.clearAllMocks();
   });
 
-  it('shows the Film Orders attention dot on desktop when an unresolved film order has an install date', () => {
+  it('shows the Film Orders attention dot on desktop when film still needs ordering', () => {
     useAppAttentionSummaryMock.mockReturnValue(
       buildQueryState({
         hasJobsNeedingAllocation: false,
@@ -102,10 +102,10 @@ describe('AppLayout', () => {
 
     renderLayout('/');
 
-    expect(screen.getByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
   });
 
-  it('shows the install-dated film-orders dot on mobile More and inside the sheet', () => {
+  it('shows the needs-ordering film-orders dot on mobile More and inside the sheet', () => {
     useIsPhoneLayoutMock.mockReturnValue(true);
     useAppAttentionSummaryMock.mockReturnValue(
       buildQueryState({
@@ -117,21 +117,19 @@ describe('AppLayout', () => {
 
     renderLayout('/');
 
-    fireEvent.click(screen.getByRole('button', { name: 'More (install-dated film orders)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More (film orders need ordering)' }));
 
     const dialog = screen.getByRole('dialog', { name: 'More' });
-    expect(
-      within(dialog).getByRole('button', { name: 'Film Orders (install-dated film orders)' })
-    ).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
   });
 
-  it('does not show the film-orders attention dot for unresolved orders without an install date', () => {
+  it('does not show the film-orders attention dot when no film orders need ordering', () => {
     renderLayout('/');
 
-    expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
   });
 
-  it('clears the desktop film-orders attention dot as soon as the last install date disappears', () => {
+  it('clears the desktop film-orders attention dot as soon as the last actionable order is gone', () => {
     let hasFilmOrdersNeedingAttention = true;
     useAppAttentionSummaryMock.mockImplementation(() =>
       buildQueryState({
@@ -143,15 +141,15 @@ describe('AppLayout', () => {
 
     const view = renderLayout('/');
 
-    expect(screen.getByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
 
     hasFilmOrdersNeedingAttention = false;
     view.rerender(buildLayoutTree('/'));
 
-    expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
   });
 
-  it('shows the desktop film-orders attention dot as soon as an unresolved order gains an install date', () => {
+  it('shows the desktop film-orders attention dot as soon as a film order needs ordering', () => {
     let hasFilmOrdersNeedingAttention = false;
     useAppAttentionSummaryMock.mockImplementation(() =>
       buildQueryState({
@@ -163,11 +161,11 @@ describe('AppLayout', () => {
 
     const view = renderLayout('/');
 
-    expect(screen.queryByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
 
     hasFilmOrdersNeedingAttention = true;
     view.rerender(buildLayoutTree('/'));
 
-    expect(screen.getByRole('link', { name: 'Film Orders (install-dated film orders)' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
   });
 });

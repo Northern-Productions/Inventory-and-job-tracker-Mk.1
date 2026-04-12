@@ -96,7 +96,7 @@ async function saveJobRecord(client, orgId, job) {
       job.jobNumber,
       job.warehouse,
       job.sections,
-      job.dueDate,
+      job.installDate,
       job.crewLeader,
       job.lifecycleStatus,
       Boolean(job.isLaborOnly),

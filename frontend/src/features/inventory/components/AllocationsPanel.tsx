@@ -92,7 +92,7 @@ export function AllocationsPanel({
                     badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
                   />
                   <MobileFieldList>
-                    <MobileField label="Job Date" value={renderDate(entry.jobDate)} />
+                    <MobileField label="Install Date" value={renderDate(entry.installDate)} />
                     <MobileField label="Crew" value={entry.crewLeader || '--'} />
                     <MobileField label="LF" value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)} />
                     <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
@@ -107,7 +107,7 @@ export function AllocationsPanel({
                   <tr>
                     <th>Created</th>
                     <th>Job</th>
-                    <th>Job Date</th>
+                    <th>Install Date</th>
                     <th>Crew</th>
                     <th>LF</th>
                     <th>Status</th>
@@ -119,7 +119,7 @@ export function AllocationsPanel({
                     <tr key={entry.allocationId}>
                       <td>{renderDateTime(entry.createdAt)}</td>
                       <td>{entry.jobNumber}</td>
-                      <td>{renderDate(entry.jobDate)}</td>
+                      <td>{renderDate(entry.installDate)}</td>
                       <td>{entry.crewLeader || '--'}</td>
                       <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)}</td>
                       <td>{entry.status}</td>

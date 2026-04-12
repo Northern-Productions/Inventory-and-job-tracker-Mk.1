@@ -153,15 +153,15 @@ function compareBoxesByOldestStock(left, right) {
 }
 
 function compareAllocationJobSummaries(left, right) {
-  if (left.jobDate && right.jobDate && left.jobDate !== right.jobDate) {
-    return left.jobDate < right.jobDate ? -1 : 1;
+  if (left.installDate && right.installDate && left.installDate !== right.installDate) {
+    return left.installDate < right.installDate ? -1 : 1;
   }
 
-  if (left.jobDate && !right.jobDate) {
+  if (left.installDate && !right.installDate) {
     return -1;
   }
 
-  if (!left.jobDate && right.jobDate) {
+  if (!left.installDate && right.installDate) {
     return 1;
   }
 
@@ -169,15 +169,15 @@ function compareAllocationJobSummaries(left, right) {
 }
 
 function compareJobsListEntries(left, right) {
-  if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
-    return left.dueDate > right.dueDate ? -1 : 1;
+  if (left.installDate && right.installDate && left.installDate !== right.installDate) {
+    return left.installDate > right.installDate ? -1 : 1;
   }
 
-  if (left.dueDate && !right.dueDate) {
+  if (left.installDate && !right.installDate) {
     return -1;
   }
 
-  if (!left.dueDate && right.dueDate) {
+  if (!left.installDate && right.installDate) {
     return 1;
   }
 

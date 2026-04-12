@@ -244,7 +244,7 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     jobNumber,
     warehouse: warehouse || '',
     sections: null,
-    dueDate: metadata.jobDate,
+    installDate: metadata.installDate,
     crewLeader: metadata.crewLeader,
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
@@ -429,9 +429,9 @@ function getJobStagingBlockingReason(
   return '';
 }
 
-function hasSharedActiveBoxConflict(jobNumber, dueDate, crewLeader, jobAllocations, allAllocations) {
-  const normalizedJobDate = asTrimmedString(dueDate);
-  if (!normalizedJobDate) {
+function hasSharedActiveBoxConflict(jobNumber, installDate, crewLeader, jobAllocations, allAllocations) {
+  const normalizedInstallDate = asTrimmedString(installDate);
+  if (!normalizedInstallDate) {
     return false;
   }
 
@@ -467,7 +467,7 @@ function hasSharedActiveBoxConflict(jobNumber, dueDate, crewLeader, jobAllocatio
       continue;
     }
 
-    if (asTrimmedString(entry.jobDate) !== normalizedJobDate) {
+    if (asTrimmedString(entry.installDate) !== normalizedInstallDate) {
       continue;
     }
 
@@ -491,9 +491,9 @@ function buildJobListEntry(
   boxById = {}
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
-  let dueDate = jobHeader.dueDate;
-  if (!dueDate) {
-    dueDate = metadata.jobDate;
+  let installDate = jobHeader.installDate;
+  if (!installDate) {
+    installDate = metadata.installDate;
   }
   const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
 
@@ -524,7 +524,7 @@ function buildJobListEntry(
   );
   const status =
     baseStatus === 'ALLOCATE' &&
-    hasSharedActiveBoxConflict(jobHeader.jobNumber, dueDate, crewLeader, allocations, allAllocations)
+    hasSharedActiveBoxConflict(jobHeader.jobNumber, installDate, crewLeader, allocations, allAllocations)
       ? 'CONFLICT'
       : baseStatus;
 
@@ -532,7 +532,7 @@ function buildJobListEntry(
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || '',
     sections: jobHeader.sections,
-    dueDate,
+    installDate,
     crewLeader,
     status,
     lifecycleStatus,
@@ -563,16 +563,16 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
         return left.status === 'ACTIVE' ? -1 : right.status === 'ACTIVE' ? 1 : left.status < right.status ? -1 : 1;
       }
 
-      if (left.jobDate !== right.jobDate) {
-        if (left.jobDate && right.jobDate) {
-          return left.jobDate < right.jobDate ? -1 : 1;
+      if (left.installDate !== right.installDate) {
+        if (left.installDate && right.installDate) {
+          return left.installDate < right.installDate ? -1 : 1;
         }
 
-        if (left.jobDate) {
+        if (left.installDate) {
           return -1;
         }
 
-        if (right.jobDate) {
+        if (right.installDate) {
           return 1;
         }
       }
@@ -621,8 +621,8 @@ async function buildPublicFilmOrdersForJob(client, orgId, filmOrders) {
   const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
   const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
-      { jobDate: left.createdAt, jobNumber: left.filmOrderId },
-      { jobDate: right.createdAt, jobNumber: right.filmOrderId }
+      { installDate: left.createdAt, jobNumber: left.filmOrderId },
+      { installDate: right.createdAt, jobNumber: right.filmOrderId }
     )
   );
 

@@ -71,7 +71,7 @@ function sortFilmOrders(entries: FilmOrderEntry[]) {
     }
 
     if (aNeedsAttention && bNeedsAttention) {
-      const installDateOrder = compareDateAscending(a.jobDate, b.jobDate);
+      const installDateOrder = compareDateAscending(a.installDate, b.installDate);
       if (installDateOrder !== 0) {
         return installDateOrder;
       }
@@ -206,7 +206,8 @@ export default function FilmOrdersPage() {
           </Button>
         </div>
         <p className="muted-text">
-          Shortage alerts stay at the top. Use FILM ORDERED to add an incoming box tied to the job.
+          Shortages that still need ordering stay at the top. Use FILM ORDERED to add an incoming
+          box tied to the job.
         </p>
         <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
@@ -244,7 +245,7 @@ export default function FilmOrdersPage() {
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
-                      <MobileField label="Install Date" value={formatDate(order.jobDate)} />
+                      <MobileField label="Install Date" value={formatDate(order.installDate)} />
                       <MobileField label="Created" value={formatDate(order.createdAt)} />
                     </MobileFieldList>
                     <MobileActionStack>
@@ -311,7 +312,7 @@ export default function FilmOrdersPage() {
                         </td>
                         <td>{order.widthIn}</td>
                         <td>{order.remainingToOrderFeet}</td>
-                        <td>{formatDate(order.jobDate)}</td>
+                        <td>{formatDate(order.installDate)}</td>
                         <td>{formatDate(order.createdAt)}</td>
                         <td>
                           <div className="film-order-actions">

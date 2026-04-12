@@ -37,13 +37,13 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
   const toast = useToast();
   const allocateMutation = useAllocateBox();
   const [jobNumber, setJobNumber] = useState('');
-  const [jobDate, setJobDate] = useState('');
+  const [installDate, setInstallDate] = useState('');
   const [crewLeader, setCrewLeader] = useState('');
   const [requestedFeet, setRequestedFeet] = useState('');
   const [previewPayload, setPreviewPayload] = useState<{
     boxId: string;
     jobNumber: string;
-    jobDate?: string;
+    installDate?: string;
     crewLeader?: string;
     requestedFeet: number;
     requestedWidthIn?: number;
@@ -86,7 +86,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
   useEffect(() => {
     if (!open) {
       setJobNumber('');
-      setJobDate('');
+      setInstallDate('');
       setCrewLeader('');
       setRequestedFeet('');
       setPreviewPayload(null);
@@ -147,8 +147,8 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       return;
     }
 
-    if (jobDate.trim() && !crewLeader.trim()) {
-      setError('Crew Leader is required when a Job Date is set.');
+    if (installDate.trim() && !crewLeader.trim()) {
+      setError('Crew Leader is required when an Install Date is set.');
       return;
     }
 
@@ -176,7 +176,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     setPreviewPayload({
       boxId: box.boxId,
       jobNumber: normalizedJobNumber,
-      jobDate: jobDate.trim(),
+      installDate: installDate.trim(),
       crewLeader: crewLeader.trim(),
       requestedFeet: Math.floor(parsedFeet),
       requestedWidthIn: selectedRequirement.widthIn,
@@ -268,11 +268,11 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
             autoFocus
           />
           <Input
-            label="Job Date"
+            label="Install Date"
             type="date"
-            value={jobDate}
+            value={installDate}
             onChange={(event) => {
-              setJobDate(event.target.value);
+              setInstallDate(event.target.value);
               invalidatePreview();
             }}
           />
@@ -283,7 +283,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
               setCrewLeader(event.target.value);
               invalidatePreview();
             }}
-            placeholder={jobDate ? 'Required when Job Date is set' : 'Optional'}
+            placeholder={installDate ? 'Required when Install Date is set' : 'Optional'}
           />
           <label className="field">
             <span className="field-label">Requirement</span>
@@ -356,7 +356,7 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
 
             {preview.sourceConflicts.length ? (
               <p className="error-text">
-                {box.boxId} is already allocated on {preview.jobDate} for {preview.sourceConflicts.join(', ')}
+                {box.boxId} is already allocated on {preview.installDate} for {preview.sourceConflicts.join(', ')}
                 with a different crew leader, so this source box cannot be used for this request.
               </p>
             ) : (

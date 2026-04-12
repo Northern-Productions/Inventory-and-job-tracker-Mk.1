@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   canonicalizeManufacturerLabel,
   createEmptyBoxDraft,
@@ -386,7 +386,7 @@ describe('boxHelpers', () => {
         boxId: 'IL1-1',
         warehouse: 'IL1' as const,
         jobNumber: 'JOB-1',
-        jobDate: '',
+        installDate: '',
         allocatedFeet: 18,
         status: 'ACTIVE' as const,
         createdAt: '',
@@ -400,7 +400,7 @@ describe('boxHelpers', () => {
         boxId: 'IL1-1',
         warehouse: 'IL1' as const,
         jobNumber: 'JOB-2',
-        jobDate: '',
+        installDate: '',
         allocatedFeet: 7,
         status: 'FULFILLED' as const,
         createdAt: '',
@@ -414,7 +414,7 @@ describe('boxHelpers', () => {
         boxId: 'IL1-1',
         warehouse: 'IL1' as const,
         jobNumber: 'JOB-3',
-        jobDate: '',
+        installDate: '',
         allocatedFeet: 9,
         status: 'ACTIVE' as const,
         createdAt: '',

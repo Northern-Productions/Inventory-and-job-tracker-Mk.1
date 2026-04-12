@@ -431,13 +431,13 @@ async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecyc
     const weekStart = getCalendarWeekStart(normalizedAnchorDate);
     const weekEnd = shiftCalendarDate(weekStart, 6);
     return entries.filter((entry) => {
-      const dueDate = asTrimmedString(entry.dueDate);
-      return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= weekStart && dueDate <= weekEnd;
+      const installDate = asTrimmedString(entry.installDate);
+      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= weekStart && installDate <= weekEnd;
     });
   }
 
   const normalizedMonth = normalizedAnchorDate.slice(0, 7);
-  return entries.filter((entry) => asTrimmedString(entry.dueDate).slice(0, 7) === normalizedMonth);
+  return entries.filter((entry) => asTrimmedString(entry.installDate).slice(0, 7) === normalizedMonth);
 }
 
 async function buildJobDetail(client, orgId, jobNumber) {
@@ -718,7 +718,11 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
 
   derived.warehouse = payload.warehouse ? normalizeJobWarehouse(payload.warehouse) : derived.warehouse;
   derived.sections = normalizeJobSections(payload.sections);
-  derived.dueDate = normalizeDateString(payload.dueDate, 'DueDate', true);
+  derived.installDate = normalizeDateString(
+    payload.installDate !== undefined ? payload.installDate : payload.dueDate,
+    'Install Date',
+    true
+  );
   derived.crewLeader =
     payload.crewLeader !== undefined ? asTrimmedString(payload.crewLeader) : derived.crewLeader;
   derived.lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
