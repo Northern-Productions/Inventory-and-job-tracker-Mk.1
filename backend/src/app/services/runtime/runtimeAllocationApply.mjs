@@ -14,7 +14,9 @@ import {
   coerceOptionalNonNegativeNumber,
   coerceFeetValue,
   assertBoxStatus,
-  isAllocatableBoxStatus,
+  findPendingTransferForBox,
+  getTransferAllocationBlockReason,
+  isJobAllocationEligibleBox,
   computeAllocationPlanningFeet,
   getBoxAllocationPlanningFeet,
   boxUsesOrderedPlanning,
@@ -214,14 +216,48 @@ import {
 import { buildPublicFilmOrderLinkedBoxes } from './runtimeJobSummaries.mjs';
 import { deleteStaleAutoShortageFilmOrdersForRequirement } from './runtimeAllocationCleanup.mjs';
 
+async function buildPendingTransfersByBoxRecordId(client, orgId, boxes) {
+  return indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      Array.from(
+        new Set(
+          (Array.isArray(boxes) ? boxes : [])
+            .filter((box) => asTrimmedString(box?.status).toUpperCase() === 'TRANSFER' && box?.id)
+            .map((box) => box.id)
+        )
+      )
+    )
+  );
+}
+
+async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber) {
+  const explicitWarehouse = normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse');
+  if (explicitWarehouse) {
+    return explicitWarehouse;
+  }
+
+  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  return asTrimmedString(existingJob?.warehouse).toUpperCase();
+}
+
+function ensureBoxEligibleForJobAllocation(box, pendingTransfersByBoxRecordId, jobWarehouse, fallbackMessage) {
+  const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
+  const transferBlockReason = getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse);
+  if (transferBlockReason) {
+    throw new HttpError(400, transferBlockReason);
+  }
+
+  if (!isJobAllocationEligibleBox(box, pendingTransfer, jobWarehouse)) {
+    throw new HttpError(400, fallbackMessage || `Box ${box?.boxId || 'this box'} is no longer allocatable.`);
+  }
+}
+
 async function previewAllocationPlan(client, orgId, payload) {
   const source = await findBoxById(client, orgId, payload.boxId);
   if (!source) {
     throw new HttpError(404, 'Box not found.');
-  }
-
-  if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock or ordered boxes can be allocated.');
   }
 
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
@@ -233,6 +269,17 @@ async function previewAllocationPlan(client, orgId, payload) {
     payload.jobNumber,
     payload.jobDate,
     payload.crewLeader
+  );
+  const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);
+  const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
+    source,
+    ...allBoxes
+  ]);
+  ensureBoxEligibleForJobAllocation(
+    source,
+    pendingTransfersByBoxRecordId,
+    jobWarehouse,
+    'Only in-stock, ordered, or matching transfer boxes can be allocated.'
   );
   const requirementId = asTrimmedString(payload.requirementId);
   const selectedRequirement = requirementId
@@ -250,7 +297,8 @@ async function previewAllocationPlan(client, orgId, payload) {
     allBoxes,
     activeAllocationsByBox,
     selectedRequirement,
-    jobWarehouse: normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
+    jobWarehouse,
+    pendingTransfersByBoxRecordId
   });
 }
 
@@ -324,10 +372,6 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(404, 'Box not found.');
   }
 
-  if (!isAllocatableBoxStatus(source.status)) {
-    throw new HttpError(400, 'Only in-stock or ordered boxes can be allocated.');
-  }
-
   const requestedFeet = coerceFeetValue(payload.requestedFeet ?? 0, 'RequestedFeet', warnings, false);
   const extraAllocationsPayload = payload.extraAllocations;
   if (extraAllocationsPayload !== undefined && !Array.isArray(extraAllocationsPayload)) {
@@ -377,6 +421,17 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     payload.jobDate,
     payload.crewLeader
   );
+  const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);
+  const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
+    source,
+    ...allBoxes
+  ]);
+  ensureBoxEligibleForJobAllocation(
+    source,
+    pendingTransfersByBoxRecordId,
+    jobWarehouse,
+    'Only in-stock, ordered, or matching transfer boxes can be allocated.'
+  );
   const requirementId = asTrimmedString(payload.requirementId);
   if (requestedFeet > 0 && !requirementId) {
     throw new HttpError(400, 'RequirementId is required for film allocations.');
@@ -407,7 +462,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       allBoxes,
       activeAllocationsByBox,
       selectedRequirement,
-      jobWarehouse: normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
+      jobWarehouse,
+      pendingTransfersByBoxRecordId
     });
     const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
       ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))
@@ -427,10 +483,12 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     if (!currentBox) {
       throw new HttpError(404, `Box not found: ${plannedAllocation.boxId}`);
     }
-
-    if (!isAllocatableBoxStatus(currentBox.status)) {
-      throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
-    }
+    ensureBoxEligibleForJobAllocation(
+      currentBox,
+      pendingTransfersByBoxRecordId,
+      jobWarehouse,
+      `Box ${currentBox.boxId} is no longer allocatable.`
+    );
 
     if (getBoxAllocationPlanningFeet(currentBox) < plannedAllocation.allocatedFeet) {
       throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough planning LF.`);
@@ -462,10 +520,12 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     if (!currentBox) {
       throw new HttpError(404, `Box not found: ${plannedExtra.boxId}`);
     }
-
-    if (!isAllocatableBoxStatus(currentBox.status)) {
-      throw new HttpError(400, `Box ${currentBox.boxId} is no longer allocatable.`);
-    }
+    ensureBoxEligibleForJobAllocation(
+      currentBox,
+      pendingTransfersByBoxRecordId,
+      jobWarehouse,
+      `Box ${currentBox.boxId} is no longer allocatable.`
+    );
 
     if (selectedRequirement) {
       if (
@@ -553,7 +613,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       selection.remainingFeet,
       minimumWidthIn,
       actor,
-      normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse')
+      jobWarehouse
     );
     publicFilmOrder = filmOrder
       ? toPublicFilmOrder(filmOrder, await buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrder.filmOrderId))

@@ -98,8 +98,8 @@ export function JobAllocateDialog({
       return [];
     }
 
-    return findMatchingBoxesForRequirement(searchableBoxes, selectedRequirement);
-  }, [searchableBoxes, selectedRequirement]);
+    return findMatchingBoxesForRequirement(searchableBoxes, selectedRequirement, warehouse);
+  }, [searchableBoxes, selectedRequirement, warehouse]);
   const preferredLinkedBoxIds = useMemo(
     () => collectPreferredLinkedBoxIds(selectedRequirement, filmOrders),
     [filmOrders, selectedRequirement]
@@ -477,6 +477,7 @@ export function JobAllocateDialog({
 
   const isSubmitting = createFilmOrderMutation.isPending;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
+  const hasTransferCandidates = prioritizedMatchingBoxes.some((box) => box.status === 'TRANSFER');
 
   return (
     <DialogSurface open={open} onClose={onCancel} className="dialog-job-allocate" titleId="job-allocate-dialog-title">
@@ -511,6 +512,7 @@ export function JobAllocateDialog({
           prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
+          hasTransferCandidates={hasTransferCandidates}
           dueDate={dueDate}
           crewLeader={crewLeader}
           previewError={previewQuery.isError && previewQuery.error instanceof Error ? previewQuery.error : null}

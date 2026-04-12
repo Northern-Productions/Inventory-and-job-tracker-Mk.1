@@ -15,6 +15,8 @@ import {
   coerceFeetValue,
   assertBoxStatus,
   isAllocatableBoxStatus,
+  findPendingTransferForBox,
+  isJobAllocationEligibleBox,
   computeAllocationPlanningFeet,
   getBoxAllocationPlanningFeet,
   boxUsesOrderedPlanning,
@@ -716,7 +718,7 @@ async function buildSearchBoxes(client, orgId, params) {
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === 'true';
   const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
-  let filtered = [];
+  const filtered = [];
 
   for (let index = 0; index < boxes.length; index += 1) {
     const box = boxes[index];
@@ -753,18 +755,45 @@ async function buildSearchBoxes(client, orgId, params) {
       continue;
     }
 
-    filtered.push(toPublicBox(box));
+    filtered.push(box);
   }
+
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      filtered
+        .filter((box) => box.status === 'TRANSFER' && box.id)
+        .map((box) => box.id)
+    )
+  );
+  let publicBoxes = filtered.map((box) => {
+    const publicBox = toPublicBox(box);
+    const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
+    if (!pendingTransfer || !isJobAllocationEligibleBox(box, pendingTransfer, pendingTransfer.destinationWarehouse)) {
+      return publicBox;
+    }
+
+    return {
+      ...publicBox,
+      pendingTransfer: {
+        transferId: pendingTransfer.transferId,
+        status: 'PENDING',
+        sourceWarehouse: pendingTransfer.sourceWarehouse,
+        destinationWarehouse: pendingTransfer.destinationWarehouse
+      }
+    };
+  });
 
   if (film) {
     const lowStock = [];
     const remaining = [];
 
-    for (let index = 0; index < filtered.length; index += 1) {
-      if (isLowStockBox(filtered[index])) {
-        lowStock.push(filtered[index]);
+    for (let index = 0; index < publicBoxes.length; index += 1) {
+      if (isLowStockBox(publicBoxes[index])) {
+        lowStock.push(publicBoxes[index]);
       } else {
-        remaining.push(filtered[index]);
+        remaining.push(publicBoxes[index]);
       }
     }
 
@@ -776,14 +805,14 @@ async function buildSearchBoxes(client, orgId, params) {
       return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
     });
 
-    filtered = lowStock.concat(remaining);
+    publicBoxes = lowStock.concat(remaining);
   }
 
   if (query) {
-    filtered = rankBoxSearchCandidates(filtered, query);
+    publicBoxes = rankBoxSearchCandidates(publicBoxes, query);
   }
 
-  return filtered;
+  return publicBoxes;
 }
 
 export {

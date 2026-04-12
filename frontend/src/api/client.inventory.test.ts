@@ -60,4 +60,59 @@ describe('inventory API client', () => {
       }
     );
   });
+
+  it('normalizes transfer search boxes with pending transfer metadata and planning feet fallback', async () => {
+    requestReadWithFallbackMock.mockResolvedValueOnce([
+      {
+        boxId: 'IL1-6773',
+        warehouse: 'IL1',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        widthIn: 72,
+        initialFeet: 96,
+        feetAvailable: 48,
+        allocationPlanningFeet: null,
+        lotRun: '',
+        status: 'TRANSFER',
+        orderDate: '2026-04-01',
+        receivedDate: '2026-04-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: '',
+        pendingTransfer: {
+          transferId: 'TRF-1',
+          status: 'pending',
+          sourceWarehouse: 'il1',
+          destinationWarehouse: 'ms1'
+        }
+      }
+    ]);
+
+    const boxes = await searchBoxes({
+      warehouse: 'IL1'
+    });
+
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].status).toBe('TRANSFER');
+    expect(boxes[0].allocationPlanningFeet).toBe(48);
+    expect(boxes[0].pendingTransfer).toEqual({
+      transferId: 'TRF-1',
+      status: 'PENDING',
+      sourceWarehouse: 'IL1',
+      destinationWarehouse: 'MS1'
+    });
+  });
 });

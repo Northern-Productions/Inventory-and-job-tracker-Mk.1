@@ -10,12 +10,17 @@ import {
   type AllocationCandidateBox
 } from './jobAllocationSelection';
 
-function buildCandidate(boxId: string, feetAvailable: number): AllocationCandidateBox {
+function buildCandidate(
+  boxId: string,
+  feetAvailable: number,
+  overrides: Partial<AllocationCandidateBox> = {}
+): AllocationCandidateBox {
   return {
     boxId,
     warehouse: 'IL1',
     feetAvailable,
-    widthIn: 60
+    widthIn: 60,
+    ...overrides
   };
 }
 
@@ -59,6 +64,16 @@ describe('jobAllocationSelection', () => {
       'MS1-exact',
       'MS1-broader'
     ]);
+  });
+
+  it('ranks in-stock boxes ahead of transfer boxes, and transfer boxes ahead of ordered boxes', () => {
+    const prioritized = prioritizeCandidateBoxes([
+      buildCandidate('ordered', 50, { status: 'ORDERED' }),
+      buildCandidate('transfer', 50, { status: 'TRANSFER' }),
+      buildCandidate('in-stock', 50, { status: 'IN_STOCK' })
+    ]);
+
+    expect(prioritized.map((entry) => entry.boxId)).toEqual(['in-stock', 'transfer', 'ordered']);
   });
 
   it('auto-selects enough boxes to satisfy requested LF', () => {

@@ -1,5 +1,24 @@
 -- Auto-remove stale auto-generated shortage film orders when a requirement becomes fully covered.
 
+create or replace function app_api.compute_allocation_planning_feet(
+  p_status text,
+  p_initial_feet integer,
+  p_feet_available integer,
+  p_active_allocated_feet integer
+)
+returns integer
+language sql
+immutable
+as $$
+  select
+    case upper(coalesce(app_api.trim_text(p_status), ''))
+      when 'IN_STOCK' then greatest(coalesce(p_feet_available, 0), 0)
+      when 'TRANSFER' then greatest(coalesce(p_feet_available, 0), 0)
+      when 'ORDERED' then greatest(coalesce(p_initial_feet, 0) - coalesce(p_active_allocated_feet, 0), 0)
+      else 0
+    end;
+$$;
+
 create or replace function public.api_allocations_apply(
   p_org_id uuid,
   p_actor text,
@@ -49,6 +68,8 @@ declare
   v_deleted_shortage_film_order_count integer := 0;
   v_conflict_count integer;
   v_job_warehouse text;
+  v_source_transfer_destination text := '';
+  v_candidate_transfer_destination text := '';
   v_warnings text[] := array[]::text[];
 begin
   perform app_api.require_org_member(p_org_id);
@@ -72,16 +93,62 @@ begin
     perform app_api.raise_http(404, 'Box not found.');
   end if;
 
-  if coalesce(v_source.status::text, '') not in ('IN_STOCK', 'ORDERED') then
-    perform app_api.raise_http(400, 'Only in-stock or ordered boxes can be allocated.');
-  end if;
-
   v_job_context := app_api.resolve_job_context(
     p_org_id,
     p_payload->>'jobNumber',
     p_payload->>'jobDate',
     p_payload->>'crewLeader'
   );
+
+  if app_api.trim_text(p_payload->>'jobWarehouse') <> '' then
+    v_job_warehouse := app_api.require_org_warehouse(p_org_id, p_payload->>'jobWarehouse', 'Job warehouse');
+  else
+    select coalesce(j.warehouse::text, '')
+    into v_job_warehouse
+    from app.jobs j
+    where j.org_id = p_org_id
+      and upper(trim(j.job_number)) = upper(trim(v_job_context->>'jobNumber'))
+    limit 1;
+  end if;
+
+  if coalesce(v_source.status::text, '') = 'TRANSFER' then
+    select coalesce(t.destination_warehouse::text, '')
+    into v_source_transfer_destination
+    from app.box_transfers t
+    where t.org_id = p_org_id
+      and t.box_record_id = v_source.id
+      and t.status = 'PENDING'
+    order by t.created_at desc, t.id desc
+    limit 1;
+
+    if coalesce(v_job_warehouse, '') = '' then
+      perform app_api.raise_http(
+        400,
+        format('Box %s is in transfer status and needs a job warehouse before it can be allocated.', v_source.box_id)
+      );
+    end if;
+
+    if v_source_transfer_destination = '' then
+      perform app_api.raise_http(
+        400,
+        format('Box %s is in transfer status but no pending transfer was found.', v_source.box_id)
+      );
+    end if;
+
+    if upper(v_source_transfer_destination) <> upper(v_job_warehouse) then
+      perform app_api.raise_http(
+        400,
+        format(
+          'Box %s is transferring to %s and cannot be allocated to a job in %s.',
+          v_source.box_id,
+          v_source_transfer_destination,
+          v_job_warehouse
+        )
+      );
+    end if;
+  elsif coalesce(v_source.status::text, '') not in ('IN_STOCK', 'ORDERED') then
+    perform app_api.raise_http(400, 'Only in-stock, ordered, or matching transfer boxes can be allocated.');
+  end if;
 
   v_source_film_key := app_api.normalize_requirement_film_key(
     p_org_id,
@@ -196,7 +263,7 @@ begin
       'REQUIREMENT',
       v_requirement_id
     );
-    if coalesce(v_source.status::text, '') = 'IN_STOCK' then
+    if coalesce(v_source.status::text, '') in ('IN_STOCK', 'TRANSFER') then
       v_source.feet_available := greatest(v_source.feet_available - v_source_suggested, 0);
       v_source := app_api.save_box(v_source);
     end if;
@@ -208,11 +275,25 @@ begin
     from app.boxes b
     where b.org_id = p_org_id
       and b.box_id <> v_source.box_id
-      and coalesce(b.status::text, '') in ('IN_STOCK', 'ORDERED')
+      and (
+        coalesce(b.status::text, '') in ('IN_STOCK', 'ORDERED')
+        or (
+          coalesce(b.status::text, '') = 'TRANSFER'
+          and coalesce(v_job_warehouse, '') <> ''
+          and exists (
+            select 1
+            from app.box_transfers t
+            where t.org_id = p_org_id
+              and t.box_record_id = b.id
+              and t.status = 'PENDING'
+              and upper(coalesce(t.destination_warehouse, '')) = upper(v_job_warehouse)
+          )
+        )
+      )
       and app_api.compute_allocation_planning_feet(
         coalesce(b.status::text, ''),
-        b.feet_available,
         b.initial_feet,
+        b.feet_available,
         app_api.active_allocated_feet_for_box(p_org_id, b.box_id)
       ) > 0
       and case
@@ -230,8 +311,9 @@ begin
     order by
       case
         when coalesce(b.status::text, '') = 'IN_STOCK' then 0
-        when coalesce(b.status::text, '') = 'ORDERED' then 1
-        else 2
+        when coalesce(b.status::text, '') = 'TRANSFER' then 1
+        when coalesce(b.status::text, '') = 'ORDERED' then 2
+        else 3
       end,
       case
         when b.width_in = v_requested_width_in then 0
@@ -302,7 +384,7 @@ begin
       'REQUIREMENT',
       v_requirement_id
     );
-    if coalesce(v_candidate.status::text, '') = 'IN_STOCK' then
+    if coalesce(v_candidate.status::text, '') in ('IN_STOCK', 'TRANSFER') then
       v_candidate.feet_available := greatest(v_candidate.feet_available - v_allocation.allocated_feet, 0);
       perform app_api.save_box(v_candidate);
     end if;
@@ -340,7 +422,42 @@ begin
         perform app_api.raise_http(404, format('Box not found: %s', v_extra_box_id));
       end if;
 
-      if coalesce(v_candidate.status::text, '') not in ('IN_STOCK', 'ORDERED') then
+      if coalesce(v_candidate.status::text, '') = 'TRANSFER' then
+        select coalesce(t.destination_warehouse::text, '')
+        into v_candidate_transfer_destination
+        from app.box_transfers t
+        where t.org_id = p_org_id
+          and t.box_record_id = v_candidate.id
+          and t.status = 'PENDING'
+        order by t.created_at desc, t.id desc
+        limit 1;
+
+        if coalesce(v_job_warehouse, '') = '' then
+          perform app_api.raise_http(
+            400,
+            format('Box %s is in transfer status and needs a job warehouse before it can be allocated.', v_candidate.box_id)
+          );
+        end if;
+
+        if v_candidate_transfer_destination = '' then
+          perform app_api.raise_http(
+            400,
+            format('Box %s is in transfer status but no pending transfer was found.', v_candidate.box_id)
+          );
+        end if;
+
+        if upper(v_candidate_transfer_destination) <> upper(v_job_warehouse) then
+          perform app_api.raise_http(
+            400,
+            format(
+              'Box %s is transferring to %s and cannot be allocated to a job in %s.',
+              v_candidate.box_id,
+              v_candidate_transfer_destination,
+              v_job_warehouse
+            )
+          );
+        end if;
+      elsif coalesce(v_candidate.status::text, '') not in ('IN_STOCK', 'ORDERED') then
         perform app_api.raise_http(400, format('Box %s is no longer allocatable.', v_candidate.box_id));
       end if;
 
@@ -386,7 +503,7 @@ begin
         'EXTRA',
         null
       );
-      if coalesce(v_candidate.status::text, '') = 'IN_STOCK' then
+      if coalesce(v_candidate.status::text, '') in ('IN_STOCK', 'TRANSFER') then
         v_candidate.feet_available := greatest(v_candidate.feet_available - v_extra_feet, 0);
         perform app_api.save_box(v_candidate);
       end if;
@@ -492,9 +609,7 @@ begin
   end if;
 
   if v_remaining > 0 then
-    if app_api.trim_text(p_payload->>'jobWarehouse') <> '' then
-      v_job_warehouse := app_api.require_org_warehouse(p_org_id, p_payload->>'jobWarehouse', 'Job warehouse');
-    else
+    if coalesce(v_job_warehouse, '') = '' then
       v_job_warehouse := v_source.warehouse;
     end if;
 

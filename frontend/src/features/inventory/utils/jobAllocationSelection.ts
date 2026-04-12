@@ -54,16 +54,25 @@ function getCandidateStatusRank(candidate: AllocationCandidateBox) {
     return 0;
   }
 
-  if (normalizedStatus === 'ORDERED') {
+  if (normalizedStatus === 'TRANSFER') {
     return 1;
   }
 
-  return 2;
+  if (normalizedStatus === 'ORDERED') {
+    return 2;
+  }
+
+  return 3;
 }
 
 function isAllocatableCandidate(candidate: AllocationCandidateBox) {
   const normalizedStatus = String(candidate.boxStatus || candidate.status || '').trim().toUpperCase();
-  return normalizedStatus === '' || normalizedStatus === 'IN_STOCK' || normalizedStatus === 'ORDERED';
+  return (
+    normalizedStatus === '' ||
+    normalizedStatus === 'IN_STOCK' ||
+    normalizedStatus === 'TRANSFER' ||
+    normalizedStatus === 'ORDERED'
+  );
 }
 
 export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(

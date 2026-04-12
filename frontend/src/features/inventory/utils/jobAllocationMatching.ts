@@ -12,7 +12,7 @@ function getBoxPlanningFeet(box: Pick<Box, 'status' | 'initialFeet' | 'feetAvail
     return Math.max(0, Number(box.allocationPlanningFeet || 0));
   }
 
-  if (box.status === 'IN_STOCK') {
+  if (box.status === 'IN_STOCK' || box.status === 'TRANSFER') {
     return Math.max(0, Number(box.feetAvailable || 0));
   }
 
@@ -28,11 +28,32 @@ function getAllocationStatusRank(status: Box['status']) {
     return 0;
   }
 
-  if (status === 'ORDERED') {
+  if (status === 'TRANSFER') {
     return 1;
   }
 
-  return 2;
+  if (status === 'ORDERED') {
+    return 2;
+  }
+
+  return 3;
+}
+
+function isTransferAllocatableForJob(box: Pick<Box, 'status' | 'pendingTransfer'>, jobWarehouse: string) {
+  if (box.status !== 'TRANSFER') {
+    return false;
+  }
+
+  const normalizedJobWarehouse = String(jobWarehouse || '').trim().toUpperCase();
+  const pendingTransfer = box.pendingTransfer;
+  if (!normalizedJobWarehouse || !pendingTransfer) {
+    return false;
+  }
+
+  return (
+    String(pendingTransfer.status || '').trim().toUpperCase() === 'PENDING' &&
+    String(pendingTransfer.destinationWarehouse || '').trim().toUpperCase() === normalizedJobWarehouse
+  );
 }
 
 function compareDates(leftDate: string, rightDate: string) {
@@ -100,7 +121,11 @@ function compareBoxesByClosestCompatibleWidth(
   return left.boxId.localeCompare(right.boxId);
 }
 
-export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRequirementLine): Box[] {
+export function findMatchingBoxesForRequirement(
+  boxes: Box[],
+  requirement: JobRequirementLine,
+  jobWarehouse = ''
+): Box[] {
   const requiredWidth = requirement.widthIn;
   const dedupedByBoxId = new Map<string, Box>();
 
@@ -113,7 +138,10 @@ export function findMatchingBoxesForRequirement(boxes: Box[], requirement: JobRe
   }
 
   const rankedMatches = Array.from(dedupedByBoxId.values()).flatMap((box) => {
-    const isAllocatableStatus = box.status === 'IN_STOCK' || box.status === 'ORDERED';
+    const isAllocatableStatus =
+      box.status === 'IN_STOCK' ||
+      box.status === 'ORDERED' ||
+      isTransferAllocatableForJob(box, jobWarehouse);
     if (!isAllocatableStatus || getBoxPlanningFeet(box) <= 0) {
       return [];
     }

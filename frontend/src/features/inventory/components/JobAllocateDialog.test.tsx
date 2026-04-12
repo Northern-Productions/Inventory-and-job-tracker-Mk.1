@@ -433,6 +433,153 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
+  it('shows matching transfer boxes for the job warehouse and uses them in the live preview', async () => {
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
+      payload?.boxId === 'IL1-TRANSFER'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '4803',
+              jobDate: '',
+              crewLeader: '',
+              requestedFeet: 13,
+              requestedWidthIn: 72,
+              sourceBoxId: 'IL1-TRANSFER',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 72,
+              sourceBoxFeetAvailable: 96,
+              sourceSuggestedFeet: 13,
+              sourceSuggestedCoveredFeet: 13,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 13,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'MS1-IN-STOCK',
+        warehouse: 'MS1',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        widthIn: 72,
+        status: 'IN_STOCK',
+        feetAvailable: 20,
+        allocationPlanningFeet: 20
+      }),
+      buildSearchBox({
+        boxId: 'IL1-TRANSFER',
+        warehouse: 'IL1',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        widthIn: 72,
+        status: 'TRANSFER',
+        feetAvailable: 96,
+        allocationPlanningFeet: 96,
+        pendingTransfer: {
+          transferId: 'TRF-1',
+          status: 'PENDING',
+          sourceWarehouse: 'IL1',
+          destinationWarehouse: 'MS1'
+        }
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '4803',
+      warehouse: 'MS1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          requiredFeet: 13,
+          allocatedFeet: 0,
+          remainingFeet: 13
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    expect(screen.getByText(/Transfer boxes already headed to this warehouse/i)).toBeTruthy();
+
+    const transferRow = within(table).getByText(/IL1-TRANSFER/).closest('tr');
+    expect(transferRow).not.toBeNull();
+    const transferCheckbox = within(transferRow as HTMLElement).getByRole('checkbox') as HTMLInputElement;
+
+    fireEvent.click(transferCheckbox);
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-TRANSFER',
+          jobWarehouse: 'MS1'
+        })
+      )
+    );
+    await waitFor(() => expect(transferCheckbox.checked).toBe(true));
+    await waitFor(() =>
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*13/i)
+    );
+
+    queryClient.clear();
+  });
+
+  it('hides transfer boxes that are headed to a different warehouse', async () => {
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'IL1-TRANSFER-WRONG',
+        warehouse: 'IL1',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        widthIn: 72,
+        status: 'TRANSFER',
+        feetAvailable: 96,
+        allocationPlanningFeet: 96,
+        pendingTransfer: {
+          transferId: 'TRF-2',
+          status: 'PENDING',
+          sourceWarehouse: 'IL1',
+          destinationWarehouse: 'TX1'
+        }
+      }),
+      buildSearchBox({
+        boxId: 'MS1-IN-STOCK',
+        warehouse: 'MS1',
+        manufacturer: 'SOLYX',
+        filmName: 'Whiteout SXWF-WO',
+        widthIn: 72,
+        status: 'IN_STOCK',
+        feetAvailable: 20,
+        allocationPlanningFeet: 20
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '4803',
+      warehouse: 'MS1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          requiredFeet: 13,
+          allocatedFeet: 0,
+          remainingFeet: 13
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    expect(table.textContent || '').toContain('MS1-IN-STOCK');
+    expect(table.textContent || '').not.toContain('IL1-TRANSFER-WRONG');
+
+    queryClient.clear();
+  });
+
   it('searches with manufacturer plus q and lets the user manually choose RN07-family boxes', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
       payload?.boxId === 'IL1-RN07'

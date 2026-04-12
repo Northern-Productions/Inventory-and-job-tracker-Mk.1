@@ -9,6 +9,7 @@ interface StatusMessagesProps {
   prioritizedMatchingBoxesCount: number;
   selectedBoxCount: number;
   hasPreferredLinkedBoxes: boolean;
+  hasTransferCandidates: boolean;
   dueDate: string;
   crewLeader: string;
   previewError: Error | null;
@@ -25,6 +26,7 @@ export function StatusMessages({
   prioritizedMatchingBoxesCount,
   selectedBoxCount,
   hasPreferredLinkedBoxes,
+  hasTransferCandidates,
   dueDate,
   crewLeader,
   previewError,
@@ -70,6 +72,11 @@ export function StatusMessages({
       {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxesCount ? (
         <p className="muted-text">
           Boxes linked to this job&apos;s film orders are prioritized first. Select any boxes you want to use.
+        </p>
+      ) : null}
+      {!isMatchingBoxesLoading && hasTransferCandidates ? (
+        <p className="muted-text">
+          Transfer boxes already headed to this warehouse can be allocated here, but they must still be received before checkout.
         </p>
       ) : null}
       {!isMatchingBoxesLoading && previewError && !activePreviewLoaded ? (

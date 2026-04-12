@@ -158,9 +158,48 @@ function isAllocatableBoxStatus(value) {
   return normalized === 'IN_STOCK' || normalized === 'ORDERED';
 }
 
+function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
+  const boxRecordId = asTrimmedString(box?.id);
+  if (!boxRecordId) {
+    return null;
+  }
+
+  return pendingTransfersByBoxRecordId[boxRecordId] || null;
+}
+
+function getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) {
+  if (asTrimmedString(box?.status).toUpperCase() !== 'TRANSFER') {
+    return '';
+  }
+
+  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
+  if (!normalizedJobWarehouse) {
+    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is in transfer status and needs a job warehouse before it can be allocated.`;
+  }
+
+  if (!pendingTransfer || asTrimmedString(pendingTransfer.status).toUpperCase() !== 'PENDING') {
+    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is in transfer status but no pending transfer was found.`;
+  }
+
+  const destinationWarehouse = asTrimmedString(pendingTransfer.destinationWarehouse).toUpperCase();
+  if (destinationWarehouse !== normalizedJobWarehouse) {
+    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is transferring to ${destinationWarehouse || 'another warehouse'} and cannot be allocated to a job in ${normalizedJobWarehouse}.`;
+  }
+
+  return '';
+}
+
+function isJobAllocationEligibleBox(box, pendingTransfer, jobWarehouse) {
+  if (isAllocatableBoxStatus(box?.status)) {
+    return true;
+  }
+
+  return getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) === '';
+}
+
 function computeAllocationPlanningFeet(status, initialFeet, feetAvailable, activeAllocatedFeet) {
   const normalizedStatus = asTrimmedString(status).toUpperCase();
-  if (normalizedStatus === 'IN_STOCK') {
+  if (normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER') {
     return Math.max(0, integerOrZero(feetAvailable));
   }
 
@@ -826,6 +865,9 @@ export {
   coerceFeetValue,
   assertBoxStatus,
   isAllocatableBoxStatus,
+  findPendingTransferForBox,
+  getTransferAllocationBlockReason,
+  isJobAllocationEligibleBox,
   computeAllocationPlanningFeet,
   getBoxAllocationPlanningFeet,
   boxUsesOrderedPlanning,

@@ -128,7 +128,7 @@ function buildBoxSelectColumns(alias) {
     ${alias}.*,
     coalesce(active_allocations.active_allocated_feet, 0)::integer as active_allocated_feet,
     case
-      when upper(coalesce(${alias}.status::text, 'ORDERED')) = 'IN_STOCK' then greatest(coalesce(${alias}.feet_available, 0), 0)
+      when upper(coalesce(${alias}.status::text, 'ORDERED')) in ('IN_STOCK', 'TRANSFER') then greatest(coalesce(${alias}.feet_available, 0), 0)
       when upper(coalesce(${alias}.status::text, 'ORDERED')) = 'ORDERED' then greatest(
         coalesce(${alias}.initial_feet, 0) - coalesce(active_allocations.active_allocated_feet, 0),
         0

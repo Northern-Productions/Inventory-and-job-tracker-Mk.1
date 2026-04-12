@@ -1,6 +1,13 @@
 import type { Warehouse } from './warehouses';
 import type { BoxCoreType, BoxStatus, BoxTransferStatus } from './statuses';
 
+export interface BoxPendingTransferSummary {
+  transferId: string;
+  status: Extract<BoxTransferStatus, 'PENDING'>;
+  sourceWarehouse: Warehouse;
+  destinationWarehouse: Warehouse;
+}
+
 export interface Box {
   boxId: string;
   warehouse: Warehouse;
@@ -30,6 +37,7 @@ export interface Box {
   zeroedDate: string;
   zeroedReason: string;
   zeroedBy: string;
+  pendingTransfer?: BoxPendingTransferSummary | null;
 }
 
 export interface SearchBoxesParams {

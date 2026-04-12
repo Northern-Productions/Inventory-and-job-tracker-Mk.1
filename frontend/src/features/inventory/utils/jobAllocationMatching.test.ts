@@ -31,7 +31,8 @@ function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' |
     lastCheckoutDate: overrides.lastCheckoutDate || '',
     zeroedDate: overrides.zeroedDate || '',
     zeroedReason: overrides.zeroedReason || '',
-    zeroedBy: overrides.zeroedBy || ''
+    zeroedBy: overrides.zeroedBy || '',
+    pendingTransfer: overrides.pendingTransfer ?? null
   };
 }
 
@@ -78,6 +79,92 @@ describe('findMatchingBoxesForRequirement', () => {
     );
 
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-60-C']);
+  });
+
+  it('includes matching-destination transfer boxes between in-stock and ordered candidates', () => {
+    const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'MS1-IN-STOCK',
+          warehouse: 'MS1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'IN_STOCK',
+          feetAvailable: 40,
+          allocationPlanningFeet: 40
+        }),
+        buildBox({
+          boxId: 'IL1-TRANSFER',
+          warehouse: 'IL1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'TRANSFER',
+          feetAvailable: 96,
+          allocationPlanningFeet: 96,
+          pendingTransfer: {
+            transferId: 'TRF-1',
+            status: 'PENDING',
+            sourceWarehouse: 'IL1',
+            destinationWarehouse: 'MS1'
+          }
+        }),
+        buildBox({
+          boxId: 'MS1-ORDERED',
+          warehouse: 'MS1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'ORDERED',
+          feetAvailable: 0,
+          allocationPlanningFeet: 120
+        })
+      ],
+      requirement,
+      'MS1'
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['MS1-IN-STOCK', 'IL1-TRANSFER', 'MS1-ORDERED']);
+  });
+
+  it('excludes transfer boxes without a matching destination warehouse', () => {
+    const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-TRANSFER-WRONG',
+          warehouse: 'IL1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'TRANSFER',
+          feetAvailable: 96,
+          allocationPlanningFeet: 96,
+          pendingTransfer: {
+            transferId: 'TRF-2',
+            status: 'PENDING',
+            sourceWarehouse: 'IL1',
+            destinationWarehouse: 'TX1'
+          }
+        }),
+        buildBox({
+          boxId: 'IL1-TRANSFER-MISSING',
+          warehouse: 'IL1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'TRANSFER',
+          feetAvailable: 96,
+          allocationPlanningFeet: 96
+        })
+      ],
+      requirement,
+      'MS1'
+    );
+
+    expect(matching).toHaveLength(0);
   });
 
   it('treats legacy manufacturer aliases as equivalent for matching', () => {

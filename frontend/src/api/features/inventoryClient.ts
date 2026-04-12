@@ -31,6 +31,21 @@ import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 import { applyAllocationPlan } from './allocationsClient';
 import { listWarehouses } from './warehouseClient';
 
+function normalizePendingTransfer(
+  pendingTransfer: Box['pendingTransfer'] | undefined
+): Box['pendingTransfer'] {
+  if (!pendingTransfer) {
+    return null;
+  }
+
+  return {
+    transferId: String(pendingTransfer.transferId || '').trim(),
+    status: 'PENDING',
+    sourceWarehouse: String(pendingTransfer.sourceWarehouse || '').trim().toUpperCase() as Warehouse,
+    destinationWarehouse: String(pendingTransfer.destinationWarehouse || '').trim().toUpperCase() as Warehouse
+  };
+}
+
 function normalizeBox(box: Box): Box {
   const onHandFeet = Math.max(0, Number(box.feetAvailable || 0));
   const initialFeet = Math.max(0, Number(box.initialFeet || 0));
@@ -40,7 +55,7 @@ function normalizeBox(box: Box): Box {
   );
   const activePlanningFeet =
     box.allocationPlanningFeet === undefined || box.allocationPlanningFeet === null
-      ? box.status === 'IN_STOCK'
+      ? box.status === 'IN_STOCK' || box.status === 'TRANSFER'
         ? onHandFeet
         : box.status === 'ORDERED'
           ? Math.max(0, initialFeet - activeAllocatedFeet)
@@ -51,7 +66,8 @@ function normalizeBox(box: Box): Box {
     ...box,
     initialFeet,
     feetAvailable: onHandFeet,
-    allocationPlanningFeet: activePlanningFeet
+    allocationPlanningFeet: activePlanningFeet,
+    pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };
 }
 

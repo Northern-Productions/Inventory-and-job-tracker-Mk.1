@@ -48,9 +48,16 @@ export type ReadHandlerDeps = {
       activeAllocationsByBox: Record<string, any[]>;
       selectedRequirement?: any;
       jobWarehouse?: string;
+      pendingTransfersByBoxRecordId?: Record<string, any>;
     },
   ) => Record<string, unknown>;
   normalizeOptionalWarehouse: (value: unknown, fieldName?: string) => string;
+  resolveAllocationJobWarehouse: (
+    client: any,
+    orgId: string,
+    jobNumber: unknown,
+    explicitJobWarehouse: unknown,
+  ) => Promise<string>;
   resolveJobContext: (
     client: any,
     orgId: string,
@@ -60,6 +67,11 @@ export type ReadHandlerDeps = {
   ) => Promise<JobContext>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
+  buildPendingTransfersByBoxRecordId: (
+    client: any,
+    orgId: string,
+    boxes: any[],
+  ) => Promise<Record<string, any>>;
   listJobRequirementsByJob: (client: any, orgId: string, jobNumber: string) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
@@ -290,10 +302,14 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!source) {
       throw new HttpError(404, "Box not found.");
     }
-    if (source.status !== "IN_STOCK" && source.status !== "ORDERED") {
-      throw new HttpError(400, "Only in-stock or ordered boxes can be allocated.");
-    }
     const jobContext = await deps.resolveJobContext(client, orgId, params.jobNumber, params.jobDate, params.crewLeader);
+    const allBoxes = await deps.listBoxes(client, orgId);
+    const jobWarehouse = await deps.resolveAllocationJobWarehouse(
+      client,
+      orgId,
+      (jobContext as Record<string, unknown>).jobNumber,
+      params.jobWarehouse,
+    );
     const requirementId = deps.asTrimmedString(params.requirementId);
     const selectedRequirement = requirementId
       ? (
@@ -317,10 +333,14 @@ const readHandlers: Record<string, ReadHandler> = {
       {
         crossWarehouse: deps.parseCrossWarehouseFlag(params.crossWarehouse),
         minimumWidthIn: params.requestedWidthIn,
-        allBoxes: await deps.listBoxes(client, orgId),
+        allBoxes,
         activeAllocationsByBox: deps.buildActiveAllocationsByBoxIndex(await deps.listActiveAllocations(client, orgId)),
         selectedRequirement,
-        jobWarehouse: deps.normalizeOptionalWarehouse(params.jobWarehouse, "JobWarehouse"),
+        jobWarehouse,
+        pendingTransfersByBoxRecordId: await deps.buildPendingTransfersByBoxRecordId(client, orgId, [
+          source,
+          ...allBoxes,
+        ]),
       },
     ));
   },

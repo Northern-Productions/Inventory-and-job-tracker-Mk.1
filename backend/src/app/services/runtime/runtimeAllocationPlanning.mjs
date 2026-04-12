@@ -15,6 +15,9 @@ import {
   coerceFeetValue,
   assertBoxStatus,
   isAllocatableBoxStatus,
+  findPendingTransferForBox,
+  getTransferAllocationBlockReason,
+  isJobAllocationEligibleBox,
   computeAllocationPlanningFeet,
   getBoxAllocationPlanningFeet,
   boxUsesOrderedPlanning,
@@ -290,6 +293,23 @@ function getDateConflictJobsForBox(boxId, jobContext, activeAllocationsByBox) {
   return conflicts;
 }
 
+function getAllocationCandidateStatusRank(box) {
+  const normalizedStatus = asTrimmedString(box?.status).toUpperCase();
+  if (normalizedStatus === 'IN_STOCK') {
+    return 0;
+  }
+
+  if (normalizedStatus === 'TRANSFER') {
+    return 1;
+  }
+
+  if (normalizedStatus === 'ORDERED') {
+    return 2;
+  }
+
+  return 3;
+}
+
 function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, options) {
   const requested = coerceFeetValue(requestedFeet, 'RequestedFeet', [], true);
   if (requested <= 0) {
@@ -299,6 +319,8 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   const useCrossWarehouse = options && options.crossWarehouse === true;
   const selectedRequirement = options && options.selectedRequirement ? options.selectedRequirement : null;
   const preferredWarehouse = asTrimmedString(options && options.jobWarehouse).toUpperCase();
+  const pendingTransfersByBoxRecordId =
+    options && options.pendingTransfersByBoxRecordId ? options.pendingTransfersByBoxRecordId : {};
   const requirementWidthValue = Number(selectedRequirement && selectedRequirement.widthIn);
   const minimumWidthValue = Number(options && options.minimumWidthIn);
   const minimumWidthIn =
@@ -315,6 +337,18 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   }
   if (sourceBox.widthIn < minimumWidthIn) {
     throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
+  }
+  const sourcePendingTransfer = findPendingTransferForBox(sourceBox, pendingTransfersByBoxRecordId);
+  const sourceTransferBlockReason = getTransferAllocationBlockReason(
+    sourceBox,
+    sourcePendingTransfer,
+    preferredWarehouse
+  );
+  if (sourceTransferBlockReason) {
+    throw new HttpError(400, sourceTransferBlockReason);
+  }
+  if (!isJobAllocationEligibleBox(sourceBox, sourcePendingTransfer, preferredWarehouse)) {
+    throw new HttpError(400, `Box ${sourceBox.boxId} is no longer allocatable.`);
   }
   const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
   const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, activeAllocationsByBox);
@@ -334,9 +368,10 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   for (let index = 0; index < candidateBoxes.length; index += 1) {
     const candidate = candidateBoxes[index];
     const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, activeAllocationsByBox);
+    const candidatePendingTransfer = findPendingTransferForBox(candidate, pendingTransfersByBoxRecordId);
     if (
       candidate.boxId === sourceBox.boxId ||
-      !isAllocatableBoxStatus(candidate.status) ||
+      !isJobAllocationEligibleBox(candidate, candidatePendingTransfer, preferredWarehouse) ||
       candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
@@ -370,8 +405,8 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   filteredCandidates.sort((leftEntry, rightEntry) => {
     const left = leftEntry.candidate;
     const right = rightEntry.candidate;
-    const leftStatusRank = boxUsesOrderedPlanning(left) ? 1 : 0;
-    const rightStatusRank = boxUsesOrderedPlanning(right) ? 1 : 0;
+    const leftStatusRank = getAllocationCandidateStatusRank(left);
+    const rightStatusRank = getAllocationCandidateStatusRank(right);
     if (leftStatusRank !== rightStatusRank) {
       return leftStatusRank - rightStatusRank;
     }

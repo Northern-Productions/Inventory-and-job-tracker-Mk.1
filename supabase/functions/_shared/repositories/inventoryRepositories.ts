@@ -30,7 +30,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     activeAllocatedFeet: unknown,
   ) {
     const normalizedStatus = deps.asTrimmedString(status).toUpperCase();
-    if (normalizedStatus === "IN_STOCK") {
+    if (normalizedStatus === "IN_STOCK" || normalizedStatus === "TRANSFER") {
       return Math.max(0, deps.integerOrZero(feetAvailable));
     }
 
