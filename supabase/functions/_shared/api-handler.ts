@@ -32,6 +32,10 @@ import {
   planCoverageAllocation,
 } from "../../../frontend/src/domain/allocationCoverageContract.mjs";
 import {
+  buildTransferredBoxId as buildSharedTransferredBoxId,
+  planTransferredBoxId,
+} from "../../../frontend/src/domain/boxTransferPlanner.mjs";
+import {
   matchesBoxSearchQuery,
   rankBoxSearchCandidates,
 } from "../../../frontend/src/domain/boxSearchMatcher.mjs";
@@ -1030,7 +1034,7 @@ function shouldUseCache(method: string, logicalPath: string): boolean {
   if (!Number.isFinite(CACHE_TTL_MS) || CACHE_TTL_MS <= 0) {
     return false;
   }
-  if (logicalPath === "/auth/context") {
+  if (logicalPath === "/auth/context" || logicalPath === "/boxes/transfer/plan") {
     return false;
   }
   return method === "GET";
@@ -1646,6 +1650,16 @@ async function findWarehouseEntry(client: any, orgId: string, warehouseCode: unk
   };
 }
 
+async function listWarehouseBoxIdPrefixes(client: any, orgId: string) {
+  const warehouseRows = await rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
+    p_org_id: orgId,
+  });
+
+  return (warehouseRows || [])
+    .map((row) => asTrimmedString(row.box_id_prefix).toUpperCase() || asTrimmedString(row.code).toUpperCase())
+    .filter(Boolean);
+}
+
 function getBoxIdPrefixToken(prefix: unknown): string {
   return requireString(prefix, "BoxID prefix")
     .toUpperCase()
@@ -1669,7 +1683,7 @@ function getTransferredBoxIdSuffix(boxId: unknown, sourcePrefix: unknown): strin
 }
 
 function buildTransferredBoxId(boxId: unknown, sourcePrefix: unknown, destinationPrefix: unknown): string {
-  return `${getBoxIdPrefixToken(destinationPrefix)}-${getTransferredBoxIdSuffix(boxId, sourcePrefix)}`.toUpperCase();
+  return buildSharedTransferredBoxId(boxId, sourcePrefix, destinationPrefix);
 }
 
 function requireBoxRecordId(box: any, operation: string) {
@@ -1787,6 +1801,24 @@ async function findPendingBoxTransferByBoxRecordId(client: any, orgId: string, b
     .limit(1)
     .maybeSingle();
   throwOnSupabaseError(error, "Unable to load pending transfer");
+  return mapDbBoxTransferRow(data);
+}
+
+async function findPendingBoxTransferByDestinationBoxId(client: any, orgId: string, destinationBoxId: string) {
+  const normalizedDestinationBoxId = requireString(destinationBoxId, "DestinationBoxID").toUpperCase();
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("box_transfers")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("status", "PENDING")
+    .eq("destination_box_id", normalizedDestinationBoxId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  throwOnSupabaseError(error, "Unable to load pending destination transfer");
   return mapDbBoxTransferRow(data);
 }
 
@@ -2000,7 +2032,12 @@ function getTransferStartGuardForBox(box: any, activeTargets: any[]) {
   };
 }
 
-async function boxIdOrAliasExists(orgId: string, boxId: string, excludedBoxRecordId = "") {
+async function findBoxIdConflict(
+  client: any,
+  orgId: string,
+  boxId: string,
+  { excludedBoxRecordId = "", excludedTransferId = "" }: { excludedBoxRecordId?: string; excludedTransferId?: string } = {},
+) {
   const normalizedBoxId = requireString(boxId, "BoxID").toUpperCase();
   const serviceClient = requireServiceRoleClient();
   const { data: existingBox, error: existingBoxError } = await serviceClient
@@ -2022,7 +2059,10 @@ async function boxIdOrAliasExists(orgId: string, boxId: string, excludedBoxRecor
   throwOnSupabaseError(aliasError, "Unable to check box ID aliases");
 
   if (existingBox && (!excludedBoxRecordId || asTrimmedString((existingBox as Record<string, unknown>).id) !== excludedBoxRecordId)) {
-    return true;
+    return {
+      conflictType: "box",
+      conflictBoxId: normalizedBoxId,
+    };
   }
 
   if (aliasRow && excludedBoxRecordId) {
@@ -2037,12 +2077,34 @@ async function boxIdOrAliasExists(orgId: string, boxId: string, excludedBoxRecor
         .maybeSingle();
       throwOnSupabaseError(canonicalBoxError, "Unable to resolve alias owner");
       if (canonicalBox && asTrimmedString((canonicalBox as Record<string, unknown>).id) === excludedBoxRecordId) {
-        return false;
+        return null;
       }
     }
   }
 
-  return Boolean(aliasRow);
+  if (aliasRow) {
+    return {
+      conflictType: "alias",
+      conflictBoxId: asTrimmedString((aliasRow as Record<string, unknown>).canonical_box_id).toUpperCase() || normalizedBoxId,
+    };
+  }
+
+  const pendingTransfer = await findPendingBoxTransferByDestinationBoxId(client, orgId, normalizedBoxId);
+  if (
+    pendingTransfer &&
+    asTrimmedString(pendingTransfer.transferId) !== asTrimmedString(excludedTransferId)
+  ) {
+    return {
+      conflictType: "pending_transfer",
+      conflictBoxId: asTrimmedString(pendingTransfer.destinationBoxId).toUpperCase() || normalizedBoxId,
+    };
+  }
+
+  return null;
+}
+
+async function boxIdOrAliasExists(client: any, orgId: string, boxId: string, excludedBoxRecordId = "") {
+  return Boolean(await findBoxIdConflict(client, orgId, boxId, { excludedBoxRecordId }));
 }
 
 async function releaseReusableBoxIdAlias(orgId: string, boxId: string, boxRecordId: string) {
@@ -4899,10 +4961,33 @@ async function getBoxTransferByBox(client: any, orgId: string, boxId: string) {
   return ok(toPublicBoxTransfer(transfer));
 }
 
-async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
-  const orgId = identity.orgId;
-  const actor = identity.actor;
-  const warnings: string[] = [];
+function buildTransferDestinationConflictMessage(destinationBoxId: string, conflict: any) {
+  const normalizedDestinationBoxId = requireString(destinationBoxId, "DestinationBoxID").toUpperCase();
+  if (!conflict) {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is not available.`;
+  }
+
+  if (conflict.conflictType === "alias") {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is already kept as an alias for ${conflict.conflictBoxId}.`;
+  }
+
+  if (conflict.conflictType === "pending_transfer") {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is already reserved by another pending transfer.`;
+  }
+
+  return `Arrival BoxID ${normalizedDestinationBoxId} already exists.`;
+}
+
+function isPendingTransferReservationConflict(error: unknown) {
+  return (
+    Boolean(error) &&
+    typeof error === "object" &&
+    (error as Record<string, unknown>).code === "23505" &&
+    String((error as Record<string, unknown>).constraint || "").includes("idx_box_transfers_one_pending_destination_box")
+  );
+}
+
+async function resolveBoxTransferPlan(client: any, orgId: string, payload: Record<string, unknown>) {
   const boxId = requireString(payload.boxId, "BoxID").toUpperCase();
   const box = await findBoxById(client, orgId, boxId);
   if (!box) {
@@ -4940,20 +5025,82 @@ async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Re
     );
   }
 
-  const transfer = await saveBoxTransferRecord(client, orgId, {
-    transferId: createTransferId(),
-    boxRecordId,
-    sourceBoxId: box.boxId,
-    destinationBoxId: buildTransferredBoxId(box.boxId, sourceWarehouse.boxIdPrefix, destinationWarehouse.boxIdPrefix),
-    sourceWarehouse: sourceWarehouse.code,
-    destinationWarehouse: destinationWarehouse.code,
-    status: "PENDING",
-    notes: asTrimmedString(payload.notes),
-    createdAt: new Date().toISOString(),
-    createdBy: actor,
-    updatedAt: new Date().toISOString(),
-    updatedBy: actor,
+  const warehousePrefixes = await listWarehouseBoxIdPrefixes(client, orgId);
+  let destinationBoxId = "";
+  try {
+    destinationBoxId = planTransferredBoxId(
+      box.boxId,
+      sourceWarehouse.boxIdPrefix,
+      destinationWarehouse.boxIdPrefix,
+      warehousePrefixes,
+      payload.destinationBoxIdOverride,
+    );
+  } catch (error) {
+    throw new HttpError(
+      400,
+      error instanceof Error ? error.message : "Arrival Box ID is not valid for this destination warehouse.",
+    );
+  }
+
+  const conflict = await findBoxIdConflict(client, orgId, destinationBoxId, {
+    excludedBoxRecordId: boxRecordId,
   });
+
+  return {
+    box,
+    boxRecordId,
+    sourceWarehouse,
+    destinationWarehouse,
+    destinationBoxId,
+    conflict,
+  };
+}
+
+async function getBoxTransferPlan(client: any, orgId: string, payload: Record<string, unknown>) {
+  const plan = await resolveBoxTransferPlan(client, orgId, payload);
+  return ok({
+    destinationBoxId: plan.destinationBoxId,
+    available: !plan.conflict,
+    conflictType: plan.conflict?.conflictType || null,
+    conflictBoxId: plan.conflict?.conflictBoxId || null,
+  });
+}
+
+async function startBoxTransfer(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  const orgId = identity.orgId;
+  const actor = identity.actor;
+  const warnings: string[] = [];
+  const { box, boxRecordId, sourceWarehouse, destinationWarehouse, destinationBoxId, conflict } =
+    await resolveBoxTransferPlan(client, orgId, payload);
+  if (conflict) {
+    throw new HttpError(400, buildTransferDestinationConflictMessage(destinationBoxId, conflict));
+  }
+
+  let transfer;
+  try {
+    transfer = await saveBoxTransferRecord(client, orgId, {
+      transferId: createTransferId(),
+      boxRecordId,
+      sourceBoxId: box.boxId,
+      destinationBoxId,
+      sourceWarehouse: sourceWarehouse.code,
+      destinationWarehouse: destinationWarehouse.code,
+      status: "PENDING",
+      notes: asTrimmedString(payload.notes),
+      createdAt: new Date().toISOString(),
+      createdBy: actor,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor,
+    });
+  } catch (error) {
+    if (isPendingTransferReservationConflict(error)) {
+      const raceConflict = await findBoxIdConflict(client, orgId, destinationBoxId, {
+        excludedBoxRecordId: boxRecordId,
+      });
+      throw new HttpError(409, buildTransferDestinationConflictMessage(destinationBoxId, raceConflict));
+    }
+    throw error;
+  }
 
   const serviceClient = requireServiceRoleClient();
   const { error: updateBoxError } = await serviceClient
@@ -5015,14 +5162,14 @@ async function receiveBoxTransfer(client: any, identity: AuthIdentity, payload: 
     throw new HttpError(400, `Box ${box.boxId} is not in transfer status.`);
   }
 
-  const sourceWarehouse = await findWarehouseEntry(client, orgId, transfer.sourceWarehouse, "SourceWarehouse");
   const destinationWarehouse = await findWarehouseEntry(client, orgId, transfer.destinationWarehouse, "DestinationWarehouse");
-  const destinationBoxId = buildTransferredBoxId(box.boxId, sourceWarehouse.boxIdPrefix, destinationWarehouse.boxIdPrefix);
-  if (await boxIdOrAliasExists(orgId, destinationBoxId, box.id)) {
-    throw new HttpError(
-      400,
-      `Cannot receive transfer because ${destinationBoxId} is already in use. The suffix must stay fixed during warehouse transfers.`,
-    );
+  const destinationBoxId = requireString(transfer.destinationBoxId, "DestinationBoxID").toUpperCase();
+  const receiveConflict = await findBoxIdConflict(client, orgId, destinationBoxId, {
+    excludedBoxRecordId: box.id,
+    excludedTransferId: transfer.transferId,
+  });
+  if (receiveConflict) {
+    throw new HttpError(409, buildTransferDestinationConflictMessage(destinationBoxId, receiveConflict));
   }
 
   await releaseReusableBoxIdAlias(orgId, destinationBoxId, box.id);
@@ -5042,7 +5189,6 @@ async function receiveBoxTransfer(client: any, identity: AuthIdentity, payload: 
 
   const savedTransfer = await saveBoxTransferRecord(client, orgId, {
     ...transfer,
-    destinationBoxId,
     status: "RECEIVED",
     receivedAt: new Date().toISOString(),
     receivedBy: actor,
@@ -5948,6 +6094,7 @@ async function dispatchRead(
     buildSearchBoxes,
     findBoxById,
     getBoxTransferByBox,
+    getBoxTransferPlan,
     toPublicBox,
     listAudit,
     listAuditEntriesByBox,
@@ -5990,6 +6137,7 @@ async function dispatchMutation(
     normalizeCaulkCaseMath,
     canonicalizeMutationPayloadForRoute,
     callMutationRpc,
+    findPendingBoxTransferByDestinationBoxId,
     findBoxById,
     toPublicBox,
     startBoxTransfer,

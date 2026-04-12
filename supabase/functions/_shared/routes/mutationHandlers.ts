@@ -30,6 +30,11 @@ export type MutationHandlerDeps = {
     actor: string,
     payload: Record<string, unknown>,
   ) => Promise<any>;
+  findPendingBoxTransferByDestinationBoxId: (
+    client: any,
+    orgId: string,
+    destinationBoxId: string
+  ) => Promise<any>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
   toPublicBox: (box: any) => Record<string, unknown>;
   startBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -186,6 +191,17 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(result);
   },
   "/boxes/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const reservedTransfer = await deps.findPendingBoxTransferByDestinationBoxId(
+      client,
+      orgId,
+      deps.requireString(normalizedPayload.boxId, "BoxID")
+    );
+    if (reservedTransfer) {
+      throw new HttpError(
+        400,
+        `BoxID ${deps.requireString(normalizedPayload.boxId, "BoxID").toUpperCase()} is already reserved by a pending transfer and cannot be reused yet.`
+      );
+    }
     const result = await deps.callMutationRpc(client, "api_acl_boxes_add", orgId, actor, normalizedPayload);
     const box = await deps.findBoxById(client, orgId, deps.asTrimmedString(result.boxId));
     if (!box) {

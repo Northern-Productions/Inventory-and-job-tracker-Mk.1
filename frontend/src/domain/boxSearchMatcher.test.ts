@@ -89,4 +89,15 @@ describe('boxSearchMatcher', () => {
       )
     ).toBe(false);
   });
+
+  it('matches origin-tagged transferred box ids when searching by the original warehouse token', () => {
+    expect(
+      matchesBoxSearchQuery(
+        createCandidate({
+          boxId: 'MS1-1111-IL1'
+        }),
+        'IL1'
+      )
+    ).toBe(true);
+  });
 });

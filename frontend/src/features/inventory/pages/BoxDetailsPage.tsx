@@ -4,7 +4,6 @@ import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
 import { type Box } from '../../../domain';
-import { formatDate } from '../../../lib/date';
 import { safeDecodePathParam } from '../../../lib/url';
 import { useAuth } from '../../auth/AuthContext';
 import { AllocateDialog } from '../components/AllocateDialog';
@@ -384,10 +383,24 @@ export default function BoxDetailsPage() {
         transferDestination={transferWorkflow.transferDestination}
         transferDestinationOptions={transferWorkflow.transferDestinationOptions}
         transferDestinationAnalysis={transferDestinationAnalysis}
+        transferDestinationPrefix={transferWorkflow.transferDestinationPrefix}
+        transferDestinationBoxIdOverride={transferWorkflow.transferDestinationBoxIdOverride}
+        transferPlan={transferWorkflow.transferPlan}
+        transferPlanPending={transferWorkflow.transferPlanPending}
+        transferPlanErrorMessage={transferWorkflow.transferPlanErrorMessage}
+        transferPlanConflictMessage={transferWorkflow.transferPlanConflictMessage}
+        isTransferRenameDialogOpen={transferWorkflow.isTransferRenameDialogOpen}
+        isTransferOverridePrefixOnly={transferWorkflow.isTransferOverridePrefixOnly}
         transferNotes={transferWorkflow.transferNotes}
         pending={transferWorkflow.transferMutationsPending}
         onClose={transferWorkflow.closeTransferDialog}
-        onTransferDestinationChange={transferWorkflow.setTransferDestination}
+        onOpenRenameDialog={transferWorkflow.openTransferRenameDialog}
+        onCloseRenameDialog={transferWorkflow.closeTransferRenameDialog}
+        onApplyRenameDialog={transferWorkflow.applyTransferRenameDialog}
+        onTransferDestinationChange={transferWorkflow.handleTransferDestinationChange}
+        onTransferDestinationBoxIdOverrideChange={
+          transferWorkflow.handleTransferDestinationBoxIdOverrideChange
+        }
         onTransferNotesChange={transferWorkflow.setTransferNotes}
         onSubmit={() => void transferWorkflow.handleStartTransfer()}
       />

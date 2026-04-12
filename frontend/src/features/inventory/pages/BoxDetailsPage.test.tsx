@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Box, BoxMutationResult, BoxTransferMutationResult, BoxStatus, UpdateBoxPayload } from '../../../domain';
@@ -17,6 +17,7 @@ const useFilmCatalogMock = vi.fn();
 const useIsAddBoxPendingMock = vi.fn();
 const useDeleteBoxMock = vi.fn();
 const useBoxTransferMock = vi.fn();
+const useBoxTransferPlanMock = vi.fn();
 const useStartBoxTransferMock = vi.fn();
 const useReceiveBoxTransferMock = vi.fn();
 const useCancelBoxTransferMock = vi.fn();
@@ -56,6 +57,7 @@ vi.mock('../../auth/AuthContext', () => ({
 vi.mock('../hooks/useInventoryQueries', () => ({
   useBox: () => useBoxMock(),
   useBoxTransfer: () => useBoxTransferMock(),
+  useBoxTransferPlan: (params: unknown) => useBoxTransferPlanMock(params),
   useBoxAllocations: () => useBoxAllocationsMock(),
   useFilmCatalog: () => useFilmCatalogMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
@@ -222,7 +224,7 @@ function buildTransferResult(overrides: Partial<Box> = {}) {
         transferId: 'TRF-1',
         boxId: 'IL1-1234',
         sourceBoxId: 'IL1-1234',
-        destinationBoxId: 'MS1-1234',
+        destinationBoxId: 'MS1-1234-IL1',
         sourceWarehouse: 'IL1',
         destinationWarehouse: 'MS1',
         status: 'PENDING',
@@ -280,6 +282,7 @@ describe('BoxDetailsPage', () => {
     toastPushMock.mockReset();
     parseUpdateBoxDraftMock.mockReset();
     qrCodeToDataUrlMock.mockReset();
+    useBoxTransferPlanMock.mockReset();
     qrCodeToDataUrlMock.mockResolvedValue('data:image/png;base64,qr');
     nextBoxFormSubmitDraft = {};
     useAuthMock.mockReturnValue({
@@ -310,6 +313,23 @@ describe('BoxDetailsPage', () => {
       isLoading: false,
       isError: false,
       error: null
+    });
+    useBoxTransferPlanMock.mockImplementation((params: unknown) => {
+      const source = params as { toWarehouse?: string } | null;
+      return {
+        data:
+          source?.toWarehouse === 'MS1'
+            ? {
+                destinationBoxId: 'MS1-1234-IL1',
+                available: true,
+                conflictType: null,
+                conflictBoxId: null
+              }
+            : null,
+        isLoading: false,
+        isFetching: false,
+        error: null
+      };
     });
     useIsAddBoxPendingMock.mockReturnValue(false);
     useDeleteBoxMock.mockReturnValue(buildMutationState());
@@ -397,7 +417,86 @@ describe('BoxDetailsPage', () => {
       expect(startTransferState.mutateAsync).toHaveBeenCalledWith({
         boxId: 'IL1-1234',
         toWarehouse: 'MS1',
-        notes: 'Move this for the Mississippi crew.'
+        notes: 'Move this for the Mississippi crew.',
+        destinationBoxIdOverride: undefined
+      })
+    );
+  });
+
+  it('opens the rename dialog when the planned arrival id conflicts and starts with an override', async () => {
+    const startTransferState = buildMutationState();
+    startTransferState.mutateAsync.mockResolvedValue({
+      result: {
+        ...buildTransferResult().result,
+        transfer: {
+          ...buildTransferResult().result.transfer,
+          destinationBoxId: 'MS1-1234-IL1-2'
+        }
+      },
+      warnings: []
+    });
+    useStartBoxTransferMock.mockReturnValue(startTransferState);
+    useBoxTransferPlanMock.mockImplementation((params: unknown) => {
+      const source = params as { toWarehouse?: string; destinationBoxIdOverride?: string } | null;
+      if (source?.toWarehouse !== 'MS1') {
+        return {
+          data: null,
+          isLoading: false,
+          isFetching: false,
+          error: null
+        };
+      }
+
+      if (source.destinationBoxIdOverride === 'MS1-1234-IL1-2') {
+        return {
+          data: {
+            destinationBoxId: 'MS1-1234-IL1-2',
+            available: true,
+            conflictType: null,
+            conflictBoxId: null
+          },
+          isLoading: false,
+          isFetching: false,
+          error: null
+        };
+      }
+
+      return {
+        data: {
+          destinationBoxId: 'MS1-1234-IL1',
+          available: false,
+          conflictType: 'box',
+          conflictBoxId: 'MS1-1234-IL1'
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null
+      };
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer Box' }));
+    fireEvent.change(screen.getByLabelText('Send To'), { target: { value: 'MS1' } });
+
+    await waitFor(() =>
+      expect(screen.getByText('Choose A Different Arrival Box ID')).toBeTruthy()
+    );
+
+    const renameDialog = screen.getByRole('dialog', { name: 'Choose A Different Arrival Box ID' });
+
+    fireEvent.change(within(renameDialog).getByRole('textbox'), {
+      target: { value: 'MS1-1234-IL1-2' }
+    });
+    fireEvent.click(within(renameDialog).getByRole('button', { name: 'Use Arrival ID' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() =>
+      expect(startTransferState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234',
+        toWarehouse: 'MS1',
+        notes: undefined,
+        destinationBoxIdOverride: 'MS1-1234-IL1-2'
       })
     );
   });

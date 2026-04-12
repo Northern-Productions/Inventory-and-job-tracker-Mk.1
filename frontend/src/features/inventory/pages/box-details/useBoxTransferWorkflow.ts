@@ -3,6 +3,7 @@ import type {
   Box,
   BoxTransferEntry,
   BoxTransferMutationResult,
+  BoxTransferPlanResponse,
   CancelBoxTransferPayload,
   ReceiveBoxTransferPayload,
   StartBoxTransferPayload,
@@ -10,6 +11,11 @@ import type {
   WarehouseEntry
 } from '../../../../domain';
 import type { useToast } from '../../../../components/Toast';
+import {
+  isWarehousePrefixOnlyBoxId,
+  normalizeCreateBoxIdForWarehouse
+} from '../../../../lib/boxIds';
+import { useBoxTransferPlan } from '../../hooks/useInventoryQueries';
 import type { TransferActionState, TransferDestinationAnalysis } from './types';
 
 type PushToast = ReturnType<typeof useToast>['push'];
@@ -33,6 +39,22 @@ interface UseBoxTransferWorkflowArgs {
   cancelTransferPending: boolean;
 }
 
+function buildTransferPlanConflictMessage(plan: BoxTransferPlanResponse | null) {
+  if (!plan || plan.available) {
+    return '';
+  }
+
+  if (plan.conflictType === 'alias' && plan.conflictBoxId) {
+    return `Arrival ID ${plan.destinationBoxId} is already kept as an alias for ${plan.conflictBoxId}.`;
+  }
+
+  if (plan.conflictType === 'pending_transfer') {
+    return `Arrival ID ${plan.destinationBoxId} is already reserved by another pending transfer.`;
+  }
+
+  return `Arrival ID ${plan.destinationBoxId} already exists.`;
+}
+
 export function useBoxTransferWorkflow({
   box,
   pendingTransfer,
@@ -48,15 +70,21 @@ export function useBoxTransferWorkflow({
   cancelTransferPending
 }: UseBoxTransferWorkflowArgs) {
   const [isTransferDialogOpen, setIsTransferDialogOpen] = useState(false);
+  const [isTransferRenameDialogOpen, setIsTransferRenameDialogOpen] = useState(false);
   const [transferDestination, setTransferDestination] = useState<Warehouse | ''>('');
   const [transferNotes, setTransferNotes] = useState('');
+  const [transferDestinationBoxIdOverride, setTransferDestinationBoxIdOverride] = useState('');
+  const [handledTransferConflictKey, setHandledTransferConflictKey] = useState('');
   const [transferActionState, setTransferActionState] = useState<TransferActionState>(null);
 
   useEffect(() => {
     setIsTransferDialogOpen(false);
+    setIsTransferRenameDialogOpen(false);
     setTransferActionState(null);
     setTransferDestination('');
     setTransferNotes('');
+    setTransferDestinationBoxIdOverride('');
+    setHandledTransferConflictKey('');
   }, [box?.boxId]);
 
   const transferDestinationOptions = useMemo(() => {
@@ -75,7 +103,7 @@ export function useBoxTransferWorkflow({
 
       seenCodes.add(entry.code);
       options.push({
-        label: `${entry.code} · ${entry.name}`,
+        label: `${entry.code} - ${entry.name}`,
         value: entry.code
       });
     }
@@ -83,8 +111,71 @@ export function useBoxTransferWorkflow({
     return options;
   }, [box?.warehouse, warehouseEntries]);
 
+  const selectedDestinationEntry = useMemo(
+    () => warehouseEntries.find((entry) => entry.code === transferDestination) || null,
+    [transferDestination, warehouseEntries]
+  );
+  const transferDestinationPrefix = useMemo(
+    () => (selectedDestinationEntry?.boxIdPrefix || selectedDestinationEntry?.code || '').trim().toUpperCase(),
+    [selectedDestinationEntry]
+  );
+  const isTransferOverridePrefixOnly = Boolean(
+    transferDestinationBoxIdOverride &&
+      transferDestinationPrefix &&
+      isWarehousePrefixOnlyBoxId(transferDestinationBoxIdOverride, transferDestinationPrefix)
+  );
+  const shouldFetchTransferPlan =
+    isTransferDialogOpen &&
+    Boolean(box?.boxId) &&
+    Boolean(transferDestination) &&
+    !transferDestinationAnalysis.conflictMessage &&
+    !transferDestinationAnalysis.isResolvingAllocations &&
+    !isTransferOverridePrefixOnly;
+  const transferPlanQuery = useBoxTransferPlan(
+    box && transferDestination
+      ? {
+          boxId: box.boxId,
+          toWarehouse: transferDestination,
+          destinationBoxIdOverride: transferDestinationBoxIdOverride.trim() || undefined
+        }
+      : null,
+    {
+      enabled: shouldFetchTransferPlan
+    }
+  );
+  const transferPlan = shouldFetchTransferPlan ? transferPlanQuery.data ?? null : null;
+  const transferPlanPending =
+    shouldFetchTransferPlan && (transferPlanQuery.isLoading || transferPlanQuery.isFetching);
+  const transferPlanErrorMessage =
+    shouldFetchTransferPlan && transferPlanQuery.error instanceof Error
+      ? transferPlanQuery.error.message
+      : '';
+  const transferPlanConflictMessage = buildTransferPlanConflictMessage(transferPlan);
   const transferMutationsPending =
     startTransferPending || receiveTransferPending || cancelTransferPending;
+  const currentTransferConflictKey =
+    transferPlan && !transferPlan.available
+      ? `${transferDestination}:${transferPlan.destinationBoxId}:${transferPlan.conflictType || ''}:${transferPlan.conflictBoxId || ''}`
+      : '';
+
+  useEffect(() => {
+    if (!currentTransferConflictKey || currentTransferConflictKey === handledTransferConflictKey) {
+      return;
+    }
+
+    setTransferDestinationBoxIdOverride((current) =>
+      current.trim()
+        ? normalizeCreateBoxIdForWarehouse(current, transferDestinationPrefix)
+        : transferPlan?.destinationBoxId || normalizeCreateBoxIdForWarehouse('', transferDestinationPrefix)
+    );
+    setIsTransferRenameDialogOpen(true);
+    setHandledTransferConflictKey(currentTransferConflictKey);
+  }, [
+    currentTransferConflictKey,
+    handledTransferConflictKey,
+    transferDestinationPrefix,
+    transferPlan?.destinationBoxId
+  ]);
 
   function openTransferDialog() {
     if (!box) {
@@ -93,13 +184,53 @@ export function useBoxTransferWorkflow({
 
     setTransferNotes('');
     setTransferDestination(transferDestinationAnalysis.suggestedDestination || '');
+    setTransferDestinationBoxIdOverride('');
+    setHandledTransferConflictKey('');
+    setIsTransferRenameDialogOpen(false);
     setIsTransferDialogOpen(true);
   }
 
   function closeTransferDialog() {
     setIsTransferDialogOpen(false);
+    setIsTransferRenameDialogOpen(false);
     setTransferNotes('');
     setTransferDestination('');
+    setTransferDestinationBoxIdOverride('');
+    setHandledTransferConflictKey('');
+  }
+
+  function handleTransferDestinationChange(value: Warehouse | '') {
+    setTransferDestination(value);
+    setTransferDestinationBoxIdOverride('');
+    setHandledTransferConflictKey('');
+    setIsTransferRenameDialogOpen(false);
+  }
+
+  function handleTransferDestinationBoxIdOverrideChange(value: string) {
+    setTransferDestinationBoxIdOverride(
+      normalizeCreateBoxIdForWarehouse(value, transferDestinationPrefix || transferDestination)
+    );
+  }
+
+  function openTransferRenameDialog() {
+    setTransferDestinationBoxIdOverride((current) =>
+      current.trim()
+        ? normalizeCreateBoxIdForWarehouse(current, transferDestinationPrefix)
+        : transferPlan?.destinationBoxId || normalizeCreateBoxIdForWarehouse('', transferDestinationPrefix)
+    );
+    setIsTransferRenameDialogOpen(true);
+  }
+
+  function closeTransferRenameDialog() {
+    setIsTransferRenameDialogOpen(false);
+  }
+
+  function applyTransferRenameDialog() {
+    if (!transferPlan?.available) {
+      return;
+    }
+
+    setIsTransferRenameDialogOpen(false);
   }
 
   async function handleStartTransfer() {
@@ -120,18 +251,58 @@ export function useBoxTransferWorkflow({
       return;
     }
 
+    if (transferDestinationAnalysis.conflictMessage) {
+      pushToast({
+        title: 'Unable to start transfer',
+        description: transferDestinationAnalysis.conflictMessage,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (transferPlanPending) {
+      pushToast({
+        title: 'Checking arrival ID',
+        description: 'Wait for the destination Box ID check to finish before sending this transfer.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (isTransferOverridePrefixOnly) {
+      pushToast({
+        title: 'Arrival ID incomplete',
+        description: 'Add characters after the destination warehouse prefix before using a custom arrival ID.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!transferPlan?.available) {
+      pushToast({
+        title: 'Arrival ID unavailable',
+        description:
+          transferPlanConflictMessage ||
+          transferPlanErrorMessage ||
+          'Choose a unique arrival Box ID before starting the transfer.',
+        variant: 'error'
+      });
+      return;
+    }
+
     try {
       const { result, warnings } = await startTransfer({
         boxId: box.boxId,
         toWarehouse: transferDestination,
-        notes: transferNotes.trim() || undefined
+        notes: transferNotes.trim() || undefined,
+        destinationBoxIdOverride: transferDestinationBoxIdOverride.trim() || undefined
       });
       closeTransferDialog();
       pushToast({
         title: 'Transfer started',
         description:
           warnings.join(' ') ||
-          `${result.box.boxId} is now marked for transfer from ${result.transfer.sourceWarehouse} to ${result.transfer.destinationWarehouse}.`,
+          `${result.box.boxId} is now marked for transfer from ${result.transfer.sourceWarehouse} to ${result.transfer.destinationWarehouse}. Reserved arrival ID: ${result.transfer.destinationBoxId}.`,
         variant: 'success'
       });
     } catch (error) {
@@ -161,7 +332,7 @@ export function useBoxTransferWorkflow({
         title: 'Transfer received',
         description:
           warnings.join(' ') ||
-          `${result.transfer.sourceBoxId} was received into ${result.transfer.destinationWarehouse} as ${result.box.boxId}.`,
+          `${result.transfer.sourceBoxId} was received into ${result.transfer.destinationWarehouse} as ${result.transfer.destinationBoxId}.`,
         variant: 'success'
       });
     } catch (error) {
@@ -208,16 +379,28 @@ export function useBoxTransferWorkflow({
 
   return {
     isTransferDialogOpen,
+    isTransferRenameDialogOpen,
     transferDestination,
     transferDestinationOptions,
+    transferDestinationPrefix,
+    transferDestinationBoxIdOverride,
     transferNotes,
     transferActionState,
     transferMutationsPending,
-    setTransferDestination,
+    transferPlan,
+    transferPlanPending,
+    transferPlanErrorMessage,
+    transferPlanConflictMessage,
+    isTransferOverridePrefixOnly,
     setTransferNotes,
     setTransferActionState,
+    handleTransferDestinationChange,
+    handleTransferDestinationBoxIdOverrideChange,
     openTransferDialog,
     closeTransferDialog,
+    openTransferRenameDialog,
+    closeTransferRenameDialog,
+    applyTransferRenameDialog,
     handleStartTransfer,
     handleReceiveTransfer,
     handleCancelTransfer

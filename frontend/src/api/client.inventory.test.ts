@@ -16,7 +16,7 @@ vi.mock('./features/sharedClient', () => ({
   requestReadWithFallback: vi.fn()
 }));
 
-import { searchBoxes } from './client';
+import { getBoxTransferPlan, searchBoxes } from './client';
 import { requestReadWithFallback } from './features/sharedClient';
 
 const requestReadWithFallbackMock = vi.mocked(requestReadWithFallback);
@@ -114,5 +114,34 @@ describe('inventory API client', () => {
       sourceWarehouse: 'IL1',
       destinationWarehouse: 'MS1'
     });
+  });
+
+  it('passes transfer-plan query params through GET /boxes/transfer/plan', async () => {
+    requestReadWithFallbackMock.mockResolvedValueOnce({
+      destinationBoxId: 'MS1-1234-IL1',
+      available: true,
+      conflictType: null,
+      conflictBoxId: null
+    });
+
+    await getBoxTransferPlan({
+      boxId: 'IL1-1234',
+      toWarehouse: 'MS1',
+      destinationBoxIdOverride: 'MS1-1234-IL1-2'
+    });
+
+    expect(requestReadWithFallbackMock).toHaveBeenCalledWith(
+      '/boxes/transfer/plan',
+      {
+        boxId: 'IL1-1234',
+        toWarehouse: 'MS1',
+        destinationBoxIdOverride: 'MS1-1234-IL1-2'
+      },
+      {
+        boxId: 'IL1-1234',
+        toWarehouse: 'MS1',
+        destinationBoxIdOverride: 'MS1-1234-IL1-2'
+      }
+    );
   });
 });

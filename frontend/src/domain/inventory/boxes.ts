@@ -104,6 +104,22 @@ export interface StartBoxTransferPayload {
   boxId: string;
   toWarehouse: Warehouse;
   notes?: string;
+  destinationBoxIdOverride?: string;
+}
+
+export interface BoxTransferPlanParams {
+  boxId: string;
+  toWarehouse: Warehouse;
+  destinationBoxIdOverride?: string;
+}
+
+export type BoxTransferPlanConflictType = 'box' | 'alias' | 'pending_transfer' | null;
+
+export interface BoxTransferPlanResponse {
+  destinationBoxId: string;
+  available: boolean;
+  conflictType: BoxTransferPlanConflictType;
+  conflictBoxId?: string | null;
 }
 
 export interface ReceiveBoxTransferPayload {

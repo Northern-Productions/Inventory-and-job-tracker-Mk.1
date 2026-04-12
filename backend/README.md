@@ -57,6 +57,7 @@ Authenticated smoke setup:
 SMOKE_AUTH_TOKEN=
 SMOKE_USER_EMAIL=smoke-user@example.com
 SMOKE_USER_PASSWORD=your-local-smoke-password
+SMOKE_USER_ROLE=admin
 ```
 
 `SMOKE_AUTH_TOKEN` still works, but it expires. For repeatable local runs, prefer
@@ -75,6 +76,18 @@ You can print the currently resolved token with:
 ```bash
 npm run smoke:token
 ```
+
+Write and transfer smoke setup:
+
+```env
+SMOKE_INCLUDE_MUTATIONS=true
+SMOKE_TRANSFER_BOX_ID=IL1-1434
+SMOKE_TRANSFER_DEST_WAREHOUSE=MS1
+SMOKE_TRANSFER_ROUNDTRIP=true
+```
+
+`npm run smoke:provision-user` now provisions the smoke account as `admin` by
+default so mutation smoke checks can run without manual role changes.
 
 ## Frontend Pairing
 

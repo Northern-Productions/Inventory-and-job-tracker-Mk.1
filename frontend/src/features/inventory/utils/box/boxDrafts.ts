@@ -143,19 +143,24 @@ export function getNextBoxIdForWarehouse(
 
   for (const box of activeCanonicalBoxes) {
     const normalizedBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
-    const match = normalizedBoxId.match(/^[A-Z0-9]+-(\d+)$/);
-    if (!match) {
+    if (!requiredPrefix || !normalizedBoxId.startsWith(requiredPrefix)) {
       continue;
     }
 
-    const numericValue = Number(match[1]);
+    const localSegment = normalizedBoxId.slice(requiredPrefix.length).split('-')[0] || '';
+    const localMatch = localSegment.match(/^(\d+)[A-Z]?$/);
+    if (!localMatch) {
+      continue;
+    }
+
+    const numericValue = Number(localMatch[1]);
     if (!Number.isFinite(numericValue)) {
       continue;
     }
 
     if (numericValue > bestValue) {
       bestValue = numericValue;
-      bestWidth = match[1].length;
+      bestWidth = localMatch[1].length;
     }
   }
 

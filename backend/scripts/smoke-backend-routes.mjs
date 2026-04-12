@@ -92,6 +92,7 @@ async function main() {
   const transferDestinationWarehouse = String(process.env.SMOKE_TRANSFER_DEST_WAREHOUSE || '')
     .trim()
     .toUpperCase();
+  const transferRoundTrip = String(process.env.SMOKE_TRANSFER_ROUNDTRIP || '').trim().toLowerCase() === 'true';
 
   if (token && source === 'SMOKE_USER_EMAIL') {
     // eslint-disable-next-line no-console
@@ -120,6 +121,12 @@ async function main() {
       path: '/boxes/search',
       query: { warehouse: 'ALL' },
       expectedStatuses: [200],
+      requiresAuth: true
+    },
+    {
+      method: 'GET',
+      path: '/boxes/transfer/plan',
+      expectedStatuses: [400],
       requiresAuth: true
     },
     { method: 'GET', path: '/app/attention-summary', expectedStatuses: [200], requiresAuth: true },
@@ -232,6 +239,28 @@ async function main() {
 
   if (includeMutations) {
     if (token && transferBoxId && transferDestinationWarehouse) {
+      const previewTransferResponse = await runCase(
+        {
+          method: 'GET',
+          path: '/boxes/transfer/plan',
+          query: {
+            boxId: transferBoxId,
+            toWarehouse: transferDestinationWarehouse
+          },
+          expectedStatuses: [200]
+        },
+        token
+      );
+      passed += 1;
+      const previewDestinationBoxId = String(
+        previewTransferResponse.payload?.data?.destinationBoxId || ''
+      ).trim().toUpperCase();
+      if (!previewDestinationBoxId) {
+        throw new Error('/boxes/transfer/plan: expected destinationBoxId in payload.data.destinationBoxId');
+      }
+      // eslint-disable-next-line no-console
+      console.log(`PASS GET /boxes/transfer/plan -> ${previewTransferResponse.statusCode}`);
+
       const transferNote = `Smoke transfer ${new Date().toISOString()}`;
       const startTransferResponse = await runCase(
         {
@@ -274,18 +303,90 @@ async function main() {
       // eslint-disable-next-line no-console
       console.log(`PASS GET /boxes/transfer/by-box -> ${transferLookupResponse.statusCode}`);
 
-      const cancelTransferResponse = await runCase(
-        {
-          method: 'POST',
-          path: '/boxes/transfer/cancel',
-          body: { transferId },
-          expectedStatuses: [200]
-        },
-        token
-      );
-      passed += 1;
-      // eslint-disable-next-line no-console
-      console.log(`PASS POST /boxes/transfer/cancel -> ${cancelTransferResponse.statusCode}`);
+      if (transferRoundTrip) {
+        const receiveTransferResponse = await runCase(
+          {
+            method: 'POST',
+            path: '/boxes/transfer/receive',
+            body: { transferId },
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+        // eslint-disable-next-line no-console
+        console.log(`PASS POST /boxes/transfer/receive -> ${receiveTransferResponse.statusCode}`);
+
+        const receivedBoxId = String(
+          receiveTransferResponse.payload?.data?.transfer?.destinationBoxId || ''
+        ).trim().toUpperCase();
+        const sourceWarehouse = String(
+          receiveTransferResponse.payload?.data?.transfer?.sourceWarehouse || ''
+        ).trim().toUpperCase();
+        if (!receivedBoxId || !sourceWarehouse) {
+          throw new Error(
+            '/boxes/transfer/receive: expected payload.data.transfer.destinationBoxId and sourceWarehouse'
+          );
+        }
+
+        const returnTransferResponse = await runCase(
+          {
+            method: 'POST',
+            path: '/boxes/transfer/start',
+            body: {
+              boxId: receivedBoxId,
+              toWarehouse: sourceWarehouse,
+              notes: `Smoke return ${new Date().toISOString()}`
+            },
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+        // eslint-disable-next-line no-console
+        console.log(`PASS POST /boxes/transfer/start (return) -> ${returnTransferResponse.statusCode}`);
+
+        const returnTransferId = String(
+          returnTransferResponse.payload?.data?.transfer?.transferId || ''
+        ).trim().toUpperCase();
+        if (!returnTransferId) {
+          throw new Error('/boxes/transfer/start (return): expected transferId in payload.data.transfer.transferId');
+        }
+
+        const receiveReturnResponse = await runCase(
+          {
+            method: 'POST',
+            path: '/boxes/transfer/receive',
+            body: { transferId: returnTransferId },
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+        const returnedBoxId = String(
+          receiveReturnResponse.payload?.data?.transfer?.destinationBoxId || ''
+        ).trim().toUpperCase();
+        if (returnedBoxId !== transferBoxId) {
+          throw new Error(
+            `/boxes/transfer/receive (return): expected destinationBoxId ${transferBoxId}, received ${returnedBoxId || '<empty>'}`
+          );
+        }
+        // eslint-disable-next-line no-console
+        console.log(`PASS POST /boxes/transfer/receive (return) -> ${receiveReturnResponse.statusCode}`);
+      } else {
+        const cancelTransferResponse = await runCase(
+          {
+            method: 'POST',
+            path: '/boxes/transfer/cancel',
+            body: { transferId },
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+        // eslint-disable-next-line no-console
+        console.log(`PASS POST /boxes/transfer/cancel -> ${cancelTransferResponse.statusCode}`);
+      }
     } else {
       skipped += 1;
       // eslint-disable-next-line no-console

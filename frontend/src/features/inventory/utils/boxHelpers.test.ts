@@ -163,13 +163,15 @@ describe('boxHelpers', () => {
           createBox({ boxId: 'IL1-6999', status: 'IN_STOCK' }),
           createBox({ boxId: 'IL1-7000', status: 'CHECKED_OUT' }),
           createBox({ boxId: 'IL1-7000A', status: 'IN_STOCK' }),
+          createBox({ boxId: 'IL1-7001-CA1', status: 'TRANSFER' }),
+          createBox({ boxId: 'IL1-7001A-TX1', status: 'IN_STOCK' }),
           createBox({ boxId: 'IL1-9127', status: 'ZEROED' }),
           createBox({ boxId: 'IL1-9127B', status: 'RETIRED' }),
           createBox({ boxId: 'MS1-9999', warehouse: 'MS1', status: 'IN_STOCK' })
         ],
         'IL1'
       )
-    ).toBe('IL1-7001');
+    ).toBe('IL1-7002');
   });
 
   it('normalizes trailing-letter box ids to numeric canonical ids', () => {

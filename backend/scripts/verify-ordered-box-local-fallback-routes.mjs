@@ -9,6 +9,7 @@ function assert(condition, message) {
 const REQUIRED_READ_PATHS = [
   '/boxes/search',
   '/boxes/get',
+  '/boxes/transfer/plan',
   '/allocations/by-box',
   '/allocations/preview',
   '/allocations/by-job',

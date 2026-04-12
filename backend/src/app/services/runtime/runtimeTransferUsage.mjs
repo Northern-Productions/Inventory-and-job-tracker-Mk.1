@@ -132,6 +132,7 @@ import {
   listBoxTransfersByBoxRecordId,
   getLatestBoxTransferByBoxId,
   findPendingBoxTransferByBoxRecordId,
+  findPendingBoxTransferByDestinationBoxId,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   saveBoxTransferRecord,
@@ -262,7 +263,12 @@ function getTransferStartGuardForBox(box, activeTargets) {
   };
 }
 
-async function boxIdOrAliasExists(client, orgId, boxId, excludedBoxRecordId = '') {
+async function findBoxIdConflict(
+  client,
+  orgId,
+  boxId,
+  { excludedBoxRecordId = '', excludedTransferId = '' } = {}
+) {
   const normalizedBoxId = requireString(boxId, 'BoxID').toUpperCase();
   const existingBox = await queryRow(
     client,
@@ -295,7 +301,10 @@ async function boxIdOrAliasExists(client, orgId, boxId, excludedBoxRecordId = ''
 
   if (existingBox) {
     if (!excludedBoxRecordId || asTrimmedString(existingBox.id) !== asTrimmedString(excludedBoxRecordId)) {
-      return true;
+      return {
+        conflictType: 'box',
+        conflictBoxId: normalizedBoxId
+      };
     }
   }
 
@@ -304,10 +313,36 @@ async function boxIdOrAliasExists(client, orgId, boxId, excludedBoxRecordId = ''
     excludedBoxRecordId &&
     asTrimmedString(aliasRow.canonical_box_record_id) === asTrimmedString(excludedBoxRecordId)
   ) {
-    return false;
+    return null;
   }
 
-  return Boolean(aliasRow);
+  if (aliasRow) {
+    return {
+      conflictType: 'alias',
+      conflictBoxId: asTrimmedString(aliasRow.canonical_box_id).toUpperCase() || normalizedBoxId
+    };
+  }
+
+  const pendingTransfer = await findPendingBoxTransferByDestinationBoxId(client, orgId, normalizedBoxId);
+  if (
+    pendingTransfer &&
+    asTrimmedString(pendingTransfer.transferId) !== asTrimmedString(excludedTransferId)
+  ) {
+    return {
+      conflictType: 'pending_transfer',
+      conflictBoxId: asTrimmedString(pendingTransfer.destinationBoxId).toUpperCase() || normalizedBoxId
+    };
+  }
+
+  return null;
+}
+
+async function boxIdOrAliasExists(client, orgId, boxId, excludedBoxRecordId = '') {
+  return Boolean(
+    await findBoxIdConflict(client, orgId, boxId, {
+      excludedBoxRecordId
+    })
+  );
 }
 
 async function releaseReusableBoxIdAlias(client, orgId, boxId, boxRecordId) {
@@ -738,6 +773,7 @@ async function appendRollHistoryEntry(client, orgId, entry) {
 export {
   listActiveAllocationTransferTargetsForBox,
   getTransferStartGuardForBox,
+  findBoxIdConflict,
   boxIdOrAliasExists,
   releaseReusableBoxIdAlias,
   applyReceivedBoxTransfer,

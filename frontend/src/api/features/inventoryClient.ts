@@ -4,6 +4,8 @@ import type {
   ApplyAllocationPlanPayload,
   ApplyAllocationPlanResult,
   Box,
+  BoxTransferPlanParams,
+  BoxTransferPlanResponse,
   BoxTransferEntry,
   BoxTransferMutationResult,
   CancelBoxTransferPayload,
@@ -138,6 +140,25 @@ export async function getBoxTransfer(boxId: string): Promise<BoxTransferEntry | 
     '/boxes/transfer/by-box',
     { boxId },
     { boxId }
+  );
+}
+
+export async function getBoxTransferPlan(
+  params: BoxTransferPlanParams
+): Promise<BoxTransferPlanResponse> {
+  assertFeatureAccess('inventory', 'read');
+  return requestReadWithFallback<BoxTransferPlanResponse>(
+    '/boxes/transfer/plan',
+    {
+      boxId: params.boxId,
+      toWarehouse: params.toWarehouse,
+      destinationBoxIdOverride: params.destinationBoxIdOverride
+    },
+    {
+      boxId: params.boxId,
+      toWarehouse: params.toWarehouse,
+      destinationBoxIdOverride: params.destinationBoxIdOverride
+    }
   );
 }
 

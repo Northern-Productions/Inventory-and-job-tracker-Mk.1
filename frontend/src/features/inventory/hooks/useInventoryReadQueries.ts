@@ -10,7 +10,7 @@ import {
 } from '../../../api/features/allocationsClient';
 import { getAuditByBox, getRollHistoryByBox, listAudit } from '../../../api/features/auditClient';
 import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersClient';
-import { getBox, getBoxTransfer, searchBoxes } from '../../../api/features/inventoryClient';
+import { getBox, getBoxTransfer, getBoxTransferPlan, searchBoxes } from '../../../api/features/inventoryClient';
 import {
   getJob,
   getJobsCalendarEntries,
@@ -29,6 +29,7 @@ import type {
   AllocateBoxPayload,
   AppAttentionSummary,
   AuditListParams,
+  BoxTransferPlanParams,
   FilmOrderEntry,
   JobListEntry,
   JobDetail,
@@ -99,6 +100,23 @@ export function useBoxTransfer(boxId: string) {
     queryKey: inventoryKeys.boxTransfer(boxId),
     queryFn: () => getBoxTransfer(boxId),
     enabled: Boolean(boxId)
+  });
+}
+
+export function useBoxTransferPlan(
+  params: BoxTransferPlanParams | null,
+  options: { enabled?: boolean } = {}
+) {
+  return useInventoryReadQuery({
+    queryKey: inventoryKeys.boxTransferPlan(params),
+    queryFn: () => {
+      if (!params) {
+        throw new Error('Transfer plan parameters are required.');
+      }
+
+      return getBoxTransferPlan(params);
+    },
+    enabled: (options.enabled ?? true) && Boolean(params?.boxId) && Boolean(params?.toWarehouse)
   });
 }
 

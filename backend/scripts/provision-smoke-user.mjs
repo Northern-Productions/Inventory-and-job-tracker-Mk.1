@@ -32,6 +32,15 @@ function buildDefaultSmokePassword() {
   return `Smoke!${crypto.randomBytes(16).toString('hex')}`;
 }
 
+function normalizeSmokeUserRole(value) {
+  const normalized = asTrimmedString(value).toLowerCase();
+  if (normalized === 'member' || normalized === 'admin') {
+    return normalized;
+  }
+
+  return 'admin';
+}
+
 async function readJson(response) {
   try {
     return await response.json();
@@ -81,7 +90,7 @@ async function signUpWithPassword(supabaseUrl, anonKey, email, password) {
   };
 }
 
-async function ensureMembership(userId, orgId) {
+async function ensureMembership(userId, orgId, role) {
   const client = buildDatabaseClient();
   await client.connect();
   try {
@@ -93,10 +102,11 @@ async function ensureMembership(userId, orgId) {
           role,
           created_at
         )
-        values ($1::uuid, $2::uuid, 'member', now())
-        on conflict (org_id, user_id) do nothing
+        values ($1::uuid, $2::uuid, $3, now())
+        on conflict (org_id, user_id) do update
+        set role = excluded.role
       `,
-      [orgId, userId]
+      [orgId, userId, role]
     );
   } finally {
     await client.end().catch(() => undefined);
@@ -113,7 +123,7 @@ function upsertEnvValue(contents, key, value) {
   return `${contents.replace(/\s*$/g, '')}\n${line}\n`;
 }
 
-function persistSmokeCredentials(email, password) {
+function persistSmokeCredentials(email, password, role) {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const envPath = path.resolve(__dirname, '../.env');
@@ -123,6 +133,7 @@ function persistSmokeCredentials(email, password) {
   next = upsertEnvValue(next, 'SMOKE_AUTH_TOKEN', '');
   next = upsertEnvValue(next, 'SMOKE_USER_EMAIL', email);
   next = upsertEnvValue(next, 'SMOKE_USER_PASSWORD', password);
+  next = upsertEnvValue(next, 'SMOKE_USER_ROLE', role);
 
   fs.writeFileSync(envPath, next, 'utf8');
 }
@@ -144,6 +155,7 @@ async function main() {
 
   const email = asTrimmedString(process.env.SMOKE_USER_EMAIL) || buildDefaultSmokeEmail();
   const password = asTrimmedString(process.env.SMOKE_USER_PASSWORD) || buildDefaultSmokePassword();
+  const role = normalizeSmokeUserRole(process.env.SMOKE_USER_ROLE);
 
   let authResult = await signInWithPassword(supabaseUrl, supabaseAnonKey, email, password);
   if (!authResult.ok) {
@@ -174,11 +186,11 @@ async function main() {
     throw new Error('Smoke user sign-in succeeded without a user id or access token.');
   }
 
-  await ensureMembership(userId, orgId);
-  persistSmokeCredentials(email, password);
+  await ensureMembership(userId, orgId, role);
+  persistSmokeCredentials(email, password, role);
 
-  console.log(`Smoke user ready: ${email}`);
-  console.log('Stored SMOKE_USER_EMAIL and SMOKE_USER_PASSWORD in backend/.env.');
+  console.log(`Smoke user ready: ${email} (${role})`);
+  console.log('Stored SMOKE_USER_EMAIL, SMOKE_USER_PASSWORD, and SMOKE_USER_ROLE in backend/.env.');
   console.log('Future smoke scripts will mint fresh SMOKE_AUTH_TOKEN values automatically.');
 }
 

@@ -5,6 +5,7 @@ export {
   updateBox,
   setBoxStatus,
   getBoxTransferByBox,
+  getBoxTransferPlan,
   startBoxTransfer,
   receiveBoxTransfer,
   cancelBoxTransfer,

@@ -125,6 +125,7 @@ export {
 } from '../repositories/mappers.mjs';
 export {
   listWarehouseCodes,
+  listWarehouseBoxIdPrefixes,
   requireConfiguredWarehouse,
   findWarehouseEntry,
   getBoxIdPrefixToken,
@@ -141,12 +142,17 @@ export {
   listBoxTransfersByBoxRecordId,
   getLatestBoxTransferByBoxId,
   findPendingBoxTransferByBoxRecordId,
+  findPendingBoxTransferByDestinationBoxId,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   saveBoxTransferRecord,
   deleteBoxRecord,
   listAllocationsByBox,
 } from '../repositories/boxesRepository.mjs';
+export {
+  describeTransferredBoxId,
+  planTransferredBoxId,
+} from '../../../../frontend/src/domain/boxTransferPlanner.mjs';
 export {
   listFilmCatalog,
   findFilmCatalogByFilmKey,

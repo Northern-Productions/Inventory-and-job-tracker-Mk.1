@@ -1,6 +1,7 @@
 import type {
   AllocateBoxPayload,
   AuditListParams,
+  BoxTransferPlanParams,
   ReportsSummaryFilters,
   SearchBoxesParams
 } from '../../../domain';
@@ -19,6 +20,9 @@ export const inventoryKeys = {
   box: (boxId: string) => ['inventory', 'box', boxId] as const,
   boxTransferRoot: ['inventory', 'box-transfer'] as const,
   boxTransfer: (boxId: string) => ['inventory', 'box-transfer', boxId] as const,
+  boxTransferPlanRoot: ['inventory', 'box-transfer-plan'] as const,
+  boxTransferPlan: (params: BoxTransferPlanParams | null) =>
+    ['inventory', 'box-transfer-plan', params] as const,
   historyRoot: ['inventory', 'history'] as const,
   history: (boxId: string) => ['inventory', 'history', boxId] as const,
   allocationsRoot: ['inventory', 'allocations'] as const,

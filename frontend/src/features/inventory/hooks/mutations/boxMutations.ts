@@ -321,6 +321,7 @@ export function useStartBoxTransfer() {
         invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.box(variables.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransfer(variables.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferPlanRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot })
       ]);
@@ -342,6 +343,7 @@ export function useReceiveBoxTransfer() {
         invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferPlanRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
@@ -367,6 +369,7 @@ export function useCancelBoxTransfer() {
         invalidateGlobalPlanningQueries(queryClient),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferPlanRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.historyRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),

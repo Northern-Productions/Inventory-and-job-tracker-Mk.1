@@ -1,5 +1,6 @@
 import { queryRow, queryRows } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
+import { buildTransferredBoxId as buildSharedTransferredBoxId } from '../../../../frontend/src/domain/boxTransferPlanner.mjs';
 import {
   asTrimmedString,
   integerOrZero,
@@ -32,6 +33,30 @@ async function listWarehouseCodes(client, orgId) {
   return rows
     .map((row) => asTrimmedString(row.code).toUpperCase())
     .filter((code) => code.length > 0);
+}
+
+async function listWarehouseBoxIdPrefixes(client, orgId) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        code,
+        box_id_prefix
+      from app.warehouses
+      where org_id = $1
+      order by code
+    `,
+    [orgId]
+  );
+
+  return rows
+    .map((row) =>
+      normalizeWarehouseCodeFormat(
+        asTrimmedString(row.box_id_prefix) || asTrimmedString(row.code),
+        'BoxID prefix'
+      )
+    )
+    .filter((prefix) => prefix.length > 0);
 }
 
 async function requireConfiguredWarehouse(client, orgId, warehouse, fieldName) {
@@ -90,9 +115,8 @@ function getTransferredBoxIdSuffix(boxId, sourcePrefix) {
   return normalizedBoxId;
 }
 
-function buildTransferredBoxId(boxId, sourcePrefix, destinationPrefix) {
-  const suffix = getTransferredBoxIdSuffix(boxId, sourcePrefix);
-  return `${getBoxIdPrefixToken(destinationPrefix)}${suffix}`;
+function buildTransferredBoxId(boxId, sourcePrefix, destinationPrefix, warehousePrefixes = []) {
+  return buildSharedTransferredBoxId(boxId, sourcePrefix, destinationPrefix, warehousePrefixes);
 }
 
 async function resolveBoxIdAlias(client, orgId, boxId) {
@@ -402,6 +426,25 @@ async function findPendingBoxTransferByBoxRecordId(client, orgId, boxRecordId) {
   return mapDbBoxTransferRow(row);
 }
 
+async function findPendingBoxTransferByDestinationBoxId(client, orgId, destinationBoxId) {
+  const normalizedDestinationBoxId = requireString(destinationBoxId, 'DestinationBoxID').toUpperCase();
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.box_transfers
+      where org_id = $1
+        and status = 'PENDING'
+        and destination_box_id = $2
+      order by created_at desc, id desc
+      limit 1
+    `,
+    [orgId, normalizedDestinationBoxId]
+  );
+
+  return mapDbBoxTransferRow(row);
+}
+
 async function listPendingBoxTransfersByBoxRecordIds(client, orgId, boxRecordIds) {
   const normalizedIds = Array.from(new Set((Array.isArray(boxRecordIds) ? boxRecordIds : []).filter(Boolean)));
   if (normalizedIds.length === 0) {
@@ -533,6 +576,7 @@ async function listAllocationsByBox(client, orgId, boxId) {
 
 export {
   listWarehouseCodes,
+  listWarehouseBoxIdPrefixes,
   requireConfiguredWarehouse,
   findWarehouseEntry,
   getBoxIdPrefixToken,
@@ -549,6 +593,7 @@ export {
   listBoxTransfersByBoxRecordId,
   getLatestBoxTransferByBoxId,
   findPendingBoxTransferByBoxRecordId,
+  findPendingBoxTransferByDestinationBoxId,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   saveBoxTransferRecord,

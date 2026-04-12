@@ -22,8 +22,9 @@ import {
   applyCheckInWarnings,
   toPublicBox,
   toPublicBoxTransfer,
+  listWarehouseBoxIdPrefixes,
   findWarehouseEntry,
-  buildTransferredBoxId,
+  planTransferredBoxId,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -40,7 +41,7 @@ import {
   listActiveAllocationTransferTargetsForBox,
   getTransferStartGuardForBox,
   applyReceivedBoxTransfer,
-  boxIdOrAliasExists,
+  findBoxIdConflict,
   releaseReusableBoxIdAlias,
 } from './runtimeTransferUsage.mjs';
 import {
@@ -71,6 +72,14 @@ async function addBox(client, orgId, payload, actor) {
 
   if (await findBoxById(client, orgId, boxId)) {
     throw new HttpError(400, 'A box with this BoxID already exists.');
+  }
+
+  const addBoxConflict = await findBoxIdConflict(client, orgId, boxId);
+  if (addBoxConflict?.conflictType === 'pending_transfer') {
+    throw new HttpError(
+      400,
+      `BoxID ${boxId.toUpperCase()} is already reserved by a pending transfer and cannot be reused yet.`
+    );
   }
 
   let box = await buildBoxFromPayload(client, orgId, payload, warnings, null);
@@ -534,7 +543,33 @@ async function getBoxTransferByBox(client, orgId, boxId) {
   return toPublicBoxTransfer(resolved.transfer);
 }
 
-async function startBoxTransfer(client, orgId, payload, actor) {
+function buildTransferDestinationConflictMessage(destinationBoxId, conflict) {
+  const normalizedDestinationBoxId = requireString(destinationBoxId, 'DestinationBoxID').toUpperCase();
+  if (!conflict) {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is not available.`;
+  }
+
+  if (conflict.conflictType === 'alias') {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is already kept as an alias for ${conflict.conflictBoxId}.`;
+  }
+
+  if (conflict.conflictType === 'pending_transfer') {
+    return `Arrival BoxID ${normalizedDestinationBoxId} is already reserved by another pending transfer.`;
+  }
+
+  return `Arrival BoxID ${normalizedDestinationBoxId} already exists.`;
+}
+
+function isPendingTransferReservationConflict(error) {
+  return (
+    error &&
+    typeof error === 'object' &&
+    error.code === '23505' &&
+    String(error.constraint || '').includes('idx_box_transfers_one_pending_destination_box')
+  );
+}
+
+async function resolveBoxTransferPlan(client, orgId, payload) {
   const box = await findBoxById(client, orgId, payload.boxId);
   if (!box) {
     throw new HttpError(404, 'Box not found.');
@@ -574,29 +609,83 @@ async function startBoxTransfer(client, orgId, payload, actor) {
     );
   }
 
-  const nowIso = new Date().toISOString();
-  const transfer = await saveBoxTransferRecord(client, orgId, {
-    transferId: createTransferId(),
-    boxRecordId: box.id,
-    sourceBoxId: box.boxId,
-    destinationBoxId: buildTransferredBoxId(
+  const warehousePrefixes = await listWarehouseBoxIdPrefixes(client, orgId);
+  let destinationBoxId = '';
+  try {
+    destinationBoxId = planTransferredBoxId(
       box.boxId,
       sourceWarehouse.boxIdPrefix || sourceWarehouse.code,
-      destinationWarehouse.boxIdPrefix || destinationWarehouse.code
-    ),
-    sourceWarehouse: sourceWarehouse.code,
-    destinationWarehouse: destinationWarehouse.code,
-    status: 'PENDING',
-    notes: asTrimmedString(payload.notes),
-    createdAt: nowIso,
-    createdBy: actor,
-    receivedAt: '',
-    receivedBy: '',
-    cancelledAt: '',
-    cancelledBy: '',
-    updatedAt: nowIso,
-    updatedBy: actor
+      destinationWarehouse.boxIdPrefix || destinationWarehouse.code,
+      warehousePrefixes,
+      payload.destinationBoxIdOverride
+    );
+  } catch (error) {
+    throw new HttpError(
+      400,
+      error instanceof Error ? error.message : 'Arrival Box ID is not valid for this destination warehouse.'
+    );
+  }
+
+  const conflict = await findBoxIdConflict(client, orgId, destinationBoxId, {
+    excludedBoxRecordId: box.id
   });
+
+  return {
+    box,
+    sourceWarehouse,
+    destinationWarehouse,
+    destinationBoxId,
+    conflict
+  };
+}
+
+async function getBoxTransferPlan(client, orgId, payload) {
+  const plan = await resolveBoxTransferPlan(client, orgId, payload);
+  return {
+    destinationBoxId: plan.destinationBoxId,
+    available: !plan.conflict,
+    conflictType: plan.conflict?.conflictType || null,
+    conflictBoxId: plan.conflict?.conflictBoxId || null
+  };
+}
+
+async function startBoxTransfer(client, orgId, payload, actor) {
+  const { box, sourceWarehouse, destinationWarehouse, destinationBoxId, conflict } =
+    await resolveBoxTransferPlan(client, orgId, payload);
+  if (conflict) {
+    throw new HttpError(400, buildTransferDestinationConflictMessage(destinationBoxId, conflict));
+  }
+
+  const nowIso = new Date().toISOString();
+  let transfer;
+  try {
+    transfer = await saveBoxTransferRecord(client, orgId, {
+      transferId: createTransferId(),
+      boxRecordId: box.id,
+      sourceBoxId: box.boxId,
+      destinationBoxId,
+      sourceWarehouse: sourceWarehouse.code,
+      destinationWarehouse: destinationWarehouse.code,
+      status: 'PENDING',
+      notes: asTrimmedString(payload.notes),
+      createdAt: nowIso,
+      createdBy: actor,
+      receivedAt: '',
+      receivedBy: '',
+      cancelledAt: '',
+      cancelledBy: '',
+      updatedAt: nowIso,
+      updatedBy: actor
+    });
+  } catch (error) {
+    if (isPendingTransferReservationConflict(error)) {
+      const raceConflict = await findBoxIdConflict(client, orgId, destinationBoxId, {
+        excludedBoxRecordId: box.id
+      });
+      throw new HttpError(409, buildTransferDestinationConflictMessage(destinationBoxId, raceConflict));
+    }
+    throw error;
+  }
 
   const beforeState = toPublicBox(box);
   const nextBox = await saveBoxRecord(client, orgId, {
@@ -649,19 +738,15 @@ async function receiveBoxTransfer(client, orgId, payload, actor) {
     );
   }
 
-  const sourceWarehouse = await findWarehouseEntry(client, orgId, transfer.sourceWarehouse, 'FromWarehouse');
   const destinationWarehouse = await findWarehouseEntry(client, orgId, transfer.destinationWarehouse, 'ToWarehouse');
-  const nextBoxId = buildTransferredBoxId(
-    transfer.sourceBoxId,
-    sourceWarehouse.boxIdPrefix || sourceWarehouse.code,
-    destinationWarehouse.boxIdPrefix || destinationWarehouse.code
-  );
+  const nextBoxId = requireString(transfer.destinationBoxId, 'DestinationBoxID').toUpperCase();
 
-  if (await boxIdOrAliasExists(client, orgId, nextBoxId, box.id)) {
-    throw new HttpError(
-      400,
-      `Transfer cannot be received because BoxID ${nextBoxId} already exists or is reserved by an alias.`
-    );
+  const receiveConflict = await findBoxIdConflict(client, orgId, nextBoxId, {
+    excludedBoxRecordId: box.id,
+    excludedTransferId: transfer.transferId
+  });
+  if (receiveConflict) {
+    throw new HttpError(409, buildTransferDestinationConflictMessage(nextBoxId, receiveConflict));
   }
 
   await releaseReusableBoxIdAlias(client, orgId, nextBoxId, box.id);
@@ -812,6 +897,7 @@ export {
   updateBox,
   setBoxStatus,
   getBoxTransferByBox,
+  getBoxTransferPlan,
   startBoxTransfer,
   receiveBoxTransfer,
   cancelBoxTransfer,

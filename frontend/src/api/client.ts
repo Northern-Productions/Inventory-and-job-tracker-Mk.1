@@ -42,6 +42,7 @@ export {
   allocateBox,
   deleteBox,
   getBox,
+  getBoxTransferPlan,
   searchBoxes,
   setBoxStatus,
   syncAllOfflineInventorySnapshots,

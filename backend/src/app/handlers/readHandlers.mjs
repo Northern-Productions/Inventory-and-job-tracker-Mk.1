@@ -23,7 +23,7 @@ import {
   buildOwnerAssetTotalCost,
   buildReportsSummary,
 } from '../services/jobs.mjs';
-import { buildSearchBoxes, getBoxTransferByBox } from '../services/boxes.mjs';
+import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
 import {
   getGeneralFeaturePermissions,
@@ -60,6 +60,8 @@ const readHandlers = {
   },
   '/boxes/transfer/by-box': async ({ client, orgId, params }) =>
     ok(await getBoxTransferByBox(client, orgId, params.boxId)),
+  '/boxes/transfer/plan': async ({ client, orgId, params }) =>
+    ok(await getBoxTransferPlan(client, orgId, params)),
   '/audit/list': async ({ client, orgId, params }) =>
     ok({ entries: await listAudit(client, orgId, params) }),
   '/audit/by-box': async ({ client, orgId, params }) =>

@@ -30,6 +30,7 @@ export type ReadHandlerDeps = {
   buildSearchBoxes: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
   getBoxTransferByBox: (client: any, orgId: string, boxId: string) => Promise<Record<string, unknown>>;
+  getBoxTransferPlan: (client: any, orgId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
   toPublicBox: (box: any) => Record<string, unknown>;
   listAudit: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown[]>;
   listAuditEntriesByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
@@ -277,6 +278,9 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/boxes/transfer/by-box": async ({ client, orgId, params }, deps) => {
     return await deps.getBoxTransferByBox(client, orgId, deps.requireString(params.boxId, "boxId"));
+  },
+  "/boxes/transfer/plan": async ({ client, orgId, params }, deps) => {
+    return await deps.getBoxTransferPlan(client, orgId, params);
   },
   "/audit/list": async ({ client, orgId, params }, deps) => {
     return ok({ entries: await deps.listAudit(client, orgId, params) });
