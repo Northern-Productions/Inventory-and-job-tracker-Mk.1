@@ -77,6 +77,22 @@ You can print the currently resolved token with:
 npm run smoke:token
 ```
 
+To remove old `codex-smoke-*` and `codex-transfer-smoke-*` test artifacts while
+preserving the configured smoke user, run:
+
+```bash
+npm run smoke:cleanup:dry
+npm run smoke:cleanup:apply
+```
+
+The cleanup script is dry-run by default, also removes stale access-request rows
+whose auth users are already gone, and preserves `SMOKE_USER_EMAIL`
+automatically. When `SUPABASE_SERVICE_ROLE_KEY` is configured it uses the
+Supabase Auth Admin API for user deletion; otherwise it falls back to deleting
+matching test users from `auth.users` through the configured database
+connection. You can preserve an additional address with
+`--preserve-email=<email>`.
+
 Write and transfer smoke setup:
 
 ```env

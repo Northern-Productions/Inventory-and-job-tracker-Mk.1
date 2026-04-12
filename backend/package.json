@@ -22,6 +22,8 @@
     "jobs:completed:backfill:apply": "node scripts/backfill-completed-jobs.mjs --apply",
     "jobs:completed:backfill:dry": "node scripts/backfill-completed-jobs.mjs",
     "smoke:provision-user": "node scripts/provision-smoke-user.mjs",
+    "smoke:cleanup:dry": "node scripts/cleanup-codex-smoke-users.mjs",
+    "smoke:cleanup:apply": "node scripts/cleanup-codex-smoke-users.mjs --apply",
     "smoke:token": "node scripts/print-smoke-auth-token.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
     "test:unit": "node --test scripts/lib",
