@@ -73,6 +73,30 @@ function renderLayout(pathname = '/') {
   return render(buildLayoutTree(pathname));
 }
 
+function mockDesktopToplineHeight(container: HTMLElement, height: number) {
+  const topline = container.querySelector('.app-header-topline');
+  if (!(topline instanceof HTMLElement)) {
+    throw new Error('Expected desktop topline to be rendered.');
+  }
+
+  Object.defineProperty(topline, 'scrollHeight', {
+    configurable: true,
+    value: height
+  });
+
+  return vi.spyOn(topline, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: height,
+    width: 0,
+    height,
+    toJSON: () => ({})
+  });
+}
+
 describe('AppLayout', () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue(buildAuth());
@@ -84,10 +108,16 @@ describe('AppLayout', () => {
         pendingAccessRequests: false
       })
     );
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      writable: true,
+      value: 0
+    });
   });
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -167,5 +197,59 @@ describe('AppLayout', () => {
     view.rerender(buildLayoutTree('/'));
 
     expect(screen.getByRole('link', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
+  });
+
+  it('enters compact sticky mode after scrolling past the desktop topline', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    mockDesktopToplineHeight(view.container, 72);
+
+    fireEvent(window, new Event('resize'));
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+
+    window.scrollY = 80;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+  });
+
+  it('expands the desktop header again when scrolled back to the top', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    mockDesktopToplineHeight(view.container, 72);
+
+    fireEvent(window, new Event('resize'));
+    window.scrollY = 84;
+    fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+
+    window.scrollY = 0;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+  });
+
+  it('does not enable the desktop sticky compact state on phone layout', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    window.scrollY = 120;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-desktop')).toBe(false);
+    expect(header.classList.contains('app-header-compact')).toBe(false);
   });
 });

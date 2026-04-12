@@ -22,8 +22,11 @@ export function AppLayout() {
     mobileMoreAttentionAriaLabel
   } = useAppLayoutNavigation(location.pathname);
   const hasMountedRef = useRef(false);
+  const desktopToplineRef = useRef<HTMLDivElement>(null);
+  const desktopToplineHeightRef = useRef(0);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
+  const [isDesktopHeaderCompact, setIsDesktopHeaderCompact] = useState(false);
   const mobileMoreButtonRef = useRef<HTMLButtonElement>(null);
   const desktopMoreRef = useRef<HTMLDivElement>(null);
   const closeMobileMoreSheet = useCallback(() => setIsMobileMoreOpen(false), []);
@@ -33,6 +36,26 @@ export function AppLayout() {
     []
   );
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
+  const syncDesktopHeaderCompact = useCallback(() => {
+    if (isPhoneLayout) {
+      desktopToplineHeightRef.current = 0;
+      setIsDesktopHeaderCompact(false);
+      return;
+    }
+
+    const measuredToplineHeight =
+      desktopToplineRef.current?.scrollHeight ??
+      desktopToplineRef.current?.getBoundingClientRect().height ??
+      0;
+
+    if (measuredToplineHeight > 0) {
+      desktopToplineHeightRef.current = measuredToplineHeight;
+    }
+
+    const toplineHeight = desktopToplineHeightRef.current;
+    const nextCompact = window.scrollY > toplineHeight;
+    setIsDesktopHeaderCompact((current) => (current === nextCompact ? current : nextCompact));
+  }, [isPhoneLayout]);
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -42,6 +65,30 @@ export function AppLayout() {
   useEffect(() => {
     hasMountedRef.current = true;
   }, []);
+
+  useEffect(() => {
+    syncDesktopHeaderCompact();
+  }, [location.pathname, syncDesktopHeaderCompact]);
+
+  useEffect(() => {
+    if (isPhoneLayout) {
+      setIsDesktopHeaderCompact(false);
+      return;
+    }
+
+    const handleViewportChange = () => {
+      syncDesktopHeaderCompact();
+    };
+
+    handleViewportChange();
+    window.addEventListener('scroll', handleViewportChange, { passive: true });
+    window.addEventListener('resize', handleViewportChange);
+
+    return () => {
+      window.removeEventListener('scroll', handleViewportChange);
+      window.removeEventListener('resize', handleViewportChange);
+    };
+  }, [isPhoneLayout, syncDesktopHeaderCompact]);
 
   useEffect(() => {
     if (isPhoneLayout || !isDesktopMoreOpen) {
@@ -77,10 +124,14 @@ export function AppLayout() {
         isPhoneLayout ? 'app-shell-phone' : ''
       }`.trim()}
     >
-      <header className="app-header">
+      <header
+        className={`app-header ${!isPhoneLayout ? 'app-header-desktop' : ''} ${
+          isDesktopHeaderCompact ? 'app-header-compact' : ''
+        }`.trim()}
+      >
         <div className="app-header-band">
           <div className="app-header-band-inner">
-            <div className="app-header-topline">
+            <div className="app-header-topline" ref={desktopToplineRef}>
               <div className="app-brand-block">
                 <h1>Window Film Inventory</h1>
               </div>
