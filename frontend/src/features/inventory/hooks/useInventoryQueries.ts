@@ -9,6 +9,7 @@ export {
   useBox,
   useBoxTransfer,
   useBoxTransferPlan,
+  useCaulkProducts,
   useBoxAllocations,
   useBoxHistory,
   useFilmCatalog,

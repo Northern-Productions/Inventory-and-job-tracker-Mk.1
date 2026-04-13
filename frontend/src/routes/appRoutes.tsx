@@ -3,11 +3,12 @@ import { Navigate, type RouteObject } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { DeferredLoadingState } from '../components/DeferredLoadingState';
 import { AccessRoute } from '../features/auth/AccessRoute';
+import { loadAllocationJobPage } from '../features/inventory/pages/allocationJobPageLoader';
 import type { FeatureAccessMode, FeatureArea } from '../domain';
 
 const InventoryHomePage = lazy(() => import('../features/inventory/pages/InventoryHomePage'));
 const AllocationsPage = lazy(() => import('../features/inventory/pages/AllocationsPage'));
-const AllocationJobPage = lazy(() => import('../features/inventory/pages/AllocationJobPage'));
+const AllocationJobPage = lazy(loadAllocationJobPage);
 const AddBoxPage = lazy(() => import('../features/inventory/pages/AddBoxPage'));
 const BoxDetailsPage = lazy(() => import('../features/inventory/pages/BoxDetailsPage'));
 const QrScanPage = lazy(() => import('../features/inventory/pages/QrScanPage'));

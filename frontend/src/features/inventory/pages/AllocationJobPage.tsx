@@ -1,7 +1,5 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { listCaulkProducts } from '../../../api/features/caulkClient';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
@@ -14,6 +12,7 @@ import {
   useCheckinCaulkJobAllocation,
   useCheckoutAllJobMaterials,
   useCheckoutCaulkJobAllocation,
+  useCaulkProducts,
   useCompleteJob,
   useDeleteJob,
   useDeleteFilmOrder,
@@ -79,11 +78,7 @@ export default function AllocationJobPage() {
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
-  const filmCatalogQuery = useFilmCatalog();
-  const caulkProductsQuery = useQuery({
-    queryKey: ['caulk', 'products'],
-    queryFn: () => listCaulkProducts()
-  });
+  const caulkProductsQuery = useCaulkProducts();
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
@@ -242,6 +237,7 @@ export default function AllocationJobPage() {
     checkoutAllJobMaterials: checkoutAllJobMaterialsMutation.mutateAsync,
     setJobStagedForPickup: setJobStagedForPickupMutation.mutateAsync
   });
+  const filmCatalogQuery = useFilmCatalog({ enabled: lifecycleWorkflow.isEditOpen });
 
   const filmWorkflow = useJobFilmWorkflow({
     summary,

@@ -9,6 +9,8 @@ interface MobileRecordHeaderProps {
   subtitle?: ReactNode;
   badge?: ReactNode;
   onTitleClick?: ButtonHTMLAttributes<HTMLButtonElement>['onClick'];
+  onTitleMouseEnter?: ButtonHTMLAttributes<HTMLButtonElement>['onMouseEnter'];
+  onTitleFocus?: ButtonHTMLAttributes<HTMLButtonElement>['onFocus'];
 }
 
 interface MobileFieldProps {
@@ -27,13 +29,21 @@ export function MobileRecordHeader({
   title,
   subtitle,
   badge,
-  onTitleClick
+  onTitleClick,
+  onTitleMouseEnter,
+  onTitleFocus
 }: MobileRecordHeaderProps) {
   return (
     <div className={`mobile-record-header ${badge ? 'mobile-record-header-with-badge' : ''}`.trim()}>
       <div className="mobile-record-heading">
         {onTitleClick ? (
-          <button type="button" className="mobile-record-title-button" onClick={onTitleClick}>
+          <button
+            type="button"
+            className="mobile-record-title-button"
+            onClick={onTitleClick}
+            onMouseEnter={onTitleMouseEnter}
+            onFocus={onTitleFocus}
+          >
             {title}
           </button>
         ) : (

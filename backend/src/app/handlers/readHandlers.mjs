@@ -5,6 +5,7 @@ import { findBoxById, listAllocationsByBox, toPublicAllocation, toPublicBox } fr
 import {
   buildAllocationJobList,
   buildAllocationJobDetail,
+  buildReadAllocationJobDetail,
   previewAllocationPlan,
 } from '../services/allocations.mjs';
 import { listAudit, listAuditEntriesByBox, listRollHistoryByBox } from '../services/audit.mjs';
@@ -19,6 +20,7 @@ import {
   buildJobDetail,
   buildJobsCalendar,
   buildJobsList,
+  buildReadJobDetail,
   buildJobsSearchResults,
   buildOwnerAssetTotalCost,
   buildReportsSummary,
@@ -74,8 +76,8 @@ const readHandlers = {
     }),
   '/allocations/jobs': async ({ client, orgId }) =>
     ok({ entries: await buildAllocationJobList(client, orgId) }),
-  '/allocations/by-job': async ({ client, orgId, params }) =>
-    ok(await buildAllocationJobDetail(client, orgId, params.jobNumber)),
+  '/allocations/by-job': async ({ orgId, params }) =>
+    ok(await buildReadAllocationJobDetail(orgId, params.jobNumber)),
   '/allocations/preview': async ({ client, orgId, params }) =>
     ok(await previewAllocationPlan(client, orgId, normalizeLegacyScheduleParams(params))),
   '/jobs/list': async ({ client, orgId, params }) => {
@@ -108,7 +110,7 @@ const readHandlers = {
       entries: await buildJobsSearchResults(client, orgId, params && params.query, limit, params && params.lifecycleStatus),
     });
   },
-  '/jobs/get': async ({ client, orgId, params }) => ok(await buildJobDetail(client, orgId, params.jobNumber)),
+  '/jobs/get': async ({ orgId, params }) => ok(await buildReadJobDetail(orgId, params.jobNumber)),
   '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),
   '/roll-history/by-box': async ({ client, orgId, params }) =>
@@ -126,6 +128,8 @@ const readHandlers = {
     ok({ entries: await listCaulkTransactions(client, orgId, params) }),
 };
 
+const POOLED_READ_HANDLERS = new Set(['/allocations/by-job', '/jobs/get']);
+
 function normalizeLegacyScheduleParams(params) {
   if (!params || typeof params !== 'object') {
     return {};
@@ -142,12 +146,16 @@ function normalizeLegacyScheduleParams(params) {
 }
 
 export async function dispatchReadWithHandlers(logicalPath, params, authContext) {
-  return withReadClient(async (client) => {
-    const handler = readHandlers[logicalPath];
-    if (!handler) {
-      throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);
-    }
+  const handler = readHandlers[logicalPath];
+  if (!handler) {
+    throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);
+  }
 
-    return handler({ client, orgId: authContext.orgId, params, authContext });
-  });
+  if (POOLED_READ_HANDLERS.has(logicalPath)) {
+    return handler({ client: null, orgId: authContext.orgId, params, authContext });
+  }
+
+  return withReadClient(async (client) =>
+    handler({ client, orgId: authContext.orgId, params, authContext })
+  );
 }

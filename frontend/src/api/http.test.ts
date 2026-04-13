@@ -1,10 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const getStoredAuthSessionMock = vi.fn<() => any>(() => null);
+const getSupabaseClientMock = vi.fn<() => any>(() => null);
+
 vi.mock('../lib/storage', () => ({
-  getStoredAuthSession: vi.fn(() => null)
+  getStoredAuthSession: () => getStoredAuthSessionMock()
 }));
 
-import { request, resolveApiBaseUrlFromConfig } from './http';
+vi.mock('../lib/supabase', () => ({
+  getSupabaseClient: () => getSupabaseClientMock()
+}));
+
+import {
+  __resetRequestAuthContextCacheForTests,
+  request,
+  resolveApiBaseUrlFromConfig
+} from './http';
 
 function setWindowLocation() {
   Object.defineProperty(globalThis, 'window', {
@@ -19,10 +30,54 @@ function setWindowLocation() {
   });
 }
 
+function buildJwt(payload: Record<string, unknown>) {
+  const encode = (value: Record<string, unknown>) =>
+    globalThis
+      .btoa(JSON.stringify(value))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+
+  return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode(payload)}.signature`;
+}
+
+function buildStoredAuthSession(token: string) {
+  return {
+    token,
+    expiresAt: Date.now() + 60 * 60 * 1000,
+    user: {
+      email: 'crew@example.com',
+      hasProfileName: true,
+      name: 'Crew Lead',
+      picture: '',
+      sub: 'user-1'
+    }
+  };
+}
+
+function buildSupabaseSession(token: string) {
+  return {
+    access_token: token,
+    expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
+    user: {
+      id: 'user-1',
+      email: 'crew@example.com',
+      user_metadata: {
+        full_name: 'Crew Lead'
+      }
+    }
+  };
+}
+
 describe('http request envelope parsing', () => {
   beforeEach(() => {
     setWindowLocation();
     vi.restoreAllMocks();
+    getStoredAuthSessionMock.mockReset();
+    getStoredAuthSessionMock.mockReturnValue(null);
+    getSupabaseClientMock.mockReset();
+    getSupabaseClientMock.mockReturnValue(null);
+    __resetRequestAuthContextCacheForTests();
   });
 
   it('uses the JSON fast path when the response body is valid JSON', async () => {
@@ -103,6 +158,88 @@ describe('http request envelope parsing', () => {
     expect(requestUrl).toContain('warehouses=IL1');
     expect(requestUrl).toContain('warehouses=MS1');
     expect(requestUrl).toContain('manufacturer=Llumar');
+  });
+
+  it('reuses one in-flight auth lookup for concurrent requests', async () => {
+    const token = buildJwt({
+      iss: '/auth/v1/project',
+      exp: Math.floor(Date.now() / 1000) + 60 * 60
+    });
+    const getSessionMock = vi.fn().mockResolvedValue({
+      data: {
+        session: buildSupabaseSession(token)
+      },
+      error: null
+    });
+
+    getStoredAuthSessionMock.mockReturnValue(buildStoredAuthSession(token));
+    getSupabaseClientMock.mockReturnValue({
+      auth: {
+        getSession: getSessionMock,
+        refreshSession: vi.fn()
+      }
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(JSON.stringify({ ok: true, data: { value: 42 }, warnings: [] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    });
+
+    await Promise.all([
+      request<{ value: number }>('GET', '/health'),
+      request<{ value: number }>('GET', '/health')
+    ]);
+
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the auth lookup cache when the stored token changes', async () => {
+    const tokenA = buildJwt({
+      iss: '/auth/v1/project-a',
+      exp: Math.floor(Date.now() / 1000) + 60 * 60
+    });
+    const tokenB = buildJwt({
+      iss: '/auth/v1/project-b',
+      exp: Math.floor(Date.now() / 1000) + 60 * 60
+    });
+    let storedToken = tokenA;
+    let activeToken = tokenA;
+    const getSessionMock = vi.fn().mockImplementation(async () => ({
+      data: {
+        session: buildSupabaseSession(activeToken)
+      },
+      error: null
+    }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      return new Response(JSON.stringify({ ok: true, data: { value: 1 }, warnings: [] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    });
+
+    getStoredAuthSessionMock.mockImplementation(() => buildStoredAuthSession(storedToken));
+    getSupabaseClientMock.mockReturnValue({
+      auth: {
+        getSession: getSessionMock,
+        refreshSession: vi.fn()
+      }
+    });
+
+    await request<{ value: number }>('GET', '/health');
+
+    storedToken = tokenB;
+    activeToken = tokenB;
+
+    await request<{ value: number }>('GET', '/health');
+
+    expect(getSessionMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

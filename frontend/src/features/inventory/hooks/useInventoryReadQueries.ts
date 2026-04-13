@@ -9,6 +9,7 @@ import {
   previewAllocationPlan
 } from '../../../api/features/allocationsClient';
 import { getAuditByBox, getRollHistoryByBox, listAudit } from '../../../api/features/auditClient';
+import { listCaulkProducts } from '../../../api/features/caulkClient';
 import { getFilmCatalog, getFilmOrders } from '../../../api/features/filmOrdersClient';
 import { getBox, getBoxTransfer, getBoxTransferPlan, searchBoxes } from '../../../api/features/inventoryClient';
 import {
@@ -351,12 +352,25 @@ export function useAppAttentionSummary(options: { enabled?: boolean; refetchOnWi
   });
 }
 
-export function useFilmCatalog() {
+export function useFilmCatalog(options: { enabled?: boolean } = {}) {
   return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.filmCatalog,
     queryFn: () => getFilmCatalog(),
+    enabled: options.enabled ?? true,
     staleTime: 10 * 60 * 1000,
-    gcTime: 60 * 60 * 1000
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+}
+
+export function useCaulkProducts(options: { enabled?: boolean } = {}) {
+  return useCachedInventoryReadQuery({
+    queryKey: inventoryKeys.caulkProducts,
+    queryFn: () => listCaulkProducts(),
+    enabled: options.enabled ?? true,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
   });
 }
 

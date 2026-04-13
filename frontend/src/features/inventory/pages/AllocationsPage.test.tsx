@@ -13,6 +13,7 @@ const useJobsSearchMock = vi.fn();
 const useJobsCalendarEntriesMock = vi.fn();
 const useCreateJobMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
+const useCaulkProductsMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   Link: ({ to, children, ...props }: PropsWithChildren<{ to: string }>) => (
@@ -35,16 +36,13 @@ vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => useAuthMock()
 }));
 
-vi.mock('../../../api/features/caulkClient', () => ({
-  listCaulkProducts: vi.fn()
-}));
-
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJobsList: (...args: unknown[]) => useJobsListMock(...args),
   useJobsSearch: (...args: unknown[]) => useJobsSearchMock(...args),
   useJobsCalendarEntries: (...args: unknown[]) => useJobsCalendarEntriesMock(...args),
   useCreateJob: (...args: unknown[]) => useCreateJobMock(...args),
-  useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args)
+  useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args),
+  useCaulkProducts: (...args: unknown[]) => useCaulkProductsMock(...args)
 }));
 
 function buildMutationState() {
@@ -113,8 +111,6 @@ function renderPage(props: {
       }
     }
   });
-
-  queryClient.setQueryData(['caulk', 'products'], []);
 
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
@@ -186,6 +182,12 @@ describe('AllocationsPage', () => {
     useFilmCatalogMock.mockReturnValue({
       data: [],
       isLoading: false,
+      error: null
+    });
+    useCaulkProductsMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
       error: null
     });
   });

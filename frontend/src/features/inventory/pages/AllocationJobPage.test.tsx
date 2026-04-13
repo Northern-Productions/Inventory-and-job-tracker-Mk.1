@@ -28,6 +28,7 @@ const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
 const useCreateFilmOrderMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
+const useCaulkProductsMock = vi.fn();
 const useAllocationPreviewMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
@@ -54,11 +55,6 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
       { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
     ]
   })
-}));
-
-vi.mock('../../../api/features/caulkClient', () => ({
-  listCaulkProducts: vi.fn(),
-  listCaulkStock: vi.fn()
 }));
 
 vi.mock('../hooks/useInventoryQueries', () => ({
@@ -90,7 +86,8 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useBox: () => useBoxMock(),
   useAllocateBox: () => useAllocateBoxMock(),
   useCreateFilmOrder: () => useCreateFilmOrderMock(),
-  useFilmCatalog: () => useFilmCatalogMock()
+  useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args),
+  useCaulkProducts: (...args: unknown[]) => useCaulkProductsMock(...args)
 }));
 
 function buildSummary(overrides: Record<string, unknown> = {}) {
@@ -213,8 +210,6 @@ function renderPage(detail: JobDetail) {
     }
   });
 
-  queryClient.setQueryData(['caulk', 'products'], caulkProducts);
-
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <AllocationJobPage />
@@ -276,6 +271,12 @@ describe('AllocationJobPage', () => {
     useFilmCatalogMock.mockReturnValue({
       data: [],
       isLoading: false,
+      error: null
+    });
+    useCaulkProductsMock.mockReturnValue({
+      data: caulkProducts,
+      isLoading: false,
+      isError: false,
       error: null
     });
   });

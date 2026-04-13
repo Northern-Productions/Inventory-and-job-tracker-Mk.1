@@ -52,7 +52,7 @@ export function useCreateJob() {
 
       const optimisticDetail = createOptimisticJobDetailFromCreatePayload(
         payload,
-        queryClient.getQueryData<CaulkProductEntry[]>(['caulk', 'products']) || []
+        queryClient.getQueryData<CaulkProductEntry[]>(inventoryKeys.caulkProducts) || []
       );
 
       return beginImmediateOptimisticMutation(

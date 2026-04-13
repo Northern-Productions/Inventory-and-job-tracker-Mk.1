@@ -21,41 +21,45 @@ function isFilmOrderNeedingAttention(order) {
 }
 
 async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
-  const jobHeaderCache = {};
-  const response = [];
+  const jobNumbersNeedingSchedule = Array.from(
+    new Set(
+      (Array.isArray(filmOrders) ? filmOrders : [])
+        .filter((entry) => {
+          if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
+            return false;
+          }
 
-  for (let index = 0; index < filmOrders.length; index += 1) {
-    const entry = filmOrders[index];
+          return !asTrimmedString(entry.installDate) || !asTrimmedString(entry.crewLeader);
+        })
+        .map((entry) => asTrimmedString(entry.jobNumber))
+        .filter(Boolean)
+    )
+  );
+  const jobHeaderEntries = await Promise.all(
+    jobNumbersNeedingSchedule.map(async (jobNumber) => [
+      jobNumber,
+      (await findJobByNumber(client, orgId, jobNumber)) || null,
+    ])
+  );
+  const jobHeaderCache = Object.fromEntries(jobHeaderEntries);
+
+  return (Array.isArray(filmOrders) ? filmOrders : []).map((entry) => {
     if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
-      response.push(entry);
-      continue;
+      return entry;
     }
 
     const needsInstallDate = !asTrimmedString(entry.installDate);
     const needsCrewLeader = !asTrimmedString(entry.crewLeader);
     if (!needsInstallDate && !needsCrewLeader) {
-      response.push(entry);
-      continue;
+      return entry;
     }
 
-    const normalizedJobNumber = asTrimmedString(entry.jobNumber);
-    if (!normalizedJobNumber) {
-      response.push(entry);
-      continue;
-    }
-
-    if (!(normalizedJobNumber in jobHeaderCache)) {
-      jobHeaderCache[normalizedJobNumber] =
-        (await findJobByNumber(client, orgId, normalizedJobNumber)) || null;
-    }
-
-    const jobHeader = jobHeaderCache[normalizedJobNumber];
+    const jobHeader = jobHeaderCache[asTrimmedString(entry.jobNumber)];
     if (!jobHeader) {
-      response.push(entry);
-      continue;
+      return entry;
     }
 
-    response.push({
+    return {
       ...entry,
       ...(needsInstallDate && asTrimmedString(jobHeader.installDate)
         ? { installDate: asTrimmedString(jobHeader.installDate) }
@@ -63,10 +67,8 @@ async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
       ...(needsCrewLeader && asTrimmedString(jobHeader.crewLeader)
         ? { crewLeader: asTrimmedString(jobHeader.crewLeader) }
         : {}),
-    });
-  }
-
-  return response;
+    };
+  });
 }
 
 export {

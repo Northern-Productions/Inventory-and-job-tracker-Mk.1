@@ -1519,6 +1519,7 @@ const inventoryRepositories = createInventoryRepositories({
   listInternalBoxRecordIdsByBoxId,
 });
 const {
+  mapDbBoxRow,
   mapDbRollHistoryRow,
   toPublicBox,
   toPublicAllocation,
@@ -1568,6 +1569,10 @@ function getRollHistoryActivityTimestamp(entry: any): string {
   return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || "";
 }
 
+function isPresent<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
+}
+
 async function listRollHistoryByJob(client: any, orgId: string, jobNumber: string, allocations: any[] = []) {
   return await listRollHistoryByJobFromService(client, orgId, jobNumber, allocations, {
     asTrimmedString,
@@ -1577,6 +1582,82 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
     listRollHistoryByBox,
     mapDbRollHistoryRow,
   });
+}
+
+function collectJobBoxIds(allocations: any[], rollHistory: any[]) {
+  const boxIds = new Set<string>();
+  for (const entry of Array.isArray(allocations) ? allocations : []) {
+    const boxId = asTrimmedString(entry?.boxId).toUpperCase();
+    if (boxId) {
+      boxIds.add(boxId);
+    }
+  }
+  for (const entry of Array.isArray(rollHistory) ? rollHistory : []) {
+    const boxId = asTrimmedString(entry?.boxId).toUpperCase();
+    if (boxId) {
+      boxIds.add(boxId);
+    }
+  }
+  return Array.from(boxIds);
+}
+
+function indexBoxesById(boxes: any[]) {
+  const boxById: Record<string, any> = {};
+  for (const box of Array.isArray(boxes) ? boxes : []) {
+    const boxId = asTrimmedString(box?.boxId).toUpperCase();
+    if (boxId) {
+      boxById[boxId] = box;
+    }
+  }
+  return boxById;
+}
+
+async function listBoxesByIds(orgId: string, boxIds: string[]) {
+  const normalizedBoxIds = Array.from(
+    new Set((Array.isArray(boxIds) ? boxIds : []).map((boxId) => asTrimmedString(boxId).toUpperCase()).filter(Boolean)),
+  );
+  if (!normalizedBoxIds.length) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const rows: any[] = [];
+  for (const batchIds of chunkValues(normalizedBoxIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("*")
+      .eq("org_id", orgId)
+      .in("box_id", batchIds);
+    throwOnSupabaseError(error, "Unable to load job detail boxes");
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+
+  return rows.map((row) => mapDbBoxRow(row)).filter(isPresent);
+}
+
+async function listFilmOrderLinksByFilmOrderIds(orgId: string, filmOrderIds: string[]) {
+  const normalizedFilmOrderIds = Array.from(
+    new Set((Array.isArray(filmOrderIds) ? filmOrderIds : []).map((filmOrderId) => asTrimmedString(filmOrderId)).filter(Boolean)),
+  );
+  if (!normalizedFilmOrderIds.length) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const rows: any[] = [];
+  for (const batchIds of chunkValues(normalizedFilmOrderIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("film_order_box_links")
+      .select("film_order_id, box_id, ordered_feet, auto_allocated_feet")
+      .eq("org_id", orgId)
+      .in("film_order_id", batchIds);
+    throwOnSupabaseError(error, "Unable to load film-order linked boxes");
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+
+  return rows;
 }
 
 function createTransferId(): string {
@@ -3447,22 +3528,64 @@ function getDateConflictJobsForBox(
   return conflicts;
 }
 
-async function buildPublicFilmOrderLinkedBoxes(client: any, orgId: string, filmOrderId: string) {
-  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-  const response: Array<{ boxId: string; orderedFeet: number; autoAllocatedFeet: number }> = [];
+async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
+  orgId: string,
+  filmOrderIds: string[],
+  initialBoxById: Record<string, any> = {},
+) {
+  const normalizedFilmOrderIds = Array.from(
+    new Set((Array.isArray(filmOrderIds) ? filmOrderIds : []).map((filmOrderId) => asTrimmedString(filmOrderId)).filter(Boolean)),
+  );
+  const linkedBoxesByFilmOrderId: Record<string, Array<{ boxId: string; orderedFeet: number; autoAllocatedFeet: number }>> = {};
+  if (!normalizedFilmOrderIds.length) {
+    return linkedBoxesByFilmOrderId;
+  }
+
+  const links = await listFilmOrderLinksByFilmOrderIds(orgId, normalizedFilmOrderIds);
+  const boxById = { ...initialBoxById };
+  const missingBoxIds = Array.from(
+    new Set(
+      links
+        .map((link) => asTrimmedString((link as Record<string, unknown>).box_id).toUpperCase())
+        .filter((boxId) => boxId && !boxById[boxId]),
+    ),
+  );
+  if (missingBoxIds.length) {
+    const fetchedBoxes = await listBoxesByIds(orgId, missingBoxIds);
+    Object.assign(boxById, indexBoxesById(fetchedBoxes));
+  }
+
   for (const link of links) {
-    const box = await findBoxById(client, orgId, asTrimmedString(link.box_id));
-    if (!box) {
+    const filmOrderId = asTrimmedString((link as Record<string, unknown>).film_order_id);
+    const boxId = asTrimmedString((link as Record<string, unknown>).box_id).toUpperCase();
+    if (!filmOrderId || !boxId || !boxById[boxId]) {
       continue;
     }
-    response.push({
-      boxId: asTrimmedString(link.box_id),
-      orderedFeet: integerOrZero(link.ordered_feet),
-      autoAllocatedFeet: integerOrZero(link.auto_allocated_feet),
+    if (!linkedBoxesByFilmOrderId[filmOrderId]) {
+      linkedBoxesByFilmOrderId[filmOrderId] = [];
+    }
+    linkedBoxesByFilmOrderId[filmOrderId].push({
+      boxId,
+      orderedFeet: integerOrZero((link as Record<string, unknown>).ordered_feet),
+      autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).auto_allocated_feet),
     });
   }
-  response.sort((left, right) => left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0);
-  return response;
+
+  for (const entries of Object.values(linkedBoxesByFilmOrderId)) {
+    entries.sort((left, right) => left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0);
+  }
+
+  return linkedBoxesByFilmOrderId;
+}
+
+async function buildPublicFilmOrderLinkedBoxes(
+  _client: any,
+  orgId: string,
+  filmOrderId: string,
+  boxById: Record<string, any> = {},
+) {
+  const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(orgId, [filmOrderId], boxById);
+  return linkedBoxesByFilmOrderId[asTrimmedString(filmOrderId)] || [];
 }
 
 function isUnresolvedFilmOrderStatus(status: unknown) {
@@ -3471,10 +3594,23 @@ function isUnresolvedFilmOrderStatus(status: unknown) {
 }
 
 async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, filmOrders: any[]) {
-  const jobHeaderCache = new Map<string, any | null>();
+  const entries = Array.isArray(filmOrders) ? filmOrders : [];
+  const jobNumbersNeedingHeaders = Array.from(
+    new Set(
+      entries
+        .filter((entry) => entry && isUnresolvedFilmOrderStatus(entry.status))
+        .filter((entry) => !asTrimmedString(entry.installDate) || !asTrimmedString(entry.crewLeader))
+        .map((entry) => asTrimmedString(entry.jobNumber))
+        .filter(Boolean),
+    ),
+  );
+  const headerEntries = await Promise.all(
+    jobNumbersNeedingHeaders.map(async (jobNumber) => [jobNumber, (await findJobByNumber(client, orgId, jobNumber)) || null]),
+  );
+  const jobHeaderCache = new Map<string, any | null>(headerEntries as Array<[string, any | null]>);
   const response = [];
 
-  for (const entry of filmOrders) {
+  for (const entry of entries) {
     if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
       response.push(entry);
       continue;
@@ -3491,10 +3627,6 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
     if (!jobNumber) {
       response.push(entry);
       continue;
-    }
-
-    if (!jobHeaderCache.has(jobNumber)) {
-      jobHeaderCache.set(jobNumber, (await findJobByNumber(client, orgId, jobNumber)) || null);
     }
 
     const jobHeader = jobHeaderCache.get(jobNumber);
@@ -3517,8 +3649,12 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
   return response;
 }
 
-async function buildPublicFilmOrdersForJob(client: any, orgId: string, filmOrders: any[]) {
-  const response = [];
+async function buildPublicFilmOrdersForJob(
+  client: any,
+  orgId: string,
+  filmOrders: any[],
+  options: { boxById?: Record<string, any> } = {},
+) {
   const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
   const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
@@ -3526,11 +3662,15 @@ async function buildPublicFilmOrdersForJob(client: any, orgId: string, filmOrder
       { installDate: right.createdAt, jobNumber: right.filmOrderId },
     )
   );
-  for (const entry of sorted) {
-    const linkedBoxes = await buildPublicFilmOrderLinkedBoxes(client, orgId, entry.filmOrderId);
-    response.push(toPublicFilmOrder(entry, linkedBoxes));
-  }
-  return response;
+  const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(
+    orgId,
+    sorted.map((entry) => asTrimmedString(entry.filmOrderId)),
+    options.boxById || {},
+  );
+
+  return sorted.map((entry) =>
+    toPublicFilmOrder(entry, linkedBoxesByFilmOrderId[asTrimmedString(entry.filmOrderId)] || [])
+  );
 }
 
 async function resolveJobContext(client: any, orgId: string, jobNumber: unknown, installDate: unknown, crewLeader: unknown) {
@@ -4023,18 +4163,36 @@ async function buildAllocationJobList(client: any, orgId: string) {
 
 async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
-  const header = await findJobByNumber(client, orgId, normalizedJobNumber);
-  const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
+  const [
+    header,
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+  ] = await Promise.all([
+    findJobByNumber(client, orgId, normalizedJobNumber),
+    listAllocationsByJob(client, orgId, normalizedJobNumber),
+    listFilmOrdersByJob(client, orgId, normalizedJobNumber),
+    listJobRequirementsByJob(client, orgId, normalizedJobNumber),
+    listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber),
+    listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber),
+    listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber),
+  ]);
   const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
-  if (!header && !allocations.length && !filmOrders.length && !caulkRequirements.length && !caulkAllocations.length) {
+  if (
+    !header &&
+    !allocations.length &&
+    !filmOrders.length &&
+    !requirements.length &&
+    !caulkRequirements.length &&
+    !caulkAllocations.length
+  ) {
     throw new HttpError(404, "Job not found.");
   }
-  const boxes = await listBoxes(client, orgId);
-  const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory));
+  const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
       client,
@@ -4043,9 +4201,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     ),
   );
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
-  const publicRequirements = header
-    ? buildPublicJobRequirementEntries(await listJobRequirementsByJob(client, orgId, normalizedJobNumber), allocations, boxById)
-    : [];
+  const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     header?.warehouse || "",
     allocations,
@@ -4072,7 +4228,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
-    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders, { boxById }),
     filmTransferAlerts,
   };
 }
@@ -4233,13 +4389,30 @@ async function buildJobsCalendar(
 
 async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   const normalizedJobNumber = requireString(jobNumber, "jobNumber");
-  let header = await findJobByNumber(client, orgId, normalizedJobNumber);
-  const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
+  let header: any = null;
+  let allocations: any[] = [];
+  let filmOrders: any[] = [];
+  let requirements: any[] = [];
+  let caulkRequirements: any[] = [];
+  let caulkAllocations: any[] = [];
+  let caulkCheckouts: any[] = [];
+  [
+    header,
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+  ] = await Promise.all([
+    findJobByNumber(client, orgId, normalizedJobNumber),
+    listAllocationsByJob(client, orgId, normalizedJobNumber),
+    listFilmOrdersByJob(client, orgId, normalizedJobNumber),
+    listJobRequirementsByJob(client, orgId, normalizedJobNumber),
+    listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber),
+    listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber),
+    listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber),
+  ]);
   const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber, allocations);
 
   if (
@@ -4255,8 +4428,8 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   if (!header) {
     header = buildLegacyJobHeaderFromData(normalizedJobNumber, allocations, filmOrders);
   }
-  const boxes = await listBoxes(client, orgId);
-  const boxById = Object.fromEntries(boxes.map((box) => [box.boxId, box]));
+  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory));
+  const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
       client,
@@ -4281,7 +4454,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
-    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
+    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders, { boxById }),
     filmTransferAlerts,
   };
 }
@@ -4527,15 +4700,16 @@ async function buildFilmOrdersList(client: any, orgId: string) {
     }
     const leftResolved = left.resolvedAt || left.createdAt;
     const rightResolved = right.resolvedAt || right.createdAt;
-    return leftResolved < rightResolved ? -1 : leftResolved > rightResolved ? 1 : 0;
+      return leftResolved < rightResolved ? -1 : leftResolved > rightResolved ? 1 : 0;
   });
-  const response = [];
-  for (const entry of sorted) {
-    response.push(
-      toPublicFilmOrder(entry, await buildPublicFilmOrderLinkedBoxes(client, orgId, entry.filmOrderId)),
-    );
-  }
-  return response;
+  const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(
+    orgId,
+    sorted.map((entry) => asTrimmedString(entry.filmOrderId)),
+  );
+
+  return sorted.map((entry) =>
+    toPublicFilmOrder(entry, linkedBoxesByFilmOrderId[asTrimmedString(entry.filmOrderId)] || [])
+  );
 }
 
 async function buildFilmCatalog(client: any, orgId: string) {
@@ -5033,7 +5207,7 @@ async function resolveBoxTransferPlan(client: any, orgId: string, payload: Recor
       sourceWarehouse.boxIdPrefix,
       destinationWarehouse.boxIdPrefix,
       warehousePrefixes,
-      payload.destinationBoxIdOverride,
+      asTrimmedString(payload.destinationBoxIdOverride) || undefined,
     );
   } catch (error) {
     throw new HttpError(

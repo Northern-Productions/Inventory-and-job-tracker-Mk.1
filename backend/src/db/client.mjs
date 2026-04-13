@@ -40,6 +40,23 @@ export async function withReadClient(callback) {
   }
 }
 
+export async function runParallelReadTasks(taskFactories) {
+  ensureConfigured();
+  const tasks = Array.isArray(taskFactories) ? taskFactories : [];
+  for (let index = 0; index < tasks.length; index += 1) {
+    assertCallback(tasks[index], 'runParallelReadTasks');
+  }
+
+  const clients = await Promise.all(tasks.map(() => pool.connect()));
+  try {
+    return await Promise.all(tasks.map((taskFactory, index) => taskFactory(clients[index])));
+  } finally {
+    for (let index = 0; index < clients.length; index += 1) {
+      clients[index].release();
+    }
+  }
+}
+
 export async function withMutation(callback) {
   ensureConfigured();
   assertCallback(callback, 'withMutation');

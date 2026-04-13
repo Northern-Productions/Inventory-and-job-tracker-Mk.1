@@ -126,6 +126,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByIds,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -154,6 +155,7 @@ import {
   deleteFilmOrderRecord,
   listFilmOrderLinks,
   listFilmOrderLinksByFilmOrderId,
+  listFilmOrderLinksByFilmOrderIds,
   listFilmOrderLinksByBoxId,
   saveFilmOrderLinkRecord,
   deleteFilmOrderLinksByFilmOrderId,
@@ -595,30 +597,86 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
 }
 
 async function buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
-  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-  const response = [];
+  const groupedLinkedBoxes = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(
+    client,
+    orgId,
+    [{ filmOrderId }]
+  );
 
+  return groupedLinkedBoxes[asTrimmedString(filmOrderId)] || [];
+}
+
+async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmOrders, boxById = {}) {
+  const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
+  const filmOrderIds = Array.from(
+    new Set(
+      normalizedFilmOrders
+        .map((entry) => asTrimmedString(entry?.filmOrderId))
+        .filter(Boolean)
+    )
+  );
+  if (!filmOrderIds.length) {
+    return {};
+  }
+
+  const links = await listFilmOrderLinksByFilmOrderIds(client, orgId, filmOrderIds);
+  const linkedBoxById = {
+    ...(boxById || {})
+  };
+  const missingBoxIds = Array.from(
+    new Set(
+      links
+        .map((entry) => asTrimmedString(entry?.boxId).toUpperCase())
+        .filter((boxId) => boxId && !linkedBoxById[boxId])
+    )
+  );
+  if (missingBoxIds.length) {
+    const missingBoxes = await listBoxesByIds(client, orgId, missingBoxIds);
+    for (let index = 0; index < missingBoxes.length; index += 1) {
+      const box = missingBoxes[index];
+      linkedBoxById[box.boxId] = box;
+    }
+  }
+
+  const grouped = {};
   for (let index = 0; index < links.length; index += 1) {
     const link = links[index];
-    const box = await findBoxById(client, orgId, link.boxId);
-    if (!box) {
+    const filmOrderId = asTrimmedString(link?.filmOrderId);
+    const boxId = asTrimmedString(link?.boxId).toUpperCase();
+    if (!filmOrderId || !boxId || !linkedBoxById[boxId]) {
       continue;
     }
 
-    response.push({
-      boxId: link.boxId,
+    if (!grouped[filmOrderId]) {
+      grouped[filmOrderId] = [];
+    }
+
+    grouped[filmOrderId].push({
+      boxId,
       orderedFeet: link.orderedFeet,
       autoAllocatedFeet: link.autoAllocatedFeet
     });
   }
 
-  response.sort((left, right) => (left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0));
-  return response;
+  const groupedKeys = Object.keys(grouped);
+  for (let index = 0; index < groupedKeys.length; index += 1) {
+    grouped[groupedKeys[index]].sort((left, right) =>
+      left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0
+    );
+  }
+
+  return grouped;
 }
 
-async function buildPublicFilmOrdersForJob(client, orgId, filmOrders) {
+async function buildPublicFilmOrdersForJob(client, orgId, filmOrders, options = {}) {
   const response = [];
   const enrichedEntries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders);
+  const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(
+    client,
+    orgId,
+    enrichedEntries,
+    options.boxById
+  );
   const sorted = enrichedEntries.slice().sort((left, right) =>
     compareAllocationJobSummaries(
       { installDate: left.createdAt, jobNumber: left.filmOrderId },
@@ -628,7 +686,7 @@ async function buildPublicFilmOrdersForJob(client, orgId, filmOrders) {
 
   for (let index = 0; index < sorted.length; index += 1) {
     const entry = sorted[index];
-    const linkedBoxes = await buildPublicFilmOrderLinkedBoxes(client, orgId, entry.filmOrderId);
+    const linkedBoxes = linkedBoxesByFilmOrderId[asTrimmedString(entry.filmOrderId)] || [];
     response.push(toPublicFilmOrder(entry, linkedBoxes));
   }
 
@@ -648,6 +706,7 @@ export {
   hasSharedActiveBoxConflict,
   buildJobListEntry,
   buildPublicAllocationEntriesForJob,
+  buildPublicFilmOrderLinkedBoxesByFilmOrderId,
   buildPublicFilmOrderLinkedBoxes,
   buildPublicFilmOrdersForJob,
 };

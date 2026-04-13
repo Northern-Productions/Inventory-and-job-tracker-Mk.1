@@ -197,6 +197,11 @@ import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } 
 import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData, buildPublicAllocationEntriesForJob, buildPublicFilmOrdersForJob, getJobStagingBlockingReason } from './runtimeJobSummaries.mjs';
 import { checkoutAllJobMaterials } from './runtimeCheckoutOperations.mjs';
 import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
+import {
+  buildJobDetailPayload,
+  loadJobDetailContext,
+  loadJobDetailContextWithPooledReads,
+} from './runtimeJobDetails.mjs';
 
 async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = []) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
@@ -441,73 +446,11 @@ async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecyc
 }
 
 async function buildJobDetail(client, orgId, jobNumber) {
-  const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
-  let header = await findJobByNumber(client, orgId, normalizedJobNumber);
-  const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-  const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
-  const rollHistory = await listRollHistoryByJob(client, orgId, normalizedJobNumber);
-  const allAllocations = await listAllocations(client, orgId);
+  return buildJobDetailPayload(await loadJobDetailContext(client, orgId, jobNumber));
+}
 
-  if (
-    !header &&
-    !allocations.length &&
-    !filmOrders.length &&
-    !requirements.length &&
-    !caulkRequirements.length &&
-    !caulkAllocations.length
-  ) {
-    throw new HttpError(404, 'Job not found.');
-  }
-
-  if (!header) {
-    header = buildLegacyJobHeaderFromData(normalizedJobNumber, allocations, filmOrders);
-  }
-
-  const boxById = {};
-  const boxes = await listBoxes(client, orgId);
-  for (let index = 0; index < boxes.length; index += 1) {
-    boxById[boxes[index].boxId] = boxes[index];
-  }
-  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
-    await listPendingBoxTransfersByBoxRecordIds(
-      client,
-      orgId,
-      boxes.map((box) => box.id)
-    )
-  );
-
-  const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
-  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
-  const filmTransferAlerts = buildJobFilmTransferAlerts(
-    header?.warehouse || '',
-    allocations,
-    boxById,
-    pendingTransfersByBoxRecordId
-  );
-  return {
-    summary: buildJobListEntry(
-      header,
-      publicRequirements,
-      allocations,
-      filmOrders,
-      allAllocations,
-      publicCaulkRequirements,
-      boxById
-    ),
-    requirements: publicRequirements,
-    allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
-    usage: buildPublicJobUsageEntries(rollHistory, boxById),
-    usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
-    caulkRequirements: publicCaulkRequirements,
-    caulkAllocations,
-    caulkCheckouts,
-    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders),
-    filmTransferAlerts
-  };
+async function buildReadJobDetail(orgId, jobNumber) {
+  return buildJobDetailPayload(await loadJobDetailContextWithPooledReads(orgId, jobNumber));
 }
 
 async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor, payload = {}) {
@@ -795,6 +738,7 @@ export {
   getCalendarWeekStart,
   buildJobsCalendar,
   buildJobDetail,
+  buildReadJobDetail,
   setJobStagedPickup,
   setJobLaborAssigned,
   ensureJobHeaderForUpdate,

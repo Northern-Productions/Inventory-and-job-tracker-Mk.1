@@ -58,6 +58,7 @@ interface JobsResultsSectionProps {
   } | null;
   calendarTransitionToken: number;
   onOpenJob: (jobNumber: string) => void;
+  onPrefetchJob?: (jobNumber: string) => void;
   onViewChange: (view: 'week' | 'month') => void;
   onAnchorDateChange: (anchorDate: string) => void;
 }
@@ -90,6 +91,7 @@ export function JobsResultsSection({
   calendarNavigationStatus,
   calendarTransitionToken,
   onOpenJob,
+  onPrefetchJob,
   onViewChange,
   onAnchorDateChange
 }: JobsResultsSectionProps) {
@@ -135,6 +137,8 @@ export function JobsResultsSection({
                     subtitle={`${entry.warehouse} warehouse`}
                     badge={renderStatusBadges(entry)}
                     onTitleClick={() => onOpenJob(entry.jobNumber)}
+                    onTitleMouseEnter={() => onPrefetchJob?.(entry.jobNumber)}
+                    onTitleFocus={() => onPrefetchJob?.(entry.jobNumber)}
                   />
                   <MobileFieldList>
                     <MobileField label="Install Date" value={formatDate(entry.installDate)} />
@@ -171,6 +175,8 @@ export function JobsResultsSection({
                           type="button"
                           className="row-button"
                           onClick={() => onOpenJob(entry.jobNumber)}
+                          onMouseEnter={() => onPrefetchJob?.(entry.jobNumber)}
+                          onFocus={() => onPrefetchJob?.(entry.jobNumber)}
                         >
                           {entry.jobNumber}
                         </button>
@@ -209,6 +215,7 @@ export function JobsResultsSection({
             requestedAnchorDate={calendarAnchorDate}
             navigationStatus={calendarNavigationStatus}
             transitionToken={calendarTransitionToken}
+            onPrefetchJob={onPrefetchJob}
             onViewChange={onViewChange}
             onAnchorDateChange={onAnchorDateChange}
           />

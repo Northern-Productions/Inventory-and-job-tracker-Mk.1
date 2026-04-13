@@ -11,6 +11,15 @@ const SHOULD_FORWARD_SUPABASE_APIKEY = looksLikeLegacyJwtKey_(SUPABASE_ANON_KEY)
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const AUTH_CONTEXT_TIMEOUT_MS = 10_000;
 const SUPABASE_AUTH_TIMEOUT_MS = 10_000;
+const AUTH_CONTEXT_BURST_CACHE_MS = 250;
+
+type ResolvedAuthContext = { token: string; user: AuthUser | null };
+
+const authContextBurstCache_ = new Map<
+  string,
+  { context: ResolvedAuthContext; expiresAt: number }
+>();
+const authContextInFlight_ = new Map<string, Promise<ResolvedAuthContext>>();
 
 function trimTrailingSlashes_(value: string): string {
   return value.replace(/\/+$/g, '');
@@ -257,7 +266,7 @@ function looksLikeLegacyJwtKey_(value: string): boolean {
 
 function getStoredAuthContext_(
   storedSession: ReturnType<typeof getStoredAuthSession>
-): { token: string; user: AuthUser | null } {
+): ResolvedAuthContext {
   const token = storedSession?.token?.trim() || '';
   const email = storedSession?.user?.email ? storedSession.user.email.trim() : '';
   if (!token || !email || !storedSession?.user || !isProjectTokenValid_(token)) {
@@ -273,12 +282,52 @@ function getStoredAuthContext_(
   };
 }
 
-async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | null }> {
-  const stored = getStoredAuthSession();
-  const storedContext = getStoredAuthContext_(stored);
+function buildAuthContextCacheKey_(token: string): string {
+  return token.trim() || '__anonymous__';
+}
+
+function readCachedAuthContext_(key: string): ResolvedAuthContext | null {
+  const cached = authContextBurstCache_.get(key);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    authContextBurstCache_.delete(key);
+    return null;
+  }
+
+  return cached.context;
+}
+
+function cacheAuthContext_(key: string, context: ResolvedAuthContext): void {
+  authContextBurstCache_.set(key, {
+    context,
+    expiresAt: Date.now() + AUTH_CONTEXT_BURST_CACHE_MS
+  });
+}
+
+function invalidateAuthContextCache_(key?: string): void {
+  if (key) {
+    authContextBurstCache_.delete(key);
+    authContextInFlight_.delete(key);
+    return;
+  }
+
+  authContextBurstCache_.clear();
+  authContextInFlight_.clear();
+}
+
+export function __resetRequestAuthContextCacheForTests(): void {
+  invalidateAuthContextCache_();
+}
+
+async function resolveFreshAuthContext_(
+  storedContext: ResolvedAuthContext
+): Promise<{ context: ResolvedAuthContext; shouldCache: boolean }> {
   const supabase = getSupabaseClient();
   if (!supabase) {
-    return storedContext;
+    return { context: storedContext, shouldCache: true };
   }
 
   try {
@@ -288,7 +337,7 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
       'Authentication session lookup timed out.'
     );
     if (error || !data.session) {
-      return storedContext;
+      return { context: storedContext, shouldCache: false };
     }
 
     let activeSession = data.session;
@@ -307,21 +356,23 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
         );
         if (!refreshError && refreshed.session) {
           activeSession = refreshed.session;
+        } else {
+          return { context: storedContext, shouldCache: false };
         }
       } catch (_error) {
-        return storedContext;
+        return { context: storedContext, shouldCache: false };
       }
     }
 
     const token = activeSession.access_token ? activeSession.access_token.trim() : '';
     const email = activeSession.user?.email ? activeSession.user.email.trim() : '';
     if (!token || !email || !isProjectTokenValid_(token)) {
-      return storedContext;
+      return { context: storedContext, shouldCache: false };
     }
 
     const user = activeSession.user;
     if (!user) {
-      return storedContext;
+      return { context: storedContext, shouldCache: false };
     }
 
     const metadata =
@@ -335,18 +386,57 @@ async function resolveAuthContext_(): Promise<{ token: string; user: AuthUser | 
     const avatar = readUserMetadataField_(metadata, 'avatar_url');
 
     return {
-      token,
-      user: {
-        email,
-        hasProfileName: true,
-        name: profileName,
-        picture: avatar,
-        sub: user.id
-      }
+      context: {
+        token,
+        user: {
+          email,
+          hasProfileName: true,
+          name: profileName,
+          picture: avatar,
+          sub: user.id
+        }
+      },
+      shouldCache: true
     };
   } catch (_error) {
-    return storedContext;
+    return { context: storedContext, shouldCache: false };
   }
+}
+
+async function resolveAuthContext_(): Promise<ResolvedAuthContext> {
+  const stored = getStoredAuthSession();
+  const storedContext = getStoredAuthContext_(stored);
+  const requestKey = buildAuthContextCacheKey_(storedContext.token);
+  const cachedContext = readCachedAuthContext_(requestKey);
+  if (cachedContext) {
+    return cachedContext;
+  }
+
+  const inFlightContext = authContextInFlight_.get(requestKey);
+  if (inFlightContext) {
+    return inFlightContext;
+  }
+
+  const promise = resolveFreshAuthContext_(storedContext)
+    .then(({ context, shouldCache }) => {
+      if (!shouldCache) {
+        invalidateAuthContextCache_(requestKey);
+        return context;
+      }
+
+      const resolvedKey = buildAuthContextCacheKey_(context.token);
+      if (resolvedKey !== requestKey) {
+        invalidateAuthContextCache_(requestKey);
+      }
+      cacheAuthContext_(resolvedKey, context);
+      return context;
+    })
+    .finally(() => {
+      authContextInFlight_.delete(requestKey);
+    });
+
+  authContextInFlight_.set(requestKey, promise);
+  return promise;
 }
 
 function isProjectTokenValid_(token: string): boolean {

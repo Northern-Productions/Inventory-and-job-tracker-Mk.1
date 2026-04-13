@@ -200,6 +200,45 @@ async function listActiveAllocations(client, orgId) {
   return rows.map(mapDbAllocationRow);
 }
 
+async function listActiveAllocationsForJobConflictCheck(
+  client,
+  orgId,
+  boxIds,
+  installDate,
+  jobNumber,
+  crewLeader
+) {
+  const normalizedBoxIds = Array.from(
+    new Set(
+      (Array.isArray(boxIds) ? boxIds : [])
+        .map((entry) => asTrimmedString(entry).toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  const normalizedInstallDate = asTrimmedString(installDate);
+  if (!normalizedBoxIds.length || !normalizedInstallDate) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.allocations
+      where org_id = $1
+        and status = 'ACTIVE'
+        and box_id = any($2::text[])
+        and job_date = $3::date
+        and upper(trim(coalesce(job_number, ''))) <> upper(trim($4))
+        and upper(trim(coalesce(crew_leader, ''))) <> upper(trim($5))
+      order by created_at desc, allocation_id desc
+    `,
+    [orgId, normalizedBoxIds, normalizedInstallDate, asTrimmedString(jobNumber), asTrimmedString(crewLeader)]
+  );
+
+  return rows.map(mapDbAllocationRow);
+}
+
 async function saveAllocationRecord(client, orgId, entry) {
   const row = await queryRow(
     client,
@@ -460,6 +499,33 @@ async function listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId) {
   return rows.map(mapDbFilmOrderLinkRow);
 }
 
+async function listFilmOrderLinksByFilmOrderIds(client, orgId, filmOrderIds) {
+  const normalizedFilmOrderIds = Array.from(
+    new Set(
+      (Array.isArray(filmOrderIds) ? filmOrderIds : [])
+        .map((entry) => asTrimmedString(entry))
+        .filter(Boolean)
+    )
+  );
+  if (normalizedFilmOrderIds.length === 0) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.film_order_box_links
+      where org_id = $1
+        and film_order_id = any($2::text[])
+      order by created_at desc, link_id desc
+    `,
+    [orgId, normalizedFilmOrderIds]
+  );
+
+  return rows.map(mapDbFilmOrderLinkRow);
+}
+
 async function listFilmOrderLinksByBoxId(client, orgId, boxId) {
   const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
   const rows = await queryRows(
@@ -536,6 +602,7 @@ export {
   listAllocationsByJob,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
+  listActiveAllocationsForJobConflictCheck,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
@@ -544,6 +611,7 @@ export {
   deleteFilmOrderRecord,
   listFilmOrderLinks,
   listFilmOrderLinksByFilmOrderId,
+  listFilmOrderLinksByFilmOrderIds,
   listFilmOrderLinksByBoxId,
   saveFilmOrderLinkRecord,
   deleteFilmOrderLinksByFilmOrderId,

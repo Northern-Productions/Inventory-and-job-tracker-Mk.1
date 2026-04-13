@@ -1,8 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../../../components/Toast';
-import { listCaulkProducts } from '../../../api/features/caulkClient';
 import { type JobLifecycleFilter } from '../../../api/features/jobsClient';
 import type { JobListEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
@@ -12,11 +11,13 @@ import { JobEditorDialog } from '../components/JobEditorDialog';
 import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDialog';
 import {
   useCreateJob,
+  useCaulkProducts,
   useFilmCatalog,
   useJobsCalendarEntries,
   useJobsList,
   useJobsSearch
 } from '../hooks/useInventoryQueries';
+import { prefetchJobDetail } from './jobDetailPrefetch';
 import {
   formatCalendarPeriodLabel,
   getCurrentCalendarAnchorDate
@@ -95,10 +96,7 @@ export default function AllocationsPage({
   });
   const createJobMutation = useCreateJob();
   const filmCatalogQuery = useFilmCatalog();
-  const caulkProductsQuery = useQuery({
-    queryKey: ['caulk', 'products'],
-    queryFn: () => listCaulkProducts()
-  });
+  const caulkProductsQuery = useCaulkProducts();
 
   const jobCreationWorkflow = useJobCreationWorkflow({
     auth,
@@ -191,6 +189,15 @@ export default function AllocationsPage({
     calendarWorkflow.submitCalendarSearch(normalizedQuery);
   }
 
+  function handlePrefetchJob(jobNumber: string) {
+    void prefetchJobDetail(queryClient, jobNumber).catch(() => undefined);
+  }
+
+  function handleOpenJob(nextJobNumber: string) {
+    handlePrefetchJob(nextJobNumber);
+    navigate(`/allocations/${encodeURIComponent(nextJobNumber)}`);
+  }
+
   return (
     <>
       <JobsHeroSection
@@ -241,9 +248,8 @@ export default function AllocationsPage({
         calendarAnchorDate={calendarAnchorDate}
         calendarNavigationStatus={calendarWorkflow.calendarNavigationStatus}
         calendarTransitionToken={calendarWorkflow.calendarTransitionToken}
-        onOpenJob={(nextJobNumber) =>
-          navigate(`/allocations/${encodeURIComponent(nextJobNumber)}`)
-        }
+        onOpenJob={handleOpenJob}
+        onPrefetchJob={handlePrefetchJob}
         onViewChange={calendarWorkflow.requestCalendarGranularity}
         onAnchorDateChange={calendarWorkflow.requestCalendarAnchorDate}
       />

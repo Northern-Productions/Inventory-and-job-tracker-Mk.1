@@ -4,6 +4,7 @@ export {
   buildJobsSearchResults,
   buildJobsCalendar,
   buildJobDetail,
+  buildReadJobDetail,
   setJobStagedPickup,
   setJobLaborAssigned,
 } from './runtime/runtimeJobsRead.mjs';

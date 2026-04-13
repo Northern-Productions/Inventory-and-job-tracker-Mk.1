@@ -59,6 +59,7 @@ export const inventoryKeys = {
   deleteFilmOrderMutation: ['inventory', 'mutation', 'delete-film-order'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,
+  caulkProducts: ['caulk', 'products'] as const,
   activityRoot: ['inventory', 'activity'] as const,
   activity: (params: AuditListParams) => ['inventory', 'activity', params] as const,
   rollHistory: (boxId: string) => ['inventory', 'roll-history', boxId] as const,

@@ -32,6 +32,7 @@ interface JobsCalendarViewProps {
   transitionToken?: number;
   onViewChange: (view: JobCalendarView) => void;
   onAnchorDateChange: (anchorDate: string) => void;
+  onPrefetchJob?: (jobNumber: string) => void;
   maxVisibleJobsPerDay?: number;
   isPhoneLayoutOverride?: boolean;
   initialSelectedDayDate?: string;
@@ -83,10 +84,16 @@ function renderJobLink(
     highlightJobNumbers: Set<string>;
     compact?: boolean;
     onNavigate?: () => void;
+    onPrefetchJob?: (jobNumber: string) => void;
     registerRef?: (jobNumber: string, node: HTMLAnchorElement | null) => void;
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
+  const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber);
+  const handleClick = () => {
+    handlePrefetch();
+    options.onNavigate?.();
+  };
 
   return (
     <Link
@@ -102,7 +109,9 @@ function renderJobLink(
       ]
         .filter(Boolean)
         .join(' ')}
-      onClick={options.onNavigate}
+      onClick={handleClick}
+      onMouseEnter={handlePrefetch}
+      onFocus={handlePrefetch}
     >
       <span className="job-calendar-job-link-number">{job.jobNumber}</span>
       {job.isStagedForPickup ? (
@@ -128,6 +137,7 @@ export function JobsCalendarView({
   transitionToken = 0,
   onViewChange,
   onAnchorDateChange,
+  onPrefetchJob,
   maxVisibleJobsPerDay = 3,
   isPhoneLayoutOverride,
   initialSelectedDayDate = ''
@@ -245,6 +255,7 @@ export function JobsCalendarView({
                 renderJobLink(job, {
                   compact: true,
                   highlightJobNumbers: highlightSet,
+                  onPrefetchJob,
                   registerRef: registerJobLinkRef
                 })
               )}
@@ -309,6 +320,7 @@ export function JobsCalendarView({
               renderJobLink(job, {
                 compact: true,
                 highlightJobNumbers: highlightSet,
+                onPrefetchJob,
                 registerRef: registerJobLinkRef
               })
             )}
@@ -443,6 +455,7 @@ export function JobsCalendarView({
                 {calendar.unscheduledJobs.map((job) =>
                   renderJobLink(job, {
                     highlightJobNumbers: highlightSet,
+                    onPrefetchJob,
                     registerRef: registerJobLinkRef
                   })
                 )}
@@ -492,6 +505,7 @@ export function JobsCalendarView({
                 {sortCalendarJobsWithinDay(selectedDay.jobs, highlightJobNumbers).map((job) =>
                   renderJobLink(job, {
                     highlightJobNumbers: highlightSet,
+                    onPrefetchJob,
                     onNavigate: closeDayDialog,
                     registerRef: registerJobLinkRef
                   })
