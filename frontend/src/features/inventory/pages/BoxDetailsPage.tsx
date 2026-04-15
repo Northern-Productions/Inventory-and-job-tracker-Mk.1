@@ -133,6 +133,19 @@ export default function BoxDetailsPage() {
   const displayedAllocatedFeet = box
     ? getDisplayedAllocatedFeetForBox(box, allocations)
     : 0;
+  const filmCheckinReleaseJobNumber = useMemo(() => {
+    const checkoutJob = box?.lastCheckoutJob.trim();
+    if (!checkoutJob) {
+      return '';
+    }
+
+    const checkoutJobKey = checkoutJob.toUpperCase();
+    return allocations.some(
+      (entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim().toUpperCase() === checkoutJobKey
+    )
+      ? checkoutJob
+      : '';
+  }, [allocations, box?.lastCheckoutJob]);
   const currentFeetOnRoll = box ? deriveCurrentFeetOnRollForBox(box, allocationsForCurrentFeet) : null;
   const shouldBlockEditWhileAllocationsResolve = Boolean(
     box &&
@@ -405,11 +418,15 @@ export default function BoxDetailsPage() {
         onSubmit={() => void transferWorkflow.handleStartTransfer()}
       />
       <BoxConfirmationDialogs
+        box={box}
         pendingZeroedEditState={boxActions.pendingZeroedEditState}
         pendingZeroedReactivationState={boxActions.pendingZeroedReactivationState}
         pendingTransfer={pendingTransfer}
         transferActionState={transferWorkflow.transferActionState}
         confirmState={boxActions.confirmState}
+        filmCheckinOpen={boxActions.isFilmCheckinOpen}
+        filmCheckinPending={statusMutation.isPending}
+        filmCheckinReleaseJobNumber={filmCheckinReleaseJobNumber}
         checkoutJobOptions={checkoutJobOptions}
         onCancelZeroedEdit={boxActions.handleCancelZeroedEdit}
         onKeepActiveZeroedEdit={(payload) => void boxActions.handleKeepActiveZeroedEdit(payload)}
@@ -420,6 +437,8 @@ export default function BoxDetailsPage() {
         onConfirmReceiveTransfer={() => void transferWorkflow.handleReceiveTransfer()}
         onConfirmCancelTransfer={() => void transferWorkflow.handleCancelTransfer()}
         onCancelStatusConfirm={boxActions.handleCancelConfirm}
+        onCancelFilmCheckin={boxActions.handleCancelFilmCheckin}
+        onConfirmFilmCheckin={(draft) => void boxActions.handleFilmCheckinConfirm(draft)}
         onConfirmStatusConfirm={(reason) => void boxActions.handleConfirm(reason)}
       />
     </>

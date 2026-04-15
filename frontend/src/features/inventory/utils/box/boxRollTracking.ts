@@ -135,19 +135,7 @@ export interface RollTrackingResolutionContext {
   lastRollWeightLbsManuallyEdited?: boolean;
 }
 
-function hasRollWeightMetadata(context: Pick<
-  RollTrackingResolutionContext,
-  'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
->): boolean {
-  return (
-    context.lastRollWeightLbs !== null &&
-    context.coreWeightLbs !== null &&
-    context.lfWeightLbsPerFt !== null &&
-    context.lfWeightLbsPerFt > 0
-  );
-}
-
-function canDeriveRollWeightFromCurrentFeet(context: Pick<
+export function canDeriveFeetFromSubmittedRollWeight(context: Pick<
   RollTrackingResolutionContext,
   'coreWeightLbs' | 'lfWeightLbsPerFt'
 >): boolean {
@@ -158,10 +146,26 @@ function canDeriveRollWeightFromCurrentFeet(context: Pick<
   );
 }
 
+export function hasStoredRollWeightMetadata(context: Pick<
+  RollTrackingResolutionContext,
+  'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+>): boolean {
+  return (
+    context.lastRollWeightLbs !== null && canDeriveFeetFromSubmittedRollWeight(context)
+  );
+}
+
+function canDeriveRollWeightFromCurrentFeet(context: Pick<
+  RollTrackingResolutionContext,
+  'coreWeightLbs' | 'lfWeightLbsPerFt'
+>): boolean {
+  return canDeriveFeetFromSubmittedRollWeight(context);
+}
+
 export function boxNeedsAllocationsToResolveCurrentFeet(
   box: Pick<Box, 'receivedDate' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'>
 ): boolean {
-  return Boolean(box.receivedDate) && !hasRollWeightMetadata(box);
+  return Boolean(box.receivedDate) && !hasStoredRollWeightMetadata(box);
 }
 
 export function shouldRecalculateReceivedBoxFeet(
@@ -197,7 +201,7 @@ export function deriveReceivedBoxPhysicalFeet(
     'initialFeet' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
   >
 ): number | null {
-  if (!hasRollWeightMetadata(nextValues)) {
+  if (!hasStoredRollWeightMetadata(nextValues)) {
     return null;
   }
 
@@ -334,7 +338,7 @@ export function resolveUpdateBoxRollTracking(
     };
   }
 
-  if (lastRollWeightLbsManuallyEdited && hasRollWeightMetadata(nextValues)) {
+  if (lastRollWeightLbsManuallyEdited && hasStoredRollWeightMetadata(nextValues)) {
     const currentFeetOnRoll = clampFeetAvailable(
       deriveFeetAvailableFromRollWeight(
         nextValues.lastRollWeightLbs!,

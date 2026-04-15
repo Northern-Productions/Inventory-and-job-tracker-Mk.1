@@ -454,9 +454,13 @@ export default function AllocationJobPage() {
           void filmWorkflow.handleRemoveAllocation(entry, reason);
         }}
         filmCheckinEntry={filmWorkflow.filmCheckinEntry}
-        filmCheckinDialogMessage={filmWorkflow.filmCheckinDialogMessage}
+        filmCheckinBox={filmWorkflow.filmCheckinBox}
+        filmCheckinBoxLoading={filmWorkflow.filmCheckinBoxLoading}
+        filmCheckinBoxError={filmWorkflow.filmCheckinBoxError}
+        filmCheckinPending={setBoxStatusMutation.isPending}
+        filmCheckinReleaseJobNumber={summary.jobNumber}
         onCancelFilmCheckin={() => filmWorkflow.setFilmCheckinEntry(null)}
-        onConfirmFilmCheckin={(reason) => void filmWorkflow.handleFilmCheckinConfirm(reason)}
+        onConfirmFilmCheckin={(draft) => void filmWorkflow.handleFilmCheckinConfirm(draft)}
         caulkAllocationToRemove={caulkAllocationToRemove}
         onCancelRemoveCaulkAllocation={() => setCaulkAllocationToRemove(null)}
         onConfirmRemoveCaulkAllocation={(entry, reason) => {

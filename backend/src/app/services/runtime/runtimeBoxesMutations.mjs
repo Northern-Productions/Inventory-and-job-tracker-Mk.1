@@ -12,7 +12,6 @@ import {
   roundToDecimals,
   todayDateString,
   deriveLifecycleStatus,
-  deriveFeetAvailableFromRollWeight,
   hasPositivePhysicalFeet,
   hasIncompleteBoxHistoryForZeroedEdit,
   hasExplicitZeroFeetAvailableInput,
@@ -58,6 +57,7 @@ import {
 import {
   hasPositiveReactivationSignal,
   resolveAllocationsForCheckout,
+  cancelActiveAllocationsForCheckInJob,
   cancelAllocationsForZeroedBox,
   findLatestCheckoutAuditEntryByBoxId,
   getCheckoutJobNumberFromAuditNotes,
@@ -65,6 +65,9 @@ import {
 import {
   buildBoxFromPayload,
 } from './runtimeCollectionsAndBoxes.mjs';
+import {
+  planBoxCheckIn,
+} from './runtimeBoxCheckin.mjs';
 
 async function addBox(client, orgId, payload, actor) {
   const warnings = [];
@@ -378,54 +381,6 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
   } else {
-    updatedBox.status = 'IN_STOCK';
-    updatedBox.lastRollWeightLbs = coerceNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
-    updatedBox.lastWeighedDate = todayDateString();
-    let physicalFeetAvailable = updatedBox.feetAvailable;
-
-    if (
-      updatedBox.coreWeightLbs !== null &&
-      updatedBox.lfWeightLbsPerFt !== null &&
-      updatedBox.lfWeightLbsPerFt > 0
-    ) {
-      physicalFeetAvailable = deriveFeetAvailableFromRollWeight(
-        updatedBox.lastRollWeightLbs,
-        updatedBox.coreWeightLbs,
-        updatedBox.lfWeightLbsPerFt,
-        updatedBox.initialFeet
-      );
-    } else {
-      warnings.push(
-        'Available Feet could not be recalculated because this box is missing core or LF weight metadata.'
-      );
-    }
-
-    const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
-    let activeAllocatedFeetAfterCheckIn = 0;
-    for (let index = 0; index < existingAllocations.length; index += 1) {
-      if (existingAllocations[index].status === 'ACTIVE') {
-        activeAllocatedFeetAfterCheckIn += existingAllocations[index].allocatedFeet;
-      }
-    }
-
-    if (activeAllocatedFeetAfterCheckIn > physicalFeetAvailable) {
-      throw new HttpError(
-        400,
-        `Received physical LF cannot be lower than the box's active allocated feet (${activeAllocatedFeetAfterCheckIn}).`
-      );
-    }
-
-    updatedBox.feetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeetAfterCheckIn, 0);
-    const willAutoZero =
-      Boolean(updatedBox.receivedDate) &&
-      existing.initialFeet > 0 &&
-      (physicalFeetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
-
-    applyCheckInWarnings(warnings, existing, updatedBox, willAutoZero);
-    if (activeAllocatedFeetAfterCheckIn > 0 && updatedBox.feetAvailable === 0) {
-      warnings.push('All remaining LF on this box is reserved by active allocations.');
-    }
-
     const checkoutAudit = await findLatestCheckoutAuditEntryByBoxId(client, orgId, updatedBox.boxId);
     let checkoutJob = asTrimmedString(existing.lastCheckoutJob);
     let checkoutDate = asTrimmedString(existing.lastCheckoutDate);
@@ -452,9 +407,46 @@ async function setBoxStatus(client, orgId, payload, actor) {
       checkoutDate = todayDateString();
     }
 
+    const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
+    const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob);
+
+    if (checkInPlan.sameJobActiveAllocationCount > 0 && checkoutJob) {
+      const sameJobCancellation = await cancelActiveAllocationsForCheckInJob(
+        client,
+        orgId,
+        updatedBox.boxId,
+        checkoutJob,
+        actor
+      );
+      if (sameJobCancellation.cancelledCount > 0) {
+        warnings.push(
+          `Released ${sameJobCancellation.cancelledCount} active planning allocation${sameJobCancellation.cancelledCount === 1 ? '' : 's'} totaling ${sameJobCancellation.cancelledFeet} LF for job ${checkoutJob} during check-in.`
+        );
+      }
+    }
+
+    if (checkInPlan.otherJobs.length > 0) {
+      warnings.push(`This box still has active allocations for ${checkInPlan.otherJobs.join(', ')}.`);
+    }
+
+    updatedBox.status = 'IN_STOCK';
+    updatedBox.lastRollWeightLbs = checkInPlan.lastRollWeightLbs;
+    updatedBox.lastWeighedDate = todayDateString();
+    updatedBox.coreType = checkInPlan.coreType || updatedBox.coreType;
+    updatedBox.coreWeightLbs = checkInPlan.coreWeightLbs;
+    updatedBox.lfWeightLbsPerFt = checkInPlan.lfWeightLbsPerFt;
+    updatedBox.feetAvailable = checkInPlan.feetAvailableAfterCheckIn;
+
+    const warningBeforeBox = { ...existing, feetAvailable: checkInPlan.physicalFeetBeforeCheckIn };
+    const warningAfterBox = { ...updatedBox, feetAvailable: checkInPlan.physicalFeetAfterCheckIn };
+    applyCheckInWarnings(warnings, warningBeforeBox, warningAfterBox, checkInPlan.autoMoveToZeroed);
+    if (checkInPlan.otherActiveAllocatedFeet > 0 && updatedBox.feetAvailable === 0) {
+      warnings.push('All remaining LF on this box is reserved by active allocations.');
+    }
+
     const checkedOutWeight = existing.lastRollWeightLbs;
     const weightDelta =
-      checkedOutWeight === null ? null : roundToDecimals(checkedOutWeight - updatedBox.lastRollWeightLbs, 2);
+      checkedOutWeight === null ? null : roundToDecimals(checkedOutWeight - checkInPlan.lastRollWeightLbs, 2);
 
     if (checkedOutWeight === null) {
       warnings.push(
@@ -475,10 +467,10 @@ async function setBoxStatus(client, orgId, payload, actor) {
       checkedOutWeightLbs: checkedOutWeight,
       checkedInAt: new Date().toISOString(),
       checkedInBy: actor,
-      checkedInWeightLbs: updatedBox.lastRollWeightLbs,
+      checkedInWeightLbs: checkInPlan.lastRollWeightLbs,
       weightDeltaLbs: weightDelta,
-      feetBefore: existing.feetAvailable,
-      feetAfter: updatedBox.feetAvailable,
+      feetBefore: checkInPlan.physicalFeetBeforeCheckIn,
+      feetAfter: checkInPlan.physicalFeetAfterCheckIn,
       notes: asTrimmedString(payload.auditNote)
     });
 
@@ -487,8 +479,8 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     const reachedZeroState =
       Boolean(updatedBox.receivedDate) &&
-      (physicalFeetAvailable === 0 || updatedBox.lastRollWeightLbs === 0);
-    const autoMoveToZeroed = willAutoZero;
+      (checkInPlan.physicalFeetAfterCheckIn === 0 || updatedBox.lastRollWeightLbs === 0);
+    const autoMoveToZeroed = checkInPlan.autoMoveToZeroed;
 
     if (autoMoveToZeroed) {
       stampZeroedMetadata(updatedBox, actor, payload.auditNote);

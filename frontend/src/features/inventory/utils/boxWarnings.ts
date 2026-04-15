@@ -3,7 +3,10 @@ import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonic
 import {
   deriveReceivedBoxPhysicalFeet,
   deriveFeetAvailableFromRollWeight,
-  getActiveAllocatedFeet
+  getActiveAllocatedFeet,
+  getPhysicalFeetBeforeCheckInForWarning,
+  resolveEffectiveCheckInCoreWeight,
+  type CheckInWarningOptions
 } from './boxHelpers';
 
 function hasEstablishedWeights(box: Box): boolean {
@@ -107,36 +110,51 @@ export function getCheckoutWarnings(box: Box): string[] {
   return warnings;
 }
 
-export function getCheckInWarnings(box: Box, nextLastRollWeightLbs: number): string[] {
+export function getCheckInWarnings(
+  box: Box,
+  nextLastRollWeightLbs: number,
+  options: CheckInWarningOptions = {}
+): string[] {
   const warnings: string[] = [];
-  let nextFeetAvailable = box.feetAvailable;
+  const currentPhysicalFeet = getPhysicalFeetBeforeCheckInForWarning(box);
+  const nextCoreWeightLbs = resolveEffectiveCheckInCoreWeight(box, options.coreType);
+  let nextPhysicalFeet = currentPhysicalFeet;
 
   if (box.lastRollWeightLbs !== null && nextLastRollWeightLbs > box.lastRollWeightLbs) {
-    warnings.push('The new Last Roll Weight is greater than the box’s previous Last Roll Weight.');
+    warnings.push("The new Last Roll Weight is greater than the box's previous Last Roll Weight.");
   }
 
   if (box.initialWeightLbs !== null && nextLastRollWeightLbs > box.initialWeightLbs) {
-    warnings.push('The new Last Roll Weight is greater than the box’s Initial Weight.');
+    warnings.push("The new Last Roll Weight is greater than the box's Initial Weight.");
   }
 
-  if (nextLastRollWeightLbs > 0 && box.coreWeightLbs !== null && nextLastRollWeightLbs < box.coreWeightLbs) {
+  if (nextLastRollWeightLbs > 0 && nextCoreWeightLbs !== null && nextLastRollWeightLbs < nextCoreWeightLbs) {
     warnings.push('The new Last Roll Weight is below the derived core weight.');
   }
 
-  if (box.coreWeightLbs !== null && box.lfWeightLbsPerFt !== null && box.lfWeightLbsPerFt > 0) {
-    nextFeetAvailable = deriveFeetAvailableFromRollWeight(
+  if (typeof options.currentFeetOnRoll === 'number') {
+    nextPhysicalFeet = Math.max(options.currentFeetOnRoll, 0);
+  } else if (nextCoreWeightLbs !== null && box.lfWeightLbsPerFt !== null && box.lfWeightLbsPerFt > 0) {
+    nextPhysicalFeet = deriveFeetAvailableFromRollWeight(
       nextLastRollWeightLbs,
-      box.coreWeightLbs,
+      nextCoreWeightLbs,
       box.lfWeightLbsPerFt,
       box.initialFeet
     );
-
-    if (nextFeetAvailable > box.feetAvailable) {
-      warnings.push('The recalculated Available Feet would increase compared with the current box.');
-    }
   }
 
-  if (box.receivedDate && box.feetAvailable > 0 && nextLastRollWeightLbs === 0) {
+  if (
+    currentPhysicalFeet !== null &&
+    nextPhysicalFeet !== null &&
+    nextPhysicalFeet > currentPhysicalFeet
+  ) {
+    warnings.push('The recalculated Available Feet would increase compared with the current box.');
+  }
+
+  if (
+    box.receivedDate &&
+    ((nextPhysicalFeet !== null && nextPhysicalFeet === 0) || nextLastRollWeightLbs === 0)
+  ) {
     warnings.push('This check-in will auto-move the box into zeroed out inventory.');
   }
 

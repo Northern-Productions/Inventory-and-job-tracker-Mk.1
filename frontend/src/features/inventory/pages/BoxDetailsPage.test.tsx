@@ -760,4 +760,107 @@ describe('BoxDetailsPage', () => {
       );
     });
   });
+
+  it('uses the dedicated film check-in dialog for boxes that need current linear feet to calibrate return math', async () => {
+    const setStatusState = buildMutationState();
+    setStatusState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        initialFeet: 45,
+        feetAvailable: 19,
+        initialWeightLbs: null,
+        lastRollWeightLbs: 3.34,
+        lastWeighedDate: '2026-04-15',
+        coreType: 'Red plastic',
+        coreWeightLbs: 1.2847,
+        lfWeightLbsPerFt: 0.108174,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      })
+    );
+    useSetBoxStatusMock.mockReturnValue(setStatusState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        boxId: 'MS1-919',
+        warehouse: 'MS1',
+        widthIn: 50,
+        initialFeet: 45,
+        feetAvailable: 5,
+        allocationPlanningFeet: 0,
+        status: 'CHECKED_OUT',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        coreType: 'Red plastic',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        lastCheckoutJob: '4580',
+        lastCheckoutDate: '2026-04-15'
+      }),
+      error: null
+    });
+    useBoxAllocationsMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'MS1-919',
+          warehouse: 'MS1',
+          jobNumber: '4580',
+          installDate: '2026-04-15',
+          crewLeader: 'Crew',
+          allocatedFeet: 20,
+          coveredFeet: 20,
+          allocationKind: 'REQUIREMENT',
+          status: 'ACTIVE',
+          createdAt: '2026-04-15T10:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M Fasara',
+          filmName: 'Milano Milky White SH2MAML',
+          widthIn: 50,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }
+      ],
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check In' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Check In MS1-919' });
+    expect(within(dialog).getByLabelText(/Current Linear Feet/i)).toBeTruthy();
+    expect(within(dialog).getByText(/planning allocation for job 4580 will be released/i)).toBeTruthy();
+
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Last Roll Weight/i }), {
+      target: { value: '3.34' }
+    });
+    fireEvent.change(within(dialog).getByLabelText(/Current Linear Feet/i), {
+      target: { value: '19' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Check In' }));
+
+    await waitFor(() =>
+      expect(setStatusState.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'MS1-919',
+          status: 'IN_STOCK',
+          lastRollWeightLbs: 3.34,
+          currentFeetOnRoll: 19,
+          auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+        })
+      )
+    );
+
+    const submittedPayload = setStatusState.mutateAsync.mock.calls[0]?.[0];
+    expect(submittedPayload).not.toHaveProperty('coreType');
+  });
 });

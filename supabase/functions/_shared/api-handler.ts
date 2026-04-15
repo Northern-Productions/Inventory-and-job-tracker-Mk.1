@@ -6208,6 +6208,13 @@ async function canonicalizeMutationPayloadForRoute(
     return next;
   }
 
+  if (logicalPath === "/boxes/set-status") {
+    if (typeof next.coreType === "string") {
+      next.coreType = asTrimmedString(next.coreType);
+    }
+    return next;
+  }
+
   if (logicalPath === "/film-orders/create") {
     assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");
     const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);

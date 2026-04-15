@@ -48,8 +48,10 @@ vi.mock('./allocation-job/useJobFilmWorkflow', () => ({
     allocationToRemove: null,
     setAllocationToRemove: vi.fn(),
     filmCheckinEntry: null,
+    filmCheckinBox: null,
+    filmCheckinBoxLoading: false,
+    filmCheckinBoxError: '',
     setFilmCheckinEntry: vi.fn(),
-    filmCheckinDialogMessage: '',
     isAllocateOpen: false,
     openAllocateDialog: vi.fn(),
     closeAllocateDialog: vi.fn(),
@@ -57,7 +59,7 @@ vi.mock('./allocation-job/useJobFilmWorkflow', () => ({
     handleCheckoutAllocation: vi.fn(),
     handleRemoveAllocation: vi.fn(),
     handleFilmCheckinConfirm: vi.fn(),
-    isAllocationRemovalPending: false
+    isAllocationRemovalPending: vi.fn(() => false)
   })
 }));
 

@@ -197,6 +197,9 @@ import {
   hasNonCancelledAllocationForBoxJob,
   autoLinkRemainingJobFeetToCheckedOutBox,
 } from './runtimeAllocationLinks.mjs';
+import {
+  recalculateFilmOrder,
+} from './runtimeAllocationPlanning.mjs';
 
 async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, user) {
   const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
@@ -632,6 +635,47 @@ async function cancelActiveAllocationsForBox(client, orgId, boxId, user, reason)
   return cancellable.length;
 }
 
+async function cancelActiveAllocationsForCheckInJob(client, orgId, boxId, jobNumber, user, reason = '') {
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  if (!normalizedJobNumber) {
+    return { cancelledCount: 0, cancelledFeet: 0 };
+  }
+
+  const resolvedAt = new Date().toISOString();
+  const resolvedBy = asTrimmedString(user);
+  const trimmedReason = asTrimmedString(reason) || `Returned to stock during check-in for job ${jobNumber}.`;
+  const affectedFilmOrders = {};
+  let cancelledCount = 0;
+  let cancelledFeet = 0;
+  const entries = await listAllocationsByBox(client, orgId, boxId);
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = cloneValue(entries[index]);
+    if (entry.status !== 'ACTIVE' || normalizeJobNumberKey(entry.jobNumber) !== normalizedJobNumber) {
+      continue;
+    }
+
+    entry.status = 'CANCELLED';
+    entry.resolvedAt = resolvedAt;
+    entry.resolvedBy = resolvedBy;
+    entry.notes = trimmedReason;
+    await saveAllocationRecord(client, orgId, entry);
+
+    if (entry.filmOrderId) {
+      affectedFilmOrders[entry.filmOrderId] = true;
+    }
+
+    cancelledCount += 1;
+    cancelledFeet += integerOrZero(entry.allocatedFeet);
+  }
+
+  for (const filmOrderId of Object.keys(affectedFilmOrders)) {
+    await recalculateFilmOrder(client, orgId, filmOrderId, user);
+  }
+
+  return { cancelledCount, cancelledFeet };
+}
+
 async function cancelAllocationsForZeroedBox(client, orgId, boxId, user) {
   return cancelActiveAllocationsForBox(
     client,
@@ -725,6 +769,7 @@ export {
   checkoutCaulkAllocationForJob,
   checkoutAllJobMaterials,
   cancelActiveAllocationsForBox,
+  cancelActiveAllocationsForCheckInJob,
   cancelAllocationsForZeroedBox,
   reactivateFulfilledAllocationsForUndo,
   reactivateCancelledAllocationsForZeroUndo,

@@ -97,6 +97,8 @@ export interface SetBoxStatusPayload {
   boxId: string;
   status: Extract<BoxStatus, 'IN_STOCK' | 'CHECKED_OUT'>;
   lastRollWeightLbs?: number;
+  currentFeetOnRoll?: number;
+  coreType?: BoxCoreType;
   auditNote?: string;
 }
 

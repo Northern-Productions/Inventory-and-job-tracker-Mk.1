@@ -332,6 +332,7 @@ function buildDetailContext() {
 
 test('buildJobDetailPayload preserves linked boxes, usage history, and transfer alerts in one payload', () => {
   const payload = buildJobDetailPayload(buildDetailContext());
+  const filmUsageEntry = payload.usageTimeline.find((entry) => entry.usageType === 'FILM');
 
   assert.deepEqual(Object.keys(payload).sort(), [
     'allocations',
@@ -350,6 +351,10 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
   assert.equal(payload.filmTransferAlerts[0]?.state, 'TRANSFER_PENDING');
   assert.equal(payload.filmOrders[0]?.linkedBoxes[0]?.boxId, 'MS1-LINK');
+  assert.equal(payload.usage[0]?.usedFeet, 12);
+  assert.equal(filmUsageEntry?.checkedOutQuantity, 50);
+  assert.equal(filmUsageEntry?.returnedQuantity, 38);
+  assert.equal(filmUsageEntry?.usedQuantity, 12);
   assert.deepEqual(
     payload.usageTimeline.map((entry) => entry.usageType),
     ['CAULK', 'FILM'],

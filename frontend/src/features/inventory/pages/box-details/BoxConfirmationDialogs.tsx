@@ -3,23 +3,30 @@ import { Button } from '../../../../components/Button';
 import type { BoxTransferEntry } from '../../../../domain';
 import { ConfirmDialog } from '../../../../components/ConfirmDialog';
 import { DialogSurface } from '../../../../components/DialogSurface';
+import { FilmCheckinDialog } from '../../components/FilmCheckinDialog';
 import {
   ZEROED_BOX_REACTIVATION_PROMPT,
   buildZeroedInventoryWarningMessage
 } from '../../utils/boxZeroedTransition';
+import type { FilmCheckinDraft } from '../../utils/boxHelpers';
 import type {
   ConfirmState,
   PendingZeroedEditState,
   PendingZeroedReactivationState,
   TransferActionState
 } from './types';
+import type { Box } from '../../../../domain';
 
 interface BoxConfirmationDialogsProps {
+  box: Box | null | undefined;
   pendingZeroedEditState: PendingZeroedEditState | null;
   pendingZeroedReactivationState: PendingZeroedReactivationState | null;
   pendingTransfer: BoxTransferEntry | null;
   transferActionState: TransferActionState;
   confirmState: ConfirmState;
+  filmCheckinOpen: boolean;
+  filmCheckinPending: boolean;
+  filmCheckinReleaseJobNumber?: string;
   checkoutJobOptions: Array<{ label: string; value: string }>;
   onCancelZeroedEdit: () => void;
   onKeepActiveZeroedEdit: (payload: PendingZeroedEditState['activePayload']) => void;
@@ -30,15 +37,21 @@ interface BoxConfirmationDialogsProps {
   onConfirmReceiveTransfer: () => void;
   onConfirmCancelTransfer: () => void;
   onCancelStatusConfirm: () => void;
+  onCancelFilmCheckin: () => void;
+  onConfirmFilmCheckin: (draft: FilmCheckinDraft) => void;
   onConfirmStatusConfirm: (reason: string) => void;
 }
 
 export function BoxConfirmationDialogs({
+  box,
   pendingZeroedEditState,
   pendingZeroedReactivationState,
   pendingTransfer,
   transferActionState,
   confirmState,
+  filmCheckinOpen,
+  filmCheckinPending,
+  filmCheckinReleaseJobNumber,
   checkoutJobOptions,
   onCancelZeroedEdit,
   onKeepActiveZeroedEdit,
@@ -49,6 +62,8 @@ export function BoxConfirmationDialogs({
   onConfirmReceiveTransfer,
   onConfirmCancelTransfer,
   onCancelStatusConfirm,
+  onCancelFilmCheckin,
+  onConfirmFilmCheckin,
   onConfirmStatusConfirm
 }: BoxConfirmationDialogsProps) {
   const zeroedEditTitleId = useId();
@@ -160,43 +175,38 @@ export function BoxConfirmationDialogs({
         onConfirm={onConfirmCancelTransfer}
       />
 
+      <FilmCheckinDialog
+        open={filmCheckinOpen}
+        box={box}
+        pending={filmCheckinPending}
+        releaseJobNumber={filmCheckinReleaseJobNumber}
+        onCancel={onCancelFilmCheckin}
+        onConfirm={onConfirmFilmCheckin}
+      />
+
       <ConfirmDialog
         open={Boolean(confirmState)}
-        title={confirmState?.type === 'checkout' ? 'Check Out Box' : 'Check In Box'}
+        title="Check Out Box"
         message={confirmState?.message || ''}
-        confirmLabel={confirmState?.type === 'checkout' ? 'Check Out' : 'Check In'}
+        confirmLabel="Check Out"
         cancelLabel="Cancel"
         requireReason
         reasonLabel={
-          confirmState?.type === 'checkout'
-            ? checkoutJobOptions.length > 0
-              ? 'Allocated Job'
-              : 'Job Number'
-            : 'Roll Weight (lbs)'
+          checkoutJobOptions.length > 0
+            ? 'Allocated Job'
+            : 'Job Number'
         }
-        reasonPlaceholder={confirmState?.type === 'checkout' ? 'Numbers only' : 'Required'}
-        reasonField={confirmState?.type === 'checkout' || confirmState?.type === 'checkin' ? 'input' : 'textarea'}
-        reasonInputType={
-          confirmState?.type === 'checkin'
-            ? 'number'
-            : confirmState?.type === 'checkout'
-              ? 'text'
-              : 'text'
-        }
-        reasonInputStep={confirmState?.type === 'checkin' ? '0.01' : undefined}
-        reasonInputMin={confirmState?.type === 'checkin' ? '0' : undefined}
-        reasonInputMode={confirmState?.type === 'checkout' ? 'numeric' : undefined}
-        reasonInputPattern={confirmState?.type === 'checkout' ? '[0-9]*' : undefined}
-        reasonDigitsOnly={confirmState?.type === 'checkout'}
-        reasonOptions={
-          confirmState?.type === 'checkout' && checkoutJobOptions.length > 0
-            ? checkoutJobOptions
-            : undefined
-        }
-        reasonSelectLabel={confirmState?.type === 'checkout' ? 'Allocated Job' : undefined}
-        reasonAllowCustomOption={confirmState?.type === 'checkout' && checkoutJobOptions.length > 0}
+        reasonPlaceholder="Numbers only"
+        reasonField="input"
+        reasonInputType="text"
+        reasonInputMode="numeric"
+        reasonInputPattern="[0-9]*"
+        reasonDigitsOnly
+        reasonOptions={checkoutJobOptions.length > 0 ? checkoutJobOptions : undefined}
+        reasonSelectLabel="Allocated Job"
+        reasonAllowCustomOption={checkoutJobOptions.length > 0}
         reasonCustomOptionLabel="Enter New Job Number"
-        customReasonLabel={confirmState?.type === 'checkout' ? 'New Job Number' : undefined}
+        customReasonLabel="New Job Number"
         onCancel={onCancelStatusConfirm}
         onConfirm={onConfirmStatusConfirm}
       />

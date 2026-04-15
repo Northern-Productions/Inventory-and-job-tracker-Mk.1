@@ -127,6 +127,25 @@ describe('boxWarnings', () => {
     expect(warnings).toContain('This check-in will auto-move the box into zeroed out inventory.');
   });
 
+  it('does not warn about feet increasing when current feet is supplied for a box without stored physical-foot math', () => {
+    const warnings = getCheckInWarnings(
+      createBox({
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        feetAvailable: 5
+      }),
+      3.34,
+      {
+        currentFeetOnRoll: 19,
+        coreType: 'Red plastic'
+      }
+    );
+
+    expect(warnings).not.toContain('The recalculated Available Feet would increase compared with the current box.');
+  });
+
   it('suppresses the zero-feet warning when active allocations fully explain the missing footage', () => {
     const warnings = getAddOrEditWarnings(
       {

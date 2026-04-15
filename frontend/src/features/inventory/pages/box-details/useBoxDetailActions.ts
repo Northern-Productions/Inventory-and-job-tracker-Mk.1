@@ -13,8 +13,11 @@ import type {
   UndoMutationResult,
   UpdateBoxPayload
 } from '../../../../domain';
-import type { BoxDraft } from '../../utils/boxHelpers';
-import { deriveFeetAvailableFromRollWeight } from '../../utils/boxHelpers';
+import type { BoxDraft, FilmCheckinDraft } from '../../utils/boxHelpers';
+import {
+  buildFilmCheckinPayload,
+  didPersistFilmCheckinRollTracking
+} from '../../utils/boxHelpers';
 import {
   confirmWarnings,
   getAddOrEditWarnings,
@@ -88,12 +91,14 @@ export function useBoxDetailActions({
   undoAudit
 }: UseBoxDetailActionsArgs) {
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [isFilmCheckinOpen, setIsFilmCheckinOpen] = useState(false);
   const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
   const [pendingZeroedReactivationState, setPendingZeroedReactivationState] =
     useState<PendingZeroedReactivationState | null>(null);
 
   useEffect(() => {
     setConfirmState(null);
+    setIsFilmCheckinOpen(false);
     setPendingZeroedEditState(null);
     setPendingZeroedReactivationState(null);
   }, [boxId]);
@@ -275,17 +280,15 @@ export function useBoxDetailActions({
       return;
     }
 
-    setConfirmState(
-      createStatusConfirmState(
-        box.boxId,
-        status,
-        'Enter the latest roll weight in pounds to complete the check-in.'
-      )
-    );
+    setIsFilmCheckinOpen(true);
   }
 
   function handleCancelConfirm() {
     setConfirmState(null);
+  }
+
+  function handleCancelFilmCheckin() {
+    setIsFilmCheckinOpen(false);
   }
 
   async function handleConfirm(reason: string) {
@@ -324,56 +327,42 @@ export function useBoxDetailActions({
 
       return;
     }
+    void reason;
+    setConfirmState(null);
+  }
 
-    const parsedWeight = Number(reason);
-    if (!Number.isFinite(parsedWeight) || parsedWeight < 0) {
-      pushToast({
-        title: 'Roll weight required',
-        description: 'Enter a valid non-negative roll weight in pounds before checking the box in.',
-        variant: 'error'
-      });
+  async function handleFilmCheckinConfirm(draft: FilmCheckinDraft) {
+    if (!box) {
       return;
     }
 
-    const checkInWarnings = getCheckInWarnings(box, parsedWeight);
-    if (!confirmWarnings(checkInWarnings)) {
+    if (!ensureSignedIn('change box status', 'inventory')) {
       return;
     }
-
-    const payload = {
-      ...confirmState.payload,
-      lastRollWeightLbs: parsedWeight,
-      auditNote: `Checked in at ${parsedWeight} lbs`
-    };
 
     try {
+      const payload = buildFilmCheckinPayload(box, draft);
+      const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
+        currentFeetOnRoll: payload.currentFeetOnRoll,
+        coreType: payload.coreType || box.coreType || undefined
+      });
+      if (!confirmWarnings(checkInWarnings)) {
+        return;
+      }
+
       const priorCheckoutJobNumber = box.lastCheckoutJob.trim();
-      setConfirmState(null);
-
       const { result, warnings } = await setBoxStatus(payload);
-      const returnedBox = result.box;
-      const didPersistWeight = returnedBox.lastRollWeightLbs === parsedWeight;
-      const didPersistFeet =
-        returnedBox.coreWeightLbs !== null && returnedBox.lfWeightLbsPerFt !== null
-          ? returnedBox.feetAvailable <=
-            deriveFeetAvailableFromRollWeight(
-              parsedWeight,
-              returnedBox.coreWeightLbs,
-              returnedBox.lfWeightLbsPerFt,
-              returnedBox.initialFeet
-            )
-          : true;
-
-      if (!didPersistWeight || !didPersistFeet) {
+      if (!didPersistFilmCheckinRollTracking(payload, result.box)) {
         pushToast({
-          title: 'Check-in did not apply the new roll weight',
+          title: 'Check-in did not apply the new roll tracking values',
           description:
-            'The backend responded without saving the submitted weight. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
+            'The backend responded without saving the submitted return values. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
           variant: 'error'
         });
         return;
       }
 
+      setIsFilmCheckinOpen(false);
       const didMoveToZeroed = result.box.status === 'ZEROED';
       await pushUndoToast(
         result.logId,
@@ -426,13 +415,16 @@ export function useBoxDetailActions({
 
   return {
     confirmState,
+    isFilmCheckinOpen,
     pendingZeroedEditState,
     pendingZeroedReactivationState,
     handleDeleteBox,
     handleEditSubmit,
     handleStatusChange,
     handleCancelConfirm,
+    handleCancelFilmCheckin,
     handleConfirm,
+    handleFilmCheckinConfirm,
     resetEditWorkflow,
     handleCancelZeroedEdit,
     handleKeepActiveZeroedEdit,

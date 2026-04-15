@@ -1,11 +1,14 @@
+import { FilmCheckinDialog } from '../../components/FilmCheckinDialog';
 import { ConfirmDialog } from '../../../../components/ConfirmDialog';
 import { DeleteConfirmDialog } from '../../../../components/DeleteConfirmDialog';
 import type {
   AllocationJobDetailEntry,
+  Box,
   CaulkJobAllocationEntry,
   FilmOrderEntry
 } from '../../../../domain';
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
+import type { FilmCheckinDraft } from '../../utils/boxHelpers';
 
 interface JobConfirmationDialogsProps {
   jobNumber: string;
@@ -20,9 +23,13 @@ interface JobConfirmationDialogsProps {
   onCancelRemoveAllocation: () => void;
   onConfirmRemoveAllocation: (entry: AllocationJobDetailEntry, reason: string) => void;
   filmCheckinEntry: AllocationJobDetailEntry | null;
-  filmCheckinDialogMessage: string;
+  filmCheckinBox: Box | null | undefined;
+  filmCheckinBoxLoading: boolean;
+  filmCheckinBoxError: string;
+  filmCheckinPending: boolean;
+  filmCheckinReleaseJobNumber?: string;
   onCancelFilmCheckin: () => void;
-  onConfirmFilmCheckin: (reason: string) => void;
+  onConfirmFilmCheckin: (draft: FilmCheckinDraft) => void;
   caulkAllocationToRemove: CaulkJobAllocationEntry | null;
   onCancelRemoveCaulkAllocation: () => void;
   onConfirmRemoveCaulkAllocation: (entry: CaulkJobAllocationEntry, reason: string) => void;
@@ -50,7 +57,11 @@ export function JobConfirmationDialogs({
   onCancelRemoveAllocation,
   onConfirmRemoveAllocation,
   filmCheckinEntry,
-  filmCheckinDialogMessage,
+  filmCheckinBox,
+  filmCheckinBoxLoading,
+  filmCheckinBoxError,
+  filmCheckinPending,
+  filmCheckinReleaseJobNumber,
   onCancelFilmCheckin,
   onConfirmFilmCheckin,
   caulkAllocationToRemove,
@@ -118,19 +129,13 @@ export function JobConfirmationDialogs({
         }}
       />
 
-      <ConfirmDialog
+      <FilmCheckinDialog
         open={Boolean(filmCheckinEntry)}
-        title={filmCheckinEntry ? `Check In ${filmCheckinEntry.boxId}` : 'Check In Box'}
-        message={filmCheckinDialogMessage}
-        confirmLabel="Check In"
-        cancelLabel="Keep Checked Out"
-        requireReason
-        reasonLabel="Last Roll Weight (lbs)"
-        reasonPlaceholder="Required"
-        reasonField="input"
-        reasonInputType="number"
-        reasonInputStep="0.01"
-        reasonInputMin="0"
+        box={filmCheckinBox}
+        loading={filmCheckinBoxLoading}
+        loadError={filmCheckinBoxError}
+        pending={filmCheckinPending}
+        releaseJobNumber={filmCheckinReleaseJobNumber}
         onCancel={onCancelFilmCheckin}
         onConfirm={onConfirmFilmCheckin}
       />

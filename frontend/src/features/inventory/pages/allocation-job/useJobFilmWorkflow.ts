@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { useToast } from '../../../../components/Toast';
 import type {
   AllocationJobDetailEntry,
+  BoxMutationResult,
   JobFilmTransferAlert,
   JobListEntry,
   RemoveJobBoxAllocationsPayload,
@@ -10,6 +11,11 @@ import type {
 } from '../../../../domain';
 import { useBox } from '../../hooks/useInventoryQueries';
 import { confirmWarnings, getCheckInWarnings } from '../../utils/boxWarnings';
+import {
+  buildFilmCheckinPayload,
+  didPersistFilmCheckinRollTracking,
+  type FilmCheckinDraft
+} from '../../utils/boxHelpers';
 import { buildFilmTransferCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
@@ -28,7 +34,7 @@ interface UseJobFilmWorkflowArgs {
     RemoveJobBoxAllocationsPayload,
     { result: RemoveJobBoxAllocationsResult; warnings: string[] }
   >;
-  setBoxStatus: MutationFn<SetBoxStatusPayload, { warnings: string[] }>;
+  setBoxStatus: MutationFn<SetBoxStatusPayload, { result: BoxMutationResult; warnings: string[] }>;
 }
 
 export function useJobFilmWorkflow({
@@ -50,15 +56,6 @@ export function useJobFilmWorkflow({
 
   const isAllocationRemovalPending = (allocationId: string) =>
     pendingRemoveJobBoxAllocationIds.has(allocationId.trim().toUpperCase());
-
-  const filmCheckinDialogMessage = filmCheckinEntry
-    ? [
-        `Enter the latest roll weight in pounds to complete the check-in for box ${filmCheckinEntry.boxId}.`,
-        filmCheckinBoxQuery.isLoading ? 'Loading the latest box details for warning checks.' : ''
-      ]
-        .filter(Boolean)
-        .join(' ')
-    : '';
 
   function openAllocateDialog() {
     setIsAllocateOpen(true);
@@ -203,7 +200,7 @@ export function useJobFilmWorkflow({
     setFilmCheckinEntry(entry);
   }
 
-  async function handleFilmCheckinConfirm(reason: string) {
+  async function handleFilmCheckinConfirm(draft: FilmCheckinDraft) {
     if (!filmCheckinEntry) {
       return;
     }
@@ -222,29 +219,27 @@ export function useJobFilmWorkflow({
       return;
     }
 
-    const parsedWeight = Number(reason);
-    if (!Number.isFinite(parsedWeight) || parsedWeight < 0) {
-      pushToast({
-        title: 'Roll weight required',
-        description: 'Enter a valid non-negative roll weight in pounds before checking the box in.',
-        variant: 'error'
-      });
-      return;
-    }
-
-    const checkInWarnings = getCheckInWarnings(box, parsedWeight);
-    if (!confirmWarnings(checkInWarnings)) {
-      return;
-    }
-
     try {
       const entry = filmCheckinEntry;
-      const { warnings } = await setBoxStatus({
-        boxId: entry.boxId,
-        status: 'IN_STOCK',
-        lastRollWeightLbs: parsedWeight,
-        auditNote: `Checked in at ${parsedWeight} lbs`
+      const payload = buildFilmCheckinPayload(box, draft);
+      const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
+        currentFeetOnRoll: payload.currentFeetOnRoll,
+        coreType: payload.coreType || box.coreType || undefined
       });
+      if (!confirmWarnings(checkInWarnings)) {
+        return;
+      }
+
+      const { result, warnings } = await setBoxStatus(payload);
+      if (!didPersistFilmCheckinRollTracking(payload, result.box)) {
+        pushToast({
+          title: 'Check-in did not apply the new roll tracking values',
+          description:
+            'The backend responded without saving the submitted return values. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
+          variant: 'error'
+        });
+        return;
+      }
 
       setFilmCheckinEntry(null);
       pushToast({
@@ -271,8 +266,13 @@ export function useJobFilmWorkflow({
     allocationToRemove,
     setAllocationToRemove,
     filmCheckinEntry,
+    filmCheckinBox: filmCheckinBoxQuery.data,
+    filmCheckinBoxLoading: filmCheckinBoxQuery.isLoading,
+    filmCheckinBoxError:
+      filmCheckinBoxQuery.isError && filmCheckinBoxQuery.error instanceof Error
+        ? filmCheckinBoxQuery.error.message
+        : '',
     setFilmCheckinEntry,
-    filmCheckinDialogMessage,
     isAllocationRemovalPending,
     openFilmCheckinDialog,
     handleRemoveAllocation,
