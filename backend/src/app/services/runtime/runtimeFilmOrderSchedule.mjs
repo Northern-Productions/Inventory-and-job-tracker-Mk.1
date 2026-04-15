@@ -35,13 +35,12 @@ async function enrichOpenFilmOrdersWithJobSchedule(client, orgId, filmOrders) {
         .filter(Boolean)
     )
   );
-  const jobHeaderEntries = await Promise.all(
-    jobNumbersNeedingSchedule.map(async (jobNumber) => [
-      jobNumber,
-      (await findJobByNumber(client, orgId, jobNumber)) || null,
-    ])
-  );
-  const jobHeaderCache = Object.fromEntries(jobHeaderEntries);
+  const jobHeaderCache = {};
+  for (let index = 0; index < jobNumbersNeedingSchedule.length; index += 1) {
+    const jobNumber = jobNumbersNeedingSchedule[index];
+    // Shared pg clients are request-scoped; keep these lookups serialized.
+    jobHeaderCache[jobNumber] = (await findJobByNumber(client, orgId, jobNumber)) || null;
+  }
 
   return (Array.isArray(filmOrders) ? filmOrders : []).map((entry) => {
     if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
