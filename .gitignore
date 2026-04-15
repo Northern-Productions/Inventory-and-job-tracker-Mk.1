@@ -20,6 +20,10 @@ backend/node_modules/
 backend/.env
 backend/.env.*
 !backend/.env.example
+backend/backend-dev.log
+
+# Local verification artifacts
+test-results/
 
 # Supabase local env
 supabase/.env

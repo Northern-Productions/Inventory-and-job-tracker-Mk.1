@@ -200,7 +200,22 @@ import {
   resolveAllocationJobMetadata,
   summarizeCaulkRequirementCoverage,
 } from './runtimeAllocationCoverage.mjs';
-import { enrichOpenFilmOrdersWithJobSchedule } from './runtimeFilmOrderSchedule.mjs';
+import {
+  enrichOpenFilmOrdersWithJobSchedule,
+  isUnresolvedFilmOrderStatus,
+} from './runtimeFilmOrderSchedule.mjs';
+
+function countUnresolvedFilmOrders(filmOrders) {
+  const entries = Array.isArray(filmOrders) ? filmOrders : [];
+  let count = 0;
+  for (let index = 0; index < entries.length; index += 1) {
+    if (isUnresolvedFilmOrderStatus(entries[index]?.status)) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
 
 function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
@@ -545,7 +560,7 @@ function buildJobListEntry(
     remainingTubes: caulkTotals.remainingTubes,
     requirementCount: requirements.length,
     allocationCount: allocations.length,
-    filmOrderCount: filmOrders.length,
+    filmOrderCount: countUnresolvedFilmOrders(filmOrders),
     hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
     createdAt: jobHeader.createdAt || '',
     updatedAt: jobHeader.updatedAt || '',

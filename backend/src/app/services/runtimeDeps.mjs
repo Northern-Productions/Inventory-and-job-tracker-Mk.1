@@ -80,6 +80,7 @@ export {
   resolveCatalogWriteFilmEntry,
   dedupeNormalizedJobRequirements,
   canonicalizeJobRequirementEntriesWithAliases,
+  normalizeJobRequirementEntriesForWrite,
   normalizeJobRequirementInput,
 } from '../core/catalog.mjs';
 export {

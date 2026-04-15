@@ -3642,6 +3642,82 @@ describe('inventoryMutationUtils', () => {
     ]);
   });
 
+  it('does not decrement unresolved film-order counts when only a fulfilled order is removed from fallback caches', () => {
+    const queryClient = createQueryClient();
+    const openFilmOrder = buildFilmOrderEntry({ filmOrderId: 'FO-OPEN', status: 'FILM_ORDER' });
+    const fulfilledFilmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-FULFILLED',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-06T08:00:00Z',
+      resolvedBy: 'tester'
+    });
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [openFilmOrder, fulfilledFilmOrder]);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        installDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER' as const,
+        lifecycleStatus: 'ACTIVE' as const,
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 60,
+        allocatedFeet: 16,
+        remainingFeet: 44,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 1,
+        allocationCount: 1,
+        filmOrderCount: 1,
+        hasOrderedAllocations: false,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      }
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        installDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'FILM_ORDER',
+        activeAllocatedFeet: 16,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 1,
+        hasOrderedAllocations: false
+      }
+    ]);
+
+    applyOptimisticFilmOrderDeletionToCaches(queryClient, {
+      filmOrderId: 'FO-FULFILLED',
+      jobNumber: '2941',
+      resolvedAt: '2026-04-06T12:30:00Z'
+    });
+
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([openFilmOrder]);
+    expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        filmOrderCount: 1,
+        updatedAt: '2026-04-06T12:30:00Z'
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        openFilmOrderCount: 1
+      })
+    ]);
+  });
+
   it('restores film-order deletion snapshots together on rollback', () => {
     const queryClient = createQueryClient();
     const filmOrder = buildFilmOrderEntry();

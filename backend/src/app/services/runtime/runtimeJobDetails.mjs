@@ -13,6 +13,7 @@ import {
   listCaulkJobCheckoutsByJob,
   listRollHistoryByJob,
   listBoxesByIds,
+  listFilmOrderLinksByFilmOrderIds,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   listActiveAllocationsForJobConflictCheck,
@@ -35,10 +36,11 @@ import {
   buildPublicJobUsageTimelineEntries,
 } from './runtimeTransferUsage.mjs';
 
-function collectJobBoxIds(allocations, rollHistory) {
+function collectJobBoxIds(allocations, rollHistory, filmOrderLinks = []) {
   const boxIds = new Set();
   const normalizedAllocations = Array.isArray(allocations) ? allocations : [];
   const normalizedRollHistory = Array.isArray(rollHistory) ? rollHistory : [];
+  const normalizedFilmOrderLinks = Array.isArray(filmOrderLinks) ? filmOrderLinks : [];
 
   for (let index = 0; index < normalizedAllocations.length; index += 1) {
     const boxId = asTrimmedString(normalizedAllocations[index]?.boxId).toUpperCase();
@@ -49,6 +51,13 @@ function collectJobBoxIds(allocations, rollHistory) {
 
   for (let index = 0; index < normalizedRollHistory.length; index += 1) {
     const boxId = asTrimmedString(normalizedRollHistory[index]?.boxId).toUpperCase();
+    if (boxId) {
+      boxIds.add(boxId);
+    }
+  }
+
+  for (let index = 0; index < normalizedFilmOrderLinks.length; index += 1) {
+    const boxId = asTrimmedString(normalizedFilmOrderLinks[index]?.boxId).toUpperCase();
     if (boxId) {
       boxIds.add(boxId);
     }
@@ -95,6 +104,11 @@ async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
   const storedHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
   const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
+    client,
+    orgId,
+    filmOrders.map((entry) => entry.filmOrderId)
+  );
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
   const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
   const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
@@ -105,6 +119,7 @@ async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
     storedHeader,
     allocations,
     filmOrders,
+    filmOrderLinks,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -133,11 +148,20 @@ async function loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber) 
     (client) => listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber),
     (client) => listRollHistoryByJob(client, orgId, normalizedJobNumber),
   ]);
+  const filmOrderLinks = await runParallelReadTasks([
+    (client) =>
+      listFilmOrderLinksByFilmOrderIds(
+        client,
+        orgId,
+        filmOrders.map((entry) => entry.filmOrderId)
+      ),
+  ]);
 
   return {
     storedHeader,
     allocations,
     filmOrders,
+    filmOrderLinks: filmOrderLinks[0],
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -172,7 +196,7 @@ function resolveJobDetailBaseContext(normalizedJobNumber, baseData) {
   return {
     header,
     activeAllocationBoxIds: collectActiveAllocationBoxIds(allocations),
-    boxIds: collectJobBoxIds(allocations, baseData.rollHistory),
+    boxIds: collectJobBoxIds(allocations, baseData.rollHistory, baseData.filmOrderLinks),
     installDate: asTrimmedString(header.installDate) || metadata.installDate,
     crewLeader: asTrimmedString(header.crewLeader) || metadata.crewLeader,
   };
@@ -217,7 +241,13 @@ function buildDetailContext(
     publicAllocations: buildPublicAllocationEntriesForJob(baseData.allocations, boxById),
     publicFilmOrders,
     usage: buildPublicJobUsageEntries(baseData.rollHistory, boxById),
-    usageTimeline: buildPublicJobUsageTimelineEntries(baseData.rollHistory, boxById, baseData.caulkCheckouts),
+    usageTimeline: buildPublicJobUsageTimelineEntries(
+      baseData.rollHistory,
+      boxById,
+      baseData.caulkCheckouts,
+      baseData.filmOrderLinks,
+      baseData.filmOrders
+    ),
     filmTransferAlerts,
   };
 }

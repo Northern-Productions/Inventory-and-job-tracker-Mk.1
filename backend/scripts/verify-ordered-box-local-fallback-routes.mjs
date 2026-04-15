@@ -25,10 +25,13 @@ const REQUIRED_MUTATION_PATHS = [
   '/boxes/update',
   '/allocations/apply',
   '/allocations/remove-box',
+  '/jobs/create',
+  '/jobs/update',
   '/jobs/set-staged-pickup',
   '/jobs/checkout-all',
   '/jobs/complete',
   '/jobs/delete',
+  '/film-orders/create',
   '/film-orders/cancel',
   '/film-orders/delete'
 ];

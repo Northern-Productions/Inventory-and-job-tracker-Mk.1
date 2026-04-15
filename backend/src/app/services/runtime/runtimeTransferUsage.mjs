@@ -638,10 +638,27 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
   return response;
 }
 
-function buildPublicJobUsageTimelineEntries(rollHistoryEntries, boxById, caulkCheckouts) {
+function buildPublicJobUsageTimelineEntries(
+  rollHistoryEntries,
+  boxById,
+  caulkCheckouts,
+  filmOrderLinks = [],
+  filmOrders = []
+) {
   const response = [];
   const normalizedRollHistory = Array.isArray(rollHistoryEntries) ? rollHistoryEntries : [];
   const normalizedCaulkCheckouts = Array.isArray(caulkCheckouts) ? caulkCheckouts : [];
+  const normalizedFilmOrderLinks = Array.isArray(filmOrderLinks) ? filmOrderLinks : [];
+  const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
+  const filmOrderById = {};
+
+  for (let index = 0; index < normalizedFilmOrders.length; index += 1) {
+    const filmOrder = normalizedFilmOrders[index];
+    const filmOrderId = asTrimmedString(filmOrder?.filmOrderId);
+    if (filmOrderId) {
+      filmOrderById[filmOrderId] = filmOrder;
+    }
+  }
 
   for (let index = 0; index < normalizedRollHistory.length; index += 1) {
     const entry = normalizedRollHistory[index];
@@ -670,6 +687,33 @@ function buildPublicJobUsageTimelineEntries(rollHistoryEntries, boxById, caulkCh
       returnedQuantity: integerOrZero(entry.feetAfter),
       usedQuantity: usedFeet,
       notes: asTrimmedString(entry.notes)
+    });
+  }
+
+  for (let index = 0; index < normalizedFilmOrderLinks.length; index += 1) {
+    const link = normalizedFilmOrderLinks[index];
+    const boxId = asTrimmedString(link?.boxId).toUpperCase();
+    const occurredAt = asTrimmedString(link?.createdAt);
+    if (!boxId || !occurredAt) {
+      continue;
+    }
+
+    const filmOrder = filmOrderById[asTrimmedString(link?.filmOrderId)] || null;
+    const box = boxById[boxId] || null;
+    response.push({
+      usageType: 'FILM_ORDER',
+      occurredAt,
+      actor: asTrimmedString(link?.createdBy),
+      warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(filmOrder?.warehouse),
+      referenceId: boxId,
+      manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(filmOrder?.manufacturer),
+      itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(filmOrder?.filmName),
+      itemCode: '',
+      unit: 'LF',
+      checkedOutQuantity: integerOrZero(link?.orderedFeet),
+      returnedQuantity: 0,
+      usedQuantity: 0,
+      notes: ''
     });
   }
 

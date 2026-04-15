@@ -589,6 +589,31 @@ async function canonicalizeJobRequirementEntriesWithAliases(client, orgId, requi
   return dedupeNormalizedJobRequirements(normalized);
 }
 
+async function normalizeJobRequirementEntriesForWrite(client, orgId, requirements) {
+  const normalized = [];
+  for (let index = 0; index < requirements.length; index += 1) {
+    const entry = requirements[index];
+    assertAveryNaturaShadeForWrite(
+      entry.manufacturer,
+      entry.filmName,
+      `Requirements[${index}].FilmName`
+    );
+    const writeEntry = await resolveCatalogWriteFilmEntry(
+      client,
+      orgId,
+      entry.manufacturer,
+      entry.filmName
+    );
+    normalized.push({
+      ...entry,
+      manufacturer: writeEntry.manufacturer,
+      filmName: writeEntry.filmName,
+    });
+  }
+
+  return dedupeNormalizedJobRequirements(normalized);
+}
+
 function normalizeJobRequirementInput(entry, warnings, index) {
   const prefix = `Requirements[${index}]`;
   const manufacturer = requireString(entry && entry.manufacturer, `${prefix}.Manufacturer`);
@@ -648,5 +673,6 @@ export {
   resolveCatalogWriteFilmEntry,
   dedupeNormalizedJobRequirements,
   canonicalizeJobRequirementEntriesWithAliases,
+  normalizeJobRequirementEntriesForWrite,
   normalizeJobRequirementInput,
 };

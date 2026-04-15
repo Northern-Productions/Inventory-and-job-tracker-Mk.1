@@ -344,6 +344,31 @@ async function fetchAuthIdentity(token) {
   return identity;
 }
 
+async function applyAuthenticatedSessionContext(client, authContext) {
+  const userId = asTrimmedString(authContext?.userId);
+  const email = asTrimmedString(authContext?.email);
+  if (!userId || !email) {
+    throw new HttpError(401, 'Authenticated session is required.');
+  }
+
+  const claims = JSON.stringify({
+    sub: userId,
+    email,
+    role: 'authenticated',
+  });
+
+  await client.query(
+    `
+      select
+        set_config('request.jwt.claim.sub', $1::text, true),
+        set_config('request.jwt.claim.role', 'authenticated', true),
+        set_config('request.jwt.claim.email', $2::text, true),
+        set_config('request.jwt.claims', $3::text, true)
+    `,
+    [userId, email, claims]
+  );
+}
+
 async function resolveAuthContext(headers, bodyJson) {
   const authorization = headers.authorization || headers.Authorization || '';
   const bodyToken =
@@ -571,5 +596,6 @@ export {
   isAdminConsoleRoute,
   mapDatabaseBootstrapError,
   ensureEffectiveRouteAccess,
+  applyAuthenticatedSessionContext,
   resolveAuthContext,
 };

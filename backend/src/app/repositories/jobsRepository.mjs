@@ -8,7 +8,7 @@ import {
   parseStrictBooleanFlag,
   requireUuid,
 } from '../core/helpers.mjs';
-import { resolveCanonicalFilmEntry } from '../core/catalog.mjs';
+import { resolveCatalogWriteFilmEntry } from '../core/catalog.mjs';
 import {
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
@@ -387,7 +387,7 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
+    const canonical = await resolveCatalogWriteFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
     const manufacturer = canonical.manufacturer;
     const filmName = canonical.filmName;
     await client.query(

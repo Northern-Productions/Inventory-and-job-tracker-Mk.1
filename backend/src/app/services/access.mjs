@@ -1,6 +1,7 @@
 export {
   createDeniedFeaturePermissions,
   ensureEffectiveRouteAccess,
+  applyAuthenticatedSessionContext,
   resolveAuthContext,
   mapDatabaseBootstrapError,
   ensureGeneralFeaturePermissions,

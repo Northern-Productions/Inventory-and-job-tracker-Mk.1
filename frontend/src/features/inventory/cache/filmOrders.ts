@@ -348,6 +348,8 @@ export function applyOptimisticFilmOrderDeletionToCaches(
   const releasedFeetByBoxId: Record<string, number> = {};
   const releasedAllocationIds = new Set<string>();
   const jobNumbersSyncedFromDetail = new Set<string>();
+  let removedFallbackJobNumber = String(options.jobNumber || '').trim();
+  let removedFallbackOrderWasUnresolved = false;
 
   function collectReleasedFeet(
     entry: Pick<AllocationEntry, 'allocationId' | 'boxId' | 'allocatedFeet' | 'status' | 'filmOrderId'>
@@ -367,7 +369,19 @@ export function applyOptimisticFilmOrderDeletionToCaches(
   }
 
   queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
-    current ? current.filter((entry) => entry.filmOrderId !== filmOrderId) : current
+    current
+      ? current.filter((entry) => {
+          if (entry.filmOrderId !== filmOrderId) {
+            return true;
+          }
+
+          if (!removedFallbackJobNumber) {
+            removedFallbackJobNumber = entry.jobNumber;
+          }
+          removedFallbackOrderWasUnresolved = isUnresolvedFilmOrder(entry);
+          return false;
+        })
+      : current
   );
 
   const jobQueries = queryClient.getQueriesData<JobDetail>({ queryKey: inventoryKeys.jobRoot });
@@ -450,7 +464,7 @@ export function applyOptimisticFilmOrderDeletionToCaches(
     );
   }
 
-  const normalizedFallbackJobNumber = String(options.jobNumber || '').trim();
+  const normalizedFallbackJobNumber = removedFallbackJobNumber;
   if (normalizedFallbackJobNumber && !jobNumbersSyncedFromDetail.has(normalizedFallbackJobNumber)) {
     const jobsQueries = queryClient.getQueriesData<JobListEntry[]>({ queryKey: inventoryKeys.jobs });
     for (let index = 0; index < jobsQueries.length; index += 1) {
@@ -465,7 +479,9 @@ export function applyOptimisticFilmOrderDeletionToCaches(
           entry.jobNumber === normalizedFallbackJobNumber
             ? {
                 ...entry,
-                filmOrderCount: Math.max(entry.filmOrderCount - 1, 0),
+                filmOrderCount: removedFallbackOrderWasUnresolved
+                  ? Math.max(entry.filmOrderCount - 1, 0)
+                  : entry.filmOrderCount,
                 updatedAt: resolvedAt
               }
             : entry
@@ -474,15 +490,17 @@ export function applyOptimisticFilmOrderDeletionToCaches(
     }
 
     queryClient.setQueryData<AllocationJobSummary[] | undefined>(inventoryKeys.allocationJobs, (current) =>
-      current
-        ? current.map((entry) =>
-            entry.jobNumber === normalizedFallbackJobNumber
-              ? {
-                  ...entry,
-                  openFilmOrderCount: Math.max(entry.openFilmOrderCount - 1, 0)
-                }
-              : entry
-          )
+        current
+          ? current.map((entry) =>
+              entry.jobNumber === normalizedFallbackJobNumber
+                ? {
+                    ...entry,
+                    openFilmOrderCount: removedFallbackOrderWasUnresolved
+                      ? Math.max(entry.openFilmOrderCount - 1, 0)
+                      : entry.openFilmOrderCount
+                  }
+                : entry
+            )
         : current
     );
   }

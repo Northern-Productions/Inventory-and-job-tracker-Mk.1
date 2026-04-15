@@ -32,6 +32,7 @@ import {
   updateBox,
 } from '../services/boxes.mjs';
 import {
+  applyAuthenticatedSessionContext,
   approveAccessRequestByUserId,
   approveUsernameChangeRequestByUserId,
   demoteAdminToMemberInternal,
@@ -171,6 +172,8 @@ async function applyCheckoutAllJobMaterials(client, orgId, jobNumber, actor) {
 
 export async function dispatchMutationWithHandlers(logicalPath, params, authContext) {
   return withMutation(async (client) => {
+    await applyAuthenticatedSessionContext(client, authContext);
+
     const handler = mutationHandlers[logicalPath];
     if (!handler) {
       throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);

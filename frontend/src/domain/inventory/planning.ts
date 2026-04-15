@@ -187,7 +187,7 @@ export interface JobUsageEntry {
 }
 
 export interface JobUsageTimelineEntry {
-  usageType: 'FILM' | 'CAULK';
+  usageType: 'FILM' | 'CAULK' | 'FILM_ORDER';
   occurredAt: string;
   actor: string;
   warehouse: Warehouse;

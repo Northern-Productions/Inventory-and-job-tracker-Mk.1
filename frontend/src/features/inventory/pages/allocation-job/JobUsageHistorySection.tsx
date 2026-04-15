@@ -5,7 +5,7 @@ import {
   MobileRecordHeader
 } from '../../../../components/MobileRecordCard';
 import type { JobUsageTimelineEntry } from '../../../../domain';
-import { formatUsageQuantity, renderDateTime } from './helpers';
+import { formatUsageQuantity, formatUsageTypeLabel, renderDateTime } from './helpers';
 
 interface JobUsageHistorySectionProps {
   entries: JobUsageTimelineEntry[];
@@ -18,10 +18,13 @@ export function JobUsageHistorySection({
   isPhoneLayout,
   onOpenFilmBox
 }: JobUsageHistorySectionProps) {
+  const isFilmBoxReference = (entry: JobUsageTimelineEntry) =>
+    entry.usageType === 'FILM' || entry.usageType === 'FILM_ORDER';
+
   return (
     <section className="panel panel-subtle">
       <div className="panel-title-row">
-        <h2>Job Usage History</h2>
+        <h2>Job Material History</h2>
       </div>
       {!entries.length ? (
         <div className="empty-state">No usage has been recorded for this job yet.</div>
@@ -30,15 +33,13 @@ export function JobUsageHistorySection({
           {entries.map((entry, index) => (
             <MobileRecordCard key={`${entry.usageType}-${entry.referenceId}-${entry.occurredAt}-${index}`}>
               <MobileRecordHeader
-                title={`${entry.usageType} ${entry.itemName}`}
+                title={`${formatUsageTypeLabel(entry.usageType)} ${entry.itemName}`}
                 subtitle={entry.itemCode ? `${entry.manufacturer} (${entry.itemCode})` : entry.manufacturer}
-                onTitleClick={
-                  entry.usageType === 'FILM' ? () => onOpenFilmBox(entry.referenceId) : undefined
-                }
+                onTitleClick={isFilmBoxReference(entry) ? () => onOpenFilmBox(entry.referenceId) : undefined}
               />
               <MobileFieldList>
                 <MobileField label="Warehouse" value={entry.warehouse} />
-                <MobileField label="Checked Out" value={formatUsageQuantity(entry.checkedOutQuantity, entry.unit)} />
+                <MobileField label="Quantity" value={formatUsageQuantity(entry.checkedOutQuantity, entry.unit)} />
                 <MobileField label="Returned" value={formatUsageQuantity(entry.returnedQuantity, entry.unit)} />
                 <MobileField label="Used" value={formatUsageQuantity(entry.usedQuantity, entry.unit)} />
                 <MobileField label="By" value={entry.actor || '--'} />
@@ -56,7 +57,7 @@ export function JobUsageHistorySection({
                 <th>Type</th>
                 <th>Item</th>
                 <th>Warehouse</th>
-                <th>Checked Out</th>
+                <th>Quantity</th>
                 <th>Returned</th>
                 <th>Used</th>
                 <th>By</th>
@@ -67,7 +68,7 @@ export function JobUsageHistorySection({
               {entries.map((entry, index) => (
                 <tr key={`${entry.usageType}-${entry.referenceId}-${entry.occurredAt}-${index}`}>
                   <td>{renderDateTime(entry.occurredAt)}</td>
-                  <td>{entry.usageType}</td>
+                  <td>{formatUsageTypeLabel(entry.usageType)}</td>
                   <td>
                     {entry.manufacturer} {entry.itemName}
                     {entry.itemCode ? ` (${entry.itemCode})` : ''}
@@ -78,7 +79,7 @@ export function JobUsageHistorySection({
                   <td>{formatUsageQuantity(entry.usedQuantity, entry.unit)}</td>
                   <td>{entry.actor || '--'}</td>
                   <td>
-                    {entry.usageType === 'FILM' ? (
+                    {isFilmBoxReference(entry) ? (
                       <button
                         type="button"
                         className="row-button"

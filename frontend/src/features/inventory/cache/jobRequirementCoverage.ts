@@ -10,7 +10,7 @@ import {
   describeJobPlanningFilm,
   getJobPlanningFilmMatch
 } from '../utils/jobPlanningFilmIdentity';
-import { isUnresolvedFilmOrder } from '../utils/filmOrders';
+import { countUnresolvedFilmOrders, isUnresolvedFilmOrder } from '../utils/filmOrders';
 import { getAllocationCoveredFeet } from './jobSummaryMath';
 
 function getPlanningManufacturerGroupKey(manufacturer: string, filmName: string) {
@@ -315,7 +315,7 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
       allocatedFeet,
       remainingFeet,
       allocationCount: detail.allocations.length,
-      filmOrderCount: detail.filmOrders.length,
+      filmOrderCount: countUnresolvedFilmOrders(detail.filmOrders),
       hasOrderedAllocations
     },
     requirements: nextRequirements

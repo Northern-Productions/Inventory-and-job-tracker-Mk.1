@@ -14,7 +14,8 @@ import {
   createLogId,
   assertAveryNaturaShadeForWrite,
   resolveCanonicalFilmEntry,
-  canonicalizeJobRequirementEntriesWithAliases,
+  resolveCatalogWriteFilmEntry,
+  normalizeJobRequirementEntriesForWrite,
   normalizeJobNumberDigits,
   normalizeJobWarehouse,
   normalizeJobSections,
@@ -65,6 +66,9 @@ import {
 import {
   buildRequirementRowsForReplace,
 } from './runtimeCollectionsAndBoxes.mjs';
+import {
+  getOrResolveJobId,
+} from './runtimeAllocationPlanning.mjs';
 
 async function createJob(client, orgId, payload, actor) {
   const warnings = [];
@@ -80,7 +84,7 @@ async function createJob(client, orgId, payload, actor) {
   const lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   const notes = asTrimmedString(payload.notes);
   const incomingRequirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
-  const incomingRequirements = await canonicalizeJobRequirementEntriesWithAliases(
+  const incomingRequirements = await normalizeJobRequirementEntriesForWrite(
     client,
     orgId,
     incomingRequirementsRaw
@@ -178,6 +182,8 @@ async function createJob(client, orgId, payload, actor) {
       continue;
     }
 
+    merged[incomingKey].manufacturer = incoming.manufacturer;
+    merged[incomingKey].filmName = incoming.filmName;
     merged[incomingKey].requiredFeet += incoming.requiredFeet;
   }
 
@@ -261,7 +267,7 @@ async function updateJob(client, orgId, payload, actor) {
     throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
   }
   const requirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
-  const requirements = await canonicalizeJobRequirementEntriesWithAliases(client, orgId, requirementsRaw);
+  const requirements = await normalizeJobRequirementEntriesForWrite(client, orgId, requirementsRaw);
   const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
     client,
     orgId,
@@ -567,7 +573,7 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
   const sourceFilmName = requireString(payload.filmName, 'FilmName');
   assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
-  const canonical = await resolveCanonicalFilmEntry(client, orgId, sourceManufacturer, sourceFilmName);
+  const canonical = await resolveCatalogWriteFilmEntry(client, orgId, sourceManufacturer, sourceFilmName);
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');

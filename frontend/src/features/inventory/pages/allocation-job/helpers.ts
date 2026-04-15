@@ -33,6 +33,10 @@ export function formatFilmOrderStatusLabel(value: string) {
   return formatBadgeLabel(value);
 }
 
+export function formatUsageTypeLabel(value: string) {
+  return formatBadgeLabel(value);
+}
+
 export function formatUsageQuantity(quantity: number, unit: 'LF' | 'TUBES') {
   return `${quantity} ${unit}`;
 }

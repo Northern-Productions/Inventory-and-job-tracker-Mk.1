@@ -356,6 +356,21 @@ describe('AllocationJobPage', () => {
       ],
       usageTimeline: [
         {
+          usageType: 'FILM_ORDER',
+          occurredAt: '2026-03-20T12:00:00Z',
+          actor: 'warehouse',
+          warehouse: 'IL1',
+          referenceId: 'IL1-LINK',
+          manufacturer: '3M',
+          itemName: 'Ultra 70',
+          itemCode: '',
+          unit: 'LF',
+          checkedOutQuantity: 30,
+          returnedQuantity: 0,
+          usedQuantity: 0,
+          notes: ''
+        },
+        {
           usageType: 'FILM',
           occurredAt: '2026-03-20T09:00:00Z',
           actor: 'crew',
@@ -399,8 +414,9 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Caulk Requirements');
     expect(html).toContain('Caulk Allocations');
-    expect(html).toContain('Job Usage History');
+    expect(html).toContain('Job Material History');
     expect(html).toContain('Locked after checkout');
+    expect(html).toContain('FILM ORDER');
     expect(html).toContain('FILM');
     expect(html).toContain('CAULK');
     expect(html).toContain('125 LF');

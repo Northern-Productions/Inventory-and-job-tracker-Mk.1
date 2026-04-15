@@ -5,6 +5,8 @@ import {
   addBox,
   applyAllocationPlan,
   buildJobDetail,
+  buildJobsList,
+  createFilmOrder,
   findBoxById,
   previewAllocationPlan,
   removeAllocationFromJob,
@@ -72,6 +74,52 @@ function buildUpdatePayload(box, overrides = {}) {
     notes: box.notes || "",
     ...overrides
   };
+}
+
+async function configureRpcAuthContext(client, orgId) {
+  const memberResult = await client.query(
+    `
+      select user_id::text as user_id
+      from app.organization_members
+      where org_id = $1::uuid
+      order by created_at asc nulls first, user_id asc
+      limit 1
+    `,
+    [orgId]
+  );
+  const userId = asTrimmedString(memberResult.rows[0]?.user_id);
+  assert(userId, `No organization member found for org ${orgId}.`);
+
+  const claims = JSON.stringify({
+    sub: userId,
+    email: 'ordered-box-flow-verifier@example.com',
+    role: 'authenticated'
+  });
+  await client.query(
+    `
+      select
+        set_config('request.jwt.claim.sub', $1::text, true),
+        set_config('request.jwt.claim.role', 'authenticated', true),
+        set_config('request.jwt.claim.email', 'ordered-box-flow-verifier@example.com', true),
+        set_config('request.jwt.claims', $2::text, true)
+    `,
+    [userId, claims]
+  );
+}
+
+async function invokeBoxesSetStatusRpc(client, orgId, actor, payload) {
+  const result = await client.query(
+    `
+      select public.api_boxes_set_status(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, actor, JSON.stringify(payload)]
+  );
+
+  return result.rows[0]?.result || null;
 }
 
 async function resolveWarehouseCode(client, orgId) {
@@ -178,6 +226,7 @@ async function main() {
   try {
     await client.query("begin");
     transactionStarted = true;
+    await configureRpcAuthContext(client, orgId);
 
     const warehouse = await resolveWarehouseCode(client, orgId);
     const uniqueSuffix = buildUniqueSuffix();
@@ -415,6 +464,116 @@ async function main() {
     assert(
       /active allocated feet/i.test(asTrimmedString(belowAllocatedError?.message)),
       `Expected below-allocation rejection to mention active allocated feet, received ${belowAllocatedError?.message}.`
+    );
+
+    const linkedFilmOrderEnvelope = await createFilmOrder(
+      client,
+      orgId,
+      {
+        jobNumber,
+        warehouse,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requestedFeet: 30
+      },
+      actor
+    );
+    const linkedFilmOrder = linkedFilmOrderEnvelope?.data;
+    assert(linkedFilmOrder, 'Expected createFilmOrder to return a linked film order.');
+
+    const linkedBoxId = `${warehouse}-LNK-${uniqueSuffix}`;
+    const linkedBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(linkedBoxId, dueDate, {
+        initialFeet: 30,
+        filmOrderId: linkedFilmOrder.filmOrderId,
+        notes: 'Linked film-order receipt verification box.'
+      }),
+      actor
+    );
+    const linkedBox = linkedBoxEnvelope?.data?.box;
+    assert(linkedBox, 'Expected addBox to create the linked receipt verification box.');
+    assert(linkedBox.status === 'ORDERED', `Expected linked box to start ORDERED, received ${linkedBox.status}.`);
+
+    let linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const orderedFilmOrder = (linkedJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === linkedFilmOrder.filmOrderId
+    );
+    assert(orderedFilmOrder, 'Expected the linked film order to appear on job detail after linking a box.');
+    assert(
+      orderedFilmOrder.status === 'FILM_ON_THE_WAY',
+      `Expected linked film order to move to FILM_ON_THE_WAY after ordering a box, received ${orderedFilmOrder.status}.`
+    );
+
+    await client.query(
+      `
+        update app.boxes
+        set received_date = $1::date
+        where org_id = $2::uuid
+          and box_id = $3::text
+      `,
+      [dueDate, orgId, linkedBoxId]
+    );
+
+    const setStatusResult = await invokeBoxesSetStatusRpc(client, orgId, actor, {
+      boxId: linkedBoxId,
+      status: 'IN_STOCK',
+      lastRollWeightLbs: 20,
+      currentFeetOnRoll: 30,
+      coreType: 'Red plastic',
+      auditNote: `Verified receipt for job ${jobNumber}`
+    });
+    assert(setStatusResult, 'Expected api_boxes_set_status to return a response.');
+
+    const resolvedFilmOrderRow = await client.query(
+      `
+        select status::text as status, covered_feet::integer as covered_feet
+        from app.film_orders
+        where org_id = $1::uuid
+          and film_order_id = $2::text
+      `,
+      [orgId, linkedFilmOrder.filmOrderId]
+    );
+    assert(
+      asTrimmedString(resolvedFilmOrderRow.rows[0]?.status) === 'FULFILLED',
+      'Expected linked film order row to resolve to FULFILLED after check-in.'
+    );
+    assert(
+      Number(resolvedFilmOrderRow.rows[0]?.covered_feet || 0) === 30,
+      'Expected linked film order row to be fully covered after check-in.'
+    );
+
+    linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const fulfilledFilmOrder = (linkedJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === linkedFilmOrder.filmOrderId
+    );
+    assert(fulfilledFilmOrder, 'Expected linked film order to remain visible on job detail after receipt.');
+    assert(
+      fulfilledFilmOrder.status === 'FULFILLED',
+      `Expected linked film order to resolve to FULFILLED on job detail, received ${fulfilledFilmOrder?.status}.`
+    );
+    assert(
+      Number(linkedJobDetail?.summary?.filmOrderCount || 0) === 0,
+      `Expected job summary filmOrderCount to only count unresolved film orders, received ${linkedJobDetail?.summary?.filmOrderCount}.`
+    );
+    assert(
+      (linkedJobDetail?.usageTimeline || []).some(
+        (entry) =>
+          entry.usageType === 'FILM_ORDER' &&
+          entry.referenceId === linkedBoxId &&
+          Number(entry.checkedOutQuantity || 0) === 30
+      ),
+      'Expected job usage timeline to include the ordered box history row with the linked box ID.'
+    );
+
+    const jobsList = await buildJobsList(client, orgId, 0, 'ACTIVE');
+    const jobListEntry = jobsList.find((entry) => entry.jobNumber === jobNumber);
+    assert(jobListEntry, `Expected buildJobsList to include verification job ${jobNumber}.`);
+    assert(
+      Number(jobListEntry?.filmOrderCount || 0) === 0,
+      `Expected jobs list filmOrderCount to clear after fulfillment, received ${jobListEntry?.filmOrderCount}.`
     );
 
     console.log("Ordered box allocation flow OK.");

@@ -8,7 +8,6 @@ import {
 import {
   normalizeCatalogWriteFilmKeyInput,
   normalizeCatalogWriteManufacturerAndFilm,
-  resolveCanonicalFilmEntry,
   resolveCatalogWriteFilmEntry,
 } from '../core/catalog.mjs';
 import { resolveBoxIdAlias } from './boxesRepository.mjs';
@@ -368,7 +367,7 @@ async function findFilmOrderById(client, orgId, filmOrderId) {
 }
 
 async function saveFilmOrderRecord(client, orgId, entry) {
-  const canonical = await resolveCanonicalFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
+  const canonical = await resolveCatalogWriteFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
   const filmOrderId = asTrimmedString(entry.filmOrderId) || createLogId();

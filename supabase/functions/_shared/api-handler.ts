@@ -1585,7 +1585,7 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
   });
 }
 
-function collectJobBoxIds(allocations: any[], rollHistory: any[]) {
+function collectJobBoxIds(allocations: any[], rollHistory: any[], filmOrderLinks: any[] = []) {
   const boxIds = new Set<string>();
   for (const entry of Array.isArray(allocations) ? allocations : []) {
     const boxId = asTrimmedString(entry?.boxId).toUpperCase();
@@ -1594,6 +1594,12 @@ function collectJobBoxIds(allocations: any[], rollHistory: any[]) {
     }
   }
   for (const entry of Array.isArray(rollHistory) ? rollHistory : []) {
+    const boxId = asTrimmedString(entry?.boxId).toUpperCase();
+    if (boxId) {
+      boxIds.add(boxId);
+    }
+  }
+  for (const entry of Array.isArray(filmOrderLinks) ? filmOrderLinks : []) {
     const boxId = asTrimmedString(entry?.boxId).toUpperCase();
     if (boxId) {
       boxIds.add(boxId);
@@ -1651,14 +1657,30 @@ async function listFilmOrderLinksByFilmOrderIds(orgId: string, filmOrderIds: str
     const { data, error } = await serviceClient
       .schema("app")
       .from("film_order_box_links")
-      .select("film_order_id, box_id, ordered_feet, auto_allocated_feet")
+      .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, created_at, created_by")
       .eq("org_id", orgId)
       .in("film_order_id", batchIds);
     throwOnSupabaseError(error, "Unable to load film-order linked boxes");
     rows.push(...(Array.isArray(data) ? data : []));
   }
 
-  return rows;
+  return rows.map((row) => mapDbFilmOrderLinkRow(row)).filter(isPresent);
+}
+
+function mapDbFilmOrderLinkRow(row: any) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    linkId: asTrimmedString(row.link_id),
+    filmOrderId: asTrimmedString(row.film_order_id),
+    boxId: asTrimmedString(row.box_id).toUpperCase(),
+    orderedFeet: integerOrZero(row.ordered_feet),
+    autoAllocatedFeet: integerOrZero(row.auto_allocated_feet),
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+  };
 }
 
 function createTransferId(): string {
@@ -2508,8 +2530,18 @@ function buildPublicJobUsageTimelineEntries(
   rollHistoryEntries: any[],
   boxById: Record<string, any>,
   caulkCheckouts: any[],
+  filmOrderLinks: any[] = [],
+  filmOrders: any[] = [],
 ) {
   const response: any[] = [];
+  const filmOrderById: Record<string, any> = {};
+  for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
+    const filmOrderId = asTrimmedString(entry?.filmOrderId);
+    if (filmOrderId) {
+      filmOrderById[filmOrderId] = entry;
+    }
+  }
+
   for (const entry of Array.isArray(rollHistoryEntries) ? rollHistoryEntries : []) {
     if (!entry || !entry.boxId) {
       continue;
@@ -2534,6 +2566,32 @@ function buildPublicJobUsageTimelineEntries(
       returnedQuantity: integerOrZero(entry.feetAfter),
       usedQuantity: usedFeet,
       notes: asTrimmedString(entry.notes),
+    });
+  }
+
+  for (const link of Array.isArray(filmOrderLinks) ? filmOrderLinks : []) {
+    const boxId = asTrimmedString(link?.boxId).toUpperCase();
+    const occurredAt = asTrimmedString(link?.createdAt);
+    if (!boxId || !occurredAt) {
+      continue;
+    }
+
+    const filmOrder = filmOrderById[asTrimmedString(link?.filmOrderId)] || null;
+    const box = boxById[boxId] || null;
+    response.push({
+      usageType: "FILM_ORDER",
+      occurredAt,
+      actor: asTrimmedString(link?.createdBy),
+      warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(filmOrder?.warehouse),
+      referenceId: boxId,
+      manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(filmOrder?.manufacturer),
+      itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(filmOrder?.filmName),
+      itemCode: "",
+      unit: "LF",
+      checkedOutQuantity: integerOrZero(link?.orderedFeet),
+      returnedQuantity: 0,
+      usedQuantity: 0,
+      notes: "",
     });
   }
 
@@ -3371,7 +3429,7 @@ function buildJobListEntry(
     remainingTubes: caulkTotals.remainingTubes,
     requirementCount: requirements.length,
     allocationCount: allocations.length,
-    filmOrderCount: filmOrders.length,
+    filmOrderCount: countUnresolvedFilmOrders(filmOrders),
     hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
     updatedAt: jobHeader.updatedAt || "",
     notes: jobHeader.notes || "",
@@ -3547,7 +3605,7 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
   const missingBoxIds = Array.from(
     new Set(
       links
-        .map((link) => asTrimmedString((link as Record<string, unknown>).box_id).toUpperCase())
+        .map((link) => asTrimmedString((link as Record<string, unknown>).boxId).toUpperCase())
         .filter((boxId) => boxId && !boxById[boxId]),
     ),
   );
@@ -3557,8 +3615,8 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
   }
 
   for (const link of links) {
-    const filmOrderId = asTrimmedString((link as Record<string, unknown>).film_order_id);
-    const boxId = asTrimmedString((link as Record<string, unknown>).box_id).toUpperCase();
+    const filmOrderId = asTrimmedString((link as Record<string, unknown>).filmOrderId);
+    const boxId = asTrimmedString((link as Record<string, unknown>).boxId).toUpperCase();
     if (!filmOrderId || !boxId || !boxById[boxId]) {
       continue;
     }
@@ -3567,8 +3625,8 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     }
     linkedBoxesByFilmOrderId[filmOrderId].push({
       boxId,
-      orderedFeet: integerOrZero((link as Record<string, unknown>).ordered_feet),
-      autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).auto_allocated_feet),
+      orderedFeet: integerOrZero((link as Record<string, unknown>).orderedFeet),
+      autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
     });
   }
 
@@ -3592,6 +3650,17 @@ async function buildPublicFilmOrderLinkedBoxes(
 function isUnresolvedFilmOrderStatus(status: unknown) {
   const normalizedStatus = asTrimmedString(status).toUpperCase();
   return normalizedStatus === "FILM_ORDER" || normalizedStatus === "FILM_ON_THE_WAY";
+}
+
+function countUnresolvedFilmOrders(entries: any[]) {
+  let count = 0;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry && isUnresolvedFilmOrderStatus(entry.status)) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, filmOrders: any[]) {
@@ -4192,7 +4261,11 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   ) {
     throw new HttpError(404, "Job not found.");
   }
-  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory));
+  const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
+    orgId,
+    filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
+  );
+  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -4225,7 +4298,13 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     ),
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
-    usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
+    usageTimeline: buildPublicJobUsageTimelineEntries(
+      rollHistory,
+      boxById,
+      caulkCheckouts,
+      filmOrderLinks,
+      filmOrders
+    ),
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
@@ -4429,7 +4508,11 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   if (!header) {
     header = buildLegacyJobHeaderFromData(normalizedJobNumber, allocations, filmOrders);
   }
-  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory));
+  const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
+    orgId,
+    filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
+  );
+  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -4451,7 +4534,13 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
-    usageTimeline: buildPublicJobUsageTimelineEntries(rollHistory, boxById, caulkCheckouts),
+    usageTimeline: buildPublicJobUsageTimelineEntries(
+      rollHistory,
+      boxById,
+      caulkCheckouts,
+      filmOrderLinks,
+      filmOrders
+    ),
     caulkRequirements: publicCaulkRequirements,
     caulkAllocations: caulkAllocations,
     caulkCheckouts: caulkCheckouts,
@@ -6176,7 +6265,7 @@ async function canonicalizeRequirementPayloadEntries(
       source.filmName,
       `requirements[${index}].filmName`,
     );
-    const canonical = await resolveCanonicalFilmEntry(client, orgId, source.manufacturer, source.filmName);
+    const canonical = await resolveCatalogWriteFilmEntry(client, orgId, source.manufacturer, source.filmName);
     normalized.push({
       ...source,
       manufacturer: canonical.manufacturer,
@@ -6217,7 +6306,7 @@ async function canonicalizeMutationPayloadForRoute(
 
   if (logicalPath === "/film-orders/create") {
     assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");
-    const canonical = await resolveCanonicalFilmEntry(client, orgId, next.manufacturer, next.filmName);
+    const canonical = await resolveCatalogWriteFilmEntry(client, orgId, next.manufacturer, next.filmName);
     next.manufacturer = canonical.manufacturer;
     next.filmName = canonical.filmName;
     return next;
