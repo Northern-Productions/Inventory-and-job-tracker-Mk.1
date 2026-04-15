@@ -309,6 +309,40 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('keeps installDate canonical in update job requests', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({ jobNumber: '000123', installDate: '2026-04-20' }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const result = await updateJob({
+      jobNumber: '000123',
+      installDate: '2026-04-20',
+      requirements: [],
+      caulkRequirements: []
+    });
+
+    expect(result.result.summary.installDate).toBe('2026-04-20');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/update', {
+      body: {
+        jobNumber: '000123',
+        installDate: '2026-04-20',
+        requirements: [],
+        caulkRequirements: []
+      }
+    });
+  });
+
   it('deletes a job through POST /jobs/delete', async () => {
     requestMock.mockResolvedValueOnce({
       data: {

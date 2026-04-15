@@ -250,7 +250,6 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     crewLeader: metadata.crewLeader,
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
-    isLaborAssigned: false,
     isStagedForPickup: false,
     notes: '',
     createdAt,
@@ -293,7 +292,6 @@ function deriveJobStatusFromLegacyAllocationData(allocations, filmOrders) {
 function computeJobStatusFromRequirements(
   lifecycleStatus,
   isLaborOnly,
-  isLaborAssigned,
   isStagedForPickup,
   requirements,
   caulkRequirements,
@@ -517,7 +515,6 @@ function buildJobListEntry(
   const baseStatus = computeJobStatusFromRequirements(
     lifecycleStatus,
     Boolean(jobHeader.isLaborOnly),
-    Boolean(jobHeader.isLaborAssigned),
     Boolean(jobHeader.isStagedForPickup),
     requirements,
     caulkRequirements,
@@ -539,7 +536,6 @@ function buildJobListEntry(
     status,
     lifecycleStatus,
     isLaborOnly: Boolean(jobHeader.isLaborOnly),
-    isLaborAssigned: Boolean(jobHeader.isLaborAssigned),
     isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
     requiredFeet,
     allocatedFeet,

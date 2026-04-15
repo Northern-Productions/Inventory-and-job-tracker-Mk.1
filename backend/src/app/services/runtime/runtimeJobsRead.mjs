@@ -579,76 +579,6 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
   };
 }
 
-async function setJobLaborAssigned(client, orgId, jobNumber, isLaborAssigned, actor) {
-  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
-  const normalizedFlag = typeof isLaborAssigned === 'boolean'
-    ? String(isLaborAssigned)
-    : asTrimmedString(isLaborAssigned).toLowerCase();
-  let nextIsLaborAssigned = null;
-
-  if (
-    normalizedFlag === 'true' ||
-    normalizedFlag === 't' ||
-    normalizedFlag === '1' ||
-    normalizedFlag === 'yes' ||
-    normalizedFlag === 'on'
-  ) {
-    nextIsLaborAssigned = true;
-  } else if (
-    normalizedFlag === 'false' ||
-    normalizedFlag === 'f' ||
-    normalizedFlag === '0' ||
-    normalizedFlag === 'no' ||
-    normalizedFlag === 'off'
-  ) {
-    nextIsLaborAssigned = false;
-  }
-
-  if (nextIsLaborAssigned === null) {
-    throw new HttpError(400, 'isLaborAssigned must be true or false.');
-  }
-
-  const nowIso = new Date().toISOString();
-  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
-  const existingJob = resolvedContext.header;
-  if (!existingJob) {
-    throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
-  }
-
-  if (normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
-    throw new HttpError(400, `Job ${normalizedJobNumber} is closed and labor cannot be changed.`);
-  }
-
-  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  if (hasJobMaterialRequirements(requirements, caulkRequirements)) {
-    throw new HttpError(400, `Job ${normalizedJobNumber} has film or caulk requirements. Labor can only be set on zero-material jobs.`);
-  }
-
-  const nextHeader = {
-    ...cloneValue(existingJob),
-    isLaborOnly: true,
-    isLaborAssigned: nextIsLaborAssigned,
-    isStagedForPickup: false,
-    updatedAt: nowIso,
-    updatedBy: actor
-  };
-
-  const savedJob = await saveJobRecord(client, orgId, nextHeader);
-  const warnings = [];
-  if (!existingJob.isLaborOnly) {
-    warnings.push(`Job ${normalizedJobNumber} was automatically marked labor only because it has no film or caulk requirements.`);
-  }
-
-  return {
-    jobNumber: savedJob.jobNumber,
-    isLaborOnly: savedJob.isLaborOnly,
-    isLaborAssigned: savedJob.isLaborAssigned,
-    updatedAt: savedJob.updatedAt,
-    warnings
-  };
-}
-
 async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user, nowIso) {
   const existing = await findJobByNumber(client, orgId, jobNumber);
   if (existing) {
@@ -674,7 +604,6 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   derived.updatedAt = nowIso;
   derived.updatedBy = user;
   derived.isLaborOnly = false;
-  derived.isLaborAssigned = false;
   derived.isStagedForPickup = false;
   derived.notes = asTrimmedString(payload.notes || derived.notes);
 
@@ -716,7 +645,6 @@ async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor,
   derived.updatedAt = nowIso;
   derived.updatedBy = actor;
   derived.isLaborOnly = false;
-  derived.isLaborAssigned = false;
   derived.isStagedForPickup = false;
 
   return {
@@ -740,7 +668,6 @@ export {
   buildJobDetail,
   buildReadJobDetail,
   setJobStagedPickup,
-  setJobLaborAssigned,
   ensureJobHeaderForUpdate,
   resolveExistingOrLegacyJobHeader,
 };

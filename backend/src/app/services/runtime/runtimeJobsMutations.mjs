@@ -104,7 +104,6 @@ async function createJob(client, orgId, payload, actor) {
       crewLeader,
       lifecycleStatus,
       isLaborOnly: false,
-      isLaborAssigned: false,
       isStagedForPickup: false,
       notes,
       createdAt: nowIso,
@@ -122,7 +121,6 @@ async function createJob(client, orgId, payload, actor) {
       crewLeader,
       lifecycleStatus,
       isLaborOnly: existingHeader.isLaborOnly,
-      isLaborAssigned: existingHeader.isLaborAssigned,
       isStagedForPickup: existingHeader.isStagedForPickup,
       updatedAt: nowIso,
       updatedBy: actor,
@@ -137,7 +135,6 @@ async function createJob(client, orgId, payload, actor) {
     normalizedCaulkRequirements
   );
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
-  nextHeader.isLaborAssigned = materialFlags.isLaborAssigned;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
   nextHeader = await saveJobRecord(client, orgId, nextHeader);
@@ -312,7 +309,6 @@ async function updateJob(client, orgId, payload, actor) {
     normalizedCaulkRequirements
   );
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
-  nextHeader.isLaborAssigned = materialFlags.isLaborAssigned;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
   nextHeader.updatedAt = nowIso;

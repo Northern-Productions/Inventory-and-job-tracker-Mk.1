@@ -321,7 +321,6 @@ function mapDbJobRow(row) {
     crewLeader: asTrimmedString(row.crew_leader),
     lifecycleStatus: asTrimmedString(row.lifecycle_status) || 'ACTIVE',
     isLaborOnly: row.is_labor_only === true,
-    isLaborAssigned: row.is_labor_assigned === true,
     isStagedForPickup: row.is_staged_for_pickup === true,
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),

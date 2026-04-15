@@ -19,7 +19,6 @@ function buildDetailContext() {
       crewLeader: 'Crew A',
       lifecycleStatus: 'ACTIVE',
       isLaborOnly: false,
-      isLaborAssigned: false,
       isStagedForPickup: true,
       notes: '',
       createdAt: '2026-04-10T08:00:00Z',
@@ -346,7 +345,9 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
     'usage',
     'usageTimeline',
   ]);
+  assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.status, 'CONFLICT');
+  assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
   assert.equal(payload.filmTransferAlerts[0]?.state, 'TRANSFER_PENDING');
   assert.equal(payload.filmOrders[0]?.linkedBoxes[0]?.boxId, 'MS1-LINK');
   assert.deepEqual(
@@ -361,6 +362,7 @@ test('buildAllocationJobDetailPayload keeps the allocation-detail summary aligne
   assert.equal(payload.summary.jobNumber, '000123');
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.crewLeader, 'Crew A');
+  assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
   assert.equal(payload.summary.requiredTubes, 12);
   assert.equal(payload.summary.hasOrderedAllocations, false);
   assert.equal(payload.filmTransferAlerts[0]?.destinationWarehouse, 'MS1');

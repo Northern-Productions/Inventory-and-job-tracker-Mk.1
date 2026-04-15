@@ -60,7 +60,6 @@ async function saveJobRecord(client, orgId, job) {
         crew_leader,
         lifecycle_status,
         is_labor_only,
-        is_labor_assigned,
         is_staged_for_pickup,
         notes,
         created_at,
@@ -71,11 +70,11 @@ async function saveJobRecord(client, orgId, job) {
       values (
         $1,$2,$3,$4,
         nullif($5, '')::date,
-        $6,$7,$8,$9,$10,$11,
-        coalesce($12::timestamptz, now()),
-        $13,
-        coalesce($14::timestamptz, now()),
-        $15
+        $6,$7,$8,$9,$10,
+        coalesce($11::timestamptz, now()),
+        $12,
+        coalesce($13::timestamptz, now()),
+        $14
       )
       on conflict (org_id, job_number) do update set
         warehouse = excluded.warehouse,
@@ -84,7 +83,6 @@ async function saveJobRecord(client, orgId, job) {
         crew_leader = excluded.crew_leader,
         lifecycle_status = excluded.lifecycle_status,
         is_labor_only = excluded.is_labor_only,
-        is_labor_assigned = excluded.is_labor_assigned,
         is_staged_for_pickup = excluded.is_staged_for_pickup,
         notes = excluded.notes,
         updated_at = excluded.updated_at,
@@ -100,7 +98,6 @@ async function saveJobRecord(client, orgId, job) {
       job.crewLeader,
       job.lifecycleStatus,
       Boolean(job.isLaborOnly),
-      Boolean(job.isLaborAssigned),
       Boolean(job.isStagedForPickup),
       job.notes,
       job.createdAt,
@@ -566,27 +563,22 @@ function hasJobMaterialRequirements(requirements, caulkRequirements) {
 function derivePersistedJobMaterialFlags(existingHeader, payload, requirements, caulkRequirements) {
   const explicitLaborOnly = parseExplicitJobLaborOnlyValue(payload);
   const previouslyLaborOnly = Boolean(existingHeader?.isLaborOnly);
-  const previouslyLaborAssigned = Boolean(existingHeader?.isLaborAssigned);
   const hasMaterials = hasJobMaterialRequirements(requirements, caulkRequirements);
   let isLaborOnly = explicitLaborOnly.hasValue ? explicitLaborOnly.value : previouslyLaborOnly;
-  let isLaborAssigned = previouslyLaborAssigned;
   let isStagedForPickup = Boolean(existingHeader?.isStagedForPickup);
 
   if (hasMaterials) {
     isLaborOnly = false;
-    isLaborAssigned = false;
     if (previouslyLaborOnly) {
       isStagedForPickup = false;
     }
   } else {
     isLaborOnly = true;
     isStagedForPickup = false;
-    isLaborAssigned = previouslyLaborOnly ? previouslyLaborAssigned : false;
   }
 
   return {
     isLaborOnly,
-    isLaborAssigned,
     isStagedForPickup,
   };
 }

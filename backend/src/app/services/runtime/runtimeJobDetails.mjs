@@ -329,7 +329,6 @@ function buildAllocationJobDetailPayload(detailContext) {
       detailContext.publicCaulkRequirements,
       detailContext.header?.lifecycleStatus || 'ACTIVE',
       Boolean(detailContext.header?.isLaborOnly),
-      Boolean(detailContext.header?.isLaborAssigned),
       Boolean(detailContext.header?.isStagedForPickup),
       detailContext.header?.installDate || '',
       detailContext.header?.crewLeader || '',

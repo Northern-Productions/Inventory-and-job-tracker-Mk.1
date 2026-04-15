@@ -13,7 +13,6 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/jobs/checkout-all',
   '/jobs/complete',
   '/jobs/delete',
-  '/jobs/set-labor-assigned',
   '/film-orders/cancel',
   '/film-orders/delete'
 ]);

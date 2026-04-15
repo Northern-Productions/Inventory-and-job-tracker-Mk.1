@@ -25,6 +25,7 @@ import {
   buildCurrentCheckedOutAllocationIdSet,
   buildFilmCheckoutActionPlan,
 } from "../../../shared/checkoutSemantics.mjs";
+import { normalizeSchedulePayloadAliases } from "../../../shared/schedulePayloadAliases.mjs";
 import type { AuthIdentity } from "./types.ts";
 import {
   computeCoveredFeetForAllocation,
@@ -6192,23 +6193,7 @@ async function canonicalizeMutationPayloadForRoute(
   logicalPath: string,
   payload: Record<string, unknown>,
 ) {
-  const next = payload && typeof payload === "object" ? { ...payload } : {};
-
-  if (
-    (logicalPath === "/jobs/create" || logicalPath === "/jobs/update") &&
-    next.installDate === undefined &&
-    next.dueDate !== undefined
-  ) {
-    next.installDate = next.dueDate;
-  }
-
-  if (
-    (logicalPath === "/allocations/add" || logicalPath === "/allocations/apply") &&
-    next.installDate === undefined &&
-    next.jobDate !== undefined
-  ) {
-    next.installDate = next.jobDate;
-  }
+  const next = normalizeSchedulePayloadAliases(logicalPath, payload) as Record<string, unknown>;
 
   if (logicalPath === "/boxes/add" || logicalPath === "/boxes/update") {
     assertAveryNaturaShadeForWrite(next.manufacturer, next.filmName, "FilmName");

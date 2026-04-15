@@ -677,7 +677,6 @@ function buildAllocationJobSummary(
   caulkRequirements = [],
   lifecycleStatus = 'ACTIVE',
   isLaborOnly = false,
-  isLaborAssigned = false,
   isStagedForPickup = false,
   fallbackInstallDate = '',
   fallbackCrewLeader = '',

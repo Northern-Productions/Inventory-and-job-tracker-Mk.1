@@ -140,8 +140,7 @@ async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDat
     updated_by: actor,
     crew_leader: "Ordered Flow",
     is_staged_for_pickup: false,
-    is_labor_only: false,
-    is_labor_assigned: false
+    is_labor_only: false
   });
 
   await insertAppRow(client, "job_requirements", requirementColumns, {

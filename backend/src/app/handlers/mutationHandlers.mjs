@@ -1,6 +1,7 @@
 // Purpose: Mutation-route dispatch map for the modular backend handler.
 import { HttpError, ok } from '../../lib/http.mjs';
 import { requireString } from '../core/helpers.mjs';
+import { normalizeSchedulePayloadAliases } from '../../../../shared/schedulePayloadAliases.mjs';
 import { applyAllocationPlan, checkoutAllJobMaterials } from '../services/allocations.mjs';
 import { undoAudit } from '../services/audit.mjs';
 import {
@@ -18,7 +19,6 @@ import {
   deleteJob,
   removeJobBoxAllocation,
   reopenJob,
-  setJobLaborAssigned,
   setJobStagedPickup,
   updateJob,
 } from '../services/jobs.mjs';
@@ -139,20 +139,6 @@ const mutationHandlers = {
     }
     return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
   },
-  '/jobs/set-labor-assigned': async ({ client, orgId, authContext, params }) => {
-    const jobNumber = requireString(params.jobNumber, 'JobNumber');
-    const result = await setJobLaborAssigned(
-      client,
-      orgId,
-      jobNumber,
-      params && params.isLaborAssigned,
-      authContext.actor
-    );
-    if (!result) {
-      throw new HttpError(500, 'Job labor assignment update failed.');
-    }
-    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
-  },
   '/jobs/complete': async ({ client, orgId, authContext, params }) =>
     completeJob(client, orgId, params, authContext.actor),
   '/jobs/delete': async ({ client, orgId, authContext, params }) =>
@@ -176,33 +162,7 @@ const mutationHandlers = {
 };
 
 function normalizeLegacySchedulePayload(logicalPath, params) {
-  if (!params || typeof params !== 'object') {
-    return {};
-  }
-
-  if (logicalPath === '/jobs/create' || logicalPath === '/jobs/update') {
-    if (params.installDate !== undefined || params.dueDate === undefined) {
-      return params;
-    }
-
-    return {
-      ...params,
-      installDate: params.dueDate
-    };
-  }
-
-  if (logicalPath === '/allocations/add' || logicalPath === '/allocations/apply') {
-    if (params.installDate !== undefined || params.jobDate === undefined) {
-      return params;
-    }
-
-    return {
-      ...params,
-      installDate: params.jobDate
-    };
-  }
-
-  return params;
+  return normalizeSchedulePayloadAliases(logicalPath, params);
 }
 
 async function applyCheckoutAllJobMaterials(client, orgId, jobNumber, actor) {

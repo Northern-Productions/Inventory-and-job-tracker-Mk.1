@@ -6,7 +6,6 @@ export {
   buildJobDetail,
   buildReadJobDetail,
   setJobStagedPickup,
-  setJobLaborAssigned,
 } from './runtime/runtimeJobsRead.mjs';
 export { buildReportsSummary, buildOwnerAssetTotalCost } from './runtime/runtimeReports.mjs';
 export {

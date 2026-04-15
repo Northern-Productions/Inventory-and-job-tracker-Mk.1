@@ -93,6 +93,12 @@ async function main() {
     .trim()
     .toUpperCase();
   const transferRoundTrip = String(process.env.SMOKE_TRANSFER_ROUNDTRIP || '').trim().toLowerCase() === 'true';
+  const verifyJobInstallDate = String(process.env.SMOKE_VERIFY_JOB_INSTALL_DATE || '').trim().toLowerCase() === 'true';
+  const smokeJobNumber = String(process.env.SMOKE_JOB_NUMBER || '').trim();
+  const smokeJobInstallDate = String(process.env.SMOKE_JOB_INSTALL_DATE || '').trim();
+  const smokeJobWarehouse = String(process.env.SMOKE_JOB_WAREHOUSE || '').trim().toUpperCase();
+  const smokeJobSections = String(process.env.SMOKE_JOB_SECTIONS || '').trim();
+  const smokeJobCrewLeader = String(process.env.SMOKE_JOB_CREW_LEADER || '').trim();
 
   if (token && source === 'SMOKE_USER_EMAIL') {
     // eslint-disable-next-line no-console
@@ -395,6 +401,69 @@ async function main() {
           `${buildSmokeAuthSetupMessage('authenticated backend smoke routes')} ` +
           'Also set SMOKE_TRANSFER_BOX_ID and SMOKE_TRANSFER_DEST_WAREHOUSE.)'
       );
+    }
+
+    if (verifyJobInstallDate) {
+      if (token && smokeJobNumber && smokeJobInstallDate) {
+        const updateBody = {
+          jobNumber: smokeJobNumber,
+          installDate: smokeJobInstallDate
+        };
+        if (smokeJobWarehouse) {
+          updateBody.warehouse = smokeJobWarehouse;
+        }
+        if (smokeJobSections) {
+          updateBody.sections = smokeJobSections;
+        }
+        if (smokeJobCrewLeader) {
+          updateBody.crewLeader = smokeJobCrewLeader;
+        }
+
+        const updateResponse = await runCase(
+          {
+            method: 'POST',
+            path: '/jobs/update',
+            body: updateBody,
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+        // eslint-disable-next-line no-console
+        console.log(`PASS POST /jobs/update (installDate smoke) -> ${updateResponse.statusCode}`);
+
+        const getResponse = await runCase(
+          {
+            method: 'GET',
+            path: '/jobs/get',
+            query: { jobNumber: smokeJobNumber },
+            expectedStatuses: [200]
+          },
+          token
+        );
+        passed += 1;
+
+        const persistedInstallDate = String(
+          getResponse.payload?.data?.summary?.installDate || ''
+        ).trim();
+        if (persistedInstallDate !== smokeJobInstallDate) {
+          throw new Error(
+            `/jobs/get: expected summary.installDate ${smokeJobInstallDate}, received ${persistedInstallDate || '<empty>'}`
+          );
+        }
+
+        // eslint-disable-next-line no-console
+        console.log(`PASS GET /jobs/get (installDate smoke) -> ${getResponse.statusCode}`);
+      } else {
+        skipped += 1;
+        // eslint-disable-next-line no-console
+        console.log(
+          'SKIP job install-date smoke (' +
+            `${buildSmokeAuthSetupMessage('authenticated backend smoke routes')} ` +
+            'Also set SMOKE_JOB_NUMBER and SMOKE_JOB_INSTALL_DATE. ' +
+            'Set SMOKE_JOB_WAREHOUSE too if the smoke job may need to be created.)'
+        );
+      }
     }
   }
 

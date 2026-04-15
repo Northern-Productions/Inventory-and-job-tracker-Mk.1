@@ -284,7 +284,6 @@ async function buildAllocationJobList(client, orgId) {
         publicCaulkRequirements,
         header?.lifecycleStatus || 'ACTIVE',
         Boolean(header?.isLaborOnly),
-        Boolean(header?.isLaborAssigned),
         Boolean(header?.isStagedForPickup),
         header?.installDate || '',
         header?.crewLeader || '',
