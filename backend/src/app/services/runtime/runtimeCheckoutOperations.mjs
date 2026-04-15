@@ -126,6 +126,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByIds,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -198,8 +199,18 @@ import {
   autoLinkRemainingJobFeetToCheckedOutBox,
 } from './runtimeAllocationLinks.mjs';
 import {
+  buildPublicJobRequirementEntries,
+  buildPublicCaulkRequirementEntries,
+} from './runtimeAllocationCoverage.mjs';
+import {
   recalculateFilmOrder,
 } from './runtimeAllocationPlanning.mjs';
+import { buildJobFilmTransferAlerts, buildFilmTransferAlertMessage } from './runtimeTransferUsage.mjs';
+import {
+  buildLegacyJobHeaderFromData,
+  deriveJobStatusFromLegacyAllocationData,
+  getJobStagingBlockingReason,
+} from './runtimeJobSummaries.mjs';
 
 async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, user) {
   const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
@@ -441,6 +452,191 @@ async function checkoutCaulkAllocationForJob(client, orgId, jobNumber, caulkAllo
   };
 }
 
+function collectAllocationBoxIds(allocations) {
+  const boxIds = new Set();
+
+  for (let index = 0; index < (Array.isArray(allocations) ? allocations : []).length; index += 1) {
+    const boxId = asTrimmedString(allocations[index]?.boxId).toUpperCase();
+    if (boxId) {
+      boxIds.add(boxId);
+    }
+  }
+
+  return Array.from(boxIds);
+}
+
+function indexBoxesById(boxes) {
+  const indexed = {};
+
+  for (let index = 0; index < (Array.isArray(boxes) ? boxes : []).length; index += 1) {
+    const box = boxes[index];
+    const boxId = asTrimmedString(box?.boxId).toUpperCase();
+    if (boxId) {
+      indexed[boxId] = box;
+    }
+  }
+
+  return indexed;
+}
+
+function buildJobStagingValidationState({
+  jobNumber,
+  warehouse,
+  allocations,
+  filmOrders,
+  requirements,
+  caulkRequirements,
+  caulkAllocations,
+  boxes,
+  pendingTransfersByBoxRecordId
+}) {
+  const boxById = indexBoxesById(boxes);
+  const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
+    caulkRequirements,
+    caulkAllocations
+  );
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    warehouse,
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId
+  );
+
+  return {
+    jobNumber,
+    warehouse,
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    boxes,
+    boxById,
+    pendingTransfersByBoxRecordId,
+    publicRequirements,
+    publicCaulkRequirements,
+    filmTransferAlerts,
+    blockingReason: getJobStagingBlockingReason(
+      publicRequirements,
+      publicCaulkRequirements,
+      allocations,
+      filmOrders,
+      caulkAllocations,
+      filmTransferAlerts,
+      boxById
+    )
+  };
+}
+
+async function loadJobStagingValidationState(
+  client,
+  orgId,
+  jobNumber,
+  warehouse,
+  seedData = {},
+  deps = {}
+) {
+  const loadAllocationsByJob = deps.listAllocationsByJob || listAllocationsByJob;
+  const loadFilmOrdersByJob = deps.listFilmOrdersByJob || listFilmOrdersByJob;
+  const loadJobRequirementsByJob = deps.listJobRequirementsByJob || listJobRequirementsByJob;
+  const loadJobCaulkRequirementsByJob = deps.listJobCaulkRequirementsByJob || listJobCaulkRequirementsByJob;
+  const loadCaulkJobAllocationsByJob = deps.listCaulkJobAllocationsByJob || listCaulkJobAllocationsByJob;
+  const loadBoxesByIds = deps.listBoxesByIds || listBoxesByIds;
+  const loadPendingTransfersByBoxRecordIds =
+    deps.listPendingBoxTransfersByBoxRecordIds || listPendingBoxTransfersByBoxRecordIds;
+  const buildPendingTransfersByBoxRecordId =
+    deps.indexPendingBoxTransfersByBoxRecordId || indexPendingBoxTransfersByBoxRecordId;
+  const collectBoxIds = deps.collectAllocationBoxIds || collectAllocationBoxIds;
+  const buildValidationState = deps.buildJobStagingValidationState || buildJobStagingValidationState;
+
+  const allocations = Array.isArray(seedData.allocations)
+    ? seedData.allocations
+    : await loadAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = Array.isArray(seedData.filmOrders)
+    ? seedData.filmOrders
+    : await loadFilmOrdersByJob(client, orgId, jobNumber);
+  const requirements = Array.isArray(seedData.requirements)
+    ? seedData.requirements
+    : await loadJobRequirementsByJob(client, orgId, jobNumber);
+  const caulkRequirements = Array.isArray(seedData.caulkRequirements)
+    ? seedData.caulkRequirements
+    : await loadJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const caulkAllocations = Array.isArray(seedData.caulkAllocations)
+    ? seedData.caulkAllocations
+    : await loadCaulkJobAllocationsByJob(client, orgId, jobNumber);
+  const boxes = Array.isArray(seedData.boxes)
+    ? seedData.boxes
+    : await loadBoxesByIds(client, orgId, collectBoxIds(allocations));
+  const pendingTransfersByBoxRecordId =
+    seedData.pendingTransfersByBoxRecordId ||
+    (boxes.length
+      ? buildPendingTransfersByBoxRecordId(
+          await loadPendingTransfersByBoxRecordIds(
+            client,
+            orgId,
+            boxes.map((box) => box.id).filter(Boolean)
+          )
+        )
+      : {});
+
+  return buildValidationState({
+    jobNumber,
+    warehouse,
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    boxes,
+    pendingTransfersByBoxRecordId
+  });
+}
+
+async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor, nowIso) {
+  const existing = await findJobByNumber(client, orgId, jobNumber);
+  if (existing) {
+    return {
+      header: existing,
+      allocations: null,
+      filmOrders: null,
+    };
+  }
+
+  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const requirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  if (!allocations.length && !filmOrders.length && !requirements.length) {
+    return {
+      header: null,
+      allocations,
+      filmOrders,
+    };
+  }
+
+  const derived = buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
+  const legacyStatus = deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
+  if (legacyStatus === 'CANCELLED') {
+    derived.lifecycleStatus = 'CANCELLED';
+  } else if (legacyStatus === 'COMPLETED') {
+    derived.lifecycleStatus = 'COMPLETED';
+  } else {
+    derived.lifecycleStatus = 'ACTIVE';
+  }
+  derived.createdAt = derived.createdAt || nowIso;
+  derived.createdBy = derived.createdBy || actor;
+  derived.updatedAt = nowIso;
+  derived.updatedBy = actor;
+  derived.isLaborOnly = false;
+  derived.isStagedForPickup = false;
+
+  return {
+    header: await saveJobRecord(client, orgId, derived),
+    allocations,
+    filmOrders,
+  };
+}
+
 async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
   const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
   const resolvedContext = await resolveExistingOrLegacyJobHeader(
@@ -459,43 +655,34 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     throw new HttpError(400, `Job ${normalizedJobNumber} is closed and checkout-all cannot be changed.`);
   }
 
-  const allocations = resolvedContext.allocations || (await listAllocationsByJob(client, orgId, normalizedJobNumber));
-  const filmOrders = resolvedContext.filmOrders || (await listFilmOrdersByJob(client, orgId, normalizedJobNumber));
-  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-  const boxes = await listBoxes(client, orgId);
-  const boxById = {};
+  const preCheckoutState = await loadJobStagingValidationState(
+    client,
+    orgId,
+    normalizedJobNumber,
+    existingJob.warehouse,
+    {
+      allocations: resolvedContext.allocations || undefined,
+      filmOrders: resolvedContext.filmOrders || undefined
+    }
+  );
+  const boxById = preCheckoutState.boxById;
   const warnings = [];
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
 
-  for (let index = 0; index < boxes.length; index += 1) {
-    boxById[boxes[index].boxId] = boxes[index];
+  if (preCheckoutState.filmTransferAlerts.length > 0) {
+    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutState.filmTransferAlerts, 'checkout'));
   }
 
-  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
-    await listPendingBoxTransfersByBoxRecordIds(
-      client,
-      orgId,
-      boxes.map((box) => box.id)
-    )
-  );
-  const preCheckoutTransferAlerts = buildJobFilmTransferAlerts(
-    existingJob.warehouse,
-    allocations,
-    boxById,
-    pendingTransfersByBoxRecordId
-  );
-  if (preCheckoutTransferAlerts.length > 0) {
-    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutTransferAlerts, 'checkout'));
-  }
-
-  if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
+  if (hasActiveOrderedRequirementAllocations(preCheckoutState.allocations, boxById)) {
     throw new HttpError(400, buildOrderedAllocationReceiptMessage('checkout'));
   }
 
-  const checkoutPlan = buildFilmCheckoutActionPlan(allocations, boxById, normalizedJobNumber);
+  const checkoutPlan = buildFilmCheckoutActionPlan(
+    preCheckoutState.allocations,
+    boxById,
+    normalizedJobNumber
+  );
 
   for (let index = 0; index < checkoutPlan.length; index += 1) {
     const step = checkoutPlan[index];
@@ -517,8 +704,8 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     }
   }
 
-  for (let index = 0; index < caulkAllocations.length; index += 1) {
-    const allocation = caulkAllocations[index];
+  for (let index = 0; index < preCheckoutState.caulkAllocations.length; index += 1) {
+    const allocation = preCheckoutState.caulkAllocations[index];
     if (allocation.status !== 'ACTIVE') {
       continue;
     }
@@ -549,51 +736,14 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     }
   }
 
-  const refreshedAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  const refreshedFilmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-  const refreshedRequirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-  const refreshedCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-  const refreshedCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-  const refreshedBoxes = await listBoxes(client, orgId);
-  const refreshedBoxById = {};
-
-  for (let index = 0; index < refreshedBoxes.length; index += 1) {
-    refreshedBoxById[refreshedBoxes[index].boxId] = refreshedBoxes[index];
-  }
-
-  const publicRequirements = buildPublicJobRequirementEntries(
-    refreshedRequirements,
-    refreshedAllocations,
-    refreshedBoxById
+  const refreshedState = await loadJobStagingValidationState(
+    client,
+    orgId,
+    normalizedJobNumber,
+    existingJob.warehouse
   );
-  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
-    refreshedCaulkRequirements,
-    refreshedCaulkAllocations
-  );
-  const refreshedPendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
-    await listPendingBoxTransfersByBoxRecordIds(
-      client,
-      orgId,
-      refreshedBoxes.map((box) => box.id)
-    )
-  );
-  const filmTransferAlerts = buildJobFilmTransferAlerts(
-    existingJob.warehouse,
-    refreshedAllocations,
-    refreshedBoxById,
-    refreshedPendingTransfersByBoxRecordId
-  );
-  const blockingReason = getJobStagingBlockingReason(
-    publicRequirements,
-    publicCaulkRequirements,
-    refreshedAllocations,
-    refreshedFilmOrders,
-    refreshedCaulkAllocations,
-    filmTransferAlerts,
-    refreshedBoxById
-  );
-  if (blockingReason) {
-    throw new HttpError(400, blockingReason);
+  if (refreshedState.blockingReason) {
+    throw new HttpError(400, refreshedState.blockingReason);
   }
 
   if (checkedOutBoxCount > 0 || checkedOutCaulkCount > 0) {
@@ -603,7 +753,9 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
   }
 
   return {
-    warnings
+    jobNumber: normalizedJobNumber,
+    warnings,
+    stagingState: refreshedState
   };
 }
 
@@ -767,6 +919,9 @@ export {
   hasPositiveReactivationSignal,
   checkoutBoxForJob,
   checkoutCaulkAllocationForJob,
+  collectAllocationBoxIds,
+  buildJobStagingValidationState,
+  loadJobStagingValidationState,
   checkoutAllJobMaterials,
   cancelActiveAllocationsForBox,
   cancelActiveAllocationsForCheckInJob,

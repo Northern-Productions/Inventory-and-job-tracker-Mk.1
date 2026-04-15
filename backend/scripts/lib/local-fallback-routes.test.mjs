@@ -6,6 +6,8 @@ import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoute
 test('uses local fallback for localhost job and film-order write paths that must preserve write labels', () => {
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/create'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/update'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/set-staged-pickup'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/checkout-all'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/film-orders/create'), true);
 });
 

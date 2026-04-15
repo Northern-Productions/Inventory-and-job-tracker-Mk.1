@@ -34,6 +34,7 @@
     "verify:job-summary-parity": "node scripts/verify-job-summary-parity.mjs",
     "verify:ordered-box-local-fallback-routes": "node scripts/verify-ordered-box-local-fallback-routes.mjs",
     "verify:ordered-box-allocation-flow": "node scripts/verify-ordered-box-allocation-flow.mjs",
+    "verify:staged-pickup-flow": "node scripts/verify-staged-pickup-flow.mjs",
     "verify:edge:live": "node scripts/verify-live-edge-job-summary.mjs",
     "start": "npm run check:schema:0006 && node server.mjs",
     "start:unsafe": "node server.mjs",

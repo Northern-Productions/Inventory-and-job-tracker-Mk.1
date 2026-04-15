@@ -192,10 +192,9 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
-import { buildJobFilmTransferAlerts, buildPublicJobUsageEntries, buildPublicJobUsageTimelineEntries } from './runtimeTransferUsage.mjs';
 import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } from './runtimeAllocationCoverage.mjs';
-import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData, buildPublicAllocationEntriesForJob, buildPublicFilmOrdersForJob, getJobStagingBlockingReason } from './runtimeJobSummaries.mjs';
-import { checkoutAllJobMaterials } from './runtimeCheckoutOperations.mjs';
+import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData } from './runtimeJobSummaries.mjs';
+import { checkoutAllJobMaterials, loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
 import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
 import {
   buildJobDetailPayload,
@@ -453,12 +452,29 @@ async function buildReadJobDetail(orgId, jobNumber) {
   return buildJobDetailPayload(await loadJobDetailContextWithPooledReads(orgId, jobNumber));
 }
 
-async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor, payload = {}) {
-  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+async function executeSetJobStagedPickup(
+  client,
+  orgId,
+  jobNumber,
+  isStagedForPickup,
+  actor,
+  payload = {},
+  deps = {}
+) {
+  const normalizeJobNumber = deps.normalizeJobNumberDigits || normalizeJobNumberDigits;
+  const trimString = deps.asTrimmedString || asTrimmedString;
+  const resolveJobHeader = deps.resolveExistingOrLegacyJobHeader || resolveExistingOrLegacyJobHeader;
+  const normalizeLifecycleStatus = deps.normalizeJobLifecycleStatus || normalizeJobLifecycleStatus;
+  const runCheckoutAllJobMaterials = deps.checkoutAllJobMaterials || checkoutAllJobMaterials;
+  const loadStagingValidationState = deps.loadJobStagingValidationState || loadJobStagingValidationState;
+  const runQueryRow = deps.queryRow || queryRow;
+  const mapJob = deps.mapDbJobRow || mapDbJobRow;
+  const nowIso = deps.nowIso || new Date().toISOString();
+  const normalizedJobNumber = normalizeJobNumber(jobNumber, 'JobNumber');
   const warnings = [];
   const normalizedFlag = typeof isStagedForPickup === 'boolean'
     ? String(isStagedForPickup)
-    : asTrimmedString(isStagedForPickup).toLowerCase();
+    : trimString(isStagedForPickup).toLowerCase();
   let nextIsStaged = null;
 
   if (normalizedFlag === 'true' || normalizedFlag === 't' || normalizedFlag === '1' || normalizedFlag === 'yes' || normalizedFlag === 'on') {
@@ -477,75 +493,52 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
     throw new HttpError(400, 'isStagedForPickup must be true or false.');
   }
 
-  const nowIso = new Date().toISOString();
-  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
+  const resolvedContext = await resolveJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
   const existingJob = resolvedContext.header;
   if (!existingJob) {
     throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
   }
 
-  if (normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+  if (normalizeLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
     throw new HttpError(400, `Job ${normalizedJobNumber} is closed and staged pickup cannot be changed.`);
   }
 
   if (nextIsStaged) {
+    let stagingState = null;
     const autoCheckoutRemaining = payload.autoCheckoutRemaining === true || String(payload.autoCheckoutRemaining) === 'true';
 
     if (autoCheckoutRemaining) {
-      const checkoutResult = await checkoutAllJobMaterials(client, orgId, normalizedJobNumber, actor);
+      const checkoutResult = await runCheckoutAllJobMaterials(client, orgId, normalizedJobNumber, actor);
       if (checkoutResult && Array.isArray(checkoutResult.warnings)) {
         for (let index = 0; index < checkoutResult.warnings.length; index += 1) {
-          const warning = asTrimmedString(checkoutResult.warnings[index]);
+          const warning = trimString(checkoutResult.warnings[index]);
           if (warning) {
             warnings.push(warning);
           }
         }
       }
+      stagingState = checkoutResult?.stagingState || null;
     }
 
-    const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-    const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
-    const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
-    const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
-    const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
-    const boxes = await listBoxes(client, orgId);
-    const boxById = {};
-
-    for (let index = 0; index < boxes.length; index += 1) {
-      boxById[boxes[index].boxId] = boxes[index];
-    }
-
-    const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
-    const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
-    const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
-      await listPendingBoxTransfersByBoxRecordIds(
+    if (!stagingState) {
+      stagingState = await loadStagingValidationState(
         client,
         orgId,
-        boxes.map((box) => box.id)
-      )
-    );
-    const filmTransferAlerts = buildJobFilmTransferAlerts(
-      existingJob.warehouse,
-      allocations,
-      boxById,
-      pendingTransfersByBoxRecordId
-    );
-    const blockingReason = getJobStagingBlockingReason(
-      publicRequirements,
-      publicCaulkRequirements,
-      allocations,
-      filmOrders,
-      caulkAllocations,
-      filmTransferAlerts,
-      boxById
-    );
+        normalizedJobNumber,
+        existingJob.warehouse,
+        {
+          allocations: resolvedContext.allocations || undefined,
+          filmOrders: resolvedContext.filmOrders || undefined
+        }
+      );
+    }
 
-    if (blockingReason) {
-      throw new HttpError(400, blockingReason);
+    if (stagingState.blockingReason) {
+      throw new HttpError(400, stagingState.blockingReason);
     }
   }
 
-  const row = await queryRow(
+  const row = await runQueryRow(
     client,
     `
       update app.jobs
@@ -570,13 +563,17 @@ async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, a
     return null;
   }
 
-  const savedJob = mapDbJobRow(row);
+  const savedJob = mapJob(row);
   return {
     jobNumber: savedJob.jobNumber,
     isStagedForPickup: savedJob.isStagedForPickup,
     updatedAt: savedJob.updatedAt,
     warnings
   };
+}
+
+async function setJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor, payload = {}) {
+  return executeSetJobStagedPickup(client, orgId, jobNumber, isStagedForPickup, actor, payload);
 }
 
 async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user, nowIso) {
@@ -667,6 +664,7 @@ export {
   buildJobsCalendar,
   buildJobDetail,
   buildReadJobDetail,
+  executeSetJobStagedPickup,
   setJobStagedPickup,
   ensureJobHeaderForUpdate,
   resolveExistingOrLegacyJobHeader,

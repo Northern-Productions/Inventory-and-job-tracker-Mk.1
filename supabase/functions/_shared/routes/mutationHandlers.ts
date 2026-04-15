@@ -375,10 +375,14 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
   },
   "/jobs/set-staged-pickup": async ({ client, identity, normalizedPayload }, deps) => {
-    return await deps.setJobStagedPickup(client, identity, normalizedPayload);
+    const result = await deps.setJobStagedPickup(client, identity, normalizedPayload);
+    const jobNumber = deps.requireString(result.jobNumber, "JobNumber");
+    return ok(await deps.buildJobDetail(client, identity.orgId, jobNumber), result.warnings || []);
   },
   "/jobs/checkout-all": async ({ client, identity, normalizedPayload }, deps) => {
-    return await deps.checkoutAllJobMaterials(client, identity, normalizedPayload);
+    const result = await deps.checkoutAllJobMaterials(client, identity, normalizedPayload);
+    const jobNumber = deps.requireString(result.jobNumber, "JobNumber");
+    return ok(await deps.buildJobDetail(client, identity.orgId, jobNumber), result.warnings || []);
   },
   "/jobs/complete": async ({ client, identity, payload }, deps) => {
     return await deps.completeJob(client, identity, payload);
