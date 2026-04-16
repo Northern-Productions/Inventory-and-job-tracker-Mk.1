@@ -28,6 +28,7 @@ type JobWorkflowDialogsProps = {
   caulkAllocationEditorError: string;
   setCaulkAllocationEditorError: Dispatch<SetStateAction<string>>;
   pendingCaulkMutation: boolean;
+  caulkAllocationEditorPending?: boolean;
   caulkRequirements: JobCaulkRequirementLine[];
   caulkAllocations: CaulkJobAllocationEntry[];
   caulkProducts: CaulkProductEntry[];
@@ -46,6 +47,7 @@ type JobWorkflowDialogsProps = {
   checkinCaulkAllocationPending: boolean;
   onSubmitCaulkCheckin: () => void;
   isEditOpen: boolean;
+  editDraftOverride?: JobEditorSubmitPayload | null;
   jobNumber: string;
   warehouse: Warehouse;
   sections: string | null;
@@ -75,6 +77,7 @@ export function JobWorkflowDialogs({
   caulkAllocationEditorError,
   setCaulkAllocationEditorError,
   pendingCaulkMutation,
+  caulkAllocationEditorPending = pendingCaulkMutation,
   caulkRequirements,
   caulkAllocations,
   caulkProducts,
@@ -93,6 +96,7 @@ export function JobWorkflowDialogs({
   checkinCaulkAllocationPending,
   onSubmitCaulkCheckin,
   isEditOpen,
+  editDraftOverride = null,
   jobNumber,
   warehouse,
   sections,
@@ -122,7 +126,7 @@ export function JobWorkflowDialogs({
         setEditor={setCaulkAllocationEditor}
         error={caulkAllocationEditorError}
         setError={setCaulkAllocationEditorError}
-        pending={pendingCaulkMutation}
+        pending={caulkAllocationEditorPending}
         caulkRequirements={caulkRequirements}
         caulkAllocations={caulkAllocations}
         caulkProducts={caulkProducts}
@@ -155,6 +159,7 @@ export function JobWorkflowDialogs({
         submitLabel="Save Job"
         submitting={updateJobPending}
         initialJobNumber={jobNumber}
+        restoreDraft={editDraftOverride}
         initialWarehouse={warehouse}
         initialSections={sections}
         initialInstallDate={installDate}

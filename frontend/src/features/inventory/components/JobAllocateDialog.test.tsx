@@ -1077,7 +1077,7 @@ describe('JobAllocateDialog', () => {
     const requirementSelect = screen.getByRole('combobox') as HTMLSelectElement;
     expect(requirementSelect.value).toBe('req-2');
     expect(screen.getByDisplayValue('12')).toBeTruthy();
-    expect(screen.getByText(/1 allocation saving in background/i)).toBeTruthy();
+    expect(screen.getByText(/1 update saving in background/i)).toBeTruthy();
 
     firstSave.resolve({
       result: {
@@ -1172,7 +1172,7 @@ describe('JobAllocateDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
 
     expect(onCancel).toHaveBeenCalled();
-    expect(screen.getByText(/1 allocation saving in background/i)).toBeTruthy();
+    expect(screen.getByText(/1 update saving in background/i)).toBeTruthy();
 
     save.resolve({
       result: {
@@ -1333,7 +1333,7 @@ describe('JobAllocateDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/2 allocations saving in background/i)).toBeTruthy();
+    expect(screen.getByText(/2 updates saving in background/i)).toBeTruthy();
 
     secondSave.resolve({
       result: {

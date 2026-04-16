@@ -9,7 +9,8 @@ import { useJobFilmWorkflow } from './allocation-job/useJobFilmWorkflow';
 const useBoxMock = vi.fn();
 
 vi.mock('../hooks/useInventoryQueries', () => ({
-  useBox: (boxId: string) => useBoxMock(boxId)
+  useBox: (boxId: string) => useBoxMock(boxId),
+  usePendingSetBoxStatusBoxIds: () => new Set<string>()
 }));
 
 function buildFilmBox(overrides: Partial<Box> = {}): Box {
@@ -119,6 +120,7 @@ function renderJobDialogs(onConfirmFilmCheckin = vi.fn()) {
       onConfirmRemoveAllocation={vi.fn()}
       filmCheckinEntry={buildFilmAllocationEntry()}
       filmCheckinBox={buildFilmBox()}
+      filmCheckinInitialDraft={null}
       filmCheckinBoxLoading={false}
       filmCheckinBoxError=""
       filmCheckinPending={false}
@@ -218,33 +220,38 @@ describe('Allocation job film returns', () => {
       result.current.openFilmCheckinDialog(buildFilmAllocationEntry());
     });
 
-    await act(async () => {
-      await result.current.handleFilmCheckinConfirm({
+    act(() => {
+      result.current.handleFilmCheckinConfirm({
         lastRollWeightLbs: '3.34',
         currentFeetOnRoll: '19',
         coreType: 'Red plastic'
       });
     });
 
-    expect(setBoxStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        boxId: 'MS1-919',
-        status: 'IN_STOCK',
-        lastRollWeightLbs: 3.34,
-        currentFeetOnRoll: 19,
-        auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
-      })
+    await waitFor(() =>
+      expect(setBoxStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'MS1-919',
+          status: 'IN_STOCK',
+          lastRollWeightLbs: 3.34,
+          currentFeetOnRoll: 19,
+          auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+        })
+      )
     );
 
     const submittedPayload = setBoxStatus.mock.calls[0]?.[0];
     expect(submittedPayload).not.toHaveProperty('coreType');
     expect(result.current.filmCheckinEntry).toBeNull();
-    expect(maybeOpenReturnCompletionPrompt).toHaveBeenCalledWith(true);
-    expect(pushToast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'Checked in MS1-919',
-        variant: 'success'
-      })
-    );
+
+    await waitFor(() => {
+      expect(maybeOpenReturnCompletionPrompt).toHaveBeenCalledWith(true);
+      expect(pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Checked in MS1-919',
+          variant: 'success'
+        })
+      );
+    });
   });
 });

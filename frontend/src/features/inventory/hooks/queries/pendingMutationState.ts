@@ -1,55 +1,99 @@
 import { useMemo } from 'react';
 import { useMutationState } from '@tanstack/react-query';
-import type { FilmOrderEntry, RemoveJobBoxAllocationsPayload } from '../../../../domain';
+import type {
+  AddCaulkJobAllocationPayload,
+  CheckinCaulkJobAllocationPayload,
+  CheckoutCaulkJobAllocationPayload,
+  FilmOrderEntry,
+  RemoveCaulkJobAllocationPayload,
+  RemoveJobBoxAllocationsPayload,
+  SetBoxStatusPayload,
+  UpdateCaulkJobAllocationPayload,
+  UpdateJobPayload
+} from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
 
-export function usePendingRemoveJobBoxAllocationIds() {
-  const pendingAllocationIds = useMutationState({
+function usePendingStringSet<Variables>(
+  mutationKey: readonly unknown[],
+  selector: (variables: Variables | undefined) => string
+) {
+  const pendingValues = useMutationState({
     filters: {
-      mutationKey: inventoryKeys.removeJobBoxAllocationMutation,
+      mutationKey,
       status: 'pending'
     },
-    select: (mutation) => {
-      const variables = mutation.state.variables as RemoveJobBoxAllocationsPayload | undefined;
-      return String(variables?.allocationId || '').trim().toUpperCase();
-    }
+    select: (mutation) => selector(mutation.state.variables as Variables | undefined)
   });
 
   return useMemo(() => {
-    const nextIds = new Set<string>();
-    for (let index = 0; index < pendingAllocationIds.length; index += 1) {
-      const allocationId = String(pendingAllocationIds[index] || '').trim().toUpperCase();
-      if (allocationId) {
-        nextIds.add(allocationId);
+    const nextValues = new Set<string>();
+    for (let index = 0; index < pendingValues.length; index += 1) {
+      const value = String(pendingValues[index] || '').trim().toUpperCase();
+      if (value) {
+        nextValues.add(value);
       }
     }
 
-    return nextIds;
-  }, [pendingAllocationIds]);
+    return nextValues;
+  }, [pendingValues]);
+}
+
+export function usePendingUpdateJobNumbers() {
+  return usePendingStringSet<UpdateJobPayload>(inventoryKeys.updateJobMutation, (variables) =>
+    String(variables?.jobNumber || '')
+  );
+}
+
+export function usePendingSetBoxStatusBoxIds() {
+  return usePendingStringSet<SetBoxStatusPayload>(inventoryKeys.setBoxStatusMutation, (variables) =>
+    String(variables?.boxId || '')
+  );
+}
+
+export function usePendingRemoveJobBoxAllocationIds() {
+  return usePendingStringSet<RemoveJobBoxAllocationsPayload>(
+    inventoryKeys.removeJobBoxAllocationMutation,
+    (variables) => String(variables?.allocationId || '')
+  );
 }
 
 export function usePendingDeleteFilmOrderIds() {
-  const pendingFilmOrderIds = useMutationState({
-    filters: {
-      mutationKey: inventoryKeys.deleteFilmOrderMutation,
-      status: 'pending'
-    },
-    select: (mutation) => {
-      const variables =
-        mutation.state.variables as Pick<FilmOrderEntry, 'filmOrderId'> | { filmOrderId?: string } | undefined;
-      return String(variables?.filmOrderId || '').trim().toUpperCase();
-    }
-  });
+  return usePendingStringSet<
+    Pick<FilmOrderEntry, 'filmOrderId'> | { filmOrderId?: string }
+  >(inventoryKeys.deleteFilmOrderMutation, (variables) => String(variables?.filmOrderId || ''));
+}
 
-  return useMemo(() => {
-    const nextIds = new Set<string>();
-    for (let index = 0; index < pendingFilmOrderIds.length; index += 1) {
-      const filmOrderId = String(pendingFilmOrderIds[index] || '').trim().toUpperCase();
-      if (filmOrderId) {
-        nextIds.add(filmOrderId);
-      }
-    }
+export function usePendingAddCaulkAllocationJobNumbers() {
+  return usePendingStringSet<AddCaulkJobAllocationPayload>(
+    inventoryKeys.addCaulkAllocationMutation,
+    (variables) => String(variables?.jobNumber || '')
+  );
+}
 
-    return nextIds;
-  }, [pendingFilmOrderIds]);
+export function usePendingUpdateCaulkAllocationIds() {
+  return usePendingStringSet<UpdateCaulkJobAllocationPayload>(
+    inventoryKeys.updateCaulkAllocationMutation,
+    (variables) => String(variables?.caulkAllocationId || '')
+  );
+}
+
+export function usePendingRemoveCaulkAllocationIds() {
+  return usePendingStringSet<RemoveCaulkJobAllocationPayload>(
+    inventoryKeys.removeCaulkAllocationMutation,
+    (variables) => String(variables?.caulkAllocationId || '')
+  );
+}
+
+export function usePendingCheckoutCaulkAllocationIds() {
+  return usePendingStringSet<CheckoutCaulkJobAllocationPayload>(
+    inventoryKeys.checkoutCaulkAllocationMutation,
+    (variables) => String(variables?.caulkAllocationId || '')
+  );
+}
+
+export function usePendingCheckinCaulkCheckoutIds() {
+  return usePendingStringSet<CheckinCaulkJobAllocationPayload>(
+    inventoryKeys.checkinCaulkAllocationMutation,
+    (variables) => String(variables?.caulkCheckoutId || '')
+  );
 }

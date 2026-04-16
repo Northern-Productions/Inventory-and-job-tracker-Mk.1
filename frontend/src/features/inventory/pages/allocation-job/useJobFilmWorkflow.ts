@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState, type SetStateAction } from 'react';
 import type { useToast } from '../../../../components/Toast';
 import type {
   AllocationJobDetailEntry,
@@ -9,7 +9,7 @@ import type {
   RemoveJobBoxAllocationsResult,
   SetBoxStatusPayload
 } from '../../../../domain';
-import { useBox } from '../../hooks/useInventoryQueries';
+import { useBox, usePendingSetBoxStatusBoxIds } from '../../hooks/useInventoryQueries';
 import { confirmWarnings, getCheckInWarnings } from '../../utils/boxWarnings';
 import {
   buildFilmCheckinPayload,
@@ -20,6 +20,12 @@ import { buildFilmTransferCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
+
+function cloneFilmCheckinDraft(draft: FilmCheckinDraft): FilmCheckinDraft {
+  return {
+    ...draft
+  };
+}
 
 interface UseJobFilmWorkflowArgs {
   summary: JobListEntry | undefined;
@@ -51,11 +57,45 @@ export function useJobFilmWorkflow({
 }: UseJobFilmWorkflowArgs) {
   const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [allocationToRemove, setAllocationToRemove] = useState<AllocationJobDetailEntry | null>(null);
-  const [filmCheckinEntry, setFilmCheckinEntry] = useState<AllocationJobDetailEntry | null>(null);
-  const filmCheckinBoxQuery = useBox(filmCheckinEntry?.boxId || '');
+  const [filmCheckinEntryState, setFilmCheckinEntryState] = useState<AllocationJobDetailEntry | null>(
+    null
+  );
+  const [filmCheckinDraftOverride, setFilmCheckinDraftOverride] = useState<FilmCheckinDraft | null>(
+    null
+  );
+  const pendingSetBoxStatusBoxIds = usePendingSetBoxStatusBoxIds();
+  const filmCheckinBoxQuery = useBox(filmCheckinEntryState?.boxId || '');
+
+  const setFilmCheckinEntry = useCallback(
+    (nextState: SetStateAction<AllocationJobDetailEntry | null>) => {
+      setFilmCheckinEntryState((current) => {
+        const resolvedState =
+          typeof nextState === 'function'
+            ? (nextState as (value: AllocationJobDetailEntry | null) => AllocationJobDetailEntry | null)(
+                current
+              )
+            : nextState;
+
+        if (!resolvedState) {
+          setFilmCheckinDraftOverride(null);
+        }
+
+        return resolvedState;
+      });
+    },
+    []
+  );
 
   const isAllocationRemovalPending = (allocationId: string) =>
     pendingRemoveJobBoxAllocationIds.has(allocationId.trim().toUpperCase());
+
+  const isBoxStatusPending = useCallback(
+    (boxId: string) => {
+      const normalizedBoxId = String(boxId || '').trim().toUpperCase();
+      return Boolean(normalizedBoxId) && pendingSetBoxStatusBoxIds.has(normalizedBoxId);
+    },
+    [pendingSetBoxStatusBoxIds]
+  );
 
   function openAllocateDialog() {
     setIsAllocateOpen(true);
@@ -200,8 +240,8 @@ export function useJobFilmWorkflow({
     setFilmCheckinEntry(entry);
   }
 
-  async function handleFilmCheckinConfirm(draft: FilmCheckinDraft) {
-    if (!filmCheckinEntry) {
+  function handleFilmCheckinConfirm(draft: FilmCheckinDraft) {
+    if (!filmCheckinEntryState) {
       return;
     }
 
@@ -213,50 +253,57 @@ export function useJobFilmWorkflow({
     if (!box) {
       pushToast({
         title: 'Box details are still loading',
-        description: `The latest box record for ${filmCheckinEntry.boxId} is not ready yet. Try again in a moment.`,
+        description: `The latest box record for ${filmCheckinEntryState.boxId} is not ready yet. Try again in a moment.`,
         variant: 'error'
       });
       return;
     }
 
-    try {
-      const entry = filmCheckinEntry;
-      const payload = buildFilmCheckinPayload(box, draft);
-      const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
-        currentFeetOnRoll: payload.currentFeetOnRoll,
-        coreType: payload.coreType || box.coreType || undefined
-      });
-      if (!confirmWarnings(checkInWarnings)) {
-        return;
-      }
+    const entry = filmCheckinEntryState;
+    const payload = buildFilmCheckinPayload(box, draft);
+    const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
+      currentFeetOnRoll: payload.currentFeetOnRoll,
+      coreType: payload.coreType || box.coreType || undefined
+    });
+    if (!confirmWarnings(checkInWarnings)) {
+      return;
+    }
 
-      const { result, warnings } = await setBoxStatus(payload);
-      if (!didPersistFilmCheckinRollTracking(payload, result.box)) {
+    const draftSnapshot = cloneFilmCheckinDraft(draft);
+    setFilmCheckinDraftOverride(null);
+    setFilmCheckinEntry(null);
+
+    const checkinPromise = setBoxStatus(payload);
+    void checkinPromise
+      .then(({ result, warnings }) => {
+        if (!didPersistFilmCheckinRollTracking(payload, result.box)) {
+          pushToast({
+            title: 'Check-in did not apply the new roll tracking values',
+            description:
+              'The backend responded without saving the submitted return values. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
+            variant: 'error'
+          });
+          return;
+        }
+
         pushToast({
-          title: 'Check-in did not apply the new roll tracking values',
+          title: `Checked in ${entry.boxId}`,
           description:
-            'The backend responded without saving the submitted return values. Refresh the app and try again. If it persists, redeploy the latest Supabase API function and frontend build.',
+            warnings.join(' ') ||
+            `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
+          variant: 'success'
+        });
+        maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);
+      })
+      .catch((error) => {
+        setFilmCheckinDraftOverride(draftSnapshot);
+        setFilmCheckinEntryState(entry);
+        pushToast({
+          title: 'Unable to check in box',
+          description: error instanceof Error ? error.message : 'The check-in request failed.',
           variant: 'error'
         });
-        return;
-      }
-
-      setFilmCheckinEntry(null);
-      pushToast({
-        title: `Checked in ${entry.boxId}`,
-        description:
-          warnings.join(' ') ||
-          `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
-        variant: 'success'
       });
-      maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);
-    } catch (error) {
-      pushToast({
-        title: 'Unable to check in box',
-        description: error instanceof Error ? error.message : 'The check-in request failed.',
-        variant: 'error'
-      });
-    }
   }
 
   return {
@@ -265,7 +312,8 @@ export function useJobFilmWorkflow({
     closeAllocateDialog,
     allocationToRemove,
     setAllocationToRemove,
-    filmCheckinEntry,
+    filmCheckinEntry: filmCheckinEntryState,
+    filmCheckinDraftOverride,
     filmCheckinBox: filmCheckinBoxQuery.data,
     filmCheckinBoxLoading: filmCheckinBoxQuery.isLoading,
     filmCheckinBoxError:
@@ -273,6 +321,7 @@ export function useJobFilmWorkflow({
         ? filmCheckinBoxQuery.error.message
         : '',
     setFilmCheckinEntry,
+    isBoxStatusPending,
     isAllocationRemovalPending,
     openFilmCheckinDialog,
     handleRemoveAllocation,

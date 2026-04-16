@@ -33,6 +33,7 @@ import type {
 interface UseJobEditorFormOptions {
   open: boolean;
   mode: 'create' | 'edit';
+  restoreDraft?: JobEditorSubmitPayload | null;
   initialJobNumber: string;
   initialWarehouse?: Warehouse;
   initialSections?: string | number | null;
@@ -48,6 +49,7 @@ interface UseJobEditorFormOptions {
 export function useJobEditorForm({
   open,
   mode,
+  restoreDraft = null,
   initialJobNumber,
   initialWarehouse,
   initialSections,
@@ -119,13 +121,21 @@ export function useJobEditorForm({
     Number(customWidthDraft) > 0;
 
   const initializeFormState = useCallback(() => {
-    setJobNumber(initialJobNumber);
-    setWarehouse(initialWarehouse || defaultWarehouse);
-    setSections(getSectionsInputValue(initialSections));
-    setInstallDate(initialInstallDate);
-    setCrewLeader(initialCrewLeader);
-    setRequirements(initialRequirements.map((entry) => createDraftLine(entry)));
-    setCaulkRequirements(initialCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
+    const sourceJobNumber = restoreDraft?.jobNumber ?? initialJobNumber;
+    const sourceWarehouse = restoreDraft?.warehouse ?? initialWarehouse ?? defaultWarehouse;
+    const sourceSections = restoreDraft?.sections ?? initialSections;
+    const sourceInstallDate = restoreDraft?.installDate ?? initialInstallDate;
+    const sourceCrewLeader = restoreDraft?.crewLeader ?? initialCrewLeader;
+    const sourceRequirements = restoreDraft?.requirements ?? initialRequirements;
+    const sourceCaulkRequirements = restoreDraft?.caulkRequirements ?? initialCaulkRequirements;
+
+    setJobNumber(sourceJobNumber);
+    setWarehouse(sourceWarehouse);
+    setSections(getSectionsInputValue(sourceSections));
+    setInstallDate(sourceInstallDate);
+    setCrewLeader(sourceCrewLeader);
+    setRequirements(sourceRequirements.map((entry) => createDraftLine(entry)));
+    setCaulkRequirements(sourceCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
     setManufacturer(manufacturerOptions[0] || '');
     setFilmName('');
     setWidthIn('');
@@ -145,7 +155,8 @@ export function useJobEditorForm({
     initialSections,
     initialWarehouse,
     manufacturerOptions,
-    preferredCaulkProductId
+    preferredCaulkProductId,
+    restoreDraft
   ]);
 
   useEffect(() => {

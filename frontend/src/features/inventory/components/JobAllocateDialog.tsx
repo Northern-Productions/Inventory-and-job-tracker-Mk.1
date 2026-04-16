@@ -54,7 +54,7 @@ export function JobAllocateDialog({
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
-  const [pendingAllocationCount, setPendingAllocationCount] = useState(0);
+  const [pendingBackgroundActionCount, setPendingBackgroundActionCount] = useState(0);
   const allocatableRequirements = useMemo(
     () =>
       isExtraFilmMode
@@ -320,7 +320,7 @@ export function JobAllocateDialog({
     payload: Parameters<typeof allocateMutation.mutateAsync>[0],
     successTitle: string
   ) {
-    setPendingAllocationCount((current) => current + 1);
+    setPendingBackgroundActionCount((current) => current + 1);
     const savePromise = allocateMutation.mutateAsync(payload);
 
     void savePromise
@@ -339,7 +339,35 @@ export function JobAllocateDialog({
         });
       })
       .finally(() => {
-        setPendingAllocationCount((current) => Math.max(0, current - 1));
+        setPendingBackgroundActionCount((current) => Math.max(0, current - 1));
+      });
+  }
+
+  function submitFilmOrderInBackground(
+    payload: Parameters<typeof createFilmOrderMutation.mutateAsync>[0],
+    completedRequirementId: string
+  ) {
+    setPendingBackgroundActionCount((current) => current + 1);
+    advanceToNextRequirement(completedRequirementId);
+
+    const createPromise = createFilmOrderMutation.mutateAsync(payload);
+    void createPromise
+      .then(() => {
+        toast.push({
+          title: 'Film order created',
+          description: `The requested film for job ${jobNumber} is now queued for ordering.`,
+          variant: 'success'
+        });
+      })
+      .catch((submitError) => {
+        toast.push({
+          title: 'Unable to create film order',
+          description: submitError instanceof Error ? submitError.message : 'The create request failed.',
+          variant: 'error'
+        });
+      })
+      .finally(() => {
+        setPendingBackgroundActionCount((current) => Math.max(0, current - 1));
       });
   }
 
@@ -422,7 +450,7 @@ export function JobAllocateDialog({
     advanceToNextRequirement(completedRequirementId);
   }
 
-  async function handleOrderFilm() {
+  function handleOrderFilm() {
     if (!selectedRequirement) {
       setError('Select a requirement line first.');
       return;
@@ -456,26 +484,21 @@ export function JobAllocateDialog({
       return;
     }
 
-    try {
-      await createFilmOrderMutation.mutateAsync({
+    setError('');
+    submitFilmOrderInBackground(
+      {
         jobNumber,
         warehouse,
         manufacturer: selectedRequirement.manufacturer,
         filmName: selectedRequirement.filmName,
         widthIn: selectedRequirement.widthIn,
         requestedFeet: requestedFeetValue
-      });
-      advanceToNextRequirement(selectedRequirement.requirementId);
-    } catch (submitError) {
-      toast.push({
-        title: 'Unable to create film order',
-        description: submitError instanceof Error ? submitError.message : 'The create request failed.',
-        variant: 'error'
-      });
-    }
+      },
+      selectedRequirement.requirementId
+    );
   }
 
-  const isSubmitting = createFilmOrderMutation.isPending;
+  const isSubmitting = false;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
   const hasTransferCandidates = prioritizedMatchingBoxes.some((box) => box.status === 'TRANSFER');
 
@@ -508,7 +531,7 @@ export function JobAllocateDialog({
           isExtraFilmMode={isExtraFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
-          pendingAllocationCount={pendingAllocationCount}
+          pendingBackgroundActionCount={pendingBackgroundActionCount}
           prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
@@ -539,7 +562,7 @@ export function JobAllocateDialog({
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
           isAllocatePending={false}
-          isCreateFilmOrderPending={createFilmOrderMutation.isPending}
+          isCreateFilmOrderPending={false}
           canSubmit={isOrderFilmMode || selectedBoxIds.length > 0}
           allocateLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate'}
           onCancel={onCancel}

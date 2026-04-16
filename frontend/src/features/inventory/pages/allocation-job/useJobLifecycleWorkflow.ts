@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useCallback, useState, type SetStateAction } from 'react';
 import type { useToast } from '../../../../components/Toast';
 import type {
   FilmOrderEntry,
@@ -20,6 +20,16 @@ import { getFilmTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessag
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
+
+function cloneJobEditorSubmitPayload(
+  payload: JobEditorSubmitPayload
+): JobEditorSubmitPayload {
+  return {
+    ...payload,
+    requirements: payload.requirements.map((entry) => ({ ...entry })),
+    caulkRequirements: payload.caulkRequirements.map((entry) => ({ ...entry }))
+  };
+}
 
 interface UseJobLifecycleWorkflowArgs {
   detail: JobDetail | undefined;
@@ -69,7 +79,8 @@ export function useJobLifecycleWorkflow({
   setJobStagedForPickup
 }: UseJobLifecycleWorkflowArgs) {
   const queryClient = useQueryClient();
-  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isEditOpenState, setIsEditOpenState] = useState(false);
+  const [editDraftOverride, setEditDraftOverride] = useState<JobEditorSubmitPayload | null>(null);
   const [pendingLaborOnlyUpdate, setPendingLaborOnlyUpdate] = useState<JobEditorSubmitPayload | null>(
     null
   );
@@ -78,6 +89,21 @@ export function useJobLifecycleWorkflow({
   const [isDeleteJobConfirmOpen, setIsDeleteJobConfirmOpen] = useState(false);
   const [isReopenConfirmOpen, setIsReopenConfirmOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
+
+  const setIsEditOpen = useCallback((nextState: SetStateAction<boolean>) => {
+    setIsEditOpenState((current) => {
+      const resolvedState =
+        typeof nextState === 'function'
+          ? (nextState as (value: boolean) => boolean)(current)
+          : nextState;
+
+      if (!resolvedState) {
+        setEditDraftOverride(null);
+      }
+
+      return resolvedState;
+    });
+  }, []);
 
   function buildUpdateJobPayload(
     submitPayload: JobEditorSubmitPayload,
@@ -95,7 +121,7 @@ export function useJobLifecycleWorkflow({
     };
   }
 
-  async function submitUpdateJob(submitPayload: JobEditorSubmitPayload, isLaborOnly: boolean) {
+  function submitUpdateJob(submitPayload: JobEditorSubmitPayload, isLaborOnly: boolean) {
     if (isReadOnlyJob) {
       pushToast({
         title: 'Job is read-only',
@@ -110,32 +136,39 @@ export function useJobLifecycleWorkflow({
     }
 
     const payload = buildUpdateJobPayload(submitPayload, isLaborOnly);
+    const draftSnapshot = cloneJobEditorSubmitPayload(submitPayload);
 
-    try {
-      setPendingLaborOnlyUpdate(null);
-      const { warnings } = await updateJob(payload);
-      setIsEditOpen(false);
-      pushToast({
-        title: `Saved job ${payload.jobNumber}`,
-        description: warnings.join(' ') || `Job ${payload.jobNumber} was updated.`,
-        variant: 'success'
+    setPendingLaborOnlyUpdate(null);
+    setEditDraftOverride(null);
+    setIsEditOpen(false);
+
+    const savePromise = updateJob(payload);
+    void savePromise
+      .then(({ warnings }) => {
+        pushToast({
+          title: `Saved job ${payload.jobNumber}`,
+          description: warnings.join(' ') || `Job ${payload.jobNumber} was updated.`,
+          variant: 'success'
+        });
+      })
+      .catch((error) => {
+        setEditDraftOverride(draftSnapshot);
+        setIsEditOpenState(true);
+        pushToast({
+          title: 'Unable to update job',
+          description: error instanceof Error ? error.message : 'The update failed.',
+          variant: 'error'
+        });
       });
-    } catch (error) {
-      pushToast({
-        title: 'Unable to update job',
-        description: error instanceof Error ? error.message : 'The update failed.',
-        variant: 'error'
-      });
-    }
   }
 
-  async function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
+  function handleUpdateJob(submitPayload: JobEditorSubmitPayload) {
     if (shouldPromptForLaborOnlyConfirmation(submitPayload, Boolean(summary?.isLaborOnly))) {
       setPendingLaborOnlyUpdate(submitPayload);
       return;
     }
 
-    await submitUpdateJob(submitPayload, Boolean(summary?.isLaborOnly));
+    submitUpdateJob(submitPayload, Boolean(summary?.isLaborOnly));
   }
 
   async function handleCompleteJob(reason: string) {
@@ -413,8 +446,9 @@ export function useJobLifecycleWorkflow({
   }
 
   return {
-    isEditOpen,
+    isEditOpen: isEditOpenState,
     setIsEditOpen,
+    editDraftOverride,
     pendingLaborOnlyUpdate,
     setPendingLaborOnlyUpdate,
     isCompleteConfirmOpen,

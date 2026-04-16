@@ -61,7 +61,6 @@ export default function AllocationJobPage() {
     isDeleteJobPending,
     isCompleteJobPending,
     isUpdateJobPending,
-    isCheckinCaulkPending,
     goBackToAllocations,
     openInventoryBox,
     openOrderFilm
@@ -123,6 +122,7 @@ export default function AllocationJobPage() {
         hasCheckoutableMaterials={hasCheckoutableMaterials}
         filmTransferAlerts={filmTransferAlerts}
         isOwner={auth.isOwner}
+        editPending={isUpdateJobPending}
         reopenPending={isReopenPending}
         checkoutAllPending={isCheckoutAllPending}
         stagedPickupPending={isStagedPickupPending}
@@ -150,7 +150,7 @@ export default function AllocationJobPage() {
         allocateButtonLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate Film'}
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
-        isStatusMutationPending={isBoxStatusPending}
+        isStatusMutationPending={filmWorkflow.isBoxStatusPending}
         filmTransferAlertsByBoxId={filmTransferAlertsByBoxId}
         onOpenAllocateDialog={filmWorkflow.openAllocateDialog}
         onOpenBox={openInventoryBox}
@@ -167,7 +167,6 @@ export default function AllocationJobPage() {
         canOpenAllocateDialog={canAddCaulkAllocation}
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
-        pendingCaulkMutation={pendingCaulkMutation}
         openCaulkCheckoutByAllocationId={openCaulkCheckoutByAllocationId}
         productsErrorMessage={
           caulkProductsQuery.isError
@@ -176,6 +175,8 @@ export default function AllocationJobPage() {
               : 'Caulk products could not be loaded.'
             : ''
         }
+        isCaulkAllocationPending={caulkWorkflow.isCaulkAllocationPending}
+        isCaulkCheckoutPending={caulkWorkflow.isCaulkCheckoutPending}
         onOpenAllocateDialog={openAddCaulkAllocationDialog}
         onOpenEdit={openEditCaulkAllocationDialog}
         onOpenCheckout={openCaulkCheckoutDialog}
@@ -187,7 +188,7 @@ export default function AllocationJobPage() {
         entries={caulkCheckouts}
         isPhoneLayout={isPhoneLayout}
         isReadOnlyJob={isReadOnlyJob}
-        pendingCaulkMutation={pendingCaulkMutation}
+        isCaulkCheckoutPending={caulkWorkflow.isCaulkCheckoutPending}
         onOpenCheckin={openCaulkCheckinDialog}
       />
 
@@ -248,9 +249,14 @@ export default function AllocationJobPage() {
         }}
         filmCheckinEntry={filmWorkflow.filmCheckinEntry}
         filmCheckinBox={filmWorkflow.filmCheckinBox}
+        filmCheckinInitialDraft={filmWorkflow.filmCheckinDraftOverride}
         filmCheckinBoxLoading={filmWorkflow.filmCheckinBoxLoading}
         filmCheckinBoxError={filmWorkflow.filmCheckinBoxError}
-        filmCheckinPending={isBoxStatusPending}
+        filmCheckinPending={
+          filmWorkflow.filmCheckinEntry
+            ? filmWorkflow.isBoxStatusPending(filmWorkflow.filmCheckinEntry.boxId)
+            : false
+        }
         filmCheckinReleaseJobNumber={summary.jobNumber}
         onCancelFilmCheckin={() => filmWorkflow.setFilmCheckinEntry(null)}
         onConfirmFilmCheckin={(draft) => void filmWorkflow.handleFilmCheckinConfirm(draft)}
@@ -288,6 +294,13 @@ export default function AllocationJobPage() {
         caulkAllocationEditorError={caulkAllocationEditorError}
         setCaulkAllocationEditorError={setCaulkAllocationEditorError}
         pendingCaulkMutation={pendingCaulkMutation}
+        caulkAllocationEditorPending={
+          caulkAllocationEditor
+            ? caulkAllocationEditor.mode === 'edit'
+              ? caulkWorkflow.isCaulkAllocationPending(caulkAllocationEditor.caulkAllocationId)
+              : false
+            : false
+        }
         caulkRequirements={caulkRequirements}
         caulkAllocations={caulkAllocations}
         caulkProducts={caulkProducts}
@@ -297,15 +310,27 @@ export default function AllocationJobPage() {
         setCaulkCheckoutDraft={setCaulkCheckoutDraft}
         caulkCheckoutError={caulkCheckoutError}
         setCaulkCheckoutError={setCaulkCheckoutError}
-        checkoutCaulkAllocationPending={isCheckoutCaulkPending}
+        checkoutCaulkAllocationPending={
+          caulkCheckoutDraft
+            ? caulkWorkflow.isCaulkAllocationPending(caulkCheckoutDraft.caulkAllocationId)
+            : false
+        }
         onSubmitCaulkCheckout={() => void handleSubmitCaulkCheckoutDialog()}
         caulkCheckinDraft={caulkCheckinDraft}
         setCaulkCheckinDraft={setCaulkCheckinDraft}
         caulkCheckinError={caulkCheckinError}
         setCaulkCheckinError={setCaulkCheckinError}
-        checkinCaulkAllocationPending={isCheckinCaulkPending}
+        checkinCaulkAllocationPending={
+          caulkCheckinDraft
+            ? caulkWorkflow.isCaulkCheckoutPending(
+                caulkCheckinDraft.caulkCheckoutId,
+                caulkCheckinDraft.caulkAllocationId
+              )
+            : false
+        }
         onSubmitCaulkCheckin={() => void handleSubmitCaulkCheckinDialog()}
         isEditOpen={lifecycleWorkflow.isEditOpen}
+        editDraftOverride={lifecycleWorkflow.editDraftOverride}
         jobNumber={summary.jobNumber}
         warehouse={summary.warehouse}
         sections={summary.sections}

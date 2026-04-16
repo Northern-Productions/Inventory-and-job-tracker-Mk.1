@@ -16,6 +16,7 @@ type JobOverviewHeroSectionProps = {
   hasCheckoutableMaterials: boolean;
   filmTransferAlerts: JobFilmTransferAlert[];
   isOwner: boolean;
+  editPending?: boolean;
   reopenPending: boolean;
   checkoutAllPending: boolean;
   stagedPickupPending: boolean;
@@ -42,6 +43,7 @@ export function JobOverviewHeroSection({
   hasCheckoutableMaterials,
   filmTransferAlerts,
   isOwner,
+  editPending = false,
   reopenPending,
   checkoutAllPending,
   stagedPickupPending,
@@ -75,7 +77,7 @@ export function JobOverviewHeroSection({
           ) : null}
           {isReadOnlyJob ? <span className="muted-text">Read-only</span> : null}
           {!isReadOnlyJob ? (
-            <Button type="button" onClick={onOpenEdit}>
+            <Button type="button" onClick={onOpenEdit} disabled={editPending}>
               Edit
             </Button>
           ) : null}

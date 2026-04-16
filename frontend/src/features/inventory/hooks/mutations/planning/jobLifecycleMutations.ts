@@ -17,7 +17,7 @@ import type {
 } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
 import {
-  applyOptimisticJobScheduleSyncToCaches,
+  applyOptimisticJobUpdateToCaches,
   createOptimisticAllocationJobSummaryFromJobDetail,
   createOptimisticJobDetailFromCreatePayload,
   removeJobPlanningCaches,
@@ -97,6 +97,7 @@ export function useUpdateJob() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.updateJobMutation,
     mutationFn: (payload: UpdateJobPayload) => updateJob(payload),
     onMutate: async (payload) => {
       await Promise.all([
@@ -117,7 +118,7 @@ export function useUpdateJob() {
           inventoryKeys.filmOrders
         ],
         () => {
-          applyOptimisticJobScheduleSyncToCaches(queryClient, payload);
+          applyOptimisticJobUpdateToCaches(queryClient, payload);
         }
       );
     },

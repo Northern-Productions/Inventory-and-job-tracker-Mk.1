@@ -16,6 +16,13 @@ import type {
   WarehouseEntry
 } from '../../../../domain';
 import type { useToast } from '../../../../components/Toast';
+import {
+  usePendingAddCaulkAllocationJobNumbers,
+  usePendingCheckinCaulkCheckoutIds,
+  usePendingCheckoutCaulkAllocationIds,
+  usePendingRemoveCaulkAllocationIds,
+  usePendingUpdateCaulkAllocationIds
+} from '../../hooks/useInventoryQueries';
 import { buildAddCaulkAllocationDefaults } from '../../utils/caulkAllocationPlanning';
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
 import { getPreferredCaulkProductId } from '../../utils/caulkProductPreferences';
@@ -99,6 +106,11 @@ export function useCaulkWorkflow({
   const [caulkCheckoutError, setCaulkCheckoutError] = useState('');
   const [caulkCheckinDraft, setCaulkCheckinDraft] = useState<CaulkCheckinDraft | null>(null);
   const [caulkCheckinError, setCaulkCheckinError] = useState('');
+  const pendingAddCaulkAllocationJobNumbers = usePendingAddCaulkAllocationJobNumbers();
+  const pendingUpdateCaulkAllocationIds = usePendingUpdateCaulkAllocationIds();
+  const pendingRemoveCaulkAllocationIds = usePendingRemoveCaulkAllocationIds();
+  const pendingCheckoutCaulkAllocationIds = usePendingCheckoutCaulkAllocationIds();
+  const pendingCheckinCaulkCheckoutIds = usePendingCheckinCaulkCheckoutIds();
 
   const caulkRequirementById = useMemo(
     () =>
@@ -120,11 +132,39 @@ export function useCaulkWorkflow({
   }, [warehouseEntries, warehouse, caulkAllocationEditor?.warehouse]);
 
   const pendingCaulkMutation =
+    (Boolean(jobNumber) &&
+      pendingAddCaulkAllocationJobNumbers.has(String(jobNumber || '').trim().toUpperCase())) ||
+    pendingUpdateCaulkAllocationIds.size > 0 ||
+    pendingRemoveCaulkAllocationIds.size > 0 ||
+    pendingCheckoutCaulkAllocationIds.size > 0 ||
+    pendingCheckinCaulkCheckoutIds.size > 0 ||
     addCaulkAllocationPending ||
     updateCaulkAllocationPending ||
     checkoutCaulkAllocationPending ||
     checkinCaulkAllocationPending ||
     removeCaulkAllocationPending;
+
+  function isCaulkAllocationPending(caulkAllocationId: string) {
+    const normalizedId = String(caulkAllocationId || '').trim().toUpperCase();
+    if (!normalizedId) {
+      return false;
+    }
+
+    return (
+      pendingUpdateCaulkAllocationIds.has(normalizedId) ||
+      pendingRemoveCaulkAllocationIds.has(normalizedId) ||
+      pendingCheckoutCaulkAllocationIds.has(normalizedId)
+    );
+  }
+
+  function isCaulkCheckoutPending(caulkCheckoutId: string, caulkAllocationId = '') {
+    const normalizedCheckoutId = String(caulkCheckoutId || '').trim().toUpperCase();
+    if (normalizedCheckoutId && pendingCheckinCaulkCheckoutIds.has(normalizedCheckoutId)) {
+      return true;
+    }
+
+    return isCaulkAllocationPending(caulkAllocationId);
+  }
 
   function openAddCaulkAllocationDialog() {
     if (!jobNumber) {
@@ -220,8 +260,14 @@ export function useCaulkWorkflow({
     }
 
     try {
+      const editorSnapshot = {
+        ...caulkAllocationEditor
+      };
+      setCaulkAllocationEditor(null);
+      setCaulkAllocationEditorError('');
+
       if (caulkAllocationEditor.mode === 'add') {
-        const { warnings } = await addCaulkAllocation({
+        const savePromise = addCaulkAllocation({
           jobNumber,
           requirementId: selectedRequirement?.requirementId || undefined,
           productId: selectedProductId,
@@ -229,11 +275,26 @@ export function useCaulkWorkflow({
           allocatedTubes: parsedAllocatedTubes,
           notes: caulkAllocationEditor.notes.trim() || undefined
         });
-        pushToast({
-          title: `Added caulk allocation on job ${jobNumber}`,
-          description: warnings.join(' ') || 'Reserved tubes for this allocation row.',
-          variant: 'success'
-        });
+
+        void savePromise
+          .then(({ warnings }) => {
+            pushToast({
+              title: `Added caulk allocation on job ${jobNumber}`,
+              description: warnings.join(' ') || 'Reserved tubes for this allocation row.',
+              variant: 'success'
+            });
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : 'The caulk allocation request failed.';
+            setCaulkAllocationEditor(editorSnapshot);
+            setCaulkAllocationEditorError(message);
+            pushToast({
+              title: 'Unable to save caulk allocation',
+              description: message,
+              variant: 'error'
+            });
+          });
       } else {
         const payload: UpdateCaulkJobAllocationPayload = {
           caulkAllocationId: caulkAllocationEditor.caulkAllocationId,
@@ -246,16 +307,27 @@ export function useCaulkWorkflow({
           payload.warehouse = caulkAllocationEditor.warehouse;
         }
 
-        const { warnings } = await updateCaulkAllocation(payload);
-        pushToast({
-          title: `Updated caulk allocation ${caulkAllocationEditor.caulkAllocationId}`,
-          description: warnings.join(' ') || 'The caulk allocation row was updated.',
-          variant: 'success'
-        });
+        const savePromise = updateCaulkAllocation(payload);
+        void savePromise
+          .then(({ warnings }) => {
+            pushToast({
+              title: `Updated caulk allocation ${caulkAllocationEditor.caulkAllocationId}`,
+              description: warnings.join(' ') || 'The caulk allocation row was updated.',
+              variant: 'success'
+            });
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : 'The caulk allocation request failed.';
+            setCaulkAllocationEditor(editorSnapshot);
+            setCaulkAllocationEditorError(message);
+            pushToast({
+              title: 'Unable to save caulk allocation',
+              description: message,
+              variant: 'error'
+            });
+          });
       }
-
-      setCaulkAllocationEditor(null);
-      setCaulkAllocationEditorError('');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The caulk allocation request failed.';
       setCaulkAllocationEditorError(message);
@@ -323,17 +395,37 @@ export function useCaulkWorkflow({
         return;
       }
 
-      const { warnings } = await checkoutCaulkAllocation({
+      const draftSnapshot = {
+        ...caulkCheckoutDraft
+      };
+      setCaulkCheckoutDraft(null);
+      setCaulkCheckoutError('');
+
+      const checkoutPromise = checkoutCaulkAllocation({
         caulkAllocationId: caulkCheckoutDraft.caulkAllocationId,
         checkoutTubes: parsedCheckoutTubes
       });
-      pushToast({
-        title: `Checked out ${parsedCheckoutTubes} tube${parsedCheckoutTubes === 1 ? '' : 's'}`,
-        description: warnings.join(' ') || `Started a checkout cycle for ${caulkCheckoutDraft.productLabel}.`,
-        variant: 'success'
-      });
-      setCaulkCheckoutDraft(null);
-      setCaulkCheckoutError('');
+
+      void checkoutPromise
+        .then(({ warnings }) => {
+          pushToast({
+            title: `Checked out ${parsedCheckoutTubes} tube${parsedCheckoutTubes === 1 ? '' : 's'}`,
+            description:
+              warnings.join(' ') ||
+              `Started a checkout cycle for ${draftSnapshot.productLabel}.`,
+            variant: 'success'
+          });
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : 'The checkout request failed.';
+          setCaulkCheckoutDraft(draftSnapshot);
+          setCaulkCheckoutError(message);
+          pushToast({
+            title: 'Unable to check out caulk',
+            description: message,
+            variant: 'error'
+          });
+        });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The checkout request failed.';
       setCaulkCheckoutError(message);
@@ -399,20 +491,38 @@ export function useCaulkWorkflow({
     }
 
     try {
-      const { warnings } = await checkinCaulkAllocation({
+      const draftSnapshot = {
+        ...caulkCheckinDraft
+      };
+      setCaulkCheckinDraft(null);
+      setCaulkCheckinError('');
+
+      const checkinPromise = checkinCaulkAllocation({
         caulkCheckoutId: caulkCheckinDraft.caulkCheckoutId,
         unusedLooseTubes: parsedUnusedLooseTubes,
         unusedCases: parsedUnusedCases,
         notes: caulkCheckinDraft.notes.trim() || undefined
       });
-      pushToast({
-        title: `Checked in checkout ${caulkCheckinDraft.caulkCheckoutId}`,
-        description: warnings.join(' ') || 'Closed the checkout cycle and recorded usage.',
-        variant: 'success'
-      });
-      setCaulkCheckinDraft(null);
-      setCaulkCheckinError('');
-      maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);
+
+      void checkinPromise
+        .then(({ warnings }) => {
+          pushToast({
+            title: `Checked in checkout ${draftSnapshot.caulkCheckoutId}`,
+            description: warnings.join(' ') || 'Closed the checkout cycle and recorded usage.',
+            variant: 'success'
+          });
+          maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : 'The check-in request failed.';
+          setCaulkCheckinDraft(draftSnapshot);
+          setCaulkCheckinError(message);
+          pushToast({
+            title: 'Unable to check in caulk',
+            description: message,
+            variant: 'error'
+          });
+        });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The check-in request failed.';
       setCaulkCheckinError(message);
@@ -448,19 +558,31 @@ export function useCaulkWorkflow({
     }
 
     try {
-      const { result, warnings } = await removeCaulkAllocation({
+      const removePromise = removeCaulkAllocation({
         caulkAllocationId: entry.caulkAllocationId,
         reason:
           reason ||
           `Removed caulk allocation ${entry.caulkAllocationId} from job ${jobNumber || entry.caulkAllocationId}.`
       });
-      pushToast({
-        title: `Removed caulk allocation ${result.caulkAllocationId}`,
-        description:
-          warnings.join(' ') ||
-          `Released ${result.releasedReservedTubes} reserved tube${result.releasedReservedTubes === 1 ? '' : 's'}.`,
-        variant: 'success'
-      });
+
+      void removePromise
+        .then(({ result, warnings }) => {
+          pushToast({
+            title: `Removed caulk allocation ${result.caulkAllocationId}`,
+            description:
+              warnings.join(' ') ||
+              `Released ${result.releasedReservedTubes} reserved tube${result.releasedReservedTubes === 1 ? '' : 's'}.`,
+            variant: 'success'
+          });
+        })
+        .catch((error) => {
+          pushToast({
+            title: 'Unable to remove caulk allocation',
+            description: error instanceof Error ? error.message : 'The remove request failed.',
+            variant: 'error'
+          });
+          setCaulkAllocationToRemove(entry);
+        });
     } catch (error) {
       pushToast({
         title: 'Unable to remove caulk allocation',
@@ -487,6 +609,8 @@ export function useCaulkWorkflow({
     setCaulkCheckinError,
     warehouseOptions,
     pendingCaulkMutation,
+    isCaulkAllocationPending,
+    isCaulkCheckoutPending,
     openAddCaulkAllocationDialog,
     openEditCaulkAllocationDialog,
     handleSubmitCaulkAllocationDialog,

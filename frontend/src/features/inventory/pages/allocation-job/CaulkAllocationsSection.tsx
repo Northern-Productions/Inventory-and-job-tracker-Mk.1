@@ -17,9 +17,10 @@ interface CaulkAllocationsSectionProps {
   canOpenAllocateDialog: boolean;
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
-  pendingCaulkMutation: boolean;
   openCaulkCheckoutByAllocationId: Record<string, CaulkJobCheckoutEntry>;
   productsErrorMessage: string;
+  isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
+  isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
   onOpenAllocateDialog: () => void;
   onOpenEdit: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckout: (entry: CaulkJobAllocationEntry) => void;
@@ -31,7 +32,8 @@ function renderCaulkAllocationActions({
   entry,
   openCheckoutEntry,
   isReadOnlyJob,
-  pendingCaulkMutation,
+  isCaulkAllocationPending,
+  isCaulkCheckoutPending,
   onOpenEdit,
   onOpenCheckout,
   onOpenCheckin,
@@ -40,7 +42,8 @@ function renderCaulkAllocationActions({
   entry: CaulkJobAllocationEntry;
   openCheckoutEntry?: CaulkJobCheckoutEntry;
   isReadOnlyJob: boolean;
-  pendingCaulkMutation: boolean;
+  isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
+  isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
   onOpenEdit: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckout: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckin: (entry: CaulkJobCheckoutEntry) => void;
@@ -56,13 +59,19 @@ function renderCaulkAllocationActions({
     return <span className="muted-text">Cancelled</span>;
   }
 
+  const allocationPending = isCaulkAllocationPending(entry.caulkAllocationId);
+  const checkoutPending =
+    openCheckoutEntry
+      ? isCaulkCheckoutPending(openCheckoutEntry.caulkCheckoutId, entry.caulkAllocationId)
+      : false;
+
   return (
     <div className="film-order-actions">
       <Button
         type="button"
         variant="secondary"
         onClick={() => onOpenEdit(entry)}
-        disabled={pendingCaulkMutation || hasOpenCheckout}
+        disabled={allocationPending || checkoutPending || hasOpenCheckout}
       >
         Edit
       </Button>
@@ -72,7 +81,7 @@ function renderCaulkAllocationActions({
         onClick={() =>
           hasOpenCheckout && openCheckoutEntry ? onOpenCheckin(openCheckoutEntry) : onOpenCheckout(entry)
         }
-        disabled={pendingCaulkMutation}
+        disabled={allocationPending || checkoutPending}
       >
         {hasOpenCheckout ? 'Check In' : 'Check Out'}
       </Button>
@@ -80,7 +89,7 @@ function renderCaulkAllocationActions({
         type="button"
         variant="danger"
         onClick={() => onRemove(entry)}
-        disabled={pendingCaulkMutation || hasOpenCheckout}
+        disabled={allocationPending || checkoutPending || hasOpenCheckout}
       >
         Remove
       </Button>
@@ -95,9 +104,10 @@ export function CaulkAllocationsSection({
   canOpenAllocateDialog,
   isAuthenticated,
   clientIdConfigured,
-  pendingCaulkMutation,
   openCaulkCheckoutByAllocationId,
   productsErrorMessage,
+  isCaulkAllocationPending,
+  isCaulkCheckoutPending,
   onOpenAllocateDialog,
   onOpenEdit,
   onOpenCheckout,
@@ -113,7 +123,7 @@ export function CaulkAllocationsSection({
             <Button
               type="button"
               onClick={onOpenAllocateDialog}
-              disabled={!canOpenAllocateDialog || !isAuthenticated || !clientIdConfigured || pendingCaulkMutation}
+              disabled={!canOpenAllocateDialog || !isAuthenticated || !clientIdConfigured}
             >
               Allocate Caulk
             </Button>
@@ -152,7 +162,8 @@ export function CaulkAllocationsSection({
                   entry,
                   openCheckoutEntry,
                   isReadOnlyJob,
-                  pendingCaulkMutation,
+                  isCaulkAllocationPending,
+                  isCaulkCheckoutPending,
                   onOpenEdit,
                   onOpenCheckout,
                   onOpenCheckin,
@@ -212,7 +223,8 @@ export function CaulkAllocationsSection({
                         entry,
                         openCheckoutEntry,
                         isReadOnlyJob,
-                        pendingCaulkMutation,
+                        isCaulkAllocationPending,
+                        isCaulkCheckoutPending,
                         onOpenEdit,
                         onOpenCheckout,
                         onOpenCheckin,

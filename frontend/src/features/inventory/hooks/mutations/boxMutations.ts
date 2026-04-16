@@ -241,6 +241,7 @@ export function useSetBoxStatus() {
   const optimisticQueue = useOptimisticQueue();
 
   return useMutation({
+    mutationKey: inventoryKeys.setBoxStatusMutation,
     mutationFn: (payload: SetBoxStatusPayload) => setBoxStatus(payload),
     onMutate: async (payload) => {
       await Promise.all([

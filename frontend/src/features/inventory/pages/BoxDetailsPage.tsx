@@ -153,6 +153,7 @@ export default function BoxDetailsPage() {
       <AllocateDialog
         open={isAllocateOpen}
         box={box}
+        onOpen={() => setIsAllocateOpen(true)}
         onCancel={() => setIsAllocateOpen(false)}
       />
       <TransferBoxDialog

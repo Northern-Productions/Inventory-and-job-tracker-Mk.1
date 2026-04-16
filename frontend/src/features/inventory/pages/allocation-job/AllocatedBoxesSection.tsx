@@ -16,7 +16,7 @@ interface AllocatedBoxesSectionProps {
   allocateButtonLabel: string;
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
-  isStatusMutationPending: boolean;
+  isStatusMutationPending: (boxId: string) => boolean;
   filmTransferAlertsByBoxId: Partial<Record<string, JobFilmTransferAlert>>;
   onOpenAllocateDialog: () => void;
   onOpenBox: (boxId: string) => void;
@@ -42,7 +42,7 @@ function renderAllocationActions({
 }: {
   entry: AllocationJobDetailEntry;
   isReadOnlyJob: boolean;
-  isStatusMutationPending: boolean;
+  isStatusMutationPending: (boxId: string) => boolean;
   transferAlert?: JobFilmTransferAlert;
   onOpenFilmCheckin: (entry: AllocationJobDetailEntry) => void;
   onCheckoutAllocation: (entry: AllocationJobDetailEntry) => void;
@@ -53,6 +53,8 @@ function renderAllocationActions({
     return <span className="muted-text">Read-only</span>;
   }
 
+  const statusPending = isStatusMutationPending(entry.boxId);
+
   return (
     <div className="film-order-actions">
       {entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT' ? (
@@ -60,7 +62,7 @@ function renderAllocationActions({
           type="button"
           variant="secondary"
           onClick={() => onOpenFilmCheckin(entry)}
-          disabled={isStatusMutationPending}
+          disabled={statusPending}
         >
           Check In
         </Button>
@@ -73,7 +75,7 @@ function renderAllocationActions({
           type="button"
           variant="secondary"
           onClick={() => onCheckoutAllocation(entry)}
-          disabled={isStatusMutationPending}
+          disabled={statusPending}
         >
           Check Out
         </Button>
@@ -85,7 +87,7 @@ function renderAllocationActions({
           type="button"
           variant="danger"
           onClick={() => onRemoveAllocation(entry)}
-          disabled={isAllocationRemovalPending(entry.allocationId) || isStatusMutationPending}
+          disabled={isAllocationRemovalPending(entry.allocationId) || statusPending}
         >
           Remove
         </Button>

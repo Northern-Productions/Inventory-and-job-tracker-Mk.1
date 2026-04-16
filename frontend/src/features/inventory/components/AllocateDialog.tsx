@@ -25,6 +25,7 @@ import { findCompatibleRequirementsForBox } from '../utils/jobAllocationMatching
 interface AllocateDialogProps {
   open: boolean;
   box: Box;
+  onOpen?: () => void;
   onCancel: () => void;
 }
 
@@ -32,7 +33,7 @@ function formatBoxStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
 }
 
-export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
+export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogProps) {
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const allocateMutation = useAllocateBox();
@@ -52,6 +53,23 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
   const [selectedSuggestionBoxIds, setSelectedSuggestionBoxIds] = useState<string[]>([]);
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [error, setError] = useState('');
+  const [restoreDraft, setRestoreDraft] = useState<{
+    jobNumber: string;
+    installDate: string;
+    crewLeader: string;
+    requestedFeet: string;
+    previewPayload: {
+      boxId: string;
+      jobNumber: string;
+      installDate?: string;
+      crewLeader?: string;
+      requestedFeet: number;
+      requestedWidthIn?: number;
+      requirementId?: string;
+    } | null;
+    selectedSuggestionBoxIds: string[];
+    selectedRequirementId: string;
+  } | null>(null);
   const normalizedJobNumber = jobNumber.trim();
   const jobQuery = useJob(open ? normalizedJobNumber : '');
   const compatibleRequirements = useMemo(
@@ -93,8 +111,23 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
       setSelectedSuggestionBoxIds([]);
       setSelectedRequirementId('');
       setError('');
+      return;
     }
-  }, [open]);
+
+    if (!restoreDraft) {
+      return;
+    }
+
+    setJobNumber(restoreDraft.jobNumber);
+    setInstallDate(restoreDraft.installDate);
+    setCrewLeader(restoreDraft.crewLeader);
+    setRequestedFeet(restoreDraft.requestedFeet);
+    setPreviewPayload(restoreDraft.previewPayload);
+    setSelectedSuggestionBoxIds(restoreDraft.selectedSuggestionBoxIds);
+    setSelectedRequirementId(restoreDraft.selectedRequirementId);
+    setError('');
+    setRestoreDraft(null);
+  }, [open, restoreDraft]);
 
   useEffect(() => {
     if (!preview) {
@@ -190,54 +223,67 @@ export function AllocateDialog({ open, box, onCancel }: AllocateDialogProps) {
     );
   }
 
-  async function handleConfirm() {
+  function handleConfirm() {
     if (!previewPayload || !selectionSummary) {
       return;
     }
 
-    try {
-      const { result, warnings } = await allocateMutation.mutateAsync({
-        ...previewPayload,
-        selectedSuggestionBoxIds
+    const draftSnapshot = {
+      jobNumber,
+      installDate,
+      crewLeader,
+      requestedFeet,
+      previewPayload,
+      selectedSuggestionBoxIds,
+      selectedRequirementId
+    };
+    const savePromise = allocateMutation.mutateAsync({
+      ...previewPayload,
+      selectedSuggestionBoxIds
+    });
+
+    onCancel();
+
+    void savePromise
+      .then(({ result, warnings }) => {
+        let title = 'Film allocated';
+        if (result.filmOrder && result.allocations.length) {
+          title = 'Allocated with Film Order';
+        } else if (result.filmOrder) {
+          title = 'Film Order created';
+        }
+
+        const allocationSummary =
+          result.allocations.length > 0
+            ? `${result.allocations
+                .map((entry) =>
+                  entry.coveredFeet !== entry.allocatedFeet
+                    ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
+                    : `${entry.boxId}: ${entry.allocatedFeet} LF`
+                )
+                .join(', ')}`
+            : 'No allocatable boxes could cover the request.';
+        const filmOrderSummary = result.filmOrder
+          ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
+          : '';
+
+        toast.push({
+          title,
+          description:
+            warnings.join(' ') || `${allocationSummary}.${filmOrderSummary}`.trim(),
+          variant: 'success'
+        });
+      })
+      .catch((submitError) => {
+        setRestoreDraft(draftSnapshot);
+        onOpen?.();
+        toast.push({
+          title: 'Allocation failed',
+          description:
+            submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
+          variant: 'error'
+        });
       });
-
-      onCancel();
-
-      let title = 'Film allocated';
-      if (result.filmOrder && result.allocations.length) {
-        title = 'Allocated with Film Order';
-      } else if (result.filmOrder) {
-        title = 'Film Order created';
-      }
-
-      const allocationSummary =
-        result.allocations.length > 0
-          ? `${result.allocations
-              .map((entry) =>
-                entry.coveredFeet !== entry.allocatedFeet
-                  ? `${entry.boxId}: ${entry.allocatedFeet} LF physical / ${entry.coveredFeet} LF covered`
-                  : `${entry.boxId}: ${entry.allocatedFeet} LF`
-              )
-              .join(', ')}`
-          : 'No allocatable boxes could cover the request.';
-      const filmOrderSummary = result.filmOrder
-        ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
-        : '';
-
-      toast.push({
-        title,
-        description:
-          warnings.join(' ') || `${allocationSummary}.${filmOrderSummary}`.trim(),
-        variant: 'success'
-      });
-    } catch (submitError) {
-      toast.push({
-        title: 'Allocation failed',
-        description:
-          submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
-        variant: 'error'
-      });
-    }
   }
 
   return (

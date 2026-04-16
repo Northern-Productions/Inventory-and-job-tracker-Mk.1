@@ -28,6 +28,7 @@ interface JobEditorDialogProps {
   title: string;
   submitLabel: string;
   submitting?: boolean;
+  restoreDraft?: JobEditorSubmitPayload | null;
   initialJobNumber?: string;
   initialWarehouse?: Warehouse;
   initialSections?: string | number | null;
@@ -51,6 +52,7 @@ export function JobEditorDialog({
   title,
   submitLabel,
   submitting = false,
+  restoreDraft = null,
   initialJobNumber = '',
   initialWarehouse = '',
   initialSections = null,
@@ -114,6 +116,7 @@ export function JobEditorDialog({
   } = useJobEditorForm({
     open,
     mode,
+    restoreDraft,
     initialJobNumber,
     initialWarehouse,
     initialSections,

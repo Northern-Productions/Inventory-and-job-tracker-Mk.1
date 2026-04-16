@@ -13,19 +13,19 @@ interface CaulkCheckoutCyclesSectionProps {
   entries: CaulkJobCheckoutEntry[];
   isPhoneLayout: boolean;
   isReadOnlyJob: boolean;
-  pendingCaulkMutation: boolean;
+  isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
   onOpenCheckin: (entry: CaulkJobCheckoutEntry) => void;
 }
 
 function renderCheckoutActions({
   entry,
   isReadOnlyJob,
-  pendingCaulkMutation,
+  isCaulkCheckoutPending,
   onOpenCheckin
 }: {
   entry: CaulkJobCheckoutEntry;
   isReadOnlyJob: boolean;
-  pendingCaulkMutation: boolean;
+  isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
   onOpenCheckin: (entry: CaulkJobCheckoutEntry) => void;
 }) {
   if (isReadOnlyJob) {
@@ -38,7 +38,7 @@ function renderCheckoutActions({
         type="button"
         variant="secondary"
         onClick={() => onOpenCheckin(entry)}
-        disabled={pendingCaulkMutation}
+        disabled={isCaulkCheckoutPending(entry.caulkCheckoutId, entry.caulkAllocationId)}
       >
         Check In
       </Button>
@@ -52,7 +52,7 @@ export function CaulkCheckoutCyclesSection({
   entries,
   isPhoneLayout,
   isReadOnlyJob,
-  pendingCaulkMutation,
+  isCaulkCheckoutPending,
   onOpenCheckin
 }: CaulkCheckoutCyclesSectionProps) {
   return (
@@ -84,7 +84,7 @@ export function CaulkCheckoutCyclesSection({
                 {renderCheckoutActions({
                   entry,
                   isReadOnlyJob,
-                  pendingCaulkMutation,
+                  isCaulkCheckoutPending,
                   onOpenCheckin
                 })}
               </div>
@@ -128,7 +128,7 @@ export function CaulkCheckoutCyclesSection({
                     {renderCheckoutActions({
                       entry,
                       isReadOnlyJob,
-                      pendingCaulkMutation,
+                      isCaulkCheckoutPending,
                       onOpenCheckin
                     })}
                   </td>

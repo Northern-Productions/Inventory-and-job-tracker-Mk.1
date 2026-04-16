@@ -24,6 +24,7 @@ interface JobConfirmationDialogsProps {
   onConfirmRemoveAllocation: (entry: AllocationJobDetailEntry, reason: string) => void;
   filmCheckinEntry: AllocationJobDetailEntry | null;
   filmCheckinBox: Box | null | undefined;
+  filmCheckinInitialDraft?: FilmCheckinDraft | null;
   filmCheckinBoxLoading: boolean;
   filmCheckinBoxError: string;
   filmCheckinPending: boolean;
@@ -58,6 +59,7 @@ export function JobConfirmationDialogs({
   onConfirmRemoveAllocation,
   filmCheckinEntry,
   filmCheckinBox,
+  filmCheckinInitialDraft = null,
   filmCheckinBoxLoading,
   filmCheckinBoxError,
   filmCheckinPending,
@@ -132,6 +134,7 @@ export function JobConfirmationDialogs({
       <FilmCheckinDialog
         open={Boolean(filmCheckinEntry)}
         box={filmCheckinBox}
+        initialDraft={filmCheckinInitialDraft}
         loading={filmCheckinBoxLoading}
         loadError={filmCheckinBoxError}
         pending={filmCheckinPending}

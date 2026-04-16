@@ -30,6 +30,12 @@ import {
   type OptimisticAllocationRemovalRollback
 } from '../../cache/allocations';
 import {
+  applyOptimisticAddCaulkAllocationToCaches,
+  applyOptimisticRemoveCaulkAllocationToCaches,
+  applyOptimisticUpdateCaulkAllocationToCaches,
+  replacePendingCaulkAllocationIdInCaches
+} from '../../cache/caulkAllocations';
+import {
   updateCaulkCheckinCaches,
   updateCaulkCheckoutCaches
 } from '../../cache/jobMaterialMutations';
@@ -146,8 +152,51 @@ export function useAddCaulkJobAllocation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.addCaulkAllocationMutation,
     mutationFn: (payload: AddCaulkJobAllocationPayload) => addCaulkJobAllocation(payload),
-    onSuccess: async ({ result }) => {
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+      ]);
+
+      let pendingCaulkAllocationId = '';
+      const context = beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.job(payload.jobNumber),
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJob(payload.jobNumber)
+        ],
+        () => {
+          pendingCaulkAllocationId = applyOptimisticAddCaulkAllocationToCaches(
+            queryClient,
+            payload
+          ).pendingCaulkAllocationId;
+        }
+      );
+
+      return {
+        ...context,
+        pendingCaulkAllocationId
+      };
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, _variables, context) => {
+      if (context?.pendingCaulkAllocationId) {
+        replacePendingCaulkAllocationIdInCaches(
+          queryClient,
+          result.jobNumber,
+          context.pendingCaulkAllocationId,
+          result.caulkAllocationId
+        );
+      }
+
       await invalidateCaulkJobQueries(queryClient, result.jobNumber, { includeJobCollections: true });
     }
   });
@@ -157,7 +206,32 @@ export function useUpdateCaulkJobAllocation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.updateCaulkAllocationMutation,
     mutationFn: (payload: UpdateCaulkJobAllocationPayload) => updateCaulkJobAllocation(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
+      ]);
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.jobRoot,
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJobRoot
+        ],
+        () => {
+          applyOptimisticUpdateCaulkAllocationToCaches(queryClient, payload);
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
     onSuccess: async ({ result }) => {
       await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }
@@ -168,6 +242,7 @@ export function useCheckoutCaulkJobAllocation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.checkoutCaulkAllocationMutation,
     mutationFn: (payload: CheckoutCaulkJobAllocationPayload) => checkoutCaulkJobAllocation(payload),
     onMutate: async (payload) => {
       await Promise.all([
@@ -222,6 +297,7 @@ export function useCheckinCaulkJobAllocation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.checkinCaulkAllocationMutation,
     mutationFn: (payload: CheckinCaulkJobAllocationPayload) => checkinCaulkJobAllocation(payload),
     onMutate: async (payload) => {
       await Promise.all([
@@ -283,7 +359,32 @@ export function useRemoveCaulkJobAllocation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: inventoryKeys.removeCaulkAllocationMutation,
     mutationFn: (payload: RemoveCaulkJobAllocationPayload) => removeCaulkJobAllocation(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
+      ]);
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          inventoryKeys.jobRoot,
+          inventoryKeys.allocationJobs,
+          inventoryKeys.allocationJobRoot
+        ],
+        () => {
+          applyOptimisticRemoveCaulkAllocationToCaches(queryClient, payload.caulkAllocationId);
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
     onSuccess: async ({ result }) => {
       await invalidateCaulkJobQueries(queryClient, result.jobNumber);
     }

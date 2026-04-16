@@ -44,7 +44,7 @@ describe('AllocatedBoxesSection', () => {
         allocateButtonLabel="Allocate Film"
         isAuthenticated={true}
         clientIdConfigured={true}
-        isStatusMutationPending={false}
+        isStatusMutationPending={() => false}
         filmTransferAlertsByBoxId={{}}
         onOpenAllocateDialog={vi.fn()}
         onOpenBox={vi.fn()}

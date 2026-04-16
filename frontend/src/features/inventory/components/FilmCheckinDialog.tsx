@@ -16,6 +16,7 @@ import {
 interface FilmCheckinDialogProps {
   open: boolean;
   box: Box | null | undefined;
+  initialDraft?: FilmCheckinDraft | null;
   pending?: boolean;
   loading?: boolean;
   loadError?: string;
@@ -35,6 +36,7 @@ const CORE_TYPE_SELECT_OPTIONS = [
 export function FilmCheckinDialog({
   open,
   box,
+  initialDraft = null,
   pending = false,
   loading = false,
   loadError = '',
@@ -55,9 +57,14 @@ export function FilmCheckinDialog({
       return;
     }
 
-    setDraft(box ? createFilmCheckinDraft(box) : { lastRollWeightLbs: '', currentFeetOnRoll: '', coreType: '' });
+    setDraft(
+      initialDraft ||
+        (box
+          ? createFilmCheckinDraft(box)
+          : { lastRollWeightLbs: '', currentFeetOnRoll: '', coreType: '' })
+    );
     setError('');
-  }, [box, open]);
+  }, [box, initialDraft, open]);
 
   const needsCurrentFeet = box ? checkInNeedsCurrentFeet(box) : false;
   const coreTypeRequired = box ? checkInRequiresCoreType(box, draft.currentFeetOnRoll) : false;

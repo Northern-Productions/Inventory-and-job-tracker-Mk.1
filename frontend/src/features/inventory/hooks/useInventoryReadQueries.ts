@@ -33,6 +33,13 @@ export {
   useReportsSummary
 } from './queries/activityAndReportQueries';
 export {
+  usePendingAddCaulkAllocationJobNumbers,
+  usePendingCheckinCaulkCheckoutIds,
+  usePendingCheckoutCaulkAllocationIds,
   usePendingDeleteFilmOrderIds,
-  usePendingRemoveJobBoxAllocationIds
+  usePendingRemoveCaulkAllocationIds,
+  usePendingRemoveJobBoxAllocationIds,
+  usePendingSetBoxStatusBoxIds,
+  usePendingUpdateCaulkAllocationIds,
+  usePendingUpdateJobNumbers
 } from './queries/pendingMutationState';

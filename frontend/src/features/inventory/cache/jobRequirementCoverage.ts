@@ -1,8 +1,11 @@
 import type {
   AllocationJobDetailEntry,
+  CaulkProductEntry,
   FilmOrderEntry,
   JobDetail,
-  JobRequirementLine
+  JobRequirementLine,
+  JobCaulkRequirementLine,
+  UpdateJobPayload
 } from '../../../domain';
 import {
   compareJobPlanningFilmMatches,
@@ -12,6 +15,13 @@ import {
 } from '../utils/jobPlanningFilmIdentity';
 import { countUnresolvedFilmOrders, isUnresolvedFilmOrder } from '../utils/filmOrders';
 import { getAllocationCoveredFeet } from './jobSummaryMath';
+
+type UpdateJobRequirementInput = NonNullable<UpdateJobPayload['requirements']>[number] & {
+  requirementId?: string;
+};
+type UpdateJobCaulkRequirementInput = NonNullable<UpdateJobPayload['caulkRequirements']>[number] & {
+  requirementId?: string;
+};
 
 function getPlanningManufacturerGroupKey(manufacturer: string, filmName: string) {
   return describeJobPlanningFilm(manufacturer, filmName).manufacturerKey;
@@ -320,6 +330,273 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
     },
     requirements: nextRequirements
   };
+}
+
+function normalizeLookupSegment(value: string) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function buildRequirementIdentityKey(
+  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
+) {
+  return `${normalizeLookupSegment(requirement.manufacturer)}|${normalizeLookupSegment(
+    requirement.filmName
+  )}|${Math.max(0, Number(requirement.widthIn || 0))}`;
+}
+
+function compareCatalogStrings(left: string, right: string) {
+  return normalizeLookupSegment(left).localeCompare(normalizeLookupSegment(right));
+}
+
+function buildCaulkCoverageByProductId(detail: JobDetail) {
+  const coverageByProductId: Record<string, number> = {};
+
+  for (let index = 0; index < detail.caulkAllocations.length; index += 1) {
+    const allocation = detail.caulkAllocations[index];
+    const productId = String(allocation.productId || '').trim();
+    if (!productId || String(allocation.status || '').trim().toUpperCase() === 'CANCELLED') {
+      continue;
+    }
+
+    coverageByProductId[productId] =
+      Math.max(0, Number(coverageByProductId[productId] || 0)) +
+      Math.max(0, Number(allocation.allocatedTubes || 0));
+  }
+
+  return coverageByProductId;
+}
+
+function buildNextRequirementLines(
+  currentRequirements: JobRequirementLine[],
+  nextRequirements: UpdateJobRequirementInput[]
+) {
+  const currentRequirementById = Object.fromEntries(
+    currentRequirements.map((entry) => [entry.requirementId, entry])
+  ) as Record<string, JobRequirementLine>;
+  const unusedCurrentByKey = new Map<string, JobRequirementLine[]>();
+
+  for (let index = 0; index < currentRequirements.length; index += 1) {
+    const requirement = currentRequirements[index];
+    const key = buildRequirementIdentityKey(requirement);
+    const currentMatches = unusedCurrentByKey.get(key) || [];
+    currentMatches.push(requirement);
+    unusedCurrentByKey.set(key, currentMatches);
+  }
+
+  return nextRequirements.map((entry, index) => {
+    const explicitRequirementId = String(entry.requirementId || '').trim();
+    const matchedRequirement = explicitRequirementId
+      ? currentRequirementById[explicitRequirementId]
+      : (unusedCurrentByKey.get(
+          buildRequirementIdentityKey({
+            manufacturer: entry.manufacturer,
+            filmName: entry.filmName,
+            widthIn: entry.widthIn
+          })
+        ) || [])[0];
+    if (!explicitRequirementId && matchedRequirement) {
+      const key = buildRequirementIdentityKey(matchedRequirement);
+      const remainingMatches = (unusedCurrentByKey.get(key) || []).filter(
+        (candidate) => candidate.requirementId !== matchedRequirement.requirementId
+      );
+      unusedCurrentByKey.set(key, remainingMatches);
+    }
+
+    return {
+      requirementId:
+        explicitRequirementId ||
+        matchedRequirement?.requirementId ||
+        `pending-film-req-update-${index + 1}`,
+      manufacturer: entry.manufacturer,
+      filmName: entry.filmName,
+      widthIn: entry.widthIn,
+      requiredFeet: entry.requiredFeet,
+      allocatedFeet: 0,
+      remainingFeet: entry.requiredFeet
+    };
+  });
+}
+
+function buildCaulkMetadataLookup(detail: JobDetail, caulkProducts: CaulkProductEntry[]) {
+  const caulkMetadataByProductId: Record<
+    string,
+    Pick<
+      JobCaulkRequirementLine,
+      'manufacturerId' | 'manufacturer' | 'productName' | 'productCode' | 'tubesPerCase'
+    >
+  > = {};
+
+  for (let index = 0; index < detail.caulkRequirements.length; index += 1) {
+    const requirement = detail.caulkRequirements[index];
+    caulkMetadataByProductId[requirement.productId] = {
+      manufacturerId: requirement.manufacturerId,
+      manufacturer: requirement.manufacturer,
+      productName: requirement.productName,
+      productCode: requirement.productCode,
+      tubesPerCase: requirement.tubesPerCase
+    };
+  }
+
+  for (let index = 0; index < detail.caulkAllocations.length; index += 1) {
+    const allocation = detail.caulkAllocations[index];
+    if (caulkMetadataByProductId[allocation.productId]) {
+      continue;
+    }
+
+    caulkMetadataByProductId[allocation.productId] = {
+      manufacturerId: allocation.manufacturerId,
+      manufacturer: allocation.manufacturer,
+      productName: allocation.productName,
+      productCode: allocation.productCode,
+      tubesPerCase: allocation.tubesPerCase
+    };
+  }
+
+  for (let index = 0; index < caulkProducts.length; index += 1) {
+    const product = caulkProducts[index];
+    caulkMetadataByProductId[product.productId] = {
+      manufacturerId: product.manufacturerId,
+      manufacturer: product.manufacturer,
+      productName: product.productName,
+      productCode: product.productCode,
+      tubesPerCase: product.tubesPerCase
+    };
+  }
+
+  return caulkMetadataByProductId;
+}
+
+function buildNextCaulkRequirementLines(
+  detail: JobDetail,
+  nextRequirements: UpdateJobCaulkRequirementInput[],
+  caulkProducts: CaulkProductEntry[]
+) {
+  const currentRequirementById = Object.fromEntries(
+    detail.caulkRequirements.map((entry) => [entry.requirementId, entry])
+  ) as Record<string, JobCaulkRequirementLine>;
+  const currentRequirementByProductId = Object.fromEntries(
+    detail.caulkRequirements.map((entry) => [entry.productId, entry])
+  ) as Record<string, JobCaulkRequirementLine>;
+  const caulkMetadataByProductId = buildCaulkMetadataLookup(detail, caulkProducts);
+  const coverageByProductId = buildCaulkCoverageByProductId(detail);
+
+  return nextRequirements
+    .map((entry, index) => {
+      const explicitRequirementId = String(entry.requirementId || '').trim();
+      const currentRequirement = explicitRequirementId
+        ? currentRequirementById[explicitRequirementId]
+        : currentRequirementByProductId[entry.productId];
+      const productMetadata = caulkMetadataByProductId[entry.productId];
+      const requiredTubes = Math.max(0, Math.floor(Number(entry.requiredTubes || 0)));
+      const allocatedTubes = Math.max(0, Number(coverageByProductId[entry.productId] || 0));
+
+      return {
+        requirementId:
+          explicitRequirementId ||
+          currentRequirement?.requirementId ||
+          `pending-caulk-req-update-${index + 1}`,
+        jobNumber: detail.summary.jobNumber,
+        productId: entry.productId,
+        manufacturerId: productMetadata?.manufacturerId || currentRequirement?.manufacturerId || '',
+        manufacturer: productMetadata?.manufacturer || currentRequirement?.manufacturer || '',
+        productName: productMetadata?.productName || currentRequirement?.productName || '',
+        productCode: productMetadata?.productCode || currentRequirement?.productCode || '',
+        tubesPerCase: productMetadata?.tubesPerCase || currentRequirement?.tubesPerCase || 0,
+        requiredTubes,
+        allocatedTubes,
+        remainingTubes: Math.max(0, requiredTubes - allocatedTubes),
+        notes: currentRequirement?.notes || '',
+        updatedAt: new Date().toISOString()
+      };
+    })
+    .sort((left, right) => {
+      const manufacturerCompare = compareCatalogStrings(left.manufacturer, right.manufacturer);
+      if (manufacturerCompare !== 0) {
+        return manufacturerCompare;
+      }
+
+      const productCompare = compareCatalogStrings(left.productName, right.productName);
+      if (productCompare !== 0) {
+        return productCompare;
+      }
+
+      return compareCatalogStrings(left.productCode, right.productCode);
+    });
+}
+
+export function createOptimisticJobDetailAfterJobUpdate(
+  detail: JobDetail,
+  payload: UpdateJobPayload,
+  caulkProducts: CaulkProductEntry[] = []
+) {
+  const nextRequirements = payload.requirements
+    ? buildNextRequirementLines(
+        detail.requirements,
+        payload.requirements as UpdateJobRequirementInput[]
+      )
+    : detail.requirements;
+  const nextCaulkRequirements = payload.caulkRequirements
+    ? buildNextCaulkRequirementLines(
+        detail,
+        payload.caulkRequirements as UpdateJobCaulkRequirementInput[],
+        caulkProducts
+      )
+    : detail.caulkRequirements;
+  const nextRequiredTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.requiredTubes || 0)),
+    0
+  );
+  const nextAllocatedTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.allocatedTubes || 0)),
+    0
+  );
+  const nextRemainingTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.remainingTubes || 0)),
+    0
+  );
+  const nextInstallDate =
+    payload.installDate !== undefined ? String(payload.installDate || '').trim() : detail.summary.installDate;
+  const nextCrewLeader =
+    payload.crewLeader !== undefined ? String(payload.crewLeader || '').trim() : detail.summary.crewLeader;
+  const patchFilmOrder = (entry: FilmOrderEntry) =>
+    entry.jobNumber === detail.summary.jobNumber && isUnresolvedFilmOrder(entry)
+      ? {
+          ...entry,
+          ...(payload.installDate !== undefined ? { installDate: nextInstallDate } : {}),
+          ...(payload.crewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
+        }
+      : entry;
+
+  return recomputeOptimisticJobDetail({
+    ...detail,
+    summary: {
+      ...detail.summary,
+      ...(payload.warehouse !== undefined ? { warehouse: payload.warehouse } : {}),
+      ...(payload.sections !== undefined
+        ? {
+            sections:
+              payload.sections === null || payload.sections === undefined || payload.sections === ''
+                ? null
+                : String(payload.sections)
+          }
+        : {}),
+      ...(payload.installDate !== undefined ? { installDate: nextInstallDate } : {}),
+      ...(payload.crewLeader !== undefined ? { crewLeader: nextCrewLeader } : {}),
+      ...(payload.isLaborOnly !== undefined ? { isLaborOnly: Boolean(payload.isLaborOnly) } : {}),
+      ...(payload.notes !== undefined ? { notes: payload.notes || '' } : {}),
+      requiredTubes: nextRequiredTubes,
+      allocatedTubes: nextAllocatedTubes,
+      remainingTubes: nextRemainingTubes,
+      requirementCount: nextRequirements.length,
+      updatedAt: new Date().toISOString()
+    },
+    requirements: nextRequirements,
+    caulkRequirements: nextCaulkRequirements,
+    filmOrders: detail.filmOrders.map(patchFilmOrder)
+  });
 }
 
 function buildOptimisticFilmOrderAfterBoxReceipt(

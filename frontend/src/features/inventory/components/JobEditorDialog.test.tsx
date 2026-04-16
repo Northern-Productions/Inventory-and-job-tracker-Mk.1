@@ -300,4 +300,57 @@ describe('JobEditorDialog', () => {
 
     queryClient.clear();
   });
+
+  it('restores the last submitted draft when the edit dialog reopens after an optimistic save failure', () => {
+    const queryClient = createQueryClient();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: '5',
+        initialInstallDate: '2026-04-10',
+        initialCrewLeader: 'Rob',
+        initialRequirements: [
+          {
+            requirementId: 'req-1',
+            manufacturer: '3M Fasara',
+            filmName: 'Starter Film',
+            widthIn: 60,
+            requiredFeet: 12
+          }
+        ],
+        initialCaulkRequirements: [],
+        restoreDraft: {
+          jobNumber: '000123',
+          warehouse: 'IL1',
+          sections: '77',
+          installDate: '2026-05-01',
+          crewLeader: 'Edited Leader',
+          requirements: [
+            {
+              requirementId: 'req-1',
+              manufacturer: '3M Fasara',
+              filmName: 'Edited Film',
+              widthIn: 60,
+              requiredFeet: 30
+            }
+          ],
+          caulkRequirements: []
+        }
+      })
+    );
+
+    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe(
+      '77'
+    );
+    expect(
+      (screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value
+    ).toBe('Edited Leader');
+    expect((screen.getByLabelText(/Install Date/i) as HTMLInputElement).value).toBe('2026-05-01');
+    expect((screen.getByDisplayValue('Edited Film') as HTMLInputElement).value).toBe('Edited Film');
+
+    queryClient.clear();
+  });
 });

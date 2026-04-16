@@ -12,6 +12,7 @@ export interface MutationOptimisticContext {
   snapshots: QuerySnapshot[];
   deletedBox?: Box;
   pendingFilmOrderId?: string;
+  pendingCaulkAllocationId?: string;
   optimisticAllocationJobNumber?: string;
   optimisticAllocationIds?: string[];
 }
