@@ -34,11 +34,11 @@ export function useBox(boxId: string) {
   });
 }
 
-export function useBoxTransfer(boxId: string) {
+export function useBoxTransfer(boxId: string, options: { enabled?: boolean } = {}) {
   return useInventoryReadQuery({
     queryKey: inventoryKeys.boxTransfer(boxId),
     queryFn: () => getBoxTransfer(boxId),
-    enabled: Boolean(boxId)
+    enabled: Boolean(boxId) && (options.enabled ?? true)
   });
 }
 

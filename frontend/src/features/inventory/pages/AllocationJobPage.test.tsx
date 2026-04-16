@@ -57,38 +57,44 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
   })
 }));
 
-vi.mock('../hooks/useInventoryQueries', () => ({
-  useJob: () => useJobMock(),
-  useAllocationPreview: () => useAllocationPreviewMock(),
-  useSearchBoxesWithOptions: () => ({
-    data: [],
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-    error: null
-  }),
-  useUpdateJob: () => useUpdateJobMock(),
-  useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
-  useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),
-  useCheckoutCaulkJobAllocation: () => useCheckoutCaulkJobAllocationMock(),
-  useCheckoutAllJobMaterials: () => useCheckoutAllJobMaterialsMock(),
-  useCheckinCaulkJobAllocation: () => useCheckinCaulkJobAllocationMock(),
-  useRemoveCaulkJobAllocation: () => useRemoveCaulkJobAllocationMock(),
-  useCompleteJob: () => useCompleteJobMock(),
-  useDeleteJob: () => useDeleteJobMock(),
-  useReopenJob: () => useReopenJobMock(),
-  useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
-  usePendingDeleteFilmOrderIds: () => usePendingDeleteFilmOrderIdsMock(),
-  usePendingRemoveJobBoxAllocationIds: () => usePendingRemoveJobBoxAllocationIdsMock(),
-  useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
-  useSetBoxStatus: () => useSetBoxStatusMock(),
-  useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
-  useBox: () => useBoxMock(),
-  useAllocateBox: () => useAllocateBoxMock(),
-  useCreateFilmOrder: () => useCreateFilmOrderMock(),
-  useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args),
-  useCaulkProducts: (...args: unknown[]) => useCaulkProductsMock(...args)
-}));
+vi.mock('../hooks/useInventoryQueries', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useInventoryQueries')>();
+
+  return {
+    ...actual,
+    useJob: () => useJobMock(),
+    useAllocationPreview: () => useAllocationPreviewMock(),
+    useSearchBoxesWithOptions: () => ({
+      data: [],
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null
+    }),
+    useUpdateJob: () => useUpdateJobMock(),
+    useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
+    useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),
+    useCheckoutCaulkJobAllocation: () => useCheckoutCaulkJobAllocationMock(),
+    useCheckoutAllJobMaterials: () => useCheckoutAllJobMaterialsMock(),
+    useCheckinCaulkJobAllocation: () => useCheckinCaulkJobAllocationMock(),
+    useRemoveCaulkJobAllocation: () => useRemoveCaulkJobAllocationMock(),
+    useCompleteJob: () => useCompleteJobMock(),
+    useDeleteJob: () => useDeleteJobMock(),
+    useReopenJob: () => useReopenJobMock(),
+    useDeleteFilmOrder: () => useDeleteFilmOrderMock(),
+    usePendingDeleteFilmOrderIds: () => usePendingDeleteFilmOrderIdsMock(),
+    usePendingRemoveJobBoxAllocationIds: () => usePendingRemoveJobBoxAllocationIdsMock(),
+    usePendingSetBoxStatusBoxIds: () => new Set(),
+    useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
+    useSetBoxStatus: () => useSetBoxStatusMock(),
+    useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
+    useBox: () => useBoxMock(),
+    useAllocateBox: () => useAllocateBoxMock(),
+    useCreateFilmOrder: () => useCreateFilmOrderMock(),
+    useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args),
+    useCaulkProducts: (...args: unknown[]) => useCaulkProductsMock(...args)
+  };
+});
 
 function buildSummary(overrides: Record<string, unknown> = {}) {
   return {

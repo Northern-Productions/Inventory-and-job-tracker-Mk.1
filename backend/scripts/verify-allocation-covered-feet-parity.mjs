@@ -36,6 +36,13 @@ function findRequirement(detail, manufacturer, filmName, widthIn) {
   );
 }
 
+function sumRequirementField(requirements, fieldName) {
+  return (Array.isArray(requirements) ? requirements : []).reduce(
+    (total, entry) => total + Number(entry?.[fieldName] || 0),
+    0,
+  );
+}
+
 async function main() {
   const client = new Client({
     connectionString: requireDatabaseUrl(),
@@ -92,23 +99,64 @@ async function main() {
       `Found ${brokenCount} active or fulfilled allocations with allocated_feet > 0 and covered_feet = 0.`,
     );
 
-    const detail = await buildJobDetail(client, orgId, "17872");
-    const requirement = findRequirement(detail, "Security", "3M Ultra S800", 36);
-    assert(requirement, "Job 17872 is missing the 36-inch Security 3M Ultra S800 requirement.");
-    assert(
-      Number(requirement.requiredFeet) === 85
-        && Number(requirement.allocatedFeet) === 85
-        && Number(requirement.remainingFeet) === 0,
-      `Unexpected job 17872 requirement coverage: ${JSON.stringify(requirement)}`
+    const candidateJobsResult = await client.query(
+      `
+        select distinct upper(trim(job_number)) as job_number
+        from app.allocations
+        where org_id = $1
+          and status in ('ACTIVE', 'FULFILLED')
+          and allocated_feet > 0
+          and coalesce(covered_feet, 0) > 0
+        order by upper(trim(job_number)) asc
+        limit 20
+      `,
+      [orgId]
     );
+    const candidateJobNumbers = candidateJobsResult.rows
+      .map((row) => asTrimmedString(row.job_number))
+      .filter(Boolean);
+    assert(candidateJobNumbers.length > 0, "No live allocation jobs with covered_feet > 0 were found.");
+
+    let selectedJobNumber = "";
+    let selectedDetail = null;
+
+    for (const candidateJobNumber of candidateJobNumbers) {
+      const detail = await buildJobDetail(client, orgId, candidateJobNumber);
+      const allocatedFeet = Number(detail?.summary?.allocatedFeet || 0);
+      const requirementAllocatedFeet = sumRequirementField(detail?.requirements, "allocatedFeet");
+      if (allocatedFeet > 0 && requirementAllocatedFeet > 0) {
+        selectedJobNumber = candidateJobNumber;
+        selectedDetail = detail;
+        break;
+      }
+    }
+
+    assert(selectedDetail, "Unable to find a live job detail with allocated covered footage to verify.");
+
+    const summaryAllocatedFeet = Number(selectedDetail?.summary?.allocatedFeet || 0);
+    const summaryRemainingFeet = Number(selectedDetail?.summary?.remainingFeet || 0);
+    const requirementRequiredFeet = sumRequirementField(selectedDetail?.requirements, "requiredFeet");
+    const requirementAllocatedFeet = sumRequirementField(selectedDetail?.requirements, "allocatedFeet");
+    const requirementRemainingFeet = sumRequirementField(selectedDetail?.requirements, "remainingFeet");
 
     assert(
-      Number(detail?.summary?.allocatedFeet || 0) === 105
-        && Number(detail?.summary?.remainingFeet || 0) === 0,
-      `Unexpected job 17872 summary coverage: ${JSON.stringify(detail?.summary || {})}`
+      requirementAllocatedFeet > 0,
+      `Selected job ${selectedJobNumber} does not expose any allocated requirement footage: ${JSON.stringify(selectedDetail?.summary || {})}`
+    );
+    assert(
+      summaryAllocatedFeet === requirementAllocatedFeet,
+      `Job ${selectedJobNumber} summary allocatedFeet does not match requirements: ${JSON.stringify({ summaryAllocatedFeet, requirementAllocatedFeet })}`
+    );
+    assert(
+      summaryRemainingFeet === requirementRemainingFeet,
+      `Job ${selectedJobNumber} summary remainingFeet does not match requirements: ${JSON.stringify({ summaryRemainingFeet, requirementRemainingFeet })}`
+    );
+    assert(
+      requirementRequiredFeet === requirementAllocatedFeet + requirementRemainingFeet,
+      `Job ${selectedJobNumber} requirements do not balance required = allocated + remaining: ${JSON.stringify({ requirementRequiredFeet, requirementAllocatedFeet, requirementRemainingFeet })}`
     );
 
-    console.log("Allocation covered-feet parity OK.");
+    console.log(`Allocation covered-feet parity OK for live job ${selectedJobNumber}.`);
   } finally {
     await client.end();
   }

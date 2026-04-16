@@ -46,8 +46,8 @@ export function useBoxDetailsPageModel() {
   const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
   const boxId = safeDecodePathParam(params.boxId);
   const boxQuery = useBox(boxId);
-  const boxTransferQuery = useBoxTransfer(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
+  const boxTransferQuery = useBoxTransfer(boxId, { enabled: !isAddBoxPending });
   const updateMutation = useUpdateBox();
   const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();

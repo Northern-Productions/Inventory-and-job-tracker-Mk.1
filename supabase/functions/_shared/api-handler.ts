@@ -5120,7 +5120,7 @@ async function getBoxTransferByBox(client: any, orgId: string, boxId: string) {
     throw new HttpError(404, "Box not found.");
   }
 
-  return ok(toPublicBoxTransfer(transfer));
+  return ok(transfer ? toPublicBoxTransfer(transfer) : null);
 }
 
 function buildTransferDestinationConflictMessage(destinationBoxId: string, conflict: any) {

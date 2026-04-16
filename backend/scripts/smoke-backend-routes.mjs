@@ -1,6 +1,7 @@
 // Purpose: Lightweight backend contract smoke checks for route wiring and response envelopes.
 import '../load-env.mjs';
 import { handleSupabaseRequest } from '../supabase-backend.mjs';
+import { queryRows, withReadClient } from '../src/db/client.mjs';
 import { buildSmokeAuthSetupMessage, resolveSmokeAuthToken } from './lib/smoke-auth.mjs';
 
 function buildRequestUrl(path, query = {}) {
@@ -80,6 +81,226 @@ async function runCase(testCase, token) {
   }
 
   return response;
+}
+
+function extractWarehouseFromBoxId(boxId) {
+  const normalized = String(boxId || '').trim().toUpperCase();
+  const match = normalized.match(/^([A-Z]{2}[1-9][0-9]{0,6})-/);
+  return match ? match[1] : '';
+}
+
+function buildTemporarySmokeBoxId(warehouse) {
+  const uniqueToken = `${Date.now()}${Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, '0')}`.slice(-10);
+  return `${warehouse}-${uniqueToken}`;
+}
+
+function buildTodayDateString(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+async function resolveTransferSmokeSourceWarehouse(token, preferredWarehouse, destinationWarehouse) {
+  const normalizedPreferred = String(preferredWarehouse || '').trim().toUpperCase();
+  const normalizedDestination = String(destinationWarehouse || '').trim().toUpperCase();
+  const orgId = String(process.env.DEFAULT_ORG_ID || '').trim();
+
+  const entries = orgId
+    ? await withReadClient((client) =>
+        queryRows(
+          client,
+          `
+            select
+              code,
+              box_id_prefix
+            from app.warehouses
+            where org_id = $1
+            order by code
+          `,
+          [orgId]
+        )
+      )
+    : [];
+
+  const preferredEntry =
+    entries.find((entry) => {
+      const code = String(entry?.code || '').trim().toUpperCase();
+      return code === normalizedPreferred && code && code !== normalizedDestination;
+    }) ||
+    entries.find((entry) => {
+      const code = String(entry?.code || '').trim().toUpperCase();
+      const boxIdPrefix = String(entry?.boxIdPrefix || '').trim().toUpperCase();
+      return boxIdPrefix === normalizedPreferred && code && code !== normalizedDestination;
+    });
+  if (preferredEntry) {
+    return String(preferredEntry.code || '').trim().toUpperCase();
+  }
+
+  const fallbackEntry = entries.find((entry) => {
+    const code = String(entry?.code || '').trim().toUpperCase();
+    return code && code !== normalizedDestination;
+  });
+  if (fallbackEntry) {
+    return String(fallbackEntry.code || '').trim().toUpperCase();
+  }
+
+  if (normalizedPreferred && normalizedPreferred !== normalizedDestination) {
+    return normalizedPreferred;
+  }
+
+  return '';
+}
+
+async function createTemporaryTransferSmokeBox(token, sourceWarehouse) {
+  const today = buildTodayDateString();
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const boxId = buildTemporarySmokeBoxId(sourceWarehouse);
+    try {
+      const response = await runCase(
+        {
+          method: 'POST',
+          path: '/boxes/add',
+          body: {
+            boxId,
+            warehouse: sourceWarehouse,
+            manufacturer: '3M Solar',
+            filmName: 'Night Vision 25',
+            widthIn: 36,
+            initialFeet: 25,
+            feetAvailable: 25,
+            orderDate: today,
+            receivedDate: today,
+            notes: 'Temporary transfer smoke box.',
+            auditNote: 'Temporary transfer smoke box created for backend route verification.'
+          },
+          expectedStatuses: [200]
+        },
+        token
+      );
+
+      return { boxId, response };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Unable to create a temporary transfer smoke box.');
+}
+
+async function resolveTransferSmokeContext(token, configuredBoxId, destinationWarehouse) {
+  const normalizedConfiguredBoxId = String(configuredBoxId || '').trim().toUpperCase();
+  const sourceWarehouse = await resolveTransferSmokeSourceWarehouse(
+    token,
+    extractWarehouseFromBoxId(normalizedConfiguredBoxId),
+    destinationWarehouse
+  );
+
+  if (!sourceWarehouse) {
+    throw new Error(
+      `Unable to resolve a transfer smoke source warehouse for destination ${destinationWarehouse || '<empty>'}.`
+    );
+  }
+
+  if (normalizedConfiguredBoxId) {
+    const previewResponse = await runCase(
+      {
+        method: 'GET',
+        path: '/boxes/transfer/plan',
+        query: {
+          boxId: normalizedConfiguredBoxId,
+          toWarehouse: destinationWarehouse
+        },
+        expectedStatuses: [200, 400, 404]
+      },
+      token
+    );
+
+    if (previewResponse.statusCode === 200) {
+      return {
+        sourceWarehouse,
+        boxId: normalizedConfiguredBoxId,
+        temporaryBoxId: '',
+        previewResponse
+      };
+    }
+
+    const previewError = String(previewResponse.payload?.error || '').trim();
+    // eslint-disable-next-line no-console
+    console.log(
+      `INFO configured transfer smoke box ${normalizedConfiguredBoxId} is unavailable (${previewResponse.statusCode}${previewError ? `: ${previewError}` : ''}). Falling back to a temporary smoke box.`
+    );
+  }
+
+  const temporaryBox = await createTemporaryTransferSmokeBox(token, sourceWarehouse);
+  // eslint-disable-next-line no-console
+  console.log(`INFO created temporary transfer smoke box ${temporaryBox.boxId} in ${sourceWarehouse}.`);
+
+  return {
+    sourceWarehouse,
+    boxId: temporaryBox.boxId,
+    temporaryBoxId: temporaryBox.boxId,
+    previewResponse: null
+  };
+}
+
+async function cleanupTemporaryTransferSmokeContext(token, pendingTransferId, activeBoxId, temporaryBoxId) {
+  const normalizedTemporaryBoxId = String(temporaryBoxId || '').trim().toUpperCase();
+  if (!normalizedTemporaryBoxId) {
+    return;
+  }
+
+  const normalizedPendingTransferId = String(pendingTransferId || '').trim().toUpperCase();
+  if (normalizedPendingTransferId) {
+    const cancelResponse = await runCase(
+      {
+        method: 'POST',
+        path: '/boxes/transfer/cancel',
+        body: {
+          transferId: normalizedPendingTransferId,
+          reason: 'Temporary transfer smoke cleanup.'
+        },
+        expectedStatuses: [200, 400, 404]
+      },
+      token
+    );
+    // eslint-disable-next-line no-console
+    console.log(`CLEANUP POST /boxes/transfer/cancel -> ${cancelResponse.statusCode}`);
+  }
+
+  const candidateBoxIds = [activeBoxId, normalizedTemporaryBoxId];
+  const attemptedBoxIds = new Set();
+
+  for (let index = 0; index < candidateBoxIds.length; index += 1) {
+    const candidateBoxId = String(candidateBoxIds[index] || '').trim().toUpperCase();
+    if (!candidateBoxId || attemptedBoxIds.has(candidateBoxId)) {
+      continue;
+    }
+    attemptedBoxIds.add(candidateBoxId);
+
+    const deleteResponse = await runCase(
+      {
+        method: 'POST',
+        path: '/boxes/delete',
+        body: {
+          boxId: candidateBoxId,
+          reason: 'Temporary transfer smoke cleanup.'
+        },
+        expectedStatuses: [200, 404]
+      },
+      token
+    );
+
+    if (deleteResponse.statusCode === 200) {
+      // eslint-disable-next-line no-console
+      console.log(`CLEANUP POST /boxes/delete (${candidateBoxId}) -> ${deleteResponse.statusCode}`);
+      return;
+    }
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(`INFO temporary transfer smoke box ${normalizedTemporaryBoxId} was already removed.`);
 }
 
 async function main() {
@@ -244,105 +465,51 @@ async function main() {
   }
 
   if (includeMutations) {
-    if (token && transferBoxId && transferDestinationWarehouse) {
-      const previewTransferResponse = await runCase(
-        {
-          method: 'GET',
-          path: '/boxes/transfer/plan',
-          query: {
-            boxId: transferBoxId,
-            toWarehouse: transferDestinationWarehouse
-          },
-          expectedStatuses: [200]
-        },
-        token
-      );
-      passed += 1;
-      const previewDestinationBoxId = String(
-        previewTransferResponse.payload?.data?.destinationBoxId || ''
-      ).trim().toUpperCase();
-      if (!previewDestinationBoxId) {
-        throw new Error('/boxes/transfer/plan: expected destinationBoxId in payload.data.destinationBoxId');
-      }
-      // eslint-disable-next-line no-console
-      console.log(`PASS GET /boxes/transfer/plan -> ${previewTransferResponse.statusCode}`);
+    if (token && transferDestinationWarehouse) {
+      let smokeTransferBoxId = '';
+      let temporaryTransferBoxId = '';
+      let activeTransferBoxId = '';
+      let activePendingTransferId = '';
 
-      const transferNote = `Smoke transfer ${new Date().toISOString()}`;
-      const startTransferResponse = await runCase(
-        {
-          method: 'POST',
-          path: '/boxes/transfer/start',
-          body: {
-            boxId: transferBoxId,
-            toWarehouse: transferDestinationWarehouse,
-            notes: transferNote
-          },
-          expectedStatuses: [200]
-        },
-        token
-      );
-      passed += 1;
-      // eslint-disable-next-line no-console
-      console.log(`PASS POST /boxes/transfer/start -> ${startTransferResponse.statusCode}`);
+      try {
+        const transferContext = await resolveTransferSmokeContext(token, transferBoxId, transferDestinationWarehouse);
+        smokeTransferBoxId = transferContext.boxId;
+        temporaryTransferBoxId = transferContext.temporaryBoxId;
+        activeTransferBoxId = transferContext.boxId;
 
-      const transferId = String(startTransferResponse.payload?.data?.transfer?.transferId || '').trim().toUpperCase();
-      if (!transferId) {
-        throw new Error('/boxes/transfer/start: expected transferId in payload.data.transfer.transferId');
-      }
-
-      const transferLookupResponse = await runCase(
-        {
-          method: 'GET',
-          path: '/boxes/transfer/by-box',
-          query: { boxId: transferBoxId },
-          expectedStatuses: [200]
-        },
-        token
-      );
-      passed += 1;
-      const pendingTransferId = String(transferLookupResponse.payload?.data?.transferId || '').trim().toUpperCase();
-      if (pendingTransferId !== transferId) {
-        throw new Error(
-          `/boxes/transfer/by-box: expected transferId ${transferId}, received ${pendingTransferId || '<empty>'}`
-        );
-      }
-      // eslint-disable-next-line no-console
-      console.log(`PASS GET /boxes/transfer/by-box -> ${transferLookupResponse.statusCode}`);
-
-      if (transferRoundTrip) {
-        const receiveTransferResponse = await runCase(
-          {
-            method: 'POST',
-            path: '/boxes/transfer/receive',
-            body: { transferId },
-            expectedStatuses: [200]
-          },
-          token
-        );
+        const previewTransferResponse =
+          transferContext.previewResponse ||
+          (await runCase(
+            {
+              method: 'GET',
+              path: '/boxes/transfer/plan',
+              query: {
+                boxId: smokeTransferBoxId,
+                toWarehouse: transferDestinationWarehouse
+              },
+              expectedStatuses: [200]
+            },
+            token
+          ));
         passed += 1;
-        // eslint-disable-next-line no-console
-        console.log(`PASS POST /boxes/transfer/receive -> ${receiveTransferResponse.statusCode}`);
-
-        const receivedBoxId = String(
-          receiveTransferResponse.payload?.data?.transfer?.destinationBoxId || ''
+        const previewDestinationBoxId = String(
+          previewTransferResponse.payload?.data?.destinationBoxId || ''
         ).trim().toUpperCase();
-        const sourceWarehouse = String(
-          receiveTransferResponse.payload?.data?.transfer?.sourceWarehouse || ''
-        ).trim().toUpperCase();
-        if (!receivedBoxId || !sourceWarehouse) {
-          throw new Error(
-            '/boxes/transfer/receive: expected payload.data.transfer.destinationBoxId and sourceWarehouse'
-          );
+        if (!previewDestinationBoxId) {
+          throw new Error('/boxes/transfer/plan: expected destinationBoxId in payload.data.destinationBoxId');
         }
+        // eslint-disable-next-line no-console
+        console.log(`PASS GET /boxes/transfer/plan -> ${previewTransferResponse.statusCode}`);
 
-        const returnTransferResponse = await runCase(
+        const transferNote = `Smoke transfer ${new Date().toISOString()}`;
+        const startTransferResponse = await runCase(
           {
             method: 'POST',
             path: '/boxes/transfer/start',
             body: {
-              boxId: receivedBoxId,
-              toWarehouse: sourceWarehouse,
-              notes: `Smoke return ${new Date().toISOString()}`
+              boxId: smokeTransferBoxId,
+              toWarehouse: transferDestinationWarehouse,
+              notes: transferNote
             },
             expectedStatuses: [200]
           },
@@ -350,48 +517,132 @@ async function main() {
         );
         passed += 1;
         // eslint-disable-next-line no-console
-        console.log(`PASS POST /boxes/transfer/start (return) -> ${returnTransferResponse.statusCode}`);
+        console.log(`PASS POST /boxes/transfer/start -> ${startTransferResponse.statusCode}`);
 
-        const returnTransferId = String(
-          returnTransferResponse.payload?.data?.transfer?.transferId || ''
-        ).trim().toUpperCase();
-        if (!returnTransferId) {
-          throw new Error('/boxes/transfer/start (return): expected transferId in payload.data.transfer.transferId');
+        const transferId = String(startTransferResponse.payload?.data?.transfer?.transferId || '').trim().toUpperCase();
+        if (!transferId) {
+          throw new Error('/boxes/transfer/start: expected transferId in payload.data.transfer.transferId');
         }
+        activePendingTransferId = transferId;
 
-        const receiveReturnResponse = await runCase(
+        const transferLookupResponse = await runCase(
           {
-            method: 'POST',
-            path: '/boxes/transfer/receive',
-            body: { transferId: returnTransferId },
+            method: 'GET',
+            path: '/boxes/transfer/by-box',
+            query: { boxId: smokeTransferBoxId },
             expectedStatuses: [200]
           },
           token
         );
         passed += 1;
-        const returnedBoxId = String(
-          receiveReturnResponse.payload?.data?.transfer?.destinationBoxId || ''
-        ).trim().toUpperCase();
-        if (returnedBoxId !== transferBoxId) {
+        const pendingTransferId = String(transferLookupResponse.payload?.data?.transferId || '').trim().toUpperCase();
+        if (pendingTransferId !== transferId) {
           throw new Error(
-            `/boxes/transfer/receive (return): expected destinationBoxId ${transferBoxId}, received ${returnedBoxId || '<empty>'}`
+            `/boxes/transfer/by-box: expected transferId ${transferId}, received ${pendingTransferId || '<empty>'}`
           );
         }
         // eslint-disable-next-line no-console
-        console.log(`PASS POST /boxes/transfer/receive (return) -> ${receiveReturnResponse.statusCode}`);
-      } else {
-        const cancelTransferResponse = await runCase(
-          {
-            method: 'POST',
-            path: '/boxes/transfer/cancel',
-            body: { transferId },
-            expectedStatuses: [200]
-          },
-          token
-        );
-        passed += 1;
-        // eslint-disable-next-line no-console
-        console.log(`PASS POST /boxes/transfer/cancel -> ${cancelTransferResponse.statusCode}`);
+        console.log(`PASS GET /boxes/transfer/by-box -> ${transferLookupResponse.statusCode}`);
+
+        if (transferRoundTrip) {
+          const receiveTransferResponse = await runCase(
+            {
+              method: 'POST',
+              path: '/boxes/transfer/receive',
+              body: { transferId },
+              expectedStatuses: [200]
+            },
+            token
+          );
+          passed += 1;
+          activePendingTransferId = '';
+          // eslint-disable-next-line no-console
+          console.log(`PASS POST /boxes/transfer/receive -> ${receiveTransferResponse.statusCode}`);
+
+          const receivedBoxId = String(
+            receiveTransferResponse.payload?.data?.transfer?.destinationBoxId || ''
+          ).trim().toUpperCase();
+          const sourceWarehouse = String(
+            receiveTransferResponse.payload?.data?.transfer?.sourceWarehouse || ''
+          ).trim().toUpperCase();
+          if (!receivedBoxId || !sourceWarehouse) {
+            throw new Error(
+              '/boxes/transfer/receive: expected payload.data.transfer.destinationBoxId and sourceWarehouse'
+            );
+          }
+          activeTransferBoxId = receivedBoxId;
+
+          const returnTransferResponse = await runCase(
+            {
+              method: 'POST',
+              path: '/boxes/transfer/start',
+              body: {
+                boxId: receivedBoxId,
+                toWarehouse: sourceWarehouse,
+                notes: `Smoke return ${new Date().toISOString()}`
+              },
+              expectedStatuses: [200]
+            },
+            token
+          );
+          passed += 1;
+          // eslint-disable-next-line no-console
+          console.log(`PASS POST /boxes/transfer/start (return) -> ${returnTransferResponse.statusCode}`);
+
+          const returnTransferId = String(
+            returnTransferResponse.payload?.data?.transfer?.transferId || ''
+          ).trim().toUpperCase();
+          if (!returnTransferId) {
+            throw new Error('/boxes/transfer/start (return): expected transferId in payload.data.transfer.transferId');
+          }
+          activePendingTransferId = returnTransferId;
+
+          const receiveReturnResponse = await runCase(
+            {
+              method: 'POST',
+              path: '/boxes/transfer/receive',
+              body: { transferId: returnTransferId },
+              expectedStatuses: [200]
+            },
+            token
+          );
+          passed += 1;
+          activePendingTransferId = '';
+          const returnedBoxId = String(
+            receiveReturnResponse.payload?.data?.transfer?.destinationBoxId || ''
+          ).trim().toUpperCase();
+          if (returnedBoxId !== smokeTransferBoxId) {
+            throw new Error(
+              `/boxes/transfer/receive (return): expected destinationBoxId ${smokeTransferBoxId}, received ${returnedBoxId || '<empty>'}`
+            );
+          }
+          activeTransferBoxId = returnedBoxId;
+          // eslint-disable-next-line no-console
+          console.log(`PASS POST /boxes/transfer/receive (return) -> ${receiveReturnResponse.statusCode}`);
+        } else {
+          const cancelTransferResponse = await runCase(
+            {
+              method: 'POST',
+              path: '/boxes/transfer/cancel',
+              body: { transferId },
+              expectedStatuses: [200]
+            },
+            token
+          );
+          passed += 1;
+          activePendingTransferId = '';
+          // eslint-disable-next-line no-console
+          console.log(`PASS POST /boxes/transfer/cancel -> ${cancelTransferResponse.statusCode}`);
+        }
+      } finally {
+        if (temporaryTransferBoxId) {
+          await cleanupTemporaryTransferSmokeContext(
+            token,
+            activePendingTransferId,
+            activeTransferBoxId || smokeTransferBoxId,
+            temporaryTransferBoxId
+          );
+        }
       }
     } else {
       skipped += 1;
@@ -399,7 +650,7 @@ async function main() {
       console.log(
         'SKIP transfer mutation smoke (' +
           `${buildSmokeAuthSetupMessage('authenticated backend smoke routes')} ` +
-          'Also set SMOKE_TRANSFER_BOX_ID and SMOKE_TRANSFER_DEST_WAREHOUSE.)'
+          'Also set SMOKE_TRANSFER_DEST_WAREHOUSE.)'
       );
     }
 
