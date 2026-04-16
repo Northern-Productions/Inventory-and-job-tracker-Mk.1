@@ -266,6 +266,38 @@ const readHandlers: Record<string, ReadHandler> = {
     }));
     return ok({ entries });
   },
+  "/caulk/transfers/list": async ({ client, orgId, params }, deps) => {
+    const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_transfers", {
+      p_org_id: orgId,
+      p_warehouse: deps.asTrimmedString(params.warehouse),
+      p_product_id: deps.asTrimmedString(params.productId) || null,
+    });
+    const entries = (entriesRaw || []).map((entry) => ({
+      transferId: deps.asTrimmedString(entry.transfer_id),
+      caulkAllocationId: deps.asTrimmedString(entry.caulk_allocation_id),
+      jobNumber: deps.asTrimmedString(entry.job_number),
+      productId: deps.asTrimmedString(entry.product_id),
+      manufacturerId: deps.asTrimmedString(entry.manufacturer_id),
+      manufacturer: deps.asTrimmedString(entry.manufacturer),
+      productName: deps.asTrimmedString(entry.product_name),
+      productCode: deps.asTrimmedString(entry.product_code),
+      tubesPerCase: deps.integerOrZero(entry.tubes_per_case),
+      sourceWarehouse: deps.asTrimmedString(entry.source_warehouse).toUpperCase(),
+      destinationWarehouse: deps.asTrimmedString(entry.destination_warehouse).toUpperCase(),
+      pendingTubes: deps.integerOrZero(entry.pending_tubes),
+      status: deps.asTrimmedString(entry.status).toUpperCase(),
+      createdAt: deps.asTrimmedString(entry.created_at),
+      createdBy: deps.asTrimmedString(entry.created_by),
+      receivedAt: deps.asTrimmedString(entry.received_at),
+      receivedBy: deps.asTrimmedString(entry.received_by),
+      cancelledAt: deps.asTrimmedString(entry.cancelled_at),
+      cancelledBy: deps.asTrimmedString(entry.cancelled_by),
+      updatedAt: deps.asTrimmedString(entry.updated_at),
+      updatedBy: deps.asTrimmedString(entry.updated_by),
+      notes: deps.asTrimmedString(entry.notes),
+    })).filter((entry) => entry.transferId);
+    return ok({ entries });
+  },
   "/boxes/search": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildSearchBoxes(client, orgId, params));
   },

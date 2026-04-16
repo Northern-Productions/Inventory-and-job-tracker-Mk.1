@@ -34,9 +34,11 @@ export {
 } from './queries/activityAndReportQueries';
 export {
   usePendingAddCaulkAllocationJobNumbers,
+  usePendingCancelCaulkTransferIds,
   usePendingCheckinCaulkCheckoutIds,
   usePendingCheckoutCaulkAllocationIds,
   usePendingDeleteFilmOrderIds,
+  usePendingReceiveCaulkTransferIds,
   usePendingRemoveCaulkAllocationIds,
   usePendingRemoveJobBoxAllocationIds,
   usePendingSetBoxStatusBoxIds,

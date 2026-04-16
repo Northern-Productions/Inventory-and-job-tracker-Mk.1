@@ -21,8 +21,8 @@ From repo root:
 ```bash
 npx supabase login
 npx supabase secrets set --project-ref tiwpulgvxtwlmqdnyuzd DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" API_BUILD_SHA="YOUR_GIT_SHA" API_BUILT_AT="YYYY-MM-DDTHH:MM:SSZ"
-# verify 0006 is applied in the same DB before deploy
-npm --prefix backend run check:schema:0006
+# verify the latest required schema objects are present in the same DB before deploy
+npm --prefix backend run check:schema:latest
 npx supabase functions deploy api --project-ref tiwpulgvxtwlmqdnyuzd --no-verify-jwt
 ```
 
@@ -48,6 +48,7 @@ After deploy, run:
 
 ```bash
 npm --prefix backend run verify:edge:live
+npm --prefix backend run verify:edge:caulk
 ```
 
 Set `SMOKE_AUTH_TOKEN` before running the command, or configure
@@ -55,6 +56,9 @@ Set `SMOKE_AUTH_TOKEN` before running the command, or configure
 script can mint a fresh token automatically. Override `VERIFY_EDGE_JOB_NUMBER`
 and the `VERIFY_EDGE_EXPECTED_*` env vars when you need to verify a different
 live job.
+
+`verify:edge:caulk` also expects `SMOKE_FRONTEND_URL` to point at the live
+frontend so the browser portion of the smoke can verify the inbound transfer UI.
 
 To provision a dedicated local smoke user and persist those credentials into
 `backend/.env`, run `npm --prefix backend run smoke:provision-user`.

@@ -1,27 +1,40 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
+import { useToast } from '../../../components/Toast';
 import {
   listCaulkManufacturers,
-  listCaulkStock
+  listCaulkStock,
+  upsertCaulkProduct
 } from '../../../api/features/caulkClient';
+import type { Warehouse } from '../../../domain';
+import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
 import { toFullCasesFromTubes } from '../utils/stockMath';
+import { NewCaulkProductDialog } from './NewCaulkProductDialog';
 
 interface CaulkInventoryContentProps {
   headerActions?: ReactNode;
 }
 
 export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentProps) {
+  const auth = useAuth();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const warehouseRegistry = useWarehouseRegistry();
-  const warehouseOptions = warehouseRegistry.entries;
+  const warehouseEntries = warehouseRegistry.entries;
+  const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
 
   const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
   const [manufacturerFilter, setManufacturerFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isNewProductDialogOpen, setIsNewProductDialogOpen] = useState(false);
+  const [newProductError, setNewProductError] = useState('');
 
   const manufacturersQuery = useQuery({
     queryKey: ['caulk', 'manufacturers'],
@@ -40,6 +53,8 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
 
   const manufacturers = manufacturersQuery.data || [];
   const stockRows = stockQuery.data || [];
+  const selectedWarehouseForNewProduct =
+    warehouseFilter && warehouseFilter !== 'ALL' ? (warehouseFilter as Warehouse) : '';
 
   const manufacturerOptions = useMemo(() => {
     return manufacturers
@@ -48,9 +63,60 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
       .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
   }, [manufacturers]);
 
+  const createProductMutation = useMutation({
+    mutationFn: upsertCaulkProduct,
+    onSuccess: async (result, variables) => {
+      setIsNewProductDialogOpen(false);
+      setNewProductError('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'products'] })
+      ]);
+      toast.push({
+        title: 'Caulk product saved',
+        description: `${result.productName} is now listed for ${variables.warehouse}.`,
+        variant: 'success'
+      });
+      navigate(`/caulk/${encodeURIComponent(variables.warehouse || '')}/${encodeURIComponent(result.productId)}`);
+    },
+    onError: (error) => {
+      const message =
+        error instanceof Error ? error.message : 'The new caulk product could not be saved.';
+      setNewProductError(message);
+      toast.push({
+        title: 'Unable to save caulk product',
+        description: message,
+        variant: 'error'
+      });
+    }
+  });
+
   const isBusy = manufacturersQuery.isLoading || stockQuery.isLoading;
   const showCaulkInventoryLoading =
     isBusy && !manufacturersQuery.data && !stockQuery.data;
+
+  function openNewProductDialog() {
+    if (!manufacturers.length) {
+      toast.push({
+        title: 'No manufacturers available',
+        description: 'Create or activate a caulk manufacturer before adding a new product.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!warehouseEntries.length) {
+      toast.push({
+        title: 'No warehouses configured',
+        description: 'Add a warehouse before creating a new caulk product.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    setNewProductError('');
+    setIsNewProductDialogOpen(true);
+  }
 
   return (
     <>
@@ -72,7 +138,7 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
             onChange={(event) => setWarehouseFilter(event.target.value)}
             options={[
               { value: 'ALL', label: 'All' },
-              ...warehouseOptions.map((entry) => ({
+              ...warehouseEntries.map((entry) => ({
                 value: entry.code,
                 label: entry.name || entry.code
               }))
@@ -104,7 +170,13 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
       <section className="panel">
         <div className="panel-title-row">
           <h2>Stock</h2>
-          <span className="muted-text">{stockRows.length} product rows</span>
+          {canWriteInventory ? (
+            <Button type="button" variant="ghost" size="sm" onClick={openNewProductDialog}>
+              New Product +
+            </Button>
+          ) : (
+            <span className="muted-text">{stockRows.length} product rows</span>
+          )}
         </div>
         <DeferredLoadingState when={showCaulkInventoryLoading} label="Loading caulk inventory..." />
         {!showCaulkInventoryLoading ? (
@@ -149,6 +221,27 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
           </div>
         ) : null}
       </section>
+
+      <NewCaulkProductDialog
+        open={isNewProductDialogOpen}
+        pending={createProductMutation.isPending}
+        error={newProductError}
+        manufacturers={manufacturers}
+        warehouseEntries={warehouseEntries}
+        lockedWarehouse={selectedWarehouseForNewProduct}
+        onClose={() => {
+          if (createProductMutation.isPending) {
+            return;
+          }
+          setIsNewProductDialogOpen(false);
+          setNewProductError('');
+        }}
+        onClearError={() => setNewProductError('')}
+        onSubmit={(payload) => {
+          setNewProductError('');
+          createProductMutation.mutate(payload);
+        }}
+      />
     </>
   );
 }

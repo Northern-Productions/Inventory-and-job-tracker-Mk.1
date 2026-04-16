@@ -7,6 +7,7 @@ import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
 import {
   useAddCaulkJobAllocation,
+  useCancelCaulkTransfer,
   useCheckinCaulkJobAllocation,
   useCheckoutAllJobMaterials,
   useCheckoutCaulkJobAllocation,
@@ -16,8 +17,11 @@ import {
   useDeleteFilmOrder,
   useFilmCatalog,
   usePendingDeleteFilmOrderIds,
+  usePendingCancelCaulkTransferIds,
   usePendingRemoveJobBoxAllocationIds,
+  usePendingReceiveCaulkTransferIds,
   useJob,
+  useReceiveCaulkTransfer,
   useRemoveCaulkJobAllocation,
   useReopenJob,
   useRemoveJobBoxAllocations,
@@ -56,12 +60,16 @@ export function useAllocationJobPageModel() {
   const checkoutAllJobMaterialsMutation = useCheckoutAllJobMaterials();
   const checkinCaulkAllocationMutation = useCheckinCaulkJobAllocation();
   const removeCaulkAllocationMutation = useRemoveCaulkJobAllocation();
+  const receiveCaulkTransferMutation = useReceiveCaulkTransfer();
+  const cancelCaulkTransferMutation = useCancelCaulkTransfer();
   const completeJobMutation = useCompleteJob();
   const deleteJobMutation = useDeleteJob();
   const reopenJobMutation = useReopenJob();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
   const pendingDeleteFilmOrderIds = usePendingDeleteFilmOrderIds();
   const pendingRemoveJobBoxAllocationIds = usePendingRemoveJobBoxAllocationIds();
+  const pendingReceiveCaulkTransferIds = usePendingReceiveCaulkTransferIds();
+  const pendingCancelCaulkTransferIds = usePendingCancelCaulkTransferIds();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
@@ -72,6 +80,7 @@ export function useAllocationJobPageModel() {
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
   const filmTransferAlerts = detail?.filmTransferAlerts || [];
+  const caulkTransferAlerts = detail?.caulkTransferAlerts || [];
   const filmTransferAlertsByBoxId = useMemo(
     () =>
       Object.fromEntries(
@@ -147,6 +156,15 @@ export function useAllocationJobPageModel() {
       }),
     [caulkAllocations, caulkCheckoutsByAllocationId]
   );
+  const pendingCaulkTransferByAllocationId = useMemo(
+    () =>
+      Object.fromEntries(
+        visibleCaulkAllocations
+          .filter((entry) => entry.pendingTransfer?.transferId)
+          .map((entry) => [entry.caulkAllocationId, entry.pendingTransfer!])
+      ) as Record<string, NonNullable<(typeof visibleCaulkAllocations)[number]['pendingTransfer']>>,
+    [visibleCaulkAllocations]
+  );
   const hasCheckoutableMaterials = useMemo(
     () =>
       visibleAllocations.some(
@@ -159,10 +177,12 @@ export function useAllocationJobPageModel() {
       visibleCaulkAllocations.some(
         (entry) =>
           entry.status === 'ACTIVE' &&
+          !entry.pendingTransfer &&
           entry.reservedTubesRemaining > 0 &&
           !openCaulkCheckoutByAllocationId[entry.caulkAllocationId]
       ),
     [
+      caulkTransferAlerts,
       filmTransferAlertsByBoxId,
       openCaulkCheckoutByAllocationId,
       visibleAllocations,
@@ -209,6 +229,7 @@ export function useAllocationJobPageModel() {
     isReadOnlyJob,
     stagingBlockingMessage,
     filmTransferAlerts,
+    caulkTransferAlerts,
     isOwner: auth.isOwner,
     isAdmin: auth.isAdmin,
     ensureSignedIn,
@@ -250,6 +271,11 @@ export function useAllocationJobPageModel() {
     ensureSignedIn,
     maybeOpenReturnCompletionPrompt: lifecycleWorkflow.maybeOpenReturnCompletionPrompt,
     pushToast: toast.push,
+    canManageTransfers: auth.hasFeatureAccess('inventory', 'write'),
+    pendingTransferByAllocationId: pendingCaulkTransferByAllocationId,
+    isCaulkTransferPending: (transferId: string) =>
+      pendingReceiveCaulkTransferIds.has(String(transferId || '').trim().toUpperCase()) ||
+      pendingCancelCaulkTransferIds.has(String(transferId || '').trim().toUpperCase()),
     addCaulkAllocation: addCaulkAllocationMutation.mutateAsync,
     addCaulkAllocationPending: addCaulkAllocationMutation.isPending,
     updateCaulkAllocation: updateCaulkAllocationMutation.mutateAsync,
@@ -259,7 +285,11 @@ export function useAllocationJobPageModel() {
     checkinCaulkAllocation: checkinCaulkAllocationMutation.mutateAsync,
     checkinCaulkAllocationPending: checkinCaulkAllocationMutation.isPending,
     removeCaulkAllocation: removeCaulkAllocationMutation.mutateAsync,
-    removeCaulkAllocationPending: removeCaulkAllocationMutation.isPending
+    removeCaulkAllocationPending: removeCaulkAllocationMutation.isPending,
+    receiveCaulkTransfer: receiveCaulkTransferMutation.mutateAsync,
+    receiveCaulkTransferPending: receiveCaulkTransferMutation.isPending,
+    cancelCaulkTransfer: cancelCaulkTransferMutation.mutateAsync,
+    cancelCaulkTransferPending: cancelCaulkTransferMutation.isPending
   });
 
   return {
@@ -270,6 +300,7 @@ export function useAllocationJobPageModel() {
     summary,
     requirements,
     filmTransferAlerts,
+    caulkTransferAlerts,
     filmTransferAlertsByBoxId,
     usageTimeline,
     caulkRequirements,
@@ -306,6 +337,8 @@ export function useAllocationJobPageModel() {
     isStagedPickupPending: setJobStagedForPickupMutation.isPending,
     isBoxStatusPending: setBoxStatusMutation.isPending,
     isCheckoutCaulkPending: checkoutCaulkAllocationMutation.isPending,
+    isReceiveCaulkTransferPending: receiveCaulkTransferMutation.isPending,
+    isCancelCaulkTransferPending: cancelCaulkTransferMutation.isPending,
     isDeleteJobPending: deleteJobMutation.isPending,
     isCompleteJobPending: completeJobMutation.isPending,
     isUpdateJobPending: updateJobMutation.isPending,

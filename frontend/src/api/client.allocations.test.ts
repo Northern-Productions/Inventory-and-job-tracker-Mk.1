@@ -93,6 +93,7 @@ describe('allocations API client caulk routes', () => {
       jobNumber: '000123',
       productId: 'product-1',
       warehouse: 'IL1' as const,
+      transferFromWarehouse: 'MS1' as const,
       allocatedTubes: 10
     };
     const result = await addCaulkJobAllocation(payload);
@@ -189,6 +190,7 @@ describe('allocations API client caulk routes', () => {
     const payload = {
       caulkAllocationId: 'alloc-1',
       allocatedTubes: 12,
+      transferFromWarehouse: 'IL1' as const,
       notes: 'increase reserve'
     };
     const result = await updateCaulkJobAllocation(payload);

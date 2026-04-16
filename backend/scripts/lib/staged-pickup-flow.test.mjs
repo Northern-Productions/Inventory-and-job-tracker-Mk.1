@@ -159,10 +159,41 @@ test('getJobStagingBlockingReason keeps transfer blockers intact', () => {
     [],
     [],
     [{ boxId: 'IL1-100', state: 'TRANSFER_PENDING' }],
+    [],
     {},
   );
 
   assert.equal(reason, 'Receive transferred film before staging this job.');
+});
+
+test('getJobStagingBlockingReason blocks pending caulk transfers', () => {
+  const reason = getJobStagingBlockingReason(
+    [{ requiredFeet: 25, remainingFeet: 0 }],
+    [{ requiredTubes: 3, remainingTubes: 0 }],
+    [],
+    [],
+    [],
+    [],
+    [{ caulkAllocationId: 'caulk-1', state: 'TRANSFER_PENDING' }],
+    {},
+  );
+
+  assert.equal(reason, 'Receive transferred caulk before staging this job.');
+});
+
+test('getJobStagingBlockingReason combines film and caulk transfer blockers', () => {
+  const reason = getJobStagingBlockingReason(
+    [{ requiredFeet: 25, remainingFeet: 0 }],
+    [{ requiredTubes: 3, remainingTubes: 0 }],
+    [],
+    [],
+    [],
+    [{ boxId: 'IL1-100', state: 'TRANSFER_PENDING' }],
+    [{ caulkAllocationId: 'caulk-1', state: 'TRANSFER_PENDING' }],
+    {},
+  );
+
+  assert.equal(reason, 'Receive transferred film and caulk before staging this job.');
 });
 
 test('getJobStagingBlockingReason keeps ordered-allocation blockers intact', () => {
@@ -177,6 +208,7 @@ test('getJobStagingBlockingReason keeps ordered-allocation blockers intact', () 
         allocatedFeet: 25,
       },
     ],
+    [],
     [],
     [],
     [],
@@ -204,6 +236,7 @@ test('getJobStagingBlockingReason keeps unchecked-out caulk blockers intact', ()
         reservedTubesRemaining: 1,
       },
     ],
+    [],
     [],
     {},
   );

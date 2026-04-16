@@ -15,7 +15,7 @@ import {
   buildPublicJobRequirementEntries,
   buildPublicCaulkRequirementEntries,
 } from '../runtimeAllocationCoverage.mjs';
-import { buildJobFilmTransferAlerts } from '../runtimeTransferUsage.mjs';
+import { buildJobCaulkTransferAlerts, buildJobFilmTransferAlerts } from '../runtimeTransferUsage.mjs';
 import {
   buildLegacyJobHeaderFromData,
   deriveJobStatusFromLegacyAllocationData,
@@ -72,6 +72,7 @@ function buildJobStagingValidationState({
     boxById,
     pendingTransfersByBoxRecordId
   );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(warehouse, caulkAllocations);
 
   return {
     jobNumber,
@@ -87,6 +88,7 @@ function buildJobStagingValidationState({
     publicRequirements,
     publicCaulkRequirements,
     filmTransferAlerts,
+    caulkTransferAlerts,
     blockingReason: getJobStagingBlockingReason(
       publicRequirements,
       publicCaulkRequirements,
@@ -94,6 +96,7 @@ function buildJobStagingValidationState({
       filmOrders,
       caulkAllocations,
       filmTransferAlerts,
+      caulkTransferAlerts,
       boxById
     )
   };

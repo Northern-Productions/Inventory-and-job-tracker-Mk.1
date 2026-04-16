@@ -404,6 +404,54 @@ function mapDbCaulkJobAllocationRow(row) {
     resolvedAt: formatTimestamp(row.resolved_at),
     resolvedBy: asTrimmedString(row.resolved_by),
     notes: asTrimmedString(row.notes),
+    pendingTransfer: asTrimmedString(row.pending_transfer_id)
+      ? {
+          transferId: asTrimmedString(row.pending_transfer_id),
+          status: 'PENDING',
+          sourceWarehouse: asTrimmedString(row.pending_transfer_source_warehouse).toUpperCase(),
+          destinationWarehouse: asTrimmedString(
+            row.pending_transfer_destination_warehouse || row.warehouse
+          ).toUpperCase(),
+          pendingTubes: integerOrZero(row.pending_transfer_tubes),
+          startedAt: formatTimestamp(row.pending_transfer_started_at),
+          startedBy: asTrimmedString(row.pending_transfer_started_by),
+          notes: asTrimmedString(row.pending_transfer_notes),
+        }
+      : null,
+  };
+}
+
+function mapDbCaulkTransferRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    caulkAllocationRowId: row.caulk_allocation_id,
+    transferId: asTrimmedString(row.transfer_id),
+    caulkAllocationId: asTrimmedString(row.caulk_allocation_public_id || row.caulk_allocation_id_text),
+    jobNumber: asTrimmedString(row.job_number),
+    productId: asTrimmedString(row.product_id),
+    manufacturerId: asTrimmedString(row.manufacturer_id),
+    manufacturer: asTrimmedString(row.manufacturer),
+    productName: asTrimmedString(row.product_name),
+    productCode: asTrimmedString(row.product_code),
+    tubesPerCase: integerOrZero(row.tubes_per_case),
+    sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
+    destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    pendingTubes: integerOrZero(row.pending_tubes),
+    status: asTrimmedString(row.status).toUpperCase() || 'PENDING',
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+    receivedAt: formatTimestamp(row.received_at),
+    receivedBy: asTrimmedString(row.received_by),
+    cancelledAt: formatTimestamp(row.cancelled_at),
+    cancelledBy: asTrimmedString(row.cancelled_by),
+    updatedAt: formatTimestamp(row.updated_at),
+    updatedBy: asTrimmedString(row.updated_by),
+    notes: asTrimmedString(row.notes),
   };
 }
 
@@ -598,6 +646,7 @@ export {
   mapDbCaulkJobRequirementRow,
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
+  mapDbCaulkTransferRow,
   mapDbAuditRow,
   mapDbRollHistoryRow,
   mapCaulkManufacturerRow,

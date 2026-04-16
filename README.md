@@ -22,12 +22,9 @@ Architecture map: [docs/architecture/modular-map.md](docs/architecture/modular-m
   - validates Supabase bearer tokens
   - serves inventory, jobs, allocations, film orders, audit history, roll history, and reports
 - Database: Supabase Postgres
-  - schema in `backend/migrations/0001_supabase_inventory_schema.sql`
-  - CSV staging import in `backend/migrations/0002_supabase_import_staging.sql`
-  - API read helpers in `backend/migrations/0003_supabase_app_api_reads.sql`
-  - API mutation RPCs in `backend/migrations/0004_supabase_app_api_mutations.sql`
-  - follow-up fixes in `backend/migrations/0005_fix_roll_history_ordering.sql`
-  - access control and approvals in `backend/migrations/0006_access_control_and_approvals.sql`
+  - canonical migration history lives in `backend/migrations/`
+  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0065_caulk_transfer_assist_and_new_products.sql`
+  - mirrored deploy copy lives in `supabase/migrations/`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
   - not required for production
@@ -63,14 +60,13 @@ backend/
 
 ### 1. Run Supabase migrations
 
-Run these in Supabase SQL Editor:
+Run all checked-in `backend/migrations/*.sql` files in numeric order through:
 
-1. `backend/migrations/0001_supabase_inventory_schema.sql`
-2. `backend/migrations/0002_supabase_import_staging.sql`
-3. `backend/migrations/0003_supabase_app_api_reads.sql`
-4. `backend/migrations/0004_supabase_app_api_mutations.sql`
-5. `backend/migrations/0005_fix_roll_history_ordering.sql`
-6. `backend/migrations/0006_access_control_and_approvals.sql`
+1. `backend/migrations/0065_caulk_transfer_assist_and_new_products.sql`
+
+The mirrored Supabase deploy copy for this release is:
+
+- `supabase/migrations/20260416130000_caulk_transfer_assist_and_new_products.sql`
 
 ### 2. Import legacy sheet data if needed
 
@@ -103,8 +99,8 @@ From repo root:
 ```bash
 npx supabase login
 npx supabase secrets set --project-ref tiwpulgvxtwlmqdnyuzd DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" API_BUILD_SHA="YOUR_GIT_SHA" API_BUILT_AT="YYYY-MM-DDTHH:MM:SSZ"
-# verify migration 0006 objects exist in the same target DB
-npm --prefix backend run check:schema:0006
+# verify the latest required schema objects exist in the same target DB
+npm --prefix backend run check:schema:latest
 npx supabase functions deploy api --project-ref tiwpulgvxtwlmqdnyuzd --no-verify-jwt
 ```
 
@@ -187,12 +183,13 @@ npm run dev
 
 ## Release Checklist
 
-1. Apply DB migrations before API/frontend deploy (`0001` -> `0006`).
-2. Run `npm --prefix backend run check:schema:0006` against the target DB.
+1. Apply DB migrations before API/frontend deploy through `0065_caulk_transfer_assist_and_new_products.sql`.
+2. Run `npm --prefix backend run check:schema:latest` against the target DB.
 3. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
 4. Deploy Supabase function `api`.
 5. Run `npm --prefix backend run verify:edge:live` with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
-6. Deploy frontend after API verification is live.
+6. Run `npm --prefix backend run verify:edge:caulk` with `SMOKE_FRONTEND_URL` pointing at the production frontend and the approved smoke admin credentials configured in `backend/.env`.
+7. Deploy frontend after API verification is live.
 
 Changes under `supabase/functions/api` or `supabase/functions/_shared` require a Supabase Edge deploy even if the frontend is already on the correct git commit.
 
@@ -209,6 +206,13 @@ SMOKE_USER_PASSWORD=your-local-smoke-password
 The backend smoke scripts prefer `SMOKE_AUTH_TOKEN` when present, but they can also
 mint a fresh token automatically from `SMOKE_USER_EMAIL` and `SMOKE_USER_PASSWORD`.
 That is the recommended setup because copied access tokens expire.
+
+For the live caulk smoke, also set:
+
+```env
+SMOKE_FRONTEND_URL=https://YOUR_PRODUCTION_FRONTEND_ORIGIN
+SMOKE_API_BASE_URL=https://YOUR_PROJECT_REF.supabase.co/functions/v1/api
+```
 
 If you want the backend to provision a dedicated low-privilege smoke user locally
 and persist those credentials into `backend/.env`, run:

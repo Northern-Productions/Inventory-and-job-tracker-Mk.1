@@ -11,6 +11,7 @@ import {
 import { listAudit, listAuditEntriesByBox, listRollHistoryByBox } from '../services/audit.mjs';
 import {
   listCaulkManufacturers,
+  listPendingCaulkTransfers,
   listCaulkProducts,
   listCaulkStock,
   listCaulkTransactions,
@@ -126,6 +127,8 @@ const readHandlers = {
     ok({ entries: await listCaulkStock(client, orgId, params) }),
   '/caulk/transactions/list': async ({ client, orgId, params }) =>
     ok({ entries: await listCaulkTransactions(client, orgId, params) }),
+  '/caulk/transfers/list': async ({ client, orgId, params }) =>
+    ok({ entries: await listPendingCaulkTransfers(client, orgId, params) }),
 };
 
 const POOLED_READ_HANDLERS = new Set(['/allocations/by-job', '/jobs/get']);

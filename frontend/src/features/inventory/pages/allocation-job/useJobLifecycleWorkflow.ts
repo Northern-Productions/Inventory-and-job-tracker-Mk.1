@@ -3,6 +3,7 @@ import { useCallback, useState, type SetStateAction } from 'react';
 import type { useToast } from '../../../../components/Toast';
 import type {
   FilmOrderEntry,
+  JobCaulkTransferAlert,
   JobDetail,
   JobFilmTransferAlert,
   JobListEntry,
@@ -16,7 +17,7 @@ import {
   summarizeReturnedMaterials
 } from '../../utils/jobReturnedMaterials';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
-import { getFilmTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessage } from './helpers';
+import { getMaterialTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
@@ -37,6 +38,7 @@ interface UseJobLifecycleWorkflowArgs {
   isReadOnlyJob: boolean;
   stagingBlockingMessage: string;
   filmTransferAlerts: JobFilmTransferAlert[];
+  caulkTransferAlerts: JobCaulkTransferAlert[];
   isOwner: boolean;
   isAdmin: boolean;
   ensureSignedIn: (actionLabel: string) => boolean;
@@ -64,6 +66,7 @@ export function useJobLifecycleWorkflow({
   isReadOnlyJob,
   stagingBlockingMessage,
   filmTransferAlerts,
+  caulkTransferAlerts,
   isOwner,
   isAdmin,
   ensureSignedIn,
@@ -283,7 +286,10 @@ export function useJobLifecycleWorkflow({
       return;
     }
 
-    const transferBlockingMessage = getFilmTransferBulkCheckoutMessage(filmTransferAlerts);
+    const transferBlockingMessage = getMaterialTransferBulkCheckoutMessage(
+      filmTransferAlerts,
+      caulkTransferAlerts
+    );
     if (transferBlockingMessage) {
       pushToast({
         title: 'Receive transfer first',

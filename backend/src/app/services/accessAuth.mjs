@@ -259,6 +259,16 @@ function mapDatabaseBootstrapError(message) {
   ) {
     return 'Database migrations 0006, 0007, 0008, 0009, 0027, and 0028 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql, then retry.';
   }
+  if (
+    normalized.includes('relation "app.caulk_transfers" does not exist') ||
+    (normalized.includes('type "app.caulk_transfer_status"') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_list_caulk_transfers') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_caulk_transfer_receive') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_caulk_transfer_cancel') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_list_caulk_job_allocations_by_job') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0065_caulk_transfer_assist_and_new_products.sql is required. Apply missing backend migrations through 0065, then retry.';
+  }
   return asTrimmedString(message) || 'Unexpected server error.';
 }
 

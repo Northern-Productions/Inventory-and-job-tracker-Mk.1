@@ -86,6 +86,7 @@ describe('CaulkAllocationsSection', () => {
         ]}
         isPhoneLayout={false}
         isReadOnlyJob={false}
+        canManageTransfers={true}
         canOpenAllocateDialog={true}
         isAuthenticated={true}
         clientIdConfigured={true}
@@ -93,10 +94,13 @@ describe('CaulkAllocationsSection', () => {
         productsErrorMessage=""
         isCaulkAllocationPending={(caulkAllocationId) => caulkAllocationId === 'caulk-1'}
         isCaulkCheckoutPending={() => false}
+        isCaulkTransferPending={() => false}
         onOpenAllocateDialog={vi.fn()}
         onOpenEdit={vi.fn()}
         onOpenCheckout={vi.fn()}
         onOpenCheckin={vi.fn()}
+        onReceiveTransfer={vi.fn()}
+        onCancelTransfer={vi.fn()}
         onRemove={vi.fn()}
       />
     );
@@ -153,6 +157,7 @@ describe('CaulkAllocationsSection', () => {
         ]}
         isPhoneLayout={false}
         isReadOnlyJob={false}
+        canManageTransfers={true}
         canOpenAllocateDialog={true}
         isAuthenticated={true}
         clientIdConfigured={true}
@@ -170,10 +175,13 @@ describe('CaulkAllocationsSection', () => {
         productsErrorMessage=""
         isCaulkAllocationPending={() => false}
         isCaulkCheckoutPending={(caulkCheckoutId) => caulkCheckoutId === 'checkout-1'}
+        isCaulkTransferPending={() => false}
         onOpenAllocateDialog={vi.fn()}
         onOpenEdit={vi.fn()}
         onOpenCheckout={vi.fn()}
         onOpenCheckin={vi.fn()}
+        onReceiveTransfer={vi.fn()}
+        onCancelTransfer={vi.fn()}
         onRemove={vi.fn()}
       />
     );

@@ -1,4 +1,41 @@
+import type { CaulkTransferStatus } from './statuses';
 import type { Warehouse } from './warehouses';
+
+export interface CaulkPendingTransferSummary {
+  transferId: string;
+  status: Extract<CaulkTransferStatus, 'PENDING'>;
+  sourceWarehouse: Warehouse;
+  destinationWarehouse: Warehouse;
+  pendingTubes: number;
+  startedAt: string;
+  startedBy: string;
+  notes: string;
+}
+
+export interface CaulkTransferEntry {
+  transferId: string;
+  caulkAllocationId: string;
+  jobNumber: string;
+  productId: string;
+  manufacturerId: string;
+  manufacturer: string;
+  productName: string;
+  productCode: string;
+  tubesPerCase: number;
+  sourceWarehouse: Warehouse;
+  destinationWarehouse: Warehouse;
+  pendingTubes: number;
+  status: CaulkTransferStatus;
+  createdAt: string;
+  createdBy: string;
+  receivedAt: string;
+  receivedBy: string;
+  cancelledAt: string;
+  cancelledBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  notes: string;
+}
 
 export interface JobCaulkRequirementLine {
   requirementId: string;
@@ -42,6 +79,7 @@ export interface CaulkJobAllocationEntry {
   resolvedAt: string;
   resolvedBy: string;
   notes: string;
+  pendingTransfer?: CaulkPendingTransferSummary | null;
 }
 
 export interface CaulkJobCheckoutEntry {
@@ -97,6 +135,7 @@ export interface UpsertCaulkProductPayload {
   manufacturerId: string;
   productName: string;
   productCode?: string;
+  warehouse?: Warehouse;
   tubesPerCase?: number;
   isActive?: boolean;
   notes?: string;
@@ -149,6 +188,11 @@ export interface ListCaulkTransactionsParams {
   limit?: number;
 }
 
+export interface ListPendingCaulkTransfersParams {
+  warehouse: Warehouse;
+  productId?: string;
+}
+
 export interface MutateCaulkStockPayload {
   action: 'RECEIVE' | 'USE' | 'ADJUST';
   productId: string;
@@ -199,6 +243,7 @@ export interface AddCaulkJobAllocationPayload {
   requirementId?: string;
   productId: string;
   warehouse: Warehouse;
+  transferFromWarehouse?: Warehouse;
   allocatedTubes: number;
   notes?: string;
 }
@@ -207,6 +252,7 @@ export interface UpdateCaulkJobAllocationPayload {
   caulkAllocationId: string;
   productId?: string;
   warehouse?: Warehouse;
+  transferFromWarehouse?: Warehouse;
   allocatedTubes?: number;
   notes?: string;
 }
@@ -230,9 +276,22 @@ export interface RemoveCaulkJobAllocationPayload {
   reason?: string;
 }
 
+export interface ReceiveCaulkTransferPayload {
+  transferId: string;
+}
+
+export interface CancelCaulkTransferPayload {
+  transferId: string;
+  reason?: string;
+}
+
 export interface CaulkJobAllocationMutationResult {
   jobNumber: string;
   caulkAllocationId: string;
+}
+
+export interface CaulkTransferMutationResult extends CaulkJobAllocationMutationResult {
+  transferId: string;
 }
 
 export interface CaulkJobCheckoutMutationResult extends CaulkJobAllocationMutationResult {

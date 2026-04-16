@@ -8,12 +8,13 @@ import {
 import type { CaulkJobAllocationEntry, CaulkJobCheckoutEntry } from '../../../../domain';
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
 import { formatCaulkTubeBreakdown } from '../../utils/caulkAllocationPlanning';
-import { formatBadgeLabel } from './helpers';
+import { formatBadgeLabel, formatCaulkTransferStateLabel } from './helpers';
 
 interface CaulkAllocationsSectionProps {
   entries: CaulkJobAllocationEntry[];
   isPhoneLayout: boolean;
   isReadOnlyJob: boolean;
+  canManageTransfers: boolean;
   canOpenAllocateDialog: boolean;
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
@@ -21,10 +22,13 @@ interface CaulkAllocationsSectionProps {
   productsErrorMessage: string;
   isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
   isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
+  isCaulkTransferPending: (transferId: string) => boolean;
   onOpenAllocateDialog: () => void;
   onOpenEdit: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckout: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckin: (entry: CaulkJobCheckoutEntry) => void;
+  onReceiveTransfer: (entry: CaulkJobAllocationEntry) => void;
+  onCancelTransfer: (entry: CaulkJobAllocationEntry) => void;
   onRemove: (entry: CaulkJobAllocationEntry) => void;
 }
 
@@ -32,21 +36,29 @@ function renderCaulkAllocationActions({
   entry,
   openCheckoutEntry,
   isReadOnlyJob,
+  canManageTransfers,
   isCaulkAllocationPending,
   isCaulkCheckoutPending,
+  isCaulkTransferPending,
   onOpenEdit,
   onOpenCheckout,
   onOpenCheckin,
+  onReceiveTransfer,
+  onCancelTransfer,
   onRemove
 }: {
   entry: CaulkJobAllocationEntry;
   openCheckoutEntry?: CaulkJobCheckoutEntry;
   isReadOnlyJob: boolean;
+  canManageTransfers: boolean;
   isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
   isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
+  isCaulkTransferPending: (transferId: string) => boolean;
   onOpenEdit: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckout: (entry: CaulkJobAllocationEntry) => void;
   onOpenCheckin: (entry: CaulkJobCheckoutEntry) => void;
+  onReceiveTransfer: (entry: CaulkJobAllocationEntry) => void;
+  onCancelTransfer: (entry: CaulkJobAllocationEntry) => void;
   onRemove: (entry: CaulkJobAllocationEntry) => void;
 }) {
   const hasOpenCheckout = Boolean(openCheckoutEntry);
@@ -64,6 +76,67 @@ function renderCaulkAllocationActions({
     openCheckoutEntry
       ? isCaulkCheckoutPending(openCheckoutEntry.caulkCheckoutId, entry.caulkAllocationId)
       : false;
+  const transferPending = entry.pendingTransfer?.transferId
+    ? isCaulkTransferPending(entry.pendingTransfer.transferId)
+    : false;
+  const outstandingTransferTubes = Math.max(
+    0,
+    entry.allocatedTubes - (entry.checkedOutTubesTotal + entry.reservedTubesRemaining)
+  );
+
+  if (entry.pendingTransfer) {
+    return (
+      <div className="film-order-actions">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => onReceiveTransfer(entry)}
+          disabled={allocationPending || checkoutPending || transferPending || !canManageTransfers}
+        >
+          Receive Transfer
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => onCancelTransfer(entry)}
+          disabled={allocationPending || checkoutPending || transferPending || !canManageTransfers}
+        >
+          Cancel Transfer
+        </Button>
+        <Button
+          type="button"
+          variant="danger"
+          onClick={() => onRemove(entry)}
+          disabled={allocationPending || checkoutPending || transferPending || hasOpenCheckout}
+        >
+          Remove
+        </Button>
+      </div>
+    );
+  }
+
+  if (outstandingTransferTubes > 0) {
+    return (
+      <div className="film-order-actions">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => onOpenEdit(entry)}
+          disabled={allocationPending || checkoutPending || hasOpenCheckout}
+        >
+          Edit
+        </Button>
+        <Button
+          type="button"
+          variant="danger"
+          onClick={() => onRemove(entry)}
+          disabled={allocationPending || checkoutPending || hasOpenCheckout}
+        >
+          Remove
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="film-order-actions">
@@ -101,6 +174,7 @@ export function CaulkAllocationsSection({
   entries,
   isPhoneLayout,
   isReadOnlyJob,
+  canManageTransfers,
   canOpenAllocateDialog,
   isAuthenticated,
   clientIdConfigured,
@@ -108,10 +182,13 @@ export function CaulkAllocationsSection({
   productsErrorMessage,
   isCaulkAllocationPending,
   isCaulkCheckoutPending,
+  isCaulkTransferPending,
   onOpenAllocateDialog,
   onOpenEdit,
   onOpenCheckout,
   onOpenCheckin,
+  onReceiveTransfer,
+  onCancelTransfer,
   onRemove
 }: CaulkAllocationsSectionProps) {
   return (
@@ -139,6 +216,23 @@ export function CaulkAllocationsSection({
             const hasCheckoutStarted = entry.checkedOutTubesTotal > 0;
             const openCheckoutEntry = openCaulkCheckoutByAllocationId[entry.caulkAllocationId];
             const hasOpenCheckout = Boolean(openCheckoutEntry);
+            const transferLabel =
+              entry.pendingTransfer || entry.allocatedTubes > entry.checkedOutTubesTotal + entry.reservedTubesRemaining
+                ? formatCaulkTransferStateLabel({
+                    caulkAllocationId: entry.caulkAllocationId,
+                    productId: entry.productId,
+                    manufacturer: entry.manufacturer,
+                    productName: entry.productName,
+                    productCode: entry.productCode,
+                    sourceWarehouse: entry.pendingTransfer?.sourceWarehouse,
+                    destinationWarehouse: entry.warehouse,
+                    pendingTubes: entry.pendingTransfer?.pendingTubes || Math.max(0, entry.allocatedTubes - (entry.checkedOutTubesTotal + entry.reservedTubesRemaining)),
+                    state: entry.pendingTransfer ? 'TRANSFER_PENDING' : 'NEEDS_TRANSFER',
+                    transferId: entry.pendingTransfer?.transferId,
+                    startedAt: entry.pendingTransfer?.startedAt,
+                    startedBy: entry.pendingTransfer?.startedBy
+                  })
+                : '';
             return (
               <MobileRecordCard key={entry.caulkAllocationId}>
                 <MobileRecordHeader
@@ -157,16 +251,21 @@ export function CaulkAllocationsSection({
                   <MobileField label="Returned Unused" value={entry.returnedUnusedTubesTotal} />
                   <MobileField label="Used Tubes" value={entry.usedTubesTotal} />
                   <MobileField label="Overage Tubes" value={entry.overageTubesTotal} />
+                  {transferLabel ? <MobileField label="Transfer" value={transferLabel} /> : null}
                 </MobileFieldList>
                 {renderCaulkAllocationActions({
                   entry,
                   openCheckoutEntry,
                   isReadOnlyJob,
+                  canManageTransfers,
                   isCaulkAllocationPending,
                   isCaulkCheckoutPending,
+                  isCaulkTransferPending,
                   onOpenEdit,
                   onOpenCheckout,
                   onOpenCheckin,
+                  onReceiveTransfer,
+                  onCancelTransfer,
                   onRemove
                 })}
                 {hasCheckoutStarted ? (
@@ -177,6 +276,9 @@ export function CaulkAllocationsSection({
                 ) : null}
                 {hasOpenCheckout ? (
                   <p className="muted-text">Check in open checkout cycles before another checkout.</p>
+                ) : null}
+                {transferLabel ? (
+                  <p className="muted-text">This allocation cannot be checked out until the transfer is resolved.</p>
                 ) : null}
               </MobileRecordCard>
             );
@@ -204,6 +306,27 @@ export function CaulkAllocationsSection({
               {entries.map((entry) => {
                 const hasCheckoutStarted = entry.checkedOutTubesTotal > 0;
                 const openCheckoutEntry = openCaulkCheckoutByAllocationId[entry.caulkAllocationId];
+                const outstandingTransferTubes = Math.max(
+                  0,
+                  entry.allocatedTubes - (entry.checkedOutTubesTotal + entry.reservedTubesRemaining)
+                );
+                const transferLabel =
+                  entry.pendingTransfer || outstandingTransferTubes > 0
+                    ? formatCaulkTransferStateLabel({
+                        caulkAllocationId: entry.caulkAllocationId,
+                        productId: entry.productId,
+                        manufacturer: entry.manufacturer,
+                        productName: entry.productName,
+                        productCode: entry.productCode,
+                        sourceWarehouse: entry.pendingTransfer?.sourceWarehouse,
+                        destinationWarehouse: entry.warehouse,
+                        pendingTubes: entry.pendingTransfer?.pendingTubes || outstandingTransferTubes,
+                        state: entry.pendingTransfer ? 'TRANSFER_PENDING' : 'NEEDS_TRANSFER',
+                        transferId: entry.pendingTransfer?.transferId,
+                        startedAt: entry.pendingTransfer?.startedAt,
+                        startedBy: entry.pendingTransfer?.startedBy
+                      })
+                    : '';
                 return (
                   <tr key={entry.caulkAllocationId}>
                     <td>{buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode)}</td>
@@ -217,22 +340,32 @@ export function CaulkAllocationsSection({
                     <td>{entry.overageTubesTotal}</td>
                     <td>
                       <span className={`badge badge-${entry.status}`}>{formatBadgeLabel(entry.status)}</span>
+                      {transferLabel ? (
+                        <div className="caulk-transfer-status-inline">
+                          <span className="badge badge-TRANSFER">{transferLabel}</span>
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       {renderCaulkAllocationActions({
                         entry,
                         openCheckoutEntry,
                         isReadOnlyJob,
+                        canManageTransfers,
                         isCaulkAllocationPending,
                         isCaulkCheckoutPending,
+                        isCaulkTransferPending,
                         onOpenEdit,
                         onOpenCheckout,
                         onOpenCheckin,
+                        onReceiveTransfer,
+                        onCancelTransfer,
                         onRemove
                       })}
                       {!isReadOnlyJob && entry.status === 'ACTIVE' && hasCheckoutStarted ? (
                         <span className="muted-text">Locked after checkout</span>
                       ) : null}
+                      {transferLabel ? <span className="muted-text">Resolve transfer before checkout.</span> : null}
                     </td>
                   </tr>
                 );

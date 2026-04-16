@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 
 import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoutes.mjs';
 
-test('uses local fallback for localhost job and film-order write paths that must preserve write labels', () => {
+test('uses local fallback for localhost caulk, job, and film-order write paths that must preserve write labels', () => {
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/caulk/products/upsert'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/caulk/add'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/caulk/update'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/caulk/checkout'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/caulk/checkin'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/caulk/remove'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/create'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/update'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/set-staged-pickup'), true);

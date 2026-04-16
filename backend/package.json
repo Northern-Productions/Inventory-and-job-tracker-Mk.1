@@ -15,6 +15,7 @@
     "catalog:3m-solar:night-vision:dry": "node scripts/apply-3m-solar-night-vision-cleanup.mjs",
     "audit:repo:hotspots": "node scripts/audit-repo-hotspots.mjs",
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
+    "check:schema:latest": "node scripts/check-schema-latest.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
     "inventory:il1-shelf-audit:apply": "node scripts/reconcile-il1-shelf-audit.mjs --apply",
@@ -26,6 +27,8 @@
     "smoke:cleanup:apply": "node scripts/cleanup-codex-smoke-users.mjs --apply",
     "smoke:token": "node scripts/print-smoke-auth-token.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
+    "smoke:caulk:cleanup": "node scripts/cleanup-caulk-smoke-artifacts.mjs",
+    "smoke:caulk:verify": "node scripts/verify-caulk-smoke-flow.mjs",
     "test:unit": "node --test scripts/lib",
     "verify:allocation-covered-feet-parity": "node scripts/verify-allocation-covered-feet-parity.mjs",
     "verify:allocation-film-parity": "node scripts/verify-allocation-film-match-parity.mjs",
@@ -36,11 +39,15 @@
     "verify:ordered-box-allocation-flow": "node scripts/verify-ordered-box-allocation-flow.mjs",
     "verify:staged-pickup-flow": "node scripts/verify-staged-pickup-flow.mjs",
     "verify:edge:live": "node scripts/verify-live-edge-job-summary.mjs",
-    "start": "npm run check:schema:0006 && node server.mjs",
+    "verify:edge:caulk": "node scripts/verify-caulk-smoke-flow.mjs --edge",
+    "start": "npm run check:schema:latest && node server.mjs",
     "start:unsafe": "node server.mjs",
-    "dev": "npm run check:schema:0006 && node --watch server.mjs"
+    "dev": "npm run check:schema:latest && node --watch server.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.59.1"
   }
 }

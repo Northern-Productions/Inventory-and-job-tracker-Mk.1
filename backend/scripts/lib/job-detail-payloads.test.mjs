@@ -339,6 +339,7 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
     'caulkAllocations',
     'caulkCheckouts',
     'caulkRequirements',
+    'caulkTransferAlerts',
     'filmOrders',
     'filmTransferAlerts',
     'requirements',
@@ -349,6 +350,7 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.status, 'CONFLICT');
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
+  assert.deepEqual(payload.caulkTransferAlerts || [], []);
   assert.equal(payload.filmTransferAlerts[0]?.state, 'TRANSFER_PENDING');
   assert.equal(payload.filmOrders[0]?.linkedBoxes[0]?.boxId, 'MS1-LINK');
   assert.equal(payload.usage[0]?.usedFeet, 12);

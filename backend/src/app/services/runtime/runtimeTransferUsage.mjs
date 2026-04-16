@@ -526,6 +526,15 @@ function buildFilmTransferAlertMessage(alerts, context) {
   return `Receive transferred film before ${actionLabel}.`;
 }
 
+function buildCaulkTransferAlertMessage(alerts, context) {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return '';
+  }
+
+  const actionLabel = context === 'staging' ? 'staging this job' : 'checking out this job';
+  return `Receive transferred caulk before ${actionLabel}.`;
+}
+
 function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingTransferByBoxRecordId = {}) {
   const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
   if (!normalizedJobWarehouse) {
@@ -571,6 +580,59 @@ function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingT
       transferId: pendingTransfer ? pendingTransfer.transferId : '',
       startedAt: pendingTransfer ? pendingTransfer.createdAt : '',
       startedBy: pendingTransfer ? pendingTransfer.createdBy : ''
+    });
+  }
+
+  return alerts;
+}
+
+function getCaulkAllocationTransferDeficit(allocation) {
+  return Math.max(
+    integerOrZero(allocation?.allocatedTubes) -
+      integerOrZero(allocation?.checkedOutTubesTotal) -
+      integerOrZero(allocation?.reservedTubesRemaining),
+    0
+  );
+}
+
+function buildJobCaulkTransferAlerts(jobWarehouse, caulkAllocations) {
+  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
+  if (!normalizedJobWarehouse) {
+    return [];
+  }
+
+  const entries = Array.isArray(caulkAllocations) ? caulkAllocations : [];
+  const alerts = [];
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const allocation = entries[index];
+    if (!allocation || asTrimmedString(allocation.status).toUpperCase() !== 'ACTIVE') {
+      continue;
+    }
+
+    const pendingTransfer = allocation.pendingTransfer || null;
+    const shortageTubes = pendingTransfer
+      ? integerOrZero(pendingTransfer.pendingTubes)
+      : getCaulkAllocationTransferDeficit(allocation);
+    if (shortageTubes <= 0) {
+      continue;
+    }
+
+    alerts.push({
+      caulkAllocationId: asTrimmedString(allocation.caulkAllocationId),
+      productId: asTrimmedString(allocation.productId),
+      manufacturer: asTrimmedString(allocation.manufacturer),
+      productName: asTrimmedString(allocation.productName),
+      productCode: asTrimmedString(allocation.productCode),
+      sourceWarehouse: pendingTransfer
+        ? asTrimmedString(pendingTransfer.sourceWarehouse).toUpperCase()
+        : '',
+      destinationWarehouse: normalizedJobWarehouse,
+      pendingTubes: shortageTubes,
+      state: pendingTransfer ? 'TRANSFER_PENDING' : 'NEEDS_TRANSFER',
+      transferId: pendingTransfer ? asTrimmedString(pendingTransfer.transferId) : '',
+      startedAt: pendingTransfer ? asTrimmedString(pendingTransfer.startedAt) : '',
+      startedBy: pendingTransfer ? asTrimmedString(pendingTransfer.startedBy) : '',
     });
   }
 
@@ -822,7 +884,9 @@ export {
   releaseReusableBoxIdAlias,
   applyReceivedBoxTransfer,
   buildFilmTransferAlertMessage,
+  buildCaulkTransferAlertMessage,
   buildJobFilmTransferAlerts,
+  buildJobCaulkTransferAlerts,
   toUsageTimestampSortValue,
   buildPublicJobUsageEntries,
   buildPublicJobUsageTimelineEntries,

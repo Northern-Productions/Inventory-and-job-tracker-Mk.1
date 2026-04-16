@@ -7,14 +7,30 @@ import { CaulkInventoryContent } from './CaulkInventoryContent';
 const useWarehouseRegistryMock = vi.fn();
 const listCaulkManufacturersMock = vi.fn();
 const listCaulkStockMock = vi.fn();
+const upsertCaulkProductMock = vi.fn();
+const hasFeatureAccessMock = vi.fn();
+const pushToastMock = vi.fn();
 
 vi.mock('../../inventory/hooks/useWarehouseRegistry', () => ({
   useWarehouseRegistry: () => useWarehouseRegistryMock()
 }));
 
+vi.mock('../../auth/AuthContext', () => ({
+  useAuth: () => ({
+    hasFeatureAccess: hasFeatureAccessMock
+  })
+}));
+
+vi.mock('../../../components/Toast', () => ({
+  useToast: () => ({
+    push: pushToastMock
+  })
+}));
+
 vi.mock('../../../api/features/caulkClient', () => ({
   listCaulkManufacturers: () => listCaulkManufacturersMock(),
-  listCaulkStock: (params: unknown) => listCaulkStockMock(params)
+  listCaulkStock: (params: unknown) => listCaulkStockMock(params),
+  upsertCaulkProduct: (payload: unknown) => upsertCaulkProductMock(payload)
 }));
 
 const sampleManufacturers = [
@@ -78,8 +94,11 @@ describe('CaulkInventoryContent', () => {
     useWarehouseRegistryMock.mockReturnValue({
       entries: [{ code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' }]
     });
+    hasFeatureAccessMock.mockReturnValue(true);
+    pushToastMock.mockReset();
     listCaulkManufacturersMock.mockResolvedValue(sampleManufacturers);
     listCaulkStockMock.mockResolvedValue(sampleStockRows);
+    upsertCaulkProductMock.mockResolvedValue(sampleStockRows[0]);
   });
 
   it('shows stock-only caulk content and removes operational sections', () => {
@@ -87,6 +106,7 @@ describe('CaulkInventoryContent', () => {
 
     expect(html).toContain('Caulk Inventory');
     expect(html).toContain('Stock');
+    expect(html).toContain('New Product +');
     expect(html).not.toContain('Receive / Use / Adjust');
     expect(html).not.toContain('Transfer');
     expect(html).not.toContain('Product Setup');
@@ -113,5 +133,14 @@ describe('CaulkInventoryContent', () => {
 
     expect(html).toContain('href="/caulk/IL1/p1"');
     expect(html).toContain('>IL1</a>');
+  });
+
+  it('keeps the row count badge for read-only users', () => {
+    hasFeatureAccessMock.mockReturnValue(false);
+
+    const html = renderCaulkInventory();
+
+    expect(html).toContain('1 product rows');
+    expect(html).not.toContain('New Product +');
   });
 });

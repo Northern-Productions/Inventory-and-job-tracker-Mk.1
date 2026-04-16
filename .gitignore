@@ -24,6 +24,7 @@ backend/backend-dev.log
 
 # Local verification artifacts
 test-results/
+.codex-runlogs/
 
 # Supabase local env
 supabase/.env

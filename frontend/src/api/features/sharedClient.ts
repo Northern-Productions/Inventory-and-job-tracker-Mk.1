@@ -6,6 +6,7 @@ import type {
   CaulkManufacturerEntry,
   CaulkProductEntry,
   CaulkStockEntry,
+  CaulkTransferEntry,
   CaulkTransactionEntry,
   EffectiveAccessContext,
   FeatureAccessMap,
@@ -13,6 +14,7 @@ import type {
   FeatureArea,
   Role,
   UsernameChangeRequestEntry,
+  Warehouse,
   WarehouseEntry
 } from '../../domain';
 import { createDefaultFeatureAccessMap } from '../../domain';
@@ -267,6 +269,43 @@ export function mapCaulkTransactionEntry(value: unknown): CaulkTransactionEntry 
     sourceBoxId: String(source.sourceBoxId || '').trim(),
     createdAt: String(source.createdAt || '').trim(),
     createdBy: String(source.createdBy || '').trim()
+  };
+}
+
+export function mapCaulkTransferEntry(value: unknown): CaulkTransferEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const transferId = String(source.transferId || '').trim();
+  if (!transferId) {
+    return null;
+  }
+
+  return {
+    transferId,
+    caulkAllocationId: String(source.caulkAllocationId || '').trim(),
+    jobNumber: String(source.jobNumber || '').trim(),
+    productId: String(source.productId || '').trim(),
+    manufacturerId: String(source.manufacturerId || '').trim(),
+    manufacturer: String(source.manufacturer || '').trim(),
+    productName: String(source.productName || '').trim(),
+    productCode: String(source.productCode || '').trim(),
+    tubesPerCase: Number(source.tubesPerCase || 0) || 0,
+    sourceWarehouse: String(source.sourceWarehouse || '').trim().toUpperCase() as Warehouse,
+    destinationWarehouse: String(source.destinationWarehouse || '').trim().toUpperCase() as Warehouse,
+    pendingTubes: Math.max(0, Number(source.pendingTubes || 0) || 0),
+    status: String(source.status || '').trim().toUpperCase() as CaulkTransferEntry['status'],
+    createdAt: String(source.createdAt || '').trim(),
+    createdBy: String(source.createdBy || '').trim(),
+    receivedAt: String(source.receivedAt || '').trim(),
+    receivedBy: String(source.receivedBy || '').trim(),
+    cancelledAt: String(source.cancelledAt || '').trim(),
+    cancelledBy: String(source.cancelledBy || '').trim(),
+    updatedAt: String(source.updatedAt || '').trim(),
+    updatedBy: String(source.updatedBy || '').trim(),
+    notes: String(source.notes || '').trim()
   };
 }
 

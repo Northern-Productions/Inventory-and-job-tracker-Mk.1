@@ -6,12 +6,19 @@ import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { Input, TextArea } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
 import {
+  cancelCaulkTransfer,
   listCaulkStock,
+  listPendingCaulkTransfers,
   listCaulkTransactions,
-  mutateCaulkStock
+  mutateCaulkStock,
+  receiveCaulkTransfer
 } from '../../../api/features/caulkClient';
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
+import {
+  usePendingCancelCaulkTransferIds,
+  usePendingReceiveCaulkTransferIds
+} from '../../inventory/hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
 import {
   normalizeWholeNumberInput,
@@ -48,6 +55,8 @@ export default function CaulkStockDetailsPage() {
   const [looseTubesInput, setLooseTubesInput] = useState('');
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState('');
+  const pendingReceiveCaulkTransferIds = usePendingReceiveCaulkTransferIds();
+  const pendingCancelCaulkTransferIds = usePendingCancelCaulkTransferIds();
 
   const stockQuery = useQuery({
     queryKey: ['caulk', 'stock', 'detail', warehouse, productId],
@@ -57,6 +66,11 @@ export default function CaulkStockDetailsPage() {
   const transactionsQuery = useQuery({
     queryKey: ['caulk', 'transactions', warehouse, productId, 50],
     queryFn: () => listCaulkTransactions({ warehouse, productId, limit: 50 }),
+    enabled: Boolean(warehouse && productId)
+  });
+  const pendingTransfersQuery = useQuery({
+    queryKey: ['caulk', 'transfers', { warehouse, productId }],
+    queryFn: () => listPendingCaulkTransfers({ warehouse, productId }),
     enabled: Boolean(warehouse && productId)
   });
   const stockEntry = (stockQuery.data || [])[0] || null;
@@ -168,9 +182,67 @@ export default function CaulkStockDetailsPage() {
     }
   });
 
+  const receiveTransferMutation = useMutation({
+    mutationFn: (transferId: string) => receiveCaulkTransfer({ transferId }),
+    onSuccess: async ({ result, warnings }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transfers'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory', 'job'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory', 'allocation-job'] })
+      ]);
+      toast.push({
+        title: `Received transfer ${result.transferId}`,
+        description: warnings.join(' ') || 'The transferred caulk is now available in this warehouse.',
+        variant: 'success'
+      });
+    },
+    onError: (error) => {
+      toast.push({
+        title: 'Unable to receive caulk transfer',
+        description: error instanceof Error ? error.message : 'The transfer could not be received.',
+        variant: 'error'
+      });
+    }
+  });
+
+  const cancelTransferMutation = useMutation({
+    mutationFn: (transferId: string) => cancelCaulkTransfer({ transferId }),
+    onSuccess: async ({ result, warnings }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transfers'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory', 'job'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory', 'allocation-job'] })
+      ]);
+      toast.push({
+        title: `Cancelled transfer ${result.transferId}`,
+        description: warnings.join(' ') || 'The pending caulk transfer was cancelled.',
+        variant: 'success'
+      });
+    },
+    onError: (error) => {
+      toast.push({
+        title: 'Unable to cancel caulk transfer',
+        description: error instanceof Error ? error.message : 'The transfer could not be cancelled.',
+        variant: 'error'
+      });
+    }
+  });
+
   function handleSave() {
     setFormError('');
     void saveMutation.mutateAsync();
+  }
+
+  function handleReceiveTransfer(transferId: string) {
+    void receiveTransferMutation.mutateAsync(transferId);
+  }
+
+  function handleCancelTransfer(transferId: string) {
+    void cancelTransferMutation.mutateAsync(transferId);
   }
 
   return (
@@ -210,6 +282,73 @@ export default function CaulkStockDetailsPage() {
 
         {stockEntry ? (
           <>
+            <div className="panel-title-row">
+              <div>
+                <h2>Inbound Transfers</h2>
+                <p className="muted-text">
+                  Receive incoming caulk for this warehouse and product before it can be checked out on a
+                  job.
+                </p>
+              </div>
+              <span className="muted-text">{(pendingTransfersQuery.data || []).length} pending</span>
+            </div>
+            {pendingTransfersQuery.isError ? (
+              <p className="error-text">
+                {pendingTransfersQuery.error instanceof Error
+                  ? pendingTransfersQuery.error.message
+                  : 'Pending caulk transfers failed to load.'}
+              </p>
+            ) : null}
+            <DeferredLoadingState
+              when={pendingTransfersQuery.isLoading && !pendingTransfersQuery.data}
+              label="Loading inbound caulk transfers..."
+            />
+            {(pendingTransfersQuery.data || []).length ? (
+              <div className="job-transfer-alert-list">
+                {(pendingTransfersQuery.data || []).map((transfer) => {
+                  const transferPending =
+                    pendingReceiveCaulkTransferIds.has(transfer.transferId.toUpperCase()) ||
+                    pendingCancelCaulkTransferIds.has(transfer.transferId.toUpperCase());
+
+                  return (
+                    <div key={transfer.transferId} className="job-transfer-alert-row">
+                      <div className="job-transfer-alert-copy">
+                        <strong>Job {transfer.jobNumber || '--'}</strong>
+                        <p className="muted-text">
+                          {transfer.sourceWarehouse} to {transfer.destinationWarehouse} | {transfer.pendingTubes}{' '}
+                          tube{transfer.pendingTubes === 1 ? '' : 's'}
+                        </p>
+                        <p className="job-transfer-alert-meta">
+                          Started {formatDateLabel(transfer.createdAt)}
+                          {transfer.createdBy ? ` by ${transfer.createdBy}` : ''}
+                        </p>
+                      </div>
+                      <div className="detail-actions">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => handleReceiveTransfer(transfer.transferId)}
+                          disabled={!canEdit || transferPending}
+                        >
+                          Receive
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => handleCancelTransfer(transfer.transferId)}
+                          disabled={!canEdit || transferPending}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state">No inbound caulk transfers are waiting on this warehouse.</div>
+            )}
+
             <div className="stat-grid allocation-stat-grid">
               <div className="key-value">
                 <dt>Warehouse</dt>
