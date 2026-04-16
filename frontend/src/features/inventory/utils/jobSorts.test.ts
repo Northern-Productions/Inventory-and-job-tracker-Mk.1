@@ -34,55 +34,30 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
 }
 
 describe('sortJobs', () => {
-  it('sorts by install date by default', () => {
+  it('sorts by install date ascending', () => {
     const result = sortJobs(
       [
         buildJob({ jobNumber: '1001', installDate: '2026-03-22' }),
         buildJob({ jobNumber: '1002', installDate: '2026-03-25' }),
         buildJob({ jobNumber: '1003', installDate: '2026-03-21' })
       ],
-      'install_date'
+      'install_date_asc'
+    );
+
+    expect(result.map((entry) => entry.jobNumber)).toEqual(['1003', '1001', '1002']);
+  });
+
+  it('sorts by install date descending', () => {
+    const result = sortJobs(
+      [
+        buildJob({ jobNumber: '1001', installDate: '2026-03-22' }),
+        buildJob({ jobNumber: '1002', installDate: '2026-03-25' }),
+        buildJob({ jobNumber: '1003', installDate: '2026-03-21' })
+      ],
+      'install_date_desc'
     );
 
     expect(result.map((entry) => entry.jobNumber)).toEqual(['1002', '1001', '1003']);
-  });
-
-  it('sorts by numeric job number ascending and descending', () => {
-    const entries = [
-      buildJob({ jobNumber: '200' }),
-      buildJob({ jobNumber: '15' }),
-      buildJob({ jobNumber: '1000' })
-    ];
-
-    expect(sortJobs(entries, 'job_number_asc').map((entry) => entry.jobNumber)).toEqual([
-      '15',
-      '200',
-      '1000'
-    ]);
-    expect(sortJobs(entries, 'job_number_desc').map((entry) => entry.jobNumber)).toEqual([
-      '1000',
-      '200',
-      '15'
-    ]);
-  });
-
-  it('sorts by date added newest first and oldest first', () => {
-    const entries = [
-      buildJob({ jobNumber: '1', createdAt: '2026-03-20T00:00:00Z' }),
-      buildJob({ jobNumber: '2', createdAt: '2026-03-24T00:00:00Z' }),
-      buildJob({ jobNumber: '3', createdAt: '2026-03-22T00:00:00Z' })
-    ];
-
-    expect(sortJobs(entries, 'date_added_newest').map((entry) => entry.jobNumber)).toEqual([
-      '2',
-      '3',
-      '1'
-    ]);
-    expect(sortJobs(entries, 'date_added_oldest').map((entry) => entry.jobNumber)).toEqual([
-      '1',
-      '3',
-      '2'
-    ]);
   });
 
   it('can prioritize allocate and film-order workflows', () => {
@@ -92,8 +67,8 @@ describe('sortJobs', () => {
       buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'ALLOCATE', filmOrderCount: 2 })
     ];
 
-    expect(sortJobs(entries, 'allocate').map((entry) => entry.jobNumber)).toEqual(['2', '3', '1']);
-    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['3', '2', '1']);
+    expect(sortJobs(entries, 'allocate').map((entry) => entry.jobNumber)).toEqual(['2', '1', '3']);
+    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['3', '1', '2']);
   });
 
   it('keeps exact search matches ahead of prefix and contains matches', () => {
@@ -103,11 +78,11 @@ describe('sortJobs', () => {
       buildJob({ jobNumber: '17170', installDate: '2026-04-01' })
     ];
 
-    expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([
-      '17170',
-      '171700',
-      '2171705'
-    ]);
+    expect(
+      sortSearchedJobs(entries, '17170', 'install_date_asc').map(
+        (entry: JobListEntry) => entry.jobNumber
+      )
+    ).toEqual(['17170', '171700', '2171705']);
   });
 
   it('uses the selected sort inside the same search match tier', () => {
@@ -117,10 +92,10 @@ describe('sortJobs', () => {
       buildJob({ jobNumber: '17170', installDate: '2026-04-01' })
     ];
 
-    expect(sortSearchedJobs(entries, '17170', 'install_date').map((entry: JobListEntry) => entry.jobNumber)).toEqual([
-      '17170',
-      '171700',
-      '171701'
-    ]);
+    expect(
+      sortSearchedJobs(entries, '17170', 'install_date_asc').map(
+        (entry: JobListEntry) => entry.jobNumber
+      )
+    ).toEqual(['17170', '171701', '171700']);
   });
 });

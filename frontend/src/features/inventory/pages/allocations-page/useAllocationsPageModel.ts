@@ -38,7 +38,7 @@ export function useAllocationsPageModel({
   initialJobsViewMode = 'calendar',
   initialCalendarGranularity = 'week',
   initialJobSearchInput = '',
-  initialJobSort = 'install_date',
+  initialJobSort = 'install_date_asc',
   initialCalendarAnchorDate = getCurrentCalendarAnchorDate(todayDateString()),
   initialCalendarMonth
 }: AllocationsPageProps = {}) {
@@ -68,12 +68,8 @@ export function useAllocationsPageModel({
   const listSearchQuery = isCalendarView ? '' : deferredJobSearchInput;
   const isSearchingListJobs = Boolean(listSearchQuery.trim());
 
-  const jobsQuery = useJobsList(25, {
-    enabled: !isCalendarView,
-    lifecycleStatus: selectedLifecycleStatus
-  });
-  const jobsSearchQuery = useJobsSearch(listSearchQuery, 25, {
-    enabled: isSearchingListJobs,
+  const jobsQuery = useJobsList(0, {
+    enabled: true,
     lifecycleStatus: selectedLifecycleStatus
   });
   const activeCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
@@ -116,9 +112,7 @@ export function useAllocationsPageModel({
     onCalendarGranularityChange: setCalendarGranularity
   });
 
-  const listJobsSource = isSearchingListJobs
-    ? jobsSearchQuery.data || []
-    : jobsQuery.data || [];
+  const listJobsSource = jobsQuery.data || [];
   const listJobs = useMemo(() => {
     const scopedEntries = isCompletedWorkflow
       ? listJobsSource.filter((entry) => entry.status === 'COMPLETED')
@@ -135,31 +129,28 @@ export function useAllocationsPageModel({
     listSearchQuery
   ]);
 
-  const listJobsLoading =
-    (isSearchingListJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading) && !listJobs.length;
-  const listJobsError = isSearchingListJobs ? jobsSearchQuery.error : jobsQuery.error;
+  const listJobsLoading = jobsQuery.isLoading && !listJobsSource.length;
+  const listJobsError = jobsQuery.error;
   const workflowSummaryLabel = isCompletedWorkflow ? 'completed jobs' : 'active jobs';
-  const workflowTitle = isCompletedWorkflow ? 'Completed Job History' : 'Recent Jobs';
+  const workflowTitle = isCompletedWorkflow ? 'Completed Jobs' : 'All Active Jobs';
   const workflowDescription = isCalendarView
     ? isCompletedWorkflow
       ? `Browse completed install dates by ${calendarWorkflow.displayedCalendarGranularity}.`
       : `Browse active install dates by ${calendarWorkflow.displayedCalendarGranularity}.`
     : isCompletedWorkflow
-      ? 'Showing completed job history (up to 25).'
-      : 'Showing active jobs only (up to 25).';
+      ? 'Showing all completed jobs.'
+      : 'Showing all active jobs.';
   const calendarPeriodLabel = formatCalendarPeriodLabel(
     calendarWorkflow.displayedCalendarGranularity,
     calendarWorkflow.displayedCalendarAnchorDate
   );
   const calendarPeriodPreposition =
     calendarWorkflow.displayedCalendarGranularity === 'week' ? 'for' : 'in';
-  const jobsLoadingLabel = isSearchingListJobs
-    ? `Searching ${workflowSummaryLabel}...`
-    : `Loading ${workflowSummaryLabel}...`;
+  const jobsLoadingLabel = `Loading ${workflowSummaryLabel}...`;
   const jobsEmptyState = isSearchingListJobs
     ? `No ${workflowSummaryLabel} match ${listSearchQuery}.`
     : isCompletedWorkflow
-      ? 'No completed job history yet.'
+      ? 'No completed jobs found yet.'
       : 'No active jobs found yet.';
   const calendarSummaryCopy = `scheduled ${workflowSummaryLabel} ${calendarPeriodPreposition} ${calendarPeriodLabel}`;
   const calendarEmptyState = isCompletedWorkflow
