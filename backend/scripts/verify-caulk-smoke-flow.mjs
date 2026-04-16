@@ -141,27 +141,71 @@ async function fetchJson(url, init = {}) {
   };
 }
 
-async function apiGet(baseUrl, logicalPath, token, query = {}) {
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  return fetchJson(buildApiUrl(baseUrl, logicalPath, query), {
-    method: 'GET',
-    headers
-  });
+function isRefreshableAuthSession(value) {
+  return Boolean(value && typeof value === 'object' && 'requiredFor' in value);
 }
 
-async function apiPost(baseUrl, logicalPath, token, body = {}) {
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+async function resolveRequestToken(tokenOrSession) {
+  if (!isRefreshableAuthSession(tokenOrSession)) {
+    return asTrimmedString(tokenOrSession);
   }
 
-  return fetchJson(buildApiUrl(baseUrl, logicalPath), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body)
+  if (asTrimmedString(tokenOrSession.token)) {
+    return asTrimmedString(tokenOrSession.token);
+  }
+
+  const refreshed = await resolveSmokeAuthToken({
+    required: true,
+    requiredFor: tokenOrSession.requiredFor
   });
+  tokenOrSession.token = asTrimmedString(refreshed.token);
+  tokenOrSession.source = asTrimmedString(refreshed.source);
+  return tokenOrSession.token;
+}
+
+async function refreshRequestToken(tokenSession) {
+  const refreshed = await resolveSmokeAuthToken({
+    required: true,
+    requiredFor: tokenSession.requiredFor
+  });
+  tokenSession.token = asTrimmedString(refreshed.token);
+  tokenSession.source = asTrimmedString(refreshed.source);
+  return tokenSession.token;
+}
+
+async function apiRequest(method, baseUrl, logicalPath, tokenOrSession, { query = {}, body } = {}) {
+  const send = async (token) => {
+    const headers = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    if (method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
+    }
+    return fetchJson(buildApiUrl(baseUrl, logicalPath, query), {
+      method,
+      headers,
+      body: method === 'GET' ? undefined : JSON.stringify(body || {})
+    });
+  };
+
+  let token = await resolveRequestToken(tokenOrSession);
+  let response = await send(token);
+
+  if (response.statusCode === 401 && isRefreshableAuthSession(tokenOrSession)) {
+    token = await refreshRequestToken(tokenOrSession);
+    response = await send(token);
+  }
+
+  return response;
+}
+
+async function apiGet(baseUrl, logicalPath, tokenOrSession, query = {}) {
+  return apiRequest('GET', baseUrl, logicalPath, tokenOrSession, { query });
+}
+
+async function apiPost(baseUrl, logicalPath, tokenOrSession, body = {}) {
+  return apiRequest('POST', baseUrl, logicalPath, tokenOrSession, { body });
 }
 
 function assertOkEnvelope(response, label) {
@@ -429,11 +473,18 @@ async function main() {
   const frontendBaseUrl = DEFAULT_FRONTEND_BASE_URL;
   const apiBaseUrl = resolveApiBaseUrl(edge);
   const browserCredentials = requireSmokeCredentials();
+  const authSession = {
+    requiredFor: edge ? 'the live Edge caulk smoke API flow' : 'the caulk smoke API flow',
+    token: '',
+    source: ''
+  };
+
   const tokenResult = await resolveSmokeAuthToken({
     required: true,
-    requiredFor: edge ? 'the live Edge caulk smoke API flow' : 'the caulk smoke API flow'
+    requiredFor: authSession.requiredFor
   });
-  const token = asTrimmedString(tokenResult.token);
+  authSession.token = asTrimmedString(tokenResult.token);
+  authSession.source = asTrimmedString(tokenResult.source);
 
   try {
     smokeTag = buildSmokeTag();
@@ -452,9 +503,9 @@ async function main() {
     await ensureBackendHealthy(apiBaseUrl);
     await ensureWarehousesExist(client, orgId, [sourceWarehouse, destinationWarehouse]);
 
-    const manufacturer3m = await find3mManufacturer(apiBaseUrl, token);
+    const manufacturer3m = await find3mManufacturer(apiBaseUrl, authSession);
     const upsertProductData = assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/caulk/products/upsert', token, {
+      await apiPost(apiBaseUrl, '/caulk/products/upsert', authSession, {
         manufacturerId: manufacturer3m.manufacturerId,
         productName,
         productCode,
@@ -467,7 +518,7 @@ async function main() {
     const productId = asTrimmedString(upsertProductData.productId);
     assert(productId, 'Product creation did not return productId.');
 
-    const ms1InitialStock = await getStockEntry(apiBaseUrl, token, destinationWarehouse, productId);
+    const ms1InitialStock = await getStockEntry(apiBaseUrl, authSession, destinationWarehouse, productId);
     assert(
       Number(ms1InitialStock.tubesOnHand || 0) === 0,
       `Expected ${destinationWarehouse} to start at 0 tubes, received ${ms1InitialStock.tubesOnHand}.`
@@ -487,7 +538,7 @@ async function main() {
     await page.getByText(productName, { exact: false }).first().waitFor({ timeout: 20_000 });
 
     assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/caulk/mutate', token, {
+      await apiPost(apiBaseUrl, '/caulk/mutate', authSession, {
         action: 'RECEIVE',
         productId,
         warehouse: sourceWarehouse,
@@ -498,14 +549,14 @@ async function main() {
       'POST /caulk/mutate'
     );
 
-    const il1SeedStock = await getStockEntry(apiBaseUrl, token, sourceWarehouse, productId);
+    const il1SeedStock = await getStockEntry(apiBaseUrl, authSession, sourceWarehouse, productId);
     assert(
       Number(il1SeedStock.tubesOnHand || 0) === 6,
       `Expected ${sourceWarehouse} to have 6 tubes after seed, received ${il1SeedStock.tubesOnHand}.`
     );
 
     const jobAData = assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/create', token, {
+      await apiPost(apiBaseUrl, '/jobs/create', authSession, {
         jobNumber: jobA,
         warehouse: destinationWarehouse,
         installDate: '2026-04-16',
@@ -520,7 +571,7 @@ async function main() {
     assert(jobARequirement?.requirementId, 'Job A requirementId was not returned.');
 
     assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/allocations/caulk/add', token, {
+      await apiPost(apiBaseUrl, '/allocations/caulk/add', authSession, {
         jobNumber: jobA,
         requirementId: jobARequirement.requirementId,
         productId,
@@ -532,7 +583,7 @@ async function main() {
       'POST /allocations/caulk/add (job A)'
     );
 
-    const pendingJobADetail = await getAllocationJobDetail(apiBaseUrl, token, jobA);
+    const pendingJobADetail = await getAllocationJobDetail(apiBaseUrl, authSession, jobA);
     const pendingJobAAllocation = findCaulkAllocation(pendingJobADetail, productId);
     assert(
       Array.isArray(pendingJobADetail.caulkTransferAlerts) &&
@@ -548,7 +599,7 @@ async function main() {
     const pendingTransferIdA = asTrimmedString(pendingJobAAllocation.pendingTransfer.transferId);
     const pendingTransfersA = await getPendingTransfers(
       apiBaseUrl,
-      token,
+      authSession,
       destinationWarehouse,
       productId
     );
@@ -557,8 +608,8 @@ async function main() {
       'Destination inbound transfer list is missing job A pending transfer.'
     );
 
-    const il1AfterPendingA = await getStockEntry(apiBaseUrl, token, sourceWarehouse, productId);
-    const ms1AfterPendingA = await getStockEntry(apiBaseUrl, token, destinationWarehouse, productId);
+    const il1AfterPendingA = await getStockEntry(apiBaseUrl, authSession, sourceWarehouse, productId);
+    const ms1AfterPendingA = await getStockEntry(apiBaseUrl, authSession, destinationWarehouse, productId);
     assert(
       Number(il1AfterPendingA.tubesOnHand || 0) === 3,
       `Expected ${sourceWarehouse} to drop to 3 tubes after pending transfer, received ${il1AfterPendingA.tubesOnHand}.`
@@ -569,13 +620,13 @@ async function main() {
     );
 
     assertErrorEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/checkout-all', token, { jobNumber: jobA }),
+      await apiPost(apiBaseUrl, '/jobs/checkout-all', authSession, { jobNumber: jobA }),
       400,
       /Receive transferred caulk before checking out this job\./i,
       'POST /jobs/checkout-all before receive'
     );
     assertErrorEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', token, {
+      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', authSession, {
         jobNumber: jobA,
         isStagedForPickup: true
       }),
@@ -600,7 +651,7 @@ async function main() {
 
     const transfersAfterReceiveA = await getPendingTransfers(
       apiBaseUrl,
-      token,
+      authSession,
       destinationWarehouse,
       productId
     );
@@ -608,7 +659,7 @@ async function main() {
       !transfersAfterReceiveA.some((entry) => asTrimmedString(entry.transferId) === pendingTransferIdA),
       'Job A pending transfer still exists after receive.'
     );
-    const receivedJobADetail = await getAllocationJobDetail(apiBaseUrl, token, jobA);
+    const receivedJobADetail = await getAllocationJobDetail(apiBaseUrl, authSession, jobA);
     const receivedJobAAllocation = findCaulkAllocation(receivedJobADetail, productId);
     assert(
       !Array.isArray(receivedJobADetail.caulkTransferAlerts) ||
@@ -621,11 +672,11 @@ async function main() {
     );
 
     assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/checkout-all', token, { jobNumber: jobA }),
+      await apiPost(apiBaseUrl, '/jobs/checkout-all', authSession, { jobNumber: jobA }),
       'POST /jobs/checkout-all after receive'
     );
     const stagedJobA = assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', token, {
+      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', authSession, {
         jobNumber: jobA,
         isStagedForPickup: true,
         autoCheckoutRemaining: true
@@ -638,7 +689,7 @@ async function main() {
     );
 
     const jobBData = assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/create', token, {
+      await apiPost(apiBaseUrl, '/jobs/create', authSession, {
         jobNumber: jobB,
         warehouse: destinationWarehouse,
         installDate: '2026-04-16',
@@ -653,7 +704,7 @@ async function main() {
     assert(jobBRequirement?.requirementId, 'Job B requirementId was not returned.');
 
     assertOkEnvelope(
-      await apiPost(apiBaseUrl, '/allocations/caulk/add', token, {
+      await apiPost(apiBaseUrl, '/allocations/caulk/add', authSession, {
         jobNumber: jobB,
         requirementId: jobBRequirement.requirementId,
         productId,
@@ -665,13 +716,13 @@ async function main() {
       'POST /allocations/caulk/add (job B)'
     );
 
-    const pendingJobBDetail = await getAllocationJobDetail(apiBaseUrl, token, jobB);
+    const pendingJobBDetail = await getAllocationJobDetail(apiBaseUrl, authSession, jobB);
     const pendingJobBAllocation = findCaulkAllocation(pendingJobBDetail, productId);
     assert(
       pendingJobBAllocation?.pendingTransfer?.transferId,
       'Job B allocation should include a pending transfer before cancel.'
     );
-    const il1AfterPendingB = await getStockEntry(apiBaseUrl, token, sourceWarehouse, productId);
+    const il1AfterPendingB = await getStockEntry(apiBaseUrl, authSession, sourceWarehouse, productId);
     assert(
       Number(il1AfterPendingB.tubesOnHand || 0) === 1,
       `Expected ${sourceWarehouse} to have 1 tube after job B pending transfer, received ${il1AfterPendingB.tubesOnHand}.`
@@ -683,7 +734,7 @@ async function main() {
     await page.getByRole('button', { name: 'Cancel Transfer' }).click();
     await page.getByText('Needs Transfer').first().waitFor({ timeout: 20_000 });
 
-    const afterCancelJobBDetail = await getAllocationJobDetail(apiBaseUrl, token, jobB);
+    const afterCancelJobBDetail = await getAllocationJobDetail(apiBaseUrl, authSession, jobB);
     const afterCancelJobBAllocation = findCaulkAllocation(afterCancelJobBDetail, productId);
     assert(
       Array.isArray(afterCancelJobBDetail.caulkTransferAlerts) &&
@@ -698,26 +749,26 @@ async function main() {
 
     const afterCancelTransfers = await getPendingTransfers(
       apiBaseUrl,
-      token,
+      authSession,
       destinationWarehouse,
       productId
     );
     assert(afterCancelTransfers.length === 0, 'Destination inbound transfer list should be empty after cancel.');
 
-    const il1AfterCancelB = await getStockEntry(apiBaseUrl, token, sourceWarehouse, productId);
+    const il1AfterCancelB = await getStockEntry(apiBaseUrl, authSession, sourceWarehouse, productId);
     assert(
       Number(il1AfterCancelB.tubesOnHand || 0) === 3,
       `Expected ${sourceWarehouse} stock to restore to 3 after cancel, received ${il1AfterCancelB.tubesOnHand}.`
     );
 
     assertErrorEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/checkout-all', token, { jobNumber: jobB }),
+      await apiPost(apiBaseUrl, '/jobs/checkout-all', authSession, { jobNumber: jobB }),
       400,
       /caulk/i,
       'POST /jobs/checkout-all after cancel'
     );
     assertErrorEnvelope(
-      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', token, {
+      await apiPost(apiBaseUrl, '/jobs/set-staged-pickup', authSession, {
         jobNumber: jobB,
         isStagedForPickup: true
       }),

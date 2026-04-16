@@ -5063,7 +5063,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
-    const checkoutResult = await rpcOrThrow<any>(serviceClient, "api_acl_boxes_set_status", {
+    const checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
       p_org_id: orgId,
       p_actor: actor,
       p_payload: {
@@ -5096,7 +5096,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       );
     }
 
-    const result = await rpcOrThrow<any>(serviceClient, "api_acl_allocations_caulk_checkout", {
+    const result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
       p_org_id: orgId,
       p_actor: actor,
       p_payload: {
