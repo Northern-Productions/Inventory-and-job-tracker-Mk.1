@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildTransferredBoxId,
   planTransferredBoxId,
-} from '../../../frontend/src/domain/boxTransferPlanner.mjs';
+} from '../../../shared/domain/boxTransferPlanner.mjs';
 
 const WAREHOUSE_PREFIXES = ['IL1', 'MS1', 'TX1'];
 

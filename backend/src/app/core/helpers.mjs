@@ -7,7 +7,7 @@ import {
   UUID_PATTERN,
 } from '../../config/runtime.mjs';
 import { HttpError } from '../../lib/http.mjs';
-import { WAREHOUSE_CODE_PATTERN } from '../../../../frontend/src/domain/runtimeContract.mjs';
+import { WAREHOUSE_CODE_PATTERN } from '../../../../shared/domain/runtimeContract.mjs';
 
 function getActiveAllocatedFeetForBox(boxId, activeAllocationsByBox = {}) {
   const entries = activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];

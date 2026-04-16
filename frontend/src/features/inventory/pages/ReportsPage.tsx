@@ -1,6 +1,3 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { Input } from '../../../components/Input';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import {
@@ -10,64 +7,10 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { Select } from '../../../components/Select';
-import { WidthFilterField } from '../components/WidthFilterField';
-import type { ReportsSummaryFilters } from '../../../domain';
-import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
-import { searchOfflineBoxes } from '../../../lib/offlineInventory';
 import { formatDate } from '../../../lib/date';
-import { useAuth } from '../../auth/AuthContext';
-import {
-  useFilmCatalog,
-  useOwnerAssetTotalCostReport,
-  useReportsSummary
-} from '../hooks/useInventoryQueries';
-import {
-  getManufacturerOptionsWithCatalog
-} from '../utils/boxHelpers';
-import {
-  buildZeroedManufacturerOptions,
-  filterZeroedBoxes,
-  type ZeroedBoxesFilters
-} from '../utils/reportsZeroedFilters';
-import { normalizeSelectedWidths } from '../utils/widthFilters';
-import { parseWarehouseFilterValue } from '../utils/warehouseOptions';
+import { WidthFilterField } from '../components/WidthFilterField';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
-
-type ReportType =
-  | 'never_checked_out'
-  | 'zeroed_boxes'
-  | 'completed_jobs'
-  | 'cancelled_jobs'
-  | 'asset_total_cost';
-const BASE_REPORT_TYPE_OPTIONS = [
-  { label: 'Received But Never Checked Out', value: 'never_checked_out' },
-  { label: 'All Zeroed Boxes', value: 'zeroed_boxes' },
-  { label: 'Completed Jobs', value: 'completed_jobs' },
-  { label: 'Cancelled Jobs', value: 'cancelled_jobs' }
-];
-
-const OWNER_REPORT_TYPE_OPTIONS = [
-  { label: 'Asset Total Cost', value: 'asset_total_cost' },
-  ...BASE_REPORT_TYPE_OPTIONS
-];
-
-const REPORT_TYPE_TITLES: Record<ReportType, string> = {
-  never_checked_out: 'Received But Never Checked Out',
-  zeroed_boxes: 'All Zeroed Boxes',
-  completed_jobs: 'Completed Jobs',
-  cancelled_jobs: 'Cancelled Jobs',
-  asset_total_cost: 'Asset Total Cost'
-};
-
-const EMPTY_FILTERS: ReportsSummaryFilters = {
-  warehouse: ''
-};
-
-const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
-  manufacturer: '',
-  q: '',
-  widths: []
-};
+import { REPORT_TYPE_TITLES, type ReportType, useReportsPageModel } from './reports/useReportsPageModel';
 
 const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -83,106 +26,29 @@ function formatStatusLabel(status: string) {
 }
 
 export default function ReportsPage() {
-  const navigate = useNavigate();
-  const auth = useAuth();
-  const isPhoneLayout = useIsPhoneLayout();
-  const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
-  const [reportType, setReportType] = useState<ReportType>(
-    auth.isOwner ? 'asset_total_cost' : 'never_checked_out'
-  );
-  const [zeroedFilters, setZeroedFilters] = useState<ZeroedBoxesFilters>(EMPTY_ZEROED_FILTERS);
-  const [rememberedCustomWidth, setRememberedCustomWidth] = useState('');
-
-  const reportsQuery = useReportsSummary(filters);
-  const ownerAssetTotalCostQuery = useOwnerAssetTotalCostReport(
-    { warehouse: filters.warehouse || '' },
-    {
-      enabled: auth.isOwner && reportType === 'asset_total_cost'
-    }
-  );
-  const filmCatalogQuery = useFilmCatalog();
-  const zeroedFallbackQuery = useQuery({
-    queryKey: ['reports', 'zeroed-fallback', filters.warehouse || 'ALL'],
-    queryFn: () =>
-      searchOfflineBoxes({
-        warehouse: filters.warehouse || '',
-        manufacturer: '',
-        q: '',
-        status: 'ZEROED',
-        film: '',
-        showRetired: true
-      })
-  });
-  const knownManufacturerOptions = useMemo(
-    () => getManufacturerOptionsWithCatalog(filmCatalogQuery.data),
-    [filmCatalogQuery.data]
-  );
-  const neverCheckedOut = reportsQuery.data?.neverCheckedOut || [];
-  const completedJobs = reportsQuery.data?.completedJobs || [];
-  const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
-  const ownerAssetTotalCost = ownerAssetTotalCostQuery.data;
-  const reportTypeOptions = useMemo(
-    () => (auth.isOwner ? OWNER_REPORT_TYPE_OPTIONS : BASE_REPORT_TYPE_OPTIONS),
-    [auth.isOwner]
-  );
-  const zeroedBoxes = useMemo(() => {
-    const fromSummary = reportsQuery.data?.zeroedBoxes || [];
-    if (fromSummary.length) {
-      return fromSummary;
-    }
-
-    return (zeroedFallbackQuery.data || [])
-      .filter((box) => box.status === 'ZEROED' && box.zeroedDate)
-      .map((box) => ({
-        boxId: box.boxId,
-        warehouse: box.warehouse,
-        manufacturer: box.manufacturer,
-        filmName: box.filmName,
-        widthIn: box.widthIn,
-        zeroedDate: box.zeroedDate
-      }));
-  }, [reportsQuery.data?.zeroedBoxes, zeroedFallbackQuery.data]);
-  const zeroedManufacturerOptions = useMemo(
-    () =>
-      buildZeroedManufacturerOptions(
-        zeroedBoxes,
-        knownManufacturerOptions,
-        zeroedFilters.manufacturer
-      ),
-    [knownManufacturerOptions, zeroedBoxes, zeroedFilters.manufacturer]
-  );
-  const filteredZeroedBoxes = useMemo(
-    () => filterZeroedBoxes(zeroedBoxes, zeroedFilters),
-    [zeroedBoxes, zeroedFilters]
-  );
-  const reportLoading =
-    reportType === 'asset_total_cost'
-      ? ownerAssetTotalCostQuery.isLoading
-      : reportsQuery.isLoading;
-  const reportError =
-    reportType === 'asset_total_cost'
-      ? ownerAssetTotalCostQuery.error
-      : reportsQuery.error;
-  const showReportLoading =
-    reportLoading && !reportsQuery.data && !ownerAssetTotalCostQuery.data;
-
-  useEffect(() => {
-    if (!auth.isOwner && reportType === 'asset_total_cost') {
-      setReportType('never_checked_out');
-    }
-  }, [auth.isOwner, reportType]);
-
-  function patchWarehouse(warehouse: string) {
-    setFilters({ warehouse: parseWarehouseFilterValue(warehouse) });
-  }
-
-  function patchZeroedFilters(next: Partial<ZeroedBoxesFilters>) {
-    setZeroedFilters((current) => ({
-      ...current,
-      ...next,
-      widths: normalizeSelectedWidths(next.widths ?? current.widths)
-    }));
-  }
+  const {
+    auth,
+    isPhoneLayout,
+    filters,
+    reportType,
+    setReportType,
+    zeroedFilters,
+    rememberedCustomWidth,
+    setRememberedCustomWidth,
+    neverCheckedOut,
+    completedJobs,
+    cancelledJobs,
+    ownerAssetTotalCost,
+    reportTypeOptions,
+    zeroedManufacturerOptions,
+    filteredZeroedBoxes,
+    showReportLoading,
+    reportError,
+    patchWarehouse,
+    patchZeroedFilters,
+    openInventoryBox,
+    openAllocationJob
+  } = useReportsPageModel();
 
   return (
     <>
@@ -319,7 +185,7 @@ export default function ReportsPage() {
                       <MobileRecordHeader
                         title={row.boxId}
                         subtitle={`${row.manufacturer} ${row.filmName}`}
-                        onTitleClick={() => navigate(`/inventory/${encodeURIComponent(row.boxId)}`)}
+                        onTitleClick={() => openInventoryBox(row.boxId)}
                       />
                       <MobileFieldList>
                         <MobileField label="Warehouse" value={row.warehouse} />
@@ -347,7 +213,7 @@ export default function ReportsPage() {
                             <button
                               type="button"
                               className="row-button"
-                              onClick={() => navigate(`/inventory/${encodeURIComponent(row.boxId)}`)}
+                              onClick={() => openInventoryBox(row.boxId)}
                             >
                               {row.boxId}
                             </button>
@@ -418,7 +284,7 @@ export default function ReportsPage() {
                         title={row.jobNumber}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                        onTitleClick={() => openAllocationJob(row.jobNumber)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
@@ -446,7 +312,7 @@ export default function ReportsPage() {
                             <button
                               type="button"
                               className="row-button"
-                              onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                              onClick={() => openAllocationJob(row.jobNumber)}
                             >
                               {row.jobNumber}
                             </button>
@@ -476,7 +342,7 @@ export default function ReportsPage() {
                         title={row.jobNumber}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                        onTitleClick={() => openAllocationJob(row.jobNumber)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
@@ -512,7 +378,7 @@ export default function ReportsPage() {
                             <button
                               type="button"
                               className="row-button"
-                              onClick={() => navigate(`/allocations/${encodeURIComponent(row.jobNumber)}`)}
+                              onClick={() => openAllocationJob(row.jobNumber)}
                             >
                               {row.jobNumber}
                             </button>

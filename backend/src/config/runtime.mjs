@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import {
   BOX_STATUSES as CONTRACT_BOX_STATUSES,
   FEATURE_AREAS as CONTRACT_FEATURE_AREAS
-} from '../../../frontend/src/domain/runtimeContract.mjs';
+} from '../../../shared/domain/runtimeContract.mjs';
 
 export const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/g, '');
 export const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();

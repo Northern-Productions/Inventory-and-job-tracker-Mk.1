@@ -1,202 +1,55 @@
-import { useDeferredValue, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { useToast } from '../../../components/Toast';
-import { type JobLifecycleFilter } from '../../../api/features/jobsClient';
-import type { JobListEntry } from '../../../domain';
-import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
-import { todayDateString } from '../../../lib/date';
-import { useAuth } from '../../auth/AuthContext';
 import { JobEditorDialog } from '../components/JobEditorDialog';
 import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDialog';
-import {
-  useCreateJob,
-  useCaulkProducts,
-  useFilmCatalog,
-  useJobsCalendarEntries,
-  useJobsList,
-  useJobsSearch
-} from '../hooks/useInventoryQueries';
-import { prefetchJobDetail } from './jobDetailPrefetch';
-import {
-  formatCalendarPeriodLabel,
-  getCurrentCalendarAnchorDate
-} from '../utils/jobCalendar';
-import { sortSearchedJobs, sortJobs, type JobSortOption } from '../utils/jobSorts';
 import { JobsHeroSection } from './allocations-page/JobsHeroSection';
 import { JobsResultsSection } from './allocations-page/JobsResultsSection';
-import { useJobCreationWorkflow } from './allocations-page/useJobCreationWorkflow';
-import { useJobsCalendarWorkflow } from './allocations-page/useJobsCalendarWorkflow';
+import { useAllocationsPageModel } from './allocations-page/useAllocationsPageModel';
 
 type AllocationsPageProps = {
   initialWorkflowView?: 'active' | 'completed';
   initialJobsViewMode?: 'list' | 'calendar';
   initialCalendarGranularity?: 'week' | 'month';
   initialJobSearchInput?: string;
-  initialJobSort?: JobSortOption;
+  initialJobSort?: import('../utils/jobSorts').JobSortOption;
   initialCalendarAnchorDate?: string;
   initialCalendarMonth?: string;
 };
 
-export default function AllocationsPage({
-  initialWorkflowView = 'active',
-  initialJobsViewMode = 'calendar',
-  initialCalendarGranularity = 'week',
-  initialJobSearchInput = '',
-  initialJobSort = 'install_date',
-  initialCalendarAnchorDate = getCurrentCalendarAnchorDate(todayDateString()),
-  initialCalendarMonth
-}: AllocationsPageProps = {}) {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const isPhoneLayout = useIsPhoneLayout();
-  const toast = useToast();
-  const auth = useAuth();
-  const [jobsWorkflowView, setJobsWorkflowView] = useState<'active' | 'completed'>(
-    initialWorkflowView
-  );
-  const [jobsViewMode, setJobsViewMode] = useState<'list' | 'calendar'>(initialJobsViewMode);
-  const [calendarGranularity, setCalendarGranularity] = useState<'week' | 'month'>(
-    initialCalendarGranularity
-  );
-  const [calendarAnchorDate, setCalendarAnchorDate] = useState(
-    initialCalendarMonth ? `${initialCalendarMonth}-01` : initialCalendarAnchorDate
-  );
-  const [jobSearchInput, setJobSearchInput] = useState(initialJobSearchInput);
-  const [jobSort, setJobSort] = useState<JobSortOption>(initialJobSort);
-
-  const selectedLifecycleStatus: JobLifecycleFilter =
-    jobsWorkflowView === 'completed' ? 'COMPLETED' : 'ACTIVE';
-  const deferredJobSearchInput = useDeferredValue(jobSearchInput);
-  const isCalendarView = jobsViewMode === 'calendar';
-  const isCompletedWorkflow = jobsWorkflowView === 'completed';
-  const listSearchQuery = isCalendarView ? '' : deferredJobSearchInput;
-  const isSearchingListJobs = Boolean(listSearchQuery.trim());
-
-  const jobsQuery = useJobsList(25, {
-    enabled: !isCalendarView,
-    lifecycleStatus: selectedLifecycleStatus
-  });
-  const jobsSearchQuery = useJobsSearch(listSearchQuery, 25, {
-    enabled: isSearchingListJobs,
-    lifecycleStatus: selectedLifecycleStatus
-  });
-  const activeCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
-    enabled: isCalendarView && Boolean(jobSearchInput.trim()),
-    lifecycleStatus: 'ACTIVE'
-  });
-  const completedCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
-    enabled: isCalendarView && Boolean(jobSearchInput.trim()),
-    lifecycleStatus: 'COMPLETED'
-  });
-  const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
-    enabled: isCalendarView,
-    view: calendarGranularity,
-    lifecycleStatus: selectedLifecycleStatus
-  });
-  const createJobMutation = useCreateJob();
-  const filmCatalogQuery = useFilmCatalog();
-  const caulkProductsQuery = useCaulkProducts();
-
-  const jobCreationWorkflow = useJobCreationWorkflow({
-    auth,
+export default function AllocationsPage(props: AllocationsPageProps = {}) {
+  const {
     createJobMutation,
-    navigate,
-    toast
-  });
-  const calendarWorkflow = useJobsCalendarWorkflow({
-    initialJobsViewMode,
-    initialJobSearchInput,
+    filmCatalogQuery,
+    caulkProductsQuery,
+    jobCreationWorkflow,
+    calendarWorkflow,
+    jobsViewMode,
+    setJobsViewMode,
+    isCompletedWorkflow,
     isCalendarView,
-    selectedLifecycleStatus,
+    jobSearchInput,
+    jobSort,
+    setJobSort,
+    listJobs,
+    listJobsLoading,
+    listJobsError,
+    workflowSummaryLabel,
+    workflowTitle,
+    workflowDescription,
+    calendarPeriodLabel,
+    calendarPeriodPreposition,
+    jobsLoadingLabel,
+    jobsEmptyState,
+    calendarSummaryCopy,
+    calendarEmptyState,
+    isSearchingListJobs,
+    isPhoneLayout,
     calendarGranularity,
     calendarAnchorDate,
-    jobsCalendarQuery,
-    activeCalendarSearchQuery,
-    completedCalendarSearchQuery,
-    queryClient,
-    toast,
-    onWorkflowViewChange: setJobsWorkflowView,
-    onCalendarAnchorDateChange: setCalendarAnchorDate,
-    onCalendarGranularityChange: setCalendarGranularity
-  });
-
-  const listJobsSource = isSearchingListJobs
-    ? jobsSearchQuery.data || []
-    : jobsQuery.data || [];
-  const listJobs = useMemo(() => {
-    const scopedEntries = isCompletedWorkflow
-      ? listJobsSource.filter((entry) => entry.status === 'COMPLETED')
-      : listJobsSource;
-
-    return isSearchingListJobs
-      ? sortSearchedJobs(scopedEntries, listSearchQuery, jobSort)
-      : sortJobs(scopedEntries, jobSort);
-  }, [
-    isCompletedWorkflow,
-    isSearchingListJobs,
-    jobSort,
-    listJobsSource,
-    listSearchQuery
-  ]);
-
-  const listJobsLoading =
-    (isSearchingListJobs ? jobsSearchQuery.isLoading : jobsQuery.isLoading) && !listJobs.length;
-  const listJobsError = isSearchingListJobs ? jobsSearchQuery.error : jobsQuery.error;
-  const workflowSummaryLabel = isCompletedWorkflow ? 'completed jobs' : 'active jobs';
-  const workflowTitle = isCompletedWorkflow ? 'Completed Job History' : 'Recent Jobs';
-  const workflowDescription = isCalendarView
-    ? isCompletedWorkflow
-      ? `Browse completed install dates by ${calendarWorkflow.displayedCalendarGranularity}.`
-      : `Browse active install dates by ${calendarWorkflow.displayedCalendarGranularity}.`
-    : isCompletedWorkflow
-      ? 'Showing completed job history (up to 25).'
-      : 'Showing active jobs only (up to 25).';
-  const calendarPeriodLabel = formatCalendarPeriodLabel(
-    calendarWorkflow.displayedCalendarGranularity,
-    calendarWorkflow.displayedCalendarAnchorDate
-  );
-  const calendarPeriodPreposition =
-    calendarWorkflow.displayedCalendarGranularity === 'week' ? 'for' : 'in';
-  const jobsLoadingLabel = isSearchingListJobs
-    ? `Searching ${workflowSummaryLabel}...`
-    : `Loading ${workflowSummaryLabel}...`;
-  const jobsEmptyState = isSearchingListJobs
-    ? `No ${workflowSummaryLabel} match ${listSearchQuery}.`
-    : isCompletedWorkflow
-      ? 'No completed job history yet.'
-      : 'No active jobs found yet.';
-  const calendarSummaryCopy = `scheduled ${workflowSummaryLabel} ${calendarPeriodPreposition} ${calendarPeriodLabel}`;
-  const calendarEmptyState = isCompletedWorkflow
-    ? `No completed jobs are scheduled ${calendarPeriodPreposition} ${calendarPeriodLabel}.`
-    : `No active jobs are scheduled ${calendarPeriodPreposition} ${calendarPeriodLabel}.`;
-
-  function handleJobSearchInputChange(rawValue: string) {
-    const nextValue = rawValue.replace(/[^0-9]/g, '');
-    setJobSearchInput(nextValue);
-
-    if (isCalendarView && !nextValue) {
-      calendarWorkflow.clearCalendarSearch();
-    }
-  }
-
-  function handleCalendarSearchSubmit() {
-    const normalizedQuery = jobSearchInput.trim();
-    if (!normalizedQuery) {
-      return;
-    }
-
-    calendarWorkflow.submitCalendarSearch(normalizedQuery);
-  }
-
-  function handlePrefetchJob(jobNumber: string) {
-    void prefetchJobDetail(queryClient, jobNumber).catch(() => undefined);
-  }
-
-  function handleOpenJob(nextJobNumber: string) {
-    handlePrefetchJob(nextJobNumber);
-    navigate(`/allocations/${encodeURIComponent(nextJobNumber)}`);
-  }
+    setJobsWorkflowView,
+    handleJobSearchInputChange,
+    handleCalendarSearchSubmit,
+    handlePrefetchJob,
+    handleOpenJob
+  } = useAllocationsPageModel(props);
 
   return (
     <>

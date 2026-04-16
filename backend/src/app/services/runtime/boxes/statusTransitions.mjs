@@ -1,0 +1,287 @@
+import {
+  HttpError,
+  ok,
+  asTrimmedString,
+  assertBoxStatus,
+  integerOrZero,
+  cloneValue,
+  roundToDecimals,
+  todayDateString,
+  deriveLifecycleStatus,
+  stampZeroedMetadata,
+  applyCheckoutWarnings,
+  applyCheckInWarnings,
+  toPublicBox,
+  findBoxById,
+  saveBoxRecord,
+  listAllocationsByBox,
+  appendAuditEntry,
+  appendRollHistoryEntry,
+} from '../../runtimeDeps.mjs';
+import {
+  listCheckoutCrewConflictJobsForBox,
+  autoLinkRemainingJobFeetToCheckedOutBox,
+} from '../runtimeAllocationLinks.mjs';
+import { resolveAllocationsForCheckout } from '../checkout/checkoutFlow.mjs';
+import {
+  cancelActiveAllocationsForCheckInJob,
+  cancelAllocationsForZeroedBox,
+} from '../checkout/cancellations.mjs';
+import {
+  findLatestCheckoutAuditEntryByBoxId,
+  getCheckoutJobNumberFromAuditNotes,
+} from '../checkout/audit.mjs';
+import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
+
+async function setBoxStatus(client, orgId, payload, actor) {
+  const warnings = [];
+  const status = assertBoxStatus(payload.status);
+
+  if (status === 'ORDERED') {
+    throw new HttpError(400, 'ORDERED is derived from ReceivedDate and cannot be set manually.');
+  }
+
+  if (status === 'RETIRED') {
+    throw new HttpError(400, 'RETIRED status is no longer supported.');
+  }
+
+  if (status === 'ZEROED') {
+    throw new HttpError(400, 'ZEROED status is assigned automatically when a received box reaches 0.');
+  }
+
+  const existing = await findBoxById(client, orgId, payload.boxId);
+  if (!existing) {
+    throw new HttpError(404, 'Box not found.');
+  }
+
+  if (existing.status === 'TRANSFER') {
+    throw new HttpError(
+      400,
+      `Box ${existing.boxId} has a pending transfer and can only be received or have the transfer cancelled.`
+    );
+  }
+
+  if (deriveLifecycleStatus(existing.receivedDate) === 'ORDERED') {
+    throw new HttpError(400, 'Add a ReceivedDate on or before today before changing status.');
+  }
+
+  if (existing.status === 'ZEROED') {
+    throw new HttpError(400, 'Zeroed boxes cannot change status directly. Use audit undo instead.');
+  }
+
+  if (existing.status === 'RETIRED') {
+    throw new HttpError(400, 'Retired boxes cannot change status directly. Use audit undo instead.');
+  }
+
+  let updatedBox = cloneValue(existing);
+  let auditAction = 'SET_STATUS';
+
+  if (status === 'CHECKED_OUT') {
+    const jobNumber = getCheckoutJobNumberFromAuditNotes(payload.auditNote);
+    if (!jobNumber) {
+      throw new HttpError(400, 'A checkout job number is required.');
+    }
+
+    const crewConflictJobs = await listCheckoutCrewConflictJobsForBox(
+      client,
+      orgId,
+      existing.boxId,
+      jobNumber
+    );
+    if (crewConflictJobs.length > 0) {
+      throw new HttpError(
+        400,
+        `Box ${existing.boxId} is still allocated to ${crewConflictJobs.join(', ')} with a different crew leader. Clear those allocations before checkout.`
+      );
+    }
+
+    updatedBox.status = 'CHECKED_OUT';
+    updatedBox.hasEverBeenCheckedOut = true;
+    updatedBox.lastCheckoutJob = jobNumber;
+    updatedBox.lastCheckoutDate = todayDateString();
+    updatedBox.zeroedDate = '';
+    updatedBox.zeroedReason = '';
+    updatedBox.zeroedBy = '';
+    applyCheckoutWarnings(warnings, existing);
+
+    const autoLinkResult = await autoLinkRemainingJobFeetToCheckedOutBox(
+      client,
+      orgId,
+      updatedBox,
+      jobNumber,
+      actor,
+      'checkout'
+    );
+    if (autoLinkResult.created) {
+      warnings.push(
+        `Auto-linked ${autoLinkResult.allocatedFeet} LF from ${updatedBox.boxId} to job ${jobNumber} at checkout.`
+      );
+    } else if (autoLinkResult.skippedReason === 'NO_REQUIREMENTS') {
+      warnings.push(`No job requirements were found for job ${jobNumber}, so no LF was auto-linked.`);
+    }
+
+    const allocationResolution = await resolveAllocationsForCheckout(
+      client,
+      orgId,
+      updatedBox.boxId,
+      jobNumber,
+      actor
+    );
+    if (allocationResolution.fulfilledCount > 0) {
+      warnings.push(
+        `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${jobNumber} after checkout.`
+      );
+    }
+
+    if (allocationResolution.otherJobs.length > 0) {
+      warnings.push(`This box still has active allocations for ${allocationResolution.otherJobs.join(', ')}.`);
+    }
+
+    updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+  } else {
+    const checkoutAudit = await findLatestCheckoutAuditEntryByBoxId(client, orgId, updatedBox.boxId);
+    let checkoutJob = asTrimmedString(existing.lastCheckoutJob);
+    let checkoutDate = asTrimmedString(existing.lastCheckoutDate);
+    let checkoutUser = '';
+
+    if (checkoutAudit) {
+      if (!checkoutJob) {
+        checkoutJob = getCheckoutJobNumberFromAuditNotes(checkoutAudit.notes);
+      }
+
+      if (!checkoutDate) {
+        checkoutDate = asTrimmedString(checkoutAudit.date);
+      }
+
+      checkoutUser = asTrimmedString(checkoutAudit.user);
+    }
+
+    if (!checkoutJob) {
+      checkoutJob = 'UNKNOWN';
+      warnings.push('Roll history was logged with UNKNOWN job number because no checkout job was saved.');
+    }
+
+    if (!checkoutDate) {
+      checkoutDate = todayDateString();
+    }
+
+    const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
+    const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob);
+
+    if (checkInPlan.sameJobActiveAllocationCount > 0 && checkoutJob) {
+      const sameJobCancellation = await cancelActiveAllocationsForCheckInJob(
+        client,
+        orgId,
+        updatedBox.boxId,
+        checkoutJob,
+        actor
+      );
+      if (sameJobCancellation.cancelledCount > 0) {
+        warnings.push(
+          `Released ${sameJobCancellation.cancelledCount} active planning allocation${sameJobCancellation.cancelledCount === 1 ? '' : 's'} totaling ${sameJobCancellation.cancelledFeet} LF for job ${checkoutJob} during check-in.`
+        );
+      }
+    }
+
+    if (checkInPlan.otherJobs.length > 0) {
+      warnings.push(`This box still has active allocations for ${checkInPlan.otherJobs.join(', ')}.`);
+    }
+
+    updatedBox.status = 'IN_STOCK';
+    updatedBox.lastRollWeightLbs = checkInPlan.lastRollWeightLbs;
+    updatedBox.lastWeighedDate = todayDateString();
+    updatedBox.coreType = checkInPlan.coreType || updatedBox.coreType;
+    updatedBox.coreWeightLbs = checkInPlan.coreWeightLbs;
+    updatedBox.lfWeightLbsPerFt = checkInPlan.lfWeightLbsPerFt;
+    updatedBox.feetAvailable = checkInPlan.feetAvailableAfterCheckIn;
+
+    const warningBeforeBox = { ...existing, feetAvailable: checkInPlan.physicalFeetBeforeCheckIn };
+    const warningAfterBox = { ...updatedBox, feetAvailable: checkInPlan.physicalFeetAfterCheckIn };
+    applyCheckInWarnings(warnings, warningBeforeBox, warningAfterBox, checkInPlan.autoMoveToZeroed);
+    if (checkInPlan.otherActiveAllocatedFeet > 0 && updatedBox.feetAvailable === 0) {
+      warnings.push('All remaining LF on this box is reserved by active allocations.');
+    }
+
+    const checkedOutWeight = existing.lastRollWeightLbs;
+    const weightDelta =
+      checkedOutWeight === null ? null : roundToDecimals(checkedOutWeight - checkInPlan.lastRollWeightLbs, 2);
+
+    if (checkedOutWeight === null) {
+      warnings.push(
+        'Roll history was logged without an outbound weight because no Last Roll Weight was saved at checkout.'
+      );
+    }
+
+    await appendRollHistoryEntry(client, orgId, {
+      logId: '',
+      boxId: updatedBox.boxId,
+      warehouse: updatedBox.warehouse,
+      manufacturer: updatedBox.manufacturer,
+      filmName: updatedBox.filmName,
+      widthIn: updatedBox.widthIn,
+      jobNumber: checkoutJob,
+      checkedOutAt: checkoutDate,
+      checkedOutBy: checkoutUser,
+      checkedOutWeightLbs: checkedOutWeight,
+      checkedInAt: new Date().toISOString(),
+      checkedInBy: actor,
+      checkedInWeightLbs: checkInPlan.lastRollWeightLbs,
+      weightDeltaLbs: weightDelta,
+      feetBefore: checkInPlan.physicalFeetBeforeCheckIn,
+      feetAfter: checkInPlan.physicalFeetAfterCheckIn,
+      notes: asTrimmedString(payload.auditNote)
+    });
+
+    updatedBox.lastCheckoutJob = '';
+    updatedBox.lastCheckoutDate = '';
+
+    const reachedZeroState =
+      Boolean(updatedBox.receivedDate) &&
+      (checkInPlan.physicalFeetAfterCheckIn === 0 || updatedBox.lastRollWeightLbs === 0);
+    const autoMoveToZeroed = checkInPlan.autoMoveToZeroed;
+
+    if (autoMoveToZeroed) {
+      stampZeroedMetadata(updatedBox, actor, payload.auditNote);
+      const cancelledAllocationCount = await cancelAllocationsForZeroedBox(
+        client,
+        orgId,
+        updatedBox.boxId,
+        actor
+      );
+      updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+      auditAction = 'ZERO_OUT_BOX';
+      warnings.push(
+        'Box was automatically moved to zeroed out inventory because Available Feet or Last Roll Weight reached 0.'
+      );
+
+      if (cancelledAllocationCount > 0) {
+        warnings.push(
+          `${cancelledAllocationCount} allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
+        );
+      }
+    } else {
+      if (reachedZeroState && existing.feetAvailable <= 0) {
+        warnings.push('Box stayed in active inventory because it has not had Available Feet above 0 yet.');
+      }
+
+      updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+    }
+  }
+
+  const publicBefore = toPublicBox(existing);
+  const publicAfter = toPublicBox(updatedBox);
+  const logId = await appendAuditEntry(
+    client,
+    orgId,
+    auditAction,
+    updatedBox.boxId,
+    publicBefore,
+    publicAfter,
+    actor,
+    asTrimmedString(payload.auditNote)
+  );
+
+  return ok({ box: publicAfter, logId }, warnings);
+}
+
+export { setBoxStatus };

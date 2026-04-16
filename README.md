@@ -8,12 +8,15 @@ Window film inventory and jobs app with:
 
 Google Sheets and Apps Script are now legacy migration sources only. They are not part of the live app path.
 
+Architecture map: [docs/architecture/modular-map.md](docs/architecture/modular-map.md)
+
 ## Current Architecture
 
 - Frontend: `frontend/`
   - React + Vite + TypeScript
   - TanStack Query
   - PWA via `vite-plugin-pwa`
+  - inventory route containers now delegate page wiring into local page-model hooks under `frontend/src/features/inventory/pages/*/`
 - Canonical backend: `supabase/functions/api`
   - preserves the existing `?path=/...` API contract
   - validates Supabase bearer tokens
@@ -28,6 +31,8 @@ Google Sheets and Apps Script are now legacy migration sources only. They are no
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
   - not required for production
+- Shared runtime contracts: `shared/`
+  - pure cross-runtime domain helpers used by frontend, backend parity host, and Supabase Edge
 
 ## Project Structure
 
@@ -35,6 +40,8 @@ Google Sheets and Apps Script are now legacy migration sources only. They are no
 frontend/
   public/
   src/
+shared/
+  domain/
 supabase/
   functions/
     api/
@@ -43,6 +50,14 @@ backend/
   migrations/
   docs/
 ```
+
+## Modular Notes
+
+- `frontend/src/domain/*` remains a compatibility layer over `shared/domain/*`.
+- `backend/src/app/services/runtime/runtimeCheckoutOperations.mjs` and `runtimeBoxesMutations.mjs` remain stable facades over smaller `runtime/checkout/*` and `runtime/boxes/*` modules.
+- `backend/src/app/services/runtimeDeps.mjs` remains the aggregate helper surface, now composed from grouped `runtime/deps/*` barrels.
+- `supabase/functions/_shared/api-handler.ts` remains the stable Edge composition root while shared pure helpers continue moving into `_shared/core/` and repository barrels.
+- Backend and Supabase code should never import from `frontend/`; cross-runtime pure logic belongs in `shared/`.
 
 ## Production Setup
 

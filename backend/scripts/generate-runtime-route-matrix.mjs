@@ -9,7 +9,7 @@ import {
   OWNER_ONLY_ROUTES,
   READ_PATHS,
   ROUTE_FEATURE_MAP
-} from '../../frontend/src/domain/runtimeContract.mjs';
+} from '../../shared/domain/runtimeContract.mjs';
 
 const allRoutes = new Set([
   ...Object.keys(ROUTE_FEATURE_MAP),

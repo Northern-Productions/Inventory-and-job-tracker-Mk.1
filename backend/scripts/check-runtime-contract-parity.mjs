@@ -4,7 +4,7 @@ import {
   OWNER_ONLY_ROUTES,
   READ_PATHS,
   ROUTE_FEATURE_MAP
-} from '../../frontend/src/domain/runtimeContract.mjs';
+} from '../../shared/domain/runtimeContract.mjs';
 
 function extractRoutesFromEdgeHandler(text) {
   const routes = new Set();

@@ -12,7 +12,7 @@ import {
   inferAccessModeForRoute as inferAccessModeForRouteContract,
   inferFeatureForRoute as inferFeatureForRouteContract,
   isOwnerOnlyRoute as isOwnerOnlyRouteContract,
-} from '../../../../frontend/src/domain/runtimeContract.mjs';
+} from '../../../../shared/domain/runtimeContract.mjs';
 import { asTrimmedString, deriveNameFromEmail, integerOrZero } from '../core/helpers.mjs';
 
 function createDeniedFeaturePermissions() {

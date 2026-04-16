@@ -1,5 +1,5 @@
 // Purpose: Centralized request-level access checks for the Edge API.
-import { isOwnerOnlyRoute as isOwnerOnlyRouteContract } from "../../../frontend/src/domain/runtimeContract.mjs";
+import { isOwnerOnlyRoute as isOwnerOnlyRouteContract } from "../../../shared/domain/runtimeContract.mjs";
 import { HttpError } from "./http.ts";
 import type { AuthIdentity } from "./types.ts";
 

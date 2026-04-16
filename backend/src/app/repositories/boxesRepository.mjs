@@ -1,6 +1,6 @@
 import { queryRow, queryRows } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
-import { buildTransferredBoxId as buildSharedTransferredBoxId } from '../../../../frontend/src/domain/boxTransferPlanner.mjs';
+import { buildTransferredBoxId as buildSharedTransferredBoxId } from '../../../../shared/domain/boxTransferPlanner.mjs';
 import {
   asTrimmedString,
   integerOrZero,
