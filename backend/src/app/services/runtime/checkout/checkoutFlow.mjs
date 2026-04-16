@@ -20,7 +20,7 @@ import {
   applyCheckoutWarnings,
 } from '../../runtimeDeps.mjs';
 import { autoLinkRemainingJobFeetToCheckedOutBox } from '../runtimeAllocationLinks.mjs';
-import { buildFilmTransferAlertMessage } from '../runtimeTransferUsage.mjs';
+import { buildCaulkTransferAlertMessage, buildFilmTransferAlertMessage } from '../runtimeTransferUsage.mjs';
 import {
   loadJobStagingValidationState,
   resolveExistingOrLegacyJobHeader,
@@ -299,8 +299,20 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
 
+  if (
+    preCheckoutState.filmTransferAlerts.length > 0 &&
+    Array.isArray(preCheckoutState.caulkTransferAlerts) &&
+    preCheckoutState.caulkTransferAlerts.length > 0
+  ) {
+    throw new HttpError(400, 'Receive transferred film and caulk before checking out this job.');
+  }
+
   if (preCheckoutState.filmTransferAlerts.length > 0) {
     throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutState.filmTransferAlerts, 'checkout'));
+  }
+
+  if (Array.isArray(preCheckoutState.caulkTransferAlerts) && preCheckoutState.caulkTransferAlerts.length > 0) {
+    throw new HttpError(400, buildCaulkTransferAlertMessage(preCheckoutState.caulkTransferAlerts, 'checkout'));
   }
 
   if (hasActiveOrderedRequirementAllocations(preCheckoutState.allocations, boxById)) {

@@ -13,6 +13,7 @@ import {
   mapCaulkManufacturerRow,
   mapCaulkProductRow,
   mapCaulkStockRow,
+  mapDbCaulkTransferRow,
   mapCaulkTransactionRow,
   normalizeCaulkCaseMath as normalizeCaulkCaseMathFromMappers,
 } from '../repositories/mappers.mjs';
@@ -205,6 +206,46 @@ async function listCaulkTransactions(client, orgId, params) {
   return rows.map(mapCaulkTransactionRow);
 }
 
+async function listPendingCaulkTransfers(client, orgId, params) {
+  const warehouse = await requireConfiguredWarehouse(client, orgId, params.warehouse, 'Warehouse');
+  const productIdRaw = asTrimmedString(params.productId);
+  const productId = productIdRaw ? requireUuid(productIdRaw, 'ProductId') : null;
+
+  const rows = await queryRows(
+    client,
+    `
+      select
+        t.*,
+        a.caulk_allocation_id as caulk_allocation_public_id,
+        a.job_number,
+        p.id as product_id,
+        p.manufacturer_id,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        p.tubes_per_case
+      from app.caulk_transfers t
+      join app.caulk_job_allocations a
+        on a.org_id = t.org_id
+       and a.id = t.caulk_allocation_id
+      join app.caulk_products p
+        on p.org_id = t.org_id
+       and p.id = t.product_id
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where t.org_id = $1::uuid
+        and t.status = 'PENDING'
+        and t.destination_warehouse = $2::text
+        and ($3::uuid is null or t.product_id = $3::uuid)
+      order by t.created_at desc, t.id desc
+    `,
+    [orgId, warehouse, productId]
+  );
+
+  return rows.map(mapDbCaulkTransferRow);
+}
+
 async function ownerUpsertCaulkManufacturer(client, orgId, actor, payload) {
   const name = requireString(payload.name, 'Name');
   const isActive = payload.isActive === undefined ? true : parseBooleanFlag(payload.isActive);
@@ -226,6 +267,7 @@ async function upsertCaulkProduct(client, orgId, actor, payload) {
   const manufacturerId = requireUuid(payload.manufacturerId, 'ManufacturerId');
   const productName = requireString(payload.productName, 'ProductName');
   const productCode = asTrimmedString(payload.productCode);
+  const warehouseRaw = asTrimmedString(payload.warehouse);
   const notes = asTrimmedString(payload.notes);
   const isActive = payload.isActive === undefined ? true : parseBooleanFlag(payload.isActive);
   const tubesPerCaseValue = payload.tubesPerCase === undefined ? 16 : payload.tubesPerCase;
@@ -252,6 +294,33 @@ async function upsertCaulkProduct(client, orgId, actor, payload) {
     `,
     [orgId, actor, productId, manufacturerId, productName, productCode, tubesPerCase, isActive, notes]
   );
+
+  if (warehouseRaw && row?.id) {
+    const warehouse = await requireConfiguredWarehouse(client, orgId, warehouseRaw, 'Warehouse');
+    await queryRow(
+      client,
+      `
+        insert into app.caulk_stock (
+          org_id,
+          product_id,
+          warehouse,
+          tubes_on_hand,
+          updated_by
+        )
+        values (
+          $1::uuid,
+          $2::uuid,
+          $3::text,
+          0,
+          $4::text
+        )
+        on conflict (org_id, product_id, warehouse) do nothing
+        returning id
+      `,
+      [orgId, row.id, warehouse, actor]
+    );
+  }
+
   const product = mapCaulkProductRow(row);
   const manufacturer = await queryRow(
     client,
@@ -430,6 +499,7 @@ export {
   listCaulkProducts,
   listCaulkStock,
   listCaulkTransactions,
+  listPendingCaulkTransfers,
   ownerUpsertCaulkManufacturer,
   upsertCaulkProduct,
   mutateCaulkStock,

@@ -1,4 +1,4 @@
-import type { FilmOrderEntry, JobDetail, JobFilmTransferAlert } from '../../../../domain';
+import type { FilmOrderEntry, JobCaulkTransferAlert, JobDetail, JobFilmTransferAlert } from '../../../../domain';
 import { formatDate, formatDateTime } from '../../../../lib/date';
 
 export function renderDate(value: string) {
@@ -57,6 +57,31 @@ export function getFilmTransferBulkCheckoutMessage(alerts: JobFilmTransferAlert[
   return 'Receive transferred film before checking out this job.';
 }
 
+export function getCaulkTransferBulkCheckoutMessage(alerts: JobCaulkTransferAlert[]) {
+  if (!alerts.length) {
+    return '';
+  }
+
+  return 'Receive transferred caulk before checking out this job.';
+}
+
+export function getMaterialTransferBulkCheckoutMessage(
+  filmAlerts: JobFilmTransferAlert[],
+  caulkAlerts: JobCaulkTransferAlert[]
+) {
+  if (filmAlerts.length > 0 && caulkAlerts.length > 0) {
+    return 'Receive transferred film and caulk before checking out this job.';
+  }
+  if (filmAlerts.length > 0) {
+    return getFilmTransferBulkCheckoutMessage(filmAlerts);
+  }
+  if (caulkAlerts.length > 0) {
+    return getCaulkTransferBulkCheckoutMessage(caulkAlerts);
+  }
+
+  return '';
+}
+
 export function getOrderedReceiptBulkCheckoutMessage(
   detail: Pick<JobDetail, 'allocations'> | null | undefined
 ) {
@@ -82,6 +107,22 @@ export function describeFilmTransferAlert(alert: JobFilmTransferAlert) {
 }
 
 export function formatFilmTransferStateLabel(alert: JobFilmTransferAlert) {
+  return alert.state === 'TRANSFER_PENDING' ? 'Transfer Pending' : 'Needs Transfer';
+}
+
+export function describeCaulkTransferAlert(alert: JobCaulkTransferAlert) {
+  if (alert.state === 'TRANSFER_PENDING' && alert.sourceWarehouse) {
+    return `Transfer ${alert.pendingTubes} tube${alert.pendingTubes === 1 ? '' : 's'} from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}, then receive it before checkout.`;
+  }
+
+  if (alert.sourceWarehouse) {
+    return `Send ${alert.pendingTubes} tube${alert.pendingTubes === 1 ? '' : 's'} from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`;
+  }
+
+  return `${alert.destinationWarehouse} still needs ${alert.pendingTubes} tube${alert.pendingTubes === 1 ? '' : 's'} transferred in before checkout.`;
+}
+
+export function formatCaulkTransferStateLabel(alert: JobCaulkTransferAlert) {
   return alert.state === 'TRANSFER_PENDING' ? 'Transfer Pending' : 'Needs Transfer';
 }
 

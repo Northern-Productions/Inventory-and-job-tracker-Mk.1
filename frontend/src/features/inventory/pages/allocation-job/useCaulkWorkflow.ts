@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react';
 import type {
   AddCaulkJobAllocationPayload,
+  CancelCaulkTransferPayload,
   CaulkJobAllocationEntry,
   CaulkJobAllocationMutationResult,
   CaulkJobCheckoutEntry,
   CaulkJobCheckoutMutationResult,
+  CaulkPendingTransferSummary,
   CaulkProductEntry,
+  CaulkTransferMutationResult,
   CheckinCaulkJobAllocationPayload,
   CheckoutCaulkJobAllocationPayload,
   JobCaulkRequirementLine,
+  ReceiveCaulkTransferPayload,
   RemoveCaulkJobAllocationPayload,
   RemoveCaulkJobAllocationResult,
   UpdateCaulkJobAllocationPayload,
@@ -41,10 +45,13 @@ interface UseCaulkWorkflowArgs {
   jobNumber?: string;
   warehouse?: Warehouse;
   isReadOnlyJob: boolean;
+  canManageTransfers: boolean;
   caulkProducts: CaulkProductEntry[];
   caulkRequirements: JobCaulkRequirementLine[];
   warehouseEntries: WarehouseEntry[];
   previousHasOutstandingMaterials: boolean;
+  pendingTransferByAllocationId: Record<string, CaulkPendingTransferSummary>;
+  isCaulkTransferPending: (transferId: string) => boolean;
   ensureSignedIn: (actionLabel: string) => boolean;
   maybeOpenReturnCompletionPrompt: (previousHasOutstandingMaterials: boolean) => void;
   pushToast: PushToast;
@@ -73,16 +80,29 @@ interface UseCaulkWorkflowArgs {
     { result: RemoveCaulkJobAllocationResult; warnings: string[] }
   >;
   removeCaulkAllocationPending: boolean;
+  receiveCaulkTransfer: MutationFn<
+    ReceiveCaulkTransferPayload,
+    { result: CaulkTransferMutationResult; warnings: string[] }
+  >;
+  receiveCaulkTransferPending: boolean;
+  cancelCaulkTransfer: MutationFn<
+    CancelCaulkTransferPayload,
+    { result: CaulkTransferMutationResult; warnings: string[] }
+  >;
+  cancelCaulkTransferPending: boolean;
 }
 
 export function useCaulkWorkflow({
   jobNumber,
   warehouse,
   isReadOnlyJob,
+  canManageTransfers,
   caulkProducts,
   caulkRequirements,
   warehouseEntries,
   previousHasOutstandingMaterials,
+  pendingTransferByAllocationId,
+  isCaulkTransferPending,
   ensureSignedIn,
   maybeOpenReturnCompletionPrompt,
   pushToast,
@@ -95,7 +115,11 @@ export function useCaulkWorkflow({
   checkinCaulkAllocation,
   checkinCaulkAllocationPending,
   removeCaulkAllocation,
-  removeCaulkAllocationPending
+  removeCaulkAllocationPending,
+  receiveCaulkTransfer,
+  receiveCaulkTransferPending,
+  cancelCaulkTransfer,
+  cancelCaulkTransferPending
 }: UseCaulkWorkflowArgs) {
   const [caulkAllocationToRemove, setCaulkAllocationToRemove] =
     useState<CaulkJobAllocationEntry | null>(null);
@@ -142,7 +166,9 @@ export function useCaulkWorkflow({
     updateCaulkAllocationPending ||
     checkoutCaulkAllocationPending ||
     checkinCaulkAllocationPending ||
-    removeCaulkAllocationPending;
+    removeCaulkAllocationPending ||
+    receiveCaulkTransferPending ||
+    cancelCaulkTransferPending;
 
   function isCaulkAllocationPending(caulkAllocationId: string) {
     const normalizedId = String(caulkAllocationId || '').trim().toUpperCase();
@@ -194,6 +220,7 @@ export function useCaulkWorkflow({
       requirementId: defaultAllocation.requirementId,
       productId: defaultAllocation.productId,
       warehouse: defaultAllocation.warehouse,
+      transferFromWarehouse: '',
       allocatedTubes: defaultAllocation.allocatedTubes,
       notes: '',
       lockProductWarehouse: false,
@@ -203,6 +230,15 @@ export function useCaulkWorkflow({
   }
 
   function openEditCaulkAllocationDialog(entry: CaulkJobAllocationEntry) {
+    if (entry.pendingTransfer) {
+      pushToast({
+        title: 'Transfer still pending',
+        description: `Receive or cancel transfer ${entry.pendingTransfer.transferId} before editing this allocation.`,
+        variant: 'error'
+      });
+      return;
+    }
+
     const hasCheckoutStarted = entry.checkedOutTubesTotal > 0;
 
     setCaulkAllocationEditor({
@@ -211,6 +247,7 @@ export function useCaulkWorkflow({
       requirementId: entry.requirementId || '',
       productId: entry.productId,
       warehouse: entry.warehouse,
+      transferFromWarehouse: '',
       allocatedTubes: String(entry.allocatedTubes),
       notes: entry.notes || '',
       lockProductWarehouse: hasCheckoutStarted,
@@ -272,6 +309,7 @@ export function useCaulkWorkflow({
           requirementId: selectedRequirement?.requirementId || undefined,
           productId: selectedProductId,
           warehouse: caulkAllocationEditor.warehouse,
+          transferFromWarehouse: caulkAllocationEditor.transferFromWarehouse || undefined,
           allocatedTubes: parsedAllocatedTubes,
           notes: caulkAllocationEditor.notes.trim() || undefined
         });
@@ -305,6 +343,9 @@ export function useCaulkWorkflow({
         if (!caulkAllocationEditor.lockProductWarehouse) {
           payload.productId = selectedProductId;
           payload.warehouse = caulkAllocationEditor.warehouse;
+        }
+        if (caulkAllocationEditor.transferFromWarehouse) {
+          payload.transferFromWarehouse = caulkAllocationEditor.transferFromWarehouse;
         }
 
         const savePromise = updateCaulkAllocation(payload);
@@ -362,6 +403,28 @@ export function useCaulkWorkflow({
       pushToast({
         title: 'Open checkout exists',
         description: 'Check in the open checkout cycle before starting another one.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (entry.pendingTransfer?.transferId) {
+      pushToast({
+        title: 'Transfer still pending',
+        description: `Receive transfer ${entry.pendingTransfer.transferId} before checking out this allocation.`,
+        variant: 'error'
+      });
+      return;
+    }
+
+    const shortageTubes = Math.max(
+      0,
+      entry.allocatedTubes - (entry.checkedOutTubesTotal + entry.reservedTubesRemaining)
+    );
+    if (shortageTubes > 0) {
+      pushToast({
+        title: 'Allocation still needs transfer',
+        description: `${entry.warehouse} still needs ${shortageTubes} tube${shortageTubes === 1 ? '' : 's'} transferred in before checkout.`,
         variant: 'error'
       });
       return;
@@ -592,6 +655,76 @@ export function useCaulkWorkflow({
     }
   }
 
+  async function handleReceiveCaulkTransfer(entry: CaulkJobAllocationEntry) {
+    const pendingTransfer = pendingTransferByAllocationId[entry.caulkAllocationId] || entry.pendingTransfer || null;
+    if (!pendingTransfer?.transferId) {
+      return;
+    }
+
+    if (!canManageTransfers) {
+      pushToast({
+        title: 'Inventory write access required',
+        description: 'Receiving transferred caulk requires inventory write access.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!ensureSignedIn('receiving transferred caulk')) {
+      return;
+    }
+
+    try {
+      const { warnings } = await receiveCaulkTransfer({ transferId: pendingTransfer.transferId });
+      pushToast({
+        title: `Received transfer ${pendingTransfer.transferId}`,
+        description: warnings.join(' ') || 'The transferred caulk is now available for this job.',
+        variant: 'success'
+      });
+    } catch (error) {
+      pushToast({
+        title: 'Unable to receive caulk transfer',
+        description: error instanceof Error ? error.message : 'The receive request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleCancelCaulkTransfer(entry: CaulkJobAllocationEntry) {
+    const pendingTransfer = pendingTransferByAllocationId[entry.caulkAllocationId] || entry.pendingTransfer || null;
+    if (!pendingTransfer?.transferId) {
+      return;
+    }
+
+    if (!canManageTransfers) {
+      pushToast({
+        title: 'Inventory write access required',
+        description: 'Cancelling transferred caulk requires inventory write access.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!ensureSignedIn('cancelling transferred caulk')) {
+      return;
+    }
+
+    try {
+      const { warnings } = await cancelCaulkTransfer({ transferId: pendingTransfer.transferId });
+      pushToast({
+        title: `Cancelled transfer ${pendingTransfer.transferId}`,
+        description: warnings.join(' ') || 'The pending caulk transfer was cancelled.',
+        variant: 'success'
+      });
+    } catch (error) {
+      pushToast({
+        title: 'Unable to cancel caulk transfer',
+        description: error instanceof Error ? error.message : 'The cancel request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   return {
     caulkAllocationToRemove,
     setCaulkAllocationToRemove,
@@ -611,6 +744,7 @@ export function useCaulkWorkflow({
     pendingCaulkMutation,
     isCaulkAllocationPending,
     isCaulkCheckoutPending,
+    isCaulkTransferPending,
     openAddCaulkAllocationDialog,
     openEditCaulkAllocationDialog,
     handleSubmitCaulkAllocationDialog,
@@ -618,6 +752,8 @@ export function useCaulkWorkflow({
     handleSubmitCaulkCheckoutDialog,
     openCaulkCheckinDialog,
     handleSubmitCaulkCheckinDialog,
-    handleRemoveCaulkAllocation
+    handleRemoveCaulkAllocation,
+    handleReceiveCaulkTransfer,
+    handleCancelCaulkTransfer
   };
 }

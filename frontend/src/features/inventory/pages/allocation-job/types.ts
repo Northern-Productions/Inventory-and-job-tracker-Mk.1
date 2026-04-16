@@ -6,6 +6,7 @@ export interface CaulkAllocationEditorState {
   requirementId: string;
   productId: string;
   warehouse: Warehouse;
+  transferFromWarehouse: Warehouse | '';
   allocatedTubes: string;
   notes: string;
   lockProductWarehouse: boolean;

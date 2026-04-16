@@ -95,7 +95,8 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
     caulkRequirements: detail.caulkRequirements || [],
     caulkAllocations: detail.caulkAllocations || [],
     caulkCheckouts: detail.caulkCheckouts || [],
-    filmTransferAlerts: detail.filmTransferAlerts || []
+    filmTransferAlerts: detail.filmTransferAlerts || [],
+    caulkTransferAlerts: detail.caulkTransferAlerts || []
   };
 }
 

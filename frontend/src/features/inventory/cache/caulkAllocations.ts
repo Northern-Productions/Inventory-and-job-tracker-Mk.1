@@ -95,6 +95,7 @@ export function applyOptimisticAddCaulkAllocationToCaches(
   const selectedProduct = productLookup[payload.productId];
   const now = new Date().toISOString();
   const pendingCaulkAllocationId = makePendingCaulkAllocationId();
+  const hasPendingTransfer = Boolean(payload.transferFromWarehouse);
   const nextAllocation: CaulkJobAllocationEntry = {
     caulkAllocationId: pendingCaulkAllocationId,
     requirementId: selectedRequirement?.requirementId || payload.requirementId || '',
@@ -106,7 +107,7 @@ export function applyOptimisticAddCaulkAllocationToCaches(
     tubesPerCase: selectedProduct?.tubesPerCase || 0,
     warehouse: payload.warehouse,
     allocatedTubes: payload.allocatedTubes,
-    reservedTubesRemaining: payload.allocatedTubes,
+    reservedTubesRemaining: hasPendingTransfer ? 0 : payload.allocatedTubes,
     checkedOutTubesTotal: 0,
     returnedUnusedTubesTotal: 0,
     usedTubesTotal: 0,
@@ -120,7 +121,19 @@ export function applyOptimisticAddCaulkAllocationToCaches(
     updatedBy: 'Pending...',
     resolvedAt: '',
     resolvedBy: '',
-    notes: payload.notes || ''
+    notes: payload.notes || '',
+    pendingTransfer: hasPendingTransfer
+      ? {
+          transferId: '',
+          status: 'PENDING' as const,
+          sourceWarehouse: payload.transferFromWarehouse!,
+          destinationWarehouse: payload.warehouse,
+          pendingTubes: payload.allocatedTubes,
+          startedAt: now,
+          startedBy: 'Pending...',
+          notes: payload.notes || ''
+        }
+      : null
   };
 
   const nextDetail = buildNextJobDetailForCaulkAllocations(queryClient, currentJob, [
@@ -156,6 +169,20 @@ export function applyOptimisticUpdateCaulkAllocationToCaches(
     const nextProduct = productLookup[nextProductId];
     const nextAllocatedTubes = Math.max(0, Number(payload.allocatedTubes ?? entry.allocatedTubes));
     const deltaAllocatedTubes = nextAllocatedTubes - Math.max(0, Number(entry.allocatedTubes || 0));
+    const nextWarehouse = payload.warehouse || entry.warehouse;
+    const changingProductOrWarehouse =
+      nextProductId !== entry.productId || nextWarehouse !== entry.warehouse;
+    const currentlyCoveredTubes = Math.max(
+      0,
+      Number(entry.reservedTubesRemaining || 0) + Number(entry.checkedOutTubesTotal || 0)
+    );
+    const hasPendingTransfer = Boolean(payload.transferFromWarehouse);
+    const optimisticPendingTubes = hasPendingTransfer
+      ? Math.max(
+          changingProductOrWarehouse ? nextAllocatedTubes : nextAllocatedTubes - currentlyCoveredTubes,
+          0
+        )
+      : 0;
 
     return {
       ...entry,
@@ -167,15 +194,28 @@ export function applyOptimisticUpdateCaulkAllocationToCaches(
       productName: nextProduct?.productName || entry.productName,
       productCode: nextProduct?.productCode || entry.productCode,
       tubesPerCase: nextProduct?.tubesPerCase || entry.tubesPerCase,
-      warehouse: payload.warehouse || entry.warehouse,
+      warehouse: nextWarehouse,
       allocatedTubes: nextAllocatedTubes,
-      reservedTubesRemaining: Math.max(
-        0,
-        Math.max(0, Number(entry.reservedTubesRemaining || 0)) + deltaAllocatedTubes
-      ),
+      reservedTubesRemaining: hasPendingTransfer
+        ? changingProductOrWarehouse
+          ? 0
+          : Math.max(0, Number(entry.reservedTubesRemaining || 0))
+        : Math.max(0, Math.max(0, Number(entry.reservedTubesRemaining || 0)) + deltaAllocatedTubes),
       updatedAt: new Date().toISOString(),
       updatedBy: 'Pending...',
-      notes: payload.notes !== undefined ? payload.notes || '' : entry.notes
+      notes: payload.notes !== undefined ? payload.notes || '' : entry.notes,
+      pendingTransfer: hasPendingTransfer
+        ? {
+            transferId: entry.pendingTransfer?.transferId || '',
+            status: 'PENDING' as const,
+            sourceWarehouse: payload.transferFromWarehouse!,
+            destinationWarehouse: nextWarehouse,
+            pendingTubes: optimisticPendingTubes,
+            startedAt: new Date().toISOString(),
+            startedBy: 'Pending...',
+            notes: payload.notes !== undefined ? payload.notes || '' : entry.notes
+          }
+        : null
     };
   });
 

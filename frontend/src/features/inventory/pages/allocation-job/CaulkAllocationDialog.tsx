@@ -7,6 +7,7 @@ import { Input } from '../../../../components/Input';
 import type { CaulkJobAllocationEntry, CaulkProductEntry, JobCaulkRequirementLine, Warehouse } from '../../../../domain';
 import {
   buildCaulkAllocationValuesForRequirement,
+  getCaulkAllocationTransferPlan,
   sortCaulkStockEntriesForAllocation
 } from '../../utils/caulkAllocationPlanning';
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
@@ -103,6 +104,40 @@ export function CaulkAllocationDialog({
     );
   }, [editor?.warehouse, caulkAllocationStockQuery.data, selectedCaulkAllocationProductId]);
 
+  const transferPlan = useMemo(
+    () =>
+      getCaulkAllocationTransferPlan({
+        mode: editor?.mode || 'add',
+        productId: selectedCaulkAllocationProductId,
+        warehouse: editor?.warehouse || '',
+        allocatedTubesInput: editor?.allocatedTubes || '',
+        stockEntries: caulkAllocationStockRows,
+        existingAllocation: selectedAllocationRow
+      }),
+    [
+      caulkAllocationStockRows,
+      editor?.allocatedTubes,
+      editor?.mode,
+      editor?.warehouse,
+      selectedAllocationRow,
+      selectedCaulkAllocationProductId
+    ]
+  );
+
+  const requiresTransferAssist = transferPlan.shortageTubes > 0;
+  const dialogMode = editor?.mode || 'add';
+  const selectedTransferWarehouseIsEligible = transferPlan.eligibleSourceStock.some(
+    (entry) => entry.warehouse === editor?.transferFromWarehouse
+  );
+  const saveLabel = requiresTransferAssist
+    ? dialogMode === 'add'
+      ? 'Transfer + Add Allocation'
+      : 'Transfer + Save Allocation'
+    : dialogMode === 'add'
+      ? 'Add Allocation'
+      : 'Save Allocation';
+  const saveDisabled = pending || (requiresTransferAssist && !selectedTransferWarehouseIsEligible);
+
   if (!editor) {
     return null;
   }
@@ -152,6 +187,7 @@ export function CaulkAllocationDialog({
                         ...current,
                         requirementId: nextRequirementId,
                         productId: nextValues?.productId || current.productId,
+                        transferFromWarehouse: '',
                         allocatedTubes: nextValues?.allocatedTubes || current.allocatedTubes
                       }
                     : current
@@ -177,7 +213,9 @@ export function CaulkAllocationDialog({
             value={editor.productId}
             onChange={(event) => {
               const nextProductId = event.target.value;
-              setEditor((current) => (current ? { ...current, productId: nextProductId } : current));
+              setEditor((current) =>
+                current ? { ...current, productId: nextProductId, transferFromWarehouse: '' } : current
+              );
               setError('');
             }}
             disabled={editor.lockProductWarehouse || (editor.mode === 'add' && Boolean(editor.requirementId))}
@@ -200,7 +238,9 @@ export function CaulkAllocationDialog({
             value={editor.warehouse}
             onChange={(event) => {
               const nextWarehouse = event.target.value as Warehouse;
-              setEditor((current) => (current ? { ...current, warehouse: nextWarehouse } : current));
+              setEditor((current) =>
+                current ? { ...current, warehouse: nextWarehouse, transferFromWarehouse: '' } : current
+              );
               setError('');
             }}
             disabled={editor.lockProductWarehouse}
@@ -220,7 +260,9 @@ export function CaulkAllocationDialog({
           pattern="[0-9]*"
           onChange={(event) => {
             const value = event.target.value.replace(/[^0-9]/g, '');
-            setEditor((current) => (current ? { ...current, allocatedTubes: value } : current));
+            setEditor((current) =>
+              current ? { ...current, allocatedTubes: value, transferFromWarehouse: '' } : current
+            );
             setError('');
           }}
           hint={editor.lockProductWarehouse ? `Minimum ${editor.minAllocatedTubes} after checkout starts.` : undefined}
@@ -235,6 +277,46 @@ export function CaulkAllocationDialog({
                 ) : null}
               </div>
             </div>
+            {requiresTransferAssist ? (
+              <div className="caulk-allocation-shortage-card">
+                <p className="caulk-allocation-shortage-copy">
+                  {editor.warehouse} is short {transferPlan.shortageTubes} tube
+                  {transferPlan.shortageTubes === 1 ? '' : 's'} for this allocation.
+                </p>
+                {transferPlan.eligibleSourceStock.length ? (
+                  <label className="field caulk-allocation-transfer-field">
+                    <span className="field-label">Transfer From</span>
+                    <select
+                      className="field-input"
+                      value={editor.transferFromWarehouse}
+                      onChange={(event) => {
+                        setEditor((current) =>
+                          current
+                            ? { ...current, transferFromWarehouse: event.target.value as Warehouse | '' }
+                            : current
+                        );
+                        setError('');
+                      }}
+                    >
+                      <option value="">Select warehouse</option>
+                      {transferPlan.eligibleSourceStock.map((entry) => (
+                        <option key={entry.warehouse} value={entry.warehouse}>
+                          {entry.warehouse} ({entry.tubesOnHand} tubes available)
+                        </option>
+                      ))}
+                    </select>
+                    <span className="field-hint">
+                      The shortage will start a pending transfer now. Receive it at {editor.warehouse} before
+                      checkout or staging.
+                    </span>
+                  </label>
+                ) : (
+                  <p className="error-text">
+                    No single warehouse currently has enough stock to cover this shortage.
+                  </p>
+                )}
+              </div>
+            ) : null}
             {caulkAllocationStockQuery.isLoading || caulkAllocationStockQuery.isFetching ? (
               <p className="muted-text">Loading available stock...</p>
             ) : caulkAllocationStockQuery.isError ? (
@@ -304,8 +386,8 @@ export function CaulkAllocationDialog({
         <Button type="button" variant="ghost" onClick={handleClose} disabled={pending}>
           Cancel
         </Button>
-        <Button type="button" variant="primary" onClick={onSubmit} disabled={pending}>
-          {pending ? 'Saving...' : editor.mode === 'add' ? 'Add Allocation' : 'Save Allocation'}
+        <Button type="button" variant="primary" onClick={onSubmit} disabled={saveDisabled}>
+          {pending ? 'Saving...' : saveLabel}
         </Button>
       </div>
     </DialogSurface>

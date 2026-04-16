@@ -12,15 +12,18 @@ import type {
   AddCaulkJobAllocationPayload,
   AllocationJobDetail,
   ApplyAllocationPlanPayload,
+  CancelCaulkTransferPayload,
   CaulkJobAllocationEntry,
   CaulkJobCheckoutEntry,
   CheckinCaulkJobAllocationPayload,
   CheckoutCaulkJobAllocationPayload,
   JobDetail,
+  ReceiveCaulkTransferPayload,
   RemoveCaulkJobAllocationPayload,
   RemoveJobBoxAllocationsPayload,
   UpdateCaulkJobAllocationPayload
 } from '../../../../domain';
+import { cancelCaulkTransfer, receiveCaulkTransfer } from '../../../../api/features/caulkClient';
 import { inventoryKeys } from '../inventoryQueryKeys';
 import {
   applyOptimisticAllocationAdditionToCaches,
@@ -387,6 +390,62 @@ export function useRemoveCaulkJobAllocation() {
     },
     onSuccess: async ({ result }) => {
       await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+    }
+  });
+}
+
+export function useReceiveCaulkTransfer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.receiveCaulkTransferMutation,
+    mutationFn: (payload: ReceiveCaulkTransferPayload) => receiveCaulkTransfer(payload),
+    onMutate: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.caulkTransfersRoot })
+      ]);
+    },
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
+      ]);
+      if (result.jobNumber) {
+        await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+      }
+    }
+  });
+}
+
+export function useCancelCaulkTransfer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.cancelCaulkTransferMutation,
+    mutationFn: (payload: CancelCaulkTransferPayload) => cancelCaulkTransfer(payload),
+    onMutate: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.caulkTransfersRoot })
+      ]);
+    },
+    onSuccess: async ({ result }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
+      ]);
+      if (result.jobNumber) {
+        await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+      }
     }
   });
 }

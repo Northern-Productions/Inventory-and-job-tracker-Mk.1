@@ -22,6 +22,7 @@ export default function AllocationJobPage() {
     summary,
     requirements,
     filmTransferAlerts,
+    caulkTransferAlerts,
     filmTransferAlertsByBoxId,
     usageTimeline,
     caulkRequirements,
@@ -82,6 +83,7 @@ export default function AllocationJobPage() {
     setCaulkCheckinError,
     warehouseOptions,
     pendingCaulkMutation,
+    isCaulkTransferPending,
     openAddCaulkAllocationDialog,
     openEditCaulkAllocationDialog,
     handleSubmitCaulkAllocationDialog,
@@ -89,7 +91,9 @@ export default function AllocationJobPage() {
     handleSubmitCaulkCheckoutDialog,
     openCaulkCheckinDialog,
     handleSubmitCaulkCheckinDialog,
-    handleRemoveCaulkAllocation
+    handleRemoveCaulkAllocation,
+    handleReceiveCaulkTransfer,
+    handleCancelCaulkTransfer
   } = caulkWorkflow;
 
   if (jobQuery.isLoading && !detail) {
@@ -121,6 +125,7 @@ export default function AllocationJobPage() {
         canMarkStagedPickup={canMarkStagedPickup}
         hasCheckoutableMaterials={hasCheckoutableMaterials}
         filmTransferAlerts={filmTransferAlerts}
+        caulkTransferAlerts={caulkTransferAlerts}
         isOwner={auth.isOwner}
         editPending={isUpdateJobPending}
         reopenPending={isReopenPending}
@@ -164,6 +169,7 @@ export default function AllocationJobPage() {
         entries={visibleCaulkAllocations}
         isPhoneLayout={isPhoneLayout}
         isReadOnlyJob={isReadOnlyJob}
+        canManageTransfers={auth.hasFeatureAccess('inventory', 'write')}
         canOpenAllocateDialog={canAddCaulkAllocation}
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
@@ -177,10 +183,13 @@ export default function AllocationJobPage() {
         }
         isCaulkAllocationPending={caulkWorkflow.isCaulkAllocationPending}
         isCaulkCheckoutPending={caulkWorkflow.isCaulkCheckoutPending}
+        isCaulkTransferPending={isCaulkTransferPending}
         onOpenAllocateDialog={openAddCaulkAllocationDialog}
         onOpenEdit={openEditCaulkAllocationDialog}
         onOpenCheckout={openCaulkCheckoutDialog}
         onOpenCheckin={openCaulkCheckinDialog}
+        onReceiveTransfer={(entry) => void handleReceiveCaulkTransfer(entry)}
+        onCancelTransfer={(entry) => void handleCancelCaulkTransfer(entry)}
         onRemove={setCaulkAllocationToRemove}
       />
 

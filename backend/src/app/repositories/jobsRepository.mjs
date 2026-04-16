@@ -12,6 +12,7 @@ import { resolveCatalogWriteFilmEntry } from '../core/catalog.mjs';
 import {
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
+  mapDbCaulkTransferRow,
   mapDbCaulkJobRequirementRow,
   mapDbJobRow,
   mapDbRequirementRow,
@@ -226,6 +227,21 @@ async function listCaulkJobAllocations(client, orgId) {
         where c.org_id = $1
           and c.status = 'OPEN'
         group by c.caulk_allocation_id
+      ),
+      pending_transfers as (
+        select distinct on (t.caulk_allocation_id)
+          t.caulk_allocation_id,
+          t.transfer_id,
+          t.source_warehouse,
+          t.destination_warehouse,
+          t.pending_tubes,
+          t.created_at,
+          t.created_by,
+          t.notes
+        from app.caulk_transfers t
+        where t.org_id = $1
+          and t.status = 'PENDING'
+        order by t.caulk_allocation_id, t.created_at desc, t.id desc
       )
       select
         a.caulk_allocation_id,
@@ -246,6 +262,13 @@ async function listCaulkJobAllocations(client, orgId) {
         a.overage_tubes_total,
         greatest(a.checked_out_tubes_total - a.returned_unused_tubes_total - a.used_tubes_total, 0)::integer as outstanding_checkout_tubes,
         coalesce(o.open_checkout_count, 0) as open_checkout_count,
+        pt.transfer_id as pending_transfer_id,
+        pt.source_warehouse as pending_transfer_source_warehouse,
+        pt.destination_warehouse as pending_transfer_destination_warehouse,
+        pt.pending_tubes as pending_transfer_tubes,
+        pt.created_at as pending_transfer_started_at,
+        pt.created_by as pending_transfer_started_by,
+        pt.notes as pending_transfer_notes,
         a.status::text as status,
         a.created_at,
         a.created_by,
@@ -263,6 +286,8 @@ async function listCaulkJobAllocations(client, orgId) {
        and m.org_id = p.org_id
       left join open_counts o
         on o.caulk_allocation_id = a.id
+      left join pending_transfers pt
+        on pt.caulk_allocation_id = a.id
       where a.org_id = $1
       order by a.created_at desc, a.caulk_allocation_id desc
     `,
@@ -284,6 +309,21 @@ async function listCaulkJobAllocationsByJob(client, orgId, jobNumber) {
         where c.org_id = $1
           and c.status = 'OPEN'
         group by c.caulk_allocation_id
+      ),
+      pending_transfers as (
+        select distinct on (t.caulk_allocation_id)
+          t.caulk_allocation_id,
+          t.transfer_id,
+          t.source_warehouse,
+          t.destination_warehouse,
+          t.pending_tubes,
+          t.created_at,
+          t.created_by,
+          t.notes
+        from app.caulk_transfers t
+        where t.org_id = $1
+          and t.status = 'PENDING'
+        order by t.caulk_allocation_id, t.created_at desc, t.id desc
       )
       select
         a.caulk_allocation_id,
@@ -304,6 +344,13 @@ async function listCaulkJobAllocationsByJob(client, orgId, jobNumber) {
         a.overage_tubes_total,
         greatest(a.checked_out_tubes_total - a.returned_unused_tubes_total - a.used_tubes_total, 0)::integer as outstanding_checkout_tubes,
         coalesce(o.open_checkout_count, 0) as open_checkout_count,
+        pt.transfer_id as pending_transfer_id,
+        pt.source_warehouse as pending_transfer_source_warehouse,
+        pt.destination_warehouse as pending_transfer_destination_warehouse,
+        pt.pending_tubes as pending_transfer_tubes,
+        pt.created_at as pending_transfer_started_at,
+        pt.created_by as pending_transfer_started_by,
+        pt.notes as pending_transfer_notes,
         a.status::text as status,
         a.created_at,
         a.created_by,
@@ -321,6 +368,8 @@ async function listCaulkJobAllocationsByJob(client, orgId, jobNumber) {
        and m.org_id = p.org_id
       left join open_counts o
         on o.caulk_allocation_id = a.id
+      left join pending_transfers pt
+        on pt.caulk_allocation_id = a.id
       where a.org_id = $1
         and upper(a.job_number) = upper(trim($2))
       order by a.created_at desc, a.caulk_allocation_id desc
@@ -373,6 +422,95 @@ async function listCaulkJobCheckoutsByJob(client, orgId, jobNumber) {
   );
 
   return rows.map(mapDbCaulkJobCheckoutRow);
+}
+
+async function listPendingCaulkTransfersByAllocationIds(client, orgId, allocationIds) {
+  const normalizedIds = Array.from(new Set((Array.isArray(allocationIds) ? allocationIds : []).filter(Boolean)));
+  if (normalizedIds.length === 0) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select
+        t.*,
+        a.caulk_allocation_id as caulk_allocation_public_id,
+        a.job_number,
+        p.id as product_id,
+        p.manufacturer_id,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        p.tubes_per_case
+      from app.caulk_transfers t
+      join app.caulk_job_allocations a
+        on a.org_id = t.org_id
+       and a.id = t.caulk_allocation_id
+      join app.caulk_products p
+        on p.org_id = t.org_id
+       and p.id = t.product_id
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where t.org_id = $1
+        and t.status = 'PENDING'
+        and t.caulk_allocation_id = any($2::uuid[])
+      order by t.created_at desc, t.id desc
+    `,
+    [orgId, normalizedIds]
+  );
+
+  return rows.map(mapDbCaulkTransferRow);
+}
+
+function indexPendingCaulkTransfersByAllocationId(transfers) {
+  const indexed = {};
+  const entries = Array.isArray(transfers) ? transfers : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const transfer = entries[index];
+    if (!transfer?.caulkAllocationRowId || indexed[transfer.caulkAllocationRowId]) {
+      continue;
+    }
+    indexed[transfer.caulkAllocationRowId] = transfer;
+  }
+  return indexed;
+}
+
+async function listPendingCaulkTransfersByWarehouseProduct(client, orgId, warehouse, productId = '') {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        t.*,
+        a.caulk_allocation_id as caulk_allocation_public_id,
+        a.job_number,
+        p.id as product_id,
+        p.manufacturer_id,
+        m.name as manufacturer,
+        p.name as product_name,
+        p.code as product_code,
+        p.tubes_per_case
+      from app.caulk_transfers t
+      join app.caulk_job_allocations a
+        on a.org_id = t.org_id
+       and a.id = t.caulk_allocation_id
+      join app.caulk_products p
+        on p.org_id = t.org_id
+       and p.id = t.product_id
+      join app.caulk_manufacturers m
+        on m.org_id = p.org_id
+       and m.id = p.manufacturer_id
+      where t.org_id = $1
+        and t.status = 'PENDING'
+        and t.destination_warehouse = $2
+        and ($3::uuid is null or t.product_id = $3::uuid)
+      order by t.created_at desc, t.id desc
+    `,
+    [orgId, asTrimmedString(warehouse).toUpperCase(), productId ? requireUuid(productId, 'ProductId') : null]
+  );
+
+  return rows.map(mapDbCaulkTransferRow);
 }
 
 async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
@@ -625,6 +763,9 @@ export {
   listCaulkJobAllocations,
   listCaulkJobAllocationsByJob,
   listCaulkJobCheckoutsByJob,
+  listPendingCaulkTransfersByAllocationIds,
+  indexPendingCaulkTransfersByAllocationId,
+  listPendingCaulkTransfersByWarehouseProduct,
   replaceJobRequirementsForJob,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,

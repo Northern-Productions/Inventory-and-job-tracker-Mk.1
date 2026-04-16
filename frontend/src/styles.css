@@ -1683,6 +1683,25 @@ textarea {
   overflow-x: auto;
 }
 
+.caulk-allocation-shortage-card {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid rgba(165, 102, 24, 0.18);
+  border-radius: 0.9rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 248, 236, 0.95);
+}
+
+.caulk-allocation-shortage-copy {
+  margin: 0;
+  color: #71470c;
+  font-weight: 700;
+}
+
+.caulk-allocation-transfer-field {
+  margin: 0;
+}
+
 .caulk-stock-row-selected td {
   background: #eef7f8;
 }
@@ -2391,6 +2410,13 @@ td.col-available-linear-ft {
 
 .dialog-caulk-allocation {
   width: min(100%, 720px);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.dialog-new-caulk-product {
+  width: min(100%, 560px);
   max-height: calc(100vh - 2rem);
   max-height: calc(100dvh - 2rem);
   overflow-y: auto;

@@ -1,5 +1,6 @@
 import { Button } from '../../../../components/Button';
-import type { JobDetail, JobFilmTransferAlert } from '../../../../domain';
+import type { JobCaulkTransferAlert, JobDetail, JobFilmTransferAlert } from '../../../../domain';
+import { CaulkTransferAlertsPanel } from './CaulkTransferAlertsPanel';
 import { FilmTransferAlertsPanel } from './FilmTransferAlertsPanel';
 import { formatBadgeLabel, renderDate } from './helpers';
 
@@ -15,6 +16,7 @@ type JobOverviewHeroSectionProps = {
   canMarkStagedPickup: boolean;
   hasCheckoutableMaterials: boolean;
   filmTransferAlerts: JobFilmTransferAlert[];
+  caulkTransferAlerts: JobCaulkTransferAlert[];
   isOwner: boolean;
   editPending?: boolean;
   reopenPending: boolean;
@@ -42,6 +44,7 @@ export function JobOverviewHeroSection({
   canMarkStagedPickup,
   hasCheckoutableMaterials,
   filmTransferAlerts,
+  caulkTransferAlerts,
   isOwner,
   editPending = false,
   reopenPending,
@@ -172,6 +175,7 @@ export function JobOverviewHeroSection({
                 onClick={onCheckoutAll}
                 disabled={
                   filmTransferAlerts.length > 0 ||
+                  caulkTransferAlerts.length > 0 ||
                   !hasCheckoutableMaterials ||
                   checkoutAllPending ||
                   stagedPickupPending ||
@@ -212,6 +216,7 @@ export function JobOverviewHeroSection({
         jobWarehouse={summary.warehouse}
         onOpenBox={onOpenTransferBox}
       />
+      <CaulkTransferAlertsPanel alerts={caulkTransferAlerts} jobWarehouse={summary.warehouse} />
     </section>
   );
 }

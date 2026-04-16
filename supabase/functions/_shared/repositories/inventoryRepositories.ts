@@ -381,6 +381,20 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       resolvedAt: deps.formatTimestamp(row.resolved_at),
       resolvedBy: deps.asTrimmedString(row.resolved_by),
       notes: deps.asTrimmedString(row.notes),
+      pendingTransfer: deps.asTrimmedString(row.pending_transfer_id)
+        ? {
+            transferId: deps.asTrimmedString(row.pending_transfer_id),
+            status: "PENDING",
+            sourceWarehouse: deps.asTrimmedString(row.pending_transfer_source_warehouse).toUpperCase(),
+            destinationWarehouse: deps.asTrimmedString(
+              row.pending_transfer_destination_warehouse || row.warehouse
+            ).toUpperCase(),
+            pendingTubes: deps.integerOrZero(row.pending_transfer_tubes),
+            startedAt: deps.formatTimestamp(row.pending_transfer_started_at),
+            startedBy: deps.asTrimmedString(row.pending_transfer_started_by),
+            notes: deps.asTrimmedString(row.pending_transfer_notes),
+          }
+        : null,
     };
   }
 

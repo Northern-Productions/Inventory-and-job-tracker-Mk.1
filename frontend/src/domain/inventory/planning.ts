@@ -166,6 +166,21 @@ export interface JobFilmTransferAlert {
   startedBy?: string;
 }
 
+export interface JobCaulkTransferAlert {
+  caulkAllocationId: string;
+  productId: string;
+  manufacturer: string;
+  productName: string;
+  productCode: string;
+  sourceWarehouse?: Warehouse;
+  destinationWarehouse: Warehouse;
+  pendingTubes: number;
+  state: 'NEEDS_TRANSFER' | 'TRANSFER_PENDING';
+  transferId?: string;
+  startedAt?: string;
+  startedBy?: string;
+}
+
 export interface AllocationJobDetailEntry extends AllocationEntry {
   manufacturer: string;
   filmName: string;
@@ -248,6 +263,7 @@ export interface JobDetail {
   caulkCheckouts: import('./caulk').CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
   filmTransferAlerts?: JobFilmTransferAlert[];
+  caulkTransferAlerts?: JobCaulkTransferAlert[];
 }
 
 export interface AllocationJobDetail {
@@ -260,6 +276,7 @@ export interface AllocationJobDetail {
   caulkCheckouts: import('./caulk').CaulkJobCheckoutEntry[];
   filmOrders: FilmOrderEntry[];
   filmTransferAlerts?: JobFilmTransferAlert[];
+  caulkTransferAlerts?: JobCaulkTransferAlert[];
 }
 
 export interface CreateJobPayload {

@@ -9,6 +9,8 @@ export const BOX_STATUSES = [...RUNTIME_BOX_STATUSES] as const;
 export type BoxStatus = (typeof BOX_STATUSES)[number];
 export const BOX_TRANSFER_STATUSES = ['PENDING', 'RECEIVED', 'CANCELLED'] as const;
 export type BoxTransferStatus = (typeof BOX_TRANSFER_STATUSES)[number];
+export const CAULK_TRANSFER_STATUSES = ['PENDING', 'RECEIVED', 'CANCELLED'] as const;
+export type CaulkTransferStatus = (typeof CAULK_TRANSFER_STATUSES)[number];
 export const CORE_TYPES = [
   'White plastic',
   'Red plastic',

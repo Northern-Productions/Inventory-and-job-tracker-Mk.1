@@ -1,14 +1,19 @@
 // Purpose: Caulk inventory API surface.
 import type {
+  CancelCaulkTransferPayload,
   CaulkManufacturerEntry,
   CaulkMutationResult,
   CaulkProductEntry,
   CaulkStockEntry,
+  CaulkTransferEntry,
+  CaulkTransferMutationResult,
   CaulkTransactionEntry,
   CaulkTransferResult,
   ListCaulkStockParams,
+  ListPendingCaulkTransfersParams,
   ListCaulkTransactionsParams,
   MutateCaulkStockPayload,
+  ReceiveCaulkTransferPayload,
   TransferCaulkStockPayload,
   UpsertCaulkManufacturerPayload,
   UpsertCaulkProductPayload
@@ -20,6 +25,7 @@ import {
   mapCaulkManufacturerEntry,
   mapCaulkProductEntry,
   mapCaulkStockEntry,
+  mapCaulkTransferEntry,
   mapCaulkTransactionEntry,
   requestReadWithFallback
 } from './sharedClient';
@@ -83,6 +89,24 @@ export async function listCaulkTransactions(
     .filter((entry): entry is CaulkTransactionEntry => Boolean(entry));
 }
 
+export async function listPendingCaulkTransfers(
+  params: ListPendingCaulkTransfersParams
+): Promise<CaulkTransferEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const body = {
+    warehouse: params.warehouse,
+    productId: params.productId || ''
+  };
+  const data = await requestReadWithFallback<{ entries: unknown[] }>(
+    '/caulk/transfers/list',
+    body,
+    body
+  );
+  return (data.entries || [])
+    .map((entry) => mapCaulkTransferEntry(entry))
+    .filter((entry): entry is CaulkTransferEntry => Boolean(entry));
+}
+
 export async function ownerUpsertCaulkManufacturer(
   payload: UpsertCaulkManufacturerPayload
 ): Promise<CaulkManufacturerEntry> {
@@ -117,4 +141,30 @@ export async function transferCaulkStock(
   assertFeatureAccess('inventory', 'write');
   const { data } = await request<CaulkTransferResult>('POST', '/caulk/transfer', { body: payload });
   return data;
+}
+
+export async function receiveCaulkTransfer(
+  payload: ReceiveCaulkTransferPayload
+): Promise<{ result: CaulkTransferMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<CaulkTransferMutationResult>('POST', '/caulk/transfers/receive', {
+    body: payload
+  });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}
+
+export async function cancelCaulkTransfer(
+  payload: CancelCaulkTransferPayload
+): Promise<{ result: CaulkTransferMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<CaulkTransferMutationResult>('POST', '/caulk/transfers/cancel', {
+    body: payload
+  });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
 }

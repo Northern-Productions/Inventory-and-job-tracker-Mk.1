@@ -34,7 +34,7 @@ npm ci
 npm run start
 ```
 
-`npm run start` now performs a schema preflight (`check:schema:0006`) and fails fast if migration `0006` is missing in the configured DB.
+`npm run start` now performs the latest schema preflight (`check:schema:latest`) and fails fast if the configured DB is missing required release objects, including the current caulk transfer checkpoint.
 Use `npm run start:unsafe` only for debugging when you intentionally want to skip that guard.
 
 Health check:
@@ -49,6 +49,7 @@ Live Edge verification:
 
 ```bash
 npm run verify:edge:live
+npm run verify:edge:caulk
 ```
 
 Authenticated smoke setup:
@@ -63,6 +64,10 @@ SMOKE_USER_ROLE=admin
 `SMOKE_AUTH_TOKEN` still works, but it expires. For repeatable local runs, prefer
 setting `SMOKE_USER_EMAIL` and `SMOKE_USER_PASSWORD` in `backend/.env`; the smoke
 scripts will mint a fresh access token automatically when needed.
+
+For `verify:edge:caulk`, also set `SMOKE_FRONTEND_URL` to the live frontend and
+optionally `SMOKE_API_BASE_URL` if you need to override the default
+`${SUPABASE_URL}/functions/v1/api` Edge target.
 
 To create a dedicated local smoke user and persist those credentials into
 `backend/.env`, run:

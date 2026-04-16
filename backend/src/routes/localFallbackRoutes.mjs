@@ -5,10 +5,18 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/admin/user-permissions',
   '/owner/admin-permissions',
   '/owner/notification-preferences',
+  '/caulk/products/upsert',
+  '/caulk/transfers/receive',
+  '/caulk/transfers/cancel',
   '/boxes/add',
   '/boxes/update',
   '/allocations/apply',
   '/allocations/remove-box',
+  '/allocations/caulk/add',
+  '/allocations/caulk/update',
+  '/allocations/caulk/checkout',
+  '/allocations/caulk/checkin',
+  '/allocations/caulk/remove',
   '/jobs/create',
   '/jobs/update',
   '/jobs/set-staged-pickup',
@@ -34,7 +42,8 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   '/jobs/get',
   '/jobs/list',
   '/jobs/search',
-  '/caulk/transactions/list'
+  '/caulk/transactions/list',
+  '/caulk/transfers/list'
 ]);
 
 export function shouldUseLocalFallbackRoute(method, logicalPath) {

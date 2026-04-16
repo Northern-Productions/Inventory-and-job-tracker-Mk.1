@@ -6,6 +6,7 @@ import {
   buildCaulkAllocationValuesForRequirement,
   findFirstUnmetCaulkRequirement,
   formatCaulkTubeBreakdown,
+  getCaulkAllocationTransferPlan,
   getCaulkTubeBreakdown,
   sortCaulkStockEntriesForAllocation
 } from './caulkAllocationPlanning';
@@ -145,5 +146,53 @@ describe('caulkAllocationPlanning', () => {
     );
 
     expect(sorted.map((entry) => entry.warehouse)).toEqual(['IL1', 'AZ1', 'MS1']);
+  });
+
+  it('calculates shortage and eligible single-source transfer warehouses for add allocations', () => {
+    const transferPlan = getCaulkAllocationTransferPlan({
+      mode: 'add',
+      productId: 'product-1',
+      warehouse: 'MS1',
+      allocatedTubesInput: '3',
+      stockEntries: [
+        createStockEntry({ warehouse: 'MS1', tubesOnHand: 0 }),
+        createStockEntry({ warehouse: 'IL1', tubesOnHand: 8 }),
+        createStockEntry({ warehouse: 'AZ1', tubesOnHand: 2 })
+      ]
+    });
+
+    expect(transferPlan).toMatchObject({
+      reserveDeltaTubes: 3,
+      targetWarehouseTubesOnHand: 0,
+      shortageTubes: 3
+    });
+    expect(transferPlan.eligibleSourceStock.map((entry) => entry.warehouse)).toEqual(['IL1']);
+  });
+
+  it('uses only the incremental reserve delta when editing the same product and warehouse', () => {
+    const transferPlan = getCaulkAllocationTransferPlan({
+      mode: 'edit',
+      productId: 'product-1',
+      warehouse: 'MS1',
+      allocatedTubesInput: '12',
+      existingAllocation: {
+        productId: 'product-1',
+        warehouse: 'MS1',
+        allocatedTubes: 10,
+        reservedTubesRemaining: 10,
+        checkedOutTubesTotal: 0
+      },
+      stockEntries: [
+        createStockEntry({ warehouse: 'MS1', tubesOnHand: 1 }),
+        createStockEntry({ warehouse: 'IL1', tubesOnHand: 5 })
+      ]
+    });
+
+    expect(transferPlan).toMatchObject({
+      reserveDeltaTubes: 2,
+      targetWarehouseTubesOnHand: 1,
+      shortageTubes: 1
+    });
+    expect(transferPlan.eligibleSourceStock.map((entry) => entry.warehouse)).toEqual(['IL1']);
   });
 });

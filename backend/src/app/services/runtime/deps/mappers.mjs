@@ -14,6 +14,7 @@ export {
   mapDbCaulkJobRequirementRow,
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
+  mapDbCaulkTransferRow,
   mapDbAuditRow,
   mapDbRollHistoryRow,
   mapCaulkManufacturerRow,

@@ -47,6 +47,7 @@ function renderHero(summaryOverrides: Partial<JobDetail['summary']> = {}) {
       canMarkStagedPickup={false}
       hasCheckoutableMaterials={false}
       filmTransferAlerts={[]}
+      caulkTransferAlerts={[]}
       isOwner={true}
       reopenPending={false}
       checkoutAllPending={false}

@@ -354,6 +354,26 @@ const mutationHandlers: Record<string, MutationHandler> = {
     );
     return ok(result, result.warnings || []);
   },
+  "/caulk/transfers/receive": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_caulk_transfer_receive",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
+  "/caulk/transfers/cancel": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_caulk_transfer_cancel",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, result.warnings || []);
+  },
   "/jobs/create": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
@@ -377,12 +397,18 @@ const mutationHandlers: Record<string, MutationHandler> = {
   "/jobs/set-staged-pickup": async ({ client, identity, normalizedPayload }, deps) => {
     const result = await deps.setJobStagedPickup(client, identity, normalizedPayload);
     const jobNumber = deps.requireString(result.jobNumber, "JobNumber");
-    return ok(await deps.buildJobDetail(client, identity.orgId, jobNumber), result.warnings || []);
+    return ok(
+      await deps.buildJobDetail(client, identity.orgId, jobNumber),
+      Array.isArray(result.warnings) ? result.warnings : []
+    );
   },
   "/jobs/checkout-all": async ({ client, identity, normalizedPayload }, deps) => {
     const result = await deps.checkoutAllJobMaterials(client, identity, normalizedPayload);
     const jobNumber = deps.requireString(result.jobNumber, "JobNumber");
-    return ok(await deps.buildJobDetail(client, identity.orgId, jobNumber), result.warnings || []);
+    return ok(
+      await deps.buildJobDetail(client, identity.orgId, jobNumber),
+      Array.isArray(result.warnings) ? result.warnings : []
+    );
   },
   "/jobs/complete": async ({ client, identity, payload }, deps) => {
     return await deps.completeJob(client, identity, payload);

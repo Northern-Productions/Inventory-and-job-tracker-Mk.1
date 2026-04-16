@@ -32,6 +32,7 @@ import {
 } from './runtimeJobSummaries.mjs';
 import {
   buildJobFilmTransferAlerts,
+  buildJobCaulkTransferAlerts,
   buildPublicJobUsageEntries,
   buildPublicJobUsageTimelineEntries,
 } from './runtimeTransferUsage.mjs';
@@ -223,6 +224,10 @@ function buildDetailContext(
     boxById,
     pendingTransfersByBoxRecordId
   );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(
+    resolvedBaseContext.header?.warehouse || '',
+    baseData.caulkAllocations
+  );
 
   return {
     jobNumber: normalizedJobNumber,
@@ -249,6 +254,7 @@ function buildDetailContext(
       baseData.filmOrders
     ),
     filmTransferAlerts,
+    caulkTransferAlerts,
   };
 }
 
@@ -346,6 +352,7 @@ function buildJobDetailPayload(detailContext) {
     caulkCheckouts: detailContext.caulkCheckouts,
     filmOrders: detailContext.publicFilmOrders,
     filmTransferAlerts: detailContext.filmTransferAlerts,
+    caulkTransferAlerts: detailContext.caulkTransferAlerts,
   };
 }
 
@@ -372,6 +379,7 @@ function buildAllocationJobDetailPayload(detailContext) {
     caulkCheckouts: detailContext.caulkCheckouts,
     filmOrders: detailContext.publicFilmOrders,
     filmTransferAlerts: detailContext.filmTransferAlerts,
+    caulkTransferAlerts: detailContext.caulkTransferAlerts,
   };
 }
 

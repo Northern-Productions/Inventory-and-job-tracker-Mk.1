@@ -9,6 +9,7 @@ type StagingDetail = Pick<
   | 'caulkAllocations'
   | 'filmOrders'
   | 'filmTransferAlerts'
+  | 'caulkTransferAlerts'
 >;
 
 export function getJobStagingBlockingMessage(detail: StagingDetail | null | undefined) {
@@ -49,8 +50,18 @@ export function getJobStagingBlockingMessageWithOptions(
     return 'Allocate all required film and caulk before staging this job.';
   }
 
-  if ((detail?.filmTransferAlerts || []).length > 0) {
+  const filmTransferAlertCount = (detail?.filmTransferAlerts || []).length;
+  const caulkTransferAlertCount = (detail?.caulkTransferAlerts || []).length;
+  if (filmTransferAlertCount > 0 && caulkTransferAlertCount > 0) {
+    return 'Receive transferred film and caulk before staging this job.';
+  }
+
+  if (filmTransferAlertCount > 0) {
     return 'Receive transferred film before staging this job.';
+  }
+
+  if (caulkTransferAlertCount > 0) {
+    return 'Receive transferred caulk before staging/checking out this job.';
   }
 
   if (hasActiveOrderedRequirementAllocations(detail)) {

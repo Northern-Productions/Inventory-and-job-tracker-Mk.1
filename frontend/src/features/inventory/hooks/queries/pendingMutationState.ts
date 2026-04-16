@@ -2,9 +2,11 @@ import { useMemo } from 'react';
 import { useMutationState } from '@tanstack/react-query';
 import type {
   AddCaulkJobAllocationPayload,
+  CancelCaulkTransferPayload,
   CheckinCaulkJobAllocationPayload,
   CheckoutCaulkJobAllocationPayload,
   FilmOrderEntry,
+  ReceiveCaulkTransferPayload,
   RemoveCaulkJobAllocationPayload,
   RemoveJobBoxAllocationsPayload,
   SetBoxStatusPayload,
@@ -95,5 +97,19 @@ export function usePendingCheckinCaulkCheckoutIds() {
   return usePendingStringSet<CheckinCaulkJobAllocationPayload>(
     inventoryKeys.checkinCaulkAllocationMutation,
     (variables) => String(variables?.caulkCheckoutId || '')
+  );
+}
+
+export function usePendingReceiveCaulkTransferIds() {
+  return usePendingStringSet<ReceiveCaulkTransferPayload>(
+    inventoryKeys.receiveCaulkTransferMutation,
+    (variables) => String(variables?.transferId || '')
+  );
+}
+
+export function usePendingCancelCaulkTransferIds() {
+  return usePendingStringSet<CancelCaulkTransferPayload>(
+    inventoryKeys.cancelCaulkTransferMutation,
+    (variables) => String(variables?.transferId || '')
   );
 }

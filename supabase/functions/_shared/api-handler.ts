@@ -1211,6 +1211,16 @@ function mapBackendBootstrapError(message: string): string {
   ) {
     return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql are required. Run all six, then retry.';
   }
+  if (
+    normalized.includes('relation "app.caulk_transfers" does not exist') ||
+    (normalized.includes('type "app.caulk_transfer_status"') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_list_caulk_transfers') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_caulk_transfer_receive') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_caulk_transfer_cancel') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_list_caulk_job_allocations_by_job') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0065_caulk_transfer_assist_and_new_products.sql is required. Apply missing backend migrations through 0065, then retry.';
+  }
   return message;
 }
 
@@ -1550,6 +1560,10 @@ function buildJobStagingValidationState(params: {
     boxById,
     params.pendingTransfersByBoxRecordId,
   );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(
+    params.warehouse,
+    params.caulkAllocations,
+  );
 
   return {
     jobNumber: params.jobNumber,
@@ -1565,6 +1579,7 @@ function buildJobStagingValidationState(params: {
     publicRequirements,
     publicCaulkRequirements,
     filmTransferAlerts,
+    caulkTransferAlerts,
     blockingReason: getJobStagingBlockingReason(
       publicRequirements,
       publicCaulkRequirements,
@@ -1572,6 +1587,7 @@ function buildJobStagingValidationState(params: {
       params.filmOrders,
       params.caulkAllocations,
       filmTransferAlerts,
+      caulkTransferAlerts,
       boxById,
     ),
   };
@@ -2312,6 +2328,15 @@ function buildFilmTransferAlertMessage(alerts: any[], context: "staging" | "chec
   return `Receive transferred film before ${actionLabel}.`;
 }
 
+function buildCaulkTransferAlertMessage(alerts: any[], context: "staging" | "checkout") {
+  if (!Array.isArray(alerts) || alerts.length === 0) {
+    return "";
+  }
+
+  const actionLabel = context === "staging" ? "staging this job" : "checking out this job";
+  return `Receive transferred caulk before ${actionLabel}.`;
+}
+
 function buildJobFilmTransferAlerts(
   jobWarehouse: unknown,
   allocations: any[],
@@ -2360,6 +2385,58 @@ function buildJobFilmTransferAlerts(
       transferId: pendingTransfer ? pendingTransfer.transferId : "",
       startedAt: pendingTransfer ? pendingTransfer.createdAt : "",
       startedBy: pendingTransfer ? pendingTransfer.createdBy : "",
+    });
+  }
+
+  return alerts;
+}
+
+function getCaulkAllocationTransferDeficit(allocation: any) {
+  return Math.max(
+    integerOrZero(allocation?.allocatedTubes) -
+      integerOrZero(allocation?.checkedOutTubesTotal) -
+      integerOrZero(allocation?.reservedTubesRemaining),
+    0,
+  );
+}
+
+function buildJobCaulkTransferAlerts(jobWarehouse: unknown, caulkAllocations: any[]) {
+  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
+  if (!normalizedJobWarehouse) {
+    return [];
+  }
+
+  const entries = Array.isArray(caulkAllocations) ? caulkAllocations : [];
+  const alerts: any[] = [];
+
+  for (const allocation of entries) {
+    if (!allocation || asTrimmedString(allocation.status).toUpperCase() !== "ACTIVE") {
+      continue;
+    }
+
+    const pendingTransfer = allocation.pendingTransfer || null;
+    const shortageTubes = pendingTransfer
+      ? integerOrZero(pendingTransfer.pendingTubes)
+      : getCaulkAllocationTransferDeficit(allocation);
+    if (shortageTubes <= 0) {
+      continue;
+    }
+
+    alerts.push({
+      caulkAllocationId: asTrimmedString(allocation.caulkAllocationId),
+      productId: asTrimmedString(allocation.productId),
+      manufacturer: asTrimmedString(allocation.manufacturer),
+      productName: asTrimmedString(allocation.productName),
+      productCode: asTrimmedString(allocation.productCode),
+      sourceWarehouse: pendingTransfer
+        ? asTrimmedString(pendingTransfer.sourceWarehouse).toUpperCase()
+        : "",
+      destinationWarehouse: normalizedJobWarehouse,
+      pendingTubes: shortageTubes,
+      state: pendingTransfer ? "TRANSFER_PENDING" : "NEEDS_TRANSFER",
+      transferId: pendingTransfer ? asTrimmedString(pendingTransfer.transferId) : "",
+      startedAt: pendingTransfer ? asTrimmedString(pendingTransfer.startedAt) : "",
+      startedBy: pendingTransfer ? asTrimmedString(pendingTransfer.startedBy) : "",
     });
   }
 
@@ -3313,6 +3390,7 @@ function getJobStagingBlockingReason(
   filmOrders: any[],
   caulkAllocations: any[],
   filmTransferAlerts: any[] = [],
+  caulkTransferAlerts: any[] = [],
   boxById: Record<string, any> = {},
 ) {
   const hasMaterialRequirements =
@@ -3326,8 +3404,14 @@ function getJobStagingBlockingReason(
   if (hasRemainingFilm || hasRemainingCaulk) {
     return "All required film and caulk must be fully allocated before staging this job.";
   }
+  if (filmTransferAlerts.length > 0 && caulkTransferAlerts.length > 0) {
+    return "Receive transferred film and caulk before staging this job.";
+  }
   if (filmTransferAlerts.length > 0) {
     return buildFilmTransferAlertMessage(filmTransferAlerts, "staging");
+  }
+  if (caulkTransferAlerts.length > 0) {
+    return buildCaulkTransferAlertMessage(caulkTransferAlerts, "staging");
   }
   if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
     return buildOrderedAllocationReceiptMessage("staging");
@@ -4244,6 +4328,10 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     boxById,
     pendingTransfersByBoxRecordId,
   );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(
+    header?.warehouse || "",
+    caulkAllocations,
+  );
   return {
     summary: buildAllocationJobSummary(
       normalizedJobNumber,
@@ -4272,6 +4360,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders, { boxById }),
     filmTransferAlerts,
+    caulkTransferAlerts,
   };
 }
 
@@ -4491,6 +4580,10 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     boxById,
     pendingTransfersByBoxRecordId,
   );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(
+    header?.warehouse || "",
+    caulkAllocations,
+  );
   return {
     summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById),
     requirements: publicRequirements,
@@ -4508,6 +4601,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     caulkCheckouts: caulkCheckouts,
     filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders, { boxById }),
     filmTransferAlerts,
+    caulkTransferAlerts,
   };
 }
 
@@ -4907,8 +5001,14 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
 
   const jobWarehouse = asTrimmedString((jobRow as Record<string, unknown>).warehouse);
   const preCheckoutState = await loadJobStagingValidationState(client, orgId, jobNumber, jobWarehouse);
+  if (preCheckoutState.filmTransferAlerts.length > 0 && preCheckoutState.caulkTransferAlerts.length > 0) {
+    throw new HttpError(400, "Receive transferred film and caulk before checking out this job.");
+  }
   if (preCheckoutState.filmTransferAlerts.length > 0) {
     throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutState.filmTransferAlerts, "checkout"));
+  }
+  if (preCheckoutState.caulkTransferAlerts.length > 0) {
+    throw new HttpError(400, buildCaulkTransferAlertMessage(preCheckoutState.caulkTransferAlerts, "checkout"));
   }
   if (hasActiveOrderedRequirementAllocations(preCheckoutState.allocations, preCheckoutState.boxById)) {
     throw new HttpError(400, buildOrderedAllocationReceiptMessage("checkout"));

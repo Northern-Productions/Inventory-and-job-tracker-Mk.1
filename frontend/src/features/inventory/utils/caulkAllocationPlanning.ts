@@ -1,4 +1,9 @@
-import type { CaulkStockEntry, JobCaulkRequirementLine, Warehouse } from '../../../domain';
+import type {
+  CaulkJobAllocationEntry,
+  CaulkStockEntry,
+  JobCaulkRequirementLine,
+  Warehouse
+} from '../../../domain';
 
 export interface CaulkTubeBreakdown {
   totalTubes: number;
@@ -23,6 +28,25 @@ interface AddCaulkAllocationDefaults {
   productId: string;
   warehouse: Warehouse | '';
   allocatedTubes: string;
+}
+
+interface CaulkAllocationTransferPlanArgs {
+  mode: 'add' | 'edit';
+  productId: string;
+  warehouse: Warehouse | '';
+  allocatedTubesInput: string;
+  stockEntries: CaulkStockEntry[];
+  existingAllocation?: Pick<
+    CaulkJobAllocationEntry,
+    'productId' | 'warehouse' | 'allocatedTubes' | 'reservedTubesRemaining' | 'checkedOutTubesTotal'
+  > | null;
+}
+
+export interface CaulkAllocationTransferPlan {
+  reserveDeltaTubes: number;
+  targetWarehouseTubesOnHand: number;
+  shortageTubes: number;
+  eligibleSourceStock: CaulkStockEntry[];
 }
 
 function normalizeWholeNumber(value: number) {
@@ -130,4 +154,71 @@ export function sortCaulkStockEntriesForAllocation(
 
     return left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
   });
+}
+
+export function getCaulkAllocationTransferPlan({
+  mode,
+  productId,
+  warehouse,
+  allocatedTubesInput,
+  stockEntries,
+  existingAllocation = null
+}: CaulkAllocationTransferPlanArgs): CaulkAllocationTransferPlan {
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase();
+  const normalizedProductId = String(productId || '').trim();
+  const nextAllocatedTubes = normalizeWholeNumber(Number(allocatedTubesInput));
+
+  if (!normalizedWarehouse || !normalizedProductId || nextAllocatedTubes <= 0) {
+    return {
+      reserveDeltaTubes: 0,
+      targetWarehouseTubesOnHand: 0,
+      shortageTubes: 0,
+      eligibleSourceStock: []
+    };
+  }
+
+  const targetWarehouseTubesOnHand = Math.max(
+    stockEntries.find((entry) => entry.warehouse === normalizedWarehouse)?.tubesOnHand || 0,
+    0
+  );
+
+  let reserveDeltaTubes = nextAllocatedTubes;
+  if (mode === 'edit' && existingAllocation) {
+    const changingProductOrWarehouse =
+      existingAllocation.productId !== normalizedProductId ||
+      existingAllocation.warehouse !== normalizedWarehouse;
+    const currentlyCoveredTubes = normalizeWholeNumber(
+      existingAllocation.reservedTubesRemaining + existingAllocation.checkedOutTubesTotal
+    );
+
+    reserveDeltaTubes = changingProductOrWarehouse
+      ? nextAllocatedTubes
+      : Math.max(nextAllocatedTubes - currentlyCoveredTubes, 0);
+  }
+
+  const shortageTubes = Math.max(reserveDeltaTubes - targetWarehouseTubesOnHand, 0);
+  const eligibleSourceStock =
+    shortageTubes <= 0
+      ? []
+      : stockEntries
+          .filter(
+            (entry) =>
+              entry.productId === normalizedProductId &&
+              entry.warehouse !== normalizedWarehouse &&
+              Math.max(entry.tubesOnHand, 0) >= shortageTubes
+          )
+          .sort((left, right) => {
+            if (right.tubesOnHand !== left.tubesOnHand) {
+              return right.tubesOnHand - left.tubesOnHand;
+            }
+
+            return left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
+          });
+
+  return {
+    reserveDeltaTubes,
+    targetWarehouseTubesOnHand,
+    shortageTubes,
+    eligibleSourceStock
+  };
 }

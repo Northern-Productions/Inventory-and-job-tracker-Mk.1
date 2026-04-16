@@ -204,7 +204,7 @@ import {
   enrichOpenFilmOrdersWithJobSchedule,
   isUnresolvedFilmOrderStatus,
 } from './runtimeFilmOrderSchedule.mjs';
-import { buildFilmTransferAlertMessage } from './runtimeTransferUsage.mjs';
+import { buildCaulkTransferAlertMessage, buildFilmTransferAlertMessage } from './runtimeTransferUsage.mjs';
 
 function countUnresolvedFilmOrders(filmOrders) {
   const entries = Array.isArray(filmOrders) ? filmOrders : [];
@@ -417,6 +417,7 @@ function getJobStagingBlockingReason(
   filmOrders,
   caulkAllocations,
   filmTransferAlerts = [],
+  caulkTransferAlerts = [],
   boxById = {}
 ) {
   const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
@@ -430,8 +431,21 @@ function getJobStagingBlockingReason(
     return 'All required film and caulk must be fully allocated before staging this job.';
   }
 
+  if (
+    Array.isArray(filmTransferAlerts) &&
+    filmTransferAlerts.length > 0 &&
+    Array.isArray(caulkTransferAlerts) &&
+    caulkTransferAlerts.length > 0
+  ) {
+    return 'Receive transferred film and caulk before staging this job.';
+  }
+
   if (Array.isArray(filmTransferAlerts) && filmTransferAlerts.length > 0) {
     return buildFilmTransferAlertMessage(filmTransferAlerts, 'staging');
+  }
+
+  if (Array.isArray(caulkTransferAlerts) && caulkTransferAlerts.length > 0) {
+    return buildCaulkTransferAlertMessage(caulkTransferAlerts, 'staging');
   }
 
   if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {

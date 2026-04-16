@@ -5,6 +5,15 @@ import { normalizeSchedulePayloadAliases } from '../../../../shared/schedulePayl
 import { applyAllocationPlan, checkoutAllJobMaterials } from '../services/allocations.mjs';
 import { undoAudit } from '../services/audit.mjs';
 import {
+  addCaulkAllocation,
+  cancelCaulkTransfer,
+  checkinCaulkAllocation,
+  checkoutCaulkAllocation,
+  receiveCaulkTransfer,
+  removeCaulkAllocation,
+  updateCaulkAllocation,
+} from '../services/caulkAllocations.mjs';
+import {
   mutateCaulkStock,
   ownerUpsertCaulkManufacturer,
   transferCaulkStock,
@@ -89,6 +98,34 @@ const mutationHandlers = {
     ok(await mutateCaulkStock(client, orgId, authContext.actor, params)),
   '/caulk/transfer': async ({ client, orgId, authContext, params }) =>
     ok(await transferCaulkStock(client, orgId, authContext.actor, params)),
+  '/allocations/caulk/add': async ({ client, orgId, authContext, params }) => {
+    const response = await addCaulkAllocation(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/allocations/caulk/update': async ({ client, orgId, authContext, params }) => {
+    const response = await updateCaulkAllocation(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/allocations/caulk/checkout': async ({ client, orgId, authContext, params }) => {
+    const response = await checkoutCaulkAllocation(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/allocations/caulk/checkin': async ({ client, orgId, authContext, params }) => {
+    const response = await checkinCaulkAllocation(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/allocations/caulk/remove': async ({ client, orgId, authContext, params }) => {
+    const response = await removeCaulkAllocation(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/caulk/transfers/receive': async ({ client, orgId, authContext, params }) => {
+    const response = await receiveCaulkTransfer(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
+  '/caulk/transfers/cancel': async ({ client, orgId, authContext, params }) => {
+    const response = await cancelCaulkTransfer(client, orgId, authContext.actor, params);
+    return ok(response.result, response.warnings);
+  },
   '/boxes/add': async ({ client, orgId, authContext, params }) =>
     addBox(client, orgId, params, authContext.actor),
   '/boxes/transfer/start': async ({ client, orgId, authContext, params }) =>
