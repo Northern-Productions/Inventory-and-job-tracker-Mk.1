@@ -11,6 +11,7 @@ import {
   applyAddOrEditWarnings,
   toPublicBox,
   findBoxById,
+  listAllocationsByBox,
   saveBoxRecord,
   seedFilmCatalogRecordIfMissing,
   appendAuditEntry,
@@ -23,6 +24,8 @@ import {
 import { hasPositiveReactivationSignal } from '../checkout/checkoutFlow.mjs';
 import { cancelAllocationsForZeroedBox } from '../checkout/cancellations.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
+import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
+import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 
 async function addBox(client, orgId, payload, actor) {
   const warnings = [];
@@ -62,7 +65,9 @@ async function addBox(client, orgId, payload, actor) {
     }
   }
 
-  const publicBox = toPublicBox(box);
+  const publicBox = toPublicBox(
+    applyReservationMetricsToBox(box, await listAllocationsByBox(client, orgId, box.boxId))
+  );
   const logId = await appendAuditEntry(
     client,
     orgId,
@@ -116,8 +121,12 @@ async function updateBox(client, orgId, payload, actor) {
 
     applyAddOrEditWarnings(warnings, existing, updatedBox);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
-    const publicBefore = toPublicBox(existing);
-    const publicAfter = toPublicBox(updatedBox);
+    const publicBefore = toPublicBox(
+      applyReservationMetricsToBox(existing, await listAllocationsByBox(client, orgId, existing.boxId))
+    );
+    const publicAfter = toPublicBox(
+      applyReservationMetricsToBox(updatedBox, await listAllocationsByBox(client, orgId, updatedBox.boxId))
+    );
     const logId = await appendAuditEntry(
       client,
       orgId,
@@ -207,6 +216,26 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
   }
 
+  if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {
+    const shortageReconciliation = await reconcileReservationShortagesForBox(
+      client,
+      orgId,
+      updatedBox.boxId,
+      actor,
+      { allowPlaceholderShortages: true }
+    );
+    if (shortageReconciliation.createdCount > 0) {
+      warnings.push(
+        `Created ${shortageReconciliation.createdCount} shortage film order${shortageReconciliation.createdCount === 1 ? '' : 's'} after confirming the updated box footage.`
+      );
+    }
+    if (shortageReconciliation.deletedCount > 0) {
+      warnings.push(
+        `Removed ${shortageReconciliation.deletedCount} stale shortage film order${shortageReconciliation.deletedCount === 1 ? '' : 's'} after confirming the updated box footage.`
+      );
+    }
+  }
+
   await seedFilmCatalogRecordIfMissing(client, orgId, {
     filmKey: updatedBox.filmKey,
     manufacturer: updatedBox.manufacturer,
@@ -214,8 +243,12 @@ async function updateBox(client, orgId, payload, actor) {
     sourceBoxId: updatedBox.boxId
   });
 
-  const publicBefore = toPublicBox(existing);
-  const publicAfter = toPublicBox(updatedBox);
+  const publicBefore = toPublicBox(
+    applyReservationMetricsToBox(existing, await listAllocationsByBox(client, orgId, existing.boxId))
+  );
+  const publicAfter = toPublicBox(
+    applyReservationMetricsToBox(updatedBox, await listAllocationsByBox(client, orgId, updatedBox.boxId))
+  );
   const logId = await appendAuditEntry(
     client,
     orgId,

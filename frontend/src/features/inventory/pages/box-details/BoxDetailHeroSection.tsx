@@ -153,6 +153,10 @@ export function BoxDetailHeroSection({
 
     return hints;
   }, [box.status, canWriteInventory, isAuthenticated, isEditing, shouldBlockEditWhileAllocationsResolve]);
+  const allocatableNowFeet = box.allocatableNowFeet ?? box.allocationPlanningFeet ?? box.feetAvailable;
+  const physicalFeetOnHand = currentFeetOnRoll ?? box.physicalFeetAvailable ?? box.feetAvailable;
+  const lockedFeet = box.allocatedWithInstallDateFeet ?? 0;
+  const placeholderFeet = box.allocatedWithoutInstallDateFeet ?? Math.max(displayedAllocatedFeet - lockedFeet, 0);
 
   return (
     <section className="panel detail-hero">
@@ -178,23 +182,23 @@ export function BoxDetailHeroSection({
       <div className="detail-highlight-grid stat-grid">
         <div className="key-value">
           <dt className="detail-label-pill detail-label-pill-green">On Hand Feet</dt>
-          <dd>{currentFeetOnRoll === null ? '...' : currentFeetOnRoll}</dd>
+          <dd>{currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}</dd>
         </div>
         <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-green">Available Feet</dt>
-          <dd>{box.feetAvailable}</dd>
+          <dt className="detail-label-pill detail-label-pill-green">Allocatable Now</dt>
+          <dd>{allocatableNowFeet}</dd>
         </div>
         <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-orange">Planning Feet</dt>
-          <dd>{box.allocationPlanningFeet}</dd>
+          <dt className="detail-label-pill detail-label-pill-orange">Locked Feet</dt>
+          <dd>{lockedFeet}</dd>
         </div>
         <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-red">Allocated Feet</dt>
-          <dd>{allocationsLoading ? '...' : displayedAllocatedFeet}</dd>
+          <dt className="detail-label-pill detail-label-pill-red">Placeholder Feet</dt>
+          <dd>{allocationsLoading ? '...' : placeholderFeet}</dd>
         </div>
         <div className="key-value">
           <dt>On-Hand Asset Cost</dt>
-          <dd>{currentFeetOnRoll === null ? '...' : formatUsdAmount(onHandAssetCost)}</dd>
+          <dd>{currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : formatUsdAmount(onHandAssetCost)}</dd>
         </div>
       </div>
 
@@ -207,7 +211,10 @@ export function BoxDetailHeroSection({
           labelClassName="detail-label-pill detail-label-pill-orange"
         />
         <DetailField label="Initial Feet" value={box.initialFeet} />
-        <DetailField label="Current Feet" value={currentFeetOnRoll === null ? '...' : currentFeetOnRoll} />
+        <DetailField
+          label="Current Feet"
+          value={currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}
+        />
         <DetailField label="Lot Run" value={box.lotRun} />
         <DetailField label="Order Date" value={formatDate(box.orderDate)} />
         <DetailField label="Received Date" value={formatDate(box.receivedDate)} />

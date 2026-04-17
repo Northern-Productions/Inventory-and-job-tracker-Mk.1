@@ -6,6 +6,10 @@ import {
   MobileRecordHeader
 } from '../../../../components/MobileRecordCard';
 import type { FilmOrderEntry } from '../../../../domain';
+import {
+  formatFilmOrderOriginLabel,
+  getFilmOrderOriginSourceBoxId
+} from '../../utils/filmOrders';
 import { formatFilmOrderStatusLabel } from './helpers';
 
 interface RelatedFilmOrdersSectionProps {
@@ -71,39 +75,49 @@ export function RelatedFilmOrdersSection({
       <div className="panel-title-row">
         <h2>Related Film Orders</h2>
       </div>
+      <p className="muted-text">
+        Manual orders are created from Film Orders. Auto shortage orders appear after return/weigh
+        or schedule rebalance.
+      </p>
       {!orders.length ? (
         <div className="empty-state">No film orders were created for this job.</div>
       ) : isPhoneLayout ? (
         <div className="mobile-record-list">
-          {orders.map((order) => (
-            <MobileRecordCard key={order.filmOrderId}>
-              <MobileRecordHeader
-                title={order.filmOrderId}
-                subtitle={`${order.manufacturer} ${order.filmName}`}
-                badge={
-                  <span className={`badge badge-${order.status}`}>
-                    {formatFilmOrderStatusLabel(order.status)}
-                  </span>
-                }
-              />
-              <MobileFieldList>
-                <MobileField label="Width" value={order.widthIn} />
-                <MobileField label="Requested LF" value={order.requestedFeet} />
-                <MobileField label="Covered LF" value={order.coveredFeet} />
-                <MobileField label="On The Way LF" value={order.orderedFeet} />
-                <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
-              </MobileFieldList>
-              <div className="film-order-actions">
-                {renderFilmOrderActions({
-                  order,
-                  isReadOnlyJob,
-                  pendingDeleteFilmOrderIds,
-                  onOrderFilm,
-                  onDeleteOrder
-                })}
-              </div>
-            </MobileRecordCard>
-          ))}
+          {orders.map((order) => {
+            const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
+
+            return (
+              <MobileRecordCard key={order.filmOrderId}>
+                <MobileRecordHeader
+                  title={order.filmOrderId}
+                  subtitle={`${order.manufacturer} ${order.filmName}`}
+                  badge={
+                    <span className={`badge badge-${order.status}`}>
+                      {formatFilmOrderStatusLabel(order.status)}
+                    </span>
+                  }
+                />
+                <MobileFieldList>
+                  <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
+                  {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
+                  <MobileField label="Width" value={order.widthIn} />
+                  <MobileField label="Requested LF" value={order.requestedFeet} />
+                  <MobileField label="Covered LF" value={order.coveredFeet} />
+                  <MobileField label="On The Way LF" value={order.orderedFeet} />
+                  <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
+                </MobileFieldList>
+                <div className="film-order-actions">
+                  {renderFilmOrderActions({
+                    order,
+                    isReadOnlyJob,
+                    pendingDeleteFilmOrderIds,
+                    onOrderFilm,
+                    onDeleteOrder
+                  })}
+                </div>
+              </MobileRecordCard>
+            );
+          })}
         </div>
       ) : (
         <div className="table-wrap">
@@ -112,6 +126,7 @@ export function RelatedFilmOrdersSection({
               <tr>
                 <th>Status</th>
                 <th>Film</th>
+                <th>Origin</th>
                 <th>Width</th>
                 <th>Requested</th>
                 <th>Covered</th>
@@ -121,34 +136,42 @@ export function RelatedFilmOrdersSection({
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
-                <tr key={order.filmOrderId}>
-                  <td>
-                    <span className={`badge badge-${order.status}`}>
-                      {formatFilmOrderStatusLabel(order.status)}
-                    </span>
-                  </td>
-                  <td>
-                    {order.manufacturer} {order.filmName}
-                  </td>
-                  <td>{order.widthIn}</td>
-                  <td>{order.requestedFeet}</td>
-                  <td>{order.coveredFeet}</td>
-                  <td>{order.orderedFeet}</td>
-                  <td>{order.remainingToOrderFeet}</td>
-                  <td>
-                    <div className="film-order-actions">
-                      {renderFilmOrderActions({
-                        order,
-                        isReadOnlyJob,
-                        pendingDeleteFilmOrderIds,
-                        onOrderFilm,
-                        onDeleteOrder
-                      })}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {orders.map((order) => {
+                const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
+
+                return (
+                  <tr key={order.filmOrderId}>
+                    <td>
+                      <span className={`badge badge-${order.status}`}>
+                        {formatFilmOrderStatusLabel(order.status)}
+                      </span>
+                    </td>
+                    <td>
+                      {order.manufacturer} {order.filmName}
+                    </td>
+                    <td>
+                      <div>{formatFilmOrderOriginLabel(order)}</div>
+                      {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
+                    </td>
+                    <td>{order.widthIn}</td>
+                    <td>{order.requestedFeet}</td>
+                    <td>{order.coveredFeet}</td>
+                    <td>{order.orderedFeet}</td>
+                    <td>{order.remainingToOrderFeet}</td>
+                    <td>
+                      <div className="film-order-actions">
+                        {renderFilmOrderActions({
+                          order,
+                          isReadOnlyJob,
+                          pendingDeleteFilmOrderIds,
+                          onOrderFilm,
+                          onDeleteOrder
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

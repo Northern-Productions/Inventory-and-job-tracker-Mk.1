@@ -44,6 +44,8 @@ export interface AllocationEntry {
   crewLeader: string;
   allocatedFeet: number;
   coveredFeet: number;
+  backedPhysicalFeet?: number;
+  reservationState?: 'WITH_INSTALL_DATE' | 'WITHOUT_INSTALL_DATE';
   requirementId?: string;
   allocationKind: AllocationKind;
   status: AllocationStatus;
@@ -98,6 +100,8 @@ export interface FilmOrderLinkedBox {
   autoAllocatedFeet: number;
 }
 
+export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';
+
 export interface FilmOrderEntry {
   filmOrderId: string;
   jobNumber: string;
@@ -113,6 +117,7 @@ export interface FilmOrderEntry {
   crewLeader: string;
   status: FilmOrderStatus;
   sourceBoxId: string;
+  origin?: FilmOrderOrigin;
   createdAt: string;
   createdBy: string;
   resolvedAt: string;
@@ -147,6 +152,8 @@ export interface AllocationJobSummary {
   crewLeader: string;
   status: AllocationJobStatus;
   activeAllocatedFeet: number;
+  allocatedWithInstallDateFeet?: number;
+  allocatedWithoutInstallDateFeet?: number;
   fulfilledAllocatedFeet: number;
   requiredTubes: number;
   allocatedTubes: number;
@@ -224,6 +231,8 @@ export interface JobRequirementLine {
   widthIn: number;
   requiredFeet: number;
   allocatedFeet: number;
+  allocatedWithInstallDateFeet?: number;
+  allocatedWithoutInstallDateFeet?: number;
   remainingFeet: number;
 }
 
@@ -239,6 +248,8 @@ export interface JobListEntry {
   isStagedForPickup: boolean;
   requiredFeet: number;
   allocatedFeet: number;
+  allocatedWithInstallDateFeet?: number;
+  allocatedWithoutInstallDateFeet?: number;
   remainingFeet: number;
   requiredTubes: number;
   allocatedTubes: number;

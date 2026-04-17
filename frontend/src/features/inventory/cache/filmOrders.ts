@@ -224,6 +224,7 @@ export function createOptimisticFilmOrderFromPayload(
     crewLeader: String(scheduleMetadata.crewLeader || '').trim(),
     status: 'FILM_ORDER',
     sourceBoxId: '',
+    origin: 'MANUAL',
     createdAt,
     createdBy: 'Pending...',
     resolvedAt: '',

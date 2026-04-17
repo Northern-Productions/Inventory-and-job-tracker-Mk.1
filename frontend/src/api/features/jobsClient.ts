@@ -28,6 +28,11 @@ function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
     hasOrderedAllocations: Boolean(entry.hasOrderedAllocations),
+    requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
+    allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
+    allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
+    allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),
+    remainingFeet: Math.max(0, Number(entry.remainingFeet || 0)),
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0))
@@ -38,6 +43,14 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
     summary: normalizeJobListEntry(detail.summary),
+    requirements: (detail.requirements || []).map((entry) => ({
+      ...entry,
+      requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
+      allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
+      allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
+      allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),
+      remainingFeet: Math.max(0, Number(entry.remainingFeet || 0))
+    })),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],

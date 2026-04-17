@@ -31,6 +31,7 @@ function buildAllocation(overrides = {}) {
     allocationId: 'alloc-1',
     boxId: 'MS1-919',
     jobNumber: '4580',
+    installDate: '2026-04-15',
     allocatedFeet: 20,
     status: 'ACTIVE',
     filmOrderId: '',

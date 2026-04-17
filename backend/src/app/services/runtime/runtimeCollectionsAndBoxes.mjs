@@ -195,6 +195,8 @@ import {
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
 import { shouldRecalculateReceivedFeetFromState, hasPositiveReactivationSignal } from './runtimeCheckoutOperations.mjs';
+import { applyReservationMetricsToBox } from './runtimeAllocationReservations.mjs';
+import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function groupEntriesByJobNumber(entries) {
   const grouped = {};
@@ -318,7 +320,9 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       const existingAllocations = await listAllocationsByBox(client, orgId, boxId);
       for (let index = 0; index < existingAllocations.length; index += 1) {
         if (existingAllocations[index].status === 'ACTIVE') {
-          activeAllocatedFeet += existingAllocations[index].allocatedFeet;
+          if (getAllocationReservationState(existingAllocations[index]) === 'WITH_INSTALL_DATE') {
+            activeAllocatedFeet += existingAllocations[index].allocatedFeet;
+          }
         }
       }
     }
@@ -570,7 +574,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         if (currentFeetOnRollInput < activeAllocatedFeet) {
           throw new HttpError(
             400,
-            `CurrentFeetOnRoll cannot be lower than the box's active allocated feet (${activeAllocatedFeet}).`
+            `CurrentFeetOnRoll cannot be lower than the box's locked allocated feet (${activeAllocatedFeet}).`
           );
         }
         feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - activeAllocatedFeet, initialFeet);
@@ -614,7 +618,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
       if (physicalFeetAvailable < activeAllocatedFeet) {
         throw new HttpError(
           400,
-          `Received physical LF cannot be lower than the box's active allocated feet (${activeAllocatedFeet}).`
+          `Received physical LF cannot be lower than the box's locked allocated feet (${activeAllocatedFeet}).`
         );
       }
       const shouldRepairStaleFeet =
@@ -718,6 +722,16 @@ async function buildSearchBoxes(client, orgId, params) {
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === 'true';
   const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
+  const activeAllocations = await listActiveAllocations(client, orgId);
+  const activeAllocationsByBoxId = {};
+  for (let index = 0; index < activeAllocations.length; index += 1) {
+    const entry = activeAllocations[index];
+    if (!activeAllocationsByBoxId[entry.boxId]) {
+      activeAllocationsByBoxId[entry.boxId] = [];
+    }
+
+    activeAllocationsByBoxId[entry.boxId].push(entry);
+  }
   const filtered = [];
 
   for (let index = 0; index < boxes.length; index += 1) {
@@ -755,7 +769,7 @@ async function buildSearchBoxes(client, orgId, params) {
       continue;
     }
 
-    filtered.push(box);
+    filtered.push(applyReservationMetricsToBox(box, activeAllocationsByBoxId[box.boxId] || []));
   }
 
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(

@@ -1,4 +1,5 @@
 // Purpose: Allocation preview, film-order recalculation, and shortage planning helpers.
+import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -263,34 +264,7 @@ async function resolveJobContext(client, orgId, jobNumber, installDate, crewLead
 }
 
 function getDateConflictJobsForBox(boxId, jobContext, activeAllocationsByBox) {
-  if (!jobContext.installDate) {
-    return [];
-  }
-
-  const active = getActiveAllocationsForBox(boxId, activeAllocationsByBox);
-  const conflicts = [];
-  const seen = {};
-
-  for (let index = 0; index < active.length; index += 1) {
-    const entry = active[index];
-    if (
-      entry.installDate !== jobContext.installDate ||
-      normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(jobContext.jobNumber)
-    ) {
-      continue;
-    }
-
-    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizeCrewLeaderKey(jobContext.crewLeader)) {
-      continue;
-    }
-
-    if (!seen[entry.jobNumber]) {
-      seen[entry.jobNumber] = true;
-      conflicts.push(entry.jobNumber);
-    }
-  }
-
-  return conflicts;
+  return getSameDayCrewConflictJobs(jobContext, getActiveAllocationsForBox(boxId, activeAllocationsByBox));
 }
 
 function getAllocationCandidateStatusRank(box) {
@@ -775,7 +749,9 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
       filmOrder.filmOrderId
     );
 
-    box.feetAvailable = Math.max(box.feetAvailable - allocationFeet, 0);
+    if (filmOrder.installDate) {
+      box.feetAvailable = Math.max(box.feetAvailable - allocationFeet, 0);
+    }
     link.autoAllocatedFeet += allocationFeet;
     await saveFilmOrderLinkRecord(client, orgId, link);
     warnings.push(

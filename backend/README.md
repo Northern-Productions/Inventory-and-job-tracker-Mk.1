@@ -34,7 +34,7 @@ npm ci
 npm run start
 ```
 
-`npm run start` now performs the latest schema preflight (`check:schema:latest`) and fails fast if the configured DB is missing required release objects, including the current caulk transfer checkpoint.
+`npm run start` now performs the latest schema preflight (`check:schema:latest`) and fails fast if the configured DB is missing required release objects, including the current film allocation lock-priority checkpoint.
 Use `npm run start:unsafe` only for debugging when you intentionally want to skip that guard.
 
 Health check:

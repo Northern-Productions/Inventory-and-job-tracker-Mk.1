@@ -256,4 +256,27 @@ describe('FilmOrdersPage', () => {
     );
     expect(screen.getByText('Install Date')).toBeTruthy();
   });
+
+  it('shows whether each film order is manual or an auto shortage and surfaces the source box for shortages', () => {
+    renderPage([
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-AUTO',
+        sourceBoxId: 'IL1-6923'
+      }),
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-MANUAL',
+        filmName: 'Manual Roll',
+        sourceBoxId: ''
+      })
+    ]);
+
+    expect(
+      screen.getByText(
+        'Manual orders are created from Film Orders. Auto shortage orders are created after return/weigh or schedule rebalance, not at checkout.'
+      )
+    ).toBeTruthy();
+    expect(screen.getByText('Auto shortage')).toBeTruthy();
+    expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
+    expect(screen.getByText('Manual')).toBeTruthy();
+  });
 });

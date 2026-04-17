@@ -30,6 +30,16 @@ function mapDbBoxRow(row) {
   const feetAvailable = readValue('feet_available', 'feetAvailable');
   const activeAllocatedFeet = readValue('active_allocated_feet', 'activeAllocatedFeet');
   const allocationPlanningFeet = readValue('allocation_planning_feet', 'allocationPlanningFeet');
+  const allocatableNowFeet = readValue('allocatable_now_feet', 'allocatableNowFeet');
+  const allocatedWithInstallDateFeet = readValue(
+    'allocated_with_install_date_feet',
+    'allocatedWithInstallDateFeet'
+  );
+  const allocatedWithoutInstallDateFeet = readValue(
+    'allocated_without_install_date_feet',
+    'allocatedWithoutInstallDateFeet'
+  );
+  const physicalFeetAvailable = readValue('physical_feet_available', 'physicalFeetAvailable');
 
   return {
     id: readValue('id'),
@@ -42,6 +52,22 @@ function mapDbBoxRow(row) {
     initialFeet: integerOrZero(initialFeet),
     feetAvailable: integerOrZero(feetAvailable),
     activeAllocatedFeet: integerOrZero(activeAllocatedFeet),
+    allocatableNowFeet:
+      allocatableNowFeet === undefined || allocatableNowFeet === null
+        ? null
+        : integerOrZero(allocatableNowFeet),
+    allocatedWithInstallDateFeet:
+      allocatedWithInstallDateFeet === undefined || allocatedWithInstallDateFeet === null
+        ? 0
+        : integerOrZero(allocatedWithInstallDateFeet),
+    allocatedWithoutInstallDateFeet:
+      allocatedWithoutInstallDateFeet === undefined || allocatedWithoutInstallDateFeet === null
+        ? 0
+        : integerOrZero(allocatedWithoutInstallDateFeet),
+    physicalFeetAvailable:
+      physicalFeetAvailable === undefined || physicalFeetAvailable === null
+        ? null
+        : integerOrZero(physicalFeetAvailable),
     allocationPlanningFeet:
       allocationPlanningFeet === undefined || allocationPlanningFeet === null
         ? computeAllocationPlanningFeet(
@@ -85,6 +111,16 @@ function toPublicBox(box) {
     widthIn: box.widthIn,
     initialFeet: box.initialFeet,
     feetAvailable: box.feetAvailable,
+    physicalFeetAvailable:
+      box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
+        ? Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(box.allocatedWithInstallDateFeet))
+        : integerOrZero(box.physicalFeetAvailable),
+    allocatableNowFeet:
+      box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+        ? Math.max(0, integerOrZero(box.allocationPlanningFeet ?? box.feetAvailable))
+        : integerOrZero(box.allocatableNowFeet),
+    allocatedWithInstallDateFeet: integerOrZero(box.allocatedWithInstallDateFeet),
+    allocatedWithoutInstallDateFeet: integerOrZero(box.allocatedWithoutInstallDateFeet),
     allocationPlanningFeet: getBoxAllocationPlanningFeet(box),
     lotRun: box.lotRun,
     status: box.status,
@@ -181,6 +217,10 @@ function mapDbFilmCatalogRow(row) {
   };
 }
 
+function deriveFilmOrderOrigin(sourceBoxId) {
+  return asTrimmedString(sourceBoxId) ? 'AUTO_SHORTAGE' : 'MANUAL';
+}
+
 function mapDbAllocationRow(row) {
   if (!row) {
     return null;
@@ -197,6 +237,11 @@ function mapDbAllocationRow(row) {
     installDate: formatDateValue(row.job_date),
     allocatedFeet: integerOrZero(row.allocated_feet),
     coveredFeet: integerOrZero(row.covered_feet),
+    backedPhysicalFeet:
+      row.backed_physical_feet === undefined || row.backed_physical_feet === null
+        ? null
+        : integerOrZero(row.backed_physical_feet),
+    reservationState: asTrimmedString(row.reservation_state),
     requirementId: asTrimmedString(row.requirement_id),
     allocationKind: normalizeAllocationKind(row.allocation_kind),
     status: asTrimmedString(row.status) || 'ACTIVE',
@@ -220,6 +265,11 @@ function toPublicAllocation(entry) {
     crewLeader: entry.crewLeader,
     allocatedFeet: entry.allocatedFeet,
     coveredFeet: integerOrZero(entry.coveredFeet) || entry.allocatedFeet,
+    backedPhysicalFeet:
+      entry.backedPhysicalFeet === undefined || entry.backedPhysicalFeet === null
+        ? integerOrZero(entry.allocatedFeet)
+        : integerOrZero(entry.backedPhysicalFeet),
+    reservationState: asTrimmedString(entry.reservationState) || 'WITHOUT_INSTALL_DATE',
     requirementId: asTrimmedString(entry.requirementId),
     allocationKind: normalizeAllocationKind(entry.allocationKind),
     status: entry.status,
@@ -236,6 +286,8 @@ function mapDbFilmOrderRow(row) {
   if (!row) {
     return null;
   }
+
+  const sourceBoxId = asTrimmedString(row.source_box_id);
 
   return {
     id: row.id,
@@ -254,7 +306,8 @@ function mapDbFilmOrderRow(row) {
     installDate: formatDateValue(row.job_date),
     crewLeader: asTrimmedString(row.crew_leader),
     status: asTrimmedString(row.status) || 'FILM_ORDER',
-    sourceBoxId: asTrimmedString(row.source_box_id),
+    sourceBoxId,
+    origin: deriveFilmOrderOrigin(sourceBoxId),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
     resolvedAt: formatTimestamp(row.resolved_at),
@@ -279,6 +332,7 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     crewLeader: entry.crewLeader,
     status: entry.status,
     sourceBoxId: entry.sourceBoxId,
+    origin: deriveFilmOrderOrigin(entry.sourceBoxId),
     createdAt: entry.createdAt,
     createdBy: entry.createdBy,
     resolvedAt: entry.resolvedAt,

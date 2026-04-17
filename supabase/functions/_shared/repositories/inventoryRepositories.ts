@@ -58,6 +58,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const feetAvailable = readValue("feet_available", "feetAvailable");
     const activeAllocatedFeet = readValue("active_allocated_feet", "activeAllocatedFeet");
     const allocationPlanningFeet = readValue("allocation_planning_feet", "allocationPlanningFeet");
+    const allocatableNowFeet = readValue("allocatable_now_feet", "allocatableNowFeet");
+    const allocatedWithInstallDateFeet = readValue(
+      "allocated_with_install_date_feet",
+      "allocatedWithInstallDateFeet",
+    );
+    const allocatedWithoutInstallDateFeet = readValue(
+      "allocated_without_install_date_feet",
+      "allocatedWithoutInstallDateFeet",
+    );
+    const physicalFeetAvailable = readValue("physical_feet_available", "physicalFeetAvailable");
     return {
       id: readValue("id"),
       orgId: readValue("org_id", "orgId"),
@@ -69,6 +79,22 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       initialFeet: deps.integerOrZero(initialFeet),
       feetAvailable: deps.integerOrZero(feetAvailable),
       activeAllocatedFeet: deps.integerOrZero(activeAllocatedFeet),
+      allocatableNowFeet:
+        allocatableNowFeet === undefined || allocatableNowFeet === null
+          ? null
+          : deps.integerOrZero(allocatableNowFeet),
+      allocatedWithInstallDateFeet:
+        allocatedWithInstallDateFeet === undefined || allocatedWithInstallDateFeet === null
+          ? 0
+          : deps.integerOrZero(allocatedWithInstallDateFeet),
+      allocatedWithoutInstallDateFeet:
+        allocatedWithoutInstallDateFeet === undefined || allocatedWithoutInstallDateFeet === null
+          ? 0
+          : deps.integerOrZero(allocatedWithoutInstallDateFeet),
+      physicalFeetAvailable:
+        physicalFeetAvailable === undefined || physicalFeetAvailable === null
+          ? null
+          : deps.integerOrZero(physicalFeetAvailable),
       allocationPlanningFeet:
         allocationPlanningFeet === undefined || allocationPlanningFeet === null
           ? computeAllocationPlanningFeet(
@@ -137,6 +163,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: box.widthIn,
       initialFeet: box.initialFeet,
       feetAvailable: box.feetAvailable,
+      physicalFeetAvailable:
+        box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
+          ? Math.max(0, deps.integerOrZero(box.feetAvailable) + deps.integerOrZero(box.allocatedWithInstallDateFeet))
+          : deps.integerOrZero(box.physicalFeetAvailable),
+      allocatableNowFeet:
+        box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+          ? Math.max(0, deps.integerOrZero(box.allocationPlanningFeet ?? box.feetAvailable))
+          : deps.integerOrZero(box.allocatableNowFeet),
+      allocatedWithInstallDateFeet: deps.integerOrZero(box.allocatedWithInstallDateFeet),
+      allocatedWithoutInstallDateFeet: deps.integerOrZero(box.allocatedWithoutInstallDateFeet),
       allocationPlanningFeet: Math.max(0, deps.integerOrZero(box.allocationPlanningFeet)),
       lotRun: box.lotRun,
       status: box.status,
@@ -182,6 +218,10 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     };
   }
 
+  function deriveFilmOrderOrigin(sourceBoxId: unknown) {
+    return deps.asTrimmedString(sourceBoxId) ? "AUTO_SHORTAGE" : "MANUAL";
+  }
+
   function mapDbAllocationRow(row: any) {
     if (!row) {
       return null;
@@ -197,6 +237,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       installDate: deps.formatDateValue(row.job_date),
       allocatedFeet: deps.integerOrZero(row.allocated_feet),
       coveredFeet: deps.integerOrZero(row.covered_feet),
+      backedPhysicalFeet:
+        row.backed_physical_feet === undefined || row.backed_physical_feet === null
+          ? null
+          : deps.integerOrZero(row.backed_physical_feet),
+      reservationState: deps.asTrimmedString(row.reservation_state),
       requirementId: deps.asTrimmedString(row.requirement_id),
       allocationKind: normalizeAllocationKind(row.allocation_kind),
       status: deps.asTrimmedString(row.status) || "ACTIVE",
@@ -220,6 +265,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       crewLeader: entry.crewLeader,
       allocatedFeet: entry.allocatedFeet,
       coveredFeet: entry.coveredFeet,
+      backedPhysicalFeet:
+        entry.backedPhysicalFeet === undefined || entry.backedPhysicalFeet === null
+          ? deps.integerOrZero(entry.allocatedFeet)
+          : deps.integerOrZero(entry.backedPhysicalFeet),
+      reservationState: deps.asTrimmedString(entry.reservationState) || "WITHOUT_INSTALL_DATE",
       requirementId: deps.asTrimmedString(entry.requirementId),
       allocationKind: normalizeAllocationKind(entry.allocationKind),
       status: entry.status,
@@ -236,6 +286,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     if (!row) {
       return null;
     }
+    const sourceBoxId = deps.asTrimmedString(row.source_box_id);
     return {
       id: row.id,
       orgId: row.org_id,
@@ -253,7 +304,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       status: deps.asTrimmedString(row.status) || "FILM_ORDER",
-      sourceBoxId: deps.asTrimmedString(row.source_box_id),
+      sourceBoxId,
+      origin: deriveFilmOrderOrigin(sourceBoxId),
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
       resolvedAt: deps.formatTimestamp(row.resolved_at),
@@ -278,6 +330,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       crewLeader: entry.crewLeader,
       status: entry.status,
       sourceBoxId: entry.sourceBoxId,
+      origin: deriveFilmOrderOrigin(entry.sourceBoxId),
       createdAt: entry.createdAt,
       createdBy: entry.createdBy,
       resolvedAt: entry.resolvedAt,

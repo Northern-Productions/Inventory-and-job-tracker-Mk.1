@@ -120,6 +120,18 @@ export function getActiveAllocatedFeet(
   }, 0);
 }
 
+export function getActiveLockedAllocatedFeet(
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'reservationState'>>
+): number {
+  return allocations.reduce((total, entry) => {
+    if (entry.status !== 'ACTIVE' || entry.reservationState !== 'WITH_INSTALL_DATE') {
+      return total;
+    }
+
+    return total + entry.allocatedFeet;
+  }, 0);
+}
+
 function clampFeetAvailable(feetAvailable: number, initialFeet: number): number {
   return Math.min(Math.max(Math.floor(feetAvailable), 0), initialFeet);
 }
@@ -216,9 +228,15 @@ export function deriveReceivedBoxPhysicalFeet(
 export function deriveCurrentFeetOnRollForBox(
   box: Pick<
     Box,
-    'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+    | 'receivedDate'
+    | 'initialFeet'
+    | 'feetAvailable'
+    | 'physicalFeetAvailable'
+    | 'lastRollWeightLbs'
+    | 'coreWeightLbs'
+    | 'lfWeightLbsPerFt'
   >,
-  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> | null = null
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'reservationState'>> | null = null
 ): number | null {
   if (!box.receivedDate) {
     return clampFeetAvailable(box.initialFeet, box.initialFeet);
@@ -235,8 +253,12 @@ export function deriveCurrentFeetOnRollForBox(
     return derivedFromWeight;
   }
 
+  if (box.physicalFeetAvailable !== undefined && box.physicalFeetAvailable !== null) {
+    return clampFeetAvailable(box.physicalFeetAvailable, box.initialFeet);
+  }
+
   if (allocations !== null) {
-    return clampFeetAvailable(box.feetAvailable + getActiveAllocatedFeet(allocations), box.initialFeet);
+    return clampFeetAvailable(box.feetAvailable + getActiveLockedAllocatedFeet(allocations), box.initialFeet);
   }
 
   if (boxNeedsAllocationsToResolveCurrentFeet(box)) {
@@ -249,10 +271,17 @@ export function deriveCurrentFeetOnRollForBox(
 export function resolveEditedReceivedBoxFeetAvailable(
   currentBox: Pick<
     Box,
-    'status' | 'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+    | 'status'
+    | 'receivedDate'
+    | 'initialFeet'
+    | 'feetAvailable'
+    | 'physicalFeetAvailable'
+    | 'lastRollWeightLbs'
+    | 'coreWeightLbs'
+    | 'lfWeightLbsPerFt'
   > | null | undefined,
   nextValues: RollTrackingResolutionContext,
-  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'reservationState'>> = []
 ): number {
   return resolveUpdateBoxRollTracking(currentBox, nextValues, allocations).feetAvailable;
 }
@@ -260,10 +289,16 @@ export function resolveEditedReceivedBoxFeetAvailable(
 function getCurrentFeetEditFallback(
   currentBox: Pick<
     Box,
-    'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+    | 'receivedDate'
+    | 'initialFeet'
+    | 'feetAvailable'
+    | 'physicalFeetAvailable'
+    | 'lastRollWeightLbs'
+    | 'coreWeightLbs'
+    | 'lfWeightLbsPerFt'
   > | null | undefined,
   nextValues: RollTrackingResolutionContext,
-  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>>
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'reservationState'>>
 ) {
   if (!currentBox) {
     return clampFeetAvailable(nextValues.currentFeetOnRoll ?? nextValues.initialFeet, nextValues.initialFeet);
@@ -290,10 +325,17 @@ function getCurrentFeetEditFallback(
 export function resolveUpdateBoxRollTracking(
   currentBox: Pick<
     Box,
-    'status' | 'receivedDate' | 'initialFeet' | 'feetAvailable' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'
+    | 'status'
+    | 'receivedDate'
+    | 'initialFeet'
+    | 'feetAvailable'
+    | 'physicalFeetAvailable'
+    | 'lastRollWeightLbs'
+    | 'coreWeightLbs'
+    | 'lfWeightLbsPerFt'
   > | null | undefined,
   nextValues: RollTrackingResolutionContext,
-  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet'>> = []
+  allocations: Array<Pick<AllocationEntry, 'status' | 'allocatedFeet' | 'reservationState'>> = []
 ) {
   const currentFeetInput =
     nextValues.currentFeetOnRoll === null
@@ -319,12 +361,12 @@ export function resolveUpdateBoxRollTracking(
     return {
       initialFeet,
       currentFeetOnRoll: initialFeet,
-      feetAvailable: clampFeetAvailable(initialFeet - getActiveAllocatedFeet(allocations), initialFeet),
+      feetAvailable: clampFeetAvailable(initialFeet - getActiveLockedAllocatedFeet(allocations), initialFeet),
       lastRollWeightLbs: nextValues.lastRollWeightLbs
     };
   }
 
-  const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
+  const activeAllocatedFeet = getActiveLockedAllocatedFeet(allocations);
   const fallbackCurrentFeet = getCurrentFeetEditFallback(currentBox, nextValues, allocations);
   const manuallyEditedBothRollTrackingFields =
     currentFeetOnRollManuallyEdited && lastRollWeightLbsManuallyEdited;

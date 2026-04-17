@@ -11,6 +11,7 @@ import {
   clampFeetToInitialRange,
   normalizeJobNumberKey,
 } from '../runtimeDeps.mjs';
+import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function canDeriveCheckInFeetFromWeight(box) {
   return (
@@ -26,7 +27,7 @@ function canDeriveStoredPhysicalFeetFromWeight(box) {
   return canDeriveCheckInFeetFromWeight(box) && box?.lastRollWeightLbs !== null && box?.lastRollWeightLbs !== undefined;
 }
 
-function derivePhysicalFeetBeforeCheckIn(box, activeAllocatedFeetBeforeCheckIn) {
+function derivePhysicalFeetBeforeCheckIn(box, lockedAllocatedFeetBeforeCheckIn) {
   if (canDeriveStoredPhysicalFeetFromWeight(box)) {
     return deriveFeetAvailableFromRollWeight(
       Number(box.lastRollWeightLbs),
@@ -37,7 +38,7 @@ function derivePhysicalFeetBeforeCheckIn(box, activeAllocatedFeetBeforeCheckIn) 
   }
 
   return clampFeetToInitialRange(
-    integerOrZero(box.feetAvailable) + integerOrZero(activeAllocatedFeetBeforeCheckIn),
+    integerOrZero(box.feetAvailable) + integerOrZero(lockedAllocatedFeetBeforeCheckIn),
     integerOrZero(box.initialFeet)
   );
 }
@@ -117,8 +118,10 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
   const otherActiveAllocations = normalizedCheckoutJob
     ? activeAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) !== normalizedCheckoutJob)
     : activeAllocations;
-  const activeAllocatedFeetBeforeCheckIn = activeAllocations.reduce(
-    (total, entry) => total + integerOrZero(entry?.allocatedFeet),
+  const activeLockedAllocatedFeetBeforeCheckIn = activeAllocations.reduce(
+    (total, entry) =>
+      total +
+      (getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0),
     0
   );
   const sameJobActiveAllocatedFeet = sameJobActiveAllocations.reduce(
@@ -126,12 +129,14 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
     0
   );
   const otherActiveAllocatedFeet = otherActiveAllocations.reduce(
-    (total, entry) => total + integerOrZero(entry?.allocatedFeet),
+    (total, entry) =>
+      total +
+      (getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0),
     0
   );
   const physicalFeetBeforeCheckIn = derivePhysicalFeetBeforeCheckIn(
     existingBox,
-    activeAllocatedFeetBeforeCheckIn
+    activeLockedAllocatedFeetBeforeCheckIn
   );
 
   let physicalFeetAfterCheckIn = 0;

@@ -33,6 +33,14 @@ export function FilmRequirementsSection({
               <MobileFieldList>
                 <MobileField label="Required LF" value={entry.requiredFeet} />
                 <MobileField label="Allocated LF" value={entry.allocatedFeet} />
+                <MobileField
+                  label="Locked LF"
+                  value={entry.allocatedWithInstallDateFeet ?? 0}
+                />
+                <MobileField
+                  label="Placeholder LF"
+                  value={entry.allocatedWithoutInstallDateFeet ?? 0}
+                />
                 <MobileField label="Remaining LF" value={entry.remainingFeet} />
               </MobileFieldList>
             </MobileRecordCard>
@@ -48,6 +56,8 @@ export function FilmRequirementsSection({
                 <th>Width</th>
                 <th>Required LF</th>
                 <th>Allocated LF</th>
+                <th>Locked LF</th>
+                <th>Placeholder LF</th>
                 <th>Remaining LF</th>
               </tr>
             </thead>
@@ -59,6 +69,8 @@ export function FilmRequirementsSection({
                   <td>{entry.widthIn}</td>
                   <td>{entry.requiredFeet}</td>
                   <td>{entry.allocatedFeet}</td>
+                  <td>{entry.allocatedWithInstallDateFeet ?? 0}</td>
+                  <td>{entry.allocatedWithoutInstallDateFeet ?? 0}</td>
                   <td>{entry.remainingFeet}</td>
                 </tr>
               ))}

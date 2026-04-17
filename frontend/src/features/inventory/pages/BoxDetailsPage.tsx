@@ -135,7 +135,9 @@ export default function BoxDetailsPage() {
 
       <AllocationsPanel
         boxId={box.boxId}
-        feetAvailable={box.feetAvailable}
+        feetAvailable={box.allocatableNowFeet ?? box.allocationPlanningFeet ?? box.feetAvailable}
+        lockedFeet={box.allocatedWithInstallDateFeet ?? 0}
+        placeholderFeet={box.allocatedWithoutInstallDateFeet ?? 0}
         collapsed={isAllocationsSectionCollapsed}
         onToggle={() => setIsAllocationsSectionCollapsed((current) => !current)}
       />

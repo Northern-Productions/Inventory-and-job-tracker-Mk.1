@@ -86,7 +86,6 @@ import {
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,
-  normalizeCrewLeaderKey,
   compareBoxesByOldestStock,
   compareAllocationJobSummaries,
   compareJobsListEntries,
@@ -199,6 +198,7 @@ import {
 } from './runtimeAllocationCoverage.mjs';
 import { buildPublicAllocationEntriesForJob } from './runtimeJobSummaries.mjs';
 import { createAllocationRecord } from './runtimeAllocationPlanning.mjs';
+import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 
 function hasNonCancelledAllocationForBoxJob(allocations, boxId, jobNumber) {
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
@@ -288,33 +288,8 @@ async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, 
   };
 }
 
-function getCheckoutCrewConflictJobs(targetJobNumber, targetCrewLeader, allocations) {
-  const normalizedTargetJobNumber = normalizeJobNumberKey(targetJobNumber);
-  const normalizedTargetCrewLeader = normalizeCrewLeaderKey(targetCrewLeader);
-  const conflicts = [];
-  const seen = {};
-
-  for (let index = 0; index < allocations.length; index += 1) {
-    const entry = allocations[index];
-    if (asTrimmedString(entry.status).toUpperCase() !== 'ACTIVE') {
-      continue;
-    }
-
-    if (normalizeJobNumberKey(entry.jobNumber) === normalizedTargetJobNumber) {
-      continue;
-    }
-
-    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedTargetCrewLeader) {
-      continue;
-    }
-
-    if (!seen[entry.jobNumber]) {
-      seen[entry.jobNumber] = true;
-      conflicts.push(entry.jobNumber);
-    }
-  }
-
-  return conflicts;
+function getCheckoutCrewConflictJobs(targetJobContext, allocations) {
+  return getSameDayCrewConflictJobs(targetJobContext, allocations);
 }
 
 async function listCheckoutCrewConflictJobsForBox(client, orgId, boxId, jobNumber) {
@@ -331,7 +306,7 @@ async function listCheckoutCrewConflictJobsForBox(client, orgId, boxId, jobNumbe
     targetJobAllocations
   );
 
-  return getCheckoutCrewConflictJobs(jobNumber, targetJobContext.crewLeader, boxAllocations);
+  return getCheckoutCrewConflictJobs(targetJobContext, boxAllocations);
 }
 
 async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNumber, user, mode = 'checkout') {

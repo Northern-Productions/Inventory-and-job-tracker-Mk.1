@@ -27,11 +27,33 @@ import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
   return {
     ...summary,
+    activeAllocatedFeet: Math.max(0, Number(summary.activeAllocatedFeet || 0)),
+    allocatedWithInstallDateFeet: Math.max(0, Number(summary.allocatedWithInstallDateFeet || 0)),
+    allocatedWithoutInstallDateFeet: Math.max(0, Number(summary.allocatedWithoutInstallDateFeet || 0)),
+    fulfilledAllocatedFeet: Math.max(0, Number(summary.fulfilledAllocatedFeet || 0)),
     requiredTubes: Math.max(0, Number(summary.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(summary.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(summary.remainingTubes || 0)),
     hasOrderedAllocations: Boolean(summary.hasOrderedAllocations)
   };
+}
+
+function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
+  return {
+    ...entry,
+    allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
+    coveredFeet: Math.max(0, Number(entry.coveredFeet || 0)),
+    backedPhysicalFeet: Math.max(
+      0,
+      Number(
+        entry.backedPhysicalFeet === undefined || entry.backedPhysicalFeet === null
+          ? entry.allocatedFeet
+          : entry.backedPhysicalFeet
+      )
+    ),
+    reservationState:
+      entry.reservationState === 'WITH_INSTALL_DATE' ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE'
+  } as T;
 }
 
 function normalizeAllocationPreview(preview: AllocationPreview): AllocationPreview {
@@ -71,7 +93,7 @@ export async function getAllocationsByBox(boxId: string): Promise<AllocationEntr
     { boxId }
   );
 
-  return data.entries;
+  return (data.entries || []).map(normalizeAllocationEntry);
 }
 
 export async function getAllocationJobs(): Promise<AllocationJobSummary[]> {
@@ -90,6 +112,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
   return {
     ...detail,
     summary: normalizeAllocationJobSummary(detail.summary),
+    allocations: (detail.allocations || []).map(normalizeAllocationEntry),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],
@@ -128,7 +151,10 @@ export async function applyAllocationPlan(
   });
 
   return {
-    result: response.data,
+    result: {
+      ...response.data,
+      allocations: (response.data.allocations || []).map(normalizeAllocationEntry)
+    },
     warnings: response.warnings
   };
 }

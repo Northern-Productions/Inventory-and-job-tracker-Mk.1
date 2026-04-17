@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0065_caulk_transfer_assist_and_new_products.sql';
+const LATEST_MIGRATION = '0066_film_allocation_lock_priority.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -34,6 +34,15 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_remove(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_caulk_transfer_receive(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_caulk_transfer_cancel(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.total_active_allocated_feet_for_box(uuid, text)' },
+  { kind: 'function', signature: 'app_api.locked_allocated_feet_for_box(uuid, text)' },
+  { kind: 'function', signature: 'app_api.placeholder_allocated_feet_for_box(uuid, text)' },
+  { kind: 'function', signature: 'app_api.box_physical_feet_available(app.boxes)' },
+  { kind: 'function', signature: 'app_api.box_allocatable_now_feet(app.boxes)' },
+  { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
+  { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
+  { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
+  { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
 ];
 
 function sqlLiteral(value) {

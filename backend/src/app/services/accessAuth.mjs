@@ -269,6 +269,19 @@ function mapDatabaseBootstrapError(message) {
   ) {
     return 'Database migration 0065_caulk_transfer_assist_and_new_products.sql is required. Apply missing backend migrations through 0065, then retry.';
   }
+  if (
+    (normalized.includes('function app_api.total_active_allocated_feet_for_box') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.locked_allocated_feet_for_box') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.placeholder_allocated_feet_for_box') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.box_physical_feet_available') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.box_allocatable_now_feet') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.recalculate_physical_box_allocatable_now') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.sync_active_job_schedule_allocations') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.reconcile_auto_shortage_film_orders_for_job') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.reconcile_auto_shortage_film_orders_for_box') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0066_film_allocation_lock_priority.sql is required. Apply missing backend migrations through 0066, then retry.';
+  }
   return asTrimmedString(message) || 'Unexpected server error.';
 }
 

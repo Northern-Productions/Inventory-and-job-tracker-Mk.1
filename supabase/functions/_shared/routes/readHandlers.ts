@@ -1,6 +1,7 @@
 // Purpose: Route-handler map for Edge API read endpoints.
 import { HttpError, ok } from "../http.ts";
 import type { AuthIdentity } from "../types.ts";
+import { buildBoxReservationSnapshot } from "../../../../shared/domain/filmAllocationReservations.mjs";
 
 type ReadContext = {
   client: any;
@@ -306,7 +307,19 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!found) {
       throw new HttpError(404, "Box not found.");
     }
-    return ok(deps.toPublicBox(found));
+    const allocations = await deps.listAllocationsByBox(client, orgId, found.boxId);
+    const reservationSnapshot = buildBoxReservationSnapshot(found, allocations);
+    return ok(
+      deps.toPublicBox({
+        ...found,
+        physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+        allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
+        allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
+        allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
+        activeAllocatedFeet: reservationSnapshot.activeAllocatedFeet,
+        allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
+      }),
+    );
   },
   "/boxes/transfer/by-box": async ({ client, orgId, params }, deps) => {
     return await deps.getBoxTransferByBox(client, orgId, deps.requireString(params.boxId, "boxId"));
@@ -321,10 +334,20 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok({ entries: await deps.listAuditEntriesByBox(client, orgId, deps.requireString(params.boxId, "boxId")) });
   },
   "/allocations/by-box": async ({ client, orgId, params }, deps) => {
+    const boxId = deps.requireString(params.boxId, "boxId");
+    const entries = await deps.listAllocationsByBox(client, orgId, boxId);
+    const box = await deps.findBoxById(client, orgId, boxId);
+    const reservationSnapshot = box ? buildBoxReservationSnapshot(box, entries) : null;
     return ok({
-      entries: (await deps.listAllocationsByBox(client, orgId, deps.requireString(params.boxId, "boxId"))).map(
-        deps.toPublicAllocation,
-      ),
+      entries: entries.map((entry) => {
+        const allocationSnapshot =
+          reservationSnapshot?.allocationSnapshotsById?.[deps.asTrimmedString(entry?.allocationId)] || null;
+        return {
+          ...deps.toPublicAllocation(entry),
+          backedPhysicalFeet: allocationSnapshot ? allocationSnapshot.backedPhysicalFeet : deps.integerOrZero(entry?.allocatedFeet),
+          reservationState: allocationSnapshot ? allocationSnapshot.reservationState : "WITHOUT_INSTALL_DATE",
+        };
+      }),
     });
   },
   "/allocations/jobs": async ({ client, orgId }, deps) => {

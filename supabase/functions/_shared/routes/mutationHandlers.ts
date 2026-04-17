@@ -1,6 +1,7 @@
 // Purpose: Route-handler map for Edge API mutation endpoints.
 import { HttpError, ok } from "../http.ts";
 import type { AuthIdentity } from "../types.ts";
+import { buildBoxReservationSnapshot } from "../../../../shared/domain/filmAllocationReservations.mjs";
 
 type MutationContext = {
   client: any;
@@ -36,6 +37,8 @@ export type MutationHandlerDeps = {
     destinationBoxId: string
   ) => Promise<any>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
+  listAllocationsByBox: (client: any, orgId: string, boxId: string) => Promise<any[]>;
+  listJobs: (client: any, orgId: string) => Promise<any[]>;
   toPublicBox: (box: any) => Record<string, unknown>;
   startBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   receiveBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -56,6 +59,77 @@ export type MutationHandlerDeps = {
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
 };
+
+async function buildPublicBoxWithReservationMetrics(
+  client: any,
+  orgId: string,
+  box: any,
+  deps: MutationHandlerDeps,
+) {
+  const allocations = await deps.listAllocationsByBox(client, orgId, deps.asTrimmedString(box?.boxId));
+  const reservationSnapshot = buildBoxReservationSnapshot(box, allocations);
+  return deps.toPublicBox({
+    ...box,
+    physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+    allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
+    allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
+    activeAllocatedFeet: reservationSnapshot.activeAllocatedFeet,
+    allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
+  });
+}
+
+async function buildPublicAllocationsWithReservationMetrics(
+  client: any,
+  orgId: string,
+  allocations: any[],
+  deps: MutationHandlerDeps,
+) {
+  const source = Array.isArray(allocations) ? allocations : [];
+  if (!source.length) {
+    return [];
+  }
+
+  const jobs = await deps.listJobs(client, orgId);
+  const jobCreatedAtByJobNumber = Object.fromEntries(
+    (Array.isArray(jobs) ? jobs : [])
+      .map((job) => [deps.asTrimmedString(job?.jobNumber), deps.asTrimmedString(job?.createdAt)])
+      .filter(([jobNumber]) => Boolean(jobNumber))
+  );
+  const boxIds = Array.from(
+    new Set(source.map((entry) => deps.asTrimmedString(entry?.boxId)).filter(Boolean))
+  );
+  const snapshotsByBoxId: Record<string, any> = {};
+
+  for (const boxId of boxIds) {
+    const box = await deps.findBoxById(client, orgId, boxId);
+    if (!box) {
+      continue;
+    }
+
+    snapshotsByBoxId[boxId] = buildBoxReservationSnapshot(
+      box,
+      await deps.listAllocationsByBox(client, orgId, boxId),
+      { jobCreatedAtByJobNumber }
+    );
+  }
+
+  return source.map((entry) => {
+    const reservationSnapshot =
+      snapshotsByBoxId[deps.asTrimmedString(entry?.boxId)]?.allocationSnapshotsById?.[
+        deps.asTrimmedString(entry?.allocationId)
+      ];
+    return {
+      ...deps.toPublicAllocation(entry),
+      backedPhysicalFeet: reservationSnapshot
+        ? deps.integerOrZero(reservationSnapshot.backedPhysicalFeet)
+        : deps.integerOrZero(entry?.allocatedFeet),
+      reservationState: reservationSnapshot
+        ? deps.asTrimmedString(reservationSnapshot.reservationState)
+        : (deps.asTrimmedString(entry?.installDate) ? "WITH_INSTALL_DATE" : "WITHOUT_INSTALL_DATE"),
+    };
+  });
+}
 
 type MutationHandler = (
   context: MutationContext,
@@ -207,7 +281,10 @@ const mutationHandlers: Record<string, MutationHandler> = {
     if (!box) {
       throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
     }
-    return ok({ box: deps.toPublicBox(box), logId: deps.asTrimmedString(result.logId) }, result.warnings || []);
+    return ok(
+      { box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps), logId: deps.asTrimmedString(result.logId) },
+      result.warnings || []
+    );
   },
   "/boxes/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_boxes_update", orgId, actor, normalizedPayload);
@@ -215,7 +292,10 @@ const mutationHandlers: Record<string, MutationHandler> = {
     if (!box) {
       throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
     }
-    return ok({ box: deps.toPublicBox(box), logId: deps.asTrimmedString(result.logId) }, result.warnings || []);
+    return ok(
+      { box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps), logId: deps.asTrimmedString(result.logId) },
+      result.warnings || []
+    );
   },
   "/boxes/set-status": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     await deps.ensureBoxCheckoutCrewCompatibility(client, orgId, normalizedPayload);
@@ -224,7 +304,10 @@ const mutationHandlers: Record<string, MutationHandler> = {
     if (!box) {
       throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
     }
-    return ok({ box: deps.toPublicBox(box), logId: deps.asTrimmedString(result.logId) }, result.warnings || []);
+    return ok(
+      { box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps), logId: deps.asTrimmedString(result.logId) },
+      result.warnings || []
+    );
   },
   "/boxes/delete": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_boxes_delete", orgId, actor, normalizedPayload);
@@ -257,7 +340,12 @@ const mutationHandlers: Record<string, MutationHandler> = {
       ? result.allocationIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
       : [];
     const allocations = allocationIds.length
-      ? (await deps.listAllocationsByIds(client, orgId, allocationIds)).map(deps.toPublicAllocation)
+      ? await buildPublicAllocationsWithReservationMetrics(
+        client,
+        orgId,
+        await deps.listAllocationsByIds(client, orgId, allocationIds),
+        deps
+      )
       : [];
     const filmOrderId = deps.asTrimmedString(result.filmOrderId);
     let filmOrder = null;
@@ -285,7 +373,12 @@ const mutationHandlers: Record<string, MutationHandler> = {
       ? result.allocationIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
       : [];
     const allocations = allocationIds.length
-      ? (await deps.listAllocationsByIds(client, orgId, allocationIds)).map(deps.toPublicAllocation)
+      ? await buildPublicAllocationsWithReservationMetrics(
+        client,
+        orgId,
+        await deps.listAllocationsByIds(client, orgId, allocationIds),
+        deps
+      )
       : [];
     const filmOrderId = deps.asTrimmedString(result.filmOrderId);
     let filmOrder = null;
@@ -448,7 +541,13 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const result = await deps.callMutationRpc(client, "api_acl_audit_undo", orgId, actor, normalizedPayload);
     const boxId = deps.asTrimmedString(result.boxId);
     const box = result.boxDeleted || !boxId ? null : await deps.findBoxById(client, orgId, boxId);
-    return ok({ box: box ? deps.toPublicBox(box) : null, logId: deps.asTrimmedString(result.logId) }, result.warnings || []);
+    return ok(
+      {
+        box: box ? await buildPublicBoxWithReservationMetrics(client, orgId, box, deps) : null,
+        logId: deps.asTrimmedString(result.logId)
+      },
+      result.warnings || []
+    );
   },
 };
 

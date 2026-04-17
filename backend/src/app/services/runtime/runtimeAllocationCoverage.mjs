@@ -192,6 +192,7 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
+import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function buildActiveAllocationsByBoxIndex(entries) {
   const grouped = {};
@@ -372,6 +373,45 @@ function compareRequirementCoveragePoolsForRequirement(left, right, requirement)
   return left.index - right.index;
 }
 
+function createEmptyRequirementCoverageSummary() {
+  return {
+    allocatedFeet: 0,
+    allocatedWithInstallDateFeet: 0,
+    allocatedWithoutInstallDateFeet: 0,
+  };
+}
+
+function ensureRequirementCoverageSummary(coverage, requirementId) {
+  if (!coverage[requirementId]) {
+    coverage[requirementId] = createEmptyRequirementCoverageSummary();
+  }
+
+  return coverage[requirementId];
+}
+
+function addRequirementCoverageFeet(coverage, requirementId, requiredFeet, reservationState, feet) {
+  const normalizedFeet = Math.max(0, Number(feet || 0));
+  if (!requirementId || normalizedFeet <= 0 || requiredFeet <= 0) {
+    return 0;
+  }
+
+  const summary = ensureRequirementCoverageSummary(coverage, requirementId);
+  const remainingCapacity = Math.max(0, requiredFeet - Math.max(0, Number(summary.allocatedFeet || 0)));
+  if (remainingCapacity <= 0) {
+    return 0;
+  }
+
+  const appliedFeet = Math.min(remainingCapacity, normalizedFeet);
+  summary.allocatedFeet += appliedFeet;
+  if (reservationState === 'WITH_INSTALL_DATE') {
+    summary.allocatedWithInstallDateFeet += appliedFeet;
+  } else {
+    summary.allocatedWithoutInstallDateFeet += appliedFeet;
+  }
+
+  return appliedFeet;
+}
+
 function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
   const grouped = {};
   const coverage = {};
@@ -424,9 +464,12 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
     const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
     const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
-      coverage[boundRequirementId] = Math.min(
+      addRequirementCoverageFeet(
+        coverage,
+        boundRequirementId,
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        Math.max(0, Number(coverage[boundRequirementId] || 0)) + coveredFeet
+        getAllocationReservationState(allocation),
+        coveredFeet
       );
       continue;
     }
@@ -444,6 +487,7 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       filmName: box.filmName,
       widthIn: Number(box.widthIn) || 0,
       remainingFeet: coveredFeet,
+      reservationState: getAllocationReservationState(allocation),
       isExterior: requirementFilmIsExterior(box.manufacturer, box.filmName),
       index
     });
@@ -501,12 +545,14 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
         const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
         pool.remainingFeet -= assignedFeet;
         remainingNeed -= assignedFeet;
+        addRequirementCoverageFeet(
+          coverage,
+          requirement.requirementId,
+          requirement.requiredFeet,
+          pool.reservationState,
+          assignedFeet
+        );
       }
-
-      coverage[requirement.requirementId] = Math.min(
-        requirement.requiredFeet,
-        requirement.requiredFeet - Math.max(0, remainingNeed)
-      );
     }
   }
 
@@ -520,7 +566,8 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
     const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
-    const allocatedFeet = Math.max(0, Number(coverage[requirementId] || 0));
+    const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
+    const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
     const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
     const cappedAllocatedFeet = requiredFeet - remainingFeet;
@@ -532,6 +579,14 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
       widthIn: requirement.widthIn,
       requiredFeet,
       allocatedFeet: cappedAllocatedFeet,
+      allocatedWithInstallDateFeet: Math.min(
+        cappedAllocatedFeet,
+        Math.max(0, Number(coverageSummary.allocatedWithInstallDateFeet || 0))
+      ),
+      allocatedWithoutInstallDateFeet: Math.min(
+        cappedAllocatedFeet,
+        Math.max(0, Number(coverageSummary.allocatedWithoutInstallDateFeet || 0))
+      ),
       remainingFeet
     });
   }
@@ -689,6 +744,8 @@ function buildAllocationJobSummary(
   let hasCancelledRecord = false;
   let hasFulfilledRecord = false;
   let activeAllocatedFeet = 0;
+  let allocatedWithInstallDateFeet = 0;
+  let allocatedWithoutInstallDateFeet = 0;
   let fulfilledAllocatedFeet = 0;
   let openFilmOrderCount = 0;
   const distinctBoxes = {};
@@ -696,6 +753,11 @@ function buildAllocationJobSummary(
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   const hasMaterialRequirements = hasJobMaterialRequirements(requirements, caulkRequirements);
   const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    allocatedWithInstallDateFeet += Math.max(0, Number(requirements[index]?.allocatedWithInstallDateFeet || 0));
+    allocatedWithoutInstallDateFeet += Math.max(0, Number(requirements[index]?.allocatedWithoutInstallDateFeet || 0));
+  }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
@@ -776,6 +838,8 @@ function buildAllocationJobSummary(
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
     activeAllocatedFeet,
+    allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet,
     fulfilledAllocatedFeet,
     requiredTubes: caulkTotals.requiredTubes,
     allocatedTubes: caulkTotals.allocatedTubes,

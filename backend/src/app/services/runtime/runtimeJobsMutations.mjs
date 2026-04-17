@@ -69,6 +69,16 @@ import {
 import {
   getOrResolveJobId,
 } from './runtimeAllocationPlanning.mjs';
+import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
+import {
+  capturePhysicalFeetAvailableByBoxId,
+  recalculateReservationBoxesByIds,
+  reconcileReservationShortagesForJob,
+} from './runtimeAllocationReservationReconciliation.mjs';
+
+function getRestoredAllocatableFeet(entry) {
+  return getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0;
+}
 
 async function createJob(client, orgId, payload, actor) {
   const warnings = [];
@@ -211,6 +221,8 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
   client,
   orgId,
   jobNumber,
+  actor,
+  previousInstallDate,
   installDate,
   crewLeader
 ) {
@@ -218,6 +230,18 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
   const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
   let updatedAllocationCount = 0;
   let updatedFilmOrderCount = 0;
+  const installDateChanged = asTrimmedString(previousInstallDate) !== asTrimmedString(installDate);
+  const affectedBoxIds = Array.from(
+    new Set(
+      allocations
+        .filter((entry) => entry?.status === 'ACTIVE')
+        .map((entry) => asTrimmedString(entry?.boxId))
+        .filter(Boolean)
+    )
+  );
+  const physicalFeetAvailableByBoxId = installDateChanged
+    ? await capturePhysicalFeetAvailableByBoxId(client, orgId, affectedBoxIds)
+    : {};
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = cloneValue(allocations[index]);
@@ -251,9 +275,22 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
     updatedFilmOrderCount += 1;
   }
 
+  if (installDateChanged && affectedBoxIds.length > 0) {
+    await recalculateReservationBoxesByIds(client, orgId, affectedBoxIds, {
+      physicalFeetAvailableByBoxId,
+    });
+  }
+
+  const shortageReconciliation = installDateChanged
+    ? await reconcileReservationShortagesForJob(client, orgId, jobNumber, actor, {
+        allowPlaceholderShortages: false,
+      })
+    : { createdCount: 0, updatedCount: 0, deletedCount: 0 };
+
   return {
     updatedAllocationCount,
-    updatedFilmOrderCount
+    updatedFilmOrderCount,
+    shortageReconciliation,
   };
 }
 
@@ -346,12 +383,24 @@ async function updateJob(client, orgId, payload, actor) {
       client,
       orgId,
       jobNumber,
+      actor,
+      header.installDate,
       savedHeader.installDate,
       savedHeader.crewLeader
     );
     if (syncResult.updatedAllocationCount > 0 || syncResult.updatedFilmOrderCount > 0) {
       warnings.push(
         `Updated scheduling metadata on ${syncResult.updatedAllocationCount} active allocation${syncResult.updatedAllocationCount === 1 ? '' : 's'} and ${syncResult.updatedFilmOrderCount} open film order${syncResult.updatedFilmOrderCount === 1 ? '' : 's'}.`
+      );
+    }
+    if (syncResult.shortageReconciliation.createdCount > 0) {
+      warnings.push(
+        `Created ${syncResult.shortageReconciliation.createdCount} shortage film order${syncResult.shortageReconciliation.createdCount === 1 ? '' : 's'} after rebalancing scheduled reservations.`
+      );
+    }
+    if (syncResult.shortageReconciliation.deletedCount > 0) {
+      warnings.push(
+        `Removed ${syncResult.shortageReconciliation.deletedCount} stale shortage film order${syncResult.shortageReconciliation.deletedCount === 1 ? '' : 's'} after rebalancing scheduled reservations.`
       );
     }
   }
@@ -424,7 +473,7 @@ async function completeJob(client, orgId, payload, actor) {
     }
 
     releasedFeetByBox[allocation.boxId] =
-      integerOrZero(releasedFeetByBox[allocation.boxId]) + integerOrZero(allocation.allocatedFeet);
+      integerOrZero(releasedFeetByBox[allocation.boxId]) + getRestoredAllocatableFeet(allocation);
     allocation.status = 'CANCELLED';
     allocation.resolvedAt = resolvedAt;
     allocation.resolvedBy = asTrimmedString(actor);

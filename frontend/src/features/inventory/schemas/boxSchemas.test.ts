@@ -72,6 +72,7 @@ function buildAllocation(overrides: Partial<AllocationEntry> = {}): AllocationEn
     resolvedBy: '',
     filmOrderId: '',
     notes: '',
+    reservationState: 'WITH_INSTALL_DATE',
     ...overrides
   };
 }
@@ -172,7 +173,7 @@ describe('boxSchemas price derivation', () => {
     expect(payload.pricePerLf).toBe(4.4444);
   });
 
-  it('derives received-box feet from roll weight and active allocations on edit', () => {
+  it('derives received-box feet from roll weight and locked allocations on edit', () => {
     const payload = parseUpdateBoxDraft(
       buildDraft({
         receivedDate: '2026-03-30',
@@ -189,7 +190,7 @@ describe('boxSchemas price derivation', () => {
     expect(payload.feetAvailable).toBe(15);
   });
 
-  it('derives first-receipt feet from initial feet minus active allocations', () => {
+  it('derives first-receipt feet from initial feet minus locked allocations', () => {
     const payload = parseUpdateBoxDraft(
       buildDraft({
         receivedDate: '2026-03-30',

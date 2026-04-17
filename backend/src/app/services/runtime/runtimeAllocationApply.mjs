@@ -215,6 +215,7 @@ import {
 } from './runtimeAllocationPlanning.mjs';
 import { buildPublicFilmOrderLinkedBoxes } from './runtimeJobSummaries.mjs';
 import { deleteStaleAutoShortageFilmOrdersForRequirement } from './runtimeAllocationCleanup.mjs';
+import { buildBoxReservationMetrics } from './runtimeAllocationReservations.mjs';
 
 async function buildPendingTransfersByBoxRecordId(client, orgId, boxes) {
   return indexPendingBoxTransfersByBoxRecordId(
@@ -474,6 +475,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   }
 
   const createdAllocations = [];
+  const createdAllocationRecords = [];
 
   for (let index = 0; index < selection.allocations.length; index += 1) {
     const plannedAllocation = selection.allocations[index];
@@ -511,9 +513,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     boxById[currentBox.boxId] = await saveBoxRecord(
       client,
       orgId,
-      applyPlanningAllocationToBox(currentBox, plannedAllocation.allocatedFeet)
+      applyPlanningAllocationToBox(currentBox, plannedAllocation.allocatedFeet, {
+        consumeAllocatableFeet: Boolean(jobContext.installDate),
+      })
     );
-    createdAllocations.push(toPublicAllocation(allocation));
+    createdAllocationRecords.push(allocation);
   }
 
   for (let index = 0; index < requestedExtraAllocations.length; index += 1) {
@@ -575,9 +579,49 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     boxById[currentBox.boxId] = await saveBoxRecord(
       client,
       orgId,
-      applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet)
+      applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet, {
+        consumeAllocatableFeet: Boolean(jobContext.installDate),
+      })
     );
-    createdAllocations.push(toPublicAllocation(allocation));
+    createdAllocationRecords.push(allocation);
+  }
+
+  const createdAllocationBoxIds = Array.from(
+    new Set(createdAllocationRecords.map((entry) => asTrimmedString(entry?.boxId)).filter(Boolean))
+  );
+  const reservationMetricsByBoxId = {};
+  if (createdAllocationBoxIds.length > 0) {
+    const jobs = await listJobs(client, orgId);
+    for (let index = 0; index < createdAllocationBoxIds.length; index += 1) {
+      const reservationBoxId = createdAllocationBoxIds[index];
+      const reservationBox = boxById[reservationBoxId] || (await findBoxById(client, orgId, reservationBoxId));
+      if (!reservationBox) {
+        continue;
+      }
+
+      reservationMetricsByBoxId[reservationBoxId] = buildBoxReservationMetrics(
+        reservationBox,
+        await listAllocationsByBox(client, orgId, reservationBoxId),
+        { jobs }
+      );
+    }
+  }
+
+  for (let index = 0; index < createdAllocationRecords.length; index += 1) {
+    const allocation = createdAllocationRecords[index];
+    const reservationSnapshot =
+      reservationMetricsByBoxId[asTrimmedString(allocation?.boxId)]?.allocationSnapshotsById?.[
+        asTrimmedString(allocation?.allocationId)
+      ];
+    createdAllocations.push({
+      ...toPublicAllocation(allocation),
+      backedPhysicalFeet: reservationSnapshot
+        ? reservationSnapshot.backedPhysicalFeet
+        : integerOrZero(allocation?.allocatedFeet),
+      reservationState: reservationSnapshot
+        ? reservationSnapshot.reservationState
+        : (asTrimmedString(allocation?.installDate) ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE'),
+    });
   }
 
   let remainingRequirementFeet = null;
@@ -604,7 +648,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   }
 
   let publicFilmOrder = null;
-  if (requestedFeet > 0 && selection.remainingFeet > 0) {
+  if (requestedFeet > 0 && selection.remainingFeet > 0 && Boolean(jobContext.installDate)) {
     const filmOrder = await createFilmOrderForShortage(
       client,
       orgId,

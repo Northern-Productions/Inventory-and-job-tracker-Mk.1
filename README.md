@@ -23,7 +23,7 @@ Architecture map: [docs/architecture/modular-map.md](docs/architecture/modular-m
   - serves inventory, jobs, allocations, film orders, audit history, roll history, and reports
 - Database: Supabase Postgres
   - canonical migration history lives in `backend/migrations/`
-  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0065_caulk_transfer_assist_and_new_products.sql`
+  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0066_film_allocation_lock_priority.sql`
   - mirrored deploy copy lives in `supabase/migrations/`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
@@ -62,11 +62,11 @@ backend/
 
 Run all checked-in `backend/migrations/*.sql` files in numeric order through:
 
-1. `backend/migrations/0065_caulk_transfer_assist_and_new_products.sql`
+1. `backend/migrations/0066_film_allocation_lock_priority.sql`
 
 The mirrored Supabase deploy copy for this release is:
 
-- `supabase/migrations/20260416130000_caulk_transfer_assist_and_new_products.sql`
+- `supabase/migrations/20260416170000_film_allocation_lock_priority.sql`
 
 ### 2. Import legacy sheet data if needed
 
@@ -183,7 +183,7 @@ npm run dev
 
 ## Release Checklist
 
-1. Apply DB migrations before API/frontend deploy through `0065_caulk_transfer_assist_and_new_products.sql`.
+1. Apply DB migrations before API/frontend deploy through `0066_film_allocation_lock_priority.sql`.
 2. Run `npm --prefix backend run check:schema:latest` against the target DB.
 3. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
 4. Deploy Supabase function `api`.

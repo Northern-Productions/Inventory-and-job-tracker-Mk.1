@@ -362,12 +362,15 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('Ultra 70');
     expect(html).toContain('QR Code');
     expect(html).toContain('Copy QR Code');
-    expect(html).toContain('Available Feet');
+    expect(html).toContain('On Hand Feet');
+    expect(html).toContain('Allocatable Now');
+    expect(html).toContain('Locked Feet');
+    expect(html).toContain('Placeholder Feet');
     expect(html).toContain('420');
     expect(html).toContain('Transfer Box');
   });
 
-  it('keeps Allocate enabled for ordered boxes with planning feet and shows the planning feet stat', async () => {
+  it('keeps Allocate enabled for ordered boxes with planning feet and shows the allocatable-now stat', async () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -388,7 +391,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    expect(screen.getByText('Planning Feet')).toBeTruthy();
+    expect(screen.getByText('Allocatable Now')).toBeTruthy();
     expect(screen.getByText('35')).toBeTruthy();
 
     const allocateButton = screen.getByRole('button', { name: 'Allocate' }) as HTMLButtonElement;

@@ -254,4 +254,46 @@ describe('Allocation job film returns', () => {
       );
     });
   });
+
+  it('surfaces the same-day crew conflict checkout error from the backend', async () => {
+    const pushToast = vi.fn();
+    const setBoxStatus = vi.fn().mockRejectedValue(
+      new Error(
+        'Box MS1-919 is already allocated to 4449 on the same install date for a different crew leader. Clear that same-day crew conflict before checkout.'
+      )
+    );
+
+    const { result } = renderHook(() =>
+      useJobFilmWorkflow({
+        summary: buildSummary(),
+        isReadOnlyJob: false,
+        previousHasOutstandingMaterials: true,
+        filmTransferAlertsByBoxId: {},
+        pendingRemoveJobBoxAllocationIds: new Set(),
+        ensureSignedIn: () => true,
+        maybeOpenReturnCompletionPrompt: vi.fn(),
+        pushToast,
+        removeJobBoxAllocations: vi.fn(),
+        setBoxStatus
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleCheckoutAllocation(
+        buildFilmAllocationEntry({
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        })
+      );
+    });
+
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({
+        title: 'Unable to check out box',
+        description:
+          'Box MS1-919 is already allocated to 4449 on the same install date for a different crew leader. Clear that same-day crew conflict before checkout.',
+        variant: 'error'
+      })
+    );
+  });
 });

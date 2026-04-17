@@ -1,5 +1,6 @@
 // Purpose: Job summary, lifecycle, and linked film-order presentation helpers.
 import { buildCurrentCheckedOutAllocationIdSet } from '../../../../../shared/checkoutSemantics.mjs';
+import { hasSameDayCrewConflict } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -86,8 +87,6 @@ import {
   normalizeJobLifecycleFilter,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
-  normalizeJobNumberKey,
-  normalizeCrewLeaderKey,
   compareBoxesByOldestStock,
   compareAllocationJobSummaries,
   compareJobsListEntries,
@@ -205,6 +204,7 @@ import {
   isUnresolvedFilmOrderStatus,
 } from './runtimeFilmOrderSchedule.mjs';
 import { buildCaulkTransferAlertMessage, buildFilmTransferAlertMessage } from './runtimeTransferUsage.mjs';
+import { buildBoxReservationMetrics } from './runtimeAllocationReservations.mjs';
 
 function countUnresolvedFilmOrders(filmOrders) {
   const entries = Array.isArray(filmOrders) ? filmOrders : [];
@@ -460,13 +460,6 @@ function getJobStagingBlockingReason(
 }
 
 function hasSharedActiveBoxConflict(jobNumber, installDate, crewLeader, jobAllocations, allAllocations) {
-  const normalizedInstallDate = asTrimmedString(installDate);
-  if (!normalizedInstallDate) {
-    return false;
-  }
-
-  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
-  const normalizedCrewLeader = normalizeCrewLeaderKey(crewLeader);
   const activeBoxIds = {};
 
   for (let index = 0; index < jobAllocations.length; index += 1) {
@@ -482,33 +475,11 @@ function hasSharedActiveBoxConflict(jobNumber, installDate, crewLeader, jobAlloc
     return false;
   }
 
-  const candidates = Array.isArray(allAllocations) ? allAllocations : [];
-  for (let index = 0; index < candidates.length; index += 1) {
-    const entry = candidates[index];
-    if (entry.status !== 'ACTIVE') {
-      continue;
-    }
-
-    if (!activeBoxIds[entry.boxId]) {
-      continue;
-    }
-
-    if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
-      continue;
-    }
-
-    if (asTrimmedString(entry.installDate) !== normalizedInstallDate) {
-      continue;
-    }
-
-    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedCrewLeader) {
-      continue;
-    }
-
-    return true;
-  }
-
-  return false;
+  return hasSameDayCrewConflict(
+    { jobNumber, installDate, crewLeader },
+    allAllocations,
+    { boxIds: activeBoxIds }
+  );
 }
 
 function buildJobListEntry(
@@ -529,12 +500,16 @@ function buildJobListEntry(
 
   let requiredFeet = 0;
   let allocatedFeet = 0;
+  let allocatedWithInstallDateFeet = 0;
+  let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
 
   for (let index = 0; index < requirements.length; index += 1) {
     requiredFeet += requirements[index].requiredFeet;
     allocatedFeet += requirements[index].allocatedFeet;
+    allocatedWithInstallDateFeet += integerOrZero(requirements[index].allocatedWithInstallDateFeet);
+    allocatedWithoutInstallDateFeet += integerOrZero(requirements[index].allocatedWithoutInstallDateFeet);
     remainingFeet += requirements[index].remainingFeet;
   }
 
@@ -569,6 +544,8 @@ function buildJobListEntry(
     isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
     requiredFeet,
     allocatedFeet,
+    allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet,
     remainingFeet,
     requiredTubes: caulkTotals.requiredTubes,
     allocatedTubes: caulkTotals.allocatedTubes,
@@ -608,15 +585,43 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
       return left.createdAt < right.createdAt ? -1 : left.createdAt > right.createdAt ? 1 : 0;
     });
   const currentCheckedOutAllocationIds = buildCurrentCheckedOutAllocationIdSet(sortedAllocations, boxById);
+  const activeAllocationsByBoxId = {};
+
+  for (let index = 0; index < sortedAllocations.length; index += 1) {
+    const entry = sortedAllocations[index];
+    if (asTrimmedString(entry?.status).toUpperCase() !== 'ACTIVE') {
+      continue;
+    }
+
+    if (!activeAllocationsByBoxId[entry.boxId]) {
+      activeAllocationsByBoxId[entry.boxId] = [];
+    }
+
+    activeAllocationsByBoxId[entry.boxId].push(entry);
+  }
+
+  const reservationMetricsByBoxId = {};
+  for (const boxId of Object.keys(activeAllocationsByBoxId)) {
+    const box = boxById[boxId];
+    if (!box) {
+      continue;
+    }
+
+    reservationMetricsByBoxId[boxId] = buildBoxReservationMetrics(box, activeAllocationsByBoxId[boxId]);
+  }
 
   return sortedAllocations.map((entry) => {
     const box = boxById[entry.boxId];
+    const reservationSnapshot =
+      reservationMetricsByBoxId[entry.boxId]?.allocationSnapshotsById?.[entry.allocationId] || null;
     return {
       ...toPublicAllocation(entry),
       manufacturer: box ? box.manufacturer : '',
       filmName: box ? box.filmName : '',
       widthIn: box ? box.widthIn : 0,
       boxStatus: box ? box.status : '',
+      backedPhysicalFeet: reservationSnapshot ? reservationSnapshot.backedPhysicalFeet : integerOrZero(entry.allocatedFeet),
+      reservationState: reservationSnapshot ? reservationSnapshot.reservationState : 'WITHOUT_INSTALL_DATE',
       checkedOutOnThisJob: Boolean(currentCheckedOutAllocationIds[entry.allocationId])
     };
   });

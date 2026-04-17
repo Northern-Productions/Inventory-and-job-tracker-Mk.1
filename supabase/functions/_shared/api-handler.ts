@@ -63,6 +63,11 @@ import {
   getJobPlanningFilmMatch as getSharedJobPlanningFilmMatch,
 } from "../../../shared/domain/jobPlanningFilmMatcher.mjs";
 import { rankJobNumberSearchCandidates } from "../../../shared/domain/jobNumberSearchMatcher.mjs";
+import {
+  buildBoxReservationSnapshot,
+  getAllocationReservationState,
+} from "../../../shared/domain/filmAllocationReservations.mjs";
+import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 
 type CacheEntry = {
   expiresAt: number;
@@ -2903,6 +2908,54 @@ function getStoredAllocationCoveredFeet(allocation: any) {
   return integerOrZero(allocation.allocatedFeet);
 }
 
+function createEmptyRequirementCoverageSummary() {
+  return {
+    allocatedFeet: 0,
+    allocatedWithInstallDateFeet: 0,
+    allocatedWithoutInstallDateFeet: 0,
+  };
+}
+
+function ensureRequirementCoverageSummary(
+  coverageByRequirementId: Record<string, ReturnType<typeof createEmptyRequirementCoverageSummary>>,
+  requirementId: string,
+) {
+  if (!coverageByRequirementId[requirementId]) {
+    coverageByRequirementId[requirementId] = createEmptyRequirementCoverageSummary();
+  }
+
+  return coverageByRequirementId[requirementId];
+}
+
+function addRequirementCoverageFeet(
+  coverageByRequirementId: Record<string, ReturnType<typeof createEmptyRequirementCoverageSummary>>,
+  requirementId: string,
+  requiredFeet: number,
+  reservationState: "WITH_INSTALL_DATE" | "WITHOUT_INSTALL_DATE",
+  feet: number,
+) {
+  const normalizedFeet = Math.max(0, Number(feet || 0));
+  if (!requirementId || normalizedFeet <= 0 || requiredFeet <= 0) {
+    return 0;
+  }
+
+  const summary = ensureRequirementCoverageSummary(coverageByRequirementId, requirementId);
+  const remainingCapacity = Math.max(0, requiredFeet - Math.max(0, Number(summary.allocatedFeet || 0)));
+  if (remainingCapacity <= 0) {
+    return 0;
+  }
+
+  const appliedFeet = Math.min(remainingCapacity, normalizedFeet);
+  summary.allocatedFeet += appliedFeet;
+  if (reservationState === "WITH_INSTALL_DATE") {
+    summary.allocatedWithInstallDateFeet += appliedFeet;
+  } else {
+    summary.allocatedWithoutInstallDateFeet += appliedFeet;
+  }
+
+  return appliedFeet;
+}
+
 function buildAllocationCoverageByRequirementId(requirements: any[], allocations: any[], boxById: Record<string, any>) {
   const grouped: Record<string, {
     requirements: Array<{
@@ -2924,7 +2977,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       index: number;
     }>;
   }> = {};
-  const coverageByRequirementId: Record<string, number> = {};
+  const coverageByRequirementId: Record<string, ReturnType<typeof createEmptyRequirementCoverageSummary>> = {};
   const requirementById: Record<string, any> = {};
 
   for (let index = 0; index < requirements.length; index += 1) {
@@ -2972,10 +3025,12 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
     const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
-      coverageByRequirementId[boundRequirementId] = Math.min(
+      addRequirementCoverageFeet(
+        coverageByRequirementId,
+        boundRequirementId,
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) +
-          coveredFeet,
+        getAllocationReservationState(allocation),
+        coveredFeet,
       );
       continue;
     }
@@ -2992,6 +3047,7 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
       filmName: box.filmName,
       widthIn: Number(box.widthIn) || 0,
       remainingFeet: coveredFeet,
+      reservationState: getAllocationReservationState(allocation),
       isExterior: planningFilmIsExterior(box.manufacturer, box.filmName),
       index,
     });
@@ -3024,7 +3080,8 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
     for (const requirement of group.requirements) {
       let remainingNeed = Math.max(
         0,
-        requirement.requiredFeet - Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0)),
+        requirement.requiredFeet -
+          Math.max(0, Number(coverageByRequirementId[requirement.requirementId]?.allocatedFeet || 0)),
       );
       const compatiblePools = group.pools
         .filter(
@@ -3050,12 +3107,14 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
         const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
         pool.remainingFeet -= assignedFeet;
         remainingNeed -= assignedFeet;
+        addRequirementCoverageFeet(
+          coverageByRequirementId,
+          requirement.requirementId,
+          requirement.requiredFeet,
+          pool.reservationState,
+          assignedFeet,
+        );
       }
-
-      coverageByRequirementId[requirement.requirementId] = Math.min(
-        requirement.requiredFeet,
-        requirement.requiredFeet - Math.max(0, remainingNeed),
-      );
     }
   }
 
@@ -3066,7 +3125,8 @@ function buildPublicJobRequirementEntries(requirements: any[], allocations: any[
   const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = requirements.map((requirement) => {
     const requirementId = asTrimmedString(requirement.id) || createLogId();
-    const allocatedFeet = Math.max(0, Number(coverage[requirementId] || 0));
+    const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
+    const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
     const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
     return {
@@ -3076,6 +3136,14 @@ function buildPublicJobRequirementEntries(requirements: any[], allocations: any[
       widthIn: requirement.widthIn,
       requiredFeet,
       allocatedFeet: requiredFeet - remainingFeet,
+      allocatedWithInstallDateFeet: Math.min(
+        requiredFeet - remainingFeet,
+        Math.max(0, Number(coverageSummary.allocatedWithInstallDateFeet || 0)),
+      ),
+      allocatedWithoutInstallDateFeet: Math.min(
+        requiredFeet - remainingFeet,
+        Math.max(0, Number(coverageSummary.allocatedWithoutInstallDateFeet || 0)),
+      ),
       remainingFeet,
     };
   });
@@ -3138,6 +3206,8 @@ function buildAllocationJobSummary(
   let hasCancelledRecord = false;
   let hasFulfilledRecord = false;
   let activeAllocatedFeet = 0;
+  let allocatedWithInstallDateFeet = 0;
+  let allocatedWithoutInstallDateFeet = 0;
   let fulfilledAllocatedFeet = 0;
   let openFilmOrderCount = 0;
   const distinctBoxes: Record<string, boolean> = {};
@@ -3147,6 +3217,11 @@ function buildAllocationJobSummary(
     requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
     caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
   const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
+
+  for (const requirement of requirements) {
+    allocatedWithInstallDateFeet += Math.max(0, Number(requirement?.allocatedWithInstallDateFeet || 0));
+    allocatedWithoutInstallDateFeet += Math.max(0, Number(requirement?.allocatedWithoutInstallDateFeet || 0));
+  }
 
   for (const allocation of allocations) {
     if (allocation.boxId) {
@@ -3210,6 +3285,8 @@ function buildAllocationJobSummary(
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
     activeAllocatedFeet,
+    allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet,
     fulfilledAllocatedFeet,
     requiredTubes: caulkTotals.requiredTubes,
     allocatedTubes: caulkTotals.allocatedTubes,
@@ -3438,11 +3515,15 @@ function buildJobListEntry(
   const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
   let requiredFeet = 0;
   let allocatedFeet = 0;
+  let allocatedWithInstallDateFeet = 0;
+  let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   for (const requirement of requirements) {
     requiredFeet += requirement.requiredFeet;
     allocatedFeet += requirement.allocatedFeet;
+    allocatedWithInstallDateFeet += Math.max(0, Number(requirement.allocatedWithInstallDateFeet || 0));
+    allocatedWithoutInstallDateFeet += Math.max(0, Number(requirement.allocatedWithoutInstallDateFeet || 0));
     remainingFeet += requirement.remainingFeet;
   }
   const effectiveLifecycleStatus =
@@ -3469,6 +3550,8 @@ function buildJobListEntry(
     lifecycleStatus: effectiveLifecycleStatus,
     requiredFeet,
     allocatedFeet,
+    allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet,
     remainingFeet,
     requiredTubes: caulkTotals.requiredTubes,
     allocatedTubes: caulkTotals.allocatedTubes,
@@ -3492,33 +3575,16 @@ async function buildJobContextForCheckedOutBox(client: any, orgId: string, jobNu
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   return {
     jobNumber: normalizedJobNumber,
+    installDate: asTrimmedString(header?.installDate) || metadata.installDate || "",
     crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || "",
   };
 }
 
-function getCheckoutCrewConflictJobs(targetJobNumber: string, targetCrewLeader: string, allocations: any[]) {
-  const normalizedTargetJobNumber = normalizeJobNumberKey(targetJobNumber);
-  const normalizedTargetCrewLeader = normalizeCrewLeaderKey(targetCrewLeader);
-  const conflicts: string[] = [];
-  const seen: Record<string, boolean> = {};
-
-  for (const entry of allocations) {
-    if (asTrimmedString(entry.status).toUpperCase() !== "ACTIVE") {
-      continue;
-    }
-    if (normalizeJobNumberKey(entry.jobNumber) === normalizedTargetJobNumber) {
-      continue;
-    }
-    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizedTargetCrewLeader) {
-      continue;
-    }
-    if (!seen[entry.jobNumber]) {
-      seen[entry.jobNumber] = true;
-      conflicts.push(entry.jobNumber);
-    }
-  }
-
-  return conflicts;
+function getCheckoutCrewConflictJobs(
+  targetJobContext: { jobNumber: string; installDate: string; crewLeader: string },
+  allocations: any[],
+) {
+  return getSameDayCrewConflictJobs(targetJobContext, allocations);
 }
 
 async function ensureBoxCheckoutCrewCompatibility(client: any, orgId: string, payload: Record<string, unknown>) {
@@ -3539,11 +3605,11 @@ async function ensureBoxCheckoutCrewCompatibility(client: any, orgId: string, pa
     listAllocationsByBox(client, orgId, boxId),
     buildJobContextForCheckedOutBox(client, orgId, jobNumber),
   ]);
-  const conflicts = getCheckoutCrewConflictJobs(jobNumber, targetJobContext.crewLeader, boxAllocations);
+  const conflicts = getCheckoutCrewConflictJobs(targetJobContext, boxAllocations);
   if (conflicts.length > 0) {
     throw new HttpError(
       400,
-      `Box ${boxId} is still allocated to ${conflicts.join(", ")} with a different crew leader. Clear those allocations before checkout.`,
+      `Box ${boxId} is already allocated to ${conflicts.join(", ")} on the same install date for a different crew leader. Clear that same-day crew conflict before checkout.`,
     );
   }
 }
@@ -3575,15 +3641,42 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
       return left.createdAt < right.createdAt ? -1 : left.createdAt > right.createdAt ? 1 : 0;
     });
   const currentCheckedOutAllocationIds = buildCurrentCheckedOutAllocationIdSet(sortedAllocations, boxById);
+  const activeAllocationsByBoxId: Record<string, any[]> = {};
+
+  for (const entry of sortedAllocations) {
+    if (asTrimmedString(entry?.status).toUpperCase() !== "ACTIVE") {
+      continue;
+    }
+
+    if (!activeAllocationsByBoxId[entry.boxId]) {
+      activeAllocationsByBoxId[entry.boxId] = [];
+    }
+
+    activeAllocationsByBoxId[entry.boxId].push(entry);
+  }
+
+  const reservationSnapshotsByBoxId: Record<string, ReturnType<typeof buildBoxReservationSnapshot>> = {};
+  for (const boxId of Object.keys(activeAllocationsByBoxId)) {
+    const box = boxById[boxId];
+    if (!box) {
+      continue;
+    }
+
+    reservationSnapshotsByBoxId[boxId] = buildBoxReservationSnapshot(box, activeAllocationsByBoxId[boxId]);
+  }
 
   return sortedAllocations.map((entry) => {
     const box = boxById[entry.boxId];
+    const allocationSnapshot =
+      reservationSnapshotsByBoxId[entry.boxId]?.allocationSnapshotsById?.[entry.allocationId] || null;
     return {
       ...toPublicAllocation(entry),
       manufacturer: box ? box.manufacturer : "",
       filmName: box ? box.filmName : "",
       widthIn: box ? box.widthIn : 0,
       boxStatus: box ? box.status : "",
+      backedPhysicalFeet: allocationSnapshot ? allocationSnapshot.backedPhysicalFeet : integerOrZero(entry.allocatedFeet),
+      reservationState: allocationSnapshot ? allocationSnapshot.reservationState : "WITHOUT_INSTALL_DATE",
       checkedOutOnThisJob: Boolean(currentCheckedOutAllocationIds[entry.allocationId]),
     };
   });
@@ -3609,28 +3702,7 @@ function getDateConflictJobsForBox(
   jobContext: { jobNumber: string; installDate: string; crewLeader: string },
   activeAllocationsByBox: Record<string, any[]>,
 ) {
-  if (!jobContext.installDate) {
-    return [];
-  }
-  const active = getActiveAllocationsForBox(boxId, activeAllocationsByBox);
-  const conflicts: string[] = [];
-  const seen: Record<string, boolean> = {};
-  for (const entry of active) {
-    if (
-      entry.installDate !== jobContext.installDate ||
-      normalizeJobNumberKey(entry.jobNumber) === normalizeJobNumberKey(jobContext.jobNumber)
-    ) {
-      continue;
-    }
-    if (normalizeCrewLeaderKey(entry.crewLeader) === normalizeCrewLeaderKey(jobContext.crewLeader)) {
-      continue;
-    }
-    if (!seen[entry.jobNumber]) {
-      seen[entry.jobNumber] = true;
-      conflicts.push(entry.jobNumber);
-    }
-  }
-  return conflicts;
+  return getSameDayCrewConflictJobs(jobContext, getActiveAllocationsForBox(boxId, activeAllocationsByBox));
 }
 
 async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
@@ -4123,6 +4195,15 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === "true";
   const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
+  const activeAllocations = await listActiveAllocations(client, orgId);
+  const activeAllocationsByBoxId: Record<string, any[]> = {};
+  for (const entry of activeAllocations) {
+    if (!activeAllocationsByBoxId[entry.boxId]) {
+      activeAllocationsByBoxId[entry.boxId] = [];
+    }
+
+    activeAllocationsByBoxId[entry.boxId].push(entry);
+  }
   const filteredBoxes = boxes.filter((box) => {
     if (!showRetired && !status && (box.status === "ZEROED" || box.status === "RETIRED")) {
       return false;
@@ -4154,7 +4235,16 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   });
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, filteredBoxes);
   let filtered = filteredBoxes.map((box) => {
-    const publicBox = toPublicBox(box);
+    const reservationSnapshot = buildBoxReservationSnapshot(box, activeAllocationsByBoxId[box.boxId] || []);
+    const publicBox = toPublicBox({
+      ...box,
+      physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+      allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
+      allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
+      allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
+      activeAllocatedFeet: reservationSnapshot.activeAllocatedFeet,
+      allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
+    });
     const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
     if (!pendingTransfer || !isJobAllocationEligibleBox(box, pendingTransfer, pendingTransfer.destinationWarehouse)) {
       return publicBox;
@@ -6392,6 +6482,8 @@ async function dispatchMutation(
     callMutationRpc,
     findPendingBoxTransferByDestinationBoxId,
     findBoxById,
+    listAllocationsByBox,
+    listJobs,
     toPublicBox,
     startBoxTransfer,
     receiveBoxTransfer,

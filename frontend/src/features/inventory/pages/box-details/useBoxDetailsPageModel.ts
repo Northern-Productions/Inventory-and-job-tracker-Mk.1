@@ -135,6 +135,10 @@ export function useBoxDetailsPageModel() {
       : '';
   }, [allocations, box?.lastCheckoutJob]);
   const currentFeetOnRoll = box ? deriveCurrentFeetOnRollForBox(box, allocationsForCurrentFeet) : null;
+  const effectiveCurrentFeetOnRoll =
+    currentFeetOnRoll === null && box?.physicalFeetAvailable !== undefined && box?.physicalFeetAvailable !== null
+      ? box.physicalFeetAvailable
+      : currentFeetOnRoll;
   const shouldBlockEditWhileAllocationsResolve = Boolean(
     box &&
       boxNeedsAllocationsToResolveCurrentFeet(box) &&
@@ -142,10 +146,10 @@ export function useBoxDetailsPageModel() {
   );
   const onHandAssetCost =
     box &&
-    currentFeetOnRoll !== null &&
+    effectiveCurrentFeetOnRoll !== null &&
     typeof box.pricePerLf === 'number' &&
     Number.isFinite(box.pricePerLf)
-      ? Math.max(currentFeetOnRoll, 0) * box.pricePerLf
+      ? Math.max(effectiveCurrentFeetOnRoll, 0) * box.pricePerLf
       : null;
   const checkoutJobOptions = useMemo(() => {
     const activeAllocations = allocations

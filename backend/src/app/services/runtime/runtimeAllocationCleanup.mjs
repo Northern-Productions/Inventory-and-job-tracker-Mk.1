@@ -194,6 +194,12 @@ import {
 } from '../runtimeDeps.mjs';
 import { recalculateFilmOrder } from './runtimeAllocationPlanning.mjs';
 import { isUnresolvedFilmOrderStatus } from './runtimeFilmOrderSchedule.mjs';
+import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
+import { deleteOrphanAutoShortageFilmOrdersForRequirement } from './runtimeAutoShortageFilmOrders.mjs';
+
+function getRestoredAllocatableFeet(entry) {
+  return getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0;
+}
 
 function countFilmOrderStateEntries(entry) {
   if (Array.isArray(entry)) {
@@ -277,61 +283,12 @@ async function deleteStaleAutoShortageFilmOrdersForRequirement(
   if (!requirement || integerOrZero(remainingRequirementFeet) > 0) {
     return [];
   }
-
-  const requirementKey = normalizeJobRequirementLookupKey(
-    requirement.manufacturer,
-    requirement.filmName,
-    requirement.widthIn
-  );
-  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
-  const filmOrderLinksById = {};
-  const filmOrderAllocationsById = {};
-
-  for (let index = 0; index < filmOrders.length; index += 1) {
-    const filmOrder = filmOrders[index];
-    const filmOrderId = asTrimmedString(filmOrder && filmOrder.filmOrderId);
-    if (!filmOrderId) {
-      continue;
-    }
-
-    if (!isUnresolvedFilmOrderStatus(filmOrder.status) || !asTrimmedString(filmOrder.sourceBoxId)) {
-      continue;
-    }
-
-    if (
-      normalizeJobRequirementLookupKey(
-        filmOrder.manufacturer,
-        filmOrder.filmName,
-        filmOrder.widthIn
-      ) !== requirementKey
-    ) {
-      continue;
-    }
-
-    filmOrderLinksById[filmOrderId] = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-    filmOrderAllocationsById[filmOrderId] = await listAllocationsByFilmOrderId(client, orgId, filmOrderId);
-  }
-
-  const candidates = buildStaleAutoShortageFilmOrderCleanupCandidates({
+  return deleteOrphanAutoShortageFilmOrdersForRequirement(
+    client,
+    orgId,
     jobNumber,
-    requirement,
-    remainingRequirementFeet,
-    filmOrders,
-    filmOrderLinksById,
-    filmOrderAllocationsById
-  });
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const filmOrderId = asTrimmedString(candidates[index].filmOrderId);
-    if (!filmOrderId) {
-      continue;
-    }
-
-    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-    await deleteFilmOrderRecord(client, orgId, filmOrderId);
-  }
-
-  return candidates;
+    requirement
+  );
 }
 
 async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, reason) {
@@ -348,7 +305,7 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
       continue;
     }
 
-    activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + entry.allocatedFeet;
+    activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + getRestoredAllocatableFeet(entry);
     entry.status = 'CANCELLED';
     entry.resolvedAt = new Date().toISOString();
     entry.resolvedBy = asTrimmedString(user);
@@ -422,7 +379,8 @@ async function prepareDeletedJobCleanup(client, orgId, jobNumber, user, reason) 
       continue;
     }
 
-    releasedFeetByBox[entry.boxId] = integerOrZero(releasedFeetByBox[entry.boxId]) + integerOrZero(entry.allocatedFeet);
+    releasedFeetByBox[entry.boxId] =
+      integerOrZero(releasedFeetByBox[entry.boxId]) + getRestoredAllocatableFeet(entry);
     entry.status = 'CANCELLED';
     entry.resolvedAt = new Date().toISOString();
     entry.resolvedBy = asTrimmedString(user);
@@ -557,7 +515,7 @@ async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, u
     asTrimmedString(reason) ||
     `Removed allocation ${entry.allocationId} for box ${entry.boxId} from job ${jobNumber} on allocation detail page.`;
   const releasedFeet =
-    entry.status === 'ACTIVE' || entry.status === 'FULFILLED' ? entry.allocatedFeet : 0;
+    entry.status === 'ACTIVE' || entry.status === 'FULFILLED' ? getRestoredAllocatableFeet(entry) : 0;
 
   entry.status = 'CANCELLED';
   entry.resolvedAt = resolvedAt;
@@ -601,7 +559,7 @@ async function cancelFilmOrderAndReleaseAllocations(client, orgId, filmOrderId, 
       continue;
     }
 
-    activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + entry.allocatedFeet;
+    activeByBoxId[entry.boxId] = (activeByBoxId[entry.boxId] || 0) + getRestoredAllocatableFeet(entry);
     entry.status = 'CANCELLED';
     entry.resolvedAt = resolvedAt;
     entry.resolvedBy = asTrimmedString(user);

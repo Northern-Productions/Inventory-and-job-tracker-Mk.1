@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatFilmOrderOriginLabel,
+  getFilmOrderOrigin,
+  getFilmOrderOriginSourceBoxId,
   hasFilmOrdersNeedingAttention,
   hasFilmOrderInstallDate,
   isFilmOrderNeedingAttention
@@ -67,5 +70,17 @@ describe('filmOrders helpers', () => {
         installDate: '2026-04-13'
       })
     ).toBe(false);
+  });
+
+  it('derives auto-shortage origin from the source box when the API payload does not spell it out', () => {
+    expect(getFilmOrderOrigin({ sourceBoxId: 'IL1-6923' })).toBe('AUTO_SHORTAGE');
+    expect(formatFilmOrderOriginLabel({ sourceBoxId: 'IL1-6923' })).toBe('Auto shortage');
+    expect(getFilmOrderOriginSourceBoxId({ sourceBoxId: 'IL1-6923' })).toBe('IL1-6923');
+  });
+
+  it('preserves explicit manual origin and hides the source box helper text', () => {
+    expect(getFilmOrderOrigin({ origin: 'MANUAL', sourceBoxId: 'IL1-6923' })).toBe('MANUAL');
+    expect(formatFilmOrderOriginLabel({ origin: 'MANUAL', sourceBoxId: '' })).toBe('Manual');
+    expect(getFilmOrderOriginSourceBoxId({ origin: 'MANUAL', sourceBoxId: '' })).toBe('');
   });
 });

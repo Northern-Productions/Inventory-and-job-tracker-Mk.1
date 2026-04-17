@@ -5,11 +5,19 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/admin/user-permissions',
   '/owner/admin-permissions',
   '/owner/notification-preferences',
+  '/owner/caulk/manufacturers/upsert',
   '/caulk/products/upsert',
+  '/caulk/mutate',
+  '/caulk/transfer',
   '/caulk/transfers/receive',
   '/caulk/transfers/cancel',
   '/boxes/add',
+  '/boxes/delete',
   '/boxes/update',
+  '/boxes/set-status',
+  '/boxes/transfer/start',
+  '/boxes/transfer/receive',
+  '/boxes/transfer/cancel',
   '/allocations/apply',
   '/allocations/remove-box',
   '/allocations/caulk/add',
@@ -23,27 +31,39 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/jobs/checkout-all',
   '/jobs/complete',
   '/jobs/delete',
+  '/jobs/reopen',
   '/film-orders/create',
   '/film-orders/cancel',
-  '/film-orders/delete'
+  '/film-orders/delete',
+  '/audit/undo'
 ]);
 
 export const LOCAL_FALLBACK_READ_PATHS = new Set([
   '/app/attention-summary',
   '/boxes/search',
   '/boxes/get',
+  '/boxes/transfer/by-box',
   '/boxes/transfer/plan',
+  '/audit/list',
+  '/audit/by-box',
+  '/caulk/manufacturers/list',
+  '/caulk/products/list',
+  '/caulk/stock/list',
   '/allocations/by-box',
   '/allocations/by-job',
   '/allocations/jobs',
   '/allocations/preview',
+  '/film-orders/list',
+  '/film-data/catalog',
   '/owner/reports/asset-total-cost',
+  '/reports/summary',
   '/jobs/calendar',
   '/jobs/get',
   '/jobs/list',
   '/jobs/search',
   '/caulk/transactions/list',
-  '/caulk/transfers/list'
+  '/caulk/transfers/list',
+  '/roll-history/by-box'
 ]);
 
 export function shouldUseLocalFallbackRoute(method, logicalPath) {

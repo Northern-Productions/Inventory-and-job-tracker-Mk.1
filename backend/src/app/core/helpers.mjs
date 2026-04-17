@@ -236,12 +236,15 @@ function boxCanReceiveReleasedAllocationFeet(box) {
   return normalizedStatus !== 'ZEROED' && normalizedStatus !== 'RETIRED' && normalizedStatus !== 'ORDERED';
 }
 
-function applyPlanningAllocationToBox(box, allocatedFeet) {
+function applyPlanningAllocationToBox(box, allocatedFeet, options = {}) {
   const nextAllocatedFeet = Math.max(0, integerOrZero(allocatedFeet));
   const nextActiveAllocatedFeet = integerOrZero(box.activeAllocatedFeet) + nextAllocatedFeet;
+  const consumesAllocatableFeet = options.consumeAllocatableFeet !== false;
   const nextFeetAvailable = boxUsesOrderedPlanning(box)
     ? 0
-    : Math.max(0, integerOrZero(box.feetAvailable) - nextAllocatedFeet);
+    : consumesAllocatableFeet
+      ? Math.max(0, integerOrZero(box.feetAvailable) - nextAllocatedFeet)
+      : Math.max(0, integerOrZero(box.feetAvailable));
 
   return {
     ...box,
@@ -256,12 +259,13 @@ function applyPlanningAllocationToBox(box, allocatedFeet) {
   };
 }
 
-function releaseAllocationFeetFromBox(box, releasedFeet) {
+function releaseAllocationFeetFromBox(box, releasedFeet, options = {}) {
   const nextReleasedFeet = Math.max(0, integerOrZero(releasedFeet));
   const nextActiveAllocatedFeet = Math.max(0, integerOrZero(box.activeAllocatedFeet) - nextReleasedFeet);
+  const restoresAllocatableFeet = options.restoreAllocatableFeet !== false;
   const nextFeetAvailable = boxUsesOrderedPlanning(box)
     ? 0
-    : boxCanReceiveReleasedAllocationFeet(box)
+    : restoresAllocatableFeet && boxCanReceiveReleasedAllocationFeet(box)
       ? Math.min(integerOrZero(box.initialFeet), Math.max(0, integerOrZero(box.feetAvailable) + nextReleasedFeet))
       : integerOrZero(box.feetAvailable);
 

@@ -16,6 +16,10 @@ export interface Box {
   widthIn: number;
   initialFeet: number;
   feetAvailable: number;
+  physicalFeetAvailable?: number | null;
+  allocatableNowFeet?: number | null;
+  allocatedWithInstallDateFeet?: number;
+  allocatedWithoutInstallDateFeet?: number;
   allocationPlanningFeet: number;
   lotRun: string;
   status: BoxStatus;

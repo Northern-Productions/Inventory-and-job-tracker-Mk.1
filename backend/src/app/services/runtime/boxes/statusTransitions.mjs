@@ -32,6 +32,8 @@ import {
   getCheckoutJobNumberFromAuditNotes,
 } from '../checkout/audit.mjs';
 import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
+import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
+import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 
 async function setBoxStatus(client, orgId, payload, actor) {
   const warnings = [];
@@ -91,7 +93,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     if (crewConflictJobs.length > 0) {
       throw new HttpError(
         400,
-        `Box ${existing.boxId} is still allocated to ${crewConflictJobs.join(', ')} with a different crew leader. Clear those allocations before checkout.`
+        `Box ${existing.boxId} is already allocated to ${crewConflictJobs.join(', ')} on the same install date for a different crew leader. Clear that same-day crew conflict before checkout.`
       );
     }
 
@@ -266,10 +268,34 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
       updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     }
+
+    if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {
+      const shortageReconciliation = await reconcileReservationShortagesForBox(
+        client,
+        orgId,
+        updatedBox.boxId,
+        actor,
+        { allowPlaceholderShortages: true }
+      );
+      if (shortageReconciliation.createdCount > 0) {
+        warnings.push(
+          `Created ${shortageReconciliation.createdCount} shortage film order${shortageReconciliation.createdCount === 1 ? '' : 's'} after confirming the returned box footage.`
+        );
+      }
+      if (shortageReconciliation.deletedCount > 0) {
+        warnings.push(
+          `Removed ${shortageReconciliation.deletedCount} stale shortage film order${shortageReconciliation.deletedCount === 1 ? '' : 's'} after confirming the returned box footage.`
+        );
+      }
+    }
   }
 
-  const publicBefore = toPublicBox(existing);
-  const publicAfter = toPublicBox(updatedBox);
+  const publicBefore = toPublicBox(
+    applyReservationMetricsToBox(existing, await listAllocationsByBox(client, orgId, existing.boxId))
+  );
+  const publicAfter = toPublicBox(
+    applyReservationMetricsToBox(updatedBox, await listAllocationsByBox(client, orgId, updatedBox.boxId))
+  );
   const logId = await appendAuditEntry(
     client,
     orgId,

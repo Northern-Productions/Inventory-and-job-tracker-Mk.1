@@ -24,6 +24,8 @@ import {
   usePendingDeleteFilmOrderIds
 } from '../hooks/useInventoryQueries';
 import {
+  formatFilmOrderOriginLabel,
+  getFilmOrderOriginSourceBoxId,
   isFilmOrderNeedingAttention,
   isUnresolvedFilmOrder
 } from '../utils/filmOrders';
@@ -209,6 +211,10 @@ export default function FilmOrdersPage() {
           Shortages that still need ordering stay at the top. Use FILM ORDERED to add an incoming
           box tied to the job.
         </p>
+        <p className="muted-text">
+          Manual orders are created from Film Orders. Auto shortage orders are created after
+          return/weigh or schedule rebalance, not at checkout.
+        </p>
         <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
         {!showFilmOrdersLoading && !filmOrdersQuery.isError && !orderedEntries.length ? (
@@ -221,6 +227,7 @@ export default function FilmOrdersPage() {
                 const isDeletePending = pendingDeleteFilmOrderIds.has(
                   order.filmOrderId.trim().toUpperCase()
                 );
+                const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
 
                 return (
                   <MobileRecordCard key={order.filmOrderId}>
@@ -243,6 +250,8 @@ export default function FilmOrdersPage() {
                     <MobileFieldList>
                       <MobileField label="Warehouse" value={order.warehouse} />
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
+                      <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
+                      {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
                       <MobileField label="Install Date" value={formatDate(order.installDate)} />
@@ -281,6 +290,7 @@ export default function FilmOrdersPage() {
                     <th>Job</th>
                     <th>Warehouse</th>
                     <th>Film</th>
+                    <th>Origin</th>
                     <th>Width</th>
                     <th>Need To Order</th>
                     <th>Install Date</th>
@@ -293,6 +303,7 @@ export default function FilmOrdersPage() {
                     const isDeletePending = pendingDeleteFilmOrderIds.has(
                       order.filmOrderId.trim().toUpperCase()
                     );
+                    const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
 
                     return (
                       <tr key={order.filmOrderId}>
@@ -309,6 +320,10 @@ export default function FilmOrdersPage() {
                         <td>{order.warehouse}</td>
                         <td>
                           {order.manufacturer} {order.filmName}
+                        </td>
+                        <td>
+                          <div>{formatFilmOrderOriginLabel(order)}</div>
+                          {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
                         </td>
                         <td>{order.widthIn}</td>
                         <td>{order.remainingToOrderFeet}</td>

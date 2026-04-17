@@ -49,16 +49,26 @@ function normalizePendingTransfer(
 }
 
 function normalizeBox(box: Box): Box {
-  const onHandFeet = Math.max(0, Number(box.feetAvailable || 0));
+  const availableFeet = Math.max(0, Number(box.feetAvailable || 0));
   const initialFeet = Math.max(0, Number(box.initialFeet || 0));
   const activeAllocatedFeet = Math.max(
     0,
     Number((box as Box & { activeAllocatedFeet?: number }).activeAllocatedFeet || 0)
   );
+  const allocatedWithInstallDateFeet = Math.max(0, Number(box.allocatedWithInstallDateFeet || 0));
+  const allocatedWithoutInstallDateFeet = Math.max(0, Number(box.allocatedWithoutInstallDateFeet || 0));
+  const allocatableNowFeet =
+    box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+      ? availableFeet
+      : Math.max(0, Number(box.allocatableNowFeet || 0));
+  const physicalFeetAvailable =
+    box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
+      ? Math.max(0, availableFeet + allocatedWithInstallDateFeet)
+      : Math.max(0, Number(box.physicalFeetAvailable || 0));
   const activePlanningFeet =
     box.allocationPlanningFeet === undefined || box.allocationPlanningFeet === null
       ? box.status === 'IN_STOCK' || box.status === 'TRANSFER'
-        ? onHandFeet
+        ? allocatableNowFeet
         : box.status === 'ORDERED'
           ? Math.max(0, initialFeet - activeAllocatedFeet)
           : 0
@@ -67,7 +77,11 @@ function normalizeBox(box: Box): Box {
   return {
     ...box,
     initialFeet,
-    feetAvailable: onHandFeet,
+    feetAvailable: availableFeet,
+    physicalFeetAvailable,
+    allocatableNowFeet,
+    allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet,
     allocationPlanningFeet: activePlanningFeet,
     pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };

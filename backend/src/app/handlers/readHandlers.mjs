@@ -8,6 +8,10 @@ import {
   buildReadAllocationJobDetail,
   previewAllocationPlan,
 } from '../services/allocations.mjs';
+import {
+  applyReservationMetricsToBox,
+  buildBoxReservationMetrics,
+} from '../services/runtime/runtimeAllocationReservations.mjs';
 import { listAudit, listAuditEntriesByBox, listRollHistoryByBox } from '../services/audit.mjs';
 import {
   listCaulkManufacturers,
@@ -59,7 +63,7 @@ const readHandlers = {
     if (!found) {
       throw new HttpError(404, 'Box not found.');
     }
-    return ok(toPublicBox(found));
+    return ok(toPublicBox(applyReservationMetricsToBox(found, await listAllocationsByBox(client, orgId, found.boxId))));
   },
   '/boxes/transfer/by-box': async ({ client, orgId, params }) =>
     ok(await getBoxTransferByBox(client, orgId, params.boxId)),
@@ -70,11 +74,24 @@ const readHandlers = {
   '/audit/by-box': async ({ client, orgId, params }) =>
     ok({ entries: await listAuditEntriesByBox(client, orgId, requireString(params.boxId, 'boxId')) }),
   '/allocations/by-box': async ({ client, orgId, params }) =>
-    ok({
-      entries: (await listAllocationsByBox(client, orgId, requireString(params.boxId, 'boxId'))).map(
-        toPublicAllocation
-      ),
-    }),
+    (() => {
+      const normalizedBoxId = requireString(params.boxId, 'boxId');
+      return listAllocationsByBox(client, orgId, normalizedBoxId).then(async (entries) => {
+        const box = await findBoxById(client, orgId, normalizedBoxId);
+        const reservationMetrics = box ? buildBoxReservationMetrics(box, entries) : null;
+        return ok({
+          entries: entries.map((entry) => {
+            const reservationSnapshot =
+              reservationMetrics?.allocationSnapshotsById?.[entry.allocationId] || null;
+            return {
+              ...toPublicAllocation(entry),
+              backedPhysicalFeet: reservationSnapshot ? reservationSnapshot.backedPhysicalFeet : entry.allocatedFeet,
+              reservationState: reservationSnapshot ? reservationSnapshot.reservationState : 'WITHOUT_INSTALL_DATE',
+            };
+          }),
+        });
+      });
+    })(),
   '/allocations/jobs': async ({ client, orgId }) =>
     ok({ entries: await buildAllocationJobList(client, orgId) }),
   '/allocations/by-job': async ({ orgId, params }) =>

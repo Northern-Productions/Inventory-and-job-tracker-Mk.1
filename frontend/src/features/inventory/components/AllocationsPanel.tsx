@@ -18,22 +18,30 @@ function renderDateTime(value: string): string {
   return value ? formatDateTime(value) : '--';
 }
 
-function formatAllocationFeet(allocatedFeet: number, coveredFeet: number) {
-  if (coveredFeet > 0 && coveredFeet !== allocatedFeet) {
-    return `${allocatedFeet} physical / ${coveredFeet} covered`;
+function formatAllocationFeet(allocatedFeet: number, coveredFeet: number, backedPhysicalFeet = allocatedFeet) {
+  if (backedPhysicalFeet !== allocatedFeet || (coveredFeet > 0 && coveredFeet !== allocatedFeet)) {
+    return `${allocatedFeet} reserved / ${backedPhysicalFeet} backed / ${coveredFeet} covered`;
   }
 
   return String(allocatedFeet);
 }
 
+function formatReservationState(value: string | undefined) {
+  return value === 'WITH_INSTALL_DATE' ? 'Locked' : 'Placeholder';
+}
+
 export function AllocationsPanel({
   boxId,
   feetAvailable,
+  lockedFeet = 0,
+  placeholderFeet = 0,
   collapsed = false,
   onToggle
 }: {
   boxId: string;
   feetAvailable: number;
+  lockedFeet?: number;
+  placeholderFeet?: number;
   collapsed?: boolean;
   onToggle?: () => void;
 }) {
@@ -72,6 +80,14 @@ export function AllocationsPanel({
             <dd>{activeAllocatedFeet}</dd>
           </div>
           <div className="key-value">
+            <dt>Locked LF</dt>
+            <dd>{lockedFeet}</dd>
+          </div>
+          <div className="key-value">
+            <dt>Placeholder LF</dt>
+            <dd>{placeholderFeet}</dd>
+          </div>
+          <div className="key-value">
             <dt>Allocatable Now</dt>
             <dd>{feetAvailable}</dd>
           </div>
@@ -94,7 +110,11 @@ export function AllocationsPanel({
                   <MobileFieldList>
                     <MobileField label="Install Date" value={renderDate(entry.installDate)} />
                     <MobileField label="Crew" value={entry.crewLeader || '--'} />
-                    <MobileField label="LF" value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)} />
+                    <MobileField label="Reservation" value={formatReservationState(entry.reservationState)} />
+                    <MobileField
+                      label="LF"
+                      value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.backedPhysicalFeet)}
+                    />
                     <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
                   </MobileFieldList>
                 </MobileRecordCard>
@@ -109,6 +129,7 @@ export function AllocationsPanel({
                     <th>Job</th>
                     <th>Install Date</th>
                     <th>Crew</th>
+                    <th>Reservation</th>
                     <th>LF</th>
                     <th>Status</th>
                     <th>Resolved</th>
@@ -121,7 +142,8 @@ export function AllocationsPanel({
                       <td>{entry.jobNumber}</td>
                       <td>{renderDate(entry.installDate)}</td>
                       <td>{entry.crewLeader || '--'}</td>
-                      <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet)}</td>
+                      <td>{formatReservationState(entry.reservationState)}</td>
+                      <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.backedPhysicalFeet)}</td>
                       <td>{entry.status}</td>
                       <td>{renderDateTime(entry.resolvedAt)}</td>
                     </tr>

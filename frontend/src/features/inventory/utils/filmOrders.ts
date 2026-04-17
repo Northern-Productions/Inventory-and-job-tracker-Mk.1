@@ -2,6 +2,34 @@ import type { FilmOrderEntry, FilmOrderStatus } from '../../../domain';
 
 type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
   Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet' | 'installDate'>>;
+type FilmOrderOriginEntry = Partial<Pick<FilmOrderEntry, 'origin' | 'sourceBoxId'>>;
+
+export function getFilmOrderOrigin(
+  order: FilmOrderOriginEntry | null | undefined
+): NonNullable<FilmOrderEntry['origin']> {
+  const explicitOrigin = String(order?.origin || '').trim().toUpperCase();
+  if (explicitOrigin === 'AUTO_SHORTAGE' || explicitOrigin === 'MANUAL') {
+    return explicitOrigin;
+  }
+
+  return String(order?.sourceBoxId || '').trim() ? 'AUTO_SHORTAGE' : 'MANUAL';
+}
+
+export function formatFilmOrderOriginLabel(
+  order: FilmOrderOriginEntry | null | undefined
+): string {
+  return getFilmOrderOrigin(order) === 'AUTO_SHORTAGE' ? 'Auto shortage' : 'Manual';
+}
+
+export function getFilmOrderOriginSourceBoxId(
+  order: FilmOrderOriginEntry | null | undefined
+): string {
+  if (getFilmOrderOrigin(order) !== 'AUTO_SHORTAGE') {
+    return '';
+  }
+
+  return String(order?.sourceBoxId || '').trim();
+}
 
 export function isUnresolvedFilmOrderStatus(status: FilmOrderStatus | string): boolean {
   const normalizedStatus = String(status || '').trim().toUpperCase();

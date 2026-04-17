@@ -237,6 +237,7 @@ describe('inventoryMutationUtils', () => {
 
     expect(optimisticFilmOrder.filmOrderId.startsWith('pending-film-order-')).toBe(true);
     expect(optimisticFilmOrder.status).toBe('FILM_ORDER');
+    expect(optimisticFilmOrder.origin).toBe('MANUAL');
     expect(optimisticFilmOrder.remainingToOrderFeet).toBe(120);
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([optimisticFilmOrder]);
   });
