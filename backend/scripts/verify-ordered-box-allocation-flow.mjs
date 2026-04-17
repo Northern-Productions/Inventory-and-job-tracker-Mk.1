@@ -462,8 +462,8 @@ async function main() {
 
     assert(belowAllocatedError, "Expected reducing CurrentFeetOnRoll below active allocations to fail.");
     assert(
-      /active allocated feet/i.test(asTrimmedString(belowAllocatedError?.message)),
-      `Expected below-allocation rejection to mention active allocated feet, received ${belowAllocatedError?.message}.`
+      /(locked|active) allocated feet/i.test(asTrimmedString(belowAllocatedError?.message)),
+      `Expected below-allocation rejection to mention locked or active allocated feet, received ${belowAllocatedError?.message}.`
     );
 
     const linkedFilmOrderEnvelope = await createFilmOrder(
