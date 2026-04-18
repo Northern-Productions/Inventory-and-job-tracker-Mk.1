@@ -73,28 +73,31 @@ function renderLayout(pathname = '/') {
   return render(buildLayoutTree(pathname));
 }
 
-function mockDesktopToplineHeight(container: HTMLElement, height: number) {
-  const topline = container.querySelector('.app-header-topline');
-  if (!(topline instanceof HTMLElement)) {
-    throw new Error('Expected desktop topline to be rendered.');
+function mockDesktopNavRect(container: HTMLElement, initialTop: number, height = 48) {
+  const navWrap = container.querySelector('.app-header-nav-wrap');
+  if (!(navWrap instanceof HTMLElement)) {
+    throw new Error('Expected desktop nav wrapper to be rendered.');
   }
 
-  Object.defineProperty(topline, 'scrollHeight', {
-    configurable: true,
-    value: height
-  });
+  let currentTop = initialTop;
 
-  return vi.spyOn(topline, 'getBoundingClientRect').mockReturnValue({
+  vi.spyOn(navWrap, 'getBoundingClientRect').mockImplementation(() => ({
     x: 0,
-    y: 0,
-    top: 0,
+    y: currentTop,
+    top: currentTop,
     left: 0,
-    right: 0,
-    bottom: height,
-    width: 0,
+    right: 320,
+    bottom: currentTop + height,
+    width: 320,
     height,
     toJSON: () => ({})
-  });
+  }));
+
+  return {
+    setTop(nextTop: number) {
+      currentTop = nextTop;
+    }
+  };
 }
 
 describe('AppLayout', () => {
@@ -199,45 +202,72 @@ describe('AppLayout', () => {
     expect(screen.getByRole('link', { name: 'Film Orders (needs ordering)' })).toBeTruthy();
   });
 
-  it('enters compact sticky mode after scrolling past the desktop topline', () => {
+  it('renders the desktop header expanded by default with the title row and nav', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    const topline = view.container.querySelector('.app-header-topline');
+    const navWrap = view.container.querySelector('.app-header-nav-wrap');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+    if (!(topline instanceof HTMLElement)) {
+      throw new Error('Expected desktop topline to render.');
+    }
+    if (!(navWrap instanceof HTMLElement)) {
+      throw new Error('Expected desktop nav wrapper to render.');
+    }
+
+    expect(header.classList.contains('app-header-desktop')).toBe(true);
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+    expect(within(topline).getByRole('heading', { name: 'Window Film Inventory' })).toBeTruthy();
+    expect(within(navWrap).getByRole('navigation', { name: 'Primary' })).toBeTruthy();
+  });
+
+  it('enters compact mode when the desktop nav reaches the sticky offset near the top of the viewport', () => {
     const view = renderLayout('/');
     const header = view.container.querySelector('.app-header');
     if (!(header instanceof HTMLElement)) {
       throw new Error('Expected header to render.');
     }
 
-    mockDesktopToplineHeight(view.container, 72);
-
+    const navRect = mockDesktopNavRect(view.container, 72);
     fireEvent(window, new Event('resize'));
     expect(header.classList.contains('app-header-compact')).toBe(false);
 
-    window.scrollY = 80;
+    navRect.setTop(12);
+    window.scrollY = 96;
     fireEvent.scroll(window);
 
     expect(header.classList.contains('app-header-compact')).toBe(true);
   });
 
-  it('expands the desktop header again when scrolled back to the top', () => {
+  it('keeps the desktop header compact until the page scrolls all the way back to the top', () => {
     const view = renderLayout('/');
     const header = view.container.querySelector('.app-header');
     if (!(header instanceof HTMLElement)) {
       throw new Error('Expected header to render.');
     }
 
-    mockDesktopToplineHeight(view.container, 72);
-
+    const navRect = mockDesktopNavRect(view.container, 72);
     fireEvent(window, new Event('resize'));
-    window.scrollY = 84;
+
+    navRect.setTop(0);
+    window.scrollY = 96;
     fireEvent.scroll(window);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
+    navRect.setTop(28);
+    window.scrollY = 32;
+    fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+
+    navRect.setTop(72);
     window.scrollY = 0;
     fireEvent.scroll(window);
-
     expect(header.classList.contains('app-header-compact')).toBe(false);
   });
 
-  it('does not enable the desktop sticky compact state on phone layout', () => {
+  it('does not enable the desktop compact state on phone layout', () => {
     useIsPhoneLayoutMock.mockReturnValue(true);
 
     const view = renderLayout('/');
@@ -251,5 +281,6 @@ describe('AppLayout', () => {
 
     expect(header.classList.contains('app-header-desktop')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
+    expect(view.container.querySelector('.app-header-nav-wrap')).toBeNull();
   });
 });

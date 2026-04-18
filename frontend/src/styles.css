@@ -65,10 +65,7 @@ th,
 }
 
 .app-header-desktop {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  transition: top 180ms ease;
+  position: relative;
 }
 
 .app-header-topline {
@@ -78,10 +75,6 @@ th,
   gap: 0.75rem;
   min-width: 0;
   overflow: hidden;
-  transition:
-    max-height 180ms ease,
-    opacity 160ms ease,
-    transform 180ms ease;
   max-height: 5rem;
 }
 
@@ -937,6 +930,11 @@ textarea {
     padding 180ms ease;
 }
 
+.app-header-nav-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
 .app-header-corner {
   display: flex;
   justify-content: flex-end;
@@ -979,7 +977,9 @@ textarea {
 }
 
 .app-header-desktop.app-header-compact {
-  top: 0.9rem;
+  position: sticky;
+  top: 0.75rem;
+  z-index: 1000;
   gap: 0;
 }
 
@@ -998,8 +998,7 @@ textarea {
 
 .app-header-desktop.app-header-compact .app-header-topline {
   max-height: 0;
-  opacity: 0;
-  transform: translateY(-0.4rem);
+  visibility: hidden;
   pointer-events: none;
 }
 

@@ -6,6 +6,8 @@ import { DesktopNavigation } from './app-layout/DesktopNavigation';
 import { MobileNavigation } from './app-layout/MobileNavigation';
 import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
 
+const DESKTOP_HEADER_STICKY_OFFSET_PX = 12;
+
 export function AppLayout() {
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
@@ -22,8 +24,7 @@ export function AppLayout() {
     mobileMoreAttentionAriaLabel
   } = useAppLayoutNavigation(location.pathname);
   const hasMountedRef = useRef(false);
-  const desktopToplineRef = useRef<HTMLDivElement>(null);
-  const desktopToplineHeightRef = useRef(0);
+  const desktopNavRef = useRef<HTMLDivElement>(null);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
   const [isDesktopHeaderCompact, setIsDesktopHeaderCompact] = useState(false);
@@ -38,24 +39,28 @@ export function AppLayout() {
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
   const syncDesktopHeaderCompact = useCallback(() => {
     if (isPhoneLayout) {
-      desktopToplineHeightRef.current = 0;
       setIsDesktopHeaderCompact(false);
       return;
     }
 
-    const measuredToplineHeight =
-      desktopToplineRef.current?.scrollHeight ??
-      desktopToplineRef.current?.getBoundingClientRect().height ??
-      0;
-
-    if (measuredToplineHeight > 0) {
-      desktopToplineHeightRef.current = measuredToplineHeight;
+    if (window.scrollY <= 1) {
+      setIsDesktopHeaderCompact(false);
+      return;
     }
 
-    const toplineHeight = desktopToplineHeightRef.current;
-    const nextCompact = window.scrollY > toplineHeight;
-    setIsDesktopHeaderCompact((current) => (current === nextCompact ? current : nextCompact));
-  }, [isPhoneLayout]);
+    if (isDesktopHeaderCompact) {
+      return;
+    }
+
+    const navRect = desktopNavRef.current?.getBoundingClientRect();
+    if (!navRect || navRect.height <= 0) {
+      return;
+    }
+
+    if (navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX) {
+      setIsDesktopHeaderCompact(true);
+    }
+  }, [isDesktopHeaderCompact, isPhoneLayout]);
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -131,7 +136,7 @@ export function AppLayout() {
       >
         <div className="app-header-band">
           <div className="app-header-band-inner">
-            <div className="app-header-topline" ref={desktopToplineRef}>
+            <div className="app-header-topline">
               <div className="app-brand-block">
                 <h1>Window Film Inventory</h1>
               </div>
@@ -140,17 +145,19 @@ export function AppLayout() {
               </div>
             </div>
             {!isPhoneLayout ? (
-              <DesktopNavigation
-                primaryItems={primaryNavItems}
-                moreItems={moreDesktopNavItems}
-                moreRef={desktopMoreRef}
-                isMoreActive={isDesktopMoreActive}
-                isMoreOpen={isDesktopMoreOpen}
-                moreHasAttention={desktopMoreHasAttention}
-                moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
-                onToggleMore={toggleDesktopMoreMenu}
-                onCloseMore={closeDesktopMoreMenu}
-              />
+              <div className="app-header-nav-wrap" ref={desktopNavRef}>
+                <DesktopNavigation
+                  primaryItems={primaryNavItems}
+                  moreItems={moreDesktopNavItems}
+                  moreRef={desktopMoreRef}
+                  isMoreActive={isDesktopMoreActive}
+                  isMoreOpen={isDesktopMoreOpen}
+                  moreHasAttention={desktopMoreHasAttention}
+                  moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
+                  onToggleMore={toggleDesktopMoreMenu}
+                  onCloseMore={closeDesktopMoreMenu}
+                />
+              </div>
             ) : null}
           </div>
         </div>
