@@ -4,6 +4,7 @@ import {
   addBox,
   cancelBoxTransfer,
   deleteBox,
+  receiveOrderedBox,
   receiveBoxTransfer,
   setBoxStatus,
   startBoxTransfer,
@@ -14,6 +15,7 @@ import type {
   Box,
   CancelBoxTransferPayload,
   DeleteBoxPayload,
+  ReceiveOrderedBoxPayload,
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
   StartBoxTransferPayload,
@@ -280,6 +282,81 @@ export function useSetBoxStatus() {
                 : box.lastWeighedDate
           }));
           updateCheckedOutBoxCaches(queryClient, payload.boxId, payload.status);
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      context?.operation?.cancel();
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, _variables, context) => {
+      await context?.operation?.waitForApply();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
+      ]);
+      queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
+      void persistOfflineInventoryBox(queryClient, result.box);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      context?.operation?.finish();
+    }
+  });
+}
+
+export function useReceiveOrderedBox() {
+  const queryClient = useQueryClient();
+  const optimisticQueue = useOptimisticQueue();
+
+  return useMutation({
+    mutationKey: inventoryKeys.receiveOrderedBoxMutation,
+    mutationFn: (payload: ReceiveOrderedBoxPayload) => receiveOrderedBox(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
+      ]);
+
+      const nextDate = todayDateString();
+
+      return beginDelayedOptimisticMutation(
+        queryClient,
+        optimisticQueue,
+        `Receiving ${payload.boxId}`,
+        [
+          inventoryKeys.box(payload.boxId),
+          inventoryKeys.listRoot,
+          inventoryKeys.jobRoot,
+          inventoryKeys.allocationJobRoot
+        ],
+        () => {
+          updateBoxCaches(queryClient, payload.boxId, (box) => ({
+            ...box,
+            status: 'IN_STOCK',
+            receivedDate: nextDate,
+            feetAvailable: Math.max(
+              box.initialFeet - Math.max(0, Number(box.allocatedWithInstallDateFeet || 0)),
+              0
+            ),
+            lastRollWeightLbs:
+              payload.receivedWeightLbs !== undefined ? payload.receivedWeightLbs : box.lastRollWeightLbs,
+            initialWeightLbs:
+              payload.receivedWeightLbs !== undefined ? payload.receivedWeightLbs : box.initialWeightLbs,
+            lastWeighedDate:
+              payload.receivedWeightLbs !== undefined ? nextDate : box.lastWeighedDate,
+            lotRun: payload.lotRun !== undefined ? payload.lotRun : box.lotRun
+          }));
         }
       );
     },

@@ -9,6 +9,7 @@ import {
   createFilmOrder,
   findBoxById,
   previewAllocationPlan,
+  receiveOrderedBox,
   removeAllocationFromJob,
   removeJobBoxAllocation,
   updateBox,
@@ -107,10 +108,10 @@ async function configureRpcAuthContext(client, orgId) {
   );
 }
 
-async function invokeBoxesSetStatusRpc(client, orgId, actor, payload) {
+async function invokeBoxesReceiveOrderedRpc(client, orgId, actor, payload) {
   const result = await client.query(
     `
-      select public.api_boxes_set_status(
+      select public.api_acl_boxes_receive_ordered(
         $1::uuid,
         $2::text,
         $3::jsonb
@@ -425,13 +426,12 @@ async function main() {
     assert(reappliedAllocation, "Expected ordered allocation reapply to create a fresh allocation.");
 
     refreshedBox = await findBoxById(client, orgId, boxId);
-    const receiptResult = await updateBox(
+    const receiptResult = await receiveOrderedBox(
       client,
       orgId,
-      buildUpdatePayload(refreshedBox, {
-        receivedDate: dueDate,
-        currentFeetOnRoll: 80
-      }),
+      {
+        boxId
+      },
       actor
     );
     const receivedBox = receiptResult?.data?.box;
@@ -507,29 +507,16 @@ async function main() {
       `Expected linked film order to move to FILM_ON_THE_WAY after ordering a box, received ${orderedFilmOrder.status}.`
     );
 
-    await client.query(
-      `
-        update app.boxes
-        set received_date = $1::date
-        where org_id = $2::uuid
-          and box_id = $3::text
-      `,
-      [dueDate, orgId, linkedBoxId]
-    );
-
-    const setStatusResult = await invokeBoxesSetStatusRpc(client, orgId, actor, {
+    const receiveResult = await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {
       boxId: linkedBoxId,
-      status: 'IN_STOCK',
-      lastRollWeightLbs: 20,
-      currentFeetOnRoll: 30,
-      coreType: 'Red plastic',
-      auditNote: `Verified receipt for job ${jobNumber}`
+      receivedWeightLbs: 20,
+      lotRun: 'VERIFY-LINKED'
     });
-    assert(setStatusResult, 'Expected api_boxes_set_status to return a response.');
+    assert(receiveResult, 'Expected api_acl_boxes_receive_ordered to return a response.');
 
     const resolvedFilmOrderRow = await client.query(
       `
-        select status::text as status, covered_feet::integer as covered_feet
+        select status::text as status, covered_feet::integer as covered_feet, resolved_at
         from app.film_orders
         where org_id = $1::uuid
           and film_order_id = $2::text
@@ -544,6 +531,23 @@ async function main() {
       Number(resolvedFilmOrderRow.rows[0]?.covered_feet || 0) === 30,
       'Expected linked film order row to be fully covered after check-in.'
     );
+    assert(
+      asTrimmedString(resolvedFilmOrderRow.rows[0]?.resolved_at),
+      'Expected linked film order row to capture resolved_at after check-in.'
+    );
+    const linkedRollHistoryRow = await client.query(
+      `
+        select count(*)::integer as count
+        from app.roll_weight_log
+        where org_id = $1::uuid
+          and box_id = $2::text
+      `,
+      [orgId, linkedBoxId]
+    );
+    assert(
+      Number(linkedRollHistoryRow.rows[0]?.count || 0) === 0,
+      'Expected ordered-box receipt to avoid creating a roll history entry.'
+    );
 
     linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
     const fulfilledFilmOrder = (linkedJobDetail?.filmOrders || []).find(
@@ -553,6 +557,14 @@ async function main() {
     assert(
       fulfilledFilmOrder.status === 'FULFILLED',
       `Expected linked film order to resolve to FULFILLED on job detail, received ${fulfilledFilmOrder?.status}.`
+    );
+    assert(
+      fulfilledFilmOrder.resolvedAt,
+      'Expected linked film order to expose resolvedAt on job detail after receipt.'
+    );
+    assert(
+      fulfilledFilmOrder.linkedBoxes.length === 1 && fulfilledFilmOrder.linkedBoxes[0]?.isReceived === true,
+      'Expected fulfilled linked film order to mark its ordered box as received.'
     );
     assert(
       Number(linkedJobDetail?.summary?.filmOrderCount || 0) === 0,
@@ -574,6 +586,138 @@ async function main() {
     assert(
       Number(jobListEntry?.filmOrderCount || 0) === 0,
       `Expected jobs list filmOrderCount to clear after fulfillment, received ${jobListEntry?.filmOrderCount}.`
+    );
+
+    const splitFilmOrderEnvelope = await createFilmOrder(
+      client,
+      orgId,
+      {
+        jobNumber,
+        warehouse,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        requestedFeet: 60
+      },
+      actor
+    );
+    const splitFilmOrder = splitFilmOrderEnvelope?.data;
+    assert(splitFilmOrder, 'Expected createFilmOrder to return the split linked film order.');
+
+    const splitFirstBoxId = `${warehouse}-S1-${uniqueSuffix}`;
+    const splitSecondBoxId = `${warehouse}-S2-${uniqueSuffix}`;
+    for (const splitBoxId of [splitFirstBoxId, splitSecondBoxId]) {
+      const splitBoxEnvelope = await addBox(
+        client,
+        orgId,
+        buildBoxPayload(splitBoxId, dueDate, {
+          initialFeet: 30,
+          filmOrderId: splitFilmOrder.filmOrderId,
+          notes: 'Split linked film-order receipt verification box.'
+        }),
+        actor
+      );
+      assert(splitBoxEnvelope?.data?.box, `Expected addBox to create split linked box ${splitBoxId}.`);
+    }
+
+    linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const splitOpenFilmOrder = (linkedJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === splitFilmOrder.filmOrderId
+    );
+    assert(splitOpenFilmOrder, 'Expected split linked film order to appear on job detail.');
+    assert(
+      splitOpenFilmOrder.status === 'FILM_ON_THE_WAY',
+      `Expected split linked film order to move to FILM_ON_THE_WAY after ordering both boxes, received ${splitOpenFilmOrder?.status}.`
+    );
+    assert(
+      splitOpenFilmOrder.linkedBoxes.length === 2 &&
+        splitOpenFilmOrder.linkedBoxes.every((entry) => entry.isReceived === false),
+      'Expected split linked film order to mark both ordered boxes as unreceived before check-in.'
+    );
+
+    await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {
+      boxId: splitFirstBoxId,
+      receivedWeightLbs: 20,
+      lotRun: 'VERIFY-SPLIT-1'
+    });
+
+    const partiallyReceivedFilmOrderRow = await client.query(
+      `
+        select status::text as status, resolved_at
+        from app.film_orders
+        where org_id = $1::uuid
+          and film_order_id = $2::text
+      `,
+      [orgId, splitFilmOrder.filmOrderId]
+    );
+    assert(
+      asTrimmedString(partiallyReceivedFilmOrderRow.rows[0]?.status) === 'FILM_ON_THE_WAY',
+      'Expected split linked film order row to stay FILM_ON_THE_WAY until all linked boxes are received.'
+    );
+    assert(
+      !asTrimmedString(partiallyReceivedFilmOrderRow.rows[0]?.resolved_at),
+      'Expected split linked film order row to stay unresolved until all linked boxes are received.'
+    );
+
+    linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const partiallyReceivedFilmOrder = (linkedJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === splitFilmOrder.filmOrderId
+    );
+    assert(partiallyReceivedFilmOrder, 'Expected partially received split film order to remain visible on job detail.');
+    assert(
+      partiallyReceivedFilmOrder.status === 'FILM_ON_THE_WAY',
+      `Expected partially received split film order to stay FILM_ON_THE_WAY, received ${partiallyReceivedFilmOrder?.status}.`
+    );
+    assert(
+      partiallyReceivedFilmOrder.linkedBoxes.filter((entry) => entry.isReceived).length === 1,
+      'Expected exactly one split linked box to be marked received after the first check-in.'
+    );
+    assert(
+      Number(linkedJobDetail?.summary?.filmOrderCount || 0) === 1,
+      `Expected job summary filmOrderCount to keep the split film order open after one receipt, received ${linkedJobDetail?.summary?.filmOrderCount}.`
+    );
+
+    await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {
+      boxId: splitSecondBoxId,
+      receivedWeightLbs: 20,
+      lotRun: 'VERIFY-SPLIT-2'
+    });
+
+    const fullyReceivedFilmOrderRow = await client.query(
+      `
+        select status::text as status, resolved_at
+        from app.film_orders
+        where org_id = $1::uuid
+          and film_order_id = $2::text
+      `,
+      [orgId, splitFilmOrder.filmOrderId]
+    );
+    assert(
+      asTrimmedString(fullyReceivedFilmOrderRow.rows[0]?.status) === 'FULFILLED',
+      'Expected split linked film order row to resolve to FULFILLED once all linked boxes are received.'
+    );
+    assert(
+      asTrimmedString(fullyReceivedFilmOrderRow.rows[0]?.resolved_at),
+      'Expected split linked film order row to capture resolved_at after all linked boxes are received.'
+    );
+
+    linkedJobDetail = await buildJobDetail(client, orgId, jobNumber);
+    const fulfilledSplitFilmOrder = (linkedJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === splitFilmOrder.filmOrderId
+    );
+    assert(fulfilledSplitFilmOrder, 'Expected split film order to remain visible after both receipts.');
+    assert(
+      fulfilledSplitFilmOrder.status === 'FULFILLED',
+      `Expected split film order to resolve to FULFILLED after both receipts, received ${fulfilledSplitFilmOrder?.status}.`
+    );
+    assert(
+      fulfilledSplitFilmOrder.linkedBoxes.length === 2 &&
+        fulfilledSplitFilmOrder.linkedBoxes.every((entry) => entry.isReceived === true),
+      'Expected split film order to mark both linked boxes as received after both check-ins.'
+    );
+    assert(
+      Number(linkedJobDetail?.summary?.filmOrderCount || 0) === 0,
+      `Expected split film order fulfillment to clear the job summary filmOrderCount, received ${linkedJobDetail?.summary?.filmOrderCount}.`
     );
 
     console.log("Ordered box allocation flow OK.");

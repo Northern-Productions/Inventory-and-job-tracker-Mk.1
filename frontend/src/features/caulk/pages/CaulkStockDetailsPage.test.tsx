@@ -8,16 +8,22 @@ import CaulkStockDetailsPage from './CaulkStockDetailsPage';
 const toastPushMock = vi.fn();
 const listCaulkStockMock = vi.fn();
 const listCaulkTransactionsMock = vi.fn();
+const listPendingCaulkTransfersMock = vi.fn();
 const mutateCaulkStockMock = vi.fn();
+const receiveCaulkTransferMock = vi.fn();
+const cancelCaulkTransferMock = vi.fn();
 
 vi.mock('../../../components/Toast', () => ({
   useToast: () => ({ push: toastPushMock })
 }));
 
 vi.mock('../../../api/features/caulkClient', () => ({
+  cancelCaulkTransfer: (payload: unknown) => cancelCaulkTransferMock(payload),
   listCaulkStock: (params: unknown) => listCaulkStockMock(params),
+  listPendingCaulkTransfers: (params: unknown) => listPendingCaulkTransfersMock(params),
   listCaulkTransactions: (params: unknown) => listCaulkTransactionsMock(params),
-  mutateCaulkStock: (payload: unknown) => mutateCaulkStockMock(payload)
+  mutateCaulkStock: (payload: unknown) => mutateCaulkStockMock(payload),
+  receiveCaulkTransfer: (payload: unknown) => receiveCaulkTransferMock(payload)
 }));
 
 vi.mock('../../auth/AuthContext', () => ({
@@ -66,7 +72,10 @@ describe('CaulkStockDetailsPage', () => {
     toastPushMock.mockReset();
     listCaulkStockMock.mockReset();
     listCaulkTransactionsMock.mockReset();
+    listPendingCaulkTransfersMock.mockReset();
     mutateCaulkStockMock.mockReset();
+    receiveCaulkTransferMock.mockReset();
+    cancelCaulkTransferMock.mockReset();
 
     listCaulkStockMock.mockResolvedValue([
       {
@@ -122,6 +131,33 @@ describe('CaulkStockDetailsPage', () => {
         createdBy: 'tester'
       }
     ]);
+    listPendingCaulkTransfersMock.mockResolvedValue([
+      {
+        transferId: 'transfer-1',
+        caulkAllocationId: 'alloc-1',
+        jobNumber: '18782',
+        jobWarehouse: 'IL1',
+        productId: 'p1',
+        manufacturerId: 'm1',
+        manufacturer: '3M',
+        productName: '3M IPA White',
+        productCode: 'IPA-W',
+        tubesPerCase: 16,
+        sourceWarehouse: 'MS1',
+        destinationWarehouse: 'IL1',
+        pendingTubes: 4,
+        status: 'PENDING',
+        createdAt: '2026-04-08T12:00:00Z',
+        createdBy: 'tester',
+        receivedAt: '',
+        receivedBy: '',
+        cancelledAt: '',
+        cancelledBy: '',
+        updatedAt: '2026-04-08T12:00:00Z',
+        updatedBy: 'tester',
+        notes: ''
+      }
+    ]);
     mutateCaulkStockMock.mockResolvedValue({
       transactionId: 'tx-2',
       productId: 'p1',
@@ -152,6 +188,14 @@ describe('CaulkStockDetailsPage', () => {
     expect(await screen.findByText('Checked in unused caulk from job 18782.')).toBeTruthy();
     expect(await screen.findByText('physical count after shelf audit')).toBeTruthy();
     expect(screen.queryByText(/20260323212436379-623/)).toBeNull();
+
+    queryClient.clear();
+  });
+
+  it('renders inbound transfers with prefixed job labels', async () => {
+    const { queryClient } = renderPage();
+
+    expect(await screen.findByText('Job IL1-18782')).toBeTruthy();
 
     queryClient.clear();
   });

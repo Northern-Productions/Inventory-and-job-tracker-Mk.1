@@ -609,6 +609,45 @@ async function sumFilmOrderOrderedFeet(client, orgId, filmOrderId) {
   return total;
 }
 
+function hasReceivedLinkedBoxStatus(status) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  return normalizedStatus !== '' && normalizedStatus !== 'ORDERED';
+}
+
+async function summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
+  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+  if (!links.length) {
+    return {
+      hasLinkedBoxes: false,
+      allLinkedBoxesReceived: false,
+      orderedFeet: 0
+    };
+  }
+
+  let orderedFeet = 0;
+  let allLinkedBoxesReceived = true;
+
+  for (let index = 0; index < links.length; index += 1) {
+    const link = links[index];
+    const box = await findBoxById(client, orgId, link.boxId);
+    if (!box) {
+      allLinkedBoxesReceived = false;
+      continue;
+    }
+
+    orderedFeet += link.orderedFeet;
+    if (!hasReceivedLinkedBoxStatus(box.status)) {
+      allLinkedBoxesReceived = false;
+    }
+  }
+
+  return {
+    hasLinkedBoxes: true,
+    allLinkedBoxesReceived,
+    orderedFeet
+  };
+}
+
 async function recalculateFilmOrder(client, orgId, filmOrderId, user) {
   const existing = await findFilmOrderById(client, orgId, filmOrderId);
   if (!existing) {
@@ -617,11 +656,28 @@ async function recalculateFilmOrder(client, orgId, filmOrderId, user) {
 
   const updated = cloneValue(existing);
   updated.coveredFeet = await sumFilmOrderCoveredFeet(client, orgId, filmOrderId);
-  updated.orderedFeet = await sumFilmOrderOrderedFeet(client, orgId, filmOrderId);
+  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId);
+  updated.orderedFeet = linkedBoxSummary.orderedFeet;
   updated.remainingToOrderFeet = Math.max(updated.requestedFeet - updated.orderedFeet, 0);
 
   if (updated.status !== 'CANCELLED') {
-    if (updated.coveredFeet >= updated.requestedFeet) {
+    if (linkedBoxSummary.hasLinkedBoxes) {
+      if (updated.orderedFeet < updated.requestedFeet) {
+        updated.status = 'FILM_ORDER';
+        updated.resolvedAt = '';
+        updated.resolvedBy = '';
+      } else if (linkedBoxSummary.allLinkedBoxesReceived) {
+        updated.status = 'FULFILLED';
+        if (!updated.resolvedAt) {
+          updated.resolvedAt = new Date().toISOString();
+          updated.resolvedBy = asTrimmedString(user);
+        }
+      } else {
+        updated.status = 'FILM_ON_THE_WAY';
+        updated.resolvedAt = '';
+        updated.resolvedBy = '';
+      }
+    } else if (updated.coveredFeet >= updated.requestedFeet) {
       updated.status = 'FULFILLED';
       if (!updated.resolvedAt) {
         updated.resolvedAt = new Date().toISOString();
@@ -715,7 +771,7 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
   const links = await listFilmOrderLinksByBoxId(client, orgId, box.boxId);
   const recalculatedOrders = {};
 
-  if (!box.receivedDate || box.status !== 'IN_STOCK' || box.feetAvailable <= 0) {
+  if (!box.receivedDate || box.status !== 'IN_STOCK') {
     return box;
   }
 
@@ -725,6 +781,8 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
     if (!filmOrder || filmOrder.status === 'CANCELLED' || filmOrder.status === 'FULFILLED') {
       continue;
     }
+
+    recalculatedOrders[filmOrder.filmOrderId] = true;
 
     const remainingNeed = Math.max(filmOrder.requestedFeet - filmOrder.coveredFeet, 0);
     const linkCapacity = Math.max(link.orderedFeet - link.autoAllocatedFeet, 0);
@@ -757,7 +815,6 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
     warnings.push(
       `${allocationFeet} LF from ${box.boxId} was automatically allocated to job ${filmOrder.jobNumber} for Film Order ${filmOrder.filmOrderId}.`
     );
-    recalculatedOrders[filmOrder.filmOrderId] = true;
   }
 
   for (const filmOrderId of Object.keys(recalculatedOrders)) {

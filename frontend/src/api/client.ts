@@ -43,6 +43,7 @@ export {
   deleteBox,
   getBox,
   getBoxTransferPlan,
+  receiveOrderedBox,
   searchBoxes,
   setBoxStatus,
   syncAllOfflineInventorySnapshots,

@@ -637,6 +637,11 @@ async function buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
   return groupedLinkedBoxes[asTrimmedString(filmOrderId)] || [];
 }
 
+function isReceivedLinkedBoxStatus(status) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  return normalizedStatus !== '' && normalizedStatus !== 'ORDERED';
+}
+
 async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmOrders, boxById = {}) {
   const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
   const filmOrderIds = Array.from(
@@ -685,7 +690,8 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
     grouped[filmOrderId].push({
       boxId,
       orderedFeet: link.orderedFeet,
-      autoAllocatedFeet: link.autoAllocatedFeet
+      autoAllocatedFeet: link.autoAllocatedFeet,
+      isReceived: isReceivedLinkedBoxStatus(linkedBoxById[boxId].status)
     });
   }
 

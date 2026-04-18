@@ -1,8 +1,16 @@
-import type { FilmOrderEntry, FilmOrderStatus } from '../../../domain';
+import type { FilmOrderEntry, FilmOrderLinkedBox, FilmOrderStatus } from '../../../domain';
 
 type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
   Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet' | 'installDate'>>;
 type FilmOrderOriginEntry = Partial<Pick<FilmOrderEntry, 'origin' | 'sourceBoxId'>>;
+type FilmOrderLinkedBoxesEntry = Partial<Pick<FilmOrderEntry, 'linkedBoxes'>>;
+
+export const FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL = '--';
+
+export interface FilmOrderLinkedBoxDisplayEntry {
+  boxId: string;
+  isReceived: boolean;
+}
 
 export function getFilmOrderOrigin(
   order: FilmOrderOriginEntry | null | undefined
@@ -29,6 +37,45 @@ export function getFilmOrderOriginSourceBoxId(
   }
 
   return String(order?.sourceBoxId || '').trim();
+}
+
+export function getFilmOrderLinkedBoxIds(
+  order: FilmOrderLinkedBoxesEntry | null | undefined
+): string[] {
+  return getFilmOrderLinkedBoxes(order).map((entry) => entry.boxId);
+}
+
+export function getFilmOrderLinkedBoxes(
+  order: FilmOrderLinkedBoxesEntry | null | undefined
+): FilmOrderLinkedBoxDisplayEntry[] {
+  if (!Array.isArray(order?.linkedBoxes) || !order.linkedBoxes.length) {
+    return [];
+  }
+
+  const dedupedEntries = new Map<string, FilmOrderLinkedBoxDisplayEntry>();
+  for (let index = 0; index < order.linkedBoxes.length; index += 1) {
+    const entry = order.linkedBoxes[index] as Partial<FilmOrderLinkedBox> | null | undefined;
+    const boxId = String(entry?.boxId || '').trim().toUpperCase();
+    if (!boxId) {
+      continue;
+    }
+
+    const previousEntry = dedupedEntries.get(boxId);
+    dedupedEntries.set(boxId, {
+      boxId,
+      isReceived: Boolean(previousEntry?.isReceived || entry?.isReceived)
+    });
+  }
+
+  return Array.from(dedupedEntries.values()).sort((left, right) => left.boxId.localeCompare(right.boxId));
+}
+
+export function formatFilmOrderLinkedBoxIds(
+  order: FilmOrderLinkedBoxesEntry | null | undefined,
+  emptyLabel = FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL
+): string {
+  const boxIds = getFilmOrderLinkedBoxIds(order);
+  return boxIds.length ? boxIds.join(', ') : emptyLabel;
 }
 
 export function isUnresolvedFilmOrderStatus(status: FilmOrderStatus | string): boolean {

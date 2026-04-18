@@ -6,6 +6,7 @@ import {
   MobileRecordHeader
 } from '../../../../components/MobileRecordCard';
 import type { FilmOrderEntry } from '../../../../domain';
+import { FilmOrderLinkedBoxes } from '../../components/FilmOrderLinkedBoxes';
 import {
   formatFilmOrderOriginLabel,
   getFilmOrderOriginSourceBoxId
@@ -100,6 +101,7 @@ export function RelatedFilmOrdersSection({
                 <MobileFieldList>
                   <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
                   {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
+                  <MobileField label="Ordered Box IDs" value={<FilmOrderLinkedBoxes order={order} />} />
                   <MobileField label="Width" value={order.widthIn} />
                   <MobileField label="Requested LF" value={order.requestedFeet} />
                   <MobileField label="Covered LF" value={order.coveredFeet} />
@@ -127,6 +129,7 @@ export function RelatedFilmOrdersSection({
                 <th>Status</th>
                 <th>Film</th>
                 <th>Origin</th>
+                <th>Ordered Box IDs</th>
                 <th>Width</th>
                 <th>Requested</th>
                 <th>Covered</th>
@@ -152,6 +155,9 @@ export function RelatedFilmOrdersSection({
                     <td>
                       <div>{formatFilmOrderOriginLabel(order)}</div>
                       {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
+                    </td>
+                    <td>
+                      <FilmOrderLinkedBoxes order={order} />
                     </td>
                     <td>{order.widthIn}</td>
                     <td>{order.requestedFeet}</td>

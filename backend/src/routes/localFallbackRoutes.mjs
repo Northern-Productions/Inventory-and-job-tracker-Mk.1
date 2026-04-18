@@ -14,6 +14,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   '/boxes/add',
   '/boxes/delete',
   '/boxes/update',
+  '/boxes/receive',
   '/boxes/set-status',
   '/boxes/transfer/start',
   '/boxes/transfer/receive',

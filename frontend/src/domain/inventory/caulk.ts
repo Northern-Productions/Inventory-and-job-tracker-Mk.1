@@ -16,6 +16,7 @@ export interface CaulkTransferEntry {
   transferId: string;
   caulkAllocationId: string;
   jobNumber: string;
+  jobWarehouse: Warehouse | '';
   productId: string;
   manufacturerId: string;
   manufacturer: string;

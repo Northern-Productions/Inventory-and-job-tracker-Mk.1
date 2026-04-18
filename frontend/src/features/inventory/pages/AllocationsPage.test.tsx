@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PropsWithChildren } from 'react';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import AllocationsPage from './AllocationsPage';
 import type { JobSortOption } from '../utils/jobSorts';
 
@@ -132,7 +133,7 @@ function renderPage(props: {
 }
 
 function findRenderedJobButtonIndex(html: string, jobNumber: string) {
-  return html.indexOf(`>${jobNumber}</button>`);
+  return html.indexOf(`>${formatJobDisplayNumber(jobNumber, 'IL1')}</button>`);
 }
 
 describe('AllocationsPage', () => {
@@ -348,7 +349,7 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Showing all completed jobs.');
     expect(html).toContain('Showing</span><strong class="hero-metric-value inventory-summary-value">1</strong>');
     expect(html).toContain('19339');
-    expect(html).not.toContain('16961');
+    expect(html).not.toContain('IL1-16961');
   });
 
   it('restores normal list sorting when the search is empty', () => {

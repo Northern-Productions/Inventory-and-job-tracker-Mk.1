@@ -2,6 +2,7 @@ import { type ReactNode, useMemo } from 'react';
 import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
+import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
 
 function DetailField({
   label,
@@ -71,6 +72,7 @@ interface BoxDetailHeroSectionProps {
   onCopyQrImage: () => void;
   onDownloadQrImage: () => void;
   onCopyQrCode: () => void;
+  onOpenOrderedReceiveDialog: () => void;
   onCheckIn: () => void;
   onOpenAllocateDialog: () => void;
   onCheckOut: () => void;
@@ -104,6 +106,7 @@ export function BoxDetailHeroSection({
   onCopyQrImage,
   onDownloadQrImage,
   onCopyQrCode,
+  onOpenOrderedReceiveDialog,
   onCheckIn,
   onOpenAllocateDialog,
   onCheckOut
@@ -115,6 +118,18 @@ export function BoxDetailHeroSection({
     !shouldBlockEditWhileAllocationsResolve &&
     !transferMutationsPending &&
     box.status === 'IN_STOCK' &&
+    isAuthenticated &&
+    clientIdConfigured &&
+    canWriteInventory;
+
+  const canReceiveOrderedBox =
+    !isEditing &&
+    !pendingTransfer &&
+    !isAddBoxPending &&
+    !shouldBlockEditWhileAllocationsResolve &&
+    !transferMutationsPending &&
+    !statusPending &&
+    box.status === 'ORDERED' &&
     isAuthenticated &&
     clientIdConfigured &&
     canWriteInventory;
@@ -169,9 +184,25 @@ export function BoxDetailHeroSection({
         <div className="detail-actions">
           <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
           {!pendingTransfer ? (
-            <Button type="button" variant="secondary" onClick={onOpenTransferDialog} disabled={!canTransferBox}>
-              Transfer Box
-            </Button>
+            box.status === 'ORDERED' ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onOpenOrderedReceiveDialog}
+                disabled={!canReceiveOrderedBox}
+              >
+                Receive Box
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onOpenTransferDialog}
+                disabled={!canTransferBox}
+              >
+                Transfer Box
+              </Button>
+            )
           ) : null}
           <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
             Edit
@@ -235,10 +266,10 @@ export function BoxDetailHeroSection({
                 className="row-button"
                 onClick={() => onOpenLastCheckoutJob(box.lastCheckoutJob)}
               >
-                {box.lastCheckoutJob}
+                {formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)}
               </button>
             ) : (
-              box.lastCheckoutJob
+              formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)
             )
           }
         />

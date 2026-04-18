@@ -487,6 +487,7 @@ function mapDbCaulkTransferRow(row) {
     transferId: asTrimmedString(row.transfer_id),
     caulkAllocationId: asTrimmedString(row.caulk_allocation_public_id || row.caulk_allocation_id_text),
     jobNumber: asTrimmedString(row.job_number),
+    jobWarehouse: asTrimmedString(row.job_warehouse).toUpperCase(),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
     manufacturer: asTrimmedString(row.manufacturer),

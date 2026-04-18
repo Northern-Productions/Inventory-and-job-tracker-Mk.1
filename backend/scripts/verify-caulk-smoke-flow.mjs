@@ -66,6 +66,15 @@ function buildJobNumbers() {
   };
 }
 
+function buildDisplayedJobLabel(jobNumber, warehouse) {
+  const normalizedJobNumber = asTrimmedString(jobNumber);
+  const normalizedWarehouse = asTrimmedString(warehouse).toUpperCase();
+  if (!normalizedJobNumber) {
+    return 'Job';
+  }
+  return normalizedWarehouse ? `Job ${normalizedWarehouse}-${normalizedJobNumber}` : `Job ${normalizedJobNumber}`;
+}
+
 function normalizeApiBaseUrl(baseUrl) {
   const url = new URL(baseUrl);
   const normalizedPath = url.pathname.replace(/\/+$/g, '');
@@ -585,6 +594,7 @@ async function main() {
 
     const pendingJobADetail = await getAllocationJobDetail(apiBaseUrl, authSession, jobA);
     const pendingJobAAllocation = findCaulkAllocation(pendingJobADetail, productId);
+    const displayedJobALabel = buildDisplayedJobLabel(jobA, destinationWarehouse);
     assert(
       Array.isArray(pendingJobADetail.caulkTransferAlerts) &&
         pendingJobADetail.caulkTransferAlerts.length === 1 &&
@@ -642,10 +652,10 @@ async function main() {
 
     await gotoCaulkDetailsPage(page, frontendBaseUrl, destinationWarehouse, productId);
     await page.getByRole('heading', { name: 'Inbound Transfers' }).waitFor({ timeout: 20_000 });
-    await page.getByText(`Job ${jobA}`).waitFor({ timeout: 20_000 });
+    await page.getByText(displayedJobALabel).waitFor({ timeout: 20_000 });
     await page.getByRole('button', { name: 'Receive' }).click();
-    await page.getByText(`Job ${jobA}`).waitFor({ state: 'detached', timeout: 20_000 }).catch(async () => {
-      const inboundRows = page.locator('.job-transfer-alert-row').filter({ hasText: `Job ${jobA}` });
+    await page.getByText(displayedJobALabel).waitFor({ state: 'detached', timeout: 20_000 }).catch(async () => {
+      const inboundRows = page.locator('.job-transfer-alert-row').filter({ hasText: displayedJobALabel });
       await inboundRows.first().waitFor({ state: 'detached', timeout: 20_000 });
     });
 

@@ -2,6 +2,7 @@
 export {
   addBox,
   updateBox,
+  receiveOrderedBox,
   setBoxStatus,
   getBoxTransferByBox,
   getBoxTransferPlan,

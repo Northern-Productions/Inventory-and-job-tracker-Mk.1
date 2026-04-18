@@ -3,6 +3,7 @@ export { buildBoxFromPayload, buildSearchBoxes } from './runtime/runtimeCollecti
 export {
   addBox,
   updateBox,
+  receiveOrderedBox,
   setBoxStatus,
   getBoxTransferByBox,
   getBoxTransferPlan,

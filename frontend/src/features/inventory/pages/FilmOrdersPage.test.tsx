@@ -232,40 +232,71 @@ describe('FilmOrdersPage', () => {
       resolvedOrder
     ]);
 
+    expect(
+      screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
+    ).toEqual([
+      'Status',
+      'Warehouse',
+      'Job ID',
+      'Film',
+      'Width',
+      'Need To Order',
+      'Ordered Box ID',
+      'Install Date',
+      'Created',
+      'Origin',
+      'Actions'
+    ]);
     expect(screen.getAllByRole('columnheader', { name: 'Install Date' })[0]).toBeTruthy();
-    expect(screen.getByRole('link', { name: '2943' }).getAttribute('href')).toBe('/allocations/2943');
+    expect(screen.getByRole('link', { name: 'IL1-2943' }).getAttribute('href')).toBe('/allocations/2943');
 
     const rows = Array.from(container.querySelectorAll('tbody tr'));
     expect(rows).toHaveLength(5);
-    expect(rows.map((row) => row.querySelector('td:nth-child(2)')?.textContent?.trim())).toEqual([
-      '2943',
-      '2942',
-      '2941',
-      '2944',
-      '2945'
+    expect(rows.map((row) => row.querySelector('td:nth-child(3)')?.textContent?.trim())).toEqual([
+      'IL1-2943',
+      'IL1-2942',
+      'IL1-2941',
+      'IL1-2944',
+      'IL1-2945'
     ]);
   });
 
   it('renders the mobile job ID as a link', () => {
     useIsPhoneLayoutMock.mockReturnValue(true);
 
-    renderPage([buildFilmOrderEntry()]);
+    renderPage([
+      buildFilmOrderEntry({
+        linkedBoxes: [{ boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: true }]
+      })
+    ]);
 
-    expect(screen.getByRole('link', { name: 'Job 2941' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Job IL1-2941' }).getAttribute('href')).toBe(
       '/allocations/2941'
     );
     expect(screen.getByText('Install Date')).toBeTruthy();
+    expect(screen.getByText('Ordered Box ID')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'IL1-0042' }).getAttribute('href')).toBe(
+      '/inventory/IL1-0042'
+    );
+    expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
   });
 
-  it('shows whether each film order is manual or an auto shortage and surfaces the source box for shortages', () => {
+  it('shows linked ordered box ids as box-detail links while keeping shortage source boxes separate', () => {
     renderPage([
       buildFilmOrderEntry({
         filmOrderId: 'FO-AUTO',
+        filmName: 'Auto Roll',
+        linkedBoxes: [
+          { boxId: 'MS1-0042', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0005', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: true },
+          { boxId: 'IL1-0005', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false }
+        ],
         sourceBoxId: 'IL1-6923'
       }),
       buildFilmOrderEntry({
         filmOrderId: 'FO-MANUAL',
         filmName: 'Manual Roll',
+        linkedBoxes: [],
         sourceBoxId: ''
       })
     ]);
@@ -275,8 +306,20 @@ describe('FilmOrdersPage', () => {
         'Manual orders are created from Film Orders. Auto shortage orders are created after return/weigh or schedule rebalance, not at checkout.'
       )
     ).toBeTruthy();
+    expect(screen.getAllByRole('columnheader', { name: 'Ordered Box ID' })[0]).toBeTruthy();
     expect(screen.getByText('Auto shortage')).toBeTruthy();
     expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
     expect(screen.getByText('Manual')).toBeTruthy();
+    expect(screen.getByLabelText('Received IL1-0005')).toBeTruthy();
+    expect(screen.queryByLabelText('Received MS1-0042')).toBeNull();
+    expect(screen.getByRole('link', { name: 'IL1-0005' }).getAttribute('href')).toBe(
+      '/inventory/IL1-0005'
+    );
+    expect(screen.getByRole('link', { name: 'MS1-0042' }).getAttribute('href')).toBe(
+      '/inventory/MS1-0042'
+    );
+    const manualRow = screen.getByText(/Manual Roll/, { selector: 'td' }).closest('tr');
+    expect(manualRow).toBeTruthy();
+    expect(within(manualRow as HTMLTableRowElement).getByText('--')).toBeTruthy();
   });
 });

@@ -7,6 +7,7 @@ import {
 } from '../../../components/MobileRecordCard';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useRollHistory } from '../hooks/useInventoryQueries';
 
 function renderWeight(value: number | null): string {
@@ -59,7 +60,10 @@ export function RollHistoryPanel({
             <div className="mobile-record-list">
               {historyQuery.data.map((entry) => (
                 <MobileRecordCard key={entry.logId}>
-                  <MobileRecordHeader title={entry.jobNumber || '--'} subtitle={formatDateTime(entry.checkedInAt)} />
+                  <MobileRecordHeader
+                    title={formatJobDisplayNumber(entry.jobNumber, entry.warehouse) || '--'}
+                    subtitle={formatDateTime(entry.checkedInAt)}
+                  />
                   <MobileFieldList>
                     <MobileField label="Date Out" value={formatDateTime(entry.checkedOutAt)} />
                     <MobileField label="Date In" value={formatDateTime(entry.checkedInAt)} />
@@ -92,7 +96,7 @@ export function RollHistoryPanel({
                     <tr key={entry.logId}>
                       <td>{formatDateTime(entry.checkedOutAt)}</td>
                       <td>{formatDateTime(entry.checkedInAt)}</td>
-                      <td>{entry.jobNumber || '--'}</td>
+                      <td>{formatJobDisplayNumber(entry.jobNumber, entry.warehouse) || '--'}</td>
                       <td>{renderWeight(entry.checkedOutWeightLbs)}</td>
                       <td>{renderWeight(entry.checkedInWeightLbs)}</td>
                       <td>{renderWeight(entry.weightDeltaLbs)}</td>

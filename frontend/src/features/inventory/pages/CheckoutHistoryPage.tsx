@@ -8,8 +8,10 @@ import {
   MobileRecordCard,
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
+import type { AuditEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useAuditList } from '../hooks/useInventoryQueries';
 
 const CHECKOUT_PREFIX = 'Checked out for job ';
@@ -24,6 +26,10 @@ function getCheckoutJobNumber(notes: string): string {
   }
 
   return '';
+}
+
+function getCheckoutJobWarehouse(entry: AuditEntry): string {
+  return String(entry.after?.warehouse || entry.before?.warehouse || '').trim().toUpperCase();
 }
 
 export default function CheckoutHistoryPage() {
@@ -69,7 +75,10 @@ export default function CheckoutHistoryPage() {
                     onTitleClick={() => navigate(`/inventory/${encodeURIComponent(entry.boxId)}`)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Job Number" value={getCheckoutJobNumber(entry.notes) || '--'} />
+                    <MobileField
+                      label="Job Number"
+                      value={formatJobDisplayNumber(getCheckoutJobNumber(entry.notes), getCheckoutJobWarehouse(entry)) || '--'}
+                    />
                     <MobileField label="User" value={entry.user || '--'} />
                   </MobileFieldList>
                 </MobileRecordCard>
@@ -99,7 +108,7 @@ export default function CheckoutHistoryPage() {
                           {entry.boxId}
                         </button>
                       </td>
-                      <td>{getCheckoutJobNumber(entry.notes) || '--'}</td>
+                      <td>{formatJobDisplayNumber(getCheckoutJobNumber(entry.notes), getCheckoutJobWarehouse(entry)) || '--'}</td>
                       <td>{entry.user || '--'}</td>
                     </tr>
                   ))}

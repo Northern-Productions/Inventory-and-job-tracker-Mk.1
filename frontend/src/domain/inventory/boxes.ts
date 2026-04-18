@@ -106,6 +106,12 @@ export interface SetBoxStatusPayload {
   auditNote?: string;
 }
 
+export interface ReceiveOrderedBoxPayload {
+  boxId: string;
+  receivedWeightLbs?: number;
+  lotRun?: string;
+}
+
 export interface StartBoxTransferPayload {
   boxId: string;
   toWarehouse: Warehouse;

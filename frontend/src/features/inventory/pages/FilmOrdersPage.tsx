@@ -14,8 +14,10 @@ import { useToast } from '../../../components/Toast';
 import type { CreateFilmOrderPayload, FilmOrderEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
+import { FilmOrderLinkedBoxes } from '../components/FilmOrderLinkedBoxes';
 import {
   useCreateFilmOrder,
   useDeleteFilmOrder,
@@ -228,6 +230,7 @@ export default function FilmOrdersPage() {
                   order.filmOrderId.trim().toUpperCase()
                 );
                 const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
+                const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
 
                 return (
                   <MobileRecordCard key={order.filmOrderId}>
@@ -238,7 +241,7 @@ export default function FilmOrdersPage() {
                           to={buildJobHref(order.jobNumber)}
                           className="film-orders-job-link film-orders-job-link-mobile"
                         >
-                          Job {order.jobNumber}
+                          Job {displayJobNumber}
                         </Link>
                       }
                       badge={
@@ -250,12 +253,13 @@ export default function FilmOrdersPage() {
                     <MobileFieldList>
                       <MobileField label="Warehouse" value={order.warehouse} />
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
-                      <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
-                      {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
+                      <MobileField label="Ordered Box ID" value={<FilmOrderLinkedBoxes order={order} />} />
                       <MobileField label="Install Date" value={formatDate(order.installDate)} />
                       <MobileField label="Created" value={formatDate(order.createdAt)} />
+                      <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
+                      {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
                     </MobileFieldList>
                     <MobileActionStack>
                       {order.status === 'FULFILLED' ? null : (
@@ -283,18 +287,19 @@ export default function FilmOrdersPage() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table>
+              <table className="film-orders-table">
                 <thead>
                   <tr>
                     <th>Status</th>
-                    <th>Job</th>
                     <th>Warehouse</th>
+                    <th>Job ID</th>
                     <th>Film</th>
-                    <th>Origin</th>
                     <th>Width</th>
                     <th>Need To Order</th>
+                    <th className="col-ordered-box-id">Ordered Box ID</th>
                     <th>Install Date</th>
                     <th>Created</th>
+                    <th>Origin</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -304,6 +309,7 @@ export default function FilmOrdersPage() {
                       order.filmOrderId.trim().toUpperCase()
                     );
                     const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
+                    const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
 
                     return (
                       <tr key={order.filmOrderId}>
@@ -313,22 +319,27 @@ export default function FilmOrdersPage() {
                           </span>
                         </td>
                         <td>
+                          {order.warehouse}
+                        </td>
+                        <td>
                           <Link to={buildJobHref(order.jobNumber)} className="film-orders-job-link">
-                            {order.jobNumber}
+                            {displayJobNumber}
                           </Link>
                         </td>
-                        <td>{order.warehouse}</td>
                         <td>
                           {order.manufacturer} {order.filmName}
                         </td>
+                        <td>{order.widthIn}</td>
+                        <td>{order.remainingToOrderFeet}</td>
+                        <td className="col-ordered-box-id">
+                          <FilmOrderLinkedBoxes order={order} />
+                        </td>
+                        <td>{formatDate(order.installDate)}</td>
+                        <td>{formatDate(order.createdAt)}</td>
                         <td>
                           <div>{formatFilmOrderOriginLabel(order)}</div>
                           {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
                         </td>
-                        <td>{order.widthIn}</td>
-                        <td>{order.remainingToOrderFeet}</td>
-                        <td>{formatDate(order.installDate)}</td>
-                        <td>{formatDate(order.createdAt)}</td>
                         <td>
                           <div className="film-order-actions">
                             {order.status === 'FULFILLED' ? null : (

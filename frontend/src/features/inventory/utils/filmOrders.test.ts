@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatFilmOrderLinkedBoxIds,
   formatFilmOrderOriginLabel,
+  getFilmOrderLinkedBoxes,
+  getFilmOrderLinkedBoxIds,
   getFilmOrderOrigin,
   getFilmOrderOriginSourceBoxId,
   hasFilmOrdersNeedingAttention,
@@ -82,5 +85,62 @@ describe('filmOrders helpers', () => {
     expect(getFilmOrderOrigin({ origin: 'MANUAL', sourceBoxId: 'IL1-6923' })).toBe('MANUAL');
     expect(formatFilmOrderOriginLabel({ origin: 'MANUAL', sourceBoxId: '' })).toBe('Manual');
     expect(getFilmOrderOriginSourceBoxId({ origin: 'MANUAL', sourceBoxId: '' })).toBe('');
+  });
+
+  it('returns an empty linked-box list and placeholder when no ordered boxes are linked', () => {
+    expect(getFilmOrderLinkedBoxIds({ linkedBoxes: [] })).toEqual([]);
+    expect(formatFilmOrderLinkedBoxIds({ linkedBoxes: [] })).toBe('--');
+  });
+
+  it('returns the linked box id when a film order has one ordered box', () => {
+    expect(
+      getFilmOrderLinkedBoxIds({
+        linkedBoxes: [{ boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: false }]
+      })
+    ).toEqual(['IL1-0042']);
+    expect(
+      formatFilmOrderLinkedBoxIds({
+        linkedBoxes: [{ boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: false }]
+      })
+    ).toBe('IL1-0042');
+  });
+
+  it('preserves received state while normalizing linked ordered boxes for display', () => {
+    expect(
+      getFilmOrderLinkedBoxes({
+        linkedBoxes: [
+          { boxId: ' il1-0042 ', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0042', orderedFeet: 12, autoAllocatedFeet: 0, isReceived: true },
+          { boxId: 'MS1-0100', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false }
+        ]
+      })
+    ).toEqual([
+      { boxId: 'IL1-0042', isReceived: true },
+      { boxId: 'MS1-0100', isReceived: false }
+    ]);
+  });
+
+  it('normalizes, dedupes, and sorts linked ordered box ids for stable display', () => {
+    expect(
+      getFilmOrderLinkedBoxIds({
+        linkedBoxes: [
+          { boxId: ' ms1-0100 ', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0002', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: true },
+          { boxId: 'il1-0001', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0002', orderedFeet: 5, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: '', orderedFeet: 0, autoAllocatedFeet: 0, isReceived: false }
+        ]
+      })
+    ).toEqual(['IL1-0001', 'IL1-0002', 'MS1-0100']);
+    expect(
+      formatFilmOrderLinkedBoxIds({
+        linkedBoxes: [
+          { boxId: ' ms1-0100 ', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0002', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'il1-0001', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false },
+          { boxId: 'IL1-0002', orderedFeet: 5, autoAllocatedFeet: 0, isReceived: false }
+        ]
+      })
+    ).toBe('IL1-0001, IL1-0002, MS1-0100');
   });
 });

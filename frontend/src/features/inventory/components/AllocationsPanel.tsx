@@ -7,6 +7,7 @@ import {
 } from '../../../components/MobileRecordCard';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useBoxAllocations } from '../hooks/useInventoryQueries';
 import { getActiveAllocatedFeet } from '../utils/boxHelpers';
 
@@ -103,7 +104,7 @@ export function AllocationsPanel({
               {allocations.map((entry) => (
                 <MobileRecordCard key={entry.allocationId}>
                   <MobileRecordHeader
-                    title={entry.jobNumber}
+                    title={formatJobDisplayNumber(entry.jobNumber, entry.warehouse)}
                     subtitle={renderDateTime(entry.createdAt)}
                     badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
                   />
@@ -139,7 +140,7 @@ export function AllocationsPanel({
                   {allocations.map((entry) => (
                     <tr key={entry.allocationId}>
                       <td>{renderDateTime(entry.createdAt)}</td>
-                      <td>{entry.jobNumber}</td>
+                      <td>{formatJobDisplayNumber(entry.jobNumber, entry.warehouse)}</td>
                       <td>{renderDate(entry.installDate)}</td>
                       <td>{entry.crewLeader || '--'}</td>
                       <td>{formatReservationState(entry.reservationState)}</td>

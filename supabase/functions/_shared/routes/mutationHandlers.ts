@@ -297,6 +297,17 @@ const mutationHandlers: Record<string, MutationHandler> = {
       result.warnings || []
     );
   },
+  "/boxes/receive": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_acl_boxes_receive_ordered", orgId, actor, normalizedPayload);
+    const box = await deps.findBoxById(client, orgId, deps.asTrimmedString(result.boxId));
+    if (!box) {
+      throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
+    }
+    return ok(
+      { box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps), logId: deps.asTrimmedString(result.logId) },
+      result.warnings || []
+    );
+  },
   "/boxes/set-status": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     await deps.ensureBoxCheckoutCrewCompatibility(client, orgId, normalizedPayload);
     const result = await deps.callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, normalizedPayload);

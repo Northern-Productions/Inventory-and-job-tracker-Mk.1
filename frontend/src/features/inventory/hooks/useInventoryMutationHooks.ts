@@ -15,6 +15,7 @@ export {
   useAddBox,
   useCancelBoxTransfer,
   useDeleteBox,
+  useReceiveOrderedBox,
   useReceiveBoxTransfer,
   useSetBoxStatus,
   useStartBoxTransfer,

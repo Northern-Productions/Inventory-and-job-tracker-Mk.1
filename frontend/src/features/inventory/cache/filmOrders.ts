@@ -57,7 +57,8 @@ function buildOptimisticFilmOrderAfterBoxReceipt(
       {
         boxId: box.boxId,
         orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
-        autoAllocatedFeet: 0
+        autoAllocatedFeet: 0,
+        isReceived: false
       }
     ]
   };

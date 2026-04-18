@@ -73,7 +73,7 @@ describe('JobsCalendarView interactions', () => {
       />
     );
 
-    fireEvent.focus(screen.getByRole('link', { name: /12345/i }));
+    fireEvent.focus(screen.getByRole('link', { name: /IL1-12345/i }));
 
     expect(onPrefetchJob).toHaveBeenCalledWith('12345');
   });
@@ -92,7 +92,7 @@ describe('JobsCalendarView interactions', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('link', { name: /12345/i }));
+    fireEvent.click(screen.getByRole('link', { name: /IL1-12345/i }));
 
     expect(onPrefetchJob).toHaveBeenCalledWith('12345');
   });

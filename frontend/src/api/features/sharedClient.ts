@@ -287,6 +287,7 @@ export function mapCaulkTransferEntry(value: unknown): CaulkTransferEntry | null
     transferId,
     caulkAllocationId: String(source.caulkAllocationId || '').trim(),
     jobNumber: String(source.jobNumber || '').trim(),
+    jobWarehouse: String(source.jobWarehouse || '').trim().toUpperCase() as Warehouse,
     productId: String(source.productId || '').trim(),
     manufacturerId: String(source.manufacturerId || '').trim(),
     manufacturer: String(source.manufacturer || '').trim(),

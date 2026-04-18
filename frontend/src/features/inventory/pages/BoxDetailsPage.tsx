@@ -20,6 +20,7 @@ export default function BoxDetailsPage() {
     updateMutation,
     deleteMutation,
     statusMutation,
+    receiveOrderedMutation,
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,
@@ -112,7 +113,7 @@ export default function BoxDetailsPage() {
         canWriteInventory={canWriteInventory}
         canWriteAllocations={canWriteAllocations}
         deletePending={deleteMutation.isPending}
-        statusPending={statusMutation.isPending}
+        statusPending={statusMutation.isPending || receiveOrderedMutation.isPending}
         allocationsLoading={allocationsQuery.isLoading}
         currentFeetOnRoll={currentFeetOnRoll}
         displayedAllocatedFeet={displayedAllocatedFeet}
@@ -128,6 +129,7 @@ export default function BoxDetailsPage() {
         onCopyQrImage={() => void handleCopyQrImage()}
         onDownloadQrImage={handleDownloadQrImage}
         onCopyQrCode={() => void handleCopyQrCode()}
+        onOpenOrderedReceiveDialog={() => boxActions.handleStatusChange('IN_STOCK')}
         onCheckIn={() => void boxActions.handleStatusChange('IN_STOCK')}
         onOpenAllocateDialog={() => setIsAllocateOpen(true)}
         onCheckOut={() => void boxActions.handleStatusChange('CHECKED_OUT')}
@@ -194,6 +196,8 @@ export default function BoxDetailsPage() {
         confirmState={boxActions.confirmState}
         filmCheckinOpen={boxActions.isFilmCheckinOpen}
         filmCheckinPending={statusMutation.isPending}
+        orderedReceiveOpen={boxActions.isOrderedReceiveOpen}
+        orderedReceivePending={receiveOrderedMutation.isPending}
         filmCheckinReleaseJobNumber={filmCheckinReleaseJobNumber}
         checkoutJobOptions={checkoutJobOptions}
         onCancelZeroedEdit={boxActions.handleCancelZeroedEdit}
@@ -206,7 +210,9 @@ export default function BoxDetailsPage() {
         onConfirmCancelTransfer={() => void transferWorkflow.handleCancelTransfer()}
         onCancelStatusConfirm={boxActions.handleCancelConfirm}
         onCancelFilmCheckin={boxActions.handleCancelFilmCheckin}
+        onCancelOrderedReceive={boxActions.handleCancelOrderedReceive}
         onConfirmFilmCheckin={(draft) => void boxActions.handleFilmCheckinConfirm(draft)}
+        onConfirmOrderedReceive={(draft) => void boxActions.handleOrderedReceiveConfirm(draft)}
         onConfirmStatusConfirm={(reason) => void boxActions.handleConfirm(reason)}
       />
     </>

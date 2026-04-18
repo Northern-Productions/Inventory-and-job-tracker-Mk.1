@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import { type Box } from '../../../../domain';
+import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
 import {
@@ -13,6 +14,7 @@ import {
   useFilmCatalog,
   useIsAddBoxPending,
   useJobSummariesByNumbers,
+  useReceiveOrderedBox,
   useReceiveBoxTransfer,
   useStartBoxTransfer,
   useSetBoxStatus,
@@ -51,6 +53,7 @@ export function useBoxDetailsPageModel() {
   const updateMutation = useUpdateBox();
   const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();
+  const receiveOrderedMutation = useReceiveOrderedBox();
   const startTransferMutation = useStartBoxTransfer();
   const receiveTransferMutation = useReceiveBoxTransfer();
   const cancelTransferMutation = useCancelBoxTransfer();
@@ -183,7 +186,7 @@ export function useBoxDetailsPageModel() {
 
       seenJobNumbers.add(jobNumber);
       options.push({
-        label: jobNumber,
+        label: formatJobDisplayNumber(jobNumber, entry.warehouse),
         value: jobNumber
       });
       return options;
@@ -222,6 +225,7 @@ export function useBoxDetailsPageModel() {
     updateBox: updateMutation.mutateAsync,
     deleteBox: deleteMutation.mutateAsync,
     setBoxStatus: statusMutation.mutateAsync,
+    receiveOrderedBox: receiveOrderedMutation.mutateAsync,
     undoAudit: undoMutation.mutateAsync
   });
   const {
@@ -293,6 +297,7 @@ export function useBoxDetailsPageModel() {
     updateMutation,
     deleteMutation,
     statusMutation,
+    receiveOrderedMutation,
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,

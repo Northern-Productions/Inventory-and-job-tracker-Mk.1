@@ -8,13 +8,15 @@ import type {
   BoxMutationResult,
   DeleteBoxPayload,
   DeleteBoxResult,
+  ReceiveOrderedBoxPayload,
   SetBoxStatusPayload,
   UndoAuditPayload,
   UndoMutationResult,
   UpdateBoxPayload
 } from '../../../../domain';
-import type { BoxDraft, FilmCheckinDraft } from '../../utils/boxHelpers';
+import type { BoxDraft, FilmCheckinDraft, OrderedBoxReceiveDraft } from '../../utils/boxHelpers';
 import {
+  buildReceiveOrderedBoxPayload,
   buildFilmCheckinPayload,
   didPersistFilmCheckinRollTracking
 } from '../../utils/boxHelpers';
@@ -52,6 +54,10 @@ type SetStatusMutationFn = (payload: SetBoxStatusPayload) => Promise<{
   result: BoxMutationResult;
   warnings: string[];
 }>;
+type ReceiveOrderedMutationFn = (payload: ReceiveOrderedBoxPayload) => Promise<{
+  result: BoxMutationResult;
+  warnings: string[];
+}>;
 type UndoMutationFn = (payload: UndoAuditPayload) => Promise<{
   result: UndoMutationResult;
   warnings: string[];
@@ -71,6 +77,7 @@ interface UseBoxDetailActionsArgs {
   updateBox: UpdateMutationFn;
   deleteBox: DeleteMutationFn;
   setBoxStatus: SetStatusMutationFn;
+  receiveOrderedBox: ReceiveOrderedMutationFn;
   undoAudit: UndoMutationFn;
 }
 
@@ -88,10 +95,12 @@ export function useBoxDetailActions({
   updateBox,
   deleteBox,
   setBoxStatus,
+  receiveOrderedBox,
   undoAudit
 }: UseBoxDetailActionsArgs) {
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [isFilmCheckinOpen, setIsFilmCheckinOpen] = useState(false);
+  const [isOrderedReceiveOpen, setIsOrderedReceiveOpen] = useState(false);
   const [pendingZeroedEditState, setPendingZeroedEditState] = useState<PendingZeroedEditState | null>(null);
   const [pendingZeroedReactivationState, setPendingZeroedReactivationState] =
     useState<PendingZeroedReactivationState | null>(null);
@@ -99,6 +108,7 @@ export function useBoxDetailActions({
   useEffect(() => {
     setConfirmState(null);
     setIsFilmCheckinOpen(false);
+    setIsOrderedReceiveOpen(false);
     setPendingZeroedEditState(null);
     setPendingZeroedReactivationState(null);
   }, [boxId]);
@@ -280,6 +290,11 @@ export function useBoxDetailActions({
       return;
     }
 
+    if (status === 'IN_STOCK' && box.status === 'ORDERED') {
+      setIsOrderedReceiveOpen(true);
+      return;
+    }
+
     setIsFilmCheckinOpen(true);
   }
 
@@ -289,6 +304,10 @@ export function useBoxDetailActions({
 
   function handleCancelFilmCheckin() {
     setIsFilmCheckinOpen(false);
+  }
+
+  function handleCancelOrderedReceive() {
+    setIsOrderedReceiveOpen(false);
   }
 
   async function handleConfirm(reason: string) {
@@ -385,6 +404,35 @@ export function useBoxDetailActions({
     }
   }
 
+  async function handleOrderedReceiveConfirm(draft: OrderedBoxReceiveDraft) {
+    if (!box) {
+      return;
+    }
+
+    if (!ensureSignedIn('receive this ordered box', 'inventory')) {
+      return;
+    }
+
+    try {
+      const { result, warnings } = await receiveOrderedBox(buildReceiveOrderedBoxPayload(box, draft));
+      setIsOrderedReceiveOpen(false);
+      await pushUndoToast(
+        result.logId,
+        'Box received',
+        result.box.boxId,
+        warnings,
+        `${result.box.boxId} was received and moved into in-stock inventory.`
+      );
+    } catch (error) {
+      pushToast({
+        title: 'Receive failed',
+        description:
+          error instanceof Error ? error.message : 'The ordered box could not be received.',
+        variant: 'error'
+      });
+    }
+  }
+
   function resetEditWorkflow() {
     setPendingZeroedEditState(null);
     setPendingZeroedReactivationState(null);
@@ -416,6 +464,7 @@ export function useBoxDetailActions({
   return {
     confirmState,
     isFilmCheckinOpen,
+    isOrderedReceiveOpen,
     pendingZeroedEditState,
     pendingZeroedReactivationState,
     handleDeleteBox,
@@ -423,8 +472,10 @@ export function useBoxDetailActions({
     handleStatusChange,
     handleCancelConfirm,
     handleCancelFilmCheckin,
+    handleCancelOrderedReceive,
     handleConfirm,
     handleFilmCheckinConfirm,
+    handleOrderedReceiveConfirm,
     resetEditWorkflow,
     handleCancelZeroedEdit,
     handleKeepActiveZeroedEdit,

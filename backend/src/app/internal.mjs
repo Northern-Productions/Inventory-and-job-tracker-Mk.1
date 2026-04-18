@@ -1,6 +1,6 @@
 // Purpose: Stable internal export surface for backend verification scripts.
 export { findBoxById } from './repositories/inventoryRepositories.mjs';
-export { addBox, updateBox, setBoxStatus } from './services/boxes.mjs';
+export { addBox, updateBox, receiveOrderedBox, setBoxStatus } from './services/boxes.mjs';
 export {
   applyAllocationPlan,
   buildAllocationJobDetail,

@@ -15,6 +15,7 @@ import {
 } from '../../../api/features/caulkClient';
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import {
   usePendingCancelCaulkTransferIds,
   usePendingReceiveCaulkTransferIds
@@ -313,7 +314,7 @@ export default function CaulkStockDetailsPage() {
                   return (
                     <div key={transfer.transferId} className="job-transfer-alert-row">
                       <div className="job-transfer-alert-copy">
-                        <strong>Job {transfer.jobNumber || '--'}</strong>
+                        <strong>Job {formatJobDisplayNumber(transfer.jobNumber, transfer.jobWarehouse) || '--'}</strong>
                         <p className="muted-text">
                           {transfer.sourceWarehouse} to {transfer.destinationWarehouse} | {transfer.pendingTubes}{' '}
                           tube{transfer.pendingTubes === 1 ? '' : 's'}

@@ -22,6 +22,7 @@ const useStartBoxTransferMock = vi.fn();
 const useReceiveBoxTransferMock = vi.fn();
 const useCancelBoxTransferMock = vi.fn();
 const useJobSummariesByNumbersMock = vi.fn();
+const useReceiveOrderedBoxMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
@@ -66,6 +67,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useReceiveBoxTransfer: () => useReceiveBoxTransferMock(),
   useCancelBoxTransfer: () => useCancelBoxTransferMock(),
   useJobSummariesByNumbers: () => useJobSummariesByNumbersMock(),
+  useReceiveOrderedBox: () => useReceiveOrderedBoxMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpdateBox: () => useUpdateBoxMock()
@@ -343,6 +345,7 @@ describe('BoxDetailsPage', () => {
       isError: false,
       error: null
     });
+    useReceiveOrderedBoxMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
@@ -526,6 +529,135 @@ describe('BoxDetailsPage', () => {
     expect(html).not.toContain('>Transfer Box</button>');
   });
 
+  it('shows Receive Box instead of Transfer Box for ordered boxes', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Receive Box');
+    expect(html).not.toContain('>Transfer Box</button>');
+  });
+
+  it('receives an ordered box with blank optional values', async () => {
+    const receiveOrderedState = buildMutationState();
+    receiveOrderedState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        receivedDate: '2026-04-17',
+        feetAvailable: 500,
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      })
+    );
+    useReceiveOrderedBoxMock.mockReturnValue(receiveOrderedState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        lotRun: '',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    expect(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i })).toBeTruthy();
+    expect(within(dialog).getByRole('textbox', { name: /Lot Run/i })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
+
+    await waitFor(() =>
+      expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234'
+      })
+    );
+  });
+
+  it('maps ordered receive weight and lot run into the dedicated mutation payload', async () => {
+    const receiveOrderedState = buildMutationState();
+    receiveOrderedState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        receivedDate: '2026-04-17',
+        feetAvailable: 500,
+        lotRun: 'LOT-42',
+        initialWeightLbs: 18.5,
+        lastRollWeightLbs: 18.5,
+        lastWeighedDate: '2026-04-17',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      })
+    );
+    useReceiveOrderedBoxMock.mockReturnValue(receiveOrderedState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        lotRun: '',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i }), {
+      target: { value: '18.5' }
+    });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Lot Run/i }), {
+      target: { value: 'LOT-42' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
+
+    await waitFor(() =>
+      expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234',
+        receivedWeightLbs: 18.5,
+        lotRun: 'LOT-42'
+      })
+    );
+  });
+
   it('auto-opens the QR section when showQr=1 is present in the search params', () => {
     const html = renderPage();
 
@@ -549,7 +681,7 @@ describe('BoxDetailsPage', () => {
 
     expect(html).toContain('Last Checkout Job');
     expect(html).toContain('class="row-button"');
-    expect(html).toContain('>000123</button>');
+    expect(html).toContain('>IL1-000123</button>');
   });
 
   it('allows zeroed boxes to enter edit mode from the details page', () => {

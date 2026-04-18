@@ -54,6 +54,7 @@ export const inventoryKeys = {
   addBoxMutation: ['inventory', 'mutation', 'add-box'] as const,
   updateJobMutation: ['inventory', 'mutation', 'update-job'] as const,
   setBoxStatusMutation: ['inventory', 'mutation', 'set-box-status'] as const,
+  receiveOrderedBoxMutation: ['inventory', 'mutation', 'receive-ordered-box'] as const,
   addCaulkAllocationMutation: ['inventory', 'mutation', 'add-caulk-allocation'] as const,
   updateCaulkAllocationMutation: ['inventory', 'mutation', 'update-caulk-allocation'] as const,
   checkoutCaulkAllocationMutation: ['inventory', 'mutation', 'checkout-caulk-allocation'] as const,

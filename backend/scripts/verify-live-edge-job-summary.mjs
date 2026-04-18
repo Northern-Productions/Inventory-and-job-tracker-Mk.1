@@ -37,7 +37,9 @@ function resolveExpectedBuildSha() {
   }
 
   try {
-    return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+    const head = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+    const dirty = execSync('git status --porcelain', { encoding: 'utf8' }).trim().length > 0;
+    return dirty ? `${head}-dirty` : head;
   } catch (_error) {
     return '';
   }

@@ -218,6 +218,7 @@ async function listPendingCaulkTransfers(client, orgId, params) {
         t.*,
         a.caulk_allocation_id as caulk_allocation_public_id,
         a.job_number,
+        j.warehouse as job_warehouse,
         p.id as product_id,
         p.manufacturer_id,
         m.name as manufacturer,
@@ -231,6 +232,9 @@ async function listPendingCaulkTransfers(client, orgId, params) {
       join app.caulk_products p
         on p.org_id = t.org_id
        and p.id = t.product_id
+      left join app.jobs j
+        on j.org_id = a.org_id
+       and upper(trim(j.job_number)) = upper(trim(a.job_number))
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id

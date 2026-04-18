@@ -5,6 +5,7 @@ import { DialogSurface } from '../../../components/DialogSurface';
 import type { JobListEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import {
   buildCalendarPeriod,
   getCalendarJobStatusClass,
@@ -89,6 +90,7 @@ function renderJobLink(
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
+  const displayJobNumber = formatJobDisplayNumber(job.jobNumber, job.warehouse);
   const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber);
   const handleClick = () => {
     handlePrefetch();
@@ -113,7 +115,7 @@ function renderJobLink(
       onMouseEnter={handlePrefetch}
       onFocus={handlePrefetch}
     >
-      <span className="job-calendar-job-link-number">{job.jobNumber}</span>
+      <span className="job-calendar-job-link-number">{displayJobNumber}</span>
       {job.isStagedForPickup ? (
         <span className="job-calendar-stage-mark" aria-label="Staged for pickup" title="Staged for pickup">
           {'\u2713'}

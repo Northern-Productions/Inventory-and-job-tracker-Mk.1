@@ -277,6 +277,7 @@ const readHandlers: Record<string, ReadHandler> = {
       transferId: deps.asTrimmedString(entry.transfer_id),
       caulkAllocationId: deps.asTrimmedString(entry.caulk_allocation_id),
       jobNumber: deps.asTrimmedString(entry.job_number),
+      jobWarehouse: deps.asTrimmedString(entry.job_warehouse).toUpperCase(),
       productId: deps.asTrimmedString(entry.product_id),
       manufacturerId: deps.asTrimmedString(entry.manufacturer_id),
       manufacturer: deps.asTrimmedString(entry.manufacturer),

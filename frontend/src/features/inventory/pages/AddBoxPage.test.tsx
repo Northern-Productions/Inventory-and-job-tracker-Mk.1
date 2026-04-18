@@ -347,7 +347,8 @@ describe('AddBoxPage', () => {
       {
         boxId: 'IL1-0006',
         orderedFeet: 100,
-        autoAllocatedFeet: 0
+        autoAllocatedFeet: 0,
+        isReceived: false
       }
     ]);
     expect(

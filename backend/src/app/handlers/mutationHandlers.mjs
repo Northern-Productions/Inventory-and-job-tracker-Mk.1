@@ -35,6 +35,7 @@ import {
   addBox,
   cancelBoxTransfer,
   deleteBox,
+  receiveOrderedBox,
   receiveBoxTransfer,
   setBoxStatus,
   startBoxTransfer,
@@ -193,6 +194,8 @@ const mutationHandlers = {
     updateBox(client, orgId, params, authContext.actor),
   '/boxes/delete': async ({ client, orgId, authContext, params }) =>
     deleteBox(client, orgId, params, authContext.actor),
+  '/boxes/receive': async ({ client, orgId, authContext, params }) =>
+    receiveOrderedBox(client, orgId, params, authContext.actor),
   '/boxes/set-status': async ({ client, orgId, authContext, params }) =>
     setBoxStatus(client, orgId, params, authContext.actor),
   '/audit/undo': async ({ client, orgId, authContext, params }) =>

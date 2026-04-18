@@ -280,7 +280,7 @@ function mapDatabaseBootstrapError(message) {
     (normalized.includes('function app_api.reconcile_auto_shortage_film_orders_for_job') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.reconcile_auto_shortage_film_orders_for_box') && normalized.includes('does not exist'))
   ) {
-    return 'Database migration 0066_film_allocation_lock_priority.sql is required. Apply missing backend migrations through 0066, then retry.';
+    return 'Database migration 0068_fix_linked_receipt_post_save_recalc.sql is required. Apply missing backend migrations through 0068, then retry.';
   }
   return asTrimmedString(message) || 'Unexpected server error.';
 }

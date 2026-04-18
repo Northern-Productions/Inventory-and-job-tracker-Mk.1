@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0066_film_allocation_lock_priority.sql';
+const LATEST_MIGRATION = '0070_ordered_box_receive_workflow.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -23,6 +23,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_boxes_set_status(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
@@ -40,9 +42,42 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.box_physical_feet_available(app.boxes)' },
   { kind: 'function', signature: 'app_api.box_allocatable_now_feet(app.boxes)' },
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
+  { kind: 'function', signature: 'app_api.recalculate_film_order(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
+];
+
+const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'app_api.recalculate_film_order(uuid, text, text)',
+    includes: [
+      'v_link_count > 0',
+      "upper(coalesce(b.status::text, '')) <> 'ORDERED'",
+      'v_received_link_count = v_link_count'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)',
+    includes: ['v_recalculate_film_order_ids', 'perform app_api.recalculate_film_order(p_org_id, v_recalculate_film_order_id, p_actor);'],
+    excludes: ['v_box.feet_available <= 0']
+  },
+  {
+    signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
+    includes: [
+      'public.api_boxes_update(p_org_id, p_actor, v_payload)',
+      "set action = 'SET_STATUS'",
+      'app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id)'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_boxes_set_status(uuid, text, jsonb)',
+    includes: ['perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'],
+    excludes: []
+  }
 ];
 
 function sqlLiteral(value) {
@@ -104,6 +139,47 @@ async function runSchemaCheck() {
         '[schema-check] Missing required schema objects for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           `${details}`
+      );
+    }
+
+    const semanticRows = await client.query(
+      `
+        select
+          signature,
+          pg_get_functiondef(to_regprocedure(signature)) as definition
+        from unnest($1::text[]) as required(signature)
+      `,
+      [REQUIRED_FUNCTION_SEMANTICS.map((entry) => entry.signature)]
+    );
+
+    const functionDefinitions = new Map(
+      semanticRows.rows.map((row) => [row.signature, String(row.definition || '')])
+    );
+
+    const semanticIssues = [];
+    for (const requirement of REQUIRED_FUNCTION_SEMANTICS) {
+      const definition = functionDefinitions.get(requirement.signature) || '';
+      for (const expectedSnippet of requirement.includes) {
+        if (!definition.includes(expectedSnippet)) {
+          semanticIssues.push(
+            `- function semantic mismatch: ${requirement.signature} is missing snippet ${JSON.stringify(expectedSnippet)}`
+          );
+        }
+      }
+      for (const forbiddenSnippet of requirement.excludes) {
+        if (definition.includes(forbiddenSnippet)) {
+          semanticIssues.push(
+            `- function semantic mismatch: ${requirement.signature} still contains forbidden snippet ${JSON.stringify(forbiddenSnippet)}`
+          );
+        }
+      }
+    }
+
+    if (semanticIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Required function bodies are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          semanticIssues.join('\n')
       );
     }
 

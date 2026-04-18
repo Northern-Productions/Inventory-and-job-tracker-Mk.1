@@ -3732,6 +3732,11 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     Object.assign(boxById, indexBoxesById(fetchedBoxes));
   }
 
+  function isReceivedLinkedBoxStatus(status: unknown) {
+    const normalizedStatus = asTrimmedString(status).toUpperCase();
+    return normalizedStatus !== "" && normalizedStatus !== "ORDERED";
+  }
+
   for (const link of links) {
     const filmOrderId = asTrimmedString((link as Record<string, unknown>).filmOrderId);
     const boxId = asTrimmedString((link as Record<string, unknown>).boxId).toUpperCase();
@@ -3745,6 +3750,7 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
       boxId,
       orderedFeet: integerOrZero((link as Record<string, unknown>).orderedFeet),
       autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
+      isReceived: isReceivedLinkedBoxStatus((boxById[boxId] as Record<string, unknown>).status),
     });
   }
 
@@ -3763,6 +3769,55 @@ async function buildPublicFilmOrderLinkedBoxes(
 ) {
   const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(orgId, [filmOrderId], boxById);
   return linkedBoxesByFilmOrderId[asTrimmedString(filmOrderId)] || [];
+}
+
+function hasReceivedLinkedBoxStatus(status: unknown) {
+  const normalizedStatus = asTrimmedString(status).toUpperCase();
+  return normalizedStatus !== "" && normalizedStatus !== "ORDERED";
+}
+
+async function summarizeFilmOrderLinkedBoxes(
+  client: any,
+  orgId: string,
+  filmOrderId: string,
+) {
+  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+  if (!links.length) {
+    return {
+      hasLinkedBoxes: false,
+      allLinkedBoxesReceived: false,
+      orderedFeet: 0,
+    };
+  }
+
+  let orderedFeet = 0;
+  let allLinkedBoxesReceived = true;
+
+  for (const link of links) {
+    const linkRecord = link as Record<string, unknown>;
+    const boxId = asTrimmedString(linkRecord.box_id);
+    if (!boxId) {
+      allLinkedBoxesReceived = false;
+      continue;
+    }
+
+    const box = await findBoxById(client, orgId, boxId);
+    if (!box) {
+      allLinkedBoxesReceived = false;
+      continue;
+    }
+
+    orderedFeet += integerOrZero(linkRecord.ordered_feet);
+    if (!hasReceivedLinkedBoxStatus(box.status)) {
+      allLinkedBoxesReceived = false;
+    }
+  }
+
+  return {
+    hasLinkedBoxes: true,
+    allLinkedBoxesReceived,
+    orderedFeet,
+  };
 }
 
 function isUnresolvedFilmOrderStatus(status: unknown) {
@@ -6138,21 +6193,8 @@ async function recalculateFilmOrderAfterAllocationMutation(
     }
   }
 
-  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-  let orderedFeet = 0;
-  for (const link of links) {
-    const linkRecord = link as Record<string, unknown>;
-    const boxId = asTrimmedString(linkRecord.box_id);
-    if (!boxId) {
-      continue;
-    }
-
-    const box = await findBoxById(client, orgId, boxId);
-    if (!box) {
-      continue;
-    }
-    orderedFeet += integerOrZero(linkRecord.ordered_feet);
-  }
+  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId);
+  const orderedFeet = linkedBoxSummary.orderedFeet;
 
   const requestedFeet = integerOrZero(existing.requestedFeet);
   const remainingToOrderFeet = Math.max(requestedFeet - orderedFeet, 0);
@@ -6161,7 +6203,23 @@ async function recalculateFilmOrderAfterAllocationMutation(
   let resolvedBy: string | null = existing.resolvedBy || null;
 
   if (nextStatus !== "CANCELLED") {
-    if (coveredFeet >= requestedFeet) {
+    if (linkedBoxSummary.hasLinkedBoxes) {
+      if (orderedFeet < requestedFeet) {
+        nextStatus = "FILM_ORDER";
+        resolvedAt = null;
+        resolvedBy = null;
+      } else if (linkedBoxSummary.allLinkedBoxesReceived) {
+        nextStatus = "FULFILLED";
+        if (!resolvedAt) {
+          resolvedAt = new Date().toISOString();
+          resolvedBy = actor;
+        }
+      } else {
+        nextStatus = "FILM_ON_THE_WAY";
+        resolvedAt = null;
+        resolvedBy = null;
+      }
+    } else if (coveredFeet >= requestedFeet) {
       nextStatus = "FULFILLED";
       if (!resolvedAt) {
         resolvedAt = new Date().toISOString();
@@ -6388,6 +6446,13 @@ async function canonicalizeMutationPayloadForRoute(
   if (logicalPath === "/boxes/set-status") {
     if (typeof next.coreType === "string") {
       next.coreType = asTrimmedString(next.coreType);
+    }
+    return next;
+  }
+
+  if (logicalPath === "/boxes/receive") {
+    if (typeof next.lotRun === "string") {
+      next.lotRun = asTrimmedString(next.lotRun);
     }
     return next;
   }

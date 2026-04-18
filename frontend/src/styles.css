@@ -3038,7 +3038,8 @@ td.col-available-linear-ft {
   gap: 0.5rem;
 }
 
-.film-orders-job-link {
+.film-orders-job-link,
+.film-order-linked-box-link {
   color: #1d62c4;
   font-weight: 700;
   text-decoration: underline;
@@ -3050,7 +3051,9 @@ td.col-available-linear-ft {
 }
 
 .film-orders-job-link:hover,
-.film-orders-job-link:focus-visible {
+.film-orders-job-link:focus-visible,
+.film-order-linked-box-link:hover,
+.film-order-linked-box-link:focus-visible {
   color: #154c9d;
   text-decoration-color: currentColor;
   outline: none;
@@ -3081,6 +3084,40 @@ td.col-available-linear-ft {
 .film-order-linked-boxes {
   min-width: 200px;
   font-size: 0.9rem;
+}
+
+.film-orders-table th.col-ordered-box-id,
+.film-orders-table td.col-ordered-box-id {
+  width: 1%;
+  min-width: 9.5ch;
+}
+
+.film-orders-table .film-order-linked-boxes {
+  min-width: 0;
+  width: fit-content;
+  justify-items: center;
+}
+
+.film-orders-table .film-order-linked-box-link {
+  white-space: nowrap;
+}
+
+.film-order-linked-box-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+}
+
+.film-order-linked-box-link {
+  width: fit-content;
+  word-break: break-word;
+}
+
+.film-order-linked-box-status {
+  color: #1b8a55;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .scanner-frame {

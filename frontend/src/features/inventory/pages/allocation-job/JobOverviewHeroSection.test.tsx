@@ -72,6 +72,7 @@ describe('JobOverviewHeroSection', () => {
   it('renders a secondary ON ORDER pill when the summary reports ordered allocations', () => {
     renderHero({ hasOrderedAllocations: true });
 
+    expect(screen.getByRole('heading', { name: 'JOB ID IL1-000123' })).toBeTruthy();
     expect(screen.getByText('READY')).toBeTruthy();
     expect(screen.getByText('ON ORDER')).toBeTruthy();
   });

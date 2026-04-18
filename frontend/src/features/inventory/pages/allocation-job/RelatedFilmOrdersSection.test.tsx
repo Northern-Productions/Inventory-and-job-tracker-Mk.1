@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FilmOrderEntry } from '../../../../domain';
 import { RelatedFilmOrdersSection } from './RelatedFilmOrdersSection';
 
@@ -31,24 +32,39 @@ function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrder
   };
 }
 
+afterEach(() => {
+  cleanup();
+});
+
 describe('RelatedFilmOrdersSection', () => {
-  it('labels manual and auto-shortage orders and shows the shortage source box', () => {
+  it('shows linked ordered box ids as box-detail links while keeping shortage source boxes separate', () => {
     render(
-      <RelatedFilmOrdersSection
-        orders={[
-          buildFilmOrderEntry({ filmOrderId: 'FO-AUTO', sourceBoxId: 'IL1-6923' }),
-          buildFilmOrderEntry({
-            filmOrderId: 'FO-MANUAL',
-            filmName: 'Manual Roll',
-            sourceBoxId: ''
-          })
-        ]}
-        isPhoneLayout={false}
-        isReadOnlyJob={false}
-        pendingDeleteFilmOrderIds={new Set()}
-        onOrderFilm={vi.fn()}
-        onDeleteOrder={vi.fn()}
-      />
+      <MemoryRouter>
+        <RelatedFilmOrdersSection
+          orders={[
+            buildFilmOrderEntry({
+              filmOrderId: 'FO-AUTO',
+              filmName: 'Auto Roll',
+              sourceBoxId: 'IL1-6923',
+              linkedBoxes: [
+                { boxId: 'MS1-0042', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: false },
+                { boxId: 'IL1-0005', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: true }
+              ]
+            }),
+            buildFilmOrderEntry({
+              filmOrderId: 'FO-MANUAL',
+              filmName: 'Manual Roll',
+              sourceBoxId: '',
+              linkedBoxes: []
+            })
+          ]}
+          isPhoneLayout={false}
+          isReadOnlyJob={false}
+          pendingDeleteFilmOrderIds={new Set()}
+          onOrderFilm={vi.fn()}
+          onDeleteOrder={vi.fn()}
+        />
+      </MemoryRouter>
     );
 
     expect(
@@ -56,8 +72,45 @@ describe('RelatedFilmOrdersSection', () => {
         'Manual orders are created from Film Orders. Auto shortage orders appear after return/weigh or schedule rebalance.'
       )
     ).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Ordered Box IDs' })).toBeTruthy();
     expect(screen.getByText('Auto shortage')).toBeTruthy();
     expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
     expect(screen.getByText('Manual')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'IL1-0005' }).getAttribute('href')).toBe(
+      '/inventory/IL1-0005'
+    );
+    expect(screen.getByLabelText('Received IL1-0005')).toBeTruthy();
+    expect(screen.queryByLabelText('Received MS1-0042')).toBeNull();
+    expect(screen.getByRole('link', { name: 'MS1-0042' }).getAttribute('href')).toBe(
+      '/inventory/MS1-0042'
+    );
+    const manualRow = screen.getByText(/Manual Roll/, { selector: 'td' }).closest('tr');
+    expect(manualRow).toBeTruthy();
+    expect(within(manualRow as HTMLTableRowElement).getByText('--')).toBeTruthy();
+  });
+
+  it('renders the ordered box ids field on mobile cards', () => {
+    render(
+      <MemoryRouter>
+        <RelatedFilmOrdersSection
+          orders={[
+            buildFilmOrderEntry({
+              linkedBoxes: [{ boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: true }]
+            })
+          ]}
+          isPhoneLayout
+          isReadOnlyJob={false}
+          pendingDeleteFilmOrderIds={new Set()}
+          onOrderFilm={vi.fn()}
+          onDeleteOrder={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Ordered Box IDs')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'IL1-0042' }).getAttribute('href')).toBe(
+      '/inventory/IL1-0042'
+    );
+    expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
   });
 });

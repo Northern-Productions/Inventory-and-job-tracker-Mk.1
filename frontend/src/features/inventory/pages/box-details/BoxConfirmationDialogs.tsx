@@ -8,7 +8,7 @@ import {
   ZEROED_BOX_REACTIVATION_PROMPT,
   buildZeroedInventoryWarningMessage
 } from '../../utils/boxZeroedTransition';
-import type { FilmCheckinDraft } from '../../utils/boxHelpers';
+import type { FilmCheckinDraft, OrderedBoxReceiveDraft } from '../../utils/boxHelpers';
 import type {
   ConfirmState,
   PendingZeroedEditState,
@@ -16,6 +16,7 @@ import type {
   TransferActionState
 } from './types';
 import type { Box } from '../../../../domain';
+import { ReceiveOrderedBoxDialog } from './ReceiveOrderedBoxDialog';
 
 interface BoxConfirmationDialogsProps {
   box: Box | null | undefined;
@@ -26,6 +27,8 @@ interface BoxConfirmationDialogsProps {
   confirmState: ConfirmState;
   filmCheckinOpen: boolean;
   filmCheckinPending: boolean;
+  orderedReceiveOpen: boolean;
+  orderedReceivePending: boolean;
   filmCheckinReleaseJobNumber?: string;
   checkoutJobOptions: Array<{ label: string; value: string }>;
   onCancelZeroedEdit: () => void;
@@ -38,7 +41,9 @@ interface BoxConfirmationDialogsProps {
   onConfirmCancelTransfer: () => void;
   onCancelStatusConfirm: () => void;
   onCancelFilmCheckin: () => void;
+  onCancelOrderedReceive: () => void;
   onConfirmFilmCheckin: (draft: FilmCheckinDraft) => void;
+  onConfirmOrderedReceive: (draft: OrderedBoxReceiveDraft) => void;
   onConfirmStatusConfirm: (reason: string) => void;
 }
 
@@ -51,6 +56,8 @@ export function BoxConfirmationDialogs({
   confirmState,
   filmCheckinOpen,
   filmCheckinPending,
+  orderedReceiveOpen,
+  orderedReceivePending,
   filmCheckinReleaseJobNumber,
   checkoutJobOptions,
   onCancelZeroedEdit,
@@ -63,7 +70,9 @@ export function BoxConfirmationDialogs({
   onConfirmCancelTransfer,
   onCancelStatusConfirm,
   onCancelFilmCheckin,
+  onCancelOrderedReceive,
   onConfirmFilmCheckin,
+  onConfirmOrderedReceive,
   onConfirmStatusConfirm
 }: BoxConfirmationDialogsProps) {
   const zeroedEditTitleId = useId();
@@ -182,6 +191,14 @@ export function BoxConfirmationDialogs({
         releaseJobNumber={filmCheckinReleaseJobNumber}
         onCancel={onCancelFilmCheckin}
         onConfirm={onConfirmFilmCheckin}
+      />
+
+      <ReceiveOrderedBoxDialog
+        open={orderedReceiveOpen}
+        box={box}
+        pending={orderedReceivePending}
+        onCancel={onCancelOrderedReceive}
+        onConfirm={onConfirmOrderedReceive}
       />
 
       <ConfirmDialog

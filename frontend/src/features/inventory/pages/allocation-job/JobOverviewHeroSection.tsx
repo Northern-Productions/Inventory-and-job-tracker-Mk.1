@@ -1,5 +1,6 @@
 import { Button } from '../../../../components/Button';
 import type { JobCaulkTransferAlert, JobDetail, JobFilmTransferAlert } from '../../../../domain';
+import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
 import { CaulkTransferAlertsPanel } from './CaulkTransferAlertsPanel';
 import { FilmTransferAlertsPanel } from './FilmTransferAlertsPanel';
 import { formatBadgeLabel, renderDate } from './helpers';
@@ -59,6 +60,8 @@ export function JobOverviewHeroSection({
   onToggleStagedPickup,
   onOpenTransferBox
 }: JobOverviewHeroSectionProps) {
+  const displayJobNumber = formatJobDisplayNumber(summary.jobNumber, summary.warehouse);
+
   return (
     <section className="panel job-detail-hero">
       <div className="page-hero-topline">
@@ -67,7 +70,7 @@ export function JobOverviewHeroSection({
       </div>
       <div className="panel-title-row">
         <div>
-          <h2>JOB ID {summary.jobNumber}</h2>
+          <h2>JOB ID {displayJobNumber}</h2>
           <p className="muted-text">Job detail</p>
         </div>
         <div className="detail-actions">

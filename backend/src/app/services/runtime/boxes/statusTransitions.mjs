@@ -32,6 +32,8 @@ import {
   getCheckoutJobNumberFromAuditNotes,
 } from '../checkout/audit.mjs';
 import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
+import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
+import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 
@@ -266,7 +268,14 @@ async function setBoxStatus(client, orgId, payload, actor) {
         warnings.push('Box stayed in active inventory because it has not had Available Feet above 0 yet.');
       }
 
+      if (updatedBox.status === 'IN_STOCK') {
+        updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
+      }
       updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+    }
+
+    if (updatedBox.status !== 'CHECKED_OUT') {
+      await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
     }
 
     if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {

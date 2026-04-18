@@ -54,6 +54,7 @@ export {
   useDeleteBox,
   useDeleteFilmOrder,
   useReceiveCaulkTransfer,
+  useReceiveOrderedBox,
   useStartBoxTransfer,
   useReceiveBoxTransfer,
   useCancelBoxTransfer,

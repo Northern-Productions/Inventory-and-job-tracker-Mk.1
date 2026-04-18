@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm } from '../components/BoxForm';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
@@ -318,7 +319,8 @@ export default function AddBoxPage() {
             <div>
               <h2>Film Order Intake</h2>
               <p className="muted-text">
-                This new box will link to {filmOrderPrefill.filmOrderId} for job {filmOrderPrefill.jobNumber}.
+                This new box will link to {filmOrderPrefill.filmOrderId} for job{' '}
+                {formatJobDisplayNumber(filmOrderPrefill.jobNumber, filmOrderPrefill.warehouse)}.
               </p>
             </div>
           </div>

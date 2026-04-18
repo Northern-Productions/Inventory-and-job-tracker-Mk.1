@@ -12,6 +12,7 @@ import type {
   BoxMutationResult,
   DeleteBoxPayload,
   DeleteBoxResult,
+  ReceiveOrderedBoxPayload,
   SearchBoxesParams,
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
@@ -220,6 +221,20 @@ export async function setBoxStatus(
 ): Promise<{ result: BoxMutationResult; warnings: string[] }> {
   assertFeatureAccess('inventory', 'write');
   const response = await request<BoxMutationResult>('POST', '/boxes/set-status', { body: payload });
+  return {
+    result: {
+      ...response.data,
+      box: normalizeBox(response.data.box)
+    },
+    warnings: response.warnings
+  };
+}
+
+export async function receiveOrderedBox(
+  payload: ReceiveOrderedBoxPayload
+): Promise<{ result: BoxMutationResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<BoxMutationResult>('POST', '/boxes/receive', { body: payload });
   return {
     result: {
       ...response.data,

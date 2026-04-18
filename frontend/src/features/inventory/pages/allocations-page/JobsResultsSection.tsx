@@ -7,6 +7,7 @@ import {
 } from '../../../../components/MobileRecordCard';
 import type { JobListEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
+import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
 import { JobsCalendarView } from '../../components/JobsCalendarView';
 import { getJobListDisplayStatus } from '../../utils/jobSorts';
 
@@ -130,10 +131,11 @@ export function JobsResultsSection({
         isPhoneLayout ? (
           <div className="mobile-record-list">
             {listJobs.map((entry) => {
+              const displayJobNumber = formatJobDisplayNumber(entry.jobNumber, entry.warehouse);
               return (
                 <MobileRecordCard key={entry.jobNumber}>
                   <MobileRecordHeader
-                    title={entry.jobNumber}
+                    title={displayJobNumber}
                     subtitle={`${entry.warehouse} warehouse`}
                     badge={renderStatusBadges(entry)}
                     onTitleClick={() => onOpenJob(entry.jobNumber)}
@@ -168,6 +170,7 @@ export function JobsResultsSection({
               </thead>
               <tbody>
                 {listJobs.map((entry) => {
+                  const displayJobNumber = formatJobDisplayNumber(entry.jobNumber, entry.warehouse);
                   return (
                     <tr key={entry.jobNumber}>
                       <td>
@@ -178,7 +181,7 @@ export function JobsResultsSection({
                           onMouseEnter={() => onPrefetchJob?.(entry.jobNumber)}
                           onFocus={() => onPrefetchJob?.(entry.jobNumber)}
                         >
-                          {entry.jobNumber}
+                          {displayJobNumber}
                         </button>
                       </td>
                       <td>{formatDate(entry.installDate)}</td>

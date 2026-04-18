@@ -8,6 +8,7 @@ import {
 } from '../../../components/MobileRecordCard';
 import { Select } from '../../../components/Select';
 import { formatDate } from '../../../lib/date';
+import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { WidthFilterField } from '../components/WidthFilterField';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 import { REPORT_TYPE_TITLES, type ReportType, useReportsPageModel } from './reports/useReportsPageModel';
@@ -281,7 +282,7 @@ export default function ReportsPage() {
                   {completedJobs.map((row) => (
                     <MobileRecordCard key={`completed-${row.jobNumber}`}>
                       <MobileRecordHeader
-                        title={row.jobNumber}
+                        title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
                         onTitleClick={() => openAllocationJob(row.jobNumber)}
@@ -314,7 +315,7 @@ export default function ReportsPage() {
                               className="row-button"
                               onClick={() => openAllocationJob(row.jobNumber)}
                             >
-                              {row.jobNumber}
+                              {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                             </button>
                           </td>
                           <td>{row.warehouse}</td>
@@ -339,7 +340,7 @@ export default function ReportsPage() {
                   {cancelledJobs.map((row) => (
                     <MobileRecordCard key={`cancelled-${row.jobNumber}`}>
                       <MobileRecordHeader
-                        title={row.jobNumber}
+                        title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
                         onTitleClick={() => openAllocationJob(row.jobNumber)}
@@ -380,7 +381,7 @@ export default function ReportsPage() {
                               className="row-button"
                               onClick={() => openAllocationJob(row.jobNumber)}
                             >
-                              {row.jobNumber}
+                              {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                             </button>
                           </td>
                           <td>{row.warehouse}</td>

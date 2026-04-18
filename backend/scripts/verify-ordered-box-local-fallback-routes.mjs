@@ -23,6 +23,7 @@ const REQUIRED_READ_PATHS = [
 const REQUIRED_MUTATION_PATHS = [
   '/boxes/add',
   '/boxes/update',
+  '/boxes/receive',
   '/allocations/apply',
   '/allocations/remove-box',
   '/jobs/create',
