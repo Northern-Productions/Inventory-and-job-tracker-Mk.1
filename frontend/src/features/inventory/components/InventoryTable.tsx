@@ -71,6 +71,7 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
                   }
                 />
                 <MobileField label="Last Weighed" value={formatDate(box.lastWeighedDate)} />
+                <MobileField label="Dealer" value={box.dealer || '--'} />
               </MobileFieldList>
               <MobileActionStack>
                 <Button type="button" variant="ghost" onClick={() => onSelect(displayBoxId)}>
@@ -101,6 +102,7 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
             <th className="col-available-linear-ft">Available Linear Ft</th>
             <th>Status</th>
             <th>Last Weighed</th>
+            <th>Dealer</th>
           </tr>
         </thead>
         <tbody>
@@ -128,6 +130,7 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
                   <span className={`badge badge-${box.status}`}>{box.status}</span>
                 </td>
                 <td>{formatDate(box.lastWeighedDate)}</td>
+                <td>{box.dealer || '--'}</td>
               </tr>
             );
           })}

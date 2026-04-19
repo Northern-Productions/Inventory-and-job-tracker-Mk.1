@@ -69,11 +69,6 @@ export function ReceiveOrderedBoxDialog({
     return null;
   }
 
-  const previewWeight = draft.receivedWeightLbs.trim();
-  const previewLotRun = draft.lotRun.trim();
-  const hasPreviewWeight = Boolean(previewWeight);
-  const hasPreviewLotRun = Boolean(previewLotRun);
-
   return (
     <DialogSurface
       open={open}
@@ -105,10 +100,15 @@ export function ReceiveOrderedBoxDialog({
           type="number"
           step="0.01"
           min="0"
+          inputMode="decimal"
+          className="field-input-no-spinner"
           autoFocus
           value={draft.receivedWeightLbs}
           placeholder="Optional"
           onChange={(event) => {
+            if (!/^\d+(\.\d{0,2})?$|^$/.test(event.target.value)) {
+              return;
+            }
             setDraft((current) => ({ ...current, receivedWeightLbs: event.target.value }));
             setError('');
           }}
@@ -116,7 +116,7 @@ export function ReceiveOrderedBoxDialog({
           disabled={pending || !box}
         />
         <Input
-          label="Lot Run"
+          label="Lot/Run Number"
           value={draft.lotRun}
           placeholder="Optional"
           onChange={(event) => {
@@ -127,13 +127,6 @@ export function ReceiveOrderedBoxDialog({
           disabled={pending || !box}
         />
       </div>
-      {hasPreviewWeight || hasPreviewLotRun ? (
-        <p className="muted-text">
-          This receive will save
-          {hasPreviewWeight ? ` ${previewWeight} lbs` : ' no weight'}
-          {hasPreviewLotRun ? ` and lot run ${previewLotRun}.` : '.'}
-        </p>
-      ) : null}
       {error ? <p className="error-text">{error}</p> : null}
       <div className="dialog-actions dialog-actions-sticky-footer">
         <Button type="button" variant="ghost" onClick={handleRequestClose} disabled={pending}>

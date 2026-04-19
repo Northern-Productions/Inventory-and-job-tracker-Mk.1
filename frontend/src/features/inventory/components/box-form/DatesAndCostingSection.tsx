@@ -1,10 +1,17 @@
 import { Input } from '../../../../components/Input';
+import { DealerField } from './DealerField';
 import type { BoxDraft } from '../../utils/boxHelpers';
 
 interface DatesAndCostingSectionProps {
   draft: BoxDraft;
+  dealerHint?: string;
+  dealerOptions: string[];
+  dealerSelectValue: string;
+  isCustomDealerSelected: boolean;
   pricePerLfHint?: string;
   shouldAutoDerivePricePerLf: boolean;
+  onDealerInputChange: (value: string) => void;
+  onDealerSelectChange: (value: string) => void;
   onOrderDateChange: (value: string) => void;
   onPricePerLfChange: (value: string) => void;
   onPurchaseCostChange: (value: string) => void;
@@ -13,8 +20,14 @@ interface DatesAndCostingSectionProps {
 
 export function DatesAndCostingSection({
   draft,
+  dealerHint,
+  dealerOptions,
+  dealerSelectValue,
+  isCustomDealerSelected,
   pricePerLfHint,
   shouldAutoDerivePricePerLf,
+  onDealerInputChange,
+  onDealerSelectChange,
   onOrderDateChange,
   onPricePerLfChange,
   onPurchaseCostChange,
@@ -58,6 +71,15 @@ export function DatesAndCostingSection({
           type="date"
           value={draft.receivedDate}
           onChange={(event) => onReceivedDateChange(event.target.value)}
+        />
+        <DealerField
+          dealerHint={dealerHint}
+          dealerOptions={dealerOptions}
+          dealerSelectValue={dealerSelectValue}
+          dealerValue={draft.dealer}
+          isCustomDealerSelected={isCustomDealerSelected}
+          onDealerInputChange={onDealerInputChange}
+          onDealerSelectChange={onDealerSelectChange}
         />
       </div>
     </div>

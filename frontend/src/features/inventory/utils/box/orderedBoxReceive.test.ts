@@ -26,6 +26,12 @@ describe('orderedBoxReceive', () => {
     ).toThrow('Weight must be a valid non-negative number.');
   });
 
+  it('rejects receive weights with more than 2 decimal places', () => {
+    expect(() =>
+      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '5.234', lotRun: '' })
+    ).toThrow('Weight must be a valid non-negative number with up to 2 decimal places.');
+  });
+
   it('builds the ordered receive payload from the trimmed optional inputs', () => {
     expect(
       buildReceiveOrderedBoxPayload(

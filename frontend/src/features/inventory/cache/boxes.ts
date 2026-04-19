@@ -130,6 +130,7 @@ export function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
   return {
     boxId: payload.boxId,
     warehouse: payload.warehouse || WAREHOUSE_CODES[0],
+    dealer: payload.dealer || '',
     manufacturer: payload.manufacturer,
     filmName: payload.filmName,
     widthIn: payload.widthIn,

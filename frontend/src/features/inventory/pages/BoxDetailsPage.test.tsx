@@ -21,20 +21,24 @@ const useBoxTransferPlanMock = vi.fn();
 const useStartBoxTransferMock = vi.fn();
 const useReceiveBoxTransferMock = vi.fn();
 const useCancelBoxTransferMock = vi.fn();
+const useBoxDealersMock = vi.fn();
+const useFilmOrdersMock = vi.fn();
 const useJobSummariesByNumbersMock = vi.fn();
 const useReceiveOrderedBoxMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
+const useUpsertBoxDealerMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
 const parseUpdateBoxDraftMock = vi.fn();
 const qrCodeToDataUrlMock = vi.fn();
-let nextBoxFormSubmitDraft: unknown = {};
+let nextBoxFormSubmitDraft: unknown = { dealer: '' };
+let currentSearchParams = 'showQr=1';
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
   useParams: () => ({ boxId: 'IL1-1234' }),
-  useSearchParams: () => [new URLSearchParams('showQr=1'), setSearchParamsMock]
+  useSearchParams: () => [new URLSearchParams(currentSearchParams), setSearchParamsMock]
 }));
 
 vi.mock('qrcode', () => ({
@@ -60,7 +64,9 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useBoxTransfer: () => useBoxTransferMock(),
   useBoxTransferPlan: (params: unknown) => useBoxTransferPlanMock(params),
   useBoxAllocations: () => useBoxAllocationsMock(),
+  useBoxDealers: () => useBoxDealersMock(),
   useFilmCatalog: () => useFilmCatalogMock(),
+  useFilmOrders: () => useFilmOrdersMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
   useDeleteBox: () => useDeleteBoxMock(),
   useStartBoxTransfer: () => useStartBoxTransferMock(),
@@ -70,6 +76,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useReceiveOrderedBox: () => useReceiveOrderedBoxMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
+  useUpsertBoxDealer: () => useUpsertBoxDealerMock(),
   useUpdateBox: () => useUpdateBoxMock()
 }));
 
@@ -141,6 +148,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
   return {
     boxId: 'IL1-1234',
     warehouse: 'IL1',
+    dealer: '',
     manufacturer: '3M',
     filmName: 'Ultra 70',
     widthIn: 30,
@@ -285,8 +293,12 @@ describe('BoxDetailsPage', () => {
     parseUpdateBoxDraftMock.mockReset();
     qrCodeToDataUrlMock.mockReset();
     useBoxTransferPlanMock.mockReset();
+    useBoxDealersMock.mockReset();
+    useFilmOrdersMock.mockReset();
+    useUpsertBoxDealerMock.mockReset();
     qrCodeToDataUrlMock.mockResolvedValue('data:image/png;base64,qr');
-    nextBoxFormSubmitDraft = {};
+    nextBoxFormSubmitDraft = { dealer: '' };
+    currentSearchParams = 'showQr=1';
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -308,6 +320,17 @@ describe('BoxDetailsPage', () => {
     useFilmCatalogMock.mockReturnValue({
       data: [],
       isLoading: false,
+      error: null
+    });
+    useBoxDealersMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null
+    });
+    useFilmOrdersMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
       error: null
     });
     useBoxTransferMock.mockReturnValue({
@@ -348,6 +371,7 @@ describe('BoxDetailsPage', () => {
     useReceiveOrderedBoxMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
+    useUpsertBoxDealerMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
     useWarehouseRegistryMock.mockReturnValue({
       entries: [
@@ -553,6 +577,126 @@ describe('BoxDetailsPage', () => {
     expect(html).not.toContain('>Transfer Box</button>');
   });
 
+  it('auto-opens the ordered receive dialog during the guided film-order receipt flow', async () => {
+    currentSearchParams = 'filmOrderId=FO-1&receiveOrdered=1&returnTo=film-orders';
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+    useFilmOrdersMock.mockReturnValue({
+      data: [
+        {
+          filmOrderId: 'FO-1',
+          jobNumber: '2941',
+          warehouse: 'IL1',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 30,
+          requestedFeet: 50,
+          coveredFeet: 0,
+          orderedFeet: 50,
+          remainingToOrderFeet: 0,
+          installDate: '2026-04-18',
+          crewLeader: 'Crew',
+          status: 'FILM_ON_THE_WAY',
+          sourceBoxId: '',
+          origin: 'MANUAL',
+          createdAt: '2026-04-18T10:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          linkedBoxes: [
+            {
+              boxId: 'IL1-1234',
+              dealer: 'Accent',
+              orderedFeet: 50,
+              autoAllocatedFeet: 0,
+              isReceived: false
+            }
+          ]
+        }
+      ],
+      isLoading: false,
+      isError: false,
+      error: null
+    });
+
+    renderInteractivePage();
+
+    expect(await screen.findByRole('dialog', { name: 'Receive IL1-1234' })).toBeTruthy();
+  });
+
+  it('redirects guided receipts to the next outstanding linked box when the current route is not the next target', async () => {
+    currentSearchParams = 'filmOrderId=FO-1&receiveOrdered=1&returnTo=film-orders';
+    useFilmOrdersMock.mockReturnValue({
+      data: [
+        {
+          filmOrderId: 'FO-1',
+          jobNumber: '2941',
+          warehouse: 'IL1',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 30,
+          requestedFeet: 100,
+          coveredFeet: 0,
+          orderedFeet: 100,
+          remainingToOrderFeet: 0,
+          installDate: '2026-04-18',
+          crewLeader: 'Crew',
+          status: 'FILM_ON_THE_WAY',
+          sourceBoxId: '',
+          origin: 'MANUAL',
+          createdAt: '2026-04-18T10:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          linkedBoxes: [
+            {
+              boxId: 'IL1-0011',
+              dealer: 'Accent',
+              orderedFeet: 50,
+              autoAllocatedFeet: 0,
+              isReceived: false
+            },
+            {
+              boxId: 'IL1-1234',
+              dealer: 'Accent',
+              orderedFeet: 50,
+              autoAllocatedFeet: 0,
+              isReceived: true
+            }
+          ]
+        }
+      ],
+      isLoading: false,
+      isError: false,
+      error: null
+    });
+
+    renderInteractivePage();
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        '/inventory/IL1-0011?filmOrderId=FO-1&receiveOrdered=1&returnTo=film-orders',
+        { replace: true }
+      );
+    });
+  });
+
   it('receives an ordered box with blank optional values', async () => {
     const receiveOrderedState = buildMutationState();
     receiveOrderedState.mutateAsync.mockResolvedValue(
@@ -590,7 +734,8 @@ describe('BoxDetailsPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
     expect(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i })).toBeTruthy();
-    expect(within(dialog).getByRole('textbox', { name: /Lot Run/i })).toBeTruthy();
+    expect(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i })).toBeTruthy();
+    expect(within(dialog).queryByText(/This receive will save/i)).toBeNull();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
 
@@ -644,7 +789,7 @@ describe('BoxDetailsPage', () => {
     fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i }), {
       target: { value: '18.5' }
     });
-    fireEvent.change(within(dialog).getByRole('textbox', { name: /Lot Run/i }), {
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i }), {
       target: { value: 'LOT-42' }
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
@@ -882,9 +1027,14 @@ describe('BoxDetailsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit Mock Edit' }));
 
     expect(zeroedUpdateMutationState.mutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByText('Do you want to move this box back to the active IN_STOCK inventory?')).toBeTruthy();
+    const reactivateDialog = await screen.findByRole('dialog', { name: 'Reactivate Zeroed Box?' });
+    expect(
+      within(reactivateDialog).getByText(
+        'Do you want to move this box back to the active IN_STOCK inventory?'
+      )
+    ).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'YES' }));
+    fireEvent.click(within(reactivateDialog).getByRole('button', { name: 'YES' }));
 
     await waitFor(() => {
       expect(zeroedUpdateMutationState.mutateAsync).toHaveBeenCalledWith(

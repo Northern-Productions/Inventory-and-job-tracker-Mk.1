@@ -13,6 +13,7 @@ import {
   buildBoxReservationMetrics,
 } from '../services/runtime/runtimeAllocationReservations.mjs';
 import { listAudit, listAuditEntriesByBox, listRollHistoryByBox } from '../services/audit.mjs';
+import { listBoxDealers } from '../services/boxDealers.mjs';
 import {
   listCaulkManufacturers,
   listPendingCaulkTransfers,
@@ -138,6 +139,8 @@ const readHandlers = {
     ok(await buildOwnerAssetTotalCost(client, orgId, params)),
   '/caulk/manufacturers/list': async ({ client, orgId }) =>
     ok({ entries: await listCaulkManufacturers(client, orgId) }),
+  '/box-dealers/list': async ({ client, orgId }) =>
+    ok({ entries: await listBoxDealers(client, orgId) }),
   '/caulk/products/list': async ({ client, orgId }) =>
     ok({ entries: await listCaulkProducts(client, orgId) }),
   '/caulk/stock/list': async ({ client, orgId, params }) =>

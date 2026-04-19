@@ -43,11 +43,13 @@ export {
   deleteBox,
   getBox,
   getBoxTransferPlan,
+  listBoxDealers,
   receiveOrderedBox,
   searchBoxes,
   setBoxStatus,
   syncAllOfflineInventorySnapshots,
   syncOfflineInventorySnapshot,
+  upsertBoxDealer,
   updateBox
 } from './features/inventoryClient';
 export {

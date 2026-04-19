@@ -244,6 +244,31 @@ async function saveBoxRecord(client, orgId, box) {
   const manufacturer = canonical.manufacturer;
   const filmName = canonical.filmName;
   const filmKey = normalizeCatalogWriteFilmKeyInput(manufacturer, filmName, box.filmKey);
+  const dealer = asTrimmedString(box.dealer);
+
+  if (dealer) {
+    await queryRow(
+      client,
+      `
+        insert into app.box_dealers (
+          org_id,
+          name,
+          lookup_key
+        )
+        values (
+          $1::uuid,
+          $2::text,
+          app_api.normalize_catalog_lookup_key($2::text)
+        )
+        on conflict (org_id, lookup_key) do update set
+          name = excluded.name,
+          updated_at = timezone('utc', now())
+        returning id
+      `,
+      [orgId, dealer]
+    );
+  }
+
   const row = await queryRow(
     client,
     `
@@ -252,6 +277,7 @@ async function saveBoxRecord(client, orgId, box) {
           org_id,
           box_id,
           warehouse,
+          dealer,
           manufacturer,
           film_name,
           width_in,
@@ -279,17 +305,18 @@ async function saveBoxRecord(client, orgId, box) {
           zeroed_by
         )
         values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-          nullif($12, '')::date,
-          $13,$14,
-          nullif($15, '')::date,
-          $16,$17,$18,$19,$20,$21,$22,$23,$24,
-          nullif($25, '')::date,
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+          nullif($13, '')::date,
+          $14,$15,
+          nullif($16, '')::date,
+          $17,$18,$19,$20,$21,$22,$23,$24,$25,
           nullif($26, '')::date,
-          $27,$28
+          nullif($27, '')::date,
+          $28,$29
         )
         on conflict (org_id, box_id) do update set
           warehouse = excluded.warehouse,
+          dealer = excluded.dealer,
           manufacturer = excluded.manufacturer,
           film_name = excluded.film_name,
           width_in = excluded.width_in,
@@ -331,6 +358,7 @@ async function saveBoxRecord(client, orgId, box) {
       orgId,
       box.boxId,
       box.warehouse,
+      dealer,
       manufacturer,
       filmName,
       box.widthIn,

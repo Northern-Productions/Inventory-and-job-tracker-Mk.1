@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FilmCatalogEntry, Warehouse } from '../../../../domain';
+import type { BoxDealerEntry, FilmCatalogEntry, Warehouse } from '../../../../domain';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import {
   STANDARD_WIDTH_OPTIONS,
@@ -15,12 +15,18 @@ import {
   type BoxDraft
 } from '../../utils/boxHelpers';
 import { getWarehousePrefix } from '../../utils/warehouseOptions';
+import {
+  applyDealerSelectValue,
+  buildDealerOptions,
+  resolveDealerFieldState
+} from './dealerFieldUtils';
 
 const CUSTOM_MANUFACTURER_OPTION = '__custom_manufacturer__';
 const BOX_FORM_WIDTH_BUTTON_VALUES = [...STANDARD_WIDTH_OPTIONS, 'CUSTOM'] as const;
 
 interface UseBoxFormStateOptions {
   createWarehouse?: Warehouse;
+  dealerEntries?: BoxDealerEntry[];
   filmCatalogEntries?: FilmCatalogEntry[];
   initialDraft: BoxDraft;
   mode: 'create' | 'edit';
@@ -31,6 +37,7 @@ interface UseBoxFormStateOptions {
 
 export function useBoxFormState({
   createWarehouse,
+  dealerEntries,
   filmCatalogEntries,
   initialDraft,
   mode,
@@ -42,6 +49,7 @@ export function useBoxFormState({
   const [widthMode, setWidthMode] = useState(getWidthMode(initialDraft.widthIn));
   const [isCustomWidthOpen, setIsCustomWidthOpen] = useState(false);
   const [customWidthDraft, setCustomWidthDraft] = useState('');
+  const [isAddingCustomDealer, setIsAddingCustomDealer] = useState(false);
   const [hasAutoSelectedManufacturer, setHasAutoSelectedManufacturer] = useState(false);
   const lastSuggestedBoxIdRef = useRef(initialDraft.boxId);
   const lastCreateWarehouseRef = useRef<Warehouse | null>(createWarehouse ?? null);
@@ -55,6 +63,7 @@ export function useBoxFormState({
     setWidthMode(nextWidthMode);
     setIsCustomWidthOpen(false);
     setCustomWidthDraft(nextWidthMode === 'CUSTOM' ? initialDraft.widthIn : '');
+    setIsAddingCustomDealer(false);
     lastSuggestedBoxIdRef.current = initialDraft.boxId;
     lastCreateWarehouseRef.current = createWarehouse ?? null;
     setHasAutoSelectedManufacturer(false);
@@ -232,6 +241,7 @@ export function useBoxFormState({
     () => getManufacturerOptionsWithCatalog(filmCatalogEntries),
     [filmCatalogEntries]
   );
+  const dealerOptions = useMemo(() => buildDealerOptions(dealerEntries), [dealerEntries]);
   const isCustomWidthValid =
     customWidthDraft.trim() !== '' &&
     Number.isFinite(Number(customWidthDraft)) &&
@@ -266,6 +276,11 @@ export function useBoxFormState({
     ? draft.manufacturer
     : CUSTOM_MANUFACTURER_OPTION;
   const isCustomManufacturerSelected = manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
+  const { isCustomDealerSelected, dealerSelectValue } = resolveDealerFieldState(
+    draft.dealer,
+    dealerOptions,
+    isAddingCustomDealer
+  );
 
   useEffect(() => {
     if (
@@ -335,7 +350,15 @@ export function useBoxFormState({
     updateField('boxId', value);
   };
 
+  const handleDealerSelectChange = (value: string) => {
+    const nextDealerSelection = applyDealerSelectValue(value, draft.dealer, dealerOptions);
+    setIsAddingCustomDealer(nextDealerSelection.isAddingCustomDealer);
+    updateField('dealer', nextDealerSelection.dealer);
+  };
+
   return {
+    dealerOptions,
+    dealerSelectValue,
     canCaptureReceivingDetails,
     closeCustomWidthDialog: () => setIsCustomWidthOpen(false),
     customWidthDraft,
@@ -343,10 +366,12 @@ export function useBoxFormState({
     footageSectionCopy,
     handleBoxIdChange,
     handleCurrentFeetChange,
+    handleDealerSelectChange,
     handleInitialFeetChange,
     handleLastRollWeightChange,
     handleWidthButtonClick,
     isCustomManufacturerSelected,
+    isCustomDealerSelected,
     isCustomWidthOpen,
     isCustomWidthValid,
     manufacturerOptions,

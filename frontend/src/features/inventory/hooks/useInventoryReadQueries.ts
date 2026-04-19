@@ -23,6 +23,7 @@ export {
   useAllocationJob,
   useAllocationJobs,
   useAppAttentionSummary,
+  useBoxDealers,
   useCaulkProducts,
   useFilmCatalog,
   useFilmOrders

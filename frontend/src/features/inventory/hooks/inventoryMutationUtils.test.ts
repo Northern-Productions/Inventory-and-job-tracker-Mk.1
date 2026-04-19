@@ -6,6 +6,7 @@ import {
   applyOptimisticAllocationAdditionToCaches,
   applyOptimisticAllocationRemovalToCaches,
   applyOptimisticFilmOrderDeletionToCaches,
+  applyOptimisticOrderedBoxReceiptToCaches,
   applyOptimisticJobScheduleSyncToCaches,
   beginDelayedOptimisticMutation,
   beginImmediateOptimisticMutation,
@@ -240,6 +241,137 @@ describe('inventoryMutationUtils', () => {
     expect(optimisticFilmOrder.origin).toBe('MANUAL');
     expect(optimisticFilmOrder.remainingToOrderFeet).toBe(120);
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([optimisticFilmOrder]);
+  });
+
+  it('optimistically marks ordered boxes as received and advances film-order status without a refetch', () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-RECEIVE',
+      requestedFeet: 80,
+      orderedFeet: 80,
+      remainingToOrderFeet: 0,
+      status: 'FILM_ON_THE_WAY',
+      linkedBoxes: [
+        { boxId: 'IL1-ORDERED-1', orderedFeet: 40, autoAllocatedFeet: 0, isReceived: false },
+        { boxId: 'IL1-ORDERED-2', orderedFeet: 40, autoAllocatedFeet: 0, isReceived: false }
+      ]
+    });
+    const jobDetail: JobDetail = {
+      summary: {
+        jobNumber: '2941',
+        warehouse: 'IL1',
+        sections: null,
+        installDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'ON_ORDER',
+        lifecycleStatus: 'ACTIVE',
+        isLaborOnly: false,
+        isStagedForPickup: false,
+        requiredFeet: 0,
+        allocatedFeet: 0,
+        remainingFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        requirementCount: 0,
+        allocationCount: 0,
+        filmOrderCount: 1,
+        hasOrderedAllocations: false,
+        createdAt: '2026-04-06T00:00:00Z',
+        updatedAt: '2026-04-06T00:00:00Z',
+        notes: ''
+      },
+      requirements: [],
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    };
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    queryClient.setQueryData(inventoryKeys.job('2941'), jobDetail);
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      jobDetail.summary
+    ]);
+    queryClient.setQueryData(inventoryKeys.allocationJob('2941'), {
+      summary: {
+        jobNumber: '2941',
+        installDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'ON_ORDER',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 0,
+        hasOrderedAllocations: false
+      },
+      allocations: [],
+      usage: [],
+      usageTimeline: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      caulkCheckouts: [],
+      filmOrders: [filmOrder]
+    });
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      {
+        jobNumber: '2941',
+        installDate: '2026-04-13',
+        crewLeader: 'Crew',
+        status: 'ON_ORDER',
+        activeAllocatedFeet: 0,
+        fulfilledAllocatedFeet: 0,
+        requiredTubes: 0,
+        allocatedTubes: 0,
+        remainingTubes: 0,
+        openFilmOrderCount: 1,
+        boxCount: 0,
+        hasOrderedAllocations: false
+      }
+    ]);
+
+    applyOptimisticOrderedBoxReceiptToCaches(queryClient, 'IL1-ORDERED-1');
+
+    expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({
+        status: 'FILM_ON_THE_WAY',
+        linkedBoxes: [
+          expect.objectContaining({ boxId: 'IL1-ORDERED-1', isReceived: true }),
+          expect.objectContaining({ boxId: 'IL1-ORDERED-2', isReceived: false })
+        ]
+      })
+    ]);
+
+    applyOptimisticOrderedBoxReceiptToCaches(queryClient, 'IL1-ORDERED-2');
+
+    expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({
+        status: 'FULFILLED',
+        linkedBoxes: [
+          expect.objectContaining({ boxId: 'IL1-ORDERED-1', isReceived: true }),
+          expect.objectContaining({ boxId: 'IL1-ORDERED-2', isReceived: true })
+        ]
+      })
+    ]);
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('2941'))).toMatchObject({
+      summary: {
+        status: 'READY',
+        filmOrderCount: 0
+      },
+      filmOrders: [expect.objectContaining({ status: 'FULFILLED' })]
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({
+        jobNumber: '2941',
+        openFilmOrderCount: 0
+      })
+    ]);
   });
 
   it('can seed optimistic film orders with cached job scheduling metadata', () => {

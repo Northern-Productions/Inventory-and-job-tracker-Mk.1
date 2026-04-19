@@ -16,6 +16,10 @@ function parseOptionalNonNegativeNumber(value: string, fieldLabel: string) {
     throw new Error(`${fieldLabel} must be a valid non-negative number.`);
   }
 
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    throw new Error(`${fieldLabel} must be a valid non-negative number with up to 2 decimal places.`);
+  }
+
   return parsed;
 }
 

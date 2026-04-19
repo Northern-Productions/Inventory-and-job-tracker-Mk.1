@@ -187,6 +187,18 @@ const readHandlers: Record<string, ReadHandler> = {
     }));
     return ok({ entries });
   },
+  "/box-dealers/list": async ({ client, orgId }, deps) => {
+    const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_list_box_dealers", {
+      p_org_id: orgId,
+    });
+    const entries = (entriesRaw || []).map((entry) => ({
+      dealerId: deps.asTrimmedString(entry.dealer_id || entry.id),
+      name: deps.asTrimmedString(entry.name),
+      lookupKey: deps.asTrimmedString(entry.lookup_key),
+      updatedAt: deps.asTrimmedString(entry.updated_at),
+    }));
+    return ok({ entries });
+  },
   "/caulk/products/list": async ({ client, orgId }, deps) => {
     const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_products", {
       p_org_id: orgId,

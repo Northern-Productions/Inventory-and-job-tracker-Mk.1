@@ -20,49 +20,17 @@ import {
   buildAllocationJobSummaryFromAllocations,
   createOptimisticJobDetailAfterFilmOrderDeletion,
   createOptimisticJobDetailAfterFilmOrderReceipt,
+  createOptimisticJobDetailAfterOrderedBoxReceive,
   syncJobDetailCaches,
   syncJobSummaryCachesFromDetail
 } from './jobs';
-import { countUnresolvedFilmOrders, isUnresolvedFilmOrder } from '../utils/filmOrders';
+import {
+  addOptimisticLinkedBoxToFilmOrder,
+  countUnresolvedFilmOrders,
+  isUnresolvedFilmOrder,
+  markFilmOrderLinkedBoxReceived
+} from '../utils/filmOrders';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
-
-function buildOptimisticFilmOrderAfterBoxReceipt(
-  entry: FilmOrderEntry,
-  box: Pick<Box, 'boxId' | 'initialFeet'>
-): FilmOrderEntry {
-  if (entry.status === 'CANCELLED' || entry.status === 'FULFILLED') {
-    return entry;
-  }
-
-  const nextOrderedFeet =
-    Math.max(0, Number(entry.orderedFeet || 0)) + Math.max(0, Number(box.initialFeet || 0));
-  const nextRemainingToOrderFeet = Math.max(
-    Math.max(0, Number(entry.requestedFeet || 0)) - nextOrderedFeet,
-    0
-  );
-  const nextStatus =
-    nextOrderedFeet >= Math.max(0, Number(entry.requestedFeet || 0))
-      ? 'FILM_ON_THE_WAY'
-      : 'FILM_ORDER';
-
-  return {
-    ...entry,
-    orderedFeet: nextOrderedFeet,
-    remainingToOrderFeet: nextRemainingToOrderFeet,
-    status: nextStatus,
-    resolvedAt: '',
-    resolvedBy: '',
-    linkedBoxes: [
-      ...entry.linkedBoxes,
-      {
-        boxId: box.boxId,
-        orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
-        autoAllocatedFeet: 0,
-        isReceived: false
-      }
-    ]
-  };
-}
 
 function deriveAllocationJobStatusFromFilmOrders(
   currentStatus: AllocationJobSummary['status'],
@@ -82,7 +50,7 @@ function deriveAllocationJobStatusFromFilmOrders(
 function applyOptimisticFilmOrderReceiptToCaches(
   queryClient: QueryClient,
   filmOrderId: string,
-  box: Pick<Box, 'boxId' | 'initialFeet'>
+  box: Pick<Box, 'boxId' | 'dealer' | 'initialFeet'>
 ) {
   const touchedJobNumbers = new Set<string>();
   const filmOrdersByJobNumber: Record<string, FilmOrderEntry[]> = {};
@@ -99,7 +67,13 @@ function applyOptimisticFilmOrderReceiptToCaches(
       }
 
       touchedJobNumbers.add(entry.jobNumber);
-      return buildOptimisticFilmOrderAfterBoxReceipt(entry, box);
+      return addOptimisticLinkedBoxToFilmOrder(entry, {
+        boxId: box.boxId,
+        dealer: box.dealer,
+        orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
+        autoAllocatedFeet: 0,
+        isReceived: false
+      });
     });
 
     for (let index = 0; index < nextEntries.length; index += 1) {
@@ -151,7 +125,125 @@ function applyOptimisticFilmOrderReceiptToCaches(
       }
 
       updated = true;
-      return buildOptimisticFilmOrderAfterBoxReceipt(entry, box);
+      return addOptimisticLinkedBoxToFilmOrder(entry, {
+        boxId: box.boxId,
+        dealer: box.dealer,
+        orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
+        autoAllocatedFeet: 0,
+        isReceived: false
+      });
+    });
+
+    if (!updated) {
+      continue;
+    }
+
+    touchedJobNumbers.add(current.summary.jobNumber);
+    filmOrdersByJobNumber[current.summary.jobNumber] = nextFilmOrders;
+    queryClient.setQueryData<AllocationJobDetail>(queryKey, {
+      ...current,
+      summary: {
+        ...buildAllocationJobSummaryFromAllocations(current.summary, current.allocations, nextFilmOrders),
+        status: deriveAllocationJobStatusFromFilmOrders(current.summary.status, nextFilmOrders)
+      },
+      filmOrders: nextFilmOrders
+    });
+  }
+
+  if (!Object.keys(filmOrdersByJobNumber).length) {
+    return;
+  }
+
+  queryClient.setQueryData<AllocationJobSummary[] | undefined>(inventoryKeys.allocationJobs, (current) =>
+    current
+      ? current.map((entry) => {
+          const nextFilmOrders = filmOrdersByJobNumber[entry.jobNumber];
+          if (!nextFilmOrders) {
+            return entry;
+          }
+
+          return {
+            ...entry,
+            openFilmOrderCount: countUnresolvedFilmOrders(nextFilmOrders),
+            status: deriveAllocationJobStatusFromFilmOrders(entry.status, nextFilmOrders)
+          };
+        })
+      : current
+  );
+}
+
+export function applyOptimisticOrderedBoxReceiptToCaches(
+  queryClient: QueryClient,
+  boxId: string
+) {
+  const touchedJobNumbers = new Set<string>();
+  const filmOrdersByJobNumber: Record<string, FilmOrderEntry[]> = {};
+  const syncedFromJobDetail = new Set<string>();
+
+  queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) => {
+    if (!current) {
+      return current;
+    }
+
+    const nextEntries = current.map((entry) => {
+      const nextEntry = markFilmOrderLinkedBoxReceived(entry, boxId);
+      if (nextEntry !== entry) {
+        touchedJobNumbers.add(entry.jobNumber);
+      }
+
+      return nextEntry;
+    });
+
+    for (let index = 0; index < nextEntries.length; index += 1) {
+      const entry = nextEntries[index];
+      if (!touchedJobNumbers.has(entry.jobNumber)) {
+        continue;
+      }
+
+      if (!filmOrdersByJobNumber[entry.jobNumber]) {
+        filmOrdersByJobNumber[entry.jobNumber] = [];
+      }
+      filmOrdersByJobNumber[entry.jobNumber].push(entry);
+    }
+
+    return nextEntries;
+  });
+
+  const jobQueries = queryClient.getQueriesData<JobDetail>({ queryKey: inventoryKeys.jobRoot });
+  for (let index = 0; index < jobQueries.length; index += 1) {
+    const [, current] = jobQueries[index];
+    if (!current) {
+      continue;
+    }
+
+    const nextDetail = createOptimisticJobDetailAfterOrderedBoxReceive(current, boxId);
+    if (!nextDetail.updated) {
+      continue;
+    }
+
+    touchedJobNumbers.add(nextDetail.detail.summary.jobNumber);
+    syncedFromJobDetail.add(nextDetail.detail.summary.jobNumber);
+    filmOrdersByJobNumber[nextDetail.detail.summary.jobNumber] = nextDetail.detail.filmOrders;
+    syncJobDetailCaches(queryClient, nextDetail.detail, { syncAllocationJobDetail: true });
+  }
+
+  const allocationJobQueries = queryClient.getQueriesData<AllocationJobDetail>({
+    queryKey: inventoryKeys.allocationJobRoot
+  });
+  for (let index = 0; index < allocationJobQueries.length; index += 1) {
+    const [queryKey, current] = allocationJobQueries[index];
+    if (!current || syncedFromJobDetail.has(current.summary.jobNumber)) {
+      continue;
+    }
+
+    let updated = false;
+    const nextFilmOrders = current.filmOrders.map((entry) => {
+      const nextEntry = markFilmOrderLinkedBoxReceived(entry, boxId);
+      if (nextEntry !== entry) {
+        updated = true;
+      }
+
+      return nextEntry;
     });
 
     if (!updated) {

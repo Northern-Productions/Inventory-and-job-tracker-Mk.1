@@ -13,7 +13,12 @@ import {
   describeJobPlanningFilm,
   getJobPlanningFilmMatch
 } from '../utils/jobPlanningFilmIdentity';
-import { countUnresolvedFilmOrders, isUnresolvedFilmOrder } from '../utils/filmOrders';
+import {
+  addOptimisticLinkedBoxToFilmOrder,
+  countUnresolvedFilmOrders,
+  isUnresolvedFilmOrder,
+  markFilmOrderLinkedBoxReceived
+} from '../utils/filmOrders';
 import { getAllocationCoveredFeet } from './jobSummaryMath';
 
 type UpdateJobRequirementInput = NonNullable<UpdateJobPayload['requirements']>[number] & {
@@ -599,43 +604,10 @@ export function createOptimisticJobDetailAfterJobUpdate(
   });
 }
 
-function buildOptimisticFilmOrderAfterBoxReceipt(
-  entry: FilmOrderEntry,
-  box: Pick<{ boxId: string; initialFeet: number }, 'boxId' | 'initialFeet'>
-): FilmOrderEntry {
-  if (entry.status === 'CANCELLED' || entry.status === 'FULFILLED') {
-    return entry;
-  }
-
-  const nextOrderedFeet =
-    Math.max(0, Number(entry.orderedFeet || 0)) + Math.max(0, Number(box.initialFeet || 0));
-  const nextRemainingToOrderFeet = Math.max(Math.max(0, Number(entry.requestedFeet || 0)) - nextOrderedFeet, 0);
-  const nextStatus =
-    nextOrderedFeet >= Math.max(0, Number(entry.requestedFeet || 0)) ? 'FILM_ON_THE_WAY' : 'FILM_ORDER';
-
-  return {
-    ...entry,
-    orderedFeet: nextOrderedFeet,
-    remainingToOrderFeet: nextRemainingToOrderFeet,
-    status: nextStatus,
-    resolvedAt: '',
-    resolvedBy: '',
-    linkedBoxes: [
-      ...entry.linkedBoxes,
-      {
-        boxId: box.boxId,
-        orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
-        autoAllocatedFeet: 0,
-        isReceived: false
-      }
-    ]
-  };
-}
-
 export function createOptimisticJobDetailAfterFilmOrderReceipt(
   detail: JobDetail,
   filmOrderId: string,
-  box: Pick<{ boxId: string; initialFeet: number }, 'boxId' | 'initialFeet'>
+  box: Pick<{ boxId: string; dealer?: string; initialFeet: number }, 'boxId' | 'dealer' | 'initialFeet'>
 ) {
   let updated = false;
   const nextFilmOrders = detail.filmOrders.map((entry) => {
@@ -644,7 +616,47 @@ export function createOptimisticJobDetailAfterFilmOrderReceipt(
     }
 
     updated = true;
-    return buildOptimisticFilmOrderAfterBoxReceipt(entry, box);
+    return addOptimisticLinkedBoxToFilmOrder(entry, {
+      boxId: box.boxId,
+      dealer: box.dealer,
+      orderedFeet: Math.max(0, Number(box.initialFeet || 0)),
+      autoAllocatedFeet: 0,
+      isReceived: false
+    });
+  });
+
+  if (!updated) {
+    return {
+      detail,
+      updated: false
+    };
+  }
+
+  return {
+    detail: recomputeOptimisticJobDetail({
+      ...detail,
+      filmOrders: nextFilmOrders,
+      summary: {
+        ...detail.summary,
+        updatedAt: new Date().toISOString()
+      }
+    }),
+    updated: true
+  };
+}
+
+export function createOptimisticJobDetailAfterOrderedBoxReceive(
+  detail: JobDetail,
+  boxId: string
+) {
+  let updated = false;
+  const nextFilmOrders = detail.filmOrders.map((entry) => {
+    const nextEntry = markFilmOrderLinkedBoxReceived(entry, boxId);
+    if (nextEntry !== entry) {
+      updated = true;
+    }
+
+    return nextEntry;
   });
 
   if (!updated) {

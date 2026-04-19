@@ -18,6 +18,7 @@ const ACTIVE_CANONICAL_BOX_STATUSES: readonly BoxStatus[] = ['ORDERED', 'IN_STOC
 
 export interface BoxDraft {
   boxId: string;
+  dealer: string;
   manufacturer: string;
   filmName: string;
   widthIn: string;
@@ -54,6 +55,7 @@ export function normalizeCoreTypeValue(value: string): string {
 export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
   return {
     boxId: '',
+    dealer: '',
     manufacturer: defaultManufacturer,
     filmName: '',
     widthIn: '36',
@@ -86,6 +88,7 @@ export function createDraftFromBox(
 
   return {
     boxId: box.boxId,
+    dealer: box.dealer || '',
     manufacturer: box.manufacturer,
     filmName: box.filmName,
     widthIn: String(box.widthIn),

@@ -7,6 +7,7 @@ export {
   useAllocationPreview,
   useAuditList,
   useBox,
+  useBoxDealers,
   useBoxTransfer,
   useBoxTransferPlan,
   useCaulkProducts,
@@ -64,6 +65,7 @@ export {
   useSetJobStagedForPickup,
   useSetBoxStatus,
   useUndoAudit,
+  useUpsertBoxDealer,
   useUpdateCaulkJobAllocation,
   useUpdateBox,
   useUpdateJob

@@ -3,6 +3,7 @@ import type {
   AccessRequestEntry,
   AccessStatus,
   AdminPermissionEntry,
+  BoxDealerEntry,
   CaulkManufacturerEntry,
   CaulkProductEntry,
   CaulkStockEntry,
@@ -178,6 +179,25 @@ export function mapCaulkManufacturerEntry(value: unknown): CaulkManufacturerEntr
     lookupKey: String(source.lookupKey || '').trim().toLowerCase(),
     isActive: source.isActive === true || String(source.isActive).toLowerCase() === 'true',
     updatedAt: String(source.updatedAt || '').trim()
+  };
+}
+
+export function mapBoxDealerEntry(value: unknown): BoxDealerEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const dealerId = String(source.dealerId || source.id || '').trim();
+  if (!dealerId) {
+    return null;
+  }
+
+  return {
+    dealerId,
+    name: String(source.name || '').trim(),
+    lookupKey: String(source.lookupKey || source.lookup_key || '').trim().toLowerCase(),
+    updatedAt: String(source.updatedAt || source.updated_at || '').trim()
   };
 }
 

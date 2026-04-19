@@ -161,6 +161,7 @@ export function createFallbackBox(boxId: string): Box {
   return {
     boxId,
     warehouse: WAREHOUSE_CODES[0],
+    dealer: '',
     manufacturer: '',
     filmName: '',
     widthIn: 36,

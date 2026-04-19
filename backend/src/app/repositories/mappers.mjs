@@ -46,6 +46,7 @@ function mapDbBoxRow(row) {
     orgId: readValue('org_id', 'orgId'),
     boxId: asTrimmedString(readValue('box_id', 'boxId')),
     warehouse: asTrimmedString(readValue('warehouse')),
+    dealer: asTrimmedString(readValue('dealer')),
     manufacturer: canonicalizeManufacturerLabel(readValue('manufacturer')),
     filmName: asTrimmedString(readValue('film_name', 'filmName')),
     widthIn: numericOrNull(readValue('width_in', 'widthIn')) ?? 0,
@@ -106,6 +107,7 @@ function toPublicBox(box) {
   return {
     boxId: box.boxId,
     warehouse: box.warehouse,
+    dealer: asTrimmedString(box.dealer),
     manufacturer: box.manufacturer,
     filmName: box.filmName,
     widthIn: box.widthIn,
@@ -585,6 +587,19 @@ function mapDbRollHistoryRow(row) {
   };
 }
 
+function mapBoxDealerRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    dealerId: asTrimmedString(row.dealer_id || row.id),
+    name: asTrimmedString(row.name),
+    lookupKey: asTrimmedString(row.lookup_key),
+    updatedAt: formatTimestamp(row.updated_at),
+  };
+}
+
 function mapCaulkManufacturerRow(row) {
   if (!row) {
     return null;
@@ -688,6 +703,7 @@ function normalizeCaulkCaseMath(result) {
 export {
   mapDbBoxRow,
   toPublicBox,
+  mapBoxDealerRow,
   mapDbBoxTransferRow,
   toPublicBoxTransfer,
   mapDbFilmCatalogRow,

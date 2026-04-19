@@ -21,6 +21,8 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 backend/backend-dev.log
+backend/backend-dev.stdout.log
+backend/backend-dev.stderr.log
 
 # Local verification artifacts
 test-results/

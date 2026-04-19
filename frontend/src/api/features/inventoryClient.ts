@@ -4,6 +4,7 @@ import type {
   ApplyAllocationPlanPayload,
   ApplyAllocationPlanResult,
   Box,
+  BoxDealerEntry,
   BoxTransferPlanParams,
   BoxTransferPlanResponse,
   BoxTransferEntry,
@@ -17,6 +18,7 @@ import type {
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
   StartBoxTransferPayload,
+  UpsertBoxDealerPayload,
   UpdateBoxPayload,
   Warehouse
 } from '../../domain';
@@ -30,7 +32,11 @@ import {
   type OfflineInventorySyncMeta
 } from '../../lib/offlineInventory';
 import { APIError, request } from '../http';
-import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
+import {
+  assertFeatureAccess,
+  mapBoxDealerEntry,
+  requestReadWithFallback
+} from './sharedClient';
 import { applyAllocationPlan } from './allocationsClient';
 import { listWarehouses } from './warehouseClient';
 
@@ -77,6 +83,7 @@ function normalizeBox(box: Box): Box {
 
   return {
     ...box,
+    dealer: String(box.dealer || '').trim(),
     initialFeet,
     feetAvailable: availableFeet,
     physicalFeetAvailable,
@@ -189,6 +196,26 @@ export async function addBox(
     },
     warnings: response.warnings
   };
+}
+
+export async function listBoxDealers(): Promise<BoxDealerEntry[]> {
+  assertFeatureAccess('inventory', 'read');
+  const data = await requestReadWithFallback<{ entries: unknown[] }>('/box-dealers/list', {}, {});
+  return (data.entries || [])
+    .map((entry) => mapBoxDealerEntry(entry))
+    .filter((entry): entry is BoxDealerEntry => Boolean(entry));
+}
+
+export async function upsertBoxDealer(
+  payload: UpsertBoxDealerPayload
+): Promise<BoxDealerEntry> {
+  assertFeatureAccess('inventory', 'write');
+  const { data } = await request<unknown>('POST', '/box-dealers/upsert', { body: payload });
+  const mapped = mapBoxDealerEntry(data);
+  if (!mapped) {
+    throw new APIError('Dealer update completed but the response was invalid.');
+  }
+  return mapped;
 }
 
 export async function updateBox(

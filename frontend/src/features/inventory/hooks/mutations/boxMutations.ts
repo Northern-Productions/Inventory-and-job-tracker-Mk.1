@@ -8,17 +8,20 @@ import {
   receiveBoxTransfer,
   setBoxStatus,
   startBoxTransfer,
+  upsertBoxDealer,
   updateBox
 } from '../../../../api/features/inventoryClient';
 import type {
   AddBoxPayload,
   Box,
+  BoxDealerEntry,
   CancelBoxTransferPayload,
   DeleteBoxPayload,
   ReceiveOrderedBoxPayload,
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
   StartBoxTransferPayload,
+  UpsertBoxDealerPayload,
   UpdateBoxPayload
 } from '../../../../domain';
 import { todayDateString } from '../../../../lib/date';
@@ -28,7 +31,10 @@ import {
   updateBoxCaches,
   upsertBoxInSearchCaches
 } from '../../cache/boxes';
-import { applyOptimisticAddBoxToCaches } from '../../cache/filmOrders';
+import {
+  applyOptimisticAddBoxToCaches,
+  applyOptimisticOrderedBoxReceiptToCaches
+} from '../../cache/filmOrders';
 import { updateCheckedOutBoxCaches } from '../../cache/jobMaterialMutations';
 import {
   beginDelayedOptimisticMutation,
@@ -50,6 +56,34 @@ function getTouchedTransferBoxIds(result: {
   return Array.from(
     new Set([result.transfer.sourceBoxId, result.transfer.destinationBoxId, result.box.boxId].filter(Boolean))
   );
+}
+
+function upsertDealerEntry(
+  current: BoxDealerEntry[] | undefined,
+  nextEntry: BoxDealerEntry
+) {
+  const currentEntries = current || [];
+  const nextEntries = currentEntries.some((entry) => entry.dealerId === nextEntry.dealerId)
+    ? currentEntries.map((entry) => (entry.dealerId === nextEntry.dealerId ? nextEntry : entry))
+    : [...currentEntries, nextEntry];
+
+  return nextEntries
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function useUpsertBoxDealer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: UpsertBoxDealerPayload) => upsertBoxDealer(payload),
+    onSuccess: async (result) => {
+      queryClient.setQueryData<BoxDealerEntry[] | undefined>(inventoryKeys.boxDealers, (current) =>
+        upsertDealerEntry(current, result)
+      );
+      await queryClient.invalidateQueries({ queryKey: inventoryKeys.boxDealers });
+    }
+  });
 }
 
 export function useAddBox() {
@@ -324,7 +358,10 @@ export function useReceiveOrderedBox() {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
       ]);
 
@@ -337,7 +374,10 @@ export function useReceiveOrderedBox() {
         [
           inventoryKeys.box(payload.boxId),
           inventoryKeys.listRoot,
+          inventoryKeys.filmOrders,
+          inventoryKeys.jobs,
           inventoryKeys.jobRoot,
+          inventoryKeys.allocationJobs,
           inventoryKeys.allocationJobRoot
         ],
         () => {
@@ -357,6 +397,7 @@ export function useReceiveOrderedBox() {
               payload.receivedWeightLbs !== undefined ? nextDate : box.lastWeighedDate,
             lotRun: payload.lotRun !== undefined ? payload.lotRun : box.lotRun
           }));
+          applyOptimisticOrderedBoxReceiptToCaches(queryClient, payload.boxId);
         }
       );
     },

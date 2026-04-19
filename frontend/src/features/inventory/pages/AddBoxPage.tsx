@@ -6,10 +6,16 @@ import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useAuth } from '../../auth/AuthContext';
-import { BoxForm } from '../components/BoxForm';
+import { BoxForm, type BoxFormSubmitContext } from '../components/BoxForm';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 import { invalidateJobLifecycleQueries } from '../hooks/inventoryInvalidation';
-import { useAddBox, useFilmCatalog, useSearchBoxes } from '../hooks/useInventoryQueries';
+import {
+  useAddBox,
+  useBoxDealers,
+  useFilmCatalog,
+  useSearchBoxes,
+  useUpsertBoxDealer
+} from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
@@ -46,7 +52,9 @@ export default function AddBoxPage() {
   const toast = useToast();
   const auth = useAuth();
   const addBoxMutation = useAddBox();
+  const boxDealersQuery = useBoxDealers({ enabled: auth.isAuthenticated });
   const filmCatalogQuery = useFilmCatalog();
+  const upsertBoxDealerMutation = useUpsertBoxDealer();
   const warehouseRegistry = useWarehouseRegistry();
   const prefillToken = searchParams.toString();
   const retryState = useMemo(() => readRetryState(location.state), [location.state]);
@@ -144,7 +152,7 @@ export default function AddBoxPage() {
     []
   );
 
-  async function handleSubmit(draft: BoxDraft) {
+  async function handleSubmit(draft: BoxDraft, submitContext?: BoxFormSubmitContext) {
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
@@ -214,12 +222,28 @@ export default function AddBoxPage() {
 
       const payload = parseAddBoxDraft(draft);
       payload.warehouse = warehouse;
+      const auditNote = submitContext?.auditNote?.trim();
+      if (auditNote) {
+        payload.auditNote = auditNote;
+      }
       if (filmOrderPrefill.filmOrderId) {
         payload.filmOrderId = filmOrderPrefill.filmOrderId;
       }
       const shouldContinue = confirmWarnings(getAddOrEditWarnings(payload));
       if (!shouldContinue) {
         return;
+      }
+
+      const normalizedDealer = payload.dealer?.trim();
+      const nextDraft =
+        normalizedDealer
+          ? {
+              ...draft,
+              dealer: (await upsertBoxDealerMutation.mutateAsync({ name: normalizedDealer })).name
+            }
+          : draft;
+      if (nextDraft !== draft) {
+        payload.dealer = nextDraft.dealer;
       }
 
       if (filmOrderPrefill.filmOrderId) {
@@ -251,7 +275,7 @@ export default function AddBoxPage() {
           return;
         }
 
-        setFilmOrderDraftSeed(buildNextFilmOrderDraft(draft));
+        setFilmOrderDraftSeed(buildNextFilmOrderDraft(nextDraft));
         setFilmOrderResetNonce((current) => current + 1);
         toast.push({
           title: `Added ${result.box.boxId}`,
@@ -365,6 +389,9 @@ export default function AddBoxPage() {
         disabled={!canWriteInventory}
         createWarehouse={warehouse}
         nextBoxIdForCreateWarehouse={nextBoxIdForCreateWarehouse}
+        dealerEntries={boxDealersQuery.data}
+        dealerLoading={boxDealersQuery.isLoading}
+        dealerError={boxDealersQuery.error}
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
         filmCatalogError={filmCatalogQuery.error}
@@ -421,6 +448,7 @@ function buildNextFilmOrderDraft(currentDraft: BoxDraft): BoxDraft {
   return {
     ...nextDraft,
     boxId: '',
+    dealer: currentDraft.dealer,
     manufacturer: currentDraft.manufacturer,
     filmName: currentDraft.filmName,
     widthIn: currentDraft.widthIn,

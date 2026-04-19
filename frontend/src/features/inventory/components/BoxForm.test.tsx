@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createEmptyBoxDraft } from '../utils/boxHelpers';
@@ -40,6 +40,14 @@ function createEditDraft() {
     coreType: 'SECURITY 1/4" Cardboard',
     coreWeightLbs: '1',
     lfWeightLbsPerFt: '0.5'
+  };
+}
+
+function createValidCreateDraft() {
+  return {
+    ...createEmptyBoxDraft('3M Solar'),
+    boxId: 'IL1-7001',
+    filmName: 'Prestige 60'
   };
 }
 
@@ -178,5 +186,224 @@ describe('BoxForm', () => {
     fireEvent.change(lastRollWeightInput, { target: { value: '16' } });
     expect(lastRollWeightInput.value).toBe('16');
     expect(currentFeetInput.value).toBe('30');
+  });
+
+  it('shows saved dealers in the dropdown and reveals the inline field for a new dealer', () => {
+    render(
+      <BoxForm
+        initialDraft={createEmptyBoxDraft()}
+        resetKey="create-dealer"
+        mode="create"
+        submitLabel="Create Box"
+        dealerEntries={[
+          {
+            dealerId: 'dealer-1',
+            name: 'Eastman Performance Films',
+            lookupKey: 'eastman-performance-films',
+            updatedAt: '2026-04-18T10:00:00Z'
+          }
+        ]}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const dealerSelect = screen.getByRole('combobox', { name: /Dealer/ }) as HTMLSelectElement;
+    expect(
+      screen.getByRole('option', { name: 'Eastman Performance Films' }).getAttribute('value')
+    ).toBe('Eastman Performance Films');
+
+    fireEvent.change(dealerSelect, { target: { value: '__add_new_dealer__' } });
+
+    expect((screen.getByRole('textbox', { name: /New Dealer/ }) as HTMLInputElement).value).toBe('');
+  });
+
+  it('opens the missing-dealer dialog in create mode instead of submitting immediately', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer"
+        mode="create"
+        submitLabel="Create Box"
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+
+    expect(
+      screen.getByText(
+        "You didn't enter the dealer this film was purchased through. Enter a dealer or explain why there is no dealer."
+      )
+    ).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('closes the missing-dealer dialog without submitting when cancelled', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer-cancel"
+        mode="create"
+        submitLabel="Create Box"
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(
+      screen.queryByText(
+        "You didn't enter the dealer this film was purchased through. Enter a dealer or explain why there is no dealer."
+      )
+    ).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('uses the dealer picked in the modal when the user submits with a saved dealer', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer-saved"
+        mode="create"
+        submitLabel="Create Box"
+        dealerEntries={[
+          {
+            dealerId: 'dealer-1',
+            name: 'Eastman Performance Films',
+            lookupKey: 'eastman-performance-films',
+            updatedAt: '2026-04-18T10:00:00Z'
+          }
+        ]}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Dealer' }), {
+      target: { value: 'Eastman Performance Films' }
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Submit' }));
+
+    const [submittedDraft, submitContext] = onSubmit.mock.calls[0];
+    expect(submittedDraft).toEqual(expect.objectContaining({ dealer: 'Eastman Performance Films' }));
+    expect(submitContext).toBeUndefined();
+    expect((screen.getByRole('combobox', { name: /Dealer/ }) as HTMLSelectElement).value).toBe(
+      'Eastman Performance Films'
+    );
+  });
+
+  it('uses a newly entered dealer from the modal when the user adds one there', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer-custom"
+        mode="create"
+        submitLabel="Create Box"
+        dealerEntries={[
+          {
+            dealerId: 'dealer-1',
+            name: 'Eastman Performance Films',
+            lookupKey: 'eastman-performance-films',
+            updatedAt: '2026-04-18T10:00:00Z'
+          }
+        ]}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Dealer' }), {
+      target: { value: '__add_new_dealer__' }
+    });
+    fireEvent.change(dialog.getByRole('textbox', { name: 'New Dealer' }), {
+      target: { value: 'Decorative Films' }
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Submit' }));
+
+    const [submittedDraft, submitContext] = onSubmit.mock.calls[0];
+    expect(submittedDraft).toEqual(expect.objectContaining({ dealer: 'Decorative Films' }));
+    expect(submitContext).toBeUndefined();
+  });
+
+  it('submits the default no-dealer audit note when the modal comment is left blank', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer-default-reason"
+        mode="create"
+        submitLabel="Create Box"
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Submit' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ dealer: '' }), {
+      auditNote: 'No dealer for unknown reason.'
+    });
+  });
+
+  it('submits the typed no-dealer comment when the modal reason is provided', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createValidCreateDraft()}
+        resetKey="create-missing-dealer-custom-reason"
+        mode="create"
+        submitLabel="Create Box"
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByRole('textbox', { name: 'Comment' }), {
+      target: { value: 'Transferred from legacy stock without dealer data.' }
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Submit' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ dealer: '' }), {
+      auditNote: 'Transferred from legacy stock without dealer data.'
+    });
+  });
+
+  it('does not open the missing-dealer dialog in edit mode', () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-missing-dealer"
+        mode="edit"
+        submitLabel="Save Changes"
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    expect(
+      screen.queryByText(
+        "You didn't enter the dealer this film was purchased through. Enter a dealer or explain why there is no dealer."
+      )
+    ).toBeNull();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ boxId: 'IL1-6735' }));
+    expect(onSubmit.mock.calls[0]?.[1]).toBeUndefined();
   });
 });

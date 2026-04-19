@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../../components/Button';
-import type { FilmCatalogEntry, Warehouse } from '../../../domain';
+import type { BoxDealerEntry, FilmCatalogEntry, Warehouse } from '../../../domain';
 import type { BoxDraft } from '../utils/boxHelpers';
 import { BoxIdentitySection } from './box-form/BoxIdentitySection';
 import { CustomWidthDialog } from './box-form/CustomWidthDialog';
@@ -10,6 +10,17 @@ import { NotesSection } from './box-form/NotesSection';
 import { RollTrackingSection } from './box-form/RollTrackingSection';
 import { useBoxFormState } from './box-form/useBoxFormState';
 import { useDeleteBoxDialog } from './box-form/useDeleteBoxDialog';
+import { MissingDealerDialog } from './box-form/MissingDealerDialog';
+import {
+  applyDealerSelectValue,
+  resolveDealerFieldState
+} from './box-form/dealerFieldUtils';
+
+export interface BoxFormSubmitContext {
+  auditNote?: string;
+}
+
+const DEFAULT_NO_DEALER_REASON = 'No dealer for unknown reason.';
 
 interface BoxFormProps {
   initialDraft: BoxDraft;
@@ -22,10 +33,13 @@ interface BoxFormProps {
   preserveInitialFeetInEdit?: boolean;
   createWarehouse?: Warehouse;
   nextBoxIdForCreateWarehouse?: string;
+  dealerEntries?: BoxDealerEntry[];
+  dealerLoading?: boolean;
+  dealerError?: unknown;
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
   filmCatalogError?: unknown;
-  onSubmit: (draft: BoxDraft) => void;
+  onSubmit: (draft: BoxDraft, context?: BoxFormSubmitContext) => void;
   onCancel?: () => void;
   onDelete?: () => void;
 }
@@ -41,6 +55,9 @@ export function BoxForm({
   preserveInitialFeetInEdit = false,
   createWarehouse,
   nextBoxIdForCreateWarehouse,
+  dealerEntries,
+  dealerLoading = false,
+  dealerError,
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
@@ -52,13 +69,17 @@ export function BoxForm({
     canCaptureReceivingDetails,
     closeCustomWidthDialog,
     customWidthDraft,
+    dealerOptions,
+    dealerSelectValue,
     draft,
     footageSectionCopy,
     handleBoxIdChange,
     handleCurrentFeetChange,
+    handleDealerSelectChange,
     handleInitialFeetChange,
     handleLastRollWeightChange,
     handleWidthButtonClick,
+    isCustomDealerSelected,
     isCustomManufacturerSelected,
     isCustomWidthOpen,
     isCustomWidthValid,
@@ -74,6 +95,7 @@ export function BoxForm({
     widthMode
   } = useBoxFormState({
     createWarehouse,
+    dealerEntries,
     filmCatalogEntries,
     initialDraft,
     mode,
@@ -92,10 +114,62 @@ export function BoxForm({
     resetDeleteDialog,
     setDeleteConfirmText
   } = useDeleteBoxDialog({ deleting });
+  const [isMissingDealerDialogOpen, setIsMissingDealerDialogOpen] = useState(false);
+  const [missingDealerDraft, setMissingDealerDraft] = useState('');
+  const [missingDealerComment, setMissingDealerComment] = useState('');
+  const [isAddingCustomMissingDealer, setIsAddingCustomMissingDealer] = useState(false);
+  const missingDealerFieldState = resolveDealerFieldState(
+    missingDealerDraft,
+    dealerOptions,
+    isAddingCustomMissingDealer
+  );
 
   useEffect(() => {
     resetDeleteDialog();
   }, [initialDraft, resetDeleteDialog, resetKey]);
+
+  useEffect(() => {
+    setIsMissingDealerDialogOpen(false);
+    setMissingDealerDraft('');
+    setMissingDealerComment('');
+    setIsAddingCustomMissingDealer(false);
+  }, [initialDraft, resetKey]);
+
+  function openMissingDealerDialog() {
+    setMissingDealerDraft(draft.dealer);
+    setMissingDealerComment('');
+    setIsAddingCustomMissingDealer(isCustomDealerSelected);
+    setIsMissingDealerDialogOpen(true);
+  }
+
+  function closeMissingDealerDialog() {
+    setIsMissingDealerDialogOpen(false);
+    setMissingDealerDraft('');
+    setMissingDealerComment('');
+    setIsAddingCustomMissingDealer(false);
+  }
+
+  function handleMissingDealerSelectChange(value: string) {
+    const nextDealerSelection = applyDealerSelectValue(value, missingDealerDraft, dealerOptions);
+    setIsAddingCustomMissingDealer(nextDealerSelection.isAddingCustomDealer);
+    setMissingDealerDraft(nextDealerSelection.dealer);
+  }
+
+  function handleMissingDealerSubmit() {
+    const normalizedDealer = missingDealerDraft.trim();
+    if (normalizedDealer) {
+      const nextDraft = normalizedDealer === draft.dealer ? draft : { ...draft, dealer: normalizedDealer };
+      updateField('dealer', normalizedDealer);
+      closeMissingDealerDialog();
+      onSubmit(nextDraft);
+      return;
+    }
+
+    closeMissingDealerDialog();
+    onSubmit(draft, {
+      auditNote: missingDealerComment.trim() || DEFAULT_NO_DEALER_REASON
+    });
+  }
 
   return (
     <>
@@ -104,6 +178,10 @@ export function BoxForm({
         onSubmit={(event) => {
           event.preventDefault();
           if (disabled) {
+            return;
+          }
+          if (mode === 'create' && !draft.dealer.trim()) {
+            openMissingDealerDialog();
             return;
           }
           onSubmit(draft);
@@ -149,8 +227,20 @@ export function BoxForm({
 
         <DatesAndCostingSection
           draft={draft}
+          dealerHint={
+            dealerLoading
+              ? 'Loading shared dealer list...'
+              : dealerError
+                ? 'Dealer list could not be loaded. You can still type and save a dealer name.'
+                : 'Select a saved dealer or add a new one.'
+          }
+          dealerOptions={dealerOptions}
+          dealerSelectValue={dealerSelectValue}
+          isCustomDealerSelected={isCustomDealerSelected}
           pricePerLfHint={pricePerLfHint}
           shouldAutoDerivePricePerLf={shouldAutoDerivePricePerLf}
+          onDealerInputChange={(value) => updateField('dealer', value)}
+          onDealerSelectChange={handleDealerSelectChange}
           onOrderDateChange={(value) => updateField('orderDate', value)}
           onPricePerLfChange={(value) => updateField('pricePerLf', value)}
           onPurchaseCostChange={(value) => updateField('purchaseCost', value)}
@@ -204,6 +294,27 @@ export function BoxForm({
         onChange={setCustomWidthDraft}
         onClose={closeCustomWidthDialog}
         onSave={saveCustomWidth}
+      />
+      <MissingDealerDialog
+        open={isMissingDealerDialogOpen}
+        dealerHint={
+          dealerLoading
+            ? 'Loading shared dealer list...'
+            : dealerError
+              ? 'Dealer list could not be loaded. You can still type a dealer name or explain why there is no dealer.'
+              : undefined
+        }
+        dealerOptions={dealerOptions}
+        dealerSelectValue={missingDealerFieldState.dealerSelectValue}
+        dealerValue={missingDealerDraft}
+        isCustomDealerSelected={missingDealerFieldState.isCustomDealerSelected}
+        comment={missingDealerComment}
+        submitting={submitting}
+        onDealerInputChange={setMissingDealerDraft}
+        onDealerSelectChange={handleMissingDealerSelectChange}
+        onCommentChange={setMissingDealerComment}
+        onCancel={closeMissingDealerDialog}
+        onSubmit={handleMissingDealerSubmit}
       />
     </>
   );

@@ -5,11 +5,13 @@ import type { useToast } from '../../../../components/Toast';
 import type {
   AllocationEntry,
   Box,
+  BoxDealerEntry,
   BoxMutationResult,
   DeleteBoxPayload,
   DeleteBoxResult,
   ReceiveOrderedBoxPayload,
   SetBoxStatusPayload,
+  UpsertBoxDealerPayload,
   UndoAuditPayload,
   UndoMutationResult,
   UpdateBoxPayload
@@ -62,6 +64,7 @@ type UndoMutationFn = (payload: UndoAuditPayload) => Promise<{
   result: UndoMutationResult;
   warnings: string[];
 }>;
+type UpsertDealerMutationFn = (payload: UpsertBoxDealerPayload) => Promise<BoxDealerEntry>;
 
 interface UseBoxDetailActionsArgs {
   box: Box | undefined;
@@ -69,6 +72,7 @@ interface UseBoxDetailActionsArgs {
   allocations: AllocationEntry[];
   allocationsLoading: boolean;
   allocationsError: boolean;
+  dealerEntries: BoxDealerEntry[];
   checkoutJobOptions: Array<{ label: string; value: string }>;
   ensureSignedIn: (actionLabel: string, feature?: 'inventory' | 'allocations') => boolean;
   navigate: NavigateFunction;
@@ -79,6 +83,7 @@ interface UseBoxDetailActionsArgs {
   setBoxStatus: SetStatusMutationFn;
   receiveOrderedBox: ReceiveOrderedMutationFn;
   undoAudit: UndoMutationFn;
+  upsertDealer: UpsertDealerMutationFn;
 }
 
 export function useBoxDetailActions({
@@ -87,6 +92,7 @@ export function useBoxDetailActions({
   allocations,
   allocationsLoading,
   allocationsError,
+  dealerEntries,
   checkoutJobOptions,
   ensureSignedIn,
   navigate,
@@ -96,7 +102,8 @@ export function useBoxDetailActions({
   deleteBox,
   setBoxStatus,
   receiveOrderedBox,
-  undoAudit
+  undoAudit,
+  upsertDealer
 }: UseBoxDetailActionsArgs) {
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [isFilmCheckinOpen, setIsFilmCheckinOpen] = useState(false);
@@ -223,6 +230,33 @@ export function useBoxDetailActions({
     });
   }
 
+  async function normalizeDraftDealer(draft: BoxDraft) {
+    const normalizedDealer = draft.dealer.trim();
+    if (!normalizedDealer) {
+      return draft;
+    }
+
+    const existingEntry = dealerEntries.find(
+      (entry) => entry.name.trim().toLocaleLowerCase() === normalizedDealer.toLocaleLowerCase()
+    );
+    if (existingEntry) {
+      return existingEntry.name === draft.dealer
+        ? draft
+        : {
+            ...draft,
+            dealer: existingEntry.name
+          };
+    }
+
+    const savedEntry = await upsertDealer({ name: normalizedDealer });
+    return savedEntry.name === draft.dealer
+      ? draft
+      : {
+          ...draft,
+          dealer: savedEntry.name
+        };
+  }
+
   async function handleEditSubmit(draft: BoxDraft) {
     if (!ensureSignedIn('save box changes', 'inventory')) {
       return;
@@ -240,7 +274,8 @@ export function useBoxDetailActions({
         return;
       }
 
-      const payload = parseUpdateBoxDraft(draft, box, allocations);
+      const nextDraft = await normalizeDraftDealer(draft);
+      const payload = parseUpdateBoxDraft(nextDraft, box, allocations);
       if (shouldPromptZeroedInventoryReactivationOnEdit(box, payload)) {
         setPendingZeroedReactivationState({
           payload: buildZeroedInventoryReactivationPayloadForEdit(payload)
@@ -308,6 +343,10 @@ export function useBoxDetailActions({
 
   function handleCancelOrderedReceive() {
     setIsOrderedReceiveOpen(false);
+  }
+
+  function openOrderedReceiveDialog() {
+    setIsOrderedReceiveOpen(true);
   }
 
   async function handleConfirm(reason: string) {
@@ -473,6 +512,7 @@ export function useBoxDetailActions({
     handleCancelConfirm,
     handleCancelFilmCheckin,
     handleCancelOrderedReceive,
+    openOrderedReceiveDialog,
     handleConfirm,
     handleFilmCheckinConfirm,
     handleOrderedReceiveConfirm,

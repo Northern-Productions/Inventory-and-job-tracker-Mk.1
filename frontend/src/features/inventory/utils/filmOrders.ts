@@ -12,6 +12,28 @@ export interface FilmOrderLinkedBoxDisplayEntry {
   isReceived: boolean;
 }
 
+interface FilmOrderLinkedBoxMutationEntry {
+  boxId: string;
+  dealer?: string;
+  orderedFeet: number;
+  autoAllocatedFeet?: number;
+  isReceived?: boolean;
+}
+
+type FilmOrderDerivedStateEntry = Pick<
+  FilmOrderEntry,
+  'status' | 'requestedFeet' | 'coveredFeet' | 'orderedFeet' | 'linkedBoxes' | 'resolvedAt' | 'resolvedBy'
+>;
+
+interface FilmOrderLinkedBoxSelectionOptions {
+  excludeBoxIds?: string[];
+}
+
+interface FilmOrderDerivedStateOptions {
+  actor?: string;
+  now?: string;
+}
+
 export function getFilmOrderOrigin(
   order: FilmOrderOriginEntry | null | undefined
 ): NonNullable<FilmOrderEntry['origin']> {
@@ -39,6 +61,14 @@ export function getFilmOrderOriginSourceBoxId(
   return String(order?.sourceBoxId || '').trim();
 }
 
+function normalizeLinkedBoxId(value: string) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function normalizeDealerName(value: string) {
+  return String(value || '').trim();
+}
+
 export function getFilmOrderLinkedBoxIds(
   order: FilmOrderLinkedBoxesEntry | null | undefined
 ): string[] {
@@ -55,7 +85,7 @@ export function getFilmOrderLinkedBoxes(
   const dedupedEntries = new Map<string, FilmOrderLinkedBoxDisplayEntry>();
   for (let index = 0; index < order.linkedBoxes.length; index += 1) {
     const entry = order.linkedBoxes[index] as Partial<FilmOrderLinkedBox> | null | undefined;
-    const boxId = String(entry?.boxId || '').trim().toUpperCase();
+    const boxId = normalizeLinkedBoxId(entry?.boxId || '');
     if (!boxId) {
       continue;
     }
@@ -70,12 +100,219 @@ export function getFilmOrderLinkedBoxes(
   return Array.from(dedupedEntries.values()).sort((left, right) => left.boxId.localeCompare(right.boxId));
 }
 
+export function getFilmOrderDealerNames(
+  order: FilmOrderLinkedBoxesEntry | null | undefined
+): string[] {
+  if (!Array.isArray(order?.linkedBoxes) || !order.linkedBoxes.length) {
+    return [];
+  }
+
+  const dealerNames: string[] = [];
+  const seenLookupKeys = new Set<string>();
+  for (let index = 0; index < order.linkedBoxes.length; index += 1) {
+    const entry = order.linkedBoxes[index] as Partial<FilmOrderLinkedBox> | null | undefined;
+    const dealer = normalizeDealerName(entry?.dealer || '');
+    if (!dealer) {
+      continue;
+    }
+
+    const lookupKey = dealer.toLocaleLowerCase();
+    if (seenLookupKeys.has(lookupKey)) {
+      continue;
+    }
+
+    seenLookupKeys.add(lookupKey);
+    dealerNames.push(dealer);
+  }
+
+  return dealerNames;
+}
+
+export function formatFilmOrderDealerLabel(
+  order: FilmOrderLinkedBoxesEntry | null | undefined,
+  emptyLabel = FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL
+): string {
+  const dealerNames = getFilmOrderDealerNames(order);
+  return dealerNames.length ? dealerNames.join(', ') : emptyLabel;
+}
+
+export function getNextFilmOrderLinkedBoxToReceive(
+  order: FilmOrderLinkedBoxesEntry | null | undefined,
+  options: FilmOrderLinkedBoxSelectionOptions = {}
+): FilmOrderLinkedBoxDisplayEntry | null {
+  const excludedBoxIds = new Set(
+    (options.excludeBoxIds || []).map((entry) => normalizeLinkedBoxId(entry)).filter(Boolean)
+  );
+
+  const linkedBoxes = getFilmOrderLinkedBoxes(order);
+  for (let index = 0; index < linkedBoxes.length; index += 1) {
+    const entry = linkedBoxes[index];
+    if (entry.isReceived || excludedBoxIds.has(entry.boxId)) {
+      continue;
+    }
+
+    return entry;
+  }
+
+  return null;
+}
+
 export function formatFilmOrderLinkedBoxIds(
   order: FilmOrderLinkedBoxesEntry | null | undefined,
   emptyLabel = FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL
 ): string {
   const boxIds = getFilmOrderLinkedBoxIds(order);
   return boxIds.length ? boxIds.join(', ') : emptyLabel;
+}
+
+export function deriveFilmOrderStatusFromLinkedBoxes(
+  order: FilmOrderDerivedStateEntry,
+  options: FilmOrderDerivedStateOptions = {}
+): Pick<FilmOrderEntry, 'status' | 'resolvedAt' | 'resolvedBy'> {
+  const normalizedStatus = String(order.status || '').trim().toUpperCase();
+  if (normalizedStatus === 'CANCELLED') {
+    return {
+      status: 'CANCELLED',
+      resolvedAt: String(order.resolvedAt || '').trim(),
+      resolvedBy: String(order.resolvedBy || '').trim()
+    };
+  }
+
+  const requestedFeet = Math.max(0, Number(order.requestedFeet || 0));
+  const coveredFeet = Math.max(0, Number(order.coveredFeet || 0));
+  const orderedFeet = Math.max(0, Number(order.orderedFeet || 0));
+  const linkedBoxes = Array.isArray(order.linkedBoxes) ? order.linkedBoxes : [];
+  const normalizedLinkedBoxes = linkedBoxes
+    .map((entry) => ({
+      boxId: normalizeLinkedBoxId(entry?.boxId || ''),
+      isReceived: Boolean(entry?.isReceived)
+    }))
+    .filter((entry) => entry.boxId);
+  const hasLinkedBoxes = normalizedLinkedBoxes.length > 0;
+  const allLinkedBoxesReceived =
+    hasLinkedBoxes && normalizedLinkedBoxes.every((entry) => entry.isReceived);
+
+  let nextStatus: FilmOrderStatus;
+  if (hasLinkedBoxes) {
+    nextStatus =
+      orderedFeet < requestedFeet
+        ? 'FILM_ORDER'
+        : allLinkedBoxesReceived
+          ? 'FULFILLED'
+          : 'FILM_ON_THE_WAY';
+  } else if (coveredFeet >= requestedFeet) {
+    nextStatus = 'FULFILLED';
+  } else if (orderedFeet >= requestedFeet) {
+    nextStatus = 'FILM_ON_THE_WAY';
+  } else {
+    nextStatus = 'FILM_ORDER';
+  }
+
+  if (nextStatus === 'FULFILLED') {
+    const resolvedAt = String(order.resolvedAt || '').trim() || options.now || new Date().toISOString();
+    const resolvedBy = String(order.resolvedBy || '').trim() || String(options.actor || '').trim() || 'Pending...';
+    return {
+      status: nextStatus,
+      resolvedAt,
+      resolvedBy
+    };
+  }
+
+  return {
+    status: nextStatus,
+    resolvedAt: '',
+    resolvedBy: ''
+  };
+}
+
+export function addOptimisticLinkedBoxToFilmOrder(
+  order: FilmOrderEntry,
+  linkedBox: FilmOrderLinkedBoxMutationEntry,
+  options: FilmOrderDerivedStateOptions = {}
+): FilmOrderEntry {
+  const normalizedBoxId = normalizeLinkedBoxId(linkedBox.boxId);
+  if (!normalizedBoxId) {
+    return order;
+  }
+
+  const nextOrderedFeet =
+    Math.max(0, Number(order.orderedFeet || 0)) + Math.max(0, Number(linkedBox.orderedFeet || 0));
+  const nextRemainingToOrderFeet = Math.max(
+    Math.max(0, Number(order.requestedFeet || 0)) - nextOrderedFeet,
+    0
+  );
+  const nextLinkedBoxes = [
+    ...order.linkedBoxes,
+    {
+      boxId: normalizedBoxId,
+      dealer: normalizeDealerName(linkedBox.dealer || ''),
+      orderedFeet: Math.max(0, Number(linkedBox.orderedFeet || 0)),
+      autoAllocatedFeet: Math.max(0, Number(linkedBox.autoAllocatedFeet || 0)),
+      isReceived: Boolean(linkedBox.isReceived)
+    }
+  ];
+  const derivedState = deriveFilmOrderStatusFromLinkedBoxes(
+    {
+      ...order,
+      orderedFeet: nextOrderedFeet,
+      linkedBoxes: nextLinkedBoxes
+    },
+    options
+  );
+
+  return {
+    ...order,
+    orderedFeet: nextOrderedFeet,
+    remainingToOrderFeet: nextRemainingToOrderFeet,
+    status: derivedState.status,
+    resolvedAt: derivedState.resolvedAt,
+    resolvedBy: derivedState.resolvedBy,
+    linkedBoxes: nextLinkedBoxes
+  };
+}
+
+export function markFilmOrderLinkedBoxReceived(
+  order: FilmOrderEntry,
+  boxId: string,
+  options: FilmOrderDerivedStateOptions = {}
+): FilmOrderEntry {
+  const normalizedBoxId = normalizeLinkedBoxId(boxId);
+  if (!normalizedBoxId) {
+    return order;
+  }
+
+  let didUpdate = false;
+  const nextLinkedBoxes = order.linkedBoxes.map((entry) => {
+    if (normalizeLinkedBoxId(entry.boxId) !== normalizedBoxId || entry.isReceived) {
+      return entry;
+    }
+
+    didUpdate = true;
+    return {
+      ...entry,
+      isReceived: true
+    };
+  });
+
+  if (!didUpdate) {
+    return order;
+  }
+
+  const derivedState = deriveFilmOrderStatusFromLinkedBoxes(
+    {
+      ...order,
+      linkedBoxes: nextLinkedBoxes
+    },
+    options
+  );
+
+  return {
+    ...order,
+    status: derivedState.status,
+    resolvedAt: derivedState.resolvedAt,
+    resolvedBy: derivedState.resolvedBy,
+    linkedBoxes: nextLinkedBoxes
+  };
 }
 
 export function isUnresolvedFilmOrderStatus(status: FilmOrderStatus | string): boolean {

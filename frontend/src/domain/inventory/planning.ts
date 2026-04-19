@@ -96,6 +96,7 @@ export interface AllocationPreview {
 
 export interface FilmOrderLinkedBox {
   boxId: string;
+  dealer?: string;
   orderedFeet: number;
   autoAllocatedFeet: number;
   isReceived: boolean;

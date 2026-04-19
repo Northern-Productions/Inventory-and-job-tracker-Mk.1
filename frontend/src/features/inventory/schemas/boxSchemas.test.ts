@@ -24,6 +24,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
   return {
     boxId: 'IL1-6919',
     warehouse: 'IL1',
+    dealer: '',
     manufacturer: '3M Fasara',
     filmName: 'Dusted Crystal',
     widthIn: 18,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,8 @@ const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const searchBoxesMock = vi.fn();
 const addBoxMock = vi.fn();
+const listBoxDealersMock = vi.fn();
+const upsertBoxDealerMock = vi.fn();
 const getFilmCatalogMock = vi.fn();
 
 vi.mock('react-router-dom', async () => {
@@ -40,6 +42,8 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
 vi.mock('../../../api/features/inventoryClient', () => ({
   searchBoxes: (...args: unknown[]) => searchBoxesMock(...args),
   addBox: (...args: unknown[]) => addBoxMock(...args),
+  listBoxDealers: (...args: unknown[]) => listBoxDealersMock(...args),
+  upsertBoxDealer: (...args: unknown[]) => upsertBoxDealerMock(...args),
   getBox: vi.fn(),
   updateBox: vi.fn(),
   deleteBox: vi.fn(),
@@ -94,6 +98,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
   return {
     boxId: 'IL1-0005',
     warehouse: 'IL1',
+    dealer: '',
     manufacturer: '3M Solar',
     filmName: 'Prestige 60',
     widthIn: 72,
@@ -242,12 +247,47 @@ function getInput(label: string) {
   return screen.getAllByLabelText(label)[0] as HTMLInputElement;
 }
 
+const MISSING_DEALER_MESSAGE =
+  "You didn't enter the dealer this film was purchased through. Enter a dealer or explain why there is no dealer.";
+
+function fillRequiredCreateFields() {
+  fireEvent.change(screen.getByLabelText('New Manufacturer'), {
+    target: { value: '3M Solar' }
+  });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Film Name' }), {
+    target: { value: 'Prestige 60' }
+  });
+}
+
+function submitMissingDealerDialog(options?: { comment?: string; dealerName?: string }) {
+  const dialog = within(screen.getByRole('dialog'));
+
+  if (options?.dealerName) {
+    fireEvent.change(dialog.getByRole('combobox', { name: 'Dealer' }), {
+      target: { value: '__add_new_dealer__' }
+    });
+    fireEvent.change(dialog.getByRole('textbox', { name: 'New Dealer' }), {
+      target: { value: options.dealerName }
+    });
+  }
+
+  if (options?.comment !== undefined) {
+    fireEvent.change(dialog.getByRole('textbox', { name: 'Comment' }), {
+      target: { value: options.comment }
+    });
+  }
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Submit' }));
+}
+
 describe('AddBoxPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
     searchBoxesMock.mockReset();
     addBoxMock.mockReset();
+    listBoxDealersMock.mockReset();
+    upsertBoxDealerMock.mockReset();
     getFilmCatalogMock.mockReset();
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
@@ -255,6 +295,13 @@ describe('AddBoxPage', () => {
       hasFeatureAccess: () => true
     });
     getFilmCatalogMock.mockResolvedValue([]);
+    listBoxDealersMock.mockResolvedValue([]);
+    upsertBoxDealerMock.mockImplementation(async ({ name }: { name: string }) => ({
+      dealerId: `dealer-${String(name).trim().toLowerCase().replace(/\s+/g, '-')}`,
+      name: String(name).trim(),
+      lookupKey: String(name).trim().toLowerCase().replace(/\s+/g, '-'),
+      updatedAt: '2026-04-18T10:00:00Z'
+    }));
   });
 
   afterEach(() => {
@@ -331,6 +378,8 @@ describe('AddBoxPage', () => {
       target: { value: '100' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog();
 
     await waitFor(() => {
       const optimisticBoxes = queryClient.getQueryData<Box[]>(searchKey) || [];
@@ -346,6 +395,7 @@ describe('AddBoxPage', () => {
     expect(optimisticFilmOrder?.linkedBoxes).toEqual([
       {
         boxId: 'IL1-0006',
+        dealer: '',
         orderedFeet: 100,
         autoAllocatedFeet: 0,
         isReceived: false
@@ -420,6 +470,8 @@ describe('AddBoxPage', () => {
       target: { value: '125' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog();
 
     await act(async () => {
       await Promise.resolve();
@@ -501,6 +553,8 @@ describe('AddBoxPage', () => {
       target: { value: '100' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog();
 
     await waitFor(() => {
       const optimisticBoxes = queryClient.getQueryData<Box[]>(searchKey) || [];
@@ -527,5 +581,145 @@ describe('AddBoxPage', () => {
     expect(
       queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)?.[0].linkedBoxes
     ).toEqual([]);
+  });
+
+  it('saves a new dealer before creating the box and carries the saved name into the add payload', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    addBoxMock.mockResolvedValue({
+      result: {
+        box: buildBox({ boxId: 'IL1-0006', dealer: 'Decorative Films' }),
+        logId: 'log-1'
+      },
+      warnings: []
+    });
+
+    renderPage(queryClient);
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fireEvent.change(screen.getByLabelText('New Manufacturer'), {
+      target: { value: '3M Solar' }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Film Name' }), {
+      target: { value: 'Prestige 60' }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: /Dealer/ }), {
+      target: { value: '__add_new_dealer__' }
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /New Dealer/ }), {
+      target: { value: '  Decorative Films  ' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+
+    await waitFor(() => {
+      expect(upsertBoxDealerMock).toHaveBeenCalledWith({ name: 'Decorative Films' });
+    });
+    await waitFor(() => {
+      expect(addBoxMock).toHaveBeenCalledWith(expect.objectContaining({ dealer: 'Decorative Films' }));
+    });
+  });
+
+  it('forwards the no-dealer modal comment as audit history text on create', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    addBoxMock.mockResolvedValue({
+      result: {
+        box: buildBox({ boxId: 'IL1-0006' }),
+        logId: 'log-1'
+      },
+      warnings: []
+    });
+
+    renderPage(queryClient);
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fillRequiredCreateFields();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog({ comment: 'Purchased from inherited stock with no vendor listed.' });
+
+    await waitFor(() => {
+      expect(addBoxMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dealer: '',
+          auditNote: 'Purchased from inherited stock with no vendor listed.'
+        })
+      );
+    });
+  });
+
+  it('uses the modal-entered dealer through the existing dealer upsert flow', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    addBoxMock.mockResolvedValue({
+      result: {
+        box: buildBox({ boxId: 'IL1-0006', dealer: 'Decorative Films' }),
+        logId: 'log-1'
+      },
+      warnings: []
+    });
+
+    renderPage(queryClient);
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fillRequiredCreateFields();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog({ dealerName: 'Decorative Films' });
+
+    await waitFor(() => {
+      expect(upsertBoxDealerMock).toHaveBeenCalledWith({ name: 'Decorative Films' });
+    });
+    await waitFor(() => {
+      expect(addBoxMock).toHaveBeenCalledWith(expect.objectContaining({ dealer: 'Decorative Films' }));
+    });
+  });
+
+  it('keeps the regular add flow navigating to Box Details after a successful create', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    listBoxDealersMock.mockResolvedValue([
+      {
+        dealerId: 'dealer-1',
+        name: 'Eastman Performance Films',
+        lookupKey: 'eastman-performance-films',
+        updatedAt: '2026-04-18T10:00:00Z'
+      }
+    ]);
+    addBoxMock.mockResolvedValue({
+      result: {
+        box: buildBox({ boxId: 'IL1-0006', dealer: 'Eastman Performance Films' }),
+        logId: 'log-1'
+      },
+      warnings: []
+    });
+
+    renderPage(queryClient);
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fillRequiredCreateFields();
+    fireEvent.change(screen.getByRole('combobox', { name: /Dealer/ }), {
+      target: { value: 'Eastman Performance Films' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/inventory/IL1-0006?showQr=1');
+    });
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/inventory/IL1-0006?showQr=1', { replace: true });
+    });
   });
 });
