@@ -4,7 +4,7 @@ import { mapBoxDealerRow } from '../repositories/mappers.mjs';
 
 const DEFAULT_BOX_DEALER_NAMES = [
   'Eastman Performance Films',
-  'Energy products Distrubution',
+  'Energy Products Distribution',
   'Accent',
   'Decorative Films',
   'Kingston Coatings',
@@ -17,7 +17,7 @@ async function seedDefaultBoxDealers(client, orgId) {
       with defaults(name) as (
         values
           ('Eastman Performance Films'::text),
-          ('Energy products Distrubution'::text),
+          ('Energy Products Distribution'::text),
           ('Accent'::text),
           ('Decorative Films'::text),
           ('Kingston Coatings'::text)

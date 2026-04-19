@@ -71,7 +71,7 @@ begin
   from (
     values
       ('Eastman Performance Films'::text),
-      ('Energy products Distrubution'::text),
+      ('Energy Products Distribution'::text),
       ('Accent'::text),
       ('Decorative Films'::text),
       ('Kingston Coatings'::text)
