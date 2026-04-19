@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0070_ordered_box_receive_workflow.sql';
+const LATEST_MIGRATION = '0071_box_dealers_and_guided_receive_support.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -15,7 +15,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'table', signature: 'app.caulk_transfers' },
+  { kind: 'table', signature: 'app.box_dealers' },
   { kind: 'type', signature: 'app.caulk_transfer_status' },
+  { kind: 'column', signature: 'app.boxes.dealer' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },
@@ -24,6 +26,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_list_box_dealers(uuid)' },
+  { kind: 'function', signature: 'public.api_acl_box_dealers_upsert(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_set_status(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
@@ -44,6 +48,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.recalculate_film_order(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
+  { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
@@ -76,6 +81,31 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_boxes_set_status(uuid, text, jsonb)',
     includes: ['perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'],
+    excludes: []
+  },
+  {
+    signature: 'app_api.save_box(app.boxes)',
+    includes: ['perform app_api.upsert_box_dealer(p_box.org_id, p_box.dealer);', 'dealer = excluded.dealer'],
+    excludes: []
+  },
+  {
+    signature: 'app_api.public_box_json(app.boxes)',
+    includes: ["'dealer', coalesce(p_box.dealer, '')"],
+    excludes: []
+  },
+  {
+    signature: 'app_api.public_box_state_to_box_row(uuid, jsonb, uuid)',
+    includes: ["v_box.dealer := coalesce(p_state->>'dealer', '');"],
+    excludes: []
+  },
+  {
+    signature: 'public.api_boxes_add(uuid, text, jsonb)',
+    includes: ["v_box.dealer := app_api.trim_text(p_payload->>'dealer');"],
+    excludes: []
+  },
+  {
+    signature: 'public.api_boxes_update(uuid, text, jsonb)',
+    includes: ['v_box.dealer := case', "then app_api.trim_text(p_payload->>'dealer')", "else coalesce(v_existing.dealer, '')"],
     excludes: []
   }
 ];

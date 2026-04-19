@@ -52,6 +52,7 @@ function buildUniqueSuffix() {
 function buildBoxPayload(boxId, orderDate, overrides = {}) {
   return {
     boxId,
+    dealer: "Eastman Performance Films",
     manufacturer: "3M Solar",
     filmName: "Prestige 60",
     widthIn: 60,
@@ -243,10 +244,30 @@ async function main() {
     const orderedBox = addedBox?.data?.box;
     assert(orderedBox, "Failed to create the ordered verification box.");
     assert(orderedBox.status === "ORDERED", `Expected ORDERED status after add, received ${orderedBox.status}.`);
+    assert(
+      orderedBox.dealer === "Eastman Performance Films",
+      `Expected ordered verification box dealer to persist on add, received ${orderedBox.dealer}.`
+    );
     assert(Number(orderedBox.feetAvailable || 0) === 0, `Expected ordered box feetAvailable to stay 0, received ${orderedBox.feetAvailable}.`);
     assert(
       Number(orderedBox.allocationPlanningFeet || 0) === 80,
       `Expected ordered box planning feet to start at 80, received ${orderedBox.allocationPlanningFeet}.`
+    );
+
+    const dealerUpdatedEnvelope = await updateBox(
+      client,
+      orgId,
+      buildUpdatePayload(orderedBox, {
+        dealer: "Accent",
+        notes: "Ordered allocation flow verification box. Dealer updated."
+      }),
+      actor
+    );
+    const dealerUpdatedBox = dealerUpdatedEnvelope?.data?.box;
+    assert(dealerUpdatedBox, "Expected updateBox to return the dealer-updated verification box.");
+    assert(
+      dealerUpdatedBox.dealer === "Accent",
+      `Expected updateBox to persist the revised dealer, received ${dealerUpdatedBox?.dealer}.`
     );
 
     const preview = await previewAllocationPlan(client, orgId, {
@@ -286,6 +307,10 @@ async function main() {
 
     let refreshedBox = await findBoxById(client, orgId, boxId);
     assert(refreshedBox, "Created ordered box could not be reloaded after apply.");
+    assert(
+      refreshedBox.dealer === "Accent",
+      `Expected dealer to remain Accent after allocation apply, received ${refreshedBox?.dealer}.`
+    );
     assert(Number(refreshedBox.feetAvailable || 0) === 0, `Expected ordered box feetAvailable to remain 0 after apply, received ${refreshedBox.feetAvailable}.`);
     assert(
       Number(refreshedBox.allocationPlanningFeet || 0) === 40,
@@ -440,6 +465,10 @@ async function main() {
 
     refreshedBox = await findBoxById(client, orgId, boxId);
     assert(refreshedBox, "Received box could not be reloaded.");
+    assert(
+      refreshedBox.dealer === "Accent",
+      `Expected dealer to survive ordered receipt, received ${refreshedBox?.dealer}.`
+    );
     assert(Number(refreshedBox.feetAvailable || 0) === 40, `Expected received box feetAvailable to equal physical minus active allocations (40), received ${refreshedBox.feetAvailable}.`);
 
     jobDetail = await buildJobDetail(client, orgId, jobNumber);
@@ -487,6 +516,7 @@ async function main() {
       client,
       orgId,
       buildBoxPayload(linkedBoxId, dueDate, {
+        dealer: 'Decorative Films',
         initialFeet: 30,
         filmOrderId: linkedFilmOrder.filmOrderId,
         notes: 'Linked film-order receipt verification box.'
@@ -505,6 +535,10 @@ async function main() {
     assert(
       orderedFilmOrder.status === 'FILM_ON_THE_WAY',
       `Expected linked film order to move to FILM_ON_THE_WAY after ordering a box, received ${orderedFilmOrder.status}.`
+    );
+    assert(
+      orderedFilmOrder.linkedBoxes[0]?.dealer === 'Decorative Films',
+      `Expected linked film order box dealer to persist before receipt, received ${orderedFilmOrder.linkedBoxes[0]?.dealer}.`
     );
 
     const receiveResult = await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {
@@ -567,6 +601,10 @@ async function main() {
       'Expected fulfilled linked film order to mark its ordered box as received.'
     );
     assert(
+      fulfilledFilmOrder.linkedBoxes[0]?.dealer === 'Decorative Films',
+      `Expected fulfilled linked film order to retain the linked dealer, received ${fulfilledFilmOrder.linkedBoxes[0]?.dealer}.`
+    );
+    assert(
       Number(linkedJobDetail?.summary?.filmOrderCount || 0) === 0,
       `Expected job summary filmOrderCount to only count unresolved film orders, received ${linkedJobDetail?.summary?.filmOrderCount}.`
     );
@@ -611,6 +649,7 @@ async function main() {
         client,
         orgId,
         buildBoxPayload(splitBoxId, dueDate, {
+          dealer: splitBoxId === splitFirstBoxId ? 'Accent' : 'Kingston Coatings',
           initialFeet: 30,
           filmOrderId: splitFilmOrder.filmOrderId,
           notes: 'Split linked film-order receipt verification box.'
@@ -633,6 +672,11 @@ async function main() {
       splitOpenFilmOrder.linkedBoxes.length === 2 &&
         splitOpenFilmOrder.linkedBoxes.every((entry) => entry.isReceived === false),
       'Expected split linked film order to mark both ordered boxes as unreceived before check-in.'
+    );
+    assert(
+      splitOpenFilmOrder.linkedBoxes.some((entry) => entry.dealer === 'Accent') &&
+        splitOpenFilmOrder.linkedBoxes.some((entry) => entry.dealer === 'Kingston Coatings'),
+      'Expected split linked film order to expose the dealer for each linked ordered box.'
     );
 
     await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {

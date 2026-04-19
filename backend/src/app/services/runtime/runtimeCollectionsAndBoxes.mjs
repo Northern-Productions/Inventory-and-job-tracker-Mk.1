@@ -665,6 +665,10 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   return {
     boxId,
     warehouse: await resolveWarehouseFromBoxId(client, orgId, boxId),
+    dealer:
+      payload && Object.prototype.hasOwnProperty.call(payload, 'dealer')
+        ? asTrimmedString(payload.dealer)
+        : asTrimmedString(existingBox?.dealer),
     manufacturer,
     filmName,
     widthIn,

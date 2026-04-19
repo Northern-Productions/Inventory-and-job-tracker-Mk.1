@@ -3750,6 +3750,7 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
       boxId,
       orderedFeet: integerOrZero((link as Record<string, unknown>).orderedFeet),
       autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
+      dealer: asTrimmedString((boxById[boxId] as Record<string, unknown>).dealer),
       isReceived: isReceivedLinkedBoxStatus((boxById[boxId] as Record<string, unknown>).status),
     });
   }

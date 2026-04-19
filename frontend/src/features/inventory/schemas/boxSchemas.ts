@@ -52,6 +52,7 @@ const optionalDateString = z
 
 const addSchema = z.object({
   boxId: requiredString,
+  dealer: optionalString,
   manufacturer: addManufacturerString,
   filmName: requiredString,
   widthIn: z.number().min(0, 'Width must be zero or greater.'),
@@ -137,6 +138,7 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
 
   return addSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
+    dealer: draft.dealer,
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
@@ -211,6 +213,7 @@ export function parseUpdateBoxDraft(
 
   return updateSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
+    dealer: draft.dealer,
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),

@@ -19,6 +19,7 @@ export {
   useReceiveBoxTransfer,
   useSetBoxStatus,
   useStartBoxTransfer,
+  useUpsertBoxDealer,
   useUpdateBox
 } from './mutations/boxMutations';
 export {

@@ -28,6 +28,8 @@ export const ALLOCATION_JOB_STATUSES = Object.freeze([
 export const WAREHOUSE_CODE_PATTERN = /^[A-Z]{2}[1-9][0-9]{0,6}$/;
 
 export const ROUTE_FEATURE_MAP = Object.freeze({
+  '/box-dealers/list': 'inventory',
+  '/box-dealers/upsert': 'inventory',
   '/boxes/search': 'inventory',
   '/boxes/get': 'inventory',
   '/boxes/add': 'inventory',
@@ -107,6 +109,7 @@ export const READ_PATHS = Object.freeze([
   '/health',
   '/auth/context',
   '/app/attention-summary',
+  '/box-dealers/list',
   '/boxes/search',
   '/boxes/get',
   '/boxes/transfer/by-box',

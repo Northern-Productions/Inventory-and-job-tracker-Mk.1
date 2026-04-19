@@ -13,6 +13,7 @@ type JobsCalendarView = 'week' | 'month';
 export const inventoryKeys = {
   root: ['inventory'] as const,
   appAttentionSummary: ['inventory', 'app-attention-summary'] as const,
+  boxDealers: ['inventory', 'box-dealers'] as const,
   listRoot: ['inventory', 'list'] as const,
   list: (params: SearchBoxesParams) => ['inventory', 'list', params] as const,
   searchRoot: ['inventory', 'search'] as const,

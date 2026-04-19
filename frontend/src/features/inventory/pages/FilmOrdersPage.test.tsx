@@ -8,6 +8,7 @@ import type { FilmOrderEntry } from '../../../domain';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 import FilmOrdersPage from './FilmOrdersPage';
 
+const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const getFilmOrdersMock = vi.fn();
@@ -16,6 +17,14 @@ const createFilmOrderMock = vi.fn();
 const cancelJobMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => navigateMock
+  };
+});
 
 vi.mock('../../../components/Toast', () => ({
   useToast: () => ({ push: toastPushMock })
@@ -112,6 +121,7 @@ function renderPage(entries: FilmOrderEntry[]) {
 
 describe('FilmOrdersPage', () => {
   beforeEach(() => {
+    navigateMock.mockReset();
     toastPushMock.mockReset();
     getFilmOrdersMock.mockReset();
     getFilmCatalogMock.mockReset();
@@ -245,6 +255,7 @@ describe('FilmOrdersPage', () => {
       'Install Date',
       'Created',
       'Origin',
+      'Dealer',
       'Actions'
     ]);
     expect(screen.getAllByRole('columnheader', { name: 'Install Date' })[0]).toBeTruthy();
@@ -266,7 +277,15 @@ describe('FilmOrdersPage', () => {
 
     renderPage([
       buildFilmOrderEntry({
-        linkedBoxes: [{ boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: true }]
+        linkedBoxes: [
+          {
+            boxId: 'IL1-0042',
+            dealer: 'Eastman Performance Films',
+            orderedFeet: 42,
+            autoAllocatedFeet: 0,
+            isReceived: true
+          }
+        ]
       })
     ]);
 
@@ -275,6 +294,8 @@ describe('FilmOrdersPage', () => {
     );
     expect(screen.getByText('Install Date')).toBeTruthy();
     expect(screen.getByText('Ordered Box ID')).toBeTruthy();
+    expect(screen.getByText('Dealer')).toBeTruthy();
+    expect(screen.getByText('Eastman Performance Films')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'IL1-0042' }).getAttribute('href')).toBe(
       '/inventory/IL1-0042'
     );
@@ -287,9 +308,27 @@ describe('FilmOrdersPage', () => {
         filmOrderId: 'FO-AUTO',
         filmName: 'Auto Roll',
         linkedBoxes: [
-          { boxId: 'MS1-0042', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: false },
-          { boxId: 'IL1-0005', orderedFeet: 30, autoAllocatedFeet: 0, isReceived: true },
-          { boxId: 'IL1-0005', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false }
+          {
+            boxId: 'MS1-0042',
+            dealer: 'Decorative Films',
+            orderedFeet: 30,
+            autoAllocatedFeet: 0,
+            isReceived: false
+          },
+          {
+            boxId: 'IL1-0005',
+            dealer: 'Accent',
+            orderedFeet: 30,
+            autoAllocatedFeet: 0,
+            isReceived: true
+          },
+          {
+            boxId: 'IL1-0005',
+            dealer: 'Accent',
+            orderedFeet: 10,
+            autoAllocatedFeet: 0,
+            isReceived: false
+          }
         ],
         sourceBoxId: 'IL1-6923'
       }),
@@ -309,6 +348,7 @@ describe('FilmOrdersPage', () => {
     expect(screen.getAllByRole('columnheader', { name: 'Ordered Box ID' })[0]).toBeTruthy();
     expect(screen.getByText('Auto shortage')).toBeTruthy();
     expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
+    expect(screen.getByText('Decorative Films, Accent')).toBeTruthy();
     expect(screen.getByText('Manual')).toBeTruthy();
     expect(screen.getByLabelText('Received IL1-0005')).toBeTruthy();
     expect(screen.queryByLabelText('Received MS1-0042')).toBeNull();
@@ -320,6 +360,39 @@ describe('FilmOrdersPage', () => {
     );
     const manualRow = screen.getByText(/Manual Roll/, { selector: 'td' }).closest('tr');
     expect(manualRow).toBeTruthy();
-    expect(within(manualRow as HTMLTableRowElement).getByText('--')).toBeTruthy();
+    expect(within(manualRow as HTMLTableRowElement).getAllByText('--')).toHaveLength(2);
+  });
+
+  it('navigates into the first outstanding ordered box when RECEIVE is clicked', async () => {
+    renderPage([
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-RECEIVE',
+        status: 'FILM_ON_THE_WAY',
+        orderedFeet: 60,
+        remainingToOrderFeet: 0,
+        linkedBoxes: [
+          {
+            boxId: 'IL1-0009',
+            dealer: 'Eastman Performance Films',
+            orderedFeet: 30,
+            autoAllocatedFeet: 0,
+            isReceived: true
+          },
+          {
+            boxId: 'IL1-0010',
+            dealer: 'Eastman Performance Films',
+            orderedFeet: 30,
+            autoAllocatedFeet: 0,
+            isReceived: false
+          }
+        ]
+      })
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'RECEIVE' }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/inventory/IL1-0010?filmOrderId=FO-RECEIVE&receiveOrdered=1&returnTo=film-orders'
+    );
   });
 });

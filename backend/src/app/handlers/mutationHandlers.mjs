@@ -4,6 +4,7 @@ import { requireString } from '../core/helpers.mjs';
 import { normalizeSchedulePayloadAliases } from '../../../../shared/schedulePayloadAliases.mjs';
 import { applyAllocationPlan, checkoutAllJobMaterials } from '../services/allocations.mjs';
 import { undoAudit } from '../services/audit.mjs';
+import { upsertBoxDealer } from '../services/boxDealers.mjs';
 import {
   addCaulkAllocation,
   cancelCaulkTransfer,
@@ -93,6 +94,8 @@ const mutationHandlers = {
     ),
   '/owner/caulk/manufacturers/upsert': async ({ client, orgId, authContext, params }) =>
     ok(await ownerUpsertCaulkManufacturer(client, orgId, authContext.actor, params)),
+  '/box-dealers/upsert': async ({ client, orgId, authContext, params }) =>
+    ok(await upsertBoxDealer(client, orgId, authContext.actor, params)),
   '/caulk/products/upsert': async ({ client, orgId, authContext, params }) =>
     ok(await upsertCaulkProduct(client, orgId, authContext.actor, params)),
   '/caulk/mutate': async ({ client, orgId, authContext, params }) =>

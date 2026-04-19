@@ -21,6 +21,7 @@ export default function BoxDetailsPage() {
     deleteMutation,
     statusMutation,
     receiveOrderedMutation,
+    boxDealersQuery,
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,
@@ -89,6 +90,9 @@ export default function BoxDetailsPage() {
           submitting={updateMutation.isPending}
           deleting={deleteMutation.isPending}
           preserveInitialFeetInEdit={Boolean(box.receivedDate)}
+          dealerEntries={boxDealersQuery.data}
+          dealerLoading={boxDealersQuery.isLoading}
+          dealerError={boxDealersQuery.error}
           filmCatalogEntries={filmCatalogQuery.data}
           filmCatalogLoading={filmCatalogQuery.isLoading}
           filmCatalogError={filmCatalogQuery.error}

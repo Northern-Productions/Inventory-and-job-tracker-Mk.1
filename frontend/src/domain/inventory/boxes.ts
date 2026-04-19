@@ -11,6 +11,7 @@ export interface BoxPendingTransferSummary {
 export interface Box {
   boxId: string;
   warehouse: Warehouse;
+  dealer?: string;
   manufacturer: string;
   filmName: string;
   widthIn: number;
@@ -58,6 +59,7 @@ export interface SearchBoxesParams {
 export interface AddBoxPayload {
   boxId: string;
   warehouse?: Warehouse;
+  dealer?: string;
   manufacturer: string;
   filmName: string;
   widthIn: number;
@@ -110,6 +112,17 @@ export interface ReceiveOrderedBoxPayload {
   boxId: string;
   receivedWeightLbs?: number;
   lotRun?: string;
+}
+
+export interface BoxDealerEntry {
+  dealerId: string;
+  name: string;
+  lookupKey: string;
+  updatedAt: string;
+}
+
+export interface UpsertBoxDealerPayload {
+  name: string;
 }
 
 export interface StartBoxTransferPayload {

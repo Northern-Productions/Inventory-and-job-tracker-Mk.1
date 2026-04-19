@@ -73,6 +73,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       orgId: readValue("org_id", "orgId"),
       boxId: deps.asTrimmedString(readValue("box_id", "boxId")),
       warehouse: deps.asTrimmedString(readValue("warehouse")),
+      dealer: deps.asTrimmedString(readValue("dealer")),
       manufacturer: deps.asTrimmedString(readValue("manufacturer")),
       filmName: deps.asTrimmedString(readValue("film_name", "filmName")),
       widthIn: deps.numericOrNull(readValue("width_in", "widthIn")) ?? 0,
@@ -158,6 +159,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return {
       boxId: box.boxId,
       warehouse: box.warehouse,
+      dealer: deps.asTrimmedString(box.dealer),
       manufacturer: box.manufacturer,
       filmName: box.filmName,
       widthIn: box.widthIn,

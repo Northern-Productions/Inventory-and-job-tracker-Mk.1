@@ -225,6 +225,16 @@ const mutationHandlers: Record<string, MutationHandler> = {
     );
     return ok(result);
   },
+  "/box-dealers/upsert": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_box_dealers_upsert",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
   "/caulk/products/upsert": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(
       client,

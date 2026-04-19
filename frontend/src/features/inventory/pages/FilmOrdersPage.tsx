@@ -26,7 +26,9 @@ import {
   usePendingDeleteFilmOrderIds
 } from '../hooks/useInventoryQueries';
 import {
+  formatFilmOrderDealerLabel,
   formatFilmOrderOriginLabel,
+  getNextFilmOrderLinkedBoxToReceive,
   getFilmOrderOriginSourceBoxId,
   isFilmOrderNeedingAttention,
   isUnresolvedFilmOrder
@@ -104,6 +106,21 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
   });
 
   return `/inventory/add?${params.toString()}`;
+}
+
+function buildReceiveOrderedTarget(order: FilmOrderEntry) {
+  const nextLinkedBox = getNextFilmOrderLinkedBoxToReceive(order);
+  if (!nextLinkedBox) {
+    return '';
+  }
+
+  const params = new URLSearchParams({
+    filmOrderId: order.filmOrderId,
+    receiveOrdered: '1',
+    returnTo: 'film-orders'
+  });
+
+  return `/inventory/${encodeURIComponent(nextLinkedBox.boxId)}?${params.toString()}`;
 }
 
 function formatBadgeLabel(value: string) {
@@ -211,7 +228,7 @@ export default function FilmOrdersPage() {
         </div>
         <p className="muted-text">
           Shortages that still need ordering stay at the top. Use FILM ORDERED to add an incoming
-          box tied to the job.
+          box tied to the job, or RECEIVE to walk in boxes that are already on the way.
         </p>
         <p className="muted-text">
           Manual orders are created from Film Orders. Auto shortage orders are created after
@@ -231,6 +248,9 @@ export default function FilmOrdersPage() {
                 );
                 const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
                 const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
+                const receiveTarget = buildReceiveOrderedTarget(order);
+                const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
+                const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
 
                 return (
                   <MobileRecordCard key={order.filmOrderId}>
@@ -259,6 +279,7 @@ export default function FilmOrdersPage() {
                       <MobileField label="Install Date" value={formatDate(order.installDate)} />
                       <MobileField label="Created" value={formatDate(order.createdAt)} />
                       <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
+                      <MobileField label="Dealer" value={formatFilmOrderDealerLabel(order)} />
                       {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
                     </MobileFieldList>
                     <MobileActionStack>
@@ -266,10 +287,12 @@ export default function FilmOrdersPage() {
                         <Button
                           type="button"
                           variant="secondary"
-                          onClick={() => navigate(buildAddBoxTarget(order))}
-                          disabled={order.status !== 'FILM_ORDER'}
+                          onClick={() =>
+                            navigate(isReceiveAction ? receiveTarget : buildAddBoxTarget(order))
+                          }
+                          disabled={isReceiveAction ? !receiveTarget : order.status !== 'FILM_ORDER'}
                         >
-                          FILM ORDERED
+                          {actionLabel}
                         </Button>
                       )}
                       <Button
@@ -300,6 +323,7 @@ export default function FilmOrdersPage() {
                     <th>Install Date</th>
                     <th>Created</th>
                     <th>Origin</th>
+                    <th>Dealer</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -310,6 +334,9 @@ export default function FilmOrdersPage() {
                     );
                     const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
                     const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
+                    const receiveTarget = buildReceiveOrderedTarget(order);
+                    const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
+                    const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
 
                     return (
                       <tr key={order.filmOrderId}>
@@ -340,16 +367,19 @@ export default function FilmOrdersPage() {
                           <div>{formatFilmOrderOriginLabel(order)}</div>
                           {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
                         </td>
+                        <td>{formatFilmOrderDealerLabel(order)}</td>
                         <td>
                           <div className="film-order-actions">
                             {order.status === 'FULFILLED' ? null : (
                               <Button
                                 type="button"
                                 variant="secondary"
-                                onClick={() => navigate(buildAddBoxTarget(order))}
-                                disabled={order.status !== 'FILM_ORDER'}
+                                onClick={() =>
+                                  navigate(isReceiveAction ? receiveTarget : buildAddBoxTarget(order))
+                                }
+                                disabled={isReceiveAction ? !receiveTarget : order.status !== 'FILM_ORDER'}
                               >
-                                FILM ORDERED
+                                {actionLabel}
                               </Button>
                             )}
                             <Button

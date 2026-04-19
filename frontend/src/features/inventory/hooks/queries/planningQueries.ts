@@ -5,6 +5,7 @@ import {
 } from '../../../../api/features/allocationsClient';
 import { listCaulkProducts } from '../../../../api/features/caulkClient';
 import { getFilmCatalog, getFilmOrders } from '../../../../api/features/filmOrdersClient';
+import { listBoxDealers } from '../../../../api/features/inventoryClient';
 import type { AppAttentionSummary } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
 import { useCachedInventoryReadQuery } from './shared';
@@ -54,6 +55,17 @@ export function useFilmCatalog(options: { enabled?: boolean } = {}) {
   return useCachedInventoryReadQuery({
     queryKey: inventoryKeys.filmCatalog,
     queryFn: () => getFilmCatalog(),
+    enabled: options.enabled ?? true,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+}
+
+export function useBoxDealers(options: { enabled?: boolean } = {}) {
+  return useCachedInventoryReadQuery({
+    queryKey: inventoryKeys.boxDealers,
+    queryFn: () => listBoxDealers(),
     enabled: options.enabled ?? true,
     staleTime: 10 * 60 * 1000,
     gcTime: 60 * 60 * 1000,

@@ -8,10 +8,12 @@ import { useAuth } from '../../../auth/AuthContext';
 import {
   useBoxAllocations,
   useBox,
+  useBoxDealers,
   useBoxTransfer,
   useCancelBoxTransfer,
   useDeleteBox,
   useFilmCatalog,
+  useFilmOrders,
   useIsAddBoxPending,
   useJobSummariesByNumbers,
   useReceiveOrderedBox,
@@ -19,6 +21,7 @@ import {
   useStartBoxTransfer,
   useSetBoxStatus,
   useUndoAudit,
+  useUpsertBoxDealer,
   useUpdateBox
 } from '../../hooks/useInventoryQueries';
 import { useActionAccess } from '../../hooks/useActionAccess';
@@ -29,6 +32,7 @@ import {
   deriveCurrentFeetOnRollForBox,
   getDisplayedAllocatedFeetForBox
 } from '../../utils/boxHelpers';
+import { getNextFilmOrderLinkedBoxToReceive } from '../../utils/filmOrders';
 import {
   buildTransferDestinationAnalysis,
   createFallbackBox
@@ -36,6 +40,14 @@ import {
 import { useBoxDetailActions } from './useBoxDetailActions';
 import { useBoxQrCode } from './useBoxQrCode';
 import { useBoxTransferWorkflow } from './useBoxTransferWorkflow';
+
+function normalizeGuidedReturnTarget(value: string) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function resolveGuidedReturnPath(returnTo: string) {
+  return normalizeGuidedReturnTarget(returnTo) === 'film-orders' ? '/film-orders' : '/';
+}
 
 export function useBoxDetailsPageModel() {
   const params = useParams();
@@ -49,6 +61,9 @@ export function useBoxDetailsPageModel() {
   const boxId = safeDecodePathParam(params.boxId);
   const boxQuery = useBox(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
+  const guidedFilmOrderId = String(searchParams.get('filmOrderId') || '').trim();
+  const guidedReturnTo = String(searchParams.get('returnTo') || '').trim();
+  const isGuidedOrderedReceive = searchParams.get('receiveOrdered') === '1' && Boolean(guidedFilmOrderId);
   const boxTransferQuery = useBoxTransfer(boxId, { enabled: !isAddBoxPending });
   const updateMutation = useUpdateBox();
   const deleteMutation = useDeleteBox();
@@ -58,7 +73,12 @@ export function useBoxDetailsPageModel() {
   const receiveTransferMutation = useReceiveBoxTransfer();
   const cancelTransferMutation = useCancelBoxTransfer();
   const undoMutation = useUndoAudit();
+  const boxDealersQuery = useBoxDealers({ enabled: auth.isAuthenticated });
   const filmCatalogQuery = useFilmCatalog();
+  const filmOrdersQuery = useFilmOrders({
+    enabled: auth.isAuthenticated && isGuidedOrderedReceive
+  });
+  const upsertBoxDealerMutation = useUpsertBoxDealer();
   const allocationsQuery = useBoxAllocations(boxId);
   const warehouseRegistry = useWarehouseRegistry();
   const [isEditing, setIsEditing] = useState(false);
@@ -67,6 +87,7 @@ export function useBoxDetailsPageModel() {
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
   const [isRollHistorySectionCollapsed, setIsRollHistorySectionCollapsed] = useState(true);
   const didHandleScanCheckIn = useRef(false);
+  const didAutoOpenOrderedReceiveKey = useRef('');
 
   const box = boxQuery.data;
   const transferEntry = boxTransferQuery.data;
@@ -199,6 +220,26 @@ export function useBoxDetailsPageModel() {
         : createDraftFromBox(createFallbackBox(boxId)),
     [allocationsForCurrentFeet, box, boxId]
   );
+  const guidedFilmOrder = useMemo(
+    () =>
+      isGuidedOrderedReceive
+        ? (filmOrdersQuery.data || []).find((entry) => entry.filmOrderId === guidedFilmOrderId) || null
+        : null,
+    [filmOrdersQuery.data, guidedFilmOrderId, isGuidedOrderedReceive]
+  );
+  const guidedReceiveTargetBoxId = useMemo(() => {
+    if (!guidedFilmOrder) {
+      return '';
+    }
+
+    const excludeCurrentBoxIds =
+      box?.boxId && (box.status !== 'ORDERED' || Boolean(box.receivedDate)) ? [box.boxId] : [];
+    return (
+      getNextFilmOrderLinkedBoxToReceive(guidedFilmOrder, {
+        excludeBoxIds: excludeCurrentBoxIds
+      })?.boxId || ''
+    );
+  }, [box?.boxId, box?.receivedDate, box?.status, guidedFilmOrder]);
 
   function ensureSignedIn(actionLabel: string, feature: 'inventory' | 'allocations' = 'inventory') {
     return ensureActionAccess({
@@ -217,6 +258,7 @@ export function useBoxDetailsPageModel() {
     allocations,
     allocationsLoading: allocationsQuery.isLoading,
     allocationsError: allocationsQuery.isError,
+    dealerEntries: boxDealersQuery.data || [],
     checkoutJobOptions,
     ensureSignedIn,
     navigate,
@@ -226,7 +268,8 @@ export function useBoxDetailsPageModel() {
     deleteBox: deleteMutation.mutateAsync,
     setBoxStatus: statusMutation.mutateAsync,
     receiveOrderedBox: receiveOrderedMutation.mutateAsync,
-    undoAudit: undoMutation.mutateAsync
+    undoAudit: undoMutation.mutateAsync,
+    upsertDealer: upsertBoxDealerMutation.mutateAsync
   });
   const {
     isQrSectionOpen,
@@ -271,6 +314,44 @@ export function useBoxDetailsPageModel() {
   }, [box, boxId, navigate, searchParams]);
 
   useEffect(() => {
+    if (!isGuidedOrderedReceive || filmOrdersQuery.isLoading) {
+      return;
+    }
+
+    if (!guidedFilmOrder || !guidedReceiveTargetBoxId) {
+      navigate(resolveGuidedReturnPath(guidedReturnTo), { replace: true });
+      return;
+    }
+
+    const currentBoxId = box?.boxId || boxId;
+    if (!currentBoxId || currentBoxId === guidedReceiveTargetBoxId) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams({
+      filmOrderId: guidedFilmOrderId,
+      receiveOrdered: '1'
+    });
+    if (guidedReturnTo) {
+      nextParams.set('returnTo', guidedReturnTo);
+    }
+
+    navigate(`/inventory/${encodeURIComponent(guidedReceiveTargetBoxId)}?${nextParams.toString()}`, {
+      replace: true
+    });
+  }, [
+    box?.boxId,
+    boxId,
+    filmOrdersQuery.isLoading,
+    guidedFilmOrder,
+    guidedFilmOrderId,
+    guidedReceiveTargetBoxId,
+    guidedReturnTo,
+    isGuidedOrderedReceive,
+    navigate
+  ]);
+
+  useEffect(() => {
     setIsAllocationsSectionCollapsed(true);
     setIsHistorySectionCollapsed(true);
     setIsRollHistorySectionCollapsed(true);
@@ -288,6 +369,38 @@ export function useBoxDetailsPageModel() {
     }
   }, [box, boxActions, searchParams]);
 
+  useEffect(() => {
+    if (
+      !isGuidedOrderedReceive ||
+      !box ||
+      box.status !== 'ORDERED' ||
+      Boolean(box.receivedDate) ||
+      !auth.isAuthenticated ||
+      !auth.clientIdConfigured ||
+      !canWriteInventory ||
+      guidedReceiveTargetBoxId !== box.boxId
+    ) {
+      return;
+    }
+
+    const autoOpenKey = `${guidedFilmOrderId}:${box.boxId}`;
+    if (didAutoOpenOrderedReceiveKey.current === autoOpenKey) {
+      return;
+    }
+
+    didAutoOpenOrderedReceiveKey.current = autoOpenKey;
+    boxActions.openOrderedReceiveDialog();
+  }, [
+    auth.clientIdConfigured,
+    auth.isAuthenticated,
+    box,
+    boxActions,
+    canWriteInventory,
+    guidedFilmOrderId,
+    guidedReceiveTargetBoxId,
+    isGuidedOrderedReceive
+  ]);
+
   return {
     auth,
     boxQuery,
@@ -298,6 +411,7 @@ export function useBoxDetailsPageModel() {
     deleteMutation,
     statusMutation,
     receiveOrderedMutation,
+    boxDealersQuery,
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,
