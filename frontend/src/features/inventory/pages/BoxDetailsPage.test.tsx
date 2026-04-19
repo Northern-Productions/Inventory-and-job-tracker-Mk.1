@@ -734,7 +734,8 @@ describe('BoxDetailsPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
     expect(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i })).toBeTruthy();
-    expect(within(dialog).getByRole('textbox', { name: /Lot Run/i })).toBeTruthy();
+    expect(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i })).toBeTruthy();
+    expect(within(dialog).queryByText(/This receive will save/i)).toBeNull();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
 
@@ -788,7 +789,7 @@ describe('BoxDetailsPage', () => {
     fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i }), {
       target: { value: '18.5' }
     });
-    fireEvent.change(within(dialog).getByRole('textbox', { name: /Lot Run/i }), {
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i }), {
       target: { value: 'LOT-42' }
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));

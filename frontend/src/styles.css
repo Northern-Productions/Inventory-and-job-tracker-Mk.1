@@ -430,6 +430,17 @@ th,
   box-shadow: var(--focus-ring);
 }
 
+.field-input-no-spinner[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.field-input-no-spinner[type='number']::-webkit-inner-spin-button,
+.field-input-no-spinner[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .field-invalid .field-input {
   border-color: rgba(174, 45, 32, 0.4);
   background: rgba(255, 249, 248, 0.96);
