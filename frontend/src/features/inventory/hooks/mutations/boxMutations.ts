@@ -77,11 +77,11 @@ export function useUpsertBoxDealer() {
 
   return useMutation({
     mutationFn: (payload: UpsertBoxDealerPayload) => upsertBoxDealer(payload),
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       queryClient.setQueryData<BoxDealerEntry[] | undefined>(inventoryKeys.boxDealers, (current) =>
         upsertDealerEntry(current, result)
       );
-      await queryClient.invalidateQueries({ queryKey: inventoryKeys.boxDealers });
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.boxDealers });
     }
   });
 }
