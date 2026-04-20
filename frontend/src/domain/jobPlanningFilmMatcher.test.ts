@@ -66,6 +66,9 @@ describe('jobPlanningFilmMatcher', () => {
       buildJobPlanningFilmFamilyKey('3M Solar', 'Night Vision 15 Exterior')
     ).toBe(buildJobPlanningFilmFamilyKey('3M Solar', 'NV15 Exterior'));
     expect(
+      buildJobPlanningFilmFamilyKey('3M Solar', 'Prestige 40 Exterior (PR40 Ext)')
+    ).toBe(buildJobPlanningFilmFamilyKey('3M Solar', 'Prestige 40 Exterior'));
+    expect(
       canJobPlanningFilmSatisfyRequirement(
         '3M Solar',
         'Prestige 60 Exterior',
@@ -79,6 +82,38 @@ describe('jobPlanningFilmMatcher', () => {
         'Prestige 60',
         '3M Solar',
         'Prestige 60 Exterior'
+      )
+    ).toBe(false);
+    expect(
+      canJobPlanningFilmSatisfyRequirement(
+        '3M Solar',
+        'Prestige 40 Exterior',
+        '3M Solar',
+        'Prestige 40'
+      )
+    ).toBe(true);
+    expect(
+      canJobPlanningFilmSatisfyRequirement(
+        '3M Solar',
+        'Prestige 40',
+        '3M Solar',
+        'Prestige 40 Exterior'
+      )
+    ).toBe(false);
+    expect(
+      canJobPlanningFilmSatisfyRequirement(
+        '3M Solar',
+        '3M Prestige 40 Exterior (PR40 Ext)',
+        '3M Solar',
+        'Prestige 40'
+      )
+    ).toBe(true);
+    expect(
+      canJobPlanningFilmSatisfyRequirement(
+        '3M Solar',
+        'Prestige 40',
+        '3M Solar',
+        '3M Prestige 40 Exterior (PR40 Ext)'
       )
     ).toBe(false);
   });

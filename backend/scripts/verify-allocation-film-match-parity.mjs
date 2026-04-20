@@ -84,6 +84,38 @@ async function main() {
       requirementManufacturer: '3M Solar',
       requirementFilmName: 'Prestige 60 Exterior',
       expected: false
+    },
+    {
+      label: 'Prestige 40 Exterior satisfies base Prestige 40 requirement',
+      candidateManufacturer: '3M Solar',
+      candidateFilmName: 'Prestige 40 Exterior',
+      requirementManufacturer: '3M Solar',
+      requirementFilmName: 'Prestige 40',
+      expected: true
+    },
+    {
+      label: 'Prestige 40 Exterior alias code satisfies base Prestige 40 requirement',
+      candidateManufacturer: '3M Solar',
+      candidateFilmName: '3M Prestige 40 Exterior (PR40 Ext)',
+      requirementManufacturer: '3M Solar',
+      requirementFilmName: 'Prestige 40',
+      expected: true
+    },
+    {
+      label: 'Base Prestige 40 does not satisfy Prestige 40 Exterior requirement',
+      candidateManufacturer: '3M Solar',
+      candidateFilmName: 'Prestige 40',
+      requirementManufacturer: '3M Solar',
+      requirementFilmName: 'Prestige 40 Exterior',
+      expected: false
+    },
+    {
+      label: 'Base Prestige 40 does not satisfy exterior alias requirement',
+      candidateManufacturer: '3M Solar',
+      candidateFilmName: 'Prestige 40',
+      requirementManufacturer: '3M Solar',
+      requirementFilmName: '3M Prestige 40 Exterior (PR40 Ext)',
+      expected: false
     }
   ];
 

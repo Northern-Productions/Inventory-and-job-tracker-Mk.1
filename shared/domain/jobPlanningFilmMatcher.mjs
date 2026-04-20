@@ -135,8 +135,41 @@ function normalizeDescriptorTokens(value) {
     .replace(/\bone[-\s]*way\b/gi, 'One Way');
 }
 
+// Collapse trailing code aliases like "(PR40 Ext)" before family and exterior matching.
+function stripTrailingPlanningAliasCode(value) {
+  let normalized = normalizePlanningLabel(value);
+
+  while (normalized) {
+    const match = normalized.match(/^(.*?)(?:\s*\(([^()]*)\))$/);
+    if (!match) {
+      return normalized;
+    }
+
+    const baseFilmName = normalizePlanningLabel(match[1]);
+    const aliasCode = normalizePlanningLabel(match[2]);
+    const aliasCompact = normalizeCompact(aliasCode);
+    const baseDigitsRaw = String(baseFilmName || '').replace(/[^0-9]/g, '');
+    const baseDigits = baseDigitsRaw ? canonicalizeNumericDigits(baseDigitsRaw) : '';
+
+    if (
+      !baseFilmName ||
+      !aliasCompact ||
+      !/[a-z]/.test(aliasCompact) ||
+      !/[0-9]/.test(aliasCompact) ||
+      !baseDigits ||
+      !aliasCompact.includes(baseDigits)
+    ) {
+      return normalized;
+    }
+
+    normalized = baseFilmName;
+  }
+
+  return normalized;
+}
+
 function stripTrailingExteriorSuffix(value) {
-  const normalized = normalizePlanningLabel(value);
+  const normalized = stripTrailingPlanningAliasCode(value);
   if (!/\bexterior$/i.test(normalized)) {
     return {
       familyFilmName: normalized,

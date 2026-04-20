@@ -124,6 +124,21 @@ async function invokeBoxesReceiveOrderedRpc(client, orgId, actor, payload) {
   return result.rows[0]?.result || null;
 }
 
+async function invokeAllocationsApplyRpc(client, orgId, actor, payload) {
+  const result = await client.query(
+    `
+      select public.api_acl_allocations_apply(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, actor, JSON.stringify(payload)]
+  );
+
+  return result.rows[0]?.result || null;
+}
+
 async function resolveWarehouseCode(client, orgId) {
   const warehouseRow = await client.query(
     `
@@ -168,12 +183,19 @@ async function insertAppRow(client, tableName, availableColumns, valuesByColumn)
   );
 }
 
-async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDate, actor) {
+async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDate, actor, overrides = {}) {
   const nowIso = new Date().toISOString();
   const jobId = crypto.randomUUID();
   const requirementId = crypto.randomUUID();
   const jobColumns = await getTableColumns(client, "jobs");
   const requirementColumns = await getTableColumns(client, "job_requirements");
+  const requiredFeet = Number(overrides.requiredFeet || 40);
+  const widthIn = Number(overrides.widthIn || 60);
+  const manufacturer = asTrimmedString(overrides.manufacturer) || "3M Solar";
+  const filmName = asTrimmedString(overrides.filmName) || "Prestige 60";
+  const crewLeader = asTrimmedString(overrides.crewLeader) || "Ordered Flow";
+  const jobNotes = asTrimmedString(overrides.jobNotes) || "Ordered allocation flow verification job.";
+  const requirementNotes = asTrimmedString(overrides.requirementNotes);
 
   await insertAppRow(client, "jobs", jobColumns, {
     id: jobId,
@@ -183,12 +205,12 @@ async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDat
     sections: null,
     due_date: dueDate,
     lifecycle_status: "ACTIVE",
-    notes: "Ordered allocation flow verification job.",
+    notes: jobNotes,
     created_at: nowIso,
     created_by: actor,
     updated_at: nowIso,
     updated_by: actor,
-    crew_leader: "Ordered Flow",
+    crew_leader: crewLeader,
     is_staged_for_pickup: false,
     is_labor_only: false
   });
@@ -197,11 +219,11 @@ async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDat
     id: requirementId,
     org_id: orgId,
     job_id: jobId,
-    manufacturer: "3M Solar",
-    film_name: "Prestige 60",
-    width_in: 60,
-    required_feet: 40,
-    notes: "",
+    manufacturer,
+    film_name: filmName,
+    width_in: widthIn,
+    required_feet: requiredFeet,
+    notes: requirementNotes,
     created_at: nowIso,
     created_by: actor,
     updated_at: nowIso,
@@ -395,6 +417,323 @@ async function main() {
       `Expected incompatible extra rejection to mention requirement compatibility, received ${incompatibleExtraError?.message}.`
     );
 
+    const exteriorParityJobNumber = `97${uniqueSuffix}`;
+    const exteriorParityJob = await insertVerificationJob(
+      client,
+      orgId,
+      exteriorParityJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 75,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 40',
+        widthIn: 60,
+        crewLeader: 'Exterior Parity',
+        jobNotes: 'Exterior allocation parity verification job.'
+      }
+    );
+    const exteriorParityRequirementId = asTrimmedString(exteriorParityJob?.requirementId);
+    assert(exteriorParityRequirementId, 'Expected exterior parity verification job creation to return a requirement ID.');
+
+    const exteriorSourceBoxId = `${warehouse}-PX1-${uniqueSuffix}`;
+    const exteriorSuggestionBoxId = `${warehouse}-PX2-${uniqueSuffix}`;
+    for (const { boxId: exteriorBoxId, initialFeet, notes } of [
+      {
+        boxId: exteriorSourceBoxId,
+        initialFeet: 28,
+        notes: 'Exterior parity verification source box.'
+      },
+      {
+        boxId: exteriorSuggestionBoxId,
+        initialFeet: 42,
+        notes: 'Exterior parity verification suggestion box.'
+      }
+    ]) {
+      const exteriorBoxEnvelope = await addBox(
+        client,
+        orgId,
+        buildBoxPayload(exteriorBoxId, dueDate, {
+          filmName: 'Prestige 40 Exterior',
+          initialFeet,
+          receivedDate: dueDate,
+          notes
+        }),
+        actor
+      );
+      const exteriorBox = exteriorBoxEnvelope?.data?.box;
+      assert(exteriorBox, `Expected addBox to create exterior parity box ${exteriorBoxId}.`);
+      assert(
+        exteriorBox.status === 'IN_STOCK',
+        `Expected exterior parity box ${exteriorBoxId} to start IN_STOCK, received ${exteriorBox?.status}.`
+      );
+      assert(
+        Number(exteriorBox.feetAvailable || 0) === initialFeet,
+        `Expected exterior parity box ${exteriorBoxId} to expose ${initialFeet} available LF, received ${exteriorBox?.feetAvailable}.`
+      );
+    }
+
+    const exteriorPreview = await previewAllocationPlan(client, orgId, {
+      boxId: exteriorSourceBoxId,
+      jobNumber: exteriorParityJobNumber,
+      requestedFeet: 75,
+      requestedWidthIn: 60,
+      requirementId: exteriorParityRequirementId,
+      selectedSuggestionBoxIds: [exteriorSuggestionBoxId],
+      jobWarehouse: warehouse,
+      crossWarehouse: true
+    });
+    assert(
+      exteriorPreview.sourceBoxStatus === 'IN_STOCK',
+      `Expected exterior parity preview source box to stay IN_STOCK, received ${exteriorPreview.sourceBoxStatus}.`
+    );
+    assert(
+      Number(exteriorPreview.sourceSuggestedFeet || 0) === 28,
+      `Expected exterior parity preview to allocate 28 LF from the source exterior box, received ${exteriorPreview.sourceSuggestedFeet}.`
+    );
+    assert(
+      (exteriorPreview.suggestions || []).some((entry) => entry.boxId === exteriorSuggestionBoxId),
+      `Expected exterior parity preview to keep ${exteriorSuggestionBoxId} as a compatible suggestion.`
+    );
+
+    const exteriorApplyResult = await invokeAllocationsApplyRpc(
+      client,
+      orgId,
+      actor,
+      {
+        boxId: exteriorSourceBoxId,
+        jobNumber: exteriorParityJobNumber,
+        requestedFeet: 75,
+        requestedWidthIn: 60,
+        requirementId: exteriorParityRequirementId,
+        selectedSuggestionBoxIds: [exteriorSuggestionBoxId],
+        extraAllocations: [],
+        crossWarehouse: true,
+        jobWarehouse: warehouse
+      }
+    );
+    const exteriorAllocationIds = Array.isArray(exteriorApplyResult?.allocationIds)
+      ? exteriorApplyResult.allocationIds.map((value) => asTrimmedString(value)).filter(Boolean)
+      : [];
+    const exteriorFilmOrderId = asTrimmedString(exteriorApplyResult?.filmOrderId);
+    assert(
+      exteriorAllocationIds.length === 2,
+      `Expected SQL exterior parity apply to create two allocations, received ${JSON.stringify(exteriorAllocationIds)}.`
+    );
+    assert(exteriorFilmOrderId, 'Expected SQL exterior parity apply to create a shortage film order for the uncovered remainder.');
+
+    const exteriorJobDetail = await buildJobDetail(client, orgId, exteriorParityJobNumber);
+    const exteriorRequirement = (exteriorJobDetail?.requirements || []).find(
+      (entry) => entry.requirementId === exteriorParityRequirementId
+    );
+    assert(exteriorRequirement, 'Expected exterior parity requirement to remain visible on job detail.');
+    assert(
+      Number(exteriorRequirement?.allocatedFeet || 0) === 70,
+      `Expected exterior parity requirement to show 70 covered feet, received ${exteriorRequirement?.allocatedFeet}.`
+    );
+    assert(
+      Number(exteriorRequirement?.remainingFeet || 0) === 5,
+      `Expected exterior parity requirement to show 5 remaining feet, received ${exteriorRequirement?.remainingFeet}.`
+    );
+    const exteriorFilmOrder = (exteriorJobDetail?.filmOrders || []).find(
+      (entry) => entry.filmOrderId === exteriorFilmOrderId
+    );
+    assert(exteriorFilmOrder, 'Expected exterior parity job detail to expose the new shortage film order.');
+    assert(
+      exteriorFilmOrder.filmName === 'Prestige 40',
+      `Expected shortage film order to keep the requirement film label Prestige 40, received ${exteriorFilmOrder?.filmName}.`
+    );
+    assert(
+      Number(exteriorFilmOrder?.requestedFeet || 0) === 5,
+      `Expected shortage film order to request the uncovered 5 LF, received ${exteriorFilmOrder?.requestedFeet}.`
+    );
+
+    const exteriorAliasJobNumber = `97${uniqueSuffix}`;
+    const exteriorAliasJob = await insertVerificationJob(
+      client,
+      orgId,
+      exteriorAliasJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 30,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 40',
+        widthIn: 60,
+        crewLeader: 'Exterior Alias',
+        jobNotes: 'Exterior alias allocation parity verification job.'
+      }
+    );
+    const exteriorAliasRequirementId = asTrimmedString(exteriorAliasJob?.requirementId);
+    assert(exteriorAliasRequirementId, 'Expected exterior alias verification job creation to return a requirement ID.');
+
+    const exteriorAliasBoxId = `${warehouse}-PA1-${uniqueSuffix}`;
+    const exteriorAliasBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(exteriorAliasBoxId, dueDate, {
+        filmName: '3M Prestige 40 Exterior (PR40 Ext)',
+        initialFeet: 30,
+        receivedDate: dueDate,
+        notes: 'Exterior alias source box for allocation parity verification.'
+      }),
+      actor
+    );
+    const exteriorAliasBox = exteriorAliasBoxEnvelope?.data?.box;
+    assert(exteriorAliasBox, 'Expected addBox to create the exterior alias verification box.');
+    assert(
+      exteriorAliasBox.status === 'IN_STOCK',
+      `Expected exterior alias verification box to start IN_STOCK, received ${exteriorAliasBox?.status}.`
+    );
+
+    const exteriorAliasPreview = await previewAllocationPlan(client, orgId, {
+      boxId: exteriorAliasBoxId,
+      jobNumber: exteriorAliasJobNumber,
+      requestedFeet: 30,
+      requestedWidthIn: 60,
+      requirementId: exteriorAliasRequirementId,
+      jobWarehouse: warehouse,
+      crossWarehouse: true
+    });
+    assert(
+      Number(exteriorAliasPreview.sourceSuggestedFeet || 0) === 30,
+      `Expected exterior alias preview to cover all 30 LF from the source box, received ${exteriorAliasPreview?.sourceSuggestedFeet}.`
+    );
+    assert(
+      Number(exteriorAliasPreview.defaultRemainingFeet || 0) === 0,
+      `Expected exterior alias preview to leave no remaining LF, received ${exteriorAliasPreview?.defaultRemainingFeet}.`
+    );
+
+    const exteriorAliasApplyResult = await invokeAllocationsApplyRpc(
+      client,
+      orgId,
+      actor,
+      {
+        boxId: exteriorAliasBoxId,
+        jobNumber: exteriorAliasJobNumber,
+        requestedFeet: 30,
+        requestedWidthIn: 60,
+        requirementId: exteriorAliasRequirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: [],
+        crossWarehouse: true,
+        jobWarehouse: warehouse
+      }
+    );
+    const exteriorAliasAllocationIds = Array.isArray(exteriorAliasApplyResult?.allocationIds)
+      ? exteriorAliasApplyResult.allocationIds.map((value) => asTrimmedString(value)).filter(Boolean)
+      : [];
+    assert(
+      exteriorAliasAllocationIds.length === 1,
+      `Expected exterior alias apply to create one allocation, received ${JSON.stringify(exteriorAliasAllocationIds)}.`
+    );
+    assert(
+      !asTrimmedString(exteriorAliasApplyResult?.filmOrderId),
+      `Expected exterior alias apply to avoid creating a shortage film order, received ${exteriorAliasApplyResult?.filmOrderId}.`
+    );
+
+    const exteriorAliasJobDetail = await buildJobDetail(client, orgId, exteriorAliasJobNumber);
+    const exteriorAliasRequirement = (exteriorAliasJobDetail?.requirements || []).find(
+      (entry) => entry.requirementId === exteriorAliasRequirementId
+    );
+    assert(exteriorAliasRequirement, 'Expected exterior alias requirement to remain visible on job detail.');
+    assert(
+      Number(exteriorAliasRequirement?.allocatedFeet || 0) === 30,
+      `Expected exterior alias requirement to show 30 allocated feet, received ${exteriorAliasRequirement?.allocatedFeet}.`
+    );
+    assert(
+      Number(exteriorAliasRequirement?.remainingFeet || 0) === 0,
+      `Expected exterior alias requirement to show 0 remaining feet, received ${exteriorAliasRequirement?.remainingFeet}.`
+    );
+
+    const exteriorOnlyJobNumber = `96${uniqueSuffix}`;
+    const exteriorOnlyJob = await insertVerificationJob(
+      client,
+      orgId,
+      exteriorOnlyJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 10,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 40 Exterior',
+        widthIn: 60,
+        crewLeader: 'Exterior Only',
+        jobNotes: 'Inverse exterior allocation rejection verification job.'
+      }
+    );
+    const exteriorOnlyRequirementId = asTrimmedString(exteriorOnlyJob?.requirementId);
+    assert(exteriorOnlyRequirementId, 'Expected exterior-only verification job creation to return a requirement ID.');
+
+    const baseOnlyBoxId = `${warehouse}-PI1-${uniqueSuffix}`;
+    const baseOnlyBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(baseOnlyBoxId, dueDate, {
+        filmName: 'Prestige 40',
+        initialFeet: 20,
+        receivedDate: dueDate,
+        notes: 'Base-only box for exterior requirement mismatch verification.'
+      }),
+      actor
+    );
+    const baseOnlyBox = baseOnlyBoxEnvelope?.data?.box;
+    assert(baseOnlyBox, 'Expected addBox to create the inverse exterior parity verification box.');
+    assert(
+      baseOnlyBox.status === 'IN_STOCK',
+      `Expected base-only mismatch box to start IN_STOCK, received ${baseOnlyBox?.status}.`
+    );
+
+    let exteriorPreviewMismatchError = null;
+    try {
+      await previewAllocationPlan(client, orgId, {
+        boxId: baseOnlyBoxId,
+        jobNumber: exteriorOnlyJobNumber,
+        requestedFeet: 10,
+        requestedWidthIn: 60,
+        requirementId: exteriorOnlyRequirementId,
+        jobWarehouse: warehouse,
+        crossWarehouse: true
+      });
+    } catch (error) {
+      exteriorPreviewMismatchError = error;
+    }
+    assert(exteriorPreviewMismatchError, 'Expected preview parity check to reject a base roll for an exterior requirement.');
+    assert(
+      /does not match requirement/i.test(asTrimmedString(exteriorPreviewMismatchError?.message)),
+      `Expected preview parity mismatch to mention requirement mismatch, received ${exteriorPreviewMismatchError?.message}.`
+    );
+
+    let exteriorApplyMismatchError = null;
+    try {
+      await invokeAllocationsApplyRpc(
+        client,
+        orgId,
+        actor,
+        {
+          boxId: baseOnlyBoxId,
+          jobNumber: exteriorOnlyJobNumber,
+          requestedFeet: 10,
+          requestedWidthIn: 60,
+          requirementId: exteriorOnlyRequirementId,
+          selectedSuggestionBoxIds: [],
+          extraAllocations: [],
+          crossWarehouse: true,
+          jobWarehouse: warehouse
+        }
+      );
+    } catch (error) {
+      exteriorApplyMismatchError = error;
+    }
+    assert(exteriorApplyMismatchError, 'Expected SQL apply parity check to reject a base roll for an exterior requirement.');
+    assert(
+      /does not match requirement/i.test(asTrimmedString(exteriorApplyMismatchError?.message)),
+      `Expected SQL apply parity mismatch to mention requirement mismatch, received ${exteriorApplyMismatchError?.message}.`
+    );
+
     const extraRemovalEnvelope = await removeJobBoxAllocation(
       client,
       orgId,
@@ -473,6 +812,128 @@ async function main() {
 
     jobDetail = await buildJobDetail(client, orgId, jobNumber);
     assert(jobDetail?.summary?.hasOrderedAllocations === false, "Expected ordered allocation pill to clear after first receipt.");
+
+    const shortageJobNumber = `98${uniqueSuffix}`;
+    const shortageJob = await insertVerificationJob(
+      client,
+      orgId,
+      shortageJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 60,
+        crewLeader: "Shortage Flow",
+        jobNotes: "Ordered receipt shortage reconciliation verification job."
+      }
+    );
+    const shortageRequirementId = asTrimmedString(shortageJob?.requirementId);
+    assert(shortageRequirementId, "Expected shortage verification job creation to return a requirement ID.");
+
+    const shortageBoxId = `${warehouse}-SHO-${uniqueSuffix}`;
+    const shortageBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(shortageBoxId, dueDate, {
+        initialFeet: 30,
+        notes: "Ordered receipt shortage reconciliation verification box."
+      }),
+      actor
+    );
+    const shortageBox = shortageBoxEnvelope?.data?.box;
+    assert(shortageBox, "Expected addBox to create the shortage verification box.");
+    assert(shortageBox.status === "ORDERED", `Expected shortage verification box to start ORDERED, received ${shortageBox?.status}.`);
+
+    const shortageApplyResult = await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId: shortageBoxId,
+        jobNumber: shortageJobNumber,
+        requestedFeet: 30,
+        requestedWidthIn: 60,
+        requirementId: shortageRequirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      },
+      actor
+    );
+    const shortageAllocation = (shortageApplyResult?.data?.allocations || []).find((entry) => entry.boxId === shortageBoxId);
+    assert(shortageAllocation, "Expected ordered shortage apply to create an allocation.");
+    assert(
+      Number(shortageAllocation?.allocatedFeet || 0) === 30,
+      `Expected shortage verification allocation to reserve 30 LF, received ${shortageAllocation?.allocatedFeet}.`
+    );
+
+    const shortageReceiveResult = await invokeBoxesReceiveOrderedRpc(client, orgId, actor, {
+      boxId: shortageBoxId,
+      receivedWeightLbs: 18,
+      lotRun: "VERIFY-SHORTAGE"
+    });
+    const shortageReceivedBox = shortageReceiveResult?.data?.box;
+    assert(shortageReceivedBox, "Expected api_acl_boxes_receive_ordered to return the shortage verification box.");
+    assert(
+      shortageReceivedBox.status === "IN_STOCK",
+      `Expected shortage verification receipt to move the box to IN_STOCK, received ${shortageReceivedBox?.status}.`
+    );
+
+    const shortageFilmOrderRows = await client.query(
+      `
+        select
+          film_order_id,
+          warehouse,
+          requested_feet::integer as requested_feet,
+          remaining_to_order_feet::integer as remaining_to_order_feet,
+          source_box_id,
+          status::text as status
+        from app.film_orders
+        where org_id = $1::uuid
+          and upper(trim(job_number)) = upper(trim($2))
+          and source_box_id = $3::text
+          and status = 'FILM_ORDER'
+        order by created_at asc, film_order_id asc
+      `,
+      [orgId, shortageJobNumber, shortageBoxId]
+    );
+    assert(
+      shortageFilmOrderRows.rows.length === 1,
+      `Expected shortage receipt reconciliation to leave exactly one open shortage film order, received ${shortageFilmOrderRows.rows.length}.`
+    );
+    const shortageFilmOrder = shortageFilmOrderRows.rows[0];
+    assert(
+      asTrimmedString(shortageFilmOrder?.warehouse) === warehouse,
+      `Expected shortage film order warehouse to stay ${warehouse}, received ${shortageFilmOrder?.warehouse}.`
+    );
+    assert(
+      Number(shortageFilmOrder?.requested_feet || 0) === 30,
+      `Expected shortage film order requested feet to stay at 30, received ${shortageFilmOrder?.requested_feet}.`
+    );
+    assert(
+      Number(shortageFilmOrder?.remaining_to_order_feet || 0) === 30,
+      `Expected shortage film order remaining feet to stay at 30, received ${shortageFilmOrder?.remaining_to_order_feet}.`
+    );
+    assert(
+      asTrimmedString(shortageFilmOrder?.source_box_id) === shortageBoxId,
+      `Expected shortage film order source_box_id to stay ${shortageBoxId}, received ${shortageFilmOrder?.source_box_id}.`
+    );
+
+    const shortageJobDetail = await buildJobDetail(client, orgId, shortageJobNumber);
+    assert(
+      Number(shortageJobDetail?.summary?.filmOrderCount || 0) === 1,
+      `Expected shortage verification job summary to show one unresolved shortage film order, received ${shortageJobDetail?.summary?.filmOrderCount}.`
+    );
+    const shortageJobFilmOrder = (shortageJobDetail?.filmOrders || []).find(
+      (entry) => entry.sourceBoxId === shortageBoxId
+    );
+    assert(shortageJobFilmOrder, "Expected shortage verification job detail to include the auto shortage film order.");
+    assert(
+      shortageJobFilmOrder.warehouse === warehouse,
+      `Expected shortage verification job detail to keep warehouse ${warehouse}, received ${shortageJobFilmOrder?.warehouse}.`
+    );
+    assert(
+      Number(shortageJobFilmOrder?.requestedFeet || 0) === 30,
+      `Expected shortage verification job detail to show 30 requested feet, received ${shortageJobFilmOrder?.requestedFeet}.`
+    );
 
     let belowAllocatedError = null;
     try {

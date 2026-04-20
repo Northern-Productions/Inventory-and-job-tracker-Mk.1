@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0072_fix_energy_products_distribution_spelling.sql';
+const LATEST_MIGRATION = '0075_fix_requirement_alias_code_matching.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -23,9 +23,20 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },
   { kind: 'function', signature: 'public.api_get_user_feature_permissions(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.normalize_requirement_film_family_key(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.strip_requirement_match_trailing_code_alias(text)' },
+  { kind: 'function', signature: 'app_api.requirement_film_is_exterior(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.requirement_film_is_compatible(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_update(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_box_dealers(uuid)' },
   { kind: 'function', signature: 'public.api_acl_box_dealers_upsert(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_set_status(uuid, text, jsonb)' },
@@ -79,9 +90,91 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
+    includes: [
+      'v_result := public.api_allocations_apply(p_org_id, p_actor, p_payload);',
+      'perform app_api.reconcile_auto_shortage_film_orders_for_job('
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_allocations_apply(uuid, text, jsonb)',
+    includes: [
+      'if not app_api.requirement_film_is_compatible(',
+      'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',
+      'Extra box %s must use a compatible film and meet the requested width for this allocation.'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)',
+    includes: [
+      'app_api.normalize_requirement_match_surface_film_name(',
+      "regexp_replace(v_film_name, '[[:space:]]+Exterior[[:space:]]*$', '', 'i')"
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)',
+    includes: [
+      'app_api.strip_requirement_match_trailing_code_alias(v_film_name);'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.strip_requirement_match_trailing_code_alias(text)',
+    includes: [
+      "regexp_match(v_current, '^(.*?)(?:\\s*\\(([^()]*)\\))$')",
+      'position(v_base_digits in v_alias_compact) = 0'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.requirement_film_is_exterior(uuid, text, text)',
+    includes: [
+      'app_api.normalize_requirement_match_surface_film_name(',
+      "'(^|[[:space:]])Exterior[[:space:]]*$'"
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.requirement_film_is_compatible(uuid, text, text, text, text)',
+    includes: [
+      'candidate.manufacturer_key = requirement.manufacturer_key',
+      'not requirement.is_exterior',
+      'or candidate.is_exterior'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
+    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job('],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_boxes_update(uuid, text, jsonb)',
+    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box('],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)',
+    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box('],
+    excludes: []
+  },
+  {
     signature: 'public.api_boxes_set_status(uuid, text, jsonb)',
     includes: ['perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'],
     excludes: []
+  },
+  {
+    signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)',
+    includes: [
+      'v_target_warehouse := app_api.require_org_warehouse(',
+      'v_target_orphan_requested_feet := greatest(v_target_requested_feet - v_committed_requested_feet, 0);',
+      'perform app_api.save_film_order(v_primary_orphan);',
+      'perform app_api.save_film_order(v_new_order);'
+    ],
+    excludes: ['::app.warehouse']
   },
   {
     signature: 'app_api.save_box(app.boxes)',
