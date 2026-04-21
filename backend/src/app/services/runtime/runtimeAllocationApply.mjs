@@ -103,7 +103,6 @@ import {
   mapDbAllocationRow,
   toPublicAllocation,
   mapDbFilmOrderRow,
-  toPublicFilmOrder,
   mapDbFilmOrderLinkRow,
   mapDbJobRow,
   mapDbRequirementRow,
@@ -211,9 +210,7 @@ import {
   parseCrossWarehouseFlag,
   normalizeOptionalWarehouse,
   createAllocationRecord,
-  createFilmOrderForShortage,
 } from './runtimeAllocationPlanning.mjs';
-import { buildPublicFilmOrderLinkedBoxes } from './runtimeJobSummaries.mjs';
 import { deleteStaleAutoShortageFilmOrdersForRequirement } from './runtimeAllocationCleanup.mjs';
 import { buildBoxReservationMetrics } from './runtimeAllocationReservations.mjs';
 
@@ -281,7 +278,7 @@ async function previewAllocationPlan(client, orgId, payload) {
     source,
     pendingTransfersByBoxRecordId,
     jobWarehouse,
-    'Only in-stock, ordered, or matching transfer boxes can be allocated.'
+    'Only in-stock, ordered, or transfer boxes can be allocated.'
   );
   const requirementId = asTrimmedString(payload.requirementId);
   const selectedRequirement = requirementId
@@ -433,7 +430,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     source,
     pendingTransfersByBoxRecordId,
     jobWarehouse,
-    'Only in-stock, ordered, or matching transfer boxes can be allocated.'
+    'Only in-stock, ordered, or transfer boxes can be allocated.'
   );
   const requirementId = asTrimmedString(payload.requirementId);
   if (requestedFeet > 0 && !requirementId) {
@@ -647,35 +644,10 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     }
   }
 
-  let publicFilmOrder = null;
-  if (requestedFeet > 0 && selection.remainingFeet > 0 && Boolean(jobContext.installDate)) {
-    const filmOrder = await createFilmOrderForShortage(
-      client,
-      orgId,
-      source,
-      selectedRequirement,
-      jobContext,
-      requestedFeet,
-      selection.remainingFeet,
-      minimumWidthIn,
-      actor,
-      jobWarehouse
-    );
-    publicFilmOrder = filmOrder
-      ? toPublicFilmOrder(filmOrder, await buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrder.filmOrderId))
-      : null;
-
-    if (filmOrder) {
-      warnings.push(
-        `Film Order ${filmOrder.filmOrderId} was created for the remaining ${selection.remainingFeet} LF.`
-      );
-    }
-  }
-
   return ok(
     {
       allocations: createdAllocations,
-      filmOrder: publicFilmOrder,
+      filmOrder: null,
       remainingUncoveredFeet: selection.remainingFeet
     },
     warnings

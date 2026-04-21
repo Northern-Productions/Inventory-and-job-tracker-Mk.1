@@ -24,6 +24,7 @@ import {
 import { hasPositiveReactivationSignal } from '../checkout/checkoutFlow.mjs';
 import { cancelAllocationsForZeroedBox } from '../checkout/cancellations.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
+import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 
@@ -62,6 +63,7 @@ async function addBox(client, orgId, payload, actor) {
     if (box.receivedDate && box.status === 'IN_STOCK') {
       box = await processLinkedFilmOrderReceipt(client, orgId, cloneValue(box), actor, warnings);
       box = await saveBoxRecord(client, orgId, box);
+      await recalculateFilmOrdersForBoxLinks(client, orgId, box.boxId, actor);
     }
   }
 
@@ -214,6 +216,7 @@ async function updateBox(client, orgId, payload, actor) {
   } else {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
+    await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
   }
 
   if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {

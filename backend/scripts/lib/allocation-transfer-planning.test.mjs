@@ -31,7 +31,7 @@ function buildRequirement(overrides = {}) {
   };
 }
 
-test('accepts a transfer source box when its pending transfer matches the job warehouse', () => {
+test('accepts a transfer source box without requiring pending transfer metadata', () => {
   const source = buildBox({
     id: 'box-transfer-source',
     boxId: 'IL1-6773',
@@ -49,14 +49,7 @@ test('accepts a transfer source box when its pending transfer matches the job wa
       activeAllocationsByBox: {},
       selectedRequirement: buildRequirement(),
       jobWarehouse: 'MS1',
-      pendingTransfersByBoxRecordId: {
-        [source.id]: {
-          transferId: 'TRF-1',
-          status: 'PENDING',
-          sourceWarehouse: 'IL1',
-          destinationWarehouse: 'MS1',
-        },
-      },
+      pendingTransfersByBoxRecordId: {},
     },
   );
 
@@ -65,7 +58,7 @@ test('accepts a transfer source box when its pending transfer matches the job wa
   assert.equal(plan.sourceSuggestedCoveredFeet, 13);
 });
 
-test('includes matching transfer candidates between in-stock and ordered suggestions', () => {
+test('includes transfer candidates between in-stock and ordered suggestions without destination matching', () => {
   const source = buildBox({
     id: 'box-source',
     boxId: 'MS1-IN-STOCK-SOURCE',
@@ -120,12 +113,6 @@ test('includes matching transfer candidates between in-stock and ordered suggest
       selectedRequirement: buildRequirement({ requiredFeet: 70 }),
       jobWarehouse: 'MS1',
       pendingTransfersByBoxRecordId: {
-        [matchingTransfer.id]: {
-          transferId: 'TRF-2',
-          status: 'PENDING',
-          sourceWarehouse: 'IL1',
-          destinationWarehouse: 'MS1',
-        },
         [wrongTransfer.id]: {
           transferId: 'TRF-3',
           status: 'PENDING',
@@ -138,16 +125,18 @@ test('includes matching transfer candidates between in-stock and ordered suggest
 
   assert.deepEqual(
     plan.suggestions.map((entry) => entry.boxId),
-    ['MS1-IN-STOCK', 'IL1-TRANSFER', 'MS1-ORDERED'],
+    ['MS1-IN-STOCK', 'IL1-TRANSFER', 'IL1-TRANSFER-WRONG', 'MS1-ORDERED'],
   );
 });
 
-test('rejects a transfer source box when its pending transfer points to another warehouse', () => {
+test('rejects zeroed source boxes from allocation planning', () => {
   const source = buildBox({
-    id: 'box-transfer-source',
-    boxId: 'IL1-6773',
+    id: 'box-zeroed-source',
+    boxId: 'IL1-ZEROED',
     warehouse: 'IL1',
-    status: 'TRANSFER',
+    status: 'ZEROED',
+    feetAvailable: 0,
+    allocationPlanningFeet: 0,
   });
 
   assert.throws(
@@ -163,16 +152,9 @@ test('rejects a transfer source box when its pending transfer points to another 
           activeAllocationsByBox: {},
           selectedRequirement: buildRequirement(),
           jobWarehouse: 'MS1',
-          pendingTransfersByBoxRecordId: {
-            [source.id]: {
-              transferId: 'TRF-1',
-              status: 'PENDING',
-              sourceWarehouse: 'IL1',
-              destinationWarehouse: 'IL1',
-            },
-          },
+          pendingTransfersByBoxRecordId: {},
         },
       ),
-    /cannot be allocated to a job in MS1/i,
+    /no longer allocatable/i,
   );
 });

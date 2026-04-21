@@ -54,7 +54,7 @@ export function JobAllocateDialog({
   const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [completedRequirementIds, setCompletedRequirementIds] = useState<string[]>([]);
-  const [pendingBackgroundActionCount, setPendingBackgroundActionCount] = useState(0);
+  const [submitAction, setSubmitAction] = useState<'allocate' | 'order' | null>(null);
   const allocatableRequirements = useMemo(
     () =>
       isExtraFilmMode
@@ -227,6 +227,7 @@ export function JobAllocateDialog({
       setSelectedBoxIds([]);
       setError('');
       setCompletedRequirementIds([]);
+      setSubmitAction(null);
       return;
     }
 
@@ -309,71 +310,50 @@ export function JobAllocateDialog({
             )
             .join(', ')
         : 'No matching boxes covered this request.';
-    const filmOrderSuffix = result.filmOrder
-      ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
-      : '';
+    const remainingSuffix =
+      result.remainingUncoveredFeet > 0
+        ? ` ${result.remainingUncoveredFeet} LF remains unallocated. Create a film order separately if needed.`
+        : '';
 
-    return warnings.join(' ') || `${summary}.${filmOrderSuffix}`.trim();
+    return warnings.join(' ') || `${summary}.${remainingSuffix}`.trim();
   }
 
-  function submitAllocationInBackground(
-    payload: Parameters<typeof allocateMutation.mutateAsync>[0],
-    successTitle: string
+  function getAllocationSuccessTitle(
+    _result: Awaited<ReturnType<typeof allocateMutation.mutateAsync>>['result']
   ) {
-    setPendingBackgroundActionCount((current) => current + 1);
-    const savePromise = allocateMutation.mutateAsync(payload);
-
-    void savePromise
-      .then(({ result, warnings }) => {
-        toast.push({
-          title: successTitle,
-          description: formatAllocationSaveDescription(result, warnings),
-          variant: 'success'
-        });
-      })
-      .catch((submitError) => {
-        toast.push({
-          title: 'Allocation failed',
-          description: submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
-          variant: 'error'
-        });
-      })
-      .finally(() => {
-        setPendingBackgroundActionCount((current) => Math.max(0, current - 1));
-      });
+    return isExtraFilmMode ? 'Extra film allocated' : 'Allocation saved';
   }
 
-  function submitFilmOrderInBackground(
-    payload: Parameters<typeof createFilmOrderMutation.mutateAsync>[0],
-    completedRequirementId: string
+  async function submitAllocation(
+    payload: Parameters<typeof allocateMutation.mutateAsync>[0]
   ) {
-    setPendingBackgroundActionCount((current) => current + 1);
-    advanceToNextRequirement(completedRequirementId);
-
-    const createPromise = createFilmOrderMutation.mutateAsync(payload);
-    void createPromise
-      .then(() => {
-        toast.push({
-          title: 'Film order created',
-          description: `The requested film for job ${jobNumber} is now queued for ordering.`,
-          variant: 'success'
-        });
-      })
-      .catch((submitError) => {
-        toast.push({
-          title: 'Unable to create film order',
-          description: submitError instanceof Error ? submitError.message : 'The create request failed.',
-          variant: 'error'
-        });
-      })
-      .finally(() => {
-        setPendingBackgroundActionCount((current) => Math.max(0, current - 1));
-      });
+    const { result, warnings } = await allocateMutation.mutateAsync(payload);
+    toast.push({
+      title: getAllocationSuccessTitle(result),
+      description: formatAllocationSaveDescription(result, warnings),
+      variant: 'success'
+    });
+    return result;
   }
 
-  function handleAllocate() {
+  async function submitFilmOrder(
+    payload: Parameters<typeof createFilmOrderMutation.mutateAsync>[0]
+  ) {
+    await createFilmOrderMutation.mutateAsync(payload);
+    toast.push({
+      title: 'Film order created',
+      description: `The requested film for job ${jobNumber} is now queued for ordering.`,
+      variant: 'success'
+    });
+  }
+
+  async function handleAllocate() {
     if (!selectedRequirement) {
       setError('Select a requirement line first.');
+      return;
+    }
+
+    if (submitAction) {
       return;
     }
 
@@ -440,19 +420,46 @@ export function JobAllocateDialog({
 
     const completedRequirementId = selectedRequirement.requirementId;
     setError('');
-    submitAllocationInBackground(payload, isExtraFilmMode ? 'Extra film allocated' : 'Allocation saved');
+    setSubmitAction('allocate');
+    try {
+      const result = await submitAllocation(payload);
+      const coveredRequirementFeet = result.allocations.reduce(
+        (sum, entry) => sum + Number(entry.coveredFeet ?? entry.allocatedFeet ?? 0),
+        0
+      );
+      const remainingRequirementFeet = Math.max(selectedRequirement.remainingFeet - coveredRequirementFeet, 0);
 
-    if (isExtraFilmMode) {
-      onCancel();
+      if (isExtraFilmMode) {
+        onCancel();
+        return;
+      }
+
+      if (remainingRequirementFeet > 0) {
+        setRequestedFeet(String(remainingRequirementFeet));
+        setSelectedBoxIds([]);
+        setError('');
+        return;
+      }
+
+      advanceToNextRequirement(completedRequirementId);
+    } catch (submitError) {
+      toast.push({
+        title: 'Allocation failed',
+        description: submitError instanceof Error ? submitError.message : 'The allocation could not be completed.',
+        variant: 'error'
+      });
+    } finally {
+      setSubmitAction(null);
+    }
+  }
+
+  async function handleOrderFilm() {
+    if (!selectedRequirement) {
+      setError('Select a requirement line first.');
       return;
     }
 
-    advanceToNextRequirement(completedRequirementId);
-  }
-
-  function handleOrderFilm() {
-    if (!selectedRequirement) {
-      setError('Select a requirement line first.');
+    if (submitAction) {
       return;
     }
 
@@ -485,22 +492,36 @@ export function JobAllocateDialog({
     }
 
     setError('');
-    submitFilmOrderInBackground(
-      {
+    setSubmitAction('order');
+    try {
+      await submitFilmOrder({
         jobNumber,
         warehouse,
         manufacturer: selectedRequirement.manufacturer,
         filmName: selectedRequirement.filmName,
         widthIn: selectedRequirement.widthIn,
         requestedFeet: requestedFeetValue
-      },
-      selectedRequirement.requirementId
-    );
+      });
+      advanceToNextRequirement(selectedRequirement.requirementId);
+    } catch (submitError) {
+      toast.push({
+        title: 'Unable to create film order',
+        description: submitError instanceof Error ? submitError.message : 'The create request failed.',
+        variant: 'error'
+      });
+    } finally {
+      setSubmitAction(null);
+    }
   }
 
-  const isSubmitting = false;
+  const isSubmitting = submitAction !== null;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
   const hasTransferCandidates = prioritizedMatchingBoxes.some((box) => box.status === 'TRANSFER');
+  const showsRemainingUncoveredNotice =
+    !isExtraFilmMode &&
+    selectedBoxIds.length > 0 &&
+    plannedSelection.remainingFeet > 0 &&
+    Boolean(activePreview);
 
   return (
     <DialogSurface open={open} onClose={onCancel} className="dialog-job-allocate" titleId="job-allocate-dialog-title">
@@ -531,11 +552,12 @@ export function JobAllocateDialog({
           isExtraFilmMode={isExtraFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
-          pendingBackgroundActionCount={pendingBackgroundActionCount}
           prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
           hasTransferCandidates={hasTransferCandidates}
+          showsRemainingUncoveredNotice={showsRemainingUncoveredNotice}
+          remainingUncoveredFeet={plannedSelection.remainingFeet}
           installDate={installDate}
           crewLeader={crewLeader}
           previewError={previewQuery.isError && previewQuery.error instanceof Error ? previewQuery.error : null}
@@ -561,8 +583,8 @@ export function JobAllocateDialog({
           isOrderFilmMode={isOrderFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
           isAllocationPreviewLoading={isAllocationPreviewLoading}
-          isAllocatePending={false}
-          isCreateFilmOrderPending={false}
+          isAllocatePending={submitAction === 'allocate'}
+          isCreateFilmOrderPending={submitAction === 'order'}
           canSubmit={isOrderFilmMode || selectedBoxIds.length > 0}
           allocateLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate'}
           onCancel={onCancel}

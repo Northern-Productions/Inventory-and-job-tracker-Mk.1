@@ -5,11 +5,12 @@ interface StatusMessagesProps {
   isExtraFilmMode: boolean;
   isMatchingBoxesLoading: boolean;
   isAllocationPreviewLoading: boolean;
-  pendingBackgroundActionCount: number;
   prioritizedMatchingBoxesCount: number;
   selectedBoxCount: number;
   hasPreferredLinkedBoxes: boolean;
   hasTransferCandidates: boolean;
+  showsRemainingUncoveredNotice: boolean;
+  remainingUncoveredFeet: number;
   installDate: string;
   crewLeader: string;
   previewError: Error | null;
@@ -22,11 +23,12 @@ export function StatusMessages({
   isExtraFilmMode,
   isMatchingBoxesLoading,
   isAllocationPreviewLoading,
-  pendingBackgroundActionCount,
   prioritizedMatchingBoxesCount,
   selectedBoxCount,
   hasPreferredLinkedBoxes,
   hasTransferCandidates,
+  showsRemainingUncoveredNotice,
+  remainingUncoveredFeet,
   installDate,
   crewLeader,
   previewError,
@@ -38,12 +40,6 @@ export function StatusMessages({
       {isMatchingBoxesLoading ? <p className="muted-text">Loading compatible boxes...</p> : null}
       {!isMatchingBoxesLoading && isAllocationPreviewLoading ? (
         <p className="muted-text">Loading the live allocation plan...</p>
-      ) : null}
-      {pendingBackgroundActionCount > 0 ? (
-        <p className="muted-text">
-          {pendingBackgroundActionCount} update
-          {pendingBackgroundActionCount === 1 ? '' : 's'} saving in background...
-        </p>
       ) : null}
       {!isMatchingBoxesLoading && selectedRequirement && !prioritizedMatchingBoxesCount ? (
         <p className="muted-text">
@@ -78,6 +74,12 @@ export function StatusMessages({
       {!isMatchingBoxesLoading && hasTransferCandidates ? (
         <p className="muted-text">
           Transfer boxes already headed to this warehouse can be allocated here, but they must still be received before checkout.
+        </p>
+      ) : null}
+      {showsRemainingUncoveredNotice ? (
+        <p className="error-text">
+          The remaining {remainingUncoveredFeet} LF will stay unallocated after this save. Create a film order
+          separately if needed.
         </p>
       ) : null}
       {!isMatchingBoxesLoading && previewError && !activePreviewLoaded ? (

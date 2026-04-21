@@ -347,7 +347,11 @@ function normalizeSecurityManufacturerAndFilm(manufacturer, filmName) {
   const normalizedManufacturer = canonicalizeManufacturerLabel(manufacturer);
   const normalizedFilmName = normalizeCollapsedCatalogLabel(filmName);
   const detection = detectSecurityFilmFamily(normalizedFilmName);
-  if (!detection.isSecurity) {
+  const preserveExplicitSolarPrestige =
+    normalizeCatalogManufacturerLookupKey(normalizedManufacturer) ===
+      normalizeCatalogManufacturerLookupKey(SOLAR_MANUFACTURER_LABEL) &&
+    detection.family === 'prestige';
+  if (!detection.isSecurity || preserveExplicitSolarPrestige) {
     return {
       manufacturer: normalizedManufacturer,
       filmName: normalizedFilmName,
