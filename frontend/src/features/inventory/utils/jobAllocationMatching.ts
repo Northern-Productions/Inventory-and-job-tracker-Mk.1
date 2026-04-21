@@ -39,21 +39,12 @@ function getAllocationStatusRank(status: Box['status']) {
   return 3;
 }
 
-function isTransferAllocatableForJob(box: Pick<Box, 'status' | 'pendingTransfer'>, jobWarehouse: string) {
+function isTransferAllocatableForJob(box: Pick<Box, 'status'>, _jobWarehouse: string) {
   if (box.status !== 'TRANSFER') {
     return false;
   }
 
-  const normalizedJobWarehouse = String(jobWarehouse || '').trim().toUpperCase();
-  const pendingTransfer = box.pendingTransfer;
-  if (!normalizedJobWarehouse || !pendingTransfer) {
-    return false;
-  }
-
-  return (
-    String(pendingTransfer.status || '').trim().toUpperCase() === 'PENDING' &&
-    String(pendingTransfer.destinationWarehouse || '').trim().toUpperCase() === normalizedJobWarehouse
-  );
+  return true;
 }
 
 function compareDates(leftDate: string, rightDate: string) {

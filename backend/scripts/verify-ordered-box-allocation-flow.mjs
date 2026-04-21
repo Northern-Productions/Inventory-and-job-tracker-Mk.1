@@ -12,6 +12,7 @@ import {
   receiveOrderedBox,
   removeAllocationFromJob,
   removeJobBoxAllocation,
+  setBoxStatus,
   updateBox,
 } from "../src/app/internal.mjs";
 
@@ -43,14 +44,16 @@ function assert(condition, message) {
 
 function buildUniqueSuffix() {
   const now = Date.now().toString();
-  const random = Math.floor(Math.random() * 1000)
+  const random = crypto.randomInt(0, 1_000_000)
     .toString()
-    .padStart(3, "0");
+    .padStart(6, "0");
   return `${now.slice(-8)}${random}`;
 }
 
+let rpcSavepointCounter = 0;
+
 function buildBoxPayload(boxId, orderDate, overrides = {}) {
-  return {
+  const payload = {
     boxId,
     dealer: "Eastman Performance Films",
     manufacturer: "3M Solar",
@@ -62,6 +65,17 @@ function buildBoxPayload(boxId, orderDate, overrides = {}) {
     notes: "Ordered allocation flow verification box.",
     ...overrides
   };
+
+  if (asTrimmedString(payload.receivedDate)) {
+    if (!Object.prototype.hasOwnProperty.call(payload, 'coreType')) {
+      payload.coreType = 'White plastic';
+    }
+    if (!Object.prototype.hasOwnProperty.call(payload, 'initialWeightLbs')) {
+      payload.initialWeightLbs = 18;
+    }
+  }
+
+  return payload;
 }
 
 function buildUpdatePayload(box, overrides = {}) {
@@ -121,7 +135,22 @@ async function invokeBoxesReceiveOrderedRpc(client, orgId, actor, payload) {
     [orgId, actor, JSON.stringify(payload)]
   );
 
-  return result.rows[0]?.result || null;
+  const rawValue = result.rows[0]?.result ?? null;
+  const rawResult =
+    typeof rawValue === 'string'
+      ? JSON.parse(rawValue)
+      : rawValue && typeof rawValue === 'object' && rawValue.data && typeof rawValue.data === 'object'
+        ? rawValue.data
+        : rawValue;
+  const boxId = asTrimmedString(rawResult?.boxId);
+  const box = boxId ? await findBoxById(client, orgId, boxId) : null;
+  return {
+    data: {
+      box,
+      logId: asTrimmedString(rawResult?.logId)
+    },
+    warnings: Array.isArray(rawResult?.warnings) ? rawResult.warnings : []
+  };
 }
 
 async function invokeAllocationsApplyRpc(client, orgId, actor, payload) {
@@ -136,7 +165,29 @@ async function invokeAllocationsApplyRpc(client, orgId, actor, payload) {
     [orgId, actor, JSON.stringify(payload)]
   );
 
-  return result.rows[0]?.result || null;
+  const rawValue = result.rows[0]?.result ?? null;
+  if (typeof rawValue === 'string') {
+    return JSON.parse(rawValue);
+  }
+  if (rawValue && typeof rawValue === 'object' && rawValue.data && typeof rawValue.data === 'object') {
+    return rawValue.data;
+  }
+  return rawValue;
+}
+
+async function captureExpectedRpcError(client, callback) {
+  rpcSavepointCounter += 1;
+  const savepointName = `expected_rpc_error_${rpcSavepointCounter}`;
+  await client.query(`savepoint ${savepointName}`);
+  try {
+    const result = await callback();
+    await client.query(`release savepoint ${savepointName}`);
+    return { result, error: null };
+  } catch (error) {
+    await client.query(`rollback to savepoint ${savepointName}`);
+    await client.query(`release savepoint ${savepointName}`);
+    return { result: null, error };
+  }
 }
 
 async function resolveWarehouseCode(client, orgId) {
@@ -521,7 +572,10 @@ async function main() {
       exteriorAllocationIds.length === 2,
       `Expected SQL exterior parity apply to create two allocations, received ${JSON.stringify(exteriorAllocationIds)}.`
     );
-    assert(exteriorFilmOrderId, 'Expected SQL exterior parity apply to create a shortage film order for the uncovered remainder.');
+    assert(
+      !exteriorFilmOrderId,
+      `Expected SQL exterior parity apply to leave the uncovered remainder unallocated, received ${exteriorFilmOrderId}.`
+    );
 
     const exteriorJobDetail = await buildJobDetail(client, orgId, exteriorParityJobNumber);
     const exteriorRequirement = (exteriorJobDetail?.requirements || []).find(
@@ -537,19 +591,225 @@ async function main() {
       `Expected exterior parity requirement to show 5 remaining feet, received ${exteriorRequirement?.remainingFeet}.`
     );
     const exteriorFilmOrder = (exteriorJobDetail?.filmOrders || []).find(
-      (entry) => entry.filmOrderId === exteriorFilmOrderId
-    );
-    assert(exteriorFilmOrder, 'Expected exterior parity job detail to expose the new shortage film order.');
-    assert(
-      exteriorFilmOrder.filmName === 'Prestige 40',
-      `Expected shortage film order to keep the requirement film label Prestige 40, received ${exteriorFilmOrder?.filmName}.`
+      (entry) => entry.sourceBoxId === exteriorSourceBoxId
     );
     assert(
-      Number(exteriorFilmOrder?.requestedFeet || 0) === 5,
-      `Expected shortage film order to request the uncovered 5 LF, received ${exteriorFilmOrder?.requestedFeet}.`
+      !exteriorFilmOrder,
+      'Expected exterior parity job detail to avoid auto-creating a shortage film order for uncovered LF.'
     );
 
-    const exteriorAliasJobNumber = `97${uniqueSuffix}`;
+    const transferJobNumber = `96${uniqueSuffix}`;
+    const transferJob = await insertVerificationJob(
+      client,
+      orgId,
+      transferJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 12,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        crewLeader: 'Transfer Eligibility',
+        jobNotes: 'Transfer allocation status verification job.'
+      }
+    );
+    const transferRequirementId = asTrimmedString(transferJob?.requirementId);
+    assert(transferRequirementId, 'Expected transfer verification job creation to return a requirement ID.');
+
+    const transferBoxId = `${warehouse}-TRN-${uniqueSuffix}`;
+    const transferBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(transferBoxId, dueDate, {
+        receivedDate: dueDate,
+        initialFeet: 24,
+        notes: 'Transfer allocation status verification box.'
+      }),
+      actor
+    );
+    const transferBox = transferBoxEnvelope?.data?.box;
+    assert(transferBox, 'Expected addBox to create the transfer verification box.');
+    assert(
+      transferBox.status === 'IN_STOCK',
+      `Expected transfer verification box to start IN_STOCK, received ${transferBox?.status}.`
+    );
+
+    await client.query(
+      `
+        update app.boxes
+        set status = 'TRANSFER'::app.box_status
+        where org_id = $1::uuid
+          and box_id = $2::text
+      `,
+      [orgId, transferBoxId]
+    );
+
+    const transferPreview = await previewAllocationPlan(client, orgId, {
+      boxId: transferBoxId,
+      jobNumber: transferJobNumber,
+      requestedFeet: 12,
+      requestedWidthIn: 60,
+      requirementId: transferRequirementId,
+      jobWarehouse: warehouse
+    });
+    assert(
+      transferPreview.sourceBoxStatus === 'TRANSFER',
+      `Expected transfer preview source status to stay TRANSFER, received ${transferPreview.sourceBoxStatus}.`
+    );
+    assert(
+      Number(transferPreview.sourceSuggestedFeet || 0) === 12,
+      `Expected transfer preview to allocate 12 LF from the transfer box, received ${transferPreview.sourceSuggestedFeet}.`
+    );
+
+    const transferApplyResult = await invokeAllocationsApplyRpc(
+      client,
+      orgId,
+      actor,
+      {
+        boxId: transferBoxId,
+        jobNumber: transferJobNumber,
+        requestedFeet: 12,
+        requestedWidthIn: 60,
+        requirementId: transferRequirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: [],
+        crossWarehouse: true,
+        jobWarehouse: warehouse
+      }
+    );
+    const transferAllocationIds = Array.isArray(transferApplyResult?.allocationIds)
+      ? transferApplyResult.allocationIds.map((value) => asTrimmedString(value)).filter(Boolean)
+      : [];
+    const transferAllocationRows = await client.query(
+      `
+        select box_id
+        from app.allocations
+        where org_id = $1::uuid
+          and allocation_id = any($2::text[])
+      `,
+      [orgId, transferAllocationIds]
+    );
+    assert(
+      transferAllocationIds.length >= 1,
+      `Expected transfer eligibility apply to create at least one allocation, received ${JSON.stringify(transferAllocationIds)}.`
+    );
+    assert(
+      transferAllocationRows.rows.some((row) => asTrimmedString(row.box_id) === transferBoxId),
+      `Expected transfer eligibility apply to include ${transferBoxId}, received ${JSON.stringify(transferAllocationRows.rows)}.`
+    );
+    assert(
+      !asTrimmedString(transferApplyResult?.filmOrderId),
+      `Expected transfer eligibility apply to avoid auto-creating a film order, received ${transferApplyResult?.filmOrderId}.`
+    );
+
+    const transferJobDetail = await buildJobDetail(client, orgId, transferJobNumber);
+    const transferRequirement = (transferJobDetail?.requirements || []).find(
+      (entry) => entry.requirementId === transferRequirementId
+    );
+    assert(transferRequirement, 'Expected transfer verification requirement to remain visible on job detail.');
+    assert(
+      Number(transferRequirement?.allocatedFeet || 0) === 12,
+      `Expected transfer verification requirement to show 12 covered feet, received ${transferRequirement?.allocatedFeet}.`
+    );
+    assert(
+      Number(transferRequirement?.remainingFeet || 0) === 0,
+      `Expected transfer verification requirement to show 0 remaining feet, received ${transferRequirement?.remainingFeet}.`
+    );
+
+    const zeroedJobNumber = `95${uniqueSuffix}`;
+    const zeroedJob = await insertVerificationJob(
+      client,
+      orgId,
+      zeroedJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 10,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 60',
+        widthIn: 60,
+        crewLeader: 'Zeroed Block',
+        jobNotes: 'Zeroed allocation eligibility verification job.'
+      }
+    );
+    const zeroedRequirementId = asTrimmedString(zeroedJob?.requirementId);
+    assert(zeroedRequirementId, 'Expected zeroed verification job creation to return a requirement ID.');
+
+    const zeroedBoxId = `${warehouse}-ZER-${uniqueSuffix}`;
+    const zeroedBoxEnvelope = await addBox(
+      client,
+      orgId,
+      buildBoxPayload(zeroedBoxId, dueDate, {
+        receivedDate: dueDate,
+        initialFeet: 20,
+        notes: 'Zeroed allocation status verification box.'
+      }),
+      actor
+    );
+    const zeroedBox = zeroedBoxEnvelope?.data?.box;
+    assert(zeroedBox, 'Expected addBox to create the zeroed verification box.');
+
+    await client.query(
+      `
+        update app.boxes
+        set status = 'ZEROED'::app.box_status,
+            feet_available = 0,
+            zeroed_date = current_date,
+            zeroed_reason = 'Verification zeroed box.',
+            zeroed_by = $3::text
+        where org_id = $1::uuid
+          and box_id = $2::text
+      `,
+      [orgId, zeroedBoxId, actor]
+    );
+
+    let zeroedPreviewError = null;
+    try {
+      await previewAllocationPlan(client, orgId, {
+        boxId: zeroedBoxId,
+        jobNumber: zeroedJobNumber,
+        requestedFeet: 10,
+        requestedWidthIn: 60,
+        requirementId: zeroedRequirementId,
+        jobWarehouse: warehouse
+      });
+    } catch (error) {
+      zeroedPreviewError = error;
+    }
+    assert(zeroedPreviewError, 'Expected zeroed preview to reject the source box.');
+    assert(
+      /Only in-stock, ordered, or transfer boxes can be allocated/i.test(asTrimmedString(zeroedPreviewError?.message)),
+      `Expected zeroed preview rejection to mention allowed statuses, received ${zeroedPreviewError?.message}.`
+    );
+
+    const { error: zeroedApplyError } = await captureExpectedRpcError(client, () =>
+      invokeAllocationsApplyRpc(
+        client,
+        orgId,
+        actor,
+        {
+          boxId: zeroedBoxId,
+          jobNumber: zeroedJobNumber,
+          requestedFeet: 10,
+          requestedWidthIn: 60,
+          requirementId: zeroedRequirementId,
+          selectedSuggestionBoxIds: [],
+          extraAllocations: [],
+          crossWarehouse: true,
+          jobWarehouse: warehouse
+        }
+      )
+    );
+    assert(zeroedApplyError, 'Expected zeroed apply to reject the source box.');
+    assert(
+      /Only in-stock, ordered, or transfer boxes can be allocated/i.test(asTrimmedString(zeroedApplyError?.message)),
+      `Expected zeroed apply rejection to mention allowed statuses, received ${zeroedApplyError?.message}.`
+    );
+
+    const exteriorAliasJobNumber = `94${uniqueSuffix}`;
     const exteriorAliasJob = await insertVerificationJob(
       client,
       orgId,
@@ -648,7 +908,7 @@ async function main() {
       `Expected exterior alias requirement to show 0 remaining feet, received ${exteriorAliasRequirement?.remainingFeet}.`
     );
 
-    const exteriorOnlyJobNumber = `96${uniqueSuffix}`;
+    const exteriorOnlyJobNumber = `93${uniqueSuffix}`;
     const exteriorOnlyJob = await insertVerificationJob(
       client,
       orgId,
@@ -707,9 +967,8 @@ async function main() {
       `Expected preview parity mismatch to mention requirement mismatch, received ${exteriorPreviewMismatchError?.message}.`
     );
 
-    let exteriorApplyMismatchError = null;
-    try {
-      await invokeAllocationsApplyRpc(
+    const { error: exteriorApplyMismatchError } = await captureExpectedRpcError(client, () =>
+      invokeAllocationsApplyRpc(
         client,
         orgId,
         actor,
@@ -724,10 +983,8 @@ async function main() {
           crossWarehouse: true,
           jobWarehouse: warehouse
         }
-      );
-    } catch (error) {
-      exteriorApplyMismatchError = error;
-    }
+      )
+    );
     assert(exteriorApplyMismatchError, 'Expected SQL apply parity check to reject a base roll for an exterior requirement.');
     assert(
       /does not match requirement/i.test(asTrimmedString(exteriorApplyMismatchError?.message)),
@@ -794,7 +1051,8 @@ async function main() {
       client,
       orgId,
       {
-        boxId
+        boxId,
+        receivedWeightLbs: 18
       },
       actor
     );
@@ -876,6 +1134,10 @@ async function main() {
       shortageReceivedBox.status === "IN_STOCK",
       `Expected shortage verification receipt to move the box to IN_STOCK, received ${shortageReceivedBox?.status}.`
     );
+    assert(
+      (shortageReceiveResult?.warnings || []).some((warning) => /Created 1 shortage film order/i.test(asTrimmedString(warning))),
+      `Expected shortage verification receipt to report the created shortage film order, received ${JSON.stringify(shortageReceiveResult?.warnings || [])}.`
+    );
 
     const shortageFilmOrderRows = await client.query(
       `
@@ -897,53 +1159,42 @@ async function main() {
     );
     assert(
       shortageFilmOrderRows.rows.length === 1,
-      `Expected shortage receipt reconciliation to leave exactly one open shortage film order, received ${shortageFilmOrderRows.rows.length}.`
-    );
-    const shortageFilmOrder = shortageFilmOrderRows.rows[0];
-    assert(
-      asTrimmedString(shortageFilmOrder?.warehouse) === warehouse,
-      `Expected shortage film order warehouse to stay ${warehouse}, received ${shortageFilmOrder?.warehouse}.`
+      `Expected shortage receipt flow to create exactly one shortage film order during order receipt, received ${shortageFilmOrderRows.rows.length}.`
     );
     assert(
-      Number(shortageFilmOrder?.requested_feet || 0) === 30,
-      `Expected shortage film order requested feet to stay at 30, received ${shortageFilmOrder?.requested_feet}.`
-    );
-    assert(
-      Number(shortageFilmOrder?.remaining_to_order_feet || 0) === 30,
-      `Expected shortage film order remaining feet to stay at 30, received ${shortageFilmOrder?.remaining_to_order_feet}.`
-    );
-    assert(
-      asTrimmedString(shortageFilmOrder?.source_box_id) === shortageBoxId,
-      `Expected shortage film order source_box_id to stay ${shortageBoxId}, received ${shortageFilmOrder?.source_box_id}.`
+      Number(shortageFilmOrderRows.rows[0]?.requested_feet || 0) === 30 &&
+        Number(shortageFilmOrderRows.rows[0]?.remaining_to_order_feet || 0) === 30 &&
+        asTrimmedString(shortageFilmOrderRows.rows[0]?.source_box_id) === shortageBoxId,
+      `Expected shortage receipt flow to preserve the unmet 30 LF as a shortage order, received ${JSON.stringify(shortageFilmOrderRows.rows[0] || null)}.`
     );
 
     const shortageJobDetail = await buildJobDetail(client, orgId, shortageJobNumber);
     assert(
       Number(shortageJobDetail?.summary?.filmOrderCount || 0) === 1,
-      `Expected shortage verification job summary to show one unresolved shortage film order, received ${shortageJobDetail?.summary?.filmOrderCount}.`
+      `Expected shortage verification job summary to show the open shortage film order created during receipt, received ${shortageJobDetail?.summary?.filmOrderCount}.`
     );
     const shortageJobFilmOrder = (shortageJobDetail?.filmOrders || []).find(
       (entry) => entry.sourceBoxId === shortageBoxId
     );
-    assert(shortageJobFilmOrder, "Expected shortage verification job detail to include the auto shortage film order.");
+    assert(shortageJobFilmOrder, 'Expected shortage verification job detail to include the shortage film order created during receipt.');
     assert(
-      shortageJobFilmOrder.warehouse === warehouse,
-      `Expected shortage verification job detail to keep warehouse ${warehouse}, received ${shortageJobFilmOrder?.warehouse}.`
-    );
-    assert(
-      Number(shortageJobFilmOrder?.requestedFeet || 0) === 30,
-      `Expected shortage verification job detail to show 30 requested feet, received ${shortageJobFilmOrder?.requestedFeet}.`
+      shortageJobFilmOrder.status === 'FILM_ORDER',
+      `Expected shortage verification job detail to keep the shortage film order open, received ${shortageJobFilmOrder?.status}.`
     );
 
     let belowAllocatedError = null;
     try {
-      await updateBox(
+      await setBoxStatus(
         client,
         orgId,
-        buildUpdatePayload(refreshedBox, {
-          receivedDate: dueDate,
-          currentFeetOnRoll: 20
-        }),
+        {
+          boxId: refreshedBox.boxId,
+          status: 'IN_STOCK',
+          lastRollWeightLbs: 18,
+          currentFeetOnRoll: 20,
+          coreType: 'White plastic',
+          auditNote: 'Ordered allocation flow verification under-allocation guard.'
+        },
         actor
       );
     } catch (error) {

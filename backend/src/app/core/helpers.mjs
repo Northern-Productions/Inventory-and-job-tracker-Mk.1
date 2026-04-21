@@ -155,7 +155,7 @@ function assertBoxStatus(value) {
 
 function isAllocatableBoxStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === 'IN_STOCK' || normalized === 'ORDERED';
+  return normalized === 'IN_STOCK' || normalized === 'ORDERED' || normalized === 'TRANSFER';
 }
 
 function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
@@ -168,30 +168,12 @@ function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
 }
 
 function getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) {
-  if (asTrimmedString(box?.status).toUpperCase() !== 'TRANSFER') {
-    return '';
-  }
-
-  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
-  if (!normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is in transfer status and needs a job warehouse before it can be allocated.`;
-  }
-
-  if (!pendingTransfer || asTrimmedString(pendingTransfer.status).toUpperCase() !== 'PENDING') {
-    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is in transfer status but no pending transfer was found.`;
-  }
-
-  const destinationWarehouse = asTrimmedString(pendingTransfer.destinationWarehouse).toUpperCase();
-  if (destinationWarehouse !== normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || 'this box'} is transferring to ${destinationWarehouse || 'another warehouse'} and cannot be allocated to a job in ${normalizedJobWarehouse}.`;
-  }
-
   return '';
 }
 
 function isJobAllocationEligibleBox(box, pendingTransfer, jobWarehouse) {
-  if (isAllocatableBoxStatus(box?.status)) {
-    return true;
+  if (!isAllocatableBoxStatus(box?.status)) {
+    return false;
   }
 
   return getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) === '';

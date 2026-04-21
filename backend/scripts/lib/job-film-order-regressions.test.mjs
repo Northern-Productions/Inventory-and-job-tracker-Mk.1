@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeJobRequirementEntriesForWrite } from '../../src/app/core/catalog.mjs';
+import {
+  normalizeCanonicalManufacturerAndFilm,
+  normalizeJobRequirementEntriesForWrite
+} from '../../src/app/core/catalog.mjs';
 import { saveFilmOrderRecord } from '../../src/app/repositories/inventoryRecordsRepository.mjs';
 import { replaceJobRequirementsForJob } from '../../src/app/repositories/jobsRepository.mjs';
 import { buildJobListEntry } from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
@@ -156,6 +159,24 @@ test('normalizeJobRequirementEntriesForWrite preserves explicit Prestige 40 Exte
       requiredFeet: 30
     }
   ]);
+});
+
+test('normalizeCanonicalManufacturerAndFilm preserves explicit 3M Solar Prestige variants', () => {
+  assert.deepEqual(normalizeCanonicalManufacturerAndFilm('3M Solar', 'Prestige 40'), {
+    manufacturer: '3M Solar',
+    filmName: 'Prestige 40'
+  });
+  assert.deepEqual(normalizeCanonicalManufacturerAndFilm('3M Solar', 'Prestige 40 Exterior'), {
+    manufacturer: '3M Solar',
+    filmName: 'Prestige 40 Exterior'
+  });
+  assert.deepEqual(
+    normalizeCanonicalManufacturerAndFilm('3M Solar', '3M Prestige 40 Exterior (PR40 Ext)'),
+    {
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 40 Exterior (PR40 Ext)'
+    }
+  );
 });
 
 test('job requirement and film order repositories preserve write-normalized labels', async () => {

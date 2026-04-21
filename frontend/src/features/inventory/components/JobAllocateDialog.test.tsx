@@ -527,7 +527,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('hides transfer boxes that are headed to a different warehouse', async () => {
+  it('keeps transfer boxes visible even when transfer metadata points elsewhere', async () => {
     searchBoxesMock.mockResolvedValue([
       buildSearchBox({
         boxId: 'IL1-TRANSFER-WRONG',
@@ -575,7 +575,7 @@ describe('JobAllocateDialog', () => {
 
     const table = await screen.findByRole('table');
     expect(table.textContent || '').toContain('MS1-IN-STOCK');
-    expect(table.textContent || '').not.toContain('IL1-TRANSFER-WRONG');
+    expect(table.textContent || '').toContain('IL1-TRANSFER-WRONG');
 
     queryClient.clear();
   });
@@ -770,7 +770,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('allocates from a manually selected broader-matched source box', async () => {
+  it('keeps the same requirement open when an allocation leaves remaining LF uncovered', async () => {
     const mutateAsync = vi.fn().mockResolvedValue({
       result: {
         allocations: [
@@ -781,8 +781,8 @@ describe('JobAllocateDialog', () => {
             jobNumber: '17170',
             installDate: '',
             crewLeader: '',
-            allocatedFeet: 15,
-            coveredFeet: 15,
+            allocatedFeet: 10,
+            coveredFeet: 10,
             requirementId: 'req-1',
             allocationKind: 'REQUIREMENT',
             status: 'ACTIVE',
@@ -794,9 +794,7 @@ describe('JobAllocateDialog', () => {
             notes: ''
           }
         ],
-        filmOrder: {
-          filmOrderId: 'FO-1'
-        },
+        filmOrder: null,
         remainingUncoveredFeet: 5
       },
       warnings: []
@@ -840,14 +838,14 @@ describe('JobAllocateDialog', () => {
             sourceWarehouse: 'IL1',
             sourceWidthIn: 48,
             sourceBoxFeetAvailable: 25,
-            sourceSuggestedFeet: 15,
-            sourceSuggestedCoveredFeet: 15,
-            sourceConflicts: [],
-            suggestions: [],
-            defaultCoveredFeet: 15,
-            defaultRemainingFeet: 0
-          }
-        });
+              sourceSuggestedFeet: 10,
+              sourceSuggestedCoveredFeet: 10,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 10,
+              defaultRemainingFeet: 5
+            }
+          });
       }
 
       return buildPreviewState();
@@ -929,9 +927,9 @@ describe('JobAllocateDialog', () => {
     fireEvent.click(checkboxes[1]);
 
     await waitFor(() =>
-      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
+      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*10/i)
     );
-    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*0/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*5/i);
     expect((checkboxes[0] as HTMLInputElement).checked).toBe(false);
     expect((checkboxes[1] as HTMLInputElement).checked).toBe(true);
 
@@ -947,11 +945,104 @@ describe('JobAllocateDialog', () => {
         })
       )
     );
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          description: expect.stringContaining('5 LF remains unallocated.'),
+          variant: 'success'
+        })
+      )
+    );
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-1');
+    expect(screen.getByDisplayValue('5')).toBeTruthy();
 
     queryClient.clear();
   });
 
-  it('advances to the next requirement immediately after Allocate before the save resolves', async () => {
+  it('keeps the same requirement open when the user allocates only part of the remaining LF', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-RN07',
+            warehouse: 'IL1',
+            jobNumber: '55555',
+            installDate: '',
+            crewLeader: '',
+            allocatedFeet: 5,
+            coveredFeet: 5,
+            requirementId: 'req-1',
+            allocationKind: 'REQUIREMENT',
+            status: 'ACTIVE',
+            createdAt: '2026-04-21T12:00:00Z',
+            createdBy: 'tester',
+            resolvedAt: '',
+            resolvedBy: '',
+            filmOrderId: '',
+            notes: ''
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'IL1-RN07'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '55555',
+              installDate: '',
+              crewLeader: '',
+              requestedFeet: 5,
+              requestedWidthIn: 48,
+              sourceBoxId: 'IL1-RN07',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 48,
+              sourceBoxFeetAvailable: 50,
+              sourceSuggestedFeet: 5,
+              sourceSuggestedCoveredFeet: 5,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 5,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([buildSearchBox({ boxId: 'IL1-RN07' })]);
+
+    const { queryClient } = renderDialog();
+
+    fireEvent.change(screen.getByLabelText('Requested LF'), {
+      target: { value: '5' }
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Allocation saved',
+          variant: 'success'
+        })
+      )
+    );
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-1');
+    expect(screen.getByDisplayValue('10')).toBeTruthy();
+
+    queryClient.clear();
+  });
+
+  it('waits for allocation success before advancing to the next requirement', async () => {
     const firstSave = createDeferred<{
       result: {
         allocations: Array<Record<string, unknown>>;
@@ -1073,11 +1164,13 @@ describe('JobAllocateDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(true)
+    );
 
     const requirementSelect = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(requirementSelect.value).toBe('req-2');
-    expect(screen.getByDisplayValue('12')).toBeTruthy();
-    expect(screen.getByText(/1 update saving in background/i)).toBeTruthy();
+    expect(requirementSelect.value).toBe('req-1');
+    expect(screen.getByDisplayValue('15')).toBeTruthy();
 
     firstSave.resolve({
       result: {
@@ -1103,11 +1196,13 @@ describe('JobAllocateDialog', () => {
         })
       )
     );
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2'));
+    expect(screen.getByDisplayValue('12')).toBeTruthy();
 
     queryClient.clear();
   });
 
-  it('closes the dialog immediately after the final requirement submit before the save resolves', async () => {
+  it('waits for the final allocation save before closing the dialog', async () => {
     const save = createDeferred<{
       result: {
         allocations: Array<Record<string, unknown>>;
@@ -1171,8 +1266,10 @@ describe('JobAllocateDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
 
-    expect(onCancel).toHaveBeenCalled();
-    expect(screen.getByText(/1 update saving in background/i)).toBeTruthy();
+    expect(onCancel).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(true)
+    );
 
     save.resolve({
       result: {
@@ -1198,11 +1295,12 @@ describe('JobAllocateDialog', () => {
         })
       )
     );
+    await waitFor(() => expect(onCancel).toHaveBeenCalled());
 
     queryClient.clear();
   });
 
-  it('allows a second allocation submit while the first allocation save is still pending', async () => {
+  it('prevents a second allocation submit while the first allocation save is still pending', async () => {
     const firstSave = createDeferred<{
       result: {
         allocations: Array<Record<string, unknown>>;
@@ -1211,18 +1309,7 @@ describe('JobAllocateDialog', () => {
       };
       warnings: string[];
     }>();
-    const secondSave = createDeferred<{
-      result: {
-        allocations: Array<Record<string, unknown>>;
-        filmOrder: null;
-        remainingUncoveredFeet: number;
-      };
-      warnings: string[];
-    }>();
-    const mutateAsync = vi
-      .fn()
-      .mockImplementationOnce(() => firstSave.promise)
-      .mockImplementationOnce(() => secondSave.promise);
+    const mutateAsync = vi.fn().mockImplementation(() => firstSave.promise);
     useAllocateBoxMock.mockReturnValue({
       isPending: false,
       mutateAsync
@@ -1317,39 +1404,14 @@ describe('JobAllocateDialog', () => {
       expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
     );
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
-
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2')
+      expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(true)
     );
 
-    table = await screen.findByRole('table');
-    await waitFor(() => expect(table.textContent || '').toContain('IL1-P60'));
-    fireEvent.click(within(table).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Saving...' }));
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
 
-    await waitFor(() =>
-      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*12/i)
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
-
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/2 updates saving in background/i)).toBeTruthy();
-
-    secondSave.resolve({
-      result: {
-        allocations: [
-          {
-            allocationId: 'alloc-2',
-            boxId: 'IL1-P60',
-            allocatedFeet: 12,
-            coveredFeet: 12
-          }
-        ],
-        filmOrder: null,
-        remainingUncoveredFeet: 0
-      },
-      warnings: []
-    });
     firstSave.resolve({
       result: {
         allocations: [
@@ -1374,11 +1436,12 @@ describe('JobAllocateDialog', () => {
         })
       )
     );
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2'));
 
     queryClient.clear();
   });
 
-  it('shows a background allocation failure without locking the next requirement', async () => {
+  it('keeps the same requirement selected when allocation save fails', async () => {
     const firstSave = createDeferred<{
       result: {
         allocations: Array<Record<string, unknown>>;
@@ -1387,18 +1450,7 @@ describe('JobAllocateDialog', () => {
       };
       warnings: string[];
     }>();
-    const secondSave = createDeferred<{
-      result: {
-        allocations: Array<Record<string, unknown>>;
-        filmOrder: null;
-        remainingUncoveredFeet: number;
-      };
-      warnings: string[];
-    }>();
-    const mutateAsync = vi
-      .fn()
-      .mockImplementationOnce(() => firstSave.promise)
-      .mockImplementationOnce(() => secondSave.promise);
+    const mutateAsync = vi.fn().mockImplementationOnce(() => firstSave.promise);
     useAllocateBoxMock.mockReturnValue({
       isPending: false,
       mutateAsync
@@ -1493,10 +1545,7 @@ describe('JobAllocateDialog', () => {
       expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*15/i)
     );
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
-
-    await waitFor(() =>
-      expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-2')
-    );
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
 
     firstSave.reject(new Error('The allocation could not be completed.'));
 
@@ -1509,43 +1558,9 @@ describe('JobAllocateDialog', () => {
         })
       )
     );
-
-    table = await screen.findByRole('table');
-    await waitFor(() => expect(table.textContent || '').toContain('IL1-P60'));
-    fireEvent.click(within(table).getByRole('checkbox'));
-
-    await waitFor(() =>
-      expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*12/i)
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
-
-    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
-
-    secondSave.resolve({
-      result: {
-        allocations: [
-          {
-            allocationId: 'alloc-2',
-            boxId: 'IL1-P60',
-            allocatedFeet: 12,
-            coveredFeet: 12
-          }
-        ],
-        filmOrder: null,
-        remainingUncoveredFeet: 0
-      },
-      warnings: []
-    });
-
-    await waitFor(() =>
-      expect(toastPushMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Allocation saved',
-          variant: 'success'
-        })
-      )
-    );
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('req-1');
+    expect(screen.getByDisplayValue('15')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Saving...' })).toBeNull();
 
     queryClient.clear();
   });

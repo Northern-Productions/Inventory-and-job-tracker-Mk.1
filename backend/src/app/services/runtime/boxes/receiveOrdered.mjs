@@ -13,6 +13,7 @@ import {
   appendAuditEntry,
 } from '../../runtimeDeps.mjs';
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
+import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 import { getAllocationReservationState } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
@@ -108,6 +109,7 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
 
   let persistedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
   persistedBox = await saveBoxRecord(client, orgId, persistedBox);
+  await recalculateFilmOrdersForBoxLinks(client, orgId, persistedBox.boxId, actor);
 
   const shortageReconciliation = await reconcileReservationShortagesForBox(
     client,
