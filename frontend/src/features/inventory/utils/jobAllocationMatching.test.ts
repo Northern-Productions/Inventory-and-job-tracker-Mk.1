@@ -81,7 +81,7 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-60-C']);
   });
 
-  it('includes matching-destination transfer boxes between in-stock and ordered candidates', () => {
+  it('includes transfer boxes between in-stock and ordered candidates', () => {
     const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
     const matching = findMatchingBoxesForRequirement(
       [
@@ -129,7 +129,7 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['MS1-IN-STOCK', 'IL1-TRANSFER', 'MS1-ORDERED']);
   });
 
-  it('excludes transfer boxes without a matching destination warehouse', () => {
+  it('keeps transfer boxes allocatable even without matching transfer metadata', () => {
     const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
     const matching = findMatchingBoxesForRequirement(
       [
@@ -158,6 +158,28 @@ describe('findMatchingBoxesForRequirement', () => {
           status: 'TRANSFER',
           feetAvailable: 96,
           allocationPlanningFeet: 96
+        })
+      ],
+      requirement,
+      'MS1'
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-TRANSFER-MISSING', 'IL1-TRANSFER-WRONG']);
+  });
+
+  it('still excludes zeroed transfer-family matches', () => {
+    const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-ZEROED',
+          warehouse: 'IL1',
+          manufacturer: 'SOLYX',
+          filmName: 'Whiteout SXWF-WO',
+          widthIn: 72,
+          status: 'ZEROED',
+          feetAvailable: 96,
+          allocationPlanningFeet: 0
         })
       ],
       requirement,

@@ -246,12 +246,7 @@ export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogPr
 
     void savePromise
       .then(({ result, warnings }) => {
-        let title = 'Film allocated';
-        if (result.filmOrder && result.allocations.length) {
-          title = 'Allocated with Film Order';
-        } else if (result.filmOrder) {
-          title = 'Film Order created';
-        }
+        const title = 'Film allocated';
 
         const allocationSummary =
           result.allocations.length > 0
@@ -263,14 +258,15 @@ export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogPr
                 )
                 .join(', ')}`
             : 'No allocatable boxes could cover the request.';
-        const filmOrderSummary = result.filmOrder
-          ? ` Film Order ${result.filmOrder.filmOrderId} was created for ${result.remainingUncoveredFeet} LF.`
-          : '';
+        const remainingSummary =
+          result.remainingUncoveredFeet > 0
+            ? ` ${result.remainingUncoveredFeet} LF remains unallocated. Create a film order separately if needed.`
+            : '';
 
         toast.push({
           title,
           description:
-            warnings.join(' ') || `${allocationSummary}.${filmOrderSummary}`.trim(),
+            warnings.join(' ') || `${allocationSummary}.${remainingSummary}`.trim(),
           variant: 'success'
         });
       })
@@ -510,7 +506,8 @@ export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogPr
 
             {selectionSummary?.remainingFeet ? (
               <p className="error-text">
-                A Film Order alert will be created for {selectionSummary.remainingFeet} LF if you continue.
+                The remaining {selectionSummary.remainingFeet} LF will stay unallocated if you continue. Create a
+                film order separately if needed.
               </p>
             ) : null}
           </div>

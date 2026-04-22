@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0075_fix_requirement_alias_code_matching.sql';
+const LATEST_MIGRATION = '0077_restore_linked_receipt_post_save_recalc.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -54,6 +54,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.total_active_allocated_feet_for_box(uuid, text)' },
   { kind: 'function', signature: 'app_api.locked_allocated_feet_for_box(uuid, text)' },
   { kind: 'function', signature: 'app_api.placeholder_allocated_feet_for_box(uuid, text)' },
+  { kind: 'function', signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)' },
   { kind: 'function', signature: 'app_api.box_physical_feet_available(app.boxes)' },
   { kind: 'function', signature: 'app_api.box_allocatable_now_feet(app.boxes)' },
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
@@ -83,26 +84,44 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
     includes: [
-      'public.api_boxes_update(p_org_id, p_actor, v_payload)',
-      "set action = 'SET_STATUS'",
-      'app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id)'
+      'v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
+      'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
+      "v_log_id := app_api.append_audit_entry(",
+      "'SET_STATUS'",
+      'app_api.reconcile_auto_shortage_film_orders_for_box('
     ],
-    excludes: []
+    excludes: ['public.api_boxes_update(p_org_id, p_actor, v_payload)']
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
     includes: [
       'v_result := public.api_allocations_apply(p_org_id, p_actor, p_payload);',
-      'perform app_api.reconcile_auto_shortage_film_orders_for_job('
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box_id);'
     ],
-    excludes: []
+    excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
   },
   {
     signature: 'public.api_allocations_apply(uuid, text, jsonb)',
     includes: [
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',
-      'Extra box %s must use a compatible film and meet the requested width for this allocation.'
+      'Extra box %s must use a compatible film and meet the requested width for this allocation.',
+      "Only in-stock, ordered, or transfer boxes can be allocated.",
+      "'filmOrderId', ''::text"
+    ],
+    excludes: [
+      'Only in-stock, ordered, or matching transfer boxes can be allocated.',
+      'is in transfer status but no pending transfer was found.',
+      'is transferring to %s and cannot be allocated to a job in %s.',
+      'Created from a shortage while trying to allocate'
+    ]
+  },
+  {
+    signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)',
+    includes: [
+      "when 'TRANSFER' then greatest(coalesce(p_feet_available, 0), 0)",
+      "when 'ORDERED' then greatest(coalesce(p_initial_feet, 0) - coalesce(p_active_allocated_feet, 0), 0)"
     ],
     excludes: []
   },
@@ -167,6 +186,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'public.api_boxes_add(uuid, text, jsonb)',
+    includes: [
+      "v_box := jsonb_populate_record(null::app.boxes, v_receipt_result->'box');",
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
+    ],
+    excludes: []
+  },
+  {
     signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)',
     includes: [
       'v_target_warehouse := app_api.require_org_warehouse(',
@@ -198,7 +225,13 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'public.api_boxes_update(uuid, text, jsonb)',
-    includes: ['v_box.dealer := case', "then app_api.trim_text(p_payload->>'dealer')", "else coalesce(v_existing.dealer, '')"],
+    includes: [
+      'v_box.dealer := case',
+      "then app_api.trim_text(p_payload->>'dealer')",
+      "else coalesce(v_existing.dealer, '')",
+      "if v_box.status <> 'CHECKED_OUT' then",
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
+    ],
     excludes: []
   }
 ];
