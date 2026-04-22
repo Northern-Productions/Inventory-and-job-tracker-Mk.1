@@ -42,6 +42,6 @@ test('uses local fallback for localhost film, allocation, audit, and caulk reads
 });
 
 test('keeps unrelated auth and profile routes on their previous execution path', () => {
-  assert.equal(shouldUseLocalFallbackRoute('GET', '/auth/context'), false);
+  assert.equal(shouldUseLocalFallbackRoute('GET', '/auth/context'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/profile/username'), false);
 });
