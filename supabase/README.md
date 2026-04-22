@@ -18,6 +18,9 @@ The function keeps the existing frontend contract:
 
 From repo root:
 
+- Apply the mirrored Supabase migrations through `supabase/migrations/20260421170000_restore_linked_receipt_post_save_recalc.sql` before deploying the Edge function.
+- That mirrored checkpoint corresponds to `backend/migrations/0077_restore_linked_receipt_post_save_recalc.sql` in the canonical backend migration history.
+
 ```bash
 npx supabase login
 npx supabase secrets set --project-ref tiwpulgvxtwlmqdnyuzd DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" API_BUILD_SHA="YOUR_GIT_SHA" API_BUILT_AT="YYYY-MM-DDTHH:MM:SSZ"
