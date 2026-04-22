@@ -5,6 +5,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   "/admin/user-permissions",
   "/owner/admin-permissions",
   "/owner/notification-preferences",
+  "/owner/warehouses/add",
   "/owner/caulk/manufacturers/upsert",
   "/box-dealers/upsert",
   "/caulk/products/upsert",
@@ -42,6 +43,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
 
 export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/app/attention-summary",
+  "/warehouses/list",
   "/boxes/search",
   "/boxes/get",
   "/boxes/transfer/by-box",

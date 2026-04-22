@@ -7,6 +7,7 @@ function assert(condition, message) {
 }
 
 const REQUIRED_READ_PATHS = [
+  '/warehouses/list',
   '/box-dealers/list',
   '/boxes/search',
   '/boxes/get',
@@ -22,6 +23,7 @@ const REQUIRED_READ_PATHS = [
 ];
 
 const REQUIRED_MUTATION_PATHS = [
+  '/owner/warehouses/add',
   '/box-dealers/upsert',
   '/boxes/add',
   '/boxes/update',

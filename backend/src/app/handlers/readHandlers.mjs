@@ -33,6 +33,7 @@ import {
 } from '../services/jobs.mjs';
 import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
+import { listWarehouses } from '../services/warehouses.mjs';
 import {
   getGeneralFeaturePermissions,
   getOwnerNotificationPreferencesInternal,
@@ -58,6 +59,8 @@ const readHandlers = {
     ok({ entries: await listAdminFeaturePermissions(client, orgId) }),
   '/owner/notification-preferences': async ({ client, orgId, authContext }) =>
     ok(await getOwnerNotificationPreferencesInternal(client, orgId, authContext.userId)),
+  '/warehouses/list': async ({ client, orgId, authContext }) =>
+    ok({ entries: await listWarehouses(client, orgId, authContext) }),
   '/boxes/search': async ({ client, orgId, params }) => ok(await buildSearchBoxes(client, orgId, params)),
   '/boxes/get': async ({ client, orgId, params }) => {
     const found = await findBoxById(client, orgId, params.boxId);

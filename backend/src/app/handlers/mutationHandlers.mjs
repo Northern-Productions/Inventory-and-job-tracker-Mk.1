@@ -57,6 +57,7 @@ import {
   updateOwnerNotificationPreferencesInternal,
   updateUserFeaturePermissionsInternal,
 } from '../services/access.mjs';
+import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
 
 const mutationHandlers = {
@@ -92,6 +93,8 @@ const mutationHandlers = {
         params
       )
     ),
+  '/owner/warehouses/add': async ({ client, orgId, authContext, params }) =>
+    ok(await addWarehouse(client, orgId, authContext.actor, params)),
   '/owner/caulk/manufacturers/upsert': async ({ client, orgId, authContext, params }) =>
     ok(await ownerUpsertCaulkManufacturer(client, orgId, authContext.actor, params)),
   '/box-dealers/upsert': async ({ client, orgId, authContext, params }) =>
