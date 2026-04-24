@@ -182,7 +182,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'public.api_boxes_set_status(uuid, text, jsonb)',
-    includes: ['perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'],
+    includes: [
+      "perform app_api.assert_direct_to_job_site_flag_is_server_owned(p_payload, 'Set Box Status');",
+      "perform app_api.assert_no_ship_direct_to_job_site_flag(p_payload, 'Set Box Status');",
+      "if v_status not in ('IN_STOCK', 'CHECKED_OUT') then",
+      "perform app_api.raise_http(400, 'Status must be IN_STOCK or CHECKED_OUT.');",
+      'perform app_api.assert_can_checkout_box_from_warehouse(v_existing);',
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
+    ],
     excludes: []
   },
   {
