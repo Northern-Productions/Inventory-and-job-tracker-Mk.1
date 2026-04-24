@@ -24,6 +24,7 @@ function createRecordingClient(rowsByQuery = []) {
 
 test('buildPublicJobUsageTimelineEntries includes ordered box history rows with linked box IDs', () => {
   const entries = buildPublicJobUsageTimelineEntries(
+    '19413',
     [
       {
         boxId: 'MS1-ROLL',

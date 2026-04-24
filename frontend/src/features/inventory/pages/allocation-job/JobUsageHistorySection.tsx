@@ -44,6 +44,7 @@ export function JobUsageHistorySection({
                 <MobileField label="Used" value={formatUsageQuantity(entry.usedQuantity, entry.unit)} />
                 <MobileField label="By" value={entry.actor || '--'} />
                 <MobileField label="When" value={renderDateTime(entry.occurredAt)} />
+                <MobileField label="Notes" value={entry.notes || '--'} />
               </MobileFieldList>
             </MobileRecordCard>
           ))}
@@ -61,6 +62,7 @@ export function JobUsageHistorySection({
                 <th>Returned</th>
                 <th>Used</th>
                 <th>By</th>
+                <th>Notes</th>
                 <th>Reference</th>
               </tr>
             </thead>
@@ -78,6 +80,7 @@ export function JobUsageHistorySection({
                   <td>{formatUsageQuantity(entry.returnedQuantity, entry.unit)}</td>
                   <td>{formatUsageQuantity(entry.usedQuantity, entry.unit)}</td>
                   <td>{entry.actor || '--'}</td>
+                  <td>{entry.notes || '--'}</td>
                   <td>
                     {isFilmBoxReference(entry) ? (
                       <button

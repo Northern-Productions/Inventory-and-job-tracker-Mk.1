@@ -9,6 +9,9 @@ import {
   todayDateString,
   deriveLifecycleStatus,
   stampZeroedMetadata,
+  assertCanCheckoutBoxFromWarehouse,
+  assertLegalBoxWeightState,
+  requiresFirstReturnCalibration,
   applyCheckoutWarnings,
   applyCheckInWarnings,
   toPublicBox,
@@ -36,8 +39,15 @@ import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mj
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
+import {
+  assertDirectToJobSiteFlagIsServerOwned,
+  assertNoShipDirectToJobSiteFlag,
+  buildDirectToJobSiteFirstReturnNote,
+} from './directToJobSite.mjs';
 
 async function setBoxStatus(client, orgId, payload, actor) {
+  assertDirectToJobSiteFlagIsServerOwned(payload, 'Set Box Status');
+  assertNoShipDirectToJobSiteFlag(payload, 'Set Box Status');
   const warnings = [];
   const status = assertBoxStatus(payload.status);
 
@@ -57,6 +67,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
   if (!existing) {
     throw new HttpError(404, 'Box not found.');
   }
+  const allowsFirstReturnCalibration = requiresFirstReturnCalibration(existing) && status === 'IN_STOCK';
 
   if (existing.status === 'TRANSFER') {
     throw new HttpError(
@@ -65,7 +76,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     );
   }
 
-  if (deriveLifecycleStatus(existing.receivedDate) === 'ORDERED') {
+  if (deriveLifecycleStatus(existing.receivedDate) === 'ORDERED' && !allowsFirstReturnCalibration) {
     throw new HttpError(400, 'Add a ReceivedDate on or before today before changing status.');
   }
 
@@ -81,6 +92,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
   let auditAction = 'SET_STATUS';
 
   if (status === 'CHECKED_OUT') {
+    assertCanCheckoutBoxFromWarehouse(existing);
     const jobNumber = getCheckoutJobNumberFromAuditNotes(payload.auditNote);
     if (!jobNumber) {
       throw new HttpError(400, 'A checkout job number is required.');
@@ -106,6 +118,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     updatedBox.zeroedDate = '';
     updatedBox.zeroedReason = '';
     updatedBox.zeroedBy = '';
+    assertLegalBoxWeightState(updatedBox);
     applyCheckoutWarnings(warnings, existing);
 
     const autoLinkResult = await autoLinkRemainingJobFeetToCheckedOutBox(
@@ -171,6 +184,14 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
     const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob);
+    const directToSiteFirstReturnNote = allowsFirstReturnCalibration
+      ? buildDirectToJobSiteFirstReturnNote({
+          jobNumber: checkoutJob,
+          lastRollWeightLbs: checkInPlan.lastRollWeightLbs,
+          currentFeetOnRoll: checkInPlan.currentFeetOnRoll ?? checkInPlan.physicalFeetAfterCheckIn,
+          userNote: payload.auditNote
+        })
+      : asTrimmedString(payload.auditNote);
 
     if (checkInPlan.sameJobActiveAllocationCount > 0 && checkoutJob) {
       const sameJobCancellation = await cancelActiveAllocationsForCheckInJob(
@@ -192,6 +213,9 @@ async function setBoxStatus(client, orgId, payload, actor) {
     }
 
     updatedBox.status = 'IN_STOCK';
+    if (allowsFirstReturnCalibration) {
+      updatedBox.receivedDate = todayDateString();
+    }
     updatedBox.lastRollWeightLbs = checkInPlan.lastRollWeightLbs;
     updatedBox.lastWeighedDate = todayDateString();
     updatedBox.coreType = checkInPlan.coreType || updatedBox.coreType;
@@ -233,7 +257,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
       weightDeltaLbs: weightDelta,
       feetBefore: checkInPlan.physicalFeetBeforeCheckIn,
       feetAfter: checkInPlan.physicalFeetAfterCheckIn,
-      notes: asTrimmedString(payload.auditNote)
+      notes: directToSiteFirstReturnNote
     });
 
     updatedBox.lastCheckoutJob = '';
@@ -313,7 +337,14 @@ async function setBoxStatus(client, orgId, payload, actor) {
     publicBefore,
     publicAfter,
     actor,
-    asTrimmedString(payload.auditNote)
+    allowsFirstReturnCalibration
+      ? buildDirectToJobSiteFirstReturnNote({
+          jobNumber: asTrimmedString(updatedBox.lastCheckoutJob) || asTrimmedString(existing.lastCheckoutJob) || 'UNKNOWN',
+          lastRollWeightLbs: updatedBox.lastRollWeightLbs,
+          currentFeetOnRoll: checkInPlan.currentFeetOnRoll ?? checkInPlan.physicalFeetAfterCheckIn,
+          userNote: payload.auditNote
+        })
+      : asTrimmedString(payload.auditNote)
   );
 
   return ok({ box: publicAfter, logId }, warnings);

@@ -692,7 +692,8 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
       orderedFeet: link.orderedFeet,
       autoAllocatedFeet: link.autoAllocatedFeet,
       dealer: asTrimmedString(linkedBoxById[boxId].dealer),
-      isReceived: isReceivedLinkedBoxStatus(linkedBoxById[boxId].status)
+      isReceived: isReceivedLinkedBoxStatus(linkedBoxById[boxId].status),
+      ...(linkedBoxById[boxId].directToJobSite === true ? { isDirectToJobSite: true } : {})
     });
   }
 

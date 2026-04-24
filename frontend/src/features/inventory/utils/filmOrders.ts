@@ -10,6 +10,7 @@ export const FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL = '--';
 export interface FilmOrderLinkedBoxDisplayEntry {
   boxId: string;
   isReceived: boolean;
+  isDirectToJobSite?: boolean;
 }
 
 interface FilmOrderLinkedBoxMutationEntry {
@@ -93,7 +94,8 @@ export function getFilmOrderLinkedBoxes(
     const previousEntry = dedupedEntries.get(boxId);
     dedupedEntries.set(boxId, {
       boxId,
-      isReceived: Boolean(previousEntry?.isReceived || entry?.isReceived)
+      isReceived: Boolean(previousEntry?.isReceived || entry?.isReceived),
+      isDirectToJobSite: Boolean(previousEntry?.isDirectToJobSite || entry?.isDirectToJobSite)
     });
   }
 

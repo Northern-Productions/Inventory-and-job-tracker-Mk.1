@@ -136,27 +136,30 @@ describe('filmOrders helpers', () => {
             dealer: 'Eastman Performance Films',
             orderedFeet: 42,
             autoAllocatedFeet: 0,
-            isReceived: false
+            isReceived: false,
+            isDirectToJobSite: false
           },
           {
             boxId: 'IL1-0042',
             dealer: 'Eastman Performance Films',
             orderedFeet: 12,
             autoAllocatedFeet: 0,
-            isReceived: true
+            isReceived: true,
+            isDirectToJobSite: true
           },
           {
             boxId: 'MS1-0100',
             dealer: 'Accent',
             orderedFeet: 10,
             autoAllocatedFeet: 0,
-            isReceived: false
+            isReceived: false,
+            isDirectToJobSite: false
           }
         ]
       })
     ).toEqual([
-      { boxId: 'IL1-0042', isReceived: true },
-      { boxId: 'MS1-0100', isReceived: false }
+      { boxId: 'IL1-0042', isReceived: true, isDirectToJobSite: true },
+      { boxId: 'MS1-0100', isReceived: false, isDirectToJobSite: false }
     ]);
   });
 
@@ -318,7 +321,8 @@ describe('filmOrders helpers', () => {
       })
     ).toEqual({
       boxId: 'IL1-0001',
-      isReceived: false
+      isReceived: false,
+      isDirectToJobSite: false
     });
   });
 

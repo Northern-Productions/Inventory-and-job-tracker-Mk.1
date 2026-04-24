@@ -51,6 +51,7 @@ import {
   deriveLfWeightLbsPerFtIfPossible,
   isLowStockBox,
   hasPositivePhysicalFeet,
+  requiresFirstReturnCalibration,
   hasIncompleteBoxHistoryForZeroedEdit,
   hasExplicitZeroNumericInput,
   hasExplicitZeroFeetAvailableInput,
@@ -192,6 +193,10 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
+import {
+  buildDirectToJobSiteCheckedOutAuditNote,
+  buildDirectToJobSiteCreatedAuditNote,
+} from './boxes/directToJobSite.mjs';
 
 async function listActiveAllocationTransferTargetsForBox(client, orgId, boxId) {
   const canonicalBoxId = await resolveBoxIdAlias(client, orgId, boxId);
@@ -701,6 +706,7 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
 }
 
 function buildPublicJobUsageTimelineEntries(
+  jobNumber,
   rollHistoryEntries,
   boxById,
   caulkCheckouts,
@@ -713,6 +719,8 @@ function buildPublicJobUsageTimelineEntries(
   const normalizedFilmOrderLinks = Array.isArray(filmOrderLinks) ? filmOrderLinks : [];
   const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
   const filmOrderById = {};
+  const filmOrderLinksByBoxId = {};
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
 
   for (let index = 0; index < normalizedFilmOrders.length; index += 1) {
     const filmOrder = normalizedFilmOrders[index];
@@ -762,6 +770,13 @@ function buildPublicJobUsageTimelineEntries(
 
     const filmOrder = filmOrderById[asTrimmedString(link?.filmOrderId)] || null;
     const box = boxById[boxId] || null;
+    if (!filmOrderLinksByBoxId[boxId]) {
+      filmOrderLinksByBoxId[boxId] = [];
+    }
+    filmOrderLinksByBoxId[boxId].push({
+      link,
+      filmOrder,
+    });
     response.push({
       usageType: 'FILM_ORDER',
       occurredAt,
@@ -775,7 +790,96 @@ function buildPublicJobUsageTimelineEntries(
       checkedOutQuantity: integerOrZero(link?.orderedFeet),
       returnedQuantity: 0,
       usedQuantity: 0,
-      notes: ''
+      notes:
+        box?.directToJobSite === true && filmOrder
+          ? buildDirectToJobSiteCreatedAuditNote({
+              filmOrderId: filmOrder.filmOrderId,
+              jobNumber: filmOrder.jobNumber,
+            })
+          : ''
+    });
+  }
+
+  /**
+   * PURPOSE:
+   * Adds an open film checkout snapshot so jobs can show the same real-world
+   * movement before a roll is returned and logged into closed roll history.
+   *
+   * AFFECTS:
+   * Job detail usage timeline, direct-to-site traceability, and warehouse vs
+   * direct-to-site checkout messaging for still-open film usage.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * `runtimeJobDetails.mjs`, `statusTransitions.mjs`, `FilmOrderLinkedBoxes.tsx`,
+   * and job detail/timeline tests.
+   *
+   * COMMON FAILURE MODES:
+   * Duplicate open entries after return, mislabeling post-calibration boxes as
+   * direct-to-site, or showing warehouse-available quantities for checked-out stock.
+   */
+  for (const box of Object.values(boxById || {})) {
+    if (!box || asTrimmedString(box.status).toUpperCase() !== 'CHECKED_OUT') {
+      continue;
+    }
+
+    if (normalizeJobNumberKey(box.lastCheckoutJob) !== normalizedJobNumber) {
+      continue;
+    }
+
+    const boxId = asTrimmedString(box.boxId).toUpperCase();
+    const linkedEntries = filmOrderLinksByBoxId[boxId] || [];
+    const matchingLinkedEntry = linkedEntries.find(
+      (entry) => normalizeJobNumberKey(entry?.filmOrder?.jobNumber) === normalizedJobNumber
+    ) || linkedEntries[0] || null;
+    const linkedFilmOrder = matchingLinkedEntry?.filmOrder || null;
+    const isDirectToSiteOpenCheckout = requiresFirstReturnCalibration(box);
+    const occurredAt =
+      asTrimmedString(matchingLinkedEntry?.link?.createdAt) ||
+      (asTrimmedString(box.lastCheckoutDate)
+        ? `${asTrimmedString(box.lastCheckoutDate)}T00:00:00.000Z`
+        : '');
+
+    if (!occurredAt) {
+      continue;
+    }
+
+    let checkedOutQuantity = integerOrZero(box.feetAvailable);
+    if (isDirectToSiteOpenCheckout) {
+      checkedOutQuantity = integerOrZero(box.initialFeet);
+    } else if (
+      box.lastRollWeightLbs !== null &&
+      box.coreWeightLbs !== null &&
+      box.lfWeightLbsPerFt !== null &&
+      Number(box.lfWeightLbsPerFt) > 0
+    ) {
+      checkedOutQuantity = deriveFeetAvailableFromRollWeight(
+        Number(box.lastRollWeightLbs),
+        Number(box.coreWeightLbs),
+        Number(box.lfWeightLbsPerFt),
+        integerOrZero(box.initialFeet)
+      );
+    }
+
+    response.push({
+      usageType: 'FILM',
+      occurredAt,
+      actor: asTrimmedString(matchingLinkedEntry?.link?.createdBy),
+      warehouse: asTrimmedString(box.warehouse),
+      referenceId: boxId,
+      manufacturer: asTrimmedString(box.manufacturer),
+      itemName: asTrimmedString(box.filmName),
+      itemCode: '',
+      unit: 'LF',
+      checkedOutQuantity,
+      returnedQuantity: 0,
+      usedQuantity: 0,
+      notes:
+        isDirectToSiteOpenCheckout && linkedFilmOrder
+          ? buildDirectToJobSiteCheckedOutAuditNote({
+              filmOrderId: linkedFilmOrder.filmOrderId,
+              jobNumber: linkedFilmOrder.jobNumber,
+            })
+          : `WAREHOUSE_CHECKOUT: Box checked out from warehouse inventory for job ${box.lastCheckoutJob}.`
     });
   }
 

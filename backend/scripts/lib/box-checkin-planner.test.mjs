@@ -105,6 +105,45 @@ test('planBoxCheckIn flags zero-foot returns for auto-zero handling', () => {
   assert.equal(plan.autoMoveToZeroed, true);
 });
 
+test('planBoxCheckIn allows direct-to-site first returns without a received date and still zeroes fully-used rolls', () => {
+  const plan = planBoxCheckIn(
+    buildBox({
+      receivedDate: '',
+      directToJobSite: true,
+      lastRollWeightLbs: null,
+    }),
+    {
+      lastRollWeightLbs: 0,
+      currentFeetOnRoll: 0,
+    },
+    [buildAllocation()],
+    '4580'
+  );
+
+  assert.equal(plan.usedCalibration, true);
+  assert.equal(plan.physicalFeetAfterCheckIn, 0);
+  assert.equal(plan.autoMoveToZeroed, true);
+});
+
+test('planBoxCheckIn requires current feet for approved direct-to-site first returns', () => {
+  assert.throws(
+    () =>
+      planBoxCheckIn(
+        buildBox({
+          receivedDate: '',
+          directToJobSite: true,
+          lastRollWeightLbs: null,
+        }),
+        {
+          lastRollWeightLbs: 3.34,
+        },
+        [buildAllocation()],
+        '4580'
+      ),
+    /CurrentFeetOnRoll is required/
+  );
+});
+
 test('planBoxCheckIn keeps normal weight-only returns on the existing derived path', () => {
   const plan = planBoxCheckIn(
     buildBox({

@@ -69,6 +69,21 @@ export function useBoxFormState({
     setHasAutoSelectedManufacturer(false);
   }, [initialDraft, resetKey]);
 
+  /**
+   * PURPOSE:
+   * Keeps create-mode BoxID suggestions aligned with the active warehouse and the
+   * latest reset state so Add Box and Film Order Intake share the same numbering flow.
+   *
+   * AFFECTS:
+   * Add Box page, Film Order Intake, warehouse prefix remapping, and manual BoxID edits.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * `AddBoxPage.tsx`, `AddBoxPage.test.tsx`, warehouse prefix helpers, and any create-form reset flows.
+   *
+   * COMMON FAILURE MODES:
+   * Cached inventory data can suggest a BoxID before a later form reset clears it; if this
+   * effect does not rerun after resets, Film Order Intake can render with a blank BoxID.
+   */
   useEffect(() => {
     if (mode !== 'create' || !createWarehouse) {
       return;
@@ -128,6 +143,7 @@ export function useBoxFormState({
     createWarehousePrefixToken,
     mode,
     nextBoxIdForCreateWarehouse,
+    resetKey,
     warehouseRegistry.entries
   ]);
 

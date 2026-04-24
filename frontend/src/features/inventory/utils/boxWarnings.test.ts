@@ -4,6 +4,7 @@ import {
   confirmWarnings,
   getAddOrEditWarnings,
   getCheckInWarnings,
+  getCheckoutBlockReason,
   getCheckoutWarnings
 } from './boxWarnings';
 
@@ -115,11 +116,11 @@ describe('boxWarnings', () => {
     );
   });
 
-  it('builds checkout and check-in warnings', () => {
-    expect(
-      getCheckoutWarnings(createBox({ lastRollWeightLbs: null, lastWeighedDate: '' }))
-    ).toEqual([
-      'This box does not have a current Last Roll Weight saved yet.',
+  it('blocks checkout without a saved weight baseline and keeps last weighed as a warning', () => {
+    expect(getCheckoutBlockReason(createBox({ lastRollWeightLbs: null }))).toBe(
+      'Box 2 must be weighed and have a saved Last Roll Weight before it can be checked out from warehouse inventory.'
+    );
+    expect(getCheckoutWarnings(createBox({ lastRollWeightLbs: null, lastWeighedDate: '' }))).toEqual([
       'This box does not have a Last Weighed Date saved yet.'
     ]);
 

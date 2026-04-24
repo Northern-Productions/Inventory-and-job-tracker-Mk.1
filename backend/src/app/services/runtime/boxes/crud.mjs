@@ -3,6 +3,8 @@ import {
   ok,
   asTrimmedString,
   requireString,
+  normalizeJobLifecycleStatus,
+  todayDateString,
   cloneValue,
   hasPositivePhysicalFeet,
   hasIncompleteBoxHistoryForZeroedEdit,
@@ -11,6 +13,8 @@ import {
   applyAddOrEditWarnings,
   toPublicBox,
   findBoxById,
+  findFilmOrderById,
+  findJobByNumber,
   listAllocationsByBox,
   saveBoxRecord,
   seedFilmCatalogRecordIfMissing,
@@ -18,19 +22,37 @@ import {
 } from '../../runtimeDeps.mjs';
 import { findBoxIdConflict } from '../runtimeTransferUsage.mjs';
 import {
+  createAllocationRecord,
   linkBoxToFilmOrder,
   processLinkedFilmOrderReceipt,
 } from '../runtimeAllocationPlanning.mjs';
-import { hasPositiveReactivationSignal } from '../checkout/checkoutFlow.mjs';
+import {
+  hasPositiveReactivationSignal,
+  resolveAllocationsForCheckout,
+} from '../checkout/checkoutFlow.mjs';
 import { cancelAllocationsForZeroedBox } from '../checkout/cancellations.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
+import {
+  assertDirectToJobSiteFlagIsServerOwned,
+  assertNoShipDirectToJobSiteFlag,
+  assertNoWarehouseReceiptInputsForDirectToJobSite,
+  buildDirectToJobSiteCheckedOutAuditNote,
+  buildDirectToJobSiteCreatedAuditNote,
+  getDirectToJobSiteAvailableFeet,
+  getDirectToJobSiteCommittedFeet,
+  parseShipDirectToJobSiteFlag,
+} from './directToJobSite.mjs';
 
 async function addBox(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
+  const filmOrderId = asTrimmedString(payload.filmOrderId);
+  const shipDirectToJobSite = parseShipDirectToJobSiteFlag(payload);
+  let directToJobSiteOrder = null;
+  let directToJobSiteJob = null;
 
   if (await findBoxById(client, orgId, boxId)) {
     throw new HttpError(400, 'A box with this BoxID already exists.');
@@ -44,7 +66,70 @@ async function addBox(client, orgId, payload, actor) {
     );
   }
 
+  assertDirectToJobSiteFlagIsServerOwned(payload, 'Add Box');
+
+  if (shipDirectToJobSite) {
+    if (!filmOrderId) {
+      throw new HttpError(
+        400,
+        'Ship Directly to Job Site is only available when adding a box through Film Order fulfillment.'
+      );
+    }
+
+    assertNoWarehouseReceiptInputsForDirectToJobSite(payload);
+
+    directToJobSiteOrder = await findFilmOrderById(client, orgId, filmOrderId);
+    if (!directToJobSiteOrder) {
+      throw new HttpError(404, 'Film Order not found.');
+    }
+
+    if (directToJobSiteOrder.status === 'CANCELLED') {
+      throw new HttpError(400, 'Cancelled Film Orders cannot receive new boxes.');
+    }
+
+    if (!asTrimmedString(directToJobSiteOrder.jobNumber)) {
+      throw new HttpError(
+        400,
+        `Film Order ${directToJobSiteOrder.filmOrderId} must stay linked to a job before Ship Directly to Job Site can be used.`
+      );
+    }
+
+    if (!asTrimmedString(directToJobSiteOrder.installDate)) {
+      throw new HttpError(
+        400,
+        `Film Order ${directToJobSiteOrder.filmOrderId} must have an Install Date before Ship Directly to Job Site can be used.`
+      );
+    }
+
+    directToJobSiteJob = await findJobByNumber(client, orgId, directToJobSiteOrder.jobNumber);
+    if (!directToJobSiteJob) {
+      throw new HttpError(
+        400,
+        `Film Order ${directToJobSiteOrder.filmOrderId} must stay linked to an active job before Ship Directly to Job Site can be used.`
+      );
+    }
+
+    if (normalizeJobLifecycleStatus(directToJobSiteJob.lifecycleStatus) !== 'ACTIVE') {
+      throw new HttpError(
+        400,
+        `Job ${directToJobSiteOrder.jobNumber} is closed and cannot receive direct-to-job-site film.`
+      );
+    }
+  }
+
   let box = await buildBoxFromPayload(client, orgId, payload, warnings, null);
+  if (shipDirectToJobSite) {
+    box.status = 'ORDERED';
+    box.receivedDate = '';
+    box.initialWeightLbs = null;
+    box.lastRollWeightLbs = null;
+    box.lastWeighedDate = '';
+    box.coreType = '';
+    box.coreWeightLbs = null;
+    box.lfWeightLbsPerFt = null;
+    box.feetAvailable = 0;
+    box.directToJobSite = true;
+  }
   applyAddOrEditWarnings(warnings, null, box);
   box = await saveBoxRecord(client, orgId, box);
   await seedFilmCatalogRecordIfMissing(client, orgId, {
@@ -54,11 +139,105 @@ async function addBox(client, orgId, payload, actor) {
     sourceBoxId: box.boxId
   });
 
-  if (asTrimmedString(payload.filmOrderId)) {
-    const linkedOrder = await linkBoxToFilmOrder(client, orgId, payload.filmOrderId, box, actor);
+  let addLogId = '';
+  if (shipDirectToJobSite && directToJobSiteOrder) {
+    const createdPublicBox = toPublicBox(
+      applyReservationMetricsToBox(box, await listAllocationsByBox(client, orgId, box.boxId))
+    );
+    addLogId = await appendAuditEntry(
+      client,
+      orgId,
+      'ADD_BOX',
+      box.boxId,
+      null,
+      createdPublicBox,
+      actor,
+      buildDirectToJobSiteCreatedAuditNote({
+        filmOrderId: directToJobSiteOrder.filmOrderId,
+        jobNumber: directToJobSiteOrder.jobNumber,
+        userNote: payload.auditNote
+      })
+    );
+  }
+
+  if (filmOrderId) {
+    const linkedOrder = await linkBoxToFilmOrder(client, orgId, filmOrderId, box, actor);
     warnings.push(
       `Box ${box.boxId} was linked to Film Order ${linkedOrder.filmOrderId} for job ${linkedOrder.jobNumber}.`
     );
+
+    if (shipDirectToJobSite) {
+      const committedFeet = getDirectToJobSiteCommittedFeet(linkedOrder, box.initialFeet);
+      if (committedFeet > 0) {
+        await createAllocationRecord(
+          client,
+          orgId,
+          box,
+          {
+            jobNumber: linkedOrder.jobNumber,
+            installDate: linkedOrder.installDate,
+            crewLeader: asTrimmedString(linkedOrder.crewLeader) || asTrimmedString(directToJobSiteJob?.crewLeader)
+          },
+          committedFeet,
+          committedFeet,
+          actor,
+          linkedOrder.filmOrderId
+        );
+      }
+
+      const checkedOutBox = {
+        ...cloneValue(box),
+        status: 'CHECKED_OUT',
+        directToJobSite: true,
+        feetAvailable: getDirectToJobSiteAvailableFeet(box.initialFeet, committedFeet),
+        hasEverBeenCheckedOut: true,
+        lastCheckoutJob: linkedOrder.jobNumber,
+        lastCheckoutDate: todayDateString(),
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      };
+      const publicBeforeCheckout = toPublicBox(
+        applyReservationMetricsToBox(box, await listAllocationsByBox(client, orgId, box.boxId))
+      );
+      box = await saveBoxRecord(client, orgId, checkedOutBox);
+      const allocationResolution = await resolveAllocationsForCheckout(
+        client,
+        orgId,
+        box.boxId,
+        linkedOrder.jobNumber,
+        actor
+      );
+      if (allocationResolution.fulfilledCount > 0) {
+        warnings.push(
+          `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? '' : 's'} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${linkedOrder.jobNumber} after direct-to-site checkout.`
+        );
+      }
+
+      if (allocationResolution.otherJobs.length > 0) {
+        warnings.push(`This box still has active allocations for ${allocationResolution.otherJobs.join(', ')}.`);
+      }
+
+      await recalculateFilmOrdersForBoxLinks(client, orgId, box.boxId, actor);
+      const publicAfterCheckout = toPublicBox(
+        applyReservationMetricsToBox(box, await listAllocationsByBox(client, orgId, box.boxId))
+      );
+      await appendAuditEntry(
+        client,
+        orgId,
+        'SET_STATUS',
+        box.boxId,
+        publicBeforeCheckout,
+        publicAfterCheckout,
+        actor,
+        buildDirectToJobSiteCheckedOutAuditNote({
+          filmOrderId: linkedOrder.filmOrderId,
+          jobNumber: linkedOrder.jobNumber
+        })
+      );
+
+      return ok({ box: publicAfterCheckout, logId: addLogId }, warnings);
+    }
 
     if (box.receivedDate && box.status === 'IN_STOCK') {
       box = await processLinkedFilmOrderReceipt(client, orgId, cloneValue(box), actor, warnings);
@@ -85,6 +264,8 @@ async function addBox(client, orgId, payload, actor) {
 }
 
 async function updateBox(client, orgId, payload, actor) {
+  assertDirectToJobSiteFlagIsServerOwned(payload, 'Update Box');
+  assertNoShipDirectToJobSiteFlag(payload, 'Update Box');
   const warnings = [];
   const requestedMoveToZeroed = payload.moveToZeroed === true || String(payload.moveToZeroed) === 'true';
   const existing = await findBoxById(client, orgId, payload.boxId);

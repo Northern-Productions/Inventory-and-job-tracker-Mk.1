@@ -95,13 +95,28 @@ function resolveDerivedCoreWeight(
 }
 
 export function checkInNeedsCurrentFeet(
-  box: Pick<Box, 'receivedDate' | 'coreWeightLbs' | 'lfWeightLbsPerFt'>
+  box: Pick<Box, 'status' | 'receivedDate' | 'directToJobSite' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'>
 ) {
-  return Boolean(box.receivedDate) && !canDeriveFeetFromSubmittedRollWeight(box);
+  return (
+    (Boolean(box.receivedDate) || requiresFirstReturnCalibration(box)) &&
+    !canDeriveFeetFromSubmittedRollWeight(box)
+  );
+}
+
+export function requiresFirstReturnCalibration(
+  box: Pick<Box, 'status' | 'receivedDate' | 'directToJobSite' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt'>
+) {
+  return (
+    box.status === 'CHECKED_OUT' &&
+    box.directToJobSite === true &&
+    !box.receivedDate &&
+    box.lastRollWeightLbs === null &&
+    !canDeriveFeetFromSubmittedRollWeight(box)
+  );
 }
 
 export function checkInRequiresCoreType(
-  box: Pick<Box, 'receivedDate' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType'>,
+  box: Pick<Box, 'status' | 'receivedDate' | 'directToJobSite' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType'>,
   currentFeetOnRoll: string | null | undefined
 ) {
   if (!checkInNeedsCurrentFeet(box)) {
@@ -142,7 +157,7 @@ export function buildFilmCheckinAuditNote(lastRollWeightLbs: number, currentFeet
 }
 
 export function validateFilmCheckinDraft(
-  box: Pick<Box, 'receivedDate' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType' | 'widthIn' | 'initialFeet'>,
+  box: Pick<Box, 'status' | 'receivedDate' | 'directToJobSite' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType' | 'widthIn' | 'initialFeet'>,
   draft: FilmCheckinDraft
 ): FilmCheckinValidationResult {
   const lastRollWeightLbs = parseNonNegativeNumber(draft.lastRollWeightLbs, 'Last Roll Weight');
@@ -187,7 +202,7 @@ export function validateFilmCheckinDraft(
 }
 
 export function buildFilmCheckinPayload(
-  box: Pick<Box, 'boxId' | 'receivedDate' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType' | 'widthIn' | 'initialFeet'>,
+  box: Pick<Box, 'boxId' | 'status' | 'receivedDate' | 'directToJobSite' | 'lastRollWeightLbs' | 'coreWeightLbs' | 'lfWeightLbsPerFt' | 'coreType' | 'widthIn' | 'initialFeet'>,
   draft: FilmCheckinDraft
 ): SetBoxStatusPayload {
   const validated = validateFilmCheckinDraft(box, draft);

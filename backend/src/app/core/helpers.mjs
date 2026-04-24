@@ -651,6 +651,73 @@ function hasPositivePhysicalFeet(box) {
   return box.initialFeet > 0;
 }
 
+function hasBoxWeightBaseline(box) {
+  return box?.lastRollWeightLbs !== null && box?.lastRollWeightLbs !== undefined;
+}
+
+function isDirectToJobSiteBox(box) {
+  return box?.directToJobSite === true;
+}
+
+function requiresFirstReturnCalibration(box) {
+  return (
+    asTrimmedString(box?.status).toUpperCase() === 'CHECKED_OUT' &&
+    isDirectToJobSiteBox(box) &&
+    !asTrimmedString(box?.receivedDate) &&
+    !hasBoxWeightBaseline(box)
+  );
+}
+
+function isIllegalCheckedOutBoxWithoutWeightBaseline(box) {
+  return (
+    asTrimmedString(box?.status).toUpperCase() === 'CHECKED_OUT' &&
+    !hasBoxWeightBaseline(box) &&
+    !isDirectToJobSiteBox(box)
+  );
+}
+
+function getWarehouseCheckoutWeightRequirementMessage(boxId) {
+  const normalizedBoxId = asTrimmedString(boxId).toUpperCase();
+  return normalizedBoxId
+    ? `Box ${normalizedBoxId} must be weighed and have a saved Last Roll Weight before it can be checked out from warehouse inventory.`
+    : 'This box must be weighed and have a saved Last Roll Weight before it can be checked out from warehouse inventory.';
+}
+
+/**
+ * PURPOSE:
+ * Enforces the box lifecycle invariant around outbound roll-weight baselines.
+ *
+ * AFFECTS:
+ * Box add/update/save flows, checkout transitions, direct-to-site fulfillment,
+ * and any path that persists checked-out inventory state.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * `/services/runtime/boxes`, `/services/runtime/checkout`, SQL `app_api.save_box`,
+ * first-return check-in validation, and frontend checkout/check-in helpers.
+ *
+ * COMMON FAILURE MODES:
+ * Partial checkout side effects, checked-out boxes with no outbound weight,
+ * and direct-to-site exceptions drifting away from warehouse rules.
+ */
+function assertLegalBoxWeightState(box) {
+  if (!isIllegalCheckedOutBoxWithoutWeightBaseline(box)) {
+    return;
+  }
+
+  throw new HttpError(
+    400,
+    'A checked-out box without a saved Last Roll Weight is only allowed when it originated from direct-to-job-site fulfillment.'
+  );
+}
+
+function assertCanCheckoutBoxFromWarehouse(box) {
+  if (asTrimmedString(box?.status).toUpperCase() !== 'IN_STOCK' || hasBoxWeightBaseline(box)) {
+    return;
+  }
+
+  throw new HttpError(400, getWarehouseCheckoutWeightRequirementMessage(box?.boxId));
+}
+
 function hasIncompleteBoxHistoryForZeroedEdit(box) {
   if (!box) {
     return false;
@@ -771,10 +838,6 @@ function applyAddOrEditWarnings(warnings, currentBox, nextBox) {
 }
 
 function applyCheckoutWarnings(warnings, box) {
-  if (box.lastRollWeightLbs === null) {
-    warnings.push('This box does not have a current Last Roll Weight saved yet.');
-  }
-
   if (!box.lastWeighedDate) {
     warnings.push('This box does not have a Last Weighed Date saved yet.');
   }
@@ -892,6 +955,13 @@ export {
   deriveLfWeightLbsPerFtIfPossible,
   isLowStockBox,
   hasPositivePhysicalFeet,
+  hasBoxWeightBaseline,
+  isDirectToJobSiteBox,
+  requiresFirstReturnCalibration,
+  isIllegalCheckedOutBoxWithoutWeightBaseline,
+  getWarehouseCheckoutWeightRequirementMessage,
+  assertLegalBoxWeightState,
+  assertCanCheckoutBoxFromWarehouse,
   hasIncompleteBoxHistoryForZeroedEdit,
   hasExplicitZeroNumericInput,
   hasExplicitZeroFeetAvailableInput,

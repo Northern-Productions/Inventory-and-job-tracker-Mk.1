@@ -36,6 +36,7 @@ export interface Box {
   pricePerLf: number | null;
   purchaseCost: number | null;
   notes: string;
+  directToJobSite?: boolean;
   hasEverBeenCheckedOut: boolean;
   lastCheckoutJob: string;
   lastCheckoutDate: string;
@@ -80,6 +81,7 @@ export interface AddBoxPayload {
   notes?: string;
   auditNote?: string;
   filmOrderId?: string;
+  shipDirectToJobSite?: boolean;
 }
 
 export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId'> {

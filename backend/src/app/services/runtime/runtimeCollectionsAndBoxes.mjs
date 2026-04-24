@@ -694,6 +694,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     pricePerLf: resolvedPricePerLf,
     purchaseCost: submittedPurchaseCost,
     notes: asTrimmedString(payload.notes),
+    directToJobSite: existingBox ? existingBox.directToJobSite === true : false,
     hasEverBeenCheckedOut: existingBox ? existingBox.hasEverBeenCheckedOut === true : false,
     lastCheckoutJob: existingBox ? existingBox.lastCheckoutJob : '',
     lastCheckoutDate: existingBox ? existingBox.lastCheckoutDate : '',

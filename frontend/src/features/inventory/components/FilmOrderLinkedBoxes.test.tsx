@@ -12,7 +12,13 @@ describe('FilmOrderLinkedBoxes', () => {
         <FilmOrderLinkedBoxes
           order={{
             linkedBoxes: [
-              { boxId: 'IL1-0042', orderedFeet: 42, autoAllocatedFeet: 0, isReceived: true },
+              {
+                boxId: 'IL1-0042',
+                orderedFeet: 42,
+                autoAllocatedFeet: 0,
+                isReceived: true,
+                isDirectToJobSite: true
+              },
               { boxId: 'MS1-0100', orderedFeet: 10, autoAllocatedFeet: 0, isReceived: false }
             ]
           }}
@@ -22,6 +28,7 @@ describe('FilmOrderLinkedBoxes', () => {
 
     expect(screen.getByRole('link', { name: 'IL1-0042' }).getAttribute('href')).toBe('/inventory/IL1-0042');
     expect(screen.getByRole('link', { name: 'MS1-0100' }).getAttribute('href')).toBe('/inventory/MS1-0100');
+    expect(screen.getByLabelText('Direct to site IL1-0042')).toBeTruthy();
     expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
     expect(screen.queryByLabelText('Received MS1-0100')).toBeNull();
   });

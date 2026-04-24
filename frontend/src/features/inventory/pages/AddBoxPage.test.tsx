@@ -16,6 +16,7 @@ const addBoxMock = vi.fn();
 const listBoxDealersMock = vi.fn();
 const upsertBoxDealerMock = vi.fn();
 const getFilmCatalogMock = vi.fn();
+const getFilmOrdersMock = vi.fn();
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -53,7 +54,7 @@ vi.mock('../../../api/features/inventoryClient', () => ({
 
 vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmCatalog: () => getFilmCatalogMock(),
-  getFilmOrders: vi.fn(),
+  getFilmOrders: () => getFilmOrdersMock(),
   createFilmOrder: vi.fn(),
   cancelJob: vi.fn(),
   deleteFilmOrder: vi.fn()
@@ -289,12 +290,14 @@ describe('AddBoxPage', () => {
     listBoxDealersMock.mockReset();
     upsertBoxDealerMock.mockReset();
     getFilmCatalogMock.mockReset();
+    getFilmOrdersMock.mockReset();
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
       hasFeatureAccess: () => true
     });
     getFilmCatalogMock.mockResolvedValue([]);
+    getFilmOrdersMock.mockResolvedValue([]);
     listBoxDealersMock.mockResolvedValue([]);
     upsertBoxDealerMock.mockImplementation(async ({ name }: { name: string }) => ({
       dealerId: `dealer-${String(name).trim().toLowerCase().replace(/\s+/g, '-')}`,
@@ -336,6 +339,65 @@ describe('AddBoxPage', () => {
       expect(getInput('BoxID').value).toBe('IL1-0006');
     });
     expect(getInput('Initial Linear Feet').value).toBe('100');
+  });
+
+  it('auto-populates BoxID for normal Add Box even when the warehouse list is already cached', async () => {
+    const queryClient = createQueryClient();
+    const cachedBoxes = [buildBox()];
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1', showRetired: false }), cachedBoxes);
+    searchBoxesMock.mockResolvedValue(cachedBoxes);
+
+    renderPage(queryClient);
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+    expect(getInput('Initial Linear Feet').value).toBe('100');
+  });
+
+  it('auto-populates BoxID for film-order intake when the warehouse list is already cached and keeps the prefilled fields', async () => {
+    const queryClient = createQueryClient();
+    const cachedBoxes = [buildBox()];
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1', showRetired: false }), cachedBoxes);
+    searchBoxesMock.mockResolvedValue(cachedBoxes);
+    getFilmOrdersMock.mockResolvedValue([buildFilmOrderEntry()]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+    expect(screen.getByText('Film Order Intake')).toBeTruthy();
+    expect((screen.getByRole('combobox', { name: /Film Name/i }) as HTMLInputElement).value).toBe('Prestige 60');
+    expect((screen.getByRole('checkbox', { name: 'Ship Directly to Job Site' }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('lets film-order intake users manually edit BoxID after the next BoxID is suggested', async () => {
+    const queryClient = createQueryClient();
+    const cachedBoxes = [buildBox()];
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1', showRetired: false }), cachedBoxes);
+    searchBoxesMock.mockResolvedValue(cachedBoxes);
+    getFilmOrdersMock.mockResolvedValue([buildFilmOrderEntry()]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fireEvent.change(getInput('BoxID'), {
+      target: { value: 'IL1-0099' }
+    });
+
+    expect(getInput('BoxID').value).toBe('IL1-0099');
+    expect((screen.getByRole('checkbox', { name: 'Ship Directly to Job Site' }) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('combobox', { name: /Film Name/i }) as HTMLInputElement).value).toBe('Prestige 60');
   });
 
   it('keeps film-order intake on the form after a partial receipt, updates caches, and advances the next box id', async () => {
@@ -581,6 +643,99 @@ describe('AddBoxPage', () => {
     expect(
       queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)?.[0].linkedBoxes
     ).toEqual([]);
+  });
+
+  it('shows Ship Directly to Job Site only for film-order intake and submits the approved flag without optimistic stock changes', async () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry();
+    const initialBoxes = [buildBox()];
+    const searchKey = inventoryKeys.list({ warehouse: 'IL1', showRetired: false });
+    const deferred = createDeferred<{ result: { box: Box; logId: string }; warnings: string[] }>();
+
+    queryClient.setQueryData(searchKey, initialBoxes);
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    getFilmOrdersMock.mockResolvedValue([filmOrder]);
+    searchBoxesMock.mockResolvedValue(initialBoxes);
+    addBoxMock.mockImplementation(() => deferred.promise);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    expect(await screen.findByRole('checkbox', { name: 'Ship Directly to Job Site' })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: 'Ship Directly to Job Site' })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Ship Directly to Job Site' }));
+    fireEvent.change(getInput('Initial Linear Feet'), {
+      target: { value: '100' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog();
+
+    await waitFor(() => {
+      expect(addBoxMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filmOrderId: 'FO-1',
+          shipDirectToJobSite: true
+        })
+      );
+    });
+    expect(queryClient.getQueryData<Box[]>(searchKey)).toEqual(initialBoxes);
+
+    deferred.resolve({
+      result: {
+        box: buildBox({
+          boxId: 'IL1-0006',
+          status: 'CHECKED_OUT',
+          directToJobSite: true,
+          initialFeet: 100,
+          feetAvailable: 0,
+          lastCheckoutJob: '2941',
+          lastCheckoutDate: '2026-04-13'
+        }),
+        logId: 'log-direct-1'
+      },
+      warnings: []
+    });
+
+    await waitFor(() => {
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Added IL1-0006',
+          variant: 'success'
+        })
+      );
+    });
+  });
+
+  it('disables Ship Directly to Job Site when the linked Film Order has no install date', async () => {
+    const queryClient = createQueryClient();
+    const filmOrder = buildFilmOrderEntry({ installDate: '' });
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    getFilmOrdersMock.mockResolvedValue([filmOrder]);
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    const checkbox = (await screen.findByRole('checkbox', {
+      name: 'Ship Directly to Job Site'
+    })) as HTMLInputElement;
+    expect(checkbox.disabled).toBe(true);
+    expect(
+      screen.getByText(
+        'Film Order FO-1 needs an Install Date before Ship Directly to Job Site can be used.'
+      )
+    ).toBeTruthy();
   });
 
   it('saves a new dealer before creating the box and carries the saved name into the add payload', async () => {

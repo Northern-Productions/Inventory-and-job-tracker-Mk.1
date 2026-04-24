@@ -247,6 +247,7 @@ function buildDetailContext(
     publicFilmOrders,
     usage: buildPublicJobUsageEntries(baseData.rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
+      normalizedJobNumber,
       baseData.rollHistory,
       boxById,
       baseData.caulkCheckouts,

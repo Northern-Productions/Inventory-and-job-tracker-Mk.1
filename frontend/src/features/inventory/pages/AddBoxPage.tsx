@@ -13,6 +13,7 @@ import {
   useAddBox,
   useBoxDealers,
   useFilmCatalog,
+  useFilmOrders,
   useSearchBoxes,
   useUpsertBoxDealer
 } from '../hooks/useInventoryQueries';
@@ -54,6 +55,9 @@ export default function AddBoxPage() {
   const addBoxMutation = useAddBox();
   const boxDealersQuery = useBoxDealers({ enabled: auth.isAuthenticated });
   const filmCatalogQuery = useFilmCatalog();
+  const filmOrdersQuery = useFilmOrders({
+    enabled: auth.isAuthenticated && Boolean(searchParams.get('filmOrderId'))
+  });
   const upsertBoxDealerMutation = useUpsertBoxDealer();
   const warehouseRegistry = useWarehouseRegistry();
   const prefillToken = searchParams.toString();
@@ -71,7 +75,36 @@ export default function AddBoxPage() {
   const [filmOrderDraftSeed, setFilmOrderDraftSeed] = useState<BoxDraft | null>(null);
   const [filmOrderRemainingFeet, setFilmOrderRemainingFeet] = useState<number | null>(null);
   const [filmOrderResetNonce, setFilmOrderResetNonce] = useState(0);
+  const [shipDirectToJobSite, setShipDirectToJobSite] = useState(false);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const linkedFilmOrder = useMemo(
+    () =>
+      (filmOrdersQuery.data || []).find((entry) => entry.filmOrderId === filmOrderPrefill.filmOrderId) || null,
+    [filmOrderPrefill.filmOrderId, filmOrdersQuery.data]
+  );
+  const directToJobSiteBlockedReason = useMemo(() => {
+    if (!filmOrderPrefill.filmOrderId) {
+      return '';
+    }
+
+    if (filmOrdersQuery.isLoading) {
+      return 'Loading the linked Film Order before direct-to-site can be used.';
+    }
+
+    if (!linkedFilmOrder) {
+      return `Film Order ${filmOrderPrefill.filmOrderId} could not be loaded for direct-to-site fulfillment.`;
+    }
+
+    if (!String(linkedFilmOrder.installDate || '').trim()) {
+      return `Film Order ${filmOrderPrefill.filmOrderId} needs an Install Date before Ship Directly to Job Site can be used.`;
+    }
+
+    return '';
+  }, [
+    filmOrderPrefill.filmOrderId,
+    filmOrdersQuery.isLoading,
+    linkedFilmOrder
+  ]);
 
   useEffect(() => {
     if (retryState?.retryWarehouse) {
@@ -135,12 +168,14 @@ export default function AddBoxPage() {
     if (!filmOrderPrefill.filmOrderId) {
       setFilmOrderDraftSeed(null);
       setFilmOrderRemainingFeet(null);
+      setShipDirectToJobSite(false);
       return;
     }
 
     setFilmOrderDraftSeed(baseInitialDraft);
     setFilmOrderRemainingFeet(parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet));
     setFilmOrderResetNonce((current) => current + 1);
+    setShipDirectToJobSite(false);
   }, [baseInitialDraft, filmOrderPrefill.filmOrderId, filmOrderPrefill.remainingToOrderFeet]);
 
   useEffect(
@@ -228,6 +263,17 @@ export default function AddBoxPage() {
       }
       if (filmOrderPrefill.filmOrderId) {
         payload.filmOrderId = filmOrderPrefill.filmOrderId;
+      }
+      if (shipDirectToJobSite) {
+        if (directToJobSiteBlockedReason) {
+          toast.push({
+            title: 'Direct-to-site unavailable',
+            description: directToJobSiteBlockedReason,
+            variant: 'error'
+          });
+          return;
+        }
+        payload.shipDirectToJobSite = true;
       }
       const shouldContinue = confirmWarnings(getAddOrEditWarnings(payload));
       if (!shouldContinue) {
@@ -367,6 +413,34 @@ export default function AddBoxPage() {
               <dt>Remaining To Order LF</dt>
               <dd>{displayedRemainingToOrderFeet || '--'}</dd>
             </div>
+          </div>
+          <div className="panel panel-subtle" style={{ marginTop: '1rem' }}>
+            <label
+              htmlFor="ship-direct-to-job-site"
+              style={{ display: 'grid', gap: '0.5rem' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  id="ship-direct-to-job-site"
+                  aria-label="Ship Directly to Job Site"
+                  type="checkbox"
+                  checked={shipDirectToJobSite}
+                  disabled={Boolean(directToJobSiteBlockedReason)}
+                  onChange={(event) => setShipDirectToJobSite(event.target.checked)}
+                />
+                <strong>Ship Directly to Job Site</strong>
+              </span>
+              <span className="muted-text">
+                Skip warehouse receipt for this Film Order. The box will be created already checked out to job{' '}
+                {formatJobDisplayNumber(filmOrderPrefill.jobNumber, filmOrderPrefill.warehouse)} and its first
+                warehouse return will require both return weight and remaining LF.
+              </span>
+              {directToJobSiteBlockedReason ? (
+                <span className="muted-text" role="alert">
+                  {directToJobSiteBlockedReason}
+                </span>
+              ) : null}
+            </label>
           </div>
         </section>
       ) : null}

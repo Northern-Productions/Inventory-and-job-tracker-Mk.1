@@ -100,6 +100,7 @@ export interface FilmOrderLinkedBox {
   orderedFeet: number;
   autoAllocatedFeet: number;
   isReceived: boolean;
+  isDirectToJobSite?: boolean;
 }
 
 export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';

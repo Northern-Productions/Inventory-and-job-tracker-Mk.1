@@ -26,6 +26,7 @@ import {
   confirmWarnings,
   getAddOrEditWarnings,
   getCheckInWarnings,
+  getCheckoutBlockReason,
   getCheckoutWarnings
 } from '../../utils/boxWarnings';
 import {
@@ -316,6 +317,16 @@ export function useBoxDetailActions({
     }
 
     if (status === 'CHECKED_OUT') {
+      const checkoutBlockReason = getCheckoutBlockReason(box);
+      if (checkoutBlockReason) {
+        pushToast({
+          title: 'Checkout blocked',
+          description: checkoutBlockReason,
+          variant: 'error'
+        });
+        return;
+      }
+
       const checkoutMessage =
         checkoutJobOptions.length > 0
           ? "Select one of this box's active allocated jobs, or choose Enter New Job Number if this checkout is for something else."

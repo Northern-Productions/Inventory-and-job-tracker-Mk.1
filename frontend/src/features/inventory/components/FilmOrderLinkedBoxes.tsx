@@ -30,6 +30,15 @@ export function FilmOrderLinkedBoxes({
           >
             {linkedBox.boxId}
           </Link>
+          {linkedBox.isDirectToJobSite ? (
+            <span
+              className="film-order-linked-box-tag"
+              aria-label={`Direct to site ${linkedBox.boxId}`}
+              title="Shipped directly to job site"
+            >
+              Direct to site
+            </span>
+          ) : null}
           {linkedBox.isReceived ? (
             <span
               className="film-order-linked-box-status"

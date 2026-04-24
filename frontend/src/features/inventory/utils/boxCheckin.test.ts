@@ -3,7 +3,8 @@ import type { Box } from '../../../domain';
 import {
   buildFilmCheckinPayload,
   checkInNeedsCurrentFeet,
-  createFilmCheckinDraft
+  createFilmCheckinDraft,
+  requiresFirstReturnCalibration
 } from './boxHelpers';
 
 function createBox(overrides: Partial<Box> = {}): Box {
@@ -77,6 +78,32 @@ describe('boxCheckin helpers', () => {
 
     expect(checkInNeedsCurrentFeet(box)).toBe(true);
     expect(payload).toEqual({
+      boxId: 'MS1-919',
+      status: 'IN_STOCK',
+      lastRollWeightLbs: 3.34,
+      currentFeetOnRoll: 19,
+      auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+    });
+  });
+
+  it('treats direct-to-site first returns without a received date as required calibration', () => {
+    const box = createBox({
+      receivedDate: '',
+      directToJobSite: true,
+      lastRollWeightLbs: null,
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null
+    });
+
+    expect(requiresFirstReturnCalibration(box)).toBe(true);
+    expect(checkInNeedsCurrentFeet(box)).toBe(true);
+    expect(
+      buildFilmCheckinPayload(box, {
+        lastRollWeightLbs: '3.34',
+        currentFeetOnRoll: '19',
+        coreType: ''
+      })
+    ).toEqual({
       boxId: 'MS1-919',
       status: 'IN_STOCK',
       lastRollWeightLbs: 3.34,

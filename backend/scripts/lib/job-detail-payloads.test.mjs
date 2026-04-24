@@ -5,6 +5,7 @@ import {
   buildAllocationJobDetailPayload,
   buildJobDetailPayload,
 } from '../../src/app/services/runtime/runtimeJobDetails.mjs';
+import { buildPublicJobUsageTimelineEntries } from '../../src/app/services/runtime/runtimeTransferUsage.mjs';
 
 function buildDetailContext() {
   return {
@@ -374,4 +375,66 @@ test('buildAllocationJobDetailPayload keeps the allocation-detail summary aligne
   assert.equal(payload.summary.hasOrderedAllocations, false);
   assert.equal(payload.filmTransferAlerts[0]?.destinationWarehouse, 'MS1');
   assert.equal(payload.caulkAllocations[0]?.usedTubesTotal, 10);
+});
+
+test('buildPublicJobUsageTimelineEntries includes open direct-to-site checkouts before first return', () => {
+  const timeline = buildPublicJobUsageTimelineEntries(
+    '000123',
+    [],
+    {
+      'MS1-LINK': {
+        boxId: 'MS1-LINK',
+        warehouse: 'MS1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 36,
+        status: 'CHECKED_OUT',
+        initialFeet: 50,
+        feetAvailable: 0,
+        directToJobSite: true,
+        receivedDate: '',
+        lastRollWeightLbs: null,
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        lastCheckoutJob: '000123',
+        lastCheckoutDate: '2026-04-15',
+      },
+    },
+    [],
+    [
+      {
+        filmOrderId: 'fo-1',
+        boxId: 'MS1-LINK',
+        orderedFeet: 50,
+        createdAt: '2026-04-15T08:00:00Z',
+        createdBy: 'tester',
+      },
+    ],
+    [
+      {
+        filmOrderId: 'fo-1',
+        jobNumber: '000123',
+        warehouse: 'MS1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+      },
+    ]
+  );
+
+  assert.deepEqual(
+    timeline.map((entry) => [entry.usageType, entry.referenceId, entry.notes]),
+    [
+      [
+        'FILM_ORDER',
+        'MS1-LINK',
+        'DIRECT_TO_SITE_CREATED: Created from Film Order fo-1 for job 000123; shipped directly to job site; no warehouse receipt; no initial weight recorded.',
+      ],
+      [
+        'FILM',
+        'MS1-LINK',
+        'DIRECT_TO_SITE_CHECKED_OUT: Box committed directly to job 000123 from Film Order fo-1.',
+      ],
+    ]
+  );
+  assert.equal(timeline[1]?.checkedOutQuantity, 50);
 });

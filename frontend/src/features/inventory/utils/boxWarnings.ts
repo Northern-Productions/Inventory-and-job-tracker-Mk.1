@@ -13,6 +13,17 @@ function hasEstablishedWeights(box: Box): boolean {
   return box.initialWeightLbs !== null || box.lastRollWeightLbs !== null || box.lfWeightLbsPerFt !== null;
 }
 
+export function getCheckoutBlockReason(box: Pick<Box, 'boxId' | 'status' | 'lastRollWeightLbs'>): string {
+  if (box.status !== 'IN_STOCK' || box.lastRollWeightLbs !== null) {
+    return '';
+  }
+
+  const normalizedBoxId = String(box.boxId || '').trim().toUpperCase();
+  return normalizedBoxId
+    ? `Box ${normalizedBoxId} must be weighed and have a saved Last Roll Weight before it can be checked out from warehouse inventory.`
+    : 'This box must be weighed and have a saved Last Roll Weight before it can be checked out from warehouse inventory.';
+}
+
 function formatWarningMessage(warnings: string[]): string {
   return ['These values look unusual:', '', ...warnings.map((warning) => `- ${warning}`), '', 'Continue anyway?'].join(
     '\n'
@@ -98,10 +109,6 @@ export function getAddOrEditWarnings(
 
 export function getCheckoutWarnings(box: Box): string[] {
   const warnings: string[] = [];
-
-  if (box.lastRollWeightLbs === null) {
-    warnings.push('This box does not have a current Last Roll Weight saved yet.');
-  }
 
   if (!box.lastWeighedDate) {
     warnings.push('This box does not have a Last Weighed Date saved yet.');

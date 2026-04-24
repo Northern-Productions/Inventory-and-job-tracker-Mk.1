@@ -69,7 +69,7 @@ export function useAllocationsPageModel({
   const isSearchingListJobs = Boolean(listSearchQuery.trim());
 
   const jobsQuery = useJobsList(0, {
-    enabled: true,
+    enabled: !isCalendarView,
     lifecycleStatus: selectedLifecycleStatus
   });
   const activeCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
@@ -86,14 +86,17 @@ export function useAllocationsPageModel({
     lifecycleStatus: selectedLifecycleStatus
   });
   const createJobMutation = useCreateJob();
-  const filmCatalogQuery = useFilmCatalog();
-  const caulkProductsQuery = useCaulkProducts();
-
   const jobCreationWorkflow = useJobCreationWorkflow({
     auth,
     createJobMutation,
     navigate,
     toast
+  });
+  const filmCatalogQuery = useFilmCatalog({
+    enabled: jobCreationWorkflow.isNewJobOpen
+  });
+  const caulkProductsQuery = useCaulkProducts({
+    enabled: jobCreationWorkflow.isNewJobOpen
   });
   const calendarWorkflow = useJobsCalendarWorkflow({
     initialJobsViewMode,
@@ -112,8 +115,12 @@ export function useAllocationsPageModel({
     onCalendarGranularityChange: setCalendarGranularity
   });
 
-  const listJobsSource = jobsQuery.data || [];
+  const listJobsSource = isCalendarView ? [] : jobsQuery.data || [];
   const listJobs = useMemo(() => {
+    if (isCalendarView) {
+      return [];
+    }
+
     const scopedEntries = isCompletedWorkflow
       ? listJobsSource.filter((entry) => entry.status === 'COMPLETED')
       : listJobsSource;
@@ -122,6 +129,7 @@ export function useAllocationsPageModel({
       ? sortSearchedJobs(scopedEntries, listSearchQuery, jobSort)
       : sortJobs(scopedEntries, jobSort);
   }, [
+    isCalendarView,
     isCompletedWorkflow,
     isSearchingListJobs,
     jobSort,

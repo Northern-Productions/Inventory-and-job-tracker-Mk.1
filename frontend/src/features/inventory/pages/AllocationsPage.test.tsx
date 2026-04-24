@@ -194,7 +194,7 @@ describe('AllocationsPage', () => {
     });
   });
 
-  it('warms the full list query while defaulting to calendar week mode', () => {
+  it('keeps the list query disabled while defaulting to calendar week mode', () => {
     const html = renderPage();
 
     expect(html).toContain('aria-pressed="true">Calendar</button>');
@@ -202,12 +202,14 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Browse active install dates by week.');
     expect(html).toContain('Install Calendar');
     expect(html).toContain('Mar 22 - Mar 28, 2026');
-    expect(useJobsListMock).toHaveBeenCalledWith(0, { enabled: true, lifecycleStatus: 'ACTIVE' });
+    expect(useJobsListMock).toHaveBeenCalledWith(0, { enabled: false, lifecycleStatus: 'ACTIVE' });
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-26', {
       enabled: true,
       lifecycleStatus: 'ACTIVE',
       view: 'week'
     });
+    expect(useFilmCatalogMock).toHaveBeenCalledWith({ enabled: false });
+    expect(useCaulkProductsMock).toHaveBeenCalledWith({ enabled: false });
   });
 
   it('renders list mode with the refreshed sort options', () => {
@@ -219,6 +221,8 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Allocate');
     expect(html).toContain('Film Order');
     expect(useJobsListMock).toHaveBeenCalledWith(0, { enabled: true, lifecycleStatus: 'ACTIVE' });
+    expect(useFilmCatalogMock).toHaveBeenCalledWith({ enabled: false });
+    expect(useCaulkProductsMock).toHaveBeenCalledWith({ enabled: false });
   });
 
   it('renders the completed workflow copy and data when list mode is selected', () => {

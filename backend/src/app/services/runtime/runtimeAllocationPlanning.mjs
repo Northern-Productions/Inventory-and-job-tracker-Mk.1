@@ -198,6 +198,7 @@ import {
 } from '../runtimeDeps.mjs';
 import {
   getActiveAllocationsForBox,
+  getStoredAllocationCoveredFeet,
   allocationMatchesRequirement,
   normalizeRequirementFilmKey,
   getRequirementPlanningFilmMatch,

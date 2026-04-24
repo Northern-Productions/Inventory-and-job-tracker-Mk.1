@@ -84,6 +84,7 @@ function normalizeBox(box: Box): Box {
   return {
     ...box,
     dealer: String(box.dealer || '').trim(),
+    directToJobSite: box.directToJobSite === true,
     initialFeet,
     feetAvailable: availableFeet,
     physicalFeetAvailable,

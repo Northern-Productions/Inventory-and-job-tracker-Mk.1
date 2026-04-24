@@ -10,6 +10,7 @@ import {
   deriveFeetAvailableFromRollWeight,
   clampFeetToInitialRange,
   normalizeJobNumberKey,
+  requiresFirstReturnCalibration,
 } from '../runtimeDeps.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
@@ -107,6 +108,7 @@ function summarizeOtherJobs(allocations) {
 function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
   const lastRollWeightLbs = coerceNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const normalizedCheckoutJob = normalizeJobNumberKey(checkoutJobNumber);
+  const firstReturnCalibration = requiresFirstReturnCalibration(existingBox);
   const currentFeetOnRoll = parseOptionalCurrentFeetOnRoll(payload.currentFeetOnRoll);
   const activeAllocations = Array.isArray(allocations)
     ? allocations.filter((entry) => asTrimmedString(entry?.status).toUpperCase() === 'ACTIVE')
@@ -151,6 +153,24 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
       : Number(existingBox.lfWeightLbsPerFt);
   let usedCalibration = false;
 
+  /**
+   * PURPOSE:
+   * Keeps the approved direct-to-site first-return exception aligned with the
+   * normal check-in planner so only that checked-out branch can establish the
+   * first warehouse weight/LF baseline.
+   *
+   * AFFECTS:
+   * Box check-in, zeroed transitions on first return, roll history metrics, and
+   * the warehouse/UI requirement for CurrentFeetOnRoll.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * `statusTransitions.mjs`, SQL `api_boxes_set_status`, frontend
+   * `boxCheckin.ts`, and direct-to-site audit/history tests.
+   *
+   * COMMON FAILURE MODES:
+   * Blocking valid first returns, letting generic status edits bypass
+   * calibration, or failing to zero out fully-consumed direct-to-site returns.
+   */
   if (canDeriveCheckInFeetFromWeight(existingBox)) {
     physicalFeetAfterCheckIn = deriveFeetAvailableFromRollWeight(
       lastRollWeightLbs,
@@ -176,19 +196,19 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
     physicalFeetAfterCheckIn = currentFeetOnRoll;
     usedCalibration = true;
 
-      if (currentFeetOnRoll === 0) {
-        if (lastRollWeightLbs > 0) {
-          throw new HttpError(
-            400,
-            'CurrentFeetOnRoll cannot be 0 while LastRollWeightLbs is still above 0.'
+    if (currentFeetOnRoll === 0) {
+      if (lastRollWeightLbs > 0) {
+        throw new HttpError(
+          400,
+          'CurrentFeetOnRoll cannot be 0 while LastRollWeightLbs is still above 0.'
         );
       }
 
       resolvedCoreType = normalizeCoreType(payload.coreType, true) || resolvedCoreType;
-        if (!resolvedCoreWeightLbs && resolvedCoreType) {
-          resolvedCoreWeightLbs = deriveCoreWeightLbs(resolvedCoreType, existingBox.widthIn);
-        }
-      } else {
+      if (!resolvedCoreWeightLbs && resolvedCoreType) {
+        resolvedCoreWeightLbs = deriveCoreWeightLbs(resolvedCoreType, existingBox.widthIn);
+      }
+    } else {
       const resolvedCoreMetrics = resolveCheckInCoreMetrics(existingBox, payload.coreType);
       if (resolvedCoreMetrics.coreWeightLbs === null) {
         throw new HttpError(
@@ -222,7 +242,7 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
 
   const feetAvailableAfterCheckIn = Math.max(physicalFeetAfterCheckIn - otherActiveAllocatedFeet, 0);
   const autoMoveToZeroed =
-    Boolean(existingBox.receivedDate) &&
+    (Boolean(existingBox.receivedDate) || firstReturnCalibration) &&
     integerOrZero(existingBox.initialFeet) > 0 &&
     (physicalFeetAfterCheckIn === 0 || lastRollWeightLbs === 0);
 

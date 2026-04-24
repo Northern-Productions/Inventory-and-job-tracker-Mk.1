@@ -12,6 +12,8 @@ import {
   hasActiveOrderedRequirementAllocations,
   buildOrderedAllocationReceiptMessage,
   boxUsesOrderedPlanning,
+  assertCanCheckoutBoxFromWarehouse,
+  assertLegalBoxWeightState,
   findBoxById,
   saveBoxRecord,
   listAllocationsByBox,
@@ -142,7 +144,7 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
 
   const workingBox = cloneValue(box);
   if (box.status === 'IN_STOCK') {
-    applyCheckoutWarnings(warnings, workingBox);
+    assertCanCheckoutBoxFromWarehouse(workingBox);
     workingBox.status = 'CHECKED_OUT';
     workingBox.hasEverBeenCheckedOut = true;
     workingBox.lastCheckoutJob = normalizedJobNumber;
@@ -150,6 +152,8 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
     workingBox.zeroedDate = '';
     workingBox.zeroedReason = '';
     workingBox.zeroedBy = '';
+    assertLegalBoxWeightState(workingBox);
+    applyCheckoutWarnings(warnings, workingBox);
 
     const autoLinkResult = await autoLinkRemainingJobFeetToCheckedOutBox(
       client,
@@ -330,6 +334,10 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     const currentBox = boxById[step.boxId];
     if (boxUsesOrderedPlanning(currentBox)) {
       continue;
+    }
+
+    if (currentBox && currentBox.status === 'IN_STOCK') {
+      assertCanCheckoutBoxFromWarehouse(currentBox);
     }
 
     const checkoutResult = await checkoutBoxForJob(

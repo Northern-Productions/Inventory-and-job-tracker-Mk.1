@@ -115,6 +115,9 @@ export function useAddBox() {
         queryClient,
         [...snapshotKeys, ...filmOrderSnapshotKeys],
         () => {
+          if (payload.shipDirectToJobSite) {
+            return;
+          }
           applyOptimisticAddBoxToCaches(queryClient, payload);
         }
       );
@@ -127,6 +130,20 @@ export function useAddBox() {
       await context?.operation?.waitForApply();
       queryClient.setQueryData(inventoryKeys.box(result.box.boxId), result.box);
       upsertBoxInSearchCaches(queryClient, result.box);
+      if (_variables.shipDirectToJobSite) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog })
+        ]);
+        void persistOfflineInventoryBox(queryClient, result.box);
+        return;
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),

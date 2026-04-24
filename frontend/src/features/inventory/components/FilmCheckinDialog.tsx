@@ -9,6 +9,7 @@ import {
   checkInNeedsCurrentFeet,
   checkInRequiresCoreType,
   createFilmCheckinDraft,
+  requiresFirstReturnCalibration,
   type FilmCheckinDraft,
   validateFilmCheckinDraft
 } from '../utils/boxHelpers';
@@ -71,6 +72,10 @@ export function FilmCheckinDialog({
   const introCopy = useMemo(() => {
     if (!box) {
       return 'Loading the latest box details before completing this return.';
+    }
+
+    if (requiresFirstReturnCalibration(box)) {
+      return 'This direct-to-site roll is arriving at the warehouse for the first time, so both the returned roll weight and Current Linear Feet are required to establish its tracked inventory baseline.';
     }
 
     if (needsCurrentFeet) {
