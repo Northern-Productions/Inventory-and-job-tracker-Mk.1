@@ -90,6 +90,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
   let updatedBox = cloneValue(existing);
   let auditAction = 'SET_STATUS';
+  let finalAuditNote = asTrimmedString(payload.auditNote);
 
   if (status === 'CHECKED_OUT') {
     assertCanCheckoutBoxFromWarehouse(existing);
@@ -192,6 +193,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
           userNote: payload.auditNote
         })
       : asTrimmedString(payload.auditNote);
+    finalAuditNote = directToSiteFirstReturnNote;
 
     if (checkInPlan.sameJobActiveAllocationCount > 0 && checkoutJob) {
       const sameJobCancellation = await cancelActiveAllocationsForCheckInJob(
@@ -337,14 +339,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     publicBefore,
     publicAfter,
     actor,
-    allowsFirstReturnCalibration
-      ? buildDirectToJobSiteFirstReturnNote({
-          jobNumber: asTrimmedString(updatedBox.lastCheckoutJob) || asTrimmedString(existing.lastCheckoutJob) || 'UNKNOWN',
-          lastRollWeightLbs: updatedBox.lastRollWeightLbs,
-          currentFeetOnRoll: checkInPlan.currentFeetOnRoll ?? checkInPlan.physicalFeetAfterCheckIn,
-          userNote: payload.auditNote
-        })
-      : asTrimmedString(payload.auditNote)
+    finalAuditNote
   );
 
   return ok({ box: publicAfter, logId }, warnings);
