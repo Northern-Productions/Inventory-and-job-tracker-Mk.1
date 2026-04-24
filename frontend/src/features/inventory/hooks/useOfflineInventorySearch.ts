@@ -89,7 +89,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
     setSyncError(null);
 
     try {
-      await syncAllOfflineInventorySnapshots();
+      await syncAllOfflineInventorySnapshots(warehouse);
       await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
     } catch (error) {
       setSyncError(error instanceof Error ? error : new Error('Unable to sync the offline inventory copy.'));
@@ -98,7 +98,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [queryClient]);
+  }, [queryClient, warehouse]);
 
   useEffect(() => {
     function handleStatusChange() {

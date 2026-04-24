@@ -119,4 +119,84 @@ describe('warehouse client APIs', () => {
     expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'TX1', []);
     expect(snapshots.map((entry) => entry.warehouse)).toEqual(['IL1', 'TX1']);
   });
+
+  it('syncs the selected warehouse first and then refreshes remaining warehouses sequentially', async () => {
+    requestMock
+      .mockResolvedValueOnce({
+        data: {
+          entries: [
+            { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+            { code: 'MO1', name: 'St. Louis MO1', boxIdPrefix: 'MO1' },
+            { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+          ]
+        },
+        warnings: []
+      })
+      .mockResolvedValueOnce({
+        data: [],
+        warnings: []
+      })
+      .mockResolvedValueOnce({
+        data: [],
+        warnings: []
+      })
+      .mockResolvedValueOnce({
+        data: [],
+        warnings: []
+      });
+
+    replaceOfflineInventoryBoxesMock
+      .mockResolvedValueOnce({
+        warehouse: 'MO1',
+        boxCount: 0,
+        lastSyncedAt: '2026-04-24T00:00:00.000Z'
+      })
+      .mockResolvedValueOnce({
+        warehouse: 'IL1',
+        boxCount: 0,
+        lastSyncedAt: '2026-04-24T00:00:01.000Z'
+      })
+      .mockResolvedValueOnce({
+        warehouse: 'MS1',
+        boxCount: 0,
+        lastSyncedAt: '2026-04-24T00:00:02.000Z'
+      });
+
+    const snapshots = await syncAllOfflineInventorySnapshots('MO1');
+
+    expect(requestMock).toHaveBeenNthCalledWith(2, 'GET', '/boxes/search', {
+      query: {
+        warehouse: 'MO1',
+        q: undefined,
+        status: undefined,
+        film: undefined,
+        width: undefined,
+        showRetired: true
+      }
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(3, 'GET', '/boxes/search', {
+      query: {
+        warehouse: 'IL1',
+        q: undefined,
+        status: undefined,
+        film: undefined,
+        width: undefined,
+        showRetired: true
+      }
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(4, 'GET', '/boxes/search', {
+      query: {
+        warehouse: 'MS1',
+        q: undefined,
+        status: undefined,
+        film: undefined,
+        width: undefined,
+        showRetired: true
+      }
+    });
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, 'MO1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'IL1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(3, 'MS1', []);
+    expect(snapshots.map((entry) => entry.warehouse)).toEqual(['MO1', 'IL1', 'MS1']);
+  });
 });

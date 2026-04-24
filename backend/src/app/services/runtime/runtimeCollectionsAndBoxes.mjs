@@ -127,6 +127,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByWarehouses,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -726,7 +727,20 @@ async function buildSearchBoxes(client, orgId, params) {
   const film = asTrimmedString(params.film).toLowerCase();
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === 'true';
-  const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
+  /**
+   * PURPOSE:
+   * Loads only the requested warehouse boxes before search/result mapping.
+   *
+   * AFFECTS:
+   * Inventory search, offline snapshot refresh, and allocation planning box candidates.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * Supabase Edge buildSearchBoxes, /boxes/search filters, and offline inventory sync ordering.
+   *
+   * COMMON FAILURE MODES:
+   * Loading all org boxes for each warehouse can exceed production statement timeouts during offline refresh.
+   */
+  const boxes = await listBoxesByWarehouses(client, orgId, Array.from(warehouseFilterSet));
   const activeAllocations = await listActiveAllocations(client, orgId);
   const activeAllocationsByBoxId = {};
   for (let index = 0; index < activeAllocations.length; index += 1) {

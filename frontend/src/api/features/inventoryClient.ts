@@ -321,7 +321,41 @@ export async function syncOfflineInventorySnapshot(
   return replaceOfflineInventoryBoxes(warehouse, boxes);
 }
 
-export async function syncAllOfflineInventorySnapshots(): Promise<OfflineInventorySyncMeta[]> {
+function prioritizeWarehouseCodes(
+  warehouseCodes: Warehouse[],
+  preferredWarehouse?: Warehouse | ''
+): Warehouse[] {
+  const normalizedPreferred = String(preferredWarehouse || '').trim().toUpperCase();
+  const uniqueCodes = Array.from(
+    new Set(warehouseCodes.map((entry) => String(entry || '').trim().toUpperCase()).filter(Boolean))
+  ) as Warehouse[];
+
+  if (!normalizedPreferred) {
+    return uniqueCodes;
+  }
+
+  return [
+    ...uniqueCodes.filter((warehouse) => warehouse === normalizedPreferred),
+    ...uniqueCodes.filter((warehouse) => warehouse !== normalizedPreferred)
+  ];
+}
+
+/**
+ * PURPOSE:
+ * Refreshes per-warehouse IndexedDB snapshots without fanning out heavy inventory reads.
+ *
+ * AFFECTS:
+ * Inventory page offline copy status, offline search fallback, and mutation cache refreshes.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /boxes/search Edge/backend filtering, IndexedDB replaceOfflineInventoryBoxes, and warehouse registry loading.
+ *
+ * COMMON FAILURE MODES:
+ * Parallel all-warehouse refreshes can hit database statement timeouts; failed snapshots must not erase the last good copy.
+ */
+export async function syncAllOfflineInventorySnapshots(
+  preferredWarehouse?: Warehouse | ''
+): Promise<OfflineInventorySyncMeta[]> {
   let warehouseCodes: Warehouse[] = [];
   try {
     warehouseCodes = (await listWarehouses()).map((entry) => entry.code);
@@ -333,9 +367,12 @@ export async function syncAllOfflineInventorySnapshots(): Promise<OfflineInvento
     return [];
   }
 
-  const snapshots = await Promise.all(
-    warehouseCodes.map((warehouse) => syncOfflineInventorySnapshot(warehouse))
-  );
+  const snapshots: Array<OfflineInventorySyncMeta | null> = [];
+  const orderedWarehouseCodes = prioritizeWarehouseCodes(warehouseCodes, preferredWarehouse);
+
+  for (const warehouse of orderedWarehouseCodes) {
+    snapshots.push(await syncOfflineInventorySnapshot(warehouse));
+  }
 
   return snapshots.filter((snapshot): snapshot is OfflineInventorySyncMeta => Boolean(snapshot));
 }

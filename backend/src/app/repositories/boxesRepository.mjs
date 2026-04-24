@@ -184,6 +184,40 @@ async function listBoxes(client, orgId) {
   return rows.map(mapDbBoxRow);
 }
 
+async function listBoxesByWarehouses(client, orgId, warehouses) {
+  const normalizedWarehouses = Array.from(
+    new Set(
+      (Array.isArray(warehouses) ? warehouses : [])
+        .map((entry) => asTrimmedString(entry).toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  if (normalizedWarehouses.length === 0) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select ${buildBoxSelectColumns('b')}
+      from app.boxes b
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = b.org_id
+          and a.box_id = b.box_id
+          and a.status = 'ACTIVE'
+      ) active_allocations on true
+      where b.org_id = $1
+        and b.warehouse = any($2::text[])
+      order by b.box_id
+    `,
+    [orgId, normalizedWarehouses]
+  );
+
+  return rows.map(mapDbBoxRow);
+}
+
 async function listBoxesByIds(client, orgId, boxIds) {
   const normalizedBoxIds = Array.from(
     new Set(
@@ -654,6 +688,7 @@ export {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,
   saveBoxRecord,

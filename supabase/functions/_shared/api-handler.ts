@@ -1282,6 +1282,51 @@ async function listInternalBoxRecordIdsByBoxId(orgId: string, boxIds: string[]) 
   return idsByBoxId;
 }
 
+async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: string[]) {
+  const normalizedWarehouses = Array.from(
+    new Set(warehouses.map((warehouse) => asTrimmedString(warehouse).toUpperCase()).filter(Boolean)),
+  );
+  if (!normalizedWarehouses.length) {
+    return [];
+  }
+
+  /**
+   * PURPOSE:
+   * Loads only the requested warehouse rows for /boxes/search before box mapping.
+   *
+   * AFFECTS:
+   * Inventory search, offline inventory snapshots, and allocation planning values shown on box rows.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * Frontend offline sync ordering, local backend buildSearchBoxes, and app.boxes warehouse indexes.
+   *
+   * COMMON FAILURE MODES:
+   * Falling back to all-org box RPCs can repeat expensive JSON aggregation and hit authenticated statement timeouts.
+   */
+  const serviceClient = requireServiceRoleClient();
+  const rows: any[] = [];
+  for (const warehouseBatch of chunkValues(normalizedWarehouses, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("*")
+      .eq("org_id", orgId)
+      .in("warehouse", warehouseBatch)
+      .order("box_id", { ascending: true });
+    throwOnSupabaseError(error, "Unable to load warehouse box snapshots");
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+
+  const mappedBoxes: any[] = [];
+  for (const row of rows) {
+    const mapped = mapDbBoxRow(row);
+    if (mapped) {
+      mappedBoxes.push(mapped);
+    }
+  }
+  return mappedBoxes;
+}
+
 function pruneFilmNameAliasCache() {
   const now = Date.now();
   for (const [key, entry] of filmNameAliasCache.entries()) {
@@ -4250,7 +4295,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   const film = asTrimmedString(params.film).toLowerCase();
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === "true";
-  const boxes = (await listBoxes(client, orgId)).filter((box) => warehouseFilterSet.has(box.warehouse));
+  const boxes = await listBoxesByWarehouses(client, orgId, Array.from(warehouseFilterSet));
   const activeAllocations = await listActiveAllocations(client, orgId);
   const activeAllocationsByBoxId: Record<string, any[]> = {};
   for (const entry of activeAllocations) {

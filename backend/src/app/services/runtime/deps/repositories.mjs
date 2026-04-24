@@ -10,6 +10,7 @@ export {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,
   saveBoxRecord,
