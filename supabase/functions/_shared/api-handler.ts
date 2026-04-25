@@ -1230,9 +1230,10 @@ function mapBackendBootstrapError(message: string): string {
     normalized.includes('relation "app.allocation_planner_suppressions" does not exist') ||
     (normalized.includes('function public.api_acl_clear_allocation_planner_suppression') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_acl_record_auto_planned_allocation_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.film_allocation_reserves_capacity') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.film_requirement_planner_signature') && normalized.includes('does not exist'))
   ) {
-    return 'Database migration 0086_planner_suppressions.sql is required. Apply missing backend and Supabase migrations through 0086, then retry.';
+    return 'Database migrations through 0087_allocation_reserved_availability.sql are required. Apply missing backend and Supabase migrations through 0087, then retry.';
   }
   if (
     (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
@@ -2905,8 +2906,16 @@ function getBoxAllocationPlanningFeet(box: any, activeAllocationsByBox?: Record<
     return 0;
   }
 
-  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
-    return Math.max(0, integerOrZero(box.allocationPlanningFeet));
+  if (activeAllocationsByBox && Object.prototype.hasOwnProperty.call(activeAllocationsByBox, box.boxId)) {
+    return buildBoxReservationSnapshot(box, activeAllocationsByBox[box.boxId]).allocatableNowFeet;
+  }
+
+  if (
+    box.allocatableNowFeet !== undefined &&
+    box.allocatableNowFeet !== null &&
+    Number.isFinite(Number(box.allocatableNowFeet))
+  ) {
+    return Math.max(0, integerOrZero(box.allocatableNowFeet));
   }
 
   const activeAllocatedFeet =
@@ -3836,7 +3845,7 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
     activeAllocationsByBoxId[entry.boxId].push(entry);
   }
 
-  const reservationSnapshotsByBoxId: Record<string, ReturnType<typeof buildBoxReservationSnapshot>> = {};
+  const reservationSnapshotsByBoxId: Record<string, any> = {};
   for (const boxId of Object.keys(activeAllocationsByBoxId)) {
     const box = boxById[boxId];
     if (!box) {
@@ -3894,7 +3903,16 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
   const normalizedFilmOrderIds = Array.from(
     new Set((Array.isArray(filmOrderIds) ? filmOrderIds : []).map((filmOrderId) => asTrimmedString(filmOrderId)).filter(Boolean)),
   );
-  const linkedBoxesByFilmOrderId: Record<string, Array<{ boxId: string; orderedFeet: number; autoAllocatedFeet: number }>> = {};
+  const linkedBoxesByFilmOrderId: Record<
+    string,
+    Array<{
+      boxId: string;
+      orderedFeet: number;
+      autoAllocatedFeet: number;
+      dealer: string;
+      isReceived: boolean;
+    }>
+  > = {};
   if (!normalizedFilmOrderIds.length) {
     return linkedBoxesByFilmOrderId;
   }

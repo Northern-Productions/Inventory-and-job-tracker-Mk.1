@@ -11,6 +11,7 @@ function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' |
     widthIn: overrides.widthIn,
     initialFeet: overrides.initialFeet ?? 100,
     feetAvailable: overrides.feetAvailable ?? 100,
+    allocatableNowFeet: overrides.allocatableNowFeet ?? overrides.feetAvailable ?? 100,
     allocationPlanningFeet: overrides.allocationPlanningFeet ?? overrides.feetAvailable ?? 100,
     lotRun: overrides.lotRun || '',
     status: overrides.status || 'IN_STOCK',
@@ -72,6 +73,7 @@ describe('findMatchingBoxesForRequirement', () => {
           widthIn: 60,
           status: 'ORDERED',
           feetAvailable: 0,
+          allocatableNowFeet: 55,
           allocationPlanningFeet: 55
         })
       ],
@@ -119,6 +121,7 @@ describe('findMatchingBoxesForRequirement', () => {
           widthIn: 72,
           status: 'ORDERED',
           feetAvailable: 0,
+          allocatableNowFeet: 120,
           allocationPlanningFeet: 120
         })
       ],
@@ -436,6 +439,47 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching).toHaveLength(1);
     expect(matching[0].boxId).toBe('IL1-60-A');
     expect(matching[0].feetAvailable).toBe(25);
+  });
+
+  it('hides fully reserved candidates even when display planning LF is stale', () => {
+    const requirement = buildRequirement({ widthIn: 60 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-6594',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60,
+          feetAvailable: 100,
+          allocatableNowFeet: 0,
+          allocationPlanningFeet: 100
+        })
+      ],
+      requirement
+    );
+
+    expect(matching).toHaveLength(0);
+  });
+
+  it('keeps partially reserved candidates using only leftover allocatable LF', () => {
+    const requirement = buildRequirement({ widthIn: 60 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-6594',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60,
+          feetAvailable: 100,
+          allocatableNowFeet: 25,
+          allocationPlanningFeet: 100
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-6594']);
+    expect(matching[0].allocatableNowFeet).toBe(25);
   });
 
   it('covers 85 LF using two 60-inch rolls first, then a wider 72-inch roll for the remainder', () => {

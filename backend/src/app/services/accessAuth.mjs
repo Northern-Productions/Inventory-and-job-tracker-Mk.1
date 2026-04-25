@@ -286,9 +286,10 @@ function mapDatabaseBootstrapError(message) {
     normalized.includes('relation "app.allocation_planner_suppressions" does not exist') ||
     (normalized.includes('function public.api_acl_clear_allocation_planner_suppression') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_acl_record_auto_planned_allocation_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.film_allocation_reserves_capacity') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.film_requirement_planner_signature') && normalized.includes('does not exist'))
   ) {
-    return 'Database migration 0086_planner_suppressions.sql is required. Apply missing backend and Supabase migrations through 0086, then retry.';
+    return 'Database migrations through 0087_allocation_reserved_availability.sql are required. Apply missing backend and Supabase migrations through 0087, then retry.';
   }
   if (
     (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||

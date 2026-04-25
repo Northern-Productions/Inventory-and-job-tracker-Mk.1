@@ -73,13 +73,13 @@ function normalizeBox(box: Box): Box {
       ? Math.max(0, availableFeet + allocatedWithInstallDateFeet)
       : Math.max(0, Number(box.physicalFeetAvailable || 0));
   const activePlanningFeet =
-    box.allocationPlanningFeet === undefined || box.allocationPlanningFeet === null
-      ? box.status === 'IN_STOCK' || box.status === 'TRANSFER'
-        ? allocatableNowFeet
+    box.allocatableNowFeet !== undefined && box.allocatableNowFeet !== null
+      ? allocatableNowFeet
+      : box.status === 'IN_STOCK' || box.status === 'TRANSFER'
+        ? availableFeet
         : box.status === 'ORDERED'
           ? Math.max(0, initialFeet - activeAllocatedFeet)
-          : 0
-      : Math.max(0, Number(box.allocationPlanningFeet || 0));
+          : 0;
 
   return {
     ...box,

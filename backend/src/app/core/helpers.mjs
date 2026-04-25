@@ -8,16 +8,11 @@ import {
 } from '../../config/runtime.mjs';
 import { HttpError } from '../../lib/http.mjs';
 import { WAREHOUSE_CODE_PATTERN } from '../../../../shared/domain/runtimeContract.mjs';
+import { buildBoxReservationSnapshot } from '../../../../shared/domain/filmAllocationReservations.mjs';
 
 function getActiveAllocatedFeetForBox(boxId, activeAllocationsByBox = {}) {
   const entries = activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];
-  let total = 0;
-
-  for (let index = 0; index < entries.length; index += 1) {
-    total += integerOrZero(entries[index]?.allocatedFeet);
-  }
-
-  return total;
+  return buildBoxReservationSnapshot({ boxId }, entries).activeAllocatedFeet;
 }
 
 function asTrimmedString(value) {
@@ -180,6 +175,24 @@ function isJobAllocationEligibleBox(box, pendingTransfer, jobWarehouse) {
 }
 
 function computeAllocationPlanningFeet(status, initialFeet, feetAvailable, activeAllocatedFeet) {
+  /**
+   * PURPOSE:
+   * Legacy display fallback when the caller cannot provide allocation rows.
+   * Allocation decisions should use getBoxAllocationPlanningFeet with current
+   * reservations so allocationPlanningFeet is never treated as authoritative.
+   *
+   * AFFECTS:
+   * Box mappers, optimistic cache fallbacks, ordered box display, and schema
+   * parity checks that still expose this helper.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * shared/domain/filmAllocationReservations.mjs, SQL availability functions,
+   * Edge mapper fallbacks, and frontend cache helpers.
+   *
+   * COMMON FAILURE MODES:
+   * Trusting stale display fields, double-counting ACTIVE reservations, or
+   * offering AUTO_PLANNED LF again in preview/apply flows.
+   */
   const normalizedStatus = asTrimmedString(status).toUpperCase();
   if (normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER') {
     return Math.max(0, integerOrZero(feetAvailable));
@@ -197,8 +210,16 @@ function getBoxAllocationPlanningFeet(box, activeAllocationsByBox) {
     return 0;
   }
 
-  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
-    return Math.max(0, integerOrZero(box.allocationPlanningFeet));
+  if (activeAllocationsByBox && Object.prototype.hasOwnProperty.call(activeAllocationsByBox, box.boxId)) {
+    return buildBoxReservationSnapshot(box, activeAllocationsByBox[box.boxId]).allocatableNowFeet;
+  }
+
+  if (
+    box.allocatableNowFeet !== undefined &&
+    box.allocatableNowFeet !== null &&
+    Number.isFinite(Number(box.allocatableNowFeet))
+  ) {
+    return Math.max(0, integerOrZero(box.allocatableNowFeet));
   }
 
   const activeAllocatedFeet =

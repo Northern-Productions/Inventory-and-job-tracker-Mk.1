@@ -7,17 +7,19 @@ import {
   getJobPlanningFilmMatch
 } from './jobPlanningFilmIdentity';
 
-function getBoxPlanningFeet(box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable' | 'allocationPlanningFeet'>) {
-  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
-    return Math.max(0, Number(box.allocationPlanningFeet || 0));
+function getBoxPlanningFeet(
+  box: Pick<Box, 'status' | 'feetAvailable' | 'allocatableNowFeet'>
+) {
+  if (
+    box.allocatableNowFeet !== undefined &&
+    box.allocatableNowFeet !== null &&
+    Number.isFinite(Number(box.allocatableNowFeet))
+  ) {
+    return Math.max(0, Number(box.allocatableNowFeet || 0));
   }
 
   if (box.status === 'IN_STOCK' || box.status === 'TRANSFER') {
     return Math.max(0, Number(box.feetAvailable || 0));
-  }
-
-  if (box.status === 'ORDERED') {
-    return Math.max(0, Number(box.initialFeet || 0));
   }
 
   return 0;

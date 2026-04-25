@@ -299,7 +299,8 @@ export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogPr
           Request LF for a job, then review compatible boxes in the same warehouse before saving.
         </p>
         <p className="muted-text">
-          This source box is {formatBoxStatusLabel(box.status)} with {box.allocationPlanningFeet} LF of planning capacity.
+          This source box is {formatBoxStatusLabel(box.status)} with{' '}
+          {Math.max(0, Number(box.allocatableNowFeet ?? box.allocationPlanningFeet ?? 0))} LF of planning capacity.
         </p>
       </div>
         <div className="form-grid">

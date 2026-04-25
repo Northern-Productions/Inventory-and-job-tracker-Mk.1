@@ -89,6 +89,24 @@ describe('jobAllocationSelection', () => {
     expect(selected).toEqual(['A', 'B', 'C']);
   });
 
+  it('uses allocatableNowFeet ahead of stale display planning LF', () => {
+    const selected = autoSelectCandidateBoxIds(
+      [
+        buildCandidate('stale-display', 100, {
+          allocatableNowFeet: 0,
+          allocationPlanningFeet: 100
+        }),
+        buildCandidate('leftover', 100, {
+          allocatableNowFeet: 25,
+          allocationPlanningFeet: 100
+        })
+      ],
+      20
+    );
+
+    expect(selected).toEqual(['leftover']);
+  });
+
   it('auto-selects preferred boxes first when they are linked to the job film order', () => {
     const selected = autoSelectCandidateBoxIds(
       [
@@ -178,6 +196,21 @@ describe('jobAllocationSelection', () => {
     const invalidValidation = buildValidatedExtraAllocations(candidates, extraBoxIds, { A: '100' });
     expect(invalidValidation.error).toContain('cannot exceed');
     expect(canSubmitAllocationRequest(0, invalidValidation.extraAllocations.length)).toBe(false);
+  });
+
+  it('validates extra LF against leftover allocatable capacity, not display planning LF', () => {
+    const validation = buildValidatedExtraAllocations(
+      [
+        buildCandidate('A', 100, {
+          allocatableNowFeet: 12,
+          allocationPlanningFeet: 100
+        })
+      ],
+      ['A'],
+      { A: '13' }
+    );
+
+    expect(validation.error).toContain('cannot exceed 12 planning LF');
   });
 
   it('builds full-box extra allocations in the user selected order', () => {

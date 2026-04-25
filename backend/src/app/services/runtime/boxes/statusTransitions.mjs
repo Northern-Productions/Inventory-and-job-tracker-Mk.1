@@ -212,6 +212,16 @@ async function setBoxStatus(client, orgId, payload, actor) {
     if (checkInPlan.otherJobs.length > 0) {
       warnings.push(`This box still has active allocations for ${checkInPlan.otherJobs.join(', ')}.`);
     }
+    if (checkInPlan.autoPlannedReservationOverageFeet > 0) {
+      warnings.push(
+        `${checkInPlan.autoPlannedReservationOverageFeet} LF of AUTO_PLANNED reservations no longer fit this box and will be replanned from available same-warehouse stock.`
+      );
+    }
+    if (checkInPlan.manualReservationOverageFeet > 0) {
+      warnings.push(
+        `${checkInPlan.manualReservationOverageFeet} LF of manual reservations no longer fit this box. Review and explicitly release or reassign those allocations.`
+      );
+    }
 
     updatedBox.status = 'IN_STOCK';
     if (allowsFirstReturnCalibration) {

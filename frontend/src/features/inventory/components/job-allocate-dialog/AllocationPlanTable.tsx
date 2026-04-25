@@ -5,12 +5,25 @@ interface AllocationCandidate {
   manufacturer: string;
   filmName: string;
   widthIn: number;
+  allocatableNowFeet?: number | null;
   allocationPlanningFeet: number;
   status: string;
 }
 
 function formatBoxStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
+}
+
+function getDisplayPlanningFeet(box: AllocationCandidate) {
+  if (
+    box.allocatableNowFeet !== undefined &&
+    box.allocatableNowFeet !== null &&
+    Number.isFinite(Number(box.allocatableNowFeet))
+  ) {
+    return Math.max(0, Math.floor(Number(box.allocatableNowFeet || 0)));
+  }
+
+  return Math.max(0, Math.floor(Number(box.allocationPlanningFeet || 0)));
 }
 
 interface AllocationPlanTableProps {
@@ -105,7 +118,7 @@ export function AllocationPlanTable({
                 <td>
                   <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
                 </td>
-                <td>{box.allocationPlanningFeet}</td>
+                <td>{getDisplayPlanningFeet(box)}</td>
                 <td>
                   {plannedFeetByBox.has(box.boxId)
                     ? formatPlannedFeet(

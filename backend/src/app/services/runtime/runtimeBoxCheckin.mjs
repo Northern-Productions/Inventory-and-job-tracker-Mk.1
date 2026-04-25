@@ -12,7 +12,10 @@ import {
   normalizeJobNumberKey,
   requiresFirstReturnCalibration,
 } from '../runtimeDeps.mjs';
-import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
+import {
+  allocationReservesCapacity,
+  normalizeAllocationSource,
+} from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function canDeriveCheckInFeetFromWeight(box) {
   return (
@@ -105,6 +108,10 @@ function summarizeOtherJobs(allocations) {
   return otherJobs;
 }
 
+function sumAllocatedFeet(entries) {
+  return entries.reduce((total, entry) => total + integerOrZero(entry?.allocatedFeet), 0);
+}
+
 function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
   const lastRollWeightLbs = coerceNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const normalizedCheckoutJob = normalizeJobNumberKey(checkoutJobNumber);
@@ -113,29 +120,27 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
   const activeAllocations = Array.isArray(allocations)
     ? allocations.filter((entry) => asTrimmedString(entry?.status).toUpperCase() === 'ACTIVE')
     : [];
+  const activeCapacityAllocations = activeAllocations.filter((entry) =>
+    allocationReservesCapacity(entry, existingBox)
+  );
 
   const sameJobActiveAllocations = normalizedCheckoutJob
     ? activeAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) === normalizedCheckoutJob)
     : [];
   const otherActiveAllocations = normalizedCheckoutJob
-    ? activeAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) !== normalizedCheckoutJob)
-    : activeAllocations;
-  const activeLockedAllocatedFeetBeforeCheckIn = activeAllocations.reduce(
-    (total, entry) =>
-      total +
-      (getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0),
-    0
+    ? activeCapacityAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) !== normalizedCheckoutJob)
+    : activeCapacityAllocations;
+  const otherStoredCapacityAllocations = otherActiveAllocations.filter(
+    (entry) => normalizeAllocationSource(entry?.allocationSource ?? entry?.allocation_source) !== 'AUTO_PLANNED'
   );
-  const sameJobActiveAllocatedFeet = sameJobActiveAllocations.reduce(
-    (total, entry) => total + integerOrZero(entry?.allocatedFeet),
-    0
+  const otherAutoPlannedAllocations = otherActiveAllocations.filter(
+    (entry) => normalizeAllocationSource(entry?.allocationSource ?? entry?.allocation_source) === 'AUTO_PLANNED'
   );
-  const otherActiveAllocatedFeet = otherActiveAllocations.reduce(
-    (total, entry) =>
-      total +
-      (getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0),
-    0
-  );
+  const activeLockedAllocatedFeetBeforeCheckIn = sumAllocatedFeet(activeCapacityAllocations);
+  const sameJobActiveAllocatedFeet = sumAllocatedFeet(sameJobActiveAllocations);
+  const otherActiveAllocatedFeet = sumAllocatedFeet(otherActiveAllocations);
+  const otherStoredAllocatedFeet = sumAllocatedFeet(otherStoredCapacityAllocations);
+  const otherAutoPlannedAllocatedFeet = sumAllocatedFeet(otherAutoPlannedAllocations);
   const physicalFeetBeforeCheckIn = derivePhysicalFeetBeforeCheckIn(
     existingBox,
     activeLockedAllocatedFeetBeforeCheckIn
@@ -233,14 +238,15 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
     }
   }
 
-  if (otherActiveAllocatedFeet > physicalFeetAfterCheckIn) {
-    throw new HttpError(
-      400,
-      `Received physical LF cannot be lower than the box's active allocated feet (${otherActiveAllocatedFeet}).`
-    );
-  }
-
-  const feetAvailableAfterCheckIn = Math.max(physicalFeetAfterCheckIn - otherActiveAllocatedFeet, 0);
+  const manualReservationOverageFeet = Math.max(otherStoredAllocatedFeet - physicalFeetAfterCheckIn, 0);
+  const autoPlannedReservationOverageFeet = Math.max(
+    otherActiveAllocatedFeet - Math.max(physicalFeetAfterCheckIn, otherStoredAllocatedFeet),
+    0
+  );
+  const feetAvailableAfterCheckIn = Math.max(
+    physicalFeetAfterCheckIn - Math.min(otherStoredAllocatedFeet, physicalFeetAfterCheckIn),
+    0
+  );
   const autoMoveToZeroed =
     (Boolean(existingBox.receivedDate) || firstReturnCalibration) &&
     integerOrZero(existingBox.initialFeet) > 0 &&
@@ -255,6 +261,10 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
     sameJobActiveAllocationCount: sameJobActiveAllocations.length,
     sameJobActiveAllocatedFeet,
     otherActiveAllocatedFeet,
+    otherStoredAllocatedFeet,
+    otherAutoPlannedAllocatedFeet,
+    manualReservationOverageFeet,
+    autoPlannedReservationOverageFeet,
     otherJobs: summarizeOtherJobs(otherActiveAllocations),
     coreType: resolvedCoreType,
     coreWeightLbs: resolvedCoreWeightLbs,

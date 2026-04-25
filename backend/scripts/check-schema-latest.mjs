@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0086_planner_suppressions.sql';
+const LATEST_MIGRATION = '0087_allocation_reserved_availability.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -65,6 +65,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.recalculate_film_order(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.film_box_planner_physical_capacity(app.boxes)' },
+  { kind: 'function', signature: 'app_api.film_allocation_reserves_capacity(app.allocations, text)' },
+  { kind: 'function', signature: 'app_api.film_allocation_consumes_stored_capacity(app.allocations, text)' },
+  { kind: 'function', signature: 'app_api.reserved_film_allocated_feet_for_box(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.stored_film_allocated_feet_for_box(uuid, text)' },
   { kind: 'function', signature: 'app_api.active_film_allocated_feet_for_box(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
@@ -307,6 +311,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app.allocation_planner_suppressions',
       'if v_is_suppressed then',
       'truncate auto_planner_desired_caulk',
+      'app_api.film_allocation_reserves_capacity(a, bx.status)',
       "coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'",
       "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",

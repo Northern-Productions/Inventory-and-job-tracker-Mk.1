@@ -23,7 +23,7 @@ Architecture map: [docs/architecture/modular-map.md](docs/architecture/modular-m
   - serves inventory, jobs, allocations, film orders, audit history, roll history, and reports
 - Database: Supabase Postgres
   - canonical migration history lives in `backend/migrations/`
-  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0082_create_cancel_active_allocations_for_box_job_wrapper.sql`
+  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0087_allocation_reserved_availability.sql`
   - mirrored deploy copy lives in `supabase/migrations/`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
@@ -62,12 +62,13 @@ backend/
 
 Run all checked-in `backend/migrations/*.sql` files in numeric order through:
 
-1. `backend/migrations/0082_create_cancel_active_allocations_for_box_job_wrapper.sql`
+1. `backend/migrations/0087_allocation_reserved_availability.sql`
 
 The mirrored Supabase deploy copies for this release are:
 
 - `supabase/migrations/20260425090000_create_append_roll_history_wrapper.sql`
 - `supabase/migrations/20260425093000_create_cancel_active_allocations_for_box_job_wrapper.sql`
+- `supabase/migrations/20260425130000_allocation_reserved_availability.sql`
 
 ### 2. Import legacy sheet data if needed
 

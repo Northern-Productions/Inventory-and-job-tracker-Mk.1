@@ -401,6 +401,7 @@ describe('JobAllocateDialog', () => {
         widthIn: 60,
         initialFeet: 80,
         feetAvailable: 0,
+        allocatableNowFeet: 40,
         allocationPlanningFeet: 40,
         status: 'ORDERED',
         receivedDate: ''

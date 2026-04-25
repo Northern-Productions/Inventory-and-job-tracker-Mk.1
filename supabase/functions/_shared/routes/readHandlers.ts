@@ -353,11 +353,15 @@ const readHandlers: Record<string, ReadHandler> = {
     const reservationSnapshot = box ? buildBoxReservationSnapshot(box, entries) : null;
     return ok({
       entries: entries.map((entry) => {
+        const allocationEntry = entry as Record<string, unknown>;
+        const allocationSnapshotsById = (reservationSnapshot as any)?.allocationSnapshotsById || {};
         const allocationSnapshot =
-          reservationSnapshot?.allocationSnapshotsById?.[deps.asTrimmedString(entry?.allocationId)] || null;
+          allocationSnapshotsById[deps.asTrimmedString(allocationEntry.allocationId)] || null;
         return {
           ...deps.toPublicAllocation(entry),
-          backedPhysicalFeet: allocationSnapshot ? allocationSnapshot.backedPhysicalFeet : deps.integerOrZero(entry?.allocatedFeet),
+          backedPhysicalFeet: allocationSnapshot
+            ? allocationSnapshot.backedPhysicalFeet
+            : deps.integerOrZero(allocationEntry.allocatedFeet),
           reservationState: allocationSnapshot ? allocationSnapshot.reservationState : "WITHOUT_INSTALL_DATE",
         };
       }),

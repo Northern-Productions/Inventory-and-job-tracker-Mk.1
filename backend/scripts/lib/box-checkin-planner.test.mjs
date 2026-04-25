@@ -35,6 +35,9 @@ function buildAllocation(overrides = {}) {
     allocatedFeet: 20,
     status: 'ACTIVE',
     filmOrderId: '',
+    requirementId: '11111111-1111-4111-8111-111111111111',
+    allocationKind: 'REQUIREMENT',
+    allocationSource: 'MANUAL',
     ...overrides,
   };
 }
@@ -168,27 +171,54 @@ test('planBoxCheckIn keeps normal weight-only returns on the existing derived pa
   assert.equal(plan.sameJobActiveAllocatedFeet, 15);
 });
 
-test('planBoxCheckIn rejects impossible returns when other-job reservations exceed returned feet', () => {
-  assert.throws(
-    () =>
-      planBoxCheckIn(
-        buildBox(),
-        {
-          lastRollWeightLbs: 1.9,
-          currentFeetOnRoll: 5,
-        },
-        [
-          buildAllocation(),
-          buildAllocation({
-            allocationId: 'alloc-2',
-            jobNumber: '7777',
-            allocatedFeet: 10,
-          }),
-        ],
-        '4580'
-      ),
-    /active allocated feet \(10\)/
+test('planBoxCheckIn flags manual reservations that exceed returned physical LF', () => {
+  const plan = planBoxCheckIn(
+    buildBox(),
+    {
+      lastRollWeightLbs: 1.9,
+      currentFeetOnRoll: 5,
+    },
+    [
+      buildAllocation(),
+      buildAllocation({
+        allocationId: 'alloc-2',
+        jobNumber: '7777',
+        allocatedFeet: 10,
+      }),
+    ],
+    '4580'
   );
+
+  assert.equal(plan.physicalFeetAfterCheckIn, 5);
+  assert.equal(plan.feetAvailableAfterCheckIn, 0);
+  assert.equal(plan.manualReservationOverageFeet, 5);
+  assert.equal(plan.autoPlannedReservationOverageFeet, 0);
+});
+
+test('planBoxCheckIn leaves AUTO_PLANNED overage for planner reconciliation', () => {
+  const plan = planBoxCheckIn(
+    buildBox(),
+    {
+      lastRollWeightLbs: 1.9,
+      currentFeetOnRoll: 5,
+    },
+    [
+      buildAllocation(),
+      buildAllocation({
+        allocationId: 'alloc-2',
+        jobNumber: '7777',
+        allocatedFeet: 10,
+        allocationSource: 'AUTO_PLANNED',
+      }),
+    ],
+    '4580'
+  );
+
+  assert.equal(plan.physicalFeetAfterCheckIn, 5);
+  assert.equal(plan.feetAvailableAfterCheckIn, 5);
+  assert.equal(plan.otherAutoPlannedAllocatedFeet, 10);
+  assert.equal(plan.manualReservationOverageFeet, 0);
+  assert.equal(plan.autoPlannedReservationOverageFeet, 5);
 });
 
 test('planBoxCheckIn requires a core type when calibration cannot derive a core weight', () => {

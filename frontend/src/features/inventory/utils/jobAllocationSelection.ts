@@ -5,6 +5,7 @@ export interface AllocationCandidateBox {
   warehouse?: string;
   feetAvailable: number;
   planningFeet?: number;
+  allocatableNowFeet?: number | null;
   allocationPlanningFeet?: number;
   boxStatus?: string;
   status?: string;
@@ -44,7 +45,7 @@ function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
 function getCandidatePlanningFeet(candidate: AllocationCandidateBox) {
   return Math.max(
     0,
-    Math.floor(Number((candidate.planningFeet ?? candidate.allocationPlanningFeet ?? candidate.feetAvailable) || 0))
+    Math.floor(Number((candidate.planningFeet ?? candidate.allocatableNowFeet ?? candidate.feetAvailable) || 0))
   );
 }
 

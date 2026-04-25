@@ -5,9 +5,15 @@ import { matchesBoxSearchQuery, rankBoxSearchCandidates } from '../../../domain/
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 
-export function getBoxAllocationPlanningFeet(box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable' | 'allocationPlanningFeet'>) {
-  if (Number.isFinite(Number(box.allocationPlanningFeet))) {
-    return Math.max(0, Number(box.allocationPlanningFeet || 0));
+export function getBoxAllocationPlanningFeet(
+  box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable' | 'allocatableNowFeet'>
+) {
+  if (
+    box.allocatableNowFeet !== undefined &&
+    box.allocatableNowFeet !== null &&
+    Number.isFinite(Number(box.allocatableNowFeet))
+  ) {
+    return Math.max(0, Number(box.allocatableNowFeet || 0));
   }
 
   if (box.status === 'IN_STOCK' || box.status === 'TRANSFER') {
@@ -34,6 +40,7 @@ export function applyPlanningAllocationToCachedBox(box: Box, allocatedFeet: numb
   return {
     ...box,
     feetAvailable: nextFeetAvailable,
+    allocatableNowFeet: nextPlanningFeet,
     allocationPlanningFeet: nextPlanningFeet
   };
 }
@@ -51,6 +58,7 @@ export function releasePlanningAllocationFromCachedBox(box: Box, releasedFeet: n
   return {
     ...box,
     feetAvailable: nextFeetAvailable,
+    allocatableNowFeet: nextPlanningFeet,
     allocationPlanningFeet: nextPlanningFeet
   };
 }
@@ -136,6 +144,7 @@ export function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
     widthIn: payload.widthIn,
     initialFeet: payload.initialFeet,
     feetAvailable: payload.feetAvailable,
+    allocatableNowFeet: isReceived ? payload.feetAvailable : payload.initialFeet,
     allocationPlanningFeet: isReceived ? payload.feetAvailable : payload.initialFeet,
     lotRun: payload.lotRun || '',
     status: isReceived ? 'IN_STOCK' : 'ORDERED',

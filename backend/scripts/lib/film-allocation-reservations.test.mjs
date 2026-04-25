@@ -5,10 +5,10 @@ import { buildBoxReservationSnapshot } from '../../../shared/domain/filmAllocati
 
 function buildBox(overrides = {}) {
   return {
-    boxId: 'IL1-6880',
+    boxId: 'IL1-6594',
     status: 'IN_STOCK',
     initialFeet: 100,
-    feetAvailable: 0,
+    feetAvailable: 100,
     ...overrides,
   };
 }
@@ -16,89 +16,94 @@ function buildBox(overrides = {}) {
 function buildAllocation(overrides = {}) {
   return {
     allocationId: 'alloc-1',
-    boxId: 'IL1-6880',
+    boxId: 'IL1-6594',
     jobNumber: '1001',
+    requirementId: '11111111-1111-4111-8111-111111111111',
     allocatedFeet: 10,
     status: 'ACTIVE',
-    installDate: '',
+    installDate: '2026-04-24',
+    allocationKind: 'REQUIREMENT',
+    allocationSource: 'MANUAL',
     createdAt: '2026-04-01T09:00:00.000Z',
     ...overrides,
   };
 }
 
-test('buildBoxReservationSnapshot prioritizes scheduled work ahead of older placeholders', () => {
+test('buildBoxReservationSnapshot subtracts active requirement reservations across sources', () => {
   const snapshot = buildBoxReservationSnapshot(
-    buildBox({ feetAvailable: 50 }),
+    buildBox({ feetAvailable: 70 }),
     [
-      buildAllocation({
-        allocationId: 'placeholder-oldest',
-        jobNumber: '4449',
-        allocatedFeet: 60,
-        createdAt: '2026-04-16T10:06:00.000Z',
-      }),
-      buildAllocation({
-        allocationId: 'placeholder-newer',
-        jobNumber: '4450',
-        allocatedFeet: 40,
-        createdAt: '2026-04-16T10:28:00.000Z',
-      }),
-      buildAllocation({
-        allocationId: 'scheduled-urgent',
-        jobNumber: '4690',
-        allocatedFeet: 50,
-        installDate: '2026-04-24',
-        createdAt: '2026-04-16T11:00:00.000Z',
-      }),
-    ],
-    {
-      jobCreatedAtByJobNumber: {
-        '4449': '2026-04-16T10:06:00.000Z',
-        '4450': '2026-04-16T10:28:00.000Z',
-        '4690': '2026-04-16T11:00:00.000Z',
-      },
-    }
+      buildAllocation({ allocationId: 'manual', allocatedFeet: 20, allocationSource: 'MANUAL' }),
+      buildAllocation({ allocationId: 'auto', allocatedFeet: 30, allocationSource: 'AUTO_PLANNED' }),
+      buildAllocation({ allocationId: 'receipt', allocatedFeet: 10, allocationSource: 'FILM_ORDER_RECEIPT' }),
+      buildAllocation({ allocationId: 'direct', allocatedFeet: 5, allocationSource: 'DIRECT_TO_JOB_SITE' }),
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 105);
+  assert.equal(snapshot.activeAllocatedFeet, 65);
+  assert.equal(snapshot.allocatableNowFeet, 40);
+  assert.equal(snapshot.allocationSnapshotsById.auto.backedPhysicalFeet, 30);
+});
+
+test('buildBoxReservationSnapshot counts AUTO_PLANNED reservations without relying on stored feetAvailable', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ feetAvailable: 100 }),
+    [buildAllocation({ allocationId: 'auto', allocatedFeet: 100, installDate: '', allocationSource: 'AUTO_PLANNED' })]
   );
 
   assert.equal(snapshot.physicalFeetAvailable, 100);
-  assert.equal(snapshot.allocatableNowFeet, 50);
-  assert.equal(snapshot.allocatedWithInstallDateFeet, 50);
+  assert.equal(snapshot.allocatableNowFeet, 0);
   assert.equal(snapshot.allocatedWithoutInstallDateFeet, 100);
-  assert.equal(snapshot.allocationSnapshotsById['scheduled-urgent'].backedPhysicalFeet, 50);
-  assert.equal(snapshot.allocationSnapshotsById['scheduled-urgent'].reservationState, 'WITH_INSTALL_DATE');
-  assert.equal(snapshot.allocationSnapshotsById['placeholder-oldest'].backedPhysicalFeet, 50);
-  assert.equal(snapshot.allocationSnapshotsById['placeholder-newer'].backedPhysicalFeet, 0);
 });
 
-test('buildBoxReservationSnapshot gives the oldest placeholder first claim on remaining physical feet', () => {
+test('buildBoxReservationSnapshot excludes extra, placeholder, cancelled, and invalid allocations', () => {
   const snapshot = buildBoxReservationSnapshot(
-    buildBox({ feetAvailable: 80 }),
+    buildBox({ feetAvailable: 100 }),
     [
-      buildAllocation({
-        allocationId: 'placeholder-first',
-        jobNumber: '18992',
-        allocatedFeet: 60,
-        createdAt: '2026-04-13T14:16:00.000Z',
-      }),
-      buildAllocation({
-        allocationId: 'placeholder-second',
-        jobNumber: '4691',
-        allocatedFeet: 40,
-        createdAt: '2026-04-16T12:00:00.000Z',
-      }),
-    ],
-    {
-      jobCreatedAtByJobNumber: {
-        '18992': '2026-04-13T14:16:00.000Z',
-        '4691': '2026-04-16T12:00:00.000Z',
-      },
-    }
+      buildAllocation({ allocationId: 'extra', allocatedFeet: 20, allocationKind: 'EXTRA' }),
+      buildAllocation({ allocationId: 'placeholder', allocatedFeet: 20, jobNumber: '', jobId: null }),
+      buildAllocation({ allocationId: 'cancelled', allocatedFeet: 20, status: 'CANCELLED' }),
+      buildAllocation({ allocationId: 'invalid', allocatedFeet: 20, requirementId: '' }),
+    ]
   );
 
-  assert.equal(snapshot.physicalFeetAvailable, 80);
-  assert.equal(snapshot.allocatableNowFeet, 80);
-  assert.equal(snapshot.allocatedWithInstallDateFeet, 0);
-  assert.equal(snapshot.allocatedWithoutInstallDateFeet, 100);
-  assert.equal(snapshot.allocationSnapshotsById['placeholder-first'].backedPhysicalFeet, 60);
-  assert.equal(snapshot.allocationSnapshotsById['placeholder-second'].backedPhysicalFeet, 20);
-  assert.equal(snapshot.allocationSnapshotsById['placeholder-second'].shortageFeet, 20);
+  assert.equal(snapshot.activeAllocatedFeet, 0);
+  assert.equal(snapshot.allocatableNowFeet, 100);
+  assert.equal(snapshot.allocationSnapshotsById.placeholder.backedPhysicalFeet, 0);
+});
+
+test('buildBoxReservationSnapshot counts fulfilled requirement allocations while checked out', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', feetAvailable: 0 }),
+    [
+      buildAllocation({
+        allocationId: 'fulfilled-checked-out',
+        allocatedFeet: 45,
+        status: 'FULFILLED',
+        allocationSource: 'MANUAL',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.activeAllocatedFeet, 45);
+  assert.equal(snapshot.allocatableNowFeet, 0);
+  assert.equal(snapshot.allocationSnapshotsById['fulfilled-checked-out'].backedPhysicalFeet, 45);
+});
+
+test('buildBoxReservationSnapshot stops counting fulfilled allocations after check-in', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'IN_STOCK', feetAvailable: 55 }),
+    [
+      buildAllocation({
+        allocationId: 'fulfilled-returned',
+        allocatedFeet: 45,
+        status: 'FULFILLED',
+        allocationSource: 'MANUAL',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.activeAllocatedFeet, 0);
+  assert.equal(snapshot.allocatableNowFeet, 55);
 });

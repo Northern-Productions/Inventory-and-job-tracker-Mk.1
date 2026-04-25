@@ -109,14 +109,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
           ? null
           : deps.integerOrZero(physicalFeetAvailable),
       allocationPlanningFeet:
-        allocationPlanningFeet === undefined || allocationPlanningFeet === null
-          ? computeAllocationPlanningFeet(
-              status,
-              initialFeet,
-              feetAvailable,
-              activeAllocatedFeet,
-            )
-          : deps.integerOrZero(allocationPlanningFeet),
+        allocatableNowFeet !== undefined && allocatableNowFeet !== null
+          ? deps.integerOrZero(allocatableNowFeet)
+          : allocationPlanningFeet === undefined || allocationPlanningFeet === null
+            ? computeAllocationPlanningFeet(
+                status,
+                initialFeet,
+                feetAvailable,
+                activeAllocatedFeet,
+              )
+            : deps.integerOrZero(allocationPlanningFeet),
       lotRun: deps.asTrimmedString(readValue("lot_run", "lotRun")),
       status: deps.asTrimmedString(status) || "ORDERED",
       orderDate: deps.formatDateValue(readValue("order_date", "orderDate")),
@@ -184,11 +186,24 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
           : deps.integerOrZero(box.physicalFeetAvailable),
       allocatableNowFeet:
         box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
-          ? Math.max(0, deps.integerOrZero(box.allocationPlanningFeet ?? box.feetAvailable))
+          ? computeAllocationPlanningFeet(
+              box.status,
+              box.initialFeet,
+              box.feetAvailable,
+              box.activeAllocatedFeet,
+            )
           : deps.integerOrZero(box.allocatableNowFeet),
       allocatedWithInstallDateFeet: deps.integerOrZero(box.allocatedWithInstallDateFeet),
       allocatedWithoutInstallDateFeet: deps.integerOrZero(box.allocatedWithoutInstallDateFeet),
-      allocationPlanningFeet: Math.max(0, deps.integerOrZero(box.allocationPlanningFeet)),
+      allocationPlanningFeet:
+        box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+          ? computeAllocationPlanningFeet(
+              box.status,
+              box.initialFeet,
+              box.feetAvailable,
+              box.activeAllocatedFeet,
+            )
+          : deps.integerOrZero(box.allocatableNowFeet),
       lotRun: box.lotRun,
       status: box.status,
       orderDate: box.orderDate,

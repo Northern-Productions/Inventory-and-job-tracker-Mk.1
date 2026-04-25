@@ -197,7 +197,9 @@ import {
 } from '../runtimeDeps.mjs';
 import { shouldRecalculateReceivedFeetFromState, hasPositiveReactivationSignal } from './runtimeCheckoutOperations.mjs';
 import { applyReservationMetricsToBox } from './runtimeAllocationReservations.mjs';
-import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
+import {
+  allocationConsumesStoredPhysicalFeet,
+} from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function groupEntriesByJobNumber(entries) {
   const grouped = {};
@@ -291,7 +293,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   let resolvedCoreWeightLbs = null;
   let resolvedLfWeightLbsPerFt = null;
   let shouldRefreshReceivingMetrics = false;
-  let activeAllocatedFeet = 0;
+  let storedAllocatedFeet = 0;
   let usedPartialReceivingMetrics = false;
 
   if (!feetAvailableInput) {
@@ -320,10 +322,8 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
     if (existingBox) {
       const existingAllocations = await listAllocationsByBox(client, orgId, boxId);
       for (let index = 0; index < existingAllocations.length; index += 1) {
-        if (existingAllocations[index].status === 'ACTIVE') {
-          if (getAllocationReservationState(existingAllocations[index]) === 'WITH_INSTALL_DATE') {
-            activeAllocatedFeet += existingAllocations[index].allocatedFeet;
-          }
+        if (allocationConsumesStoredPhysicalFeet(existingAllocations[index], existingBox)) {
+          storedAllocatedFeet += existingAllocations[index].allocatedFeet;
         }
       }
     }
@@ -572,13 +572,13 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
     if (usedPartialReceivingMetrics) {
       if (currentFeetOnRollInput !== null) {
-        if (currentFeetOnRollInput < activeAllocatedFeet) {
+        if (currentFeetOnRollInput < storedAllocatedFeet) {
           throw new HttpError(
             400,
-            `CurrentFeetOnRoll cannot be lower than the box's locked allocated feet (${activeAllocatedFeet}).`
+            `CurrentFeetOnRoll cannot be lower than the box's locked allocated feet (${storedAllocatedFeet}).`
           );
         }
-        feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - activeAllocatedFeet, initialFeet);
+        feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - storedAllocatedFeet, initialFeet);
       } else {
         feetAvailable = clampFeetToInitialRange(feetAvailable, initialFeet);
       }
@@ -616,10 +616,10 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         resolvedLfWeightLbsPerFt,
         initialFeet
       );
-      if (physicalFeetAvailable < activeAllocatedFeet) {
+      if (physicalFeetAvailable < storedAllocatedFeet) {
         throw new HttpError(
           400,
-          `Received physical LF cannot be lower than the box's locked allocated feet (${activeAllocatedFeet}).`
+          `Received physical LF cannot be lower than the box's locked allocated feet (${storedAllocatedFeet}).`
         );
       }
       const shouldRepairStaleFeet =
@@ -628,9 +628,9 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         physicalFeetAvailable > 0;
 
       if (isFirstReceipt) {
-        feetAvailable = Math.max(initialFeet - activeAllocatedFeet, 0);
+        feetAvailable = Math.max(initialFeet - storedAllocatedFeet, 0);
       } else if (shouldRecalculateReceivedFeet || shouldRepairStaleFeet) {
-        const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - activeAllocatedFeet, 0);
+        const recalculatedFeetAvailable = Math.max(physicalFeetAvailable - storedAllocatedFeet, 0);
         if (feetAvailable !== recalculatedFeetAvailable) {
           feetAvailable = recalculatedFeetAvailable;
           warnings.push('FeetAvailable was recalculated from Last Roll Weight and weight metadata.');

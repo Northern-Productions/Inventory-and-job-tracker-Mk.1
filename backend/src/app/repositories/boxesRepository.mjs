@@ -5,7 +5,6 @@ import {
   asTrimmedString,
   assertLegalBoxWeightState,
   integerOrZero,
-  normalizeAllocationKind,
   normalizeWarehouseCodeFormat,
   requireString,
 } from '../core/helpers.mjs';
@@ -152,14 +151,37 @@ function buildBoxSelectColumns(alias) {
   return `
     ${alias}.*,
     coalesce(active_allocations.active_allocated_feet, 0)::integer as active_allocated_feet,
-    case
-      when upper(coalesce(${alias}.status::text, 'ORDERED')) in ('IN_STOCK', 'TRANSFER') then greatest(coalesce(${alias}.feet_available, 0), 0)
-      when upper(coalesce(${alias}.status::text, 'ORDERED')) = 'ORDERED' then greatest(
-        coalesce(${alias}.initial_feet, 0) - coalesce(active_allocations.active_allocated_feet, 0),
-        0
-      )
-      else 0
-    end::integer as allocation_planning_feet
+    app_api.box_physical_feet_available(${alias})::integer as physical_feet_available,
+    app_api.box_allocatable_now_feet(${alias})::integer as allocatable_now_feet,
+    app_api.box_allocatable_now_feet(${alias})::integer as allocation_planning_feet
+  `;
+}
+
+function buildReservationAllocationLateral(boxAlias) {
+  return `
+      left join lateral (
+        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
+        from app.allocations a
+        where a.org_id = ${boxAlias}.org_id
+          and a.box_id = ${boxAlias}.box_id
+          and coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
+          and a.requirement_id is not null
+          and coalesce(a.allocated_feet, 0) > 0
+          and (
+            (
+              a.status = 'ACTIVE'
+              and (
+                a.job_date is not null
+                or upper(coalesce(${boxAlias}.status::text, '')) = 'CHECKED_OUT'
+              )
+            )
+            or (
+              a.status = 'FULFILLED'
+              and upper(coalesce(${boxAlias}.status::text, '')) = 'CHECKED_OUT'
+              and app_api.trim_text(a.job_number) <> ''
+            )
+          )
+      ) active_allocations on true
   `;
 }
 
@@ -169,13 +191,7 @@ async function listBoxes(client, orgId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = b.org_id
-          and a.box_id = b.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
     `,
     [orgId]
@@ -201,13 +217,7 @@ async function listBoxesByWarehouses(client, orgId, warehouses) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = b.org_id
-          and a.box_id = b.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.warehouse = any($2::text[])
       order by b.box_id
@@ -235,13 +245,7 @@ async function listBoxesByIds(client, orgId, boxIds) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = b.org_id
-          and a.box_id = b.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.box_id = any($2::text[])
     `,
@@ -258,13 +262,7 @@ async function findBoxById(client, orgId, boxId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = b.org_id
-          and a.box_id = b.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.box_id = $2
     `,
@@ -386,13 +384,7 @@ async function saveBoxRecord(client, orgId, box) {
       )
       select ${buildBoxSelectColumns('saved_box')}
       from saved_box
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = saved_box.org_id
-          and a.box_id = saved_box.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('saved_box')}
     `,
     [
       orgId,
@@ -441,13 +433,7 @@ async function findBoxByRecordId(client, orgId, boxRecordId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
-      left join lateral (
-        select coalesce(sum(a.allocated_feet), 0)::integer as active_allocated_feet
-        from app.allocations a
-        where a.org_id = b.org_id
-          and a.box_id = b.box_id
-          and a.status = 'ACTIVE'
-      ) active_allocations on true
+      ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.id = $2::uuid
     `,

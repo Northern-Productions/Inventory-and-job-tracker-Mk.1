@@ -1,9 +1,11 @@
 import {
   buildBoxReservationSnapshot,
-  getActiveReservationEntries,
   getAllocationReservationState,
+  getCapacityReservationEntries,
+  getStoredPhysicalFootprintEntries,
   isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
+  sumAllocatedFeet,
 } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 import {
   asTrimmedString,
@@ -62,15 +64,7 @@ function deriveBoxPhysicalFeetAvailable(box, allocations = []) {
     );
   }
 
-  let scheduledFeet = 0;
-  const activeEntries = getActiveReservationEntries(allocations);
-  for (let index = 0; index < activeEntries.length; index += 1) {
-    if (getAllocationReservationState(activeEntries[index]) === 'WITH_INSTALL_DATE') {
-      scheduledFeet += integerOrZero(activeEntries[index].allocatedFeet);
-    }
-  }
-
-  return Math.max(0, integerOrZero(box?.feetAvailable) + scheduledFeet);
+  return Math.max(0, integerOrZero(box?.feetAvailable) + sumAllocatedFeet(getStoredPhysicalFootprintEntries(allocations, box)));
 }
 
 function buildBoxReservationMetrics(box, allocations = [], options = {}) {
@@ -122,7 +116,7 @@ function applyReservationMetricsToBox(box, allocations = [], options = {}) {
 
 function getActiveScheduledAllocatedFeet(entries = []) {
   let total = 0;
-  const source = Array.isArray(entries) ? entries : [];
+  const source = getCapacityReservationEntries(entries);
   for (let index = 0; index < source.length; index += 1) {
     const entry = source[index];
     if (
@@ -138,7 +132,7 @@ function getActiveScheduledAllocatedFeet(entries = []) {
 
 function getActivePlaceholderAllocatedFeet(entries = []) {
   let total = 0;
-  const source = Array.isArray(entries) ? entries : [];
+  const source = getCapacityReservationEntries(entries);
   for (let index = 0; index < source.length; index += 1) {
     const entry = source[index];
     if (

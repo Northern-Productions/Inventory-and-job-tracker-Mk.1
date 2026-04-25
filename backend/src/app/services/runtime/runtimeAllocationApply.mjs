@@ -248,6 +248,22 @@ function ensureBoxEligibleForJobAllocation(box, pendingTransfersByBoxRecordId, j
   }
 }
 
+function trackActiveAllocationForCapacity(activeAllocationsByBox, allocation) {
+  if (!allocation || asTrimmedString(allocation.status).toUpperCase() !== 'ACTIVE') {
+    return;
+  }
+
+  const boxId = asTrimmedString(allocation.boxId);
+  if (!boxId) {
+    return;
+  }
+
+  if (!activeAllocationsByBox[boxId]) {
+    activeAllocationsByBox[boxId] = [];
+  }
+  activeAllocationsByBox[boxId].push(allocation);
+}
+
 async function previewAllocationPlan(client, orgId, payload) {
   const source = await findBoxById(client, orgId, payload.boxId);
   if (!source) {
@@ -449,7 +465,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       `Box ${currentBox.boxId} is no longer allocatable.`
     );
 
-    if (getBoxAllocationPlanningFeet(currentBox) < plannedAllocation.allocatedFeet) {
+    if (getBoxAllocationPlanningFeet(currentBox, activeAllocationsByBox) < plannedAllocation.allocatedFeet) {
       throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough planning LF.`);
     }
 
@@ -472,6 +488,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
         consumeAllocatableFeet: Boolean(jobContext.installDate),
       })
     );
+    trackActiveAllocationForCapacity(activeAllocationsByBox, allocation);
     createdAllocationRecords.push(allocation);
   }
 
@@ -516,7 +533,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       throw new HttpError(400, `Extra box ${currentBox.boxId} must meet or exceed ${minimumWidthIn}" width.`);
     }
 
-    if (getBoxAllocationPlanningFeet(currentBox) < plannedExtra.allocatedFeet) {
+    if (getBoxAllocationPlanningFeet(currentBox, activeAllocationsByBox) < plannedExtra.allocatedFeet) {
       throw new HttpError(400, `Box ${currentBox.boxId} no longer has enough planning LF.`);
     }
 
@@ -538,6 +555,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
         consumeAllocatableFeet: Boolean(jobContext.installDate),
       })
     );
+    trackActiveAllocationForCapacity(activeAllocationsByBox, allocation);
     createdAllocationRecords.push(allocation);
   }
 

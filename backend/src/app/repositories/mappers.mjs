@@ -71,14 +71,16 @@ function mapDbBoxRow(row) {
         ? null
         : integerOrZero(physicalFeetAvailable),
     allocationPlanningFeet:
-      allocationPlanningFeet === undefined || allocationPlanningFeet === null
-        ? computeAllocationPlanningFeet(
-            status,
-            initialFeet,
-            feetAvailable,
-            activeAllocatedFeet
-          )
-        : integerOrZero(allocationPlanningFeet),
+      allocatableNowFeet !== undefined && allocatableNowFeet !== null
+        ? integerOrZero(allocatableNowFeet)
+        : allocationPlanningFeet === undefined || allocationPlanningFeet === null
+          ? computeAllocationPlanningFeet(
+              status,
+              initialFeet,
+              feetAvailable,
+              activeAllocatedFeet
+            )
+          : integerOrZero(allocationPlanningFeet),
     lotRun: asTrimmedString(readValue('lot_run', 'lotRun')),
     status: asTrimmedString(status) || 'ORDERED',
     orderDate: formatDateValue(readValue('order_date', 'orderDate')),
@@ -121,11 +123,14 @@ function toPublicBox(box) {
         : integerOrZero(box.physicalFeetAvailable),
     allocatableNowFeet:
       box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
-        ? Math.max(0, integerOrZero(box.allocationPlanningFeet ?? box.feetAvailable))
+        ? getBoxAllocationPlanningFeet(box)
         : integerOrZero(box.allocatableNowFeet),
     allocatedWithInstallDateFeet: integerOrZero(box.allocatedWithInstallDateFeet),
     allocatedWithoutInstallDateFeet: integerOrZero(box.allocatedWithoutInstallDateFeet),
-    allocationPlanningFeet: getBoxAllocationPlanningFeet(box),
+    allocationPlanningFeet:
+      box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+        ? getBoxAllocationPlanningFeet(box)
+        : integerOrZero(box.allocatableNowFeet),
     lotRun: box.lotRun,
     status: box.status,
     orderDate: box.orderDate,
