@@ -842,6 +842,75 @@ describe('AllocationJobPage', () => {
     expect(html).not.toContain('>Check Out</button>');
   });
 
+  it('shows fulfilled allocation rows only when the box is still checked out to this job', () => {
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary() as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-fulfilled-current',
+          boxId: 'IL1-6922',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          installDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 20,
+          coveredFeet: 20,
+          status: 'FULFILLED',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '2026-03-20T10:00:00Z',
+          resolvedBy: 'tester',
+          filmOrderId: '',
+          notes: 'Checked out for job 000123.',
+          manufacturer: '3M',
+          filmName: 'Night Vision 35',
+          widthIn: 72,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        },
+        {
+          allocationId: 'alloc-fulfilled-returned',
+          boxId: 'IL1-5716',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          installDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 5,
+          coveredFeet: 5,
+          status: 'FULFILLED',
+          allocationKind: 'REQUIREMENT',
+          createdAt: '2026-03-19T08:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '2026-03-20T09:00:00Z',
+          resolvedBy: 'tester',
+          filmOrderId: '',
+          notes: 'Checked in at 0 lbs',
+          manufacturer: '3M',
+          filmName: 'Night Vision 15',
+          widthIn: 36,
+          boxStatus: 'ZEROED',
+          checkedOutOnThisJob: false
+        }
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('IL1-6922');
+    expect(html).toContain('Check In');
+    expect(html).not.toContain('IL1-5716');
+    expect(html).not.toContain('No allocations are tied to this job yet.');
+  });
+
   it('only disables the allocation row that is currently being removed', () => {
     const detail: JobDetail = {
       ...baseDetail,

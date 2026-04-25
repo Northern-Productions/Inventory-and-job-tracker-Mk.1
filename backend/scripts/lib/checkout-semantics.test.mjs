@@ -84,6 +84,58 @@ test('buildPublicAllocationEntriesForJob prefers unresolved active rows when a b
   assert.equal(entries.find((entry) => entry.allocationId === 'alloc-open')?.checkedOutOnThisJob, true);
 });
 
+test('buildPublicAllocationEntriesForJob treats fulfilled rows as current only while the box is still checked out to that job', () => {
+  const boxById = {
+    'IL1-100': buildBox(),
+    'IL1-101': buildBox({
+      boxId: 'IL1-101',
+      status: 'IN_STOCK',
+      lastCheckoutJob: '',
+    }),
+    'IL1-102': buildBox({
+      boxId: 'IL1-102',
+      status: 'ZEROED',
+      lastCheckoutJob: '',
+    }),
+    'IL1-103': buildBox({
+      boxId: 'IL1-103',
+      status: 'CHECKED_OUT',
+      lastCheckoutJob: '000999',
+    }),
+  };
+  const allocations = [
+    buildAllocation({
+      allocationId: 'alloc-checked-out',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-10T10:35:00Z',
+    }),
+    buildAllocation({
+      allocationId: 'alloc-returned',
+      boxId: 'IL1-101',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-10T10:36:00Z',
+    }),
+    buildAllocation({
+      allocationId: 'alloc-zeroed',
+      boxId: 'IL1-102',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-10T10:37:00Z',
+    }),
+    buildAllocation({
+      allocationId: 'alloc-other-job',
+      boxId: 'IL1-103',
+      status: 'FULFILLED',
+      resolvedAt: '2026-04-10T10:38:00Z',
+    }),
+  ];
+
+  const entries = buildPublicAllocationEntriesForJob(allocations, boxById);
+  assert.equal(entries.find((entry) => entry.allocationId === 'alloc-checked-out')?.checkedOutOnThisJob, true);
+  assert.equal(entries.find((entry) => entry.allocationId === 'alloc-returned')?.checkedOutOnThisJob, false);
+  assert.equal(entries.find((entry) => entry.allocationId === 'alloc-zeroed')?.checkedOutOnThisJob, false);
+  assert.equal(entries.find((entry) => entry.allocationId === 'alloc-other-job')?.checkedOutOnThisJob, false);
+});
+
 test('buildFilmCheckoutActionPlan ignores stale resolved rows and keeps resolve-only steps for same-job checked-out boxes', () => {
   const allocations = [
     buildAllocation({

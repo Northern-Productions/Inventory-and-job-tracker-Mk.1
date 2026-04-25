@@ -107,11 +107,31 @@ export function useAllocationJobPageModel() {
   );
   const visibleAllocations = useMemo(
     () =>
-      allocations.filter(
-        (entry) =>
-          entry.status === 'ACTIVE' &&
-          (!String(entry.resolvedAt || '').trim() || entry.checkedOutOnThisJob)
-      ),
+      allocations.filter((entry) => {
+        /**
+         * PURPOSE:
+         * Keeps current film return rows visible even after checkout marks the
+         * allocation FULFILLED; returned-material state belongs to the box.
+         *
+         * AFFECTS:
+         * Allocated Boxes, film Check In actions, completion blockers, and
+         * installer pickup visibility for checked-out film.
+         *
+         * WHEN CHANGING THIS, ALSO CHECK:
+         * shared/checkoutSemantics.mjs, jobReturnedMaterials.ts,
+         * AllocatedBoxesSection, and box status mutation cache updates.
+         *
+         * COMMON FAILURE MODES:
+         * Hiding a checked-out box that still needs return handling, or showing
+         * historical fulfilled allocations after a box has already returned.
+         */
+        const isCurrentCheckedOutReturn =
+          entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT';
+        return (
+          isCurrentCheckedOutReturn ||
+          (entry.status === 'ACTIVE' && !String(entry.resolvedAt || '').trim())
+        );
+      }),
     [allocations]
   );
   const filmOrders = detail?.filmOrders || [];

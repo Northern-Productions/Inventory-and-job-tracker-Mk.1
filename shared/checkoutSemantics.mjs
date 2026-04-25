@@ -10,13 +10,35 @@ export function isCurrentOperationalFilmAllocation(entry) {
   return normalizeKey(entry?.status) === 'ACTIVE' && trimString(entry?.resolvedAt) === '';
 }
 
+function isCheckoutDisplayCandidate(entry) {
+  const status = normalizeKey(entry?.status);
+  return status === 'ACTIVE' || status === 'FULFILLED';
+}
+
+/**
+ * PURPOSE:
+ * Identifies the allocation row that should represent a box's current
+ * returned-material checkout on job detail screens.
+ *
+ * AFFECTS:
+ * Job Allocated Boxes display, film check-in actions, returned-material
+ * blockers, and completion/delete guards that depend on current checkout rows.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * AllocationJobPage visibility, jobReturnedMaterials summaries, backend
+ * checkout/check-in status transitions, and checkout semantics tests.
+ *
+ * COMMON FAILURE MODES:
+ * Hiding checked-out fulfilled rows, showing old fulfilled rows after return,
+ * or treating requirement fulfillment as proof that the physical box returned.
+ */
 export function buildCurrentCheckedOutAllocationIdSet(allocations, boxById) {
   const grouped = Object.create(null);
   const currentAllocationIds = Object.create(null);
 
   for (let index = 0; index < allocations.length; index += 1) {
     const entry = allocations[index];
-    if (normalizeKey(entry?.status) !== 'ACTIVE') {
+    if (!isCheckoutDisplayCandidate(entry)) {
       continue;
     }
 

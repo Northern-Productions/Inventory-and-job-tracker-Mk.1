@@ -1123,7 +1123,7 @@ describe('BoxDetailsPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Check In MS1-919' });
     expect(within(dialog).getByLabelText(/Current Linear Feet/i)).toBeTruthy();
-    expect(within(dialog).getByText(/planning allocation for job 4580 will be released/i)).toBeTruthy();
+    expect(within(dialog).getByText(/close the current checkout for job 4580/i)).toBeTruthy();
 
     fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Last Roll Weight/i }), {
       target: { value: '3.34' }

@@ -160,7 +160,7 @@ describe('Allocation job film returns', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Check In MS1-919' });
     expect(within(dialog).getByLabelText(/Current Linear Feet/i)).toBeTruthy();
-    expect(within(dialog).getByText(/planning allocation for job 4580 will be released/i)).toBeTruthy();
+    expect(within(dialog).getByText(/close the current checkout for job 4580/i)).toBeTruthy();
 
     fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Last Roll Weight/i }), {
       target: { value: '3.34' }
@@ -181,7 +181,7 @@ describe('Allocation job film returns', () => {
     );
   });
 
-  it('submits currentFeetOnRoll through the allocation-job workflow without resending an unchanged core type', async () => {
+  it('submits fulfilled checked-out rows through the allocation-job workflow without resending an unchanged core type', async () => {
     const pushToast = vi.fn();
     const maybeOpenReturnCompletionPrompt = vi.fn();
     const setBoxStatus = vi.fn().mockResolvedValue({
@@ -217,7 +217,13 @@ describe('Allocation job film returns', () => {
     );
 
     act(() => {
-      result.current.openFilmCheckinDialog(buildFilmAllocationEntry());
+      result.current.openFilmCheckinDialog(
+        buildFilmAllocationEntry({
+          status: 'FULFILLED',
+          resolvedAt: '2026-04-15T09:30:00Z',
+          notes: 'Checked out for job 4580.'
+        })
+      );
     });
 
     act(() => {

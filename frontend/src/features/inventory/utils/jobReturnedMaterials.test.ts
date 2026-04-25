@@ -83,6 +83,58 @@ describe('jobReturnedMaterials', () => {
     expect(summary.hasOutstandingMaterials).toBe(true);
   });
 
+  it('counts fulfilled allocations only when the box is still checked out on this job', () => {
+    const summary = summarizeReturnedMaterials({
+      allocations: [
+        buildAllocation({
+          allocationId: 'alloc-fulfilled-current',
+          allocatedFeet: 20,
+          coveredFeet: 20,
+          status: 'FULFILLED',
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true,
+          resolvedAt: '2026-04-01T16:41:29.674Z'
+        }),
+        buildAllocation({
+          allocationId: 'alloc-fulfilled-returned',
+          boxId: 'IL1-101',
+          allocatedFeet: 5,
+          coveredFeet: 5,
+          status: 'FULFILLED',
+          boxStatus: 'ZEROED',
+          checkedOutOnThisJob: false,
+          resolvedAt: '2026-04-03T15:48:45.715Z'
+        })
+      ],
+      caulkCheckouts: []
+    });
+
+    expect(summary.checkedOutFilmCount).toBe(1);
+    expect(summary.checkedOutFilmAllocations.map((entry) => entry.allocationId)).toEqual([
+      'alloc-fulfilled-current'
+    ]);
+    expect(summary.hasOutstandingMaterials).toBe(true);
+
+    const returnedOnlySummary = summarizeReturnedMaterials({
+      allocations: [
+        buildAllocation({
+          allocationId: 'alloc-fulfilled-returned',
+          boxId: 'IL1-101',
+          allocatedFeet: 5,
+          coveredFeet: 5,
+          status: 'FULFILLED',
+          boxStatus: 'ZEROED',
+          checkedOutOnThisJob: false,
+          resolvedAt: '2026-04-03T15:48:45.715Z'
+        })
+      ],
+      caulkCheckouts: []
+    });
+
+    expect(returnedOnlySummary.checkedOutFilmCount).toBe(0);
+    expect(returnedOnlySummary.hasOutstandingMaterials).toBe(false);
+  });
+
   it('formats delete blockers for checked-out film and open caulk checkouts', () => {
     expect(
       getDeleteJobBlockingMessage({

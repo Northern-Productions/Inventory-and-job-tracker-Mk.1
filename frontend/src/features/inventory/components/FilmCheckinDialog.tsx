@@ -138,7 +138,7 @@ export function FilmCheckinDialog({
       </p>
       {releaseJobNumber ? (
         <p className="muted-text">
-          The planning allocation for job {releaseJobNumber} will be released when this return is saved.
+          This return will close the current checkout for job {releaseJobNumber} and record returned roll history.
         </p>
       ) : null}
       {loading ? <p className="muted-text">Loading the latest box details for this return...</p> : null}
