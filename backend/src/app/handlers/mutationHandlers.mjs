@@ -59,6 +59,12 @@ import {
 } from '../services/access.mjs';
 import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
+import {
+  buildAutoPlannerScope,
+  getJobNumberForPlannerDetailReload,
+  normalizePlannerWarnings,
+  reconcileAutoPlannedAllocations,
+} from '../services/runtime/runtimeAutoAllocationPlanner.mjs';
 
 const mutationHandlers = {
   '/profile/username': async ({ client, orgId, authContext, params }) =>
@@ -225,6 +231,36 @@ export async function dispatchMutationWithHandlers(logicalPath, params, authCont
       throw new HttpError(404, `Route not found: ${logicalPath || '/'}`);
     }
 
-    return handler({ client, orgId: authContext.orgId, params, authContext });
+    let response = await handler({ client, orgId: authContext.orgId, params, authContext });
+    const normalizedParams = normalizeLegacySchedulePayload(logicalPath, params);
+    const responseData = response?.data && typeof response.data === 'object' ? response.data : {};
+    const scope = buildAutoPlannerScope(logicalPath, normalizedParams, responseData);
+
+    if (scope) {
+      const plannerResult = await reconcileAutoPlannedAllocations(
+        client,
+        authContext.orgId,
+        authContext.actor,
+        scope
+      );
+      const plannerWarnings = normalizePlannerWarnings(plannerResult);
+      const detailJobNumber = getJobNumberForPlannerDetailReload(logicalPath, normalizedParams, responseData);
+
+      if (detailJobNumber) {
+        response = {
+          ...response,
+          data: await buildJobDetail(client, authContext.orgId, detailJobNumber),
+        };
+      }
+
+      if (plannerWarnings.length > 0) {
+        response = {
+          ...response,
+          warnings: [...(Array.isArray(response?.warnings) ? response.warnings : []), ...plannerWarnings],
+        };
+      }
+    }
+
+    return response;
   });
 }

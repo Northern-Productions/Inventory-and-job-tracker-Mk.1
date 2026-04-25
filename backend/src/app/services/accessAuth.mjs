@@ -282,6 +282,13 @@ function mapDatabaseBootstrapError(message) {
   ) {
     return 'Database migration 0068_fix_linked_receipt_post_save_recalc.sql is required. Apply missing backend migrations through 0068, then retry.';
   }
+  if (
+    (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.assert_film_box_allocation_capacity') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0085_auto_planned_allocation_engine.sql is required. Apply missing backend and Supabase migrations through 0085, then retry.';
+  }
   return asTrimmedString(message) || 'Unexpected server error.';
 }
 

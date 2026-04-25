@@ -58,7 +58,65 @@ export type MutationHandlerDeps = {
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  reconcileAutoPlannedAllocations: (
+    client: any,
+    orgId: string,
+    actor: string,
+    scope: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
 };
+
+const ORG_WIDE_SCOPE: Record<string, unknown> = {};
+
+const PLANNER_MUTATION_ROUTES = new Set([
+  "/caulk/mutate",
+  "/caulk/transfer",
+  "/allocations/caulk/add",
+  "/allocations/caulk/update",
+  "/allocations/caulk/checkout",
+  "/allocations/caulk/checkin",
+  "/allocations/caulk/remove",
+  "/caulk/transfers/receive",
+  "/caulk/transfers/cancel",
+  "/boxes/add",
+  "/boxes/update",
+  "/boxes/delete",
+  "/boxes/receive",
+  "/boxes/set-status",
+  "/boxes/transfer/start",
+  "/boxes/transfer/receive",
+  "/boxes/transfer/cancel",
+  "/allocations/add",
+  "/allocations/apply",
+  "/allocations/remove-box",
+  "/jobs/create",
+  "/jobs/update",
+  "/jobs/set-staged-pickup",
+  "/jobs/checkout-all",
+  "/jobs/complete",
+  "/jobs/delete",
+  "/jobs/reopen",
+  "/film-orders/cancel",
+  "/film-orders/delete",
+  "/audit/undo",
+]);
+
+const ORG_WIDE_MUTATION_ROUTES = new Set([
+  "/jobs/complete",
+  "/jobs/delete",
+  "/film-orders/cancel",
+  "/film-orders/delete",
+  "/audit/undo",
+]);
+
+const JOB_DETAIL_RELOAD_ROUTES = new Set([
+  "/jobs/create",
+  "/jobs/update",
+  "/jobs/set-staged-pickup",
+  "/jobs/checkout-all",
+  "/jobs/complete",
+  "/jobs/reopen",
+]);
 
 async function buildPublicBoxWithReservationMetrics(
   client: any,
@@ -572,6 +630,160 @@ const mutationHandlers: Record<string, MutationHandler> = {
   },
 };
 
+/**
+ * PURPOSE:
+ * Keeps Edge mutations aligned with backend planner reconciliation by deriving
+ * the same narrow planner scope after material/job writes.
+ *
+ * AFFECTS:
+ * Supabase job detail responses, allocation apply/remove, box status/receipt,
+ * caulk stock/allocation changes, and transfer-triggered replanning.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * backend runtimeAutoAllocationPlanner.mjs, migration 0085 planner scope
+ * parsing, and frontend mutation invalidation around job detail reloads.
+ *
+ * COMMON FAILURE MODES:
+ * Stale AUTO_PLANNED rows after Edge mutations, planner work running too
+ * broadly, or job detail being reloaded before planner-created rows exist.
+ */
+function buildAutoPlannerScope(
+  logicalPath: string,
+  payload: Record<string, unknown>,
+  responseData: Record<string, unknown>,
+  deps: MutationHandlerDeps,
+) {
+  if (!PLANNER_MUTATION_ROUTES.has(logicalPath)) {
+    return null;
+  }
+
+  if (ORG_WIDE_MUTATION_ROUTES.has(logicalPath)) {
+    return ORG_WIDE_SCOPE;
+  }
+
+  const jobNumbers = new Set<string>();
+  const boxIds = new Set<string>();
+  const caulkProductWarehousePairs = new Map<string, Record<string, string>>();
+
+  addJobNumber(jobNumbers, payload.jobNumber, deps);
+  addJobNumber(jobNumbers, responseData.jobNumber, deps);
+  addJobNumber(jobNumbers, asRecord(responseData.job)?.jobNumber, deps);
+  addJobNumber(jobNumbers, asRecord(responseData.box)?.jobNumber, deps);
+  addJobNumber(jobNumbers, asRecord(responseData.filmOrder)?.jobNumber, deps);
+
+  addBoxId(boxIds, payload.boxId, deps);
+  addBoxId(boxIds, payload.sourceBoxId, deps);
+  addBoxId(boxIds, payload.destinationBoxId, deps);
+  addBoxId(boxIds, responseData.boxId, deps);
+  addBoxId(boxIds, asRecord(responseData.box)?.boxId, deps);
+  addBoxId(boxIds, asRecord(responseData.allocation)?.boxId, deps);
+  addBoxId(boxIds, asRecord(responseData.allocation)?.sourceBoxId, deps);
+
+  if (Array.isArray(responseData.allocations)) {
+    for (const allocation of responseData.allocations) {
+      const entry = asRecord(allocation);
+      addJobNumber(jobNumbers, entry.jobNumber, deps);
+      addBoxId(boxIds, entry.boxId, deps);
+    }
+  }
+
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, payload.productId, payload.warehouse, deps);
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, payload.productId, payload.sourceWarehouse, deps);
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, payload.productId, payload.destinationWarehouse, deps);
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, responseData.productId, responseData.warehouse, deps);
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, responseData.productId, responseData.sourceWarehouse, deps);
+  addCaulkProductWarehousePair(caulkProductWarehousePairs, responseData.productId, responseData.destinationWarehouse, deps);
+
+  if (Array.isArray(payload.caulkRequirements)) {
+    const fallbackWarehouse =
+      payload.warehouse ||
+      responseData.warehouse ||
+      asRecord(responseData.job)?.warehouse;
+    for (const requirement of payload.caulkRequirements) {
+      addCaulkProductWarehousePair(
+        caulkProductWarehousePairs,
+        asRecord(requirement).productId,
+        fallbackWarehouse,
+        deps,
+      );
+    }
+  }
+
+  const scope: Record<string, unknown> = {};
+  if (jobNumbers.size > 0) {
+    scope.jobNumbers = Array.from(jobNumbers);
+  }
+  if (boxIds.size > 0) {
+    scope.boxIds = Array.from(boxIds);
+  }
+  if (caulkProductWarehousePairs.size > 0) {
+    scope.caulkProductWarehousePairs = Array.from(caulkProductWarehousePairs.values());
+  }
+  return Object.keys(scope).length > 0 ? scope : ORG_WIDE_SCOPE;
+}
+
+function getJobNumberForPlannerDetailReload(
+  logicalPath: string,
+  payload: Record<string, unknown>,
+  responseData: Record<string, unknown>,
+  deps: MutationHandlerDeps,
+) {
+  if (!JOB_DETAIL_RELOAD_ROUTES.has(logicalPath)) {
+    return "";
+  }
+  return (
+    deps.asTrimmedString(responseData.jobNumber) ||
+    deps.asTrimmedString(asRecord(responseData.job)?.jobNumber) ||
+    deps.asTrimmedString(payload.jobNumber)
+  );
+}
+
+function appendPlannerWarnings(response: Record<string, unknown>, plannerResult: Record<string, unknown>, deps: MutationHandlerDeps) {
+  const warnings = Array.isArray(plannerResult.warnings)
+    ? plannerResult.warnings.map((value) => deps.asTrimmedString(value)).filter(Boolean)
+    : [];
+  if (!warnings.length) {
+    return response;
+  }
+  const existingWarnings = Array.isArray(response.warnings) ? response.warnings : [];
+  return {
+    ...response,
+    warnings: [...existingWarnings, ...warnings],
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function addJobNumber(target: Set<string>, value: unknown, deps: MutationHandlerDeps) {
+  const normalized = deps.asTrimmedString(value);
+  if (normalized) {
+    target.add(normalized);
+  }
+}
+
+function addBoxId(target: Set<string>, value: unknown, deps: MutationHandlerDeps) {
+  const normalized = deps.asTrimmedString(value);
+  if (normalized) {
+    target.add(normalized);
+  }
+}
+
+function addCaulkProductWarehousePair(
+  target: Map<string, Record<string, string>>,
+  productIdValue: unknown,
+  warehouseValue: unknown,
+  deps: MutationHandlerDeps,
+) {
+  const productId = deps.asTrimmedString(productIdValue);
+  const warehouse = deps.asTrimmedString(warehouseValue).toUpperCase();
+  if (!productId || !warehouse) {
+    return;
+  }
+  target.set(`${productId}:${warehouse}`, { productId, warehouse });
+}
+
 export async function dispatchMutationWithHandlers(
   client: any,
   identity: AuthIdentity,
@@ -586,5 +798,23 @@ export async function dispatchMutationWithHandlers(
   if (!handler) {
     throw new HttpError(404, `Route not found: ${logicalPath || "/"}`);
   }
-  return await handler({ client, identity, orgId, actor, logicalPath, payload, normalizedPayload }, deps);
+  let response = await handler({ client, identity, orgId, actor, logicalPath, payload, normalizedPayload }, deps);
+  const responseData = asRecord(response.data);
+  const scope = buildAutoPlannerScope(logicalPath, normalizedPayload, responseData, deps);
+
+  if (scope) {
+    const plannerResult = await deps.reconcileAutoPlannedAllocations(client, orgId, actor, scope);
+    const detailJobNumber = getJobNumberForPlannerDetailReload(logicalPath, normalizedPayload, responseData, deps);
+
+    if (detailJobNumber) {
+      response = {
+        ...response,
+        data: await deps.buildJobDetail(client, orgId, detailJobNumber),
+      };
+    }
+
+    response = appendPlannerWarnings(response, plannerResult, deps);
+  }
+
+  return response;
 }

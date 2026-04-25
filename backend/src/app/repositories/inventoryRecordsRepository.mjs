@@ -321,6 +321,16 @@ async function saveAllocationRecord(client, orgId, entry) {
     ]
   );
 
+  if (row?.status === 'ACTIVE') {
+    await queryRow(
+      client,
+      `
+        select app_api.assert_film_box_allocation_capacity($1::uuid, $2::text, $3::text) as ok
+      `,
+      [orgId, row.box_id, row.allocation_id]
+    );
+  }
+
   return mapDbAllocationRow(row);
 }
 

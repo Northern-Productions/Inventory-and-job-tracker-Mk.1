@@ -1226,6 +1226,13 @@ function mapBackendBootstrapError(message: string): string {
   ) {
     return 'Database migration 0065_caulk_transfer_assist_and_new_products.sql is required. Apply missing backend migrations through 0065, then retry.';
   }
+  if (
+    (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.assert_film_box_allocation_capacity') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0085_auto_planned_allocation_engine.sql is required. Apply missing backend and Supabase migrations through 0085, then retry.';
+  }
   return message;
 }
 
@@ -6677,6 +6684,19 @@ async function callMutationRpc(client: any, fn: string, orgId: string, actor: st
   });
 }
 
+async function reconcileAutoPlannedAllocations(
+  client: any,
+  orgId: string,
+  actor: string,
+  scope: Record<string, unknown>,
+) {
+  return await rpcOrThrow<Record<string, unknown>>(client, "api_acl_reconcile_auto_planned_allocations", {
+    p_org_id: orgId,
+    p_actor: actor,
+    p_scope: scope || {},
+  });
+}
+
 async function dispatchRead(
   client: any,
   identity: AuthIdentity,
@@ -6764,6 +6784,7 @@ async function dispatchMutation(
     completeJob,
     reopenJob,
     deleteJob,
+    reconcileAutoPlannedAllocations,
   });
 }
 

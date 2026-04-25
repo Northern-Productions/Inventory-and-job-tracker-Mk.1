@@ -201,6 +201,10 @@ function createRecordingClient() {
         return { rows: [{ ...row }] };
       }
 
+      if (sql.includes('app_api.assert_film_box_allocation_capacity')) {
+        return { rows: [{ ok: null }] };
+      }
+
       if (sql.includes('insert into app.film_order_box_links') && sql.includes('on conflict (org_id, link_id) do update set')) {
         state.filmOrderLink = {
           id: state.filmOrderLink?.id || 'film-order-link-row-1',

@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0084_allocation_source_metadata.sql';
+const LATEST_MIGRATION = '0085_auto_planned_allocation_engine.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -63,6 +63,12 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.box_allocatable_now_feet(app.boxes)' },
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.recalculate_film_order(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.film_box_planner_physical_capacity(app.boxes)' },
+  { kind: 'function', signature: 'app_api.active_film_allocated_feet_for_box(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.save_allocation(app.allocations)' },
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
@@ -103,7 +109,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
     includes: [
       'v_result := public.api_allocations_apply(p_org_id, p_actor, p_payload);',
-      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box_id);'
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box_id);',
+      'perform app_api.reconcile_auto_planned_allocations('
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
   },
@@ -205,18 +212,27 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
-    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job('],
-    excludes: []
+    includes: [
+      'perform app_api.sync_active_job_schedule_allocations(',
+      'perform app_api.reconcile_auto_planned_allocations('
+    ],
+    excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
   },
   {
     signature: 'public.api_acl_boxes_update(uuid, text, jsonb)',
-    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box('],
-    excludes: []
+    includes: [
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
+      'perform app_api.reconcile_auto_planned_allocations('
+    ],
+    excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box(']
   },
   {
     signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)',
-    includes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box('],
-    excludes: []
+    includes: [
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
+      'perform app_api.reconcile_auto_planned_allocations('
+    ],
+    excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box(']
   },
   {
     signature: 'public.api_boxes_set_status(uuid, text, jsonb)',
@@ -264,6 +280,33 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.save_film_order(',
       'delete from app.film_orders',
       'v_target_orphan_requested_feet'
+    ]
+  },
+  {
+    signature: 'app_api.save_allocation(app.allocations)',
+    includes: [
+      'allocation_source',
+      "coalesce(p_allocation.allocation_source, 'MANUAL'::app.allocation_source)",
+      'perform app_api.assert_film_box_allocation_capacity(v_row.org_id, v_row.box_id, v_row.allocation_id);'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)',
+    includes: [
+      'perform pg_advisory_xact_lock',
+      'create temporary table if not exists auto_planner_warnings',
+      'truncate auto_planner_desired_caulk',
+      "coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'",
+      "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
+      "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
+      'app_api.plan_allocation_coverage(',
+      "'AUTO_PLANNED allocation created by planner reconciliation.'"
+    ],
+    excludes: [
+      'perform app_api.save_film_order(',
+      'delete from app.film_orders',
+      "upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'\n          and not bx.skipped"
     ]
   },
   {

@@ -490,6 +490,7 @@ async function main() {
 
     const exteriorSourceBoxId = `${warehouse}-PX1-${uniqueSuffix}`;
     const exteriorSuggestionBoxId = `${warehouse}-PX2-${uniqueSuffix}`;
+    const exteriorPlannerBoxId = `${warehouse}-PX3-${uniqueSuffix}`;
     for (const { boxId: exteriorBoxId, initialFeet, notes } of [
       {
         boxId: exteriorSourceBoxId,
@@ -500,6 +501,11 @@ async function main() {
         boxId: exteriorSuggestionBoxId,
         initialFeet: 42,
         notes: 'Exterior parity verification suggestion box.'
+      },
+      {
+        boxId: exteriorPlannerBoxId,
+        initialFeet: 5,
+        notes: 'Exterior parity verification planner-only box.'
       }
     ]) {
       const exteriorBoxEnvelope = await addBox(
@@ -577,18 +583,94 @@ async function main() {
       `Expected SQL exterior parity apply to leave the uncovered remainder unallocated, received ${exteriorFilmOrderId}.`
     );
 
+    const exteriorManualCoverageResult = await client.query(
+      `
+        select
+          count(*)::integer as allocation_count,
+          coalesce(sum(allocated_feet), 0)::integer as allocated_feet,
+          coalesce(sum(covered_feet), 0)::integer as covered_feet
+        from app.allocations
+        where org_id = $1::uuid
+          and allocation_id = any($2::text[])
+          and status = 'ACTIVE'
+          and coalesce(allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
+      `,
+      [orgId, exteriorAllocationIds]
+    );
+    assert(
+      Number(exteriorManualCoverageResult.rows[0]?.allocation_count || 0) === 2,
+      `Expected exterior parity apply to return two manual allocations, received ${JSON.stringify(exteriorManualCoverageResult.rows[0] || {})}.`
+    );
+    assert(
+      Number(exteriorManualCoverageResult.rows[0]?.covered_feet || 0) === 70,
+      `Expected exterior parity manual allocations to cover 70 LF, received ${exteriorManualCoverageResult.rows[0]?.covered_feet}.`
+    );
+
+    const exteriorAutoPlannerRows = await client.query(
+      `
+        select
+          a.allocation_id,
+          a.box_id,
+          a.allocated_feet::integer,
+          a.covered_feet::integer,
+          b.width_in as source_width_in,
+          r.width_in as requirement_width_in
+        from app.allocations a
+        join app.boxes b
+          on b.org_id = a.org_id
+         and b.box_id = a.box_id
+        join app.job_requirements r
+          on r.org_id = a.org_id
+         and r.id = a.requirement_id
+        where a.org_id = $1::uuid
+          and upper(trim(a.job_number)) = upper(trim($2))
+          and a.requirement_id = $3::uuid
+          and a.status = 'ACTIVE'
+          and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'
+        order by a.created_at, a.allocation_id
+      `,
+      [orgId, exteriorParityJobNumber, exteriorParityRequirementId]
+    );
+    assert(
+      exteriorAutoPlannerRows.rows.length === 1,
+      `Expected planner to create exactly one AUTO_PLANNED row for exterior parity remainder, received ${JSON.stringify(exteriorAutoPlannerRows.rows)}.`
+    );
+    const exteriorAutoPlannerRow = exteriorAutoPlannerRows.rows[0];
+    assert(
+      Number(exteriorAutoPlannerRow?.allocated_feet || 0) === 5 &&
+        Number(exteriorAutoPlannerRow?.covered_feet || 0) === 5,
+      `Expected planner to reserve only the 5 LF exterior parity remainder, received ${JSON.stringify(exteriorAutoPlannerRow)}.`
+    );
+    const exteriorPlannerCoverageMath = await client.query(
+      `
+        select allocated_feet::integer, covered_feet::integer
+        from app_api.plan_allocation_coverage($1::integer, $2::integer, $3::numeric, $4::numeric)
+      `,
+      [
+        5,
+        Number(exteriorAutoPlannerRow.allocated_feet || 0),
+        exteriorAutoPlannerRow.source_width_in,
+        exteriorAutoPlannerRow.requirement_width_in
+      ]
+    );
+    assert(
+      Number(exteriorPlannerCoverageMath.rows[0]?.covered_feet || 0) ===
+        Number(exteriorAutoPlannerRow.covered_feet || 0),
+      `Expected AUTO_PLANNED covered_feet to match plan_allocation_coverage, received row ${JSON.stringify(exteriorAutoPlannerRow)} and math ${JSON.stringify(exteriorPlannerCoverageMath.rows[0] || {})}.`
+    );
+
     const exteriorJobDetail = await buildJobDetail(client, orgId, exteriorParityJobNumber);
     const exteriorRequirement = (exteriorJobDetail?.requirements || []).find(
       (entry) => entry.requirementId === exteriorParityRequirementId
     );
     assert(exteriorRequirement, 'Expected exterior parity requirement to remain visible on job detail.');
     assert(
-      Number(exteriorRequirement?.allocatedFeet || 0) === 70,
-      `Expected exterior parity requirement to show 70 covered feet, received ${exteriorRequirement?.allocatedFeet}.`
+      Number(exteriorRequirement?.allocatedFeet || 0) === 75,
+      `Expected exterior parity requirement to show 75 covered feet after planner reserves the 5 LF remainder, received ${exteriorRequirement?.allocatedFeet}.`
     );
     assert(
-      Number(exteriorRequirement?.remainingFeet || 0) === 5,
-      `Expected exterior parity requirement to show 5 remaining feet, received ${exteriorRequirement?.remainingFeet}.`
+      Number(exteriorRequirement?.remainingFeet || 0) === 0,
+      `Expected exterior parity requirement to show 0 remaining feet after planner reserves the 5 LF remainder, received ${exteriorRequirement?.remainingFeet}.`
     );
     const exteriorFilmOrder = (exteriorJobDetail?.filmOrders || []).find(
       (entry) => entry.sourceBoxId === exteriorSourceBoxId
