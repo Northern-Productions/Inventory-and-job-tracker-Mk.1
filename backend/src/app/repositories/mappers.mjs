@@ -166,6 +166,7 @@ function mapDbBoxTransferRow(row) {
     destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
     status: asTrimmedString(row.status).toUpperCase() || 'PENDING',
     notes: asTrimmedString(row.notes),
+    autoPlanningSuppressed: row.auto_planning_suppressed === true,
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
     receivedAt: formatTimestamp(row.received_at),

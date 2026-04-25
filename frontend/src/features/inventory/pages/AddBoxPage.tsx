@@ -5,6 +5,7 @@ import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm, type BoxFormSubmitContext } from '../components/BoxForm';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
@@ -325,9 +326,11 @@ export default function AddBoxPage() {
         setFilmOrderResetNonce((current) => current + 1);
         toast.push({
           title: `Added ${result.box.boxId}`,
-          description:
-            warnings.join(' ') ||
+          description: formatMutationWarningDescription(
+            warnings,
             `${nextRemainingFeet} LF still needs to be entered on ${filmOrderPrefill.filmOrderId}.`,
+            'add-box'
+          ),
           variant: 'success'
         });
         return;

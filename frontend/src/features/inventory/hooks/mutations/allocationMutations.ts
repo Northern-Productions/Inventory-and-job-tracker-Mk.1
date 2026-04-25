@@ -3,6 +3,7 @@ import {
   addCaulkJobAllocation,
   applyAllocationPlan,
   checkinCaulkJobAllocation,
+  clearAllocationPlannerSuppression,
   checkoutCaulkJobAllocation,
   removeCaulkJobAllocation,
   removeJobBoxAllocations,
@@ -16,6 +17,7 @@ import type {
   CaulkJobAllocationEntry,
   CaulkJobCheckoutEntry,
   CheckinCaulkJobAllocationPayload,
+  ClearAllocationPlannerSuppressionPayload,
   CheckoutCaulkJobAllocationPayload,
   JobDetail,
   ReceiveCaulkTransferPayload,
@@ -32,6 +34,7 @@ import {
   rollbackOptimisticAllocationRemovalInCaches,
   type OptimisticAllocationRemovalRollback
 } from '../../cache/allocations';
+import { syncJobDetailCaches } from '../../cache/jobs';
 import {
   applyOptimisticAddCaulkAllocationToCaches,
   applyOptimisticRemoveCaulkAllocationToCaches,
@@ -143,6 +146,35 @@ export function useRemoveJobBoxAllocations() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.box(result.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.boxId) }),
+        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
+      ]);
+
+      void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useClearAllocationPlannerSuppression() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.clearAllocationPlannerSuppressionMutation,
+    mutationFn: (payload: ClearAllocationPlannerSuppressionPayload) =>
+      clearAllocationPlannerSuppression(payload),
+    onMutate: async (payload) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+      ]);
+    },
+    onSuccess: async ({ result }, variables) => {
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: true
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
       ]);
 

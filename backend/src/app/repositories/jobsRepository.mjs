@@ -115,7 +115,23 @@ async function listJobRequirements(client, orgId) {
   const rows = await queryRows(
     client,
     `
-      select r.*, j.job_number
+      select
+        r.*,
+        j.job_number,
+        exists (
+          select 1
+          from app.allocation_planner_suppressions s
+          where s.org_id = r.org_id
+            and s.job_id = r.job_id
+            and s.material_type = 'FILM'
+            and s.cleared_at is null
+            and s.requirement_signature = app_api.film_requirement_planner_signature(
+              r.manufacturer,
+              r.film_name,
+              r.width_in,
+              r.required_feet
+            )
+        ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
       where r.org_id = $1
@@ -131,7 +147,23 @@ async function listJobRequirementsByJob(client, orgId, jobNumber) {
   const rows = await queryRows(
     client,
     `
-      select r.*, j.job_number
+      select
+        r.*,
+        j.job_number,
+        exists (
+          select 1
+          from app.allocation_planner_suppressions s
+          where s.org_id = r.org_id
+            and s.job_id = r.job_id
+            and s.material_type = 'FILM'
+            and s.cleared_at is null
+            and s.requirement_signature = app_api.film_requirement_planner_signature(
+              r.manufacturer,
+              r.film_name,
+              r.width_in,
+              r.required_feet
+            )
+        ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
       where r.org_id = $1

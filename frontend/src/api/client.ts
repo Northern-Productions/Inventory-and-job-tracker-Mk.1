@@ -57,6 +57,7 @@ export {
   applyAllocationPlan,
   checkinCaulkJobAllocation,
   checkoutCaulkJobAllocation,
+  clearAllocationPlannerSuppression,
   getAllocationJob,
   getAllocationJobs,
   getAllocationsByBox,

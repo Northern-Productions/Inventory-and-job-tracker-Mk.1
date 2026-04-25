@@ -3043,6 +3043,10 @@ td.col-available-linear-ft {
   gap: 0.5rem;
 }
 
+.film-order-actions--stacked {
+  align-items: start;
+}
+
 .film-orders-job-link,
 .film-order-linked-box-link {
   color: #1d62c4;

@@ -9,6 +9,7 @@ import {
   useAddCaulkJobAllocation,
   useCancelCaulkTransfer,
   useCheckinCaulkJobAllocation,
+  useClearAllocationPlannerSuppression,
   useCheckoutAllJobMaterials,
   useCheckoutCaulkJobAllocation,
   useCaulkProducts,
@@ -78,6 +79,7 @@ export function useAllocationJobPageModel() {
   const pendingReceiveCaulkTransferIds = usePendingReceiveCaulkTransferIds();
   const pendingCancelCaulkTransferIds = usePendingCancelCaulkTransferIds();
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
+  const clearAutoPlanningSuppressionMutation = useClearAllocationPlannerSuppression();
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const caulkProductsQuery = useCaulkProducts();
@@ -414,6 +416,39 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleResumeAutoPlanning(requirement: (typeof requirements)[number]) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'resuming auto planning',
+        feature: 'allocations',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      await clearAutoPlanningSuppressionMutation.mutateAsync({
+        jobNumber: summary.jobNumber,
+        requirementId: requirement.requirementId,
+        reason: 'User resumed auto-planning from job detail page.'
+      });
+      toast.push({
+        title: 'Auto planning resumed',
+        description: `${requirement.filmName} can be planned automatically again.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to resume auto planning',
+        description: error instanceof Error ? error.message : 'The resume request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleOrderAllFilmRequirements() {
     if (
       isReadOnlyJob ||
@@ -496,9 +531,11 @@ export function useAllocationJobPageModel() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending: createFilmOrderMutation.isPending,
+    isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     handleOrderFilmRequirement,
+    handleResumeAutoPlanning,
     handleOrderAllFilmRequirements,
     handleCancelRequirementOrder: lifecycleWorkflow.setFilmOrderToDelete,
     lifecycleWorkflow,

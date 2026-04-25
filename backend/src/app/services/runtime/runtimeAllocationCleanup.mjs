@@ -481,6 +481,25 @@ async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, u
   const releasedFeet =
     entry.status === 'ACTIVE' || entry.status === 'FULFILLED' ? getRestoredAllocatableFeet(entry) : 0;
 
+  if (
+    asTrimmedString(entry.allocationSource).toUpperCase() === 'AUTO_PLANNED' &&
+    asTrimmedString(entry.allocationKind).toUpperCase() !== 'EXTRA' &&
+    asTrimmedString(entry.requirementId)
+  ) {
+    await queryRow(
+      client,
+      `
+        select app_api.record_auto_planned_allocation_suppression(
+          $1::uuid,
+          $2::text,
+          $3::text,
+          $4::text
+        ) as result
+      `,
+      [orgId, asTrimmedString(user), entry.allocationId, note]
+    );
+  }
+
   entry.status = 'CANCELLED';
   entry.resolvedAt = resolvedAt;
   entry.resolvedBy = asTrimmedString(user);

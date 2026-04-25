@@ -283,6 +283,14 @@ function mapDatabaseBootstrapError(message) {
     return 'Database migration 0068_fix_linked_receipt_post_save_recalc.sql is required. Apply missing backend migrations through 0068, then retry.';
   }
   if (
+    normalized.includes('relation "app.allocation_planner_suppressions" does not exist') ||
+    (normalized.includes('function public.api_acl_clear_allocation_planner_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_record_auto_planned_allocation_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.film_requirement_planner_signature') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0086_planner_suppressions.sql is required. Apply missing backend and Supabase migrations through 0086, then retry.';
+  }
+  if (
     (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.assert_film_box_allocation_capacity') && normalized.includes('does not exist'))

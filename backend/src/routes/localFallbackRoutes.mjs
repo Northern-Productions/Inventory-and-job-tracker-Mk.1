@@ -23,6 +23,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   "/boxes/transfer/cancel",
   "/allocations/apply",
   "/allocations/remove-box",
+  "/allocations/planner-suppression/clear",
   "/allocations/caulk/add",
   "/allocations/caulk/update",
   "/allocations/caulk/checkout",

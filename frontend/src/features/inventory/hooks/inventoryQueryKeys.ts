@@ -67,6 +67,7 @@ export const inventoryKeys = {
   receiveCaulkTransferMutation: ['inventory', 'mutation', 'receive-caulk-transfer'] as const,
   cancelCaulkTransferMutation: ['inventory', 'mutation', 'cancel-caulk-transfer'] as const,
   removeJobBoxAllocationMutation: ['inventory', 'mutation', 'remove-job-box-allocation'] as const,
+  clearAllocationPlannerSuppressionMutation: ['inventory', 'mutation', 'clear-allocation-planner-suppression'] as const,
   deleteFilmOrderMutation: ['inventory', 'mutation', 'delete-film-order'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,

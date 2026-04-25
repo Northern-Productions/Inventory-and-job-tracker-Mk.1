@@ -395,6 +395,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: deps.numericOrNull(row.width_in) ?? 0,
       requiredFeet: deps.integerOrZero(row.required_feet),
       notes: deps.asTrimmedString(row.notes),
+      autoPlanningSuppressed: row.auto_planning_suppressed === true,
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
       updatedAt: deps.formatTimestamp(row.updated_at),

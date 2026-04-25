@@ -20,6 +20,7 @@ import type {
   WarehouseEntry
 } from '../../../../domain';
 import type { useToast } from '../../../../components/Toast';
+import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import {
   usePendingAddCaulkAllocationJobNumbers,
   usePendingCheckinCaulkCheckoutIds,
@@ -318,7 +319,11 @@ export function useCaulkWorkflow({
           .then(({ warnings }) => {
             pushToast({
               title: `Added caulk allocation on job ${jobNumber}`,
-              description: warnings.join(' ') || 'Reserved tubes for this allocation row.',
+              description: formatMutationWarningDescription(
+                warnings,
+                'Reserved tubes for this allocation row.',
+                'add-caulk-allocation'
+              ),
               variant: 'success'
             });
           })
@@ -353,7 +358,11 @@ export function useCaulkWorkflow({
           .then(({ warnings }) => {
             pushToast({
               title: `Updated caulk allocation ${caulkAllocationEditor.caulkAllocationId}`,
-              description: warnings.join(' ') || 'The caulk allocation row was updated.',
+              description: formatMutationWarningDescription(
+                warnings,
+                'The caulk allocation row was updated.',
+                'update-caulk-allocation'
+              ),
               variant: 'success'
             });
           })
@@ -473,9 +482,11 @@ export function useCaulkWorkflow({
         .then(({ warnings }) => {
           pushToast({
             title: `Checked out ${parsedCheckoutTubes} tube${parsedCheckoutTubes === 1 ? '' : 's'}`,
-            description:
-              warnings.join(' ') ||
+            description: formatMutationWarningDescription(
+              warnings,
               `Started a checkout cycle for ${draftSnapshot.productLabel}.`,
+              'checkout-caulk-allocation'
+            ),
             variant: 'success'
           });
         })
@@ -571,7 +582,11 @@ export function useCaulkWorkflow({
         .then(({ warnings }) => {
           pushToast({
             title: `Checked in checkout ${draftSnapshot.caulkCheckoutId}`,
-            description: warnings.join(' ') || 'Closed the checkout cycle and recorded usage.',
+            description: formatMutationWarningDescription(
+              warnings,
+              'Closed the checkout cycle and recorded usage.',
+              'checkin-caulk-allocation'
+            ),
             variant: 'success'
           });
           maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);
@@ -632,9 +647,11 @@ export function useCaulkWorkflow({
         .then(({ result, warnings }) => {
           pushToast({
             title: `Removed caulk allocation ${result.caulkAllocationId}`,
-            description:
-              warnings.join(' ') ||
+            description: formatMutationWarningDescription(
+              warnings,
               `Released ${result.releasedReservedTubes} reserved tube${result.releasedReservedTubes === 1 ? '' : 's'}.`,
+              'remove-caulk-allocation'
+            ),
             variant: 'success'
           });
         })
@@ -678,7 +695,11 @@ export function useCaulkWorkflow({
       const { warnings } = await receiveCaulkTransfer({ transferId: pendingTransfer.transferId });
       pushToast({
         title: `Received transfer ${pendingTransfer.transferId}`,
-        description: warnings.join(' ') || 'The transferred caulk is now available for this job.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The transferred caulk is now available for this job.',
+          'receive-job-caulk-transfer'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -713,7 +734,11 @@ export function useCaulkWorkflow({
       const { warnings } = await cancelCaulkTransfer({ transferId: pendingTransfer.transferId });
       pushToast({
         title: `Cancelled transfer ${pendingTransfer.transferId}`,
-        description: warnings.join(' ') || 'The pending caulk transfer was cancelled.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The pending caulk transfer was cancelled.',
+          'cancel-job-caulk-transfer'
+        ),
         variant: 'success'
       });
     } catch (error) {

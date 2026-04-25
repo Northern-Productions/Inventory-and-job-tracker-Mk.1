@@ -15,6 +15,7 @@ import {
   isWarehousePrefixOnlyBoxId,
   normalizeCreateBoxIdForWarehouse
 } from '../../../../lib/boxIds';
+import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import { useBoxTransferPlan } from '../../hooks/useInventoryQueries';
 import type { TransferActionState, TransferDestinationAnalysis } from './types';
 
@@ -300,9 +301,11 @@ export function useBoxTransferWorkflow({
       closeTransferDialog();
       pushToast({
         title: 'Transfer started',
-        description:
-          warnings.join(' ') ||
+        description: formatMutationWarningDescription(
+          warnings,
           `${result.box.boxId} is now marked for transfer from ${result.transfer.sourceWarehouse} to ${result.transfer.destinationWarehouse}. Reserved arrival ID: ${result.transfer.destinationBoxId}.`,
+          'start-box-transfer'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -330,9 +333,11 @@ export function useBoxTransferWorkflow({
       setTransferActionState(null);
       pushToast({
         title: 'Transfer received',
-        description:
-          warnings.join(' ') ||
+        description: formatMutationWarningDescription(
+          warnings,
           `${result.transfer.sourceBoxId} was received into ${result.transfer.destinationWarehouse} as ${result.transfer.destinationBoxId}.`,
+          'receive-box-transfer'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -365,7 +370,11 @@ export function useBoxTransferWorkflow({
           : `${result.box.boxId} is back in stock in ${result.transfer.sourceWarehouse}.`;
       pushToast({
         title: 'Transfer cancelled',
-        description: warnings.join(' ') || cancellationSummary,
+        description: formatMutationWarningDescription(
+          warnings,
+          cancellationSummary,
+          'cancel-box-transfer'
+        ),
         variant: 'success'
       });
     } catch (error) {

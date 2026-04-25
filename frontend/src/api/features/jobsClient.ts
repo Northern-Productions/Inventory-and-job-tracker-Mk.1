@@ -49,7 +49,8 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
       allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
       allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
       allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),
-      remainingFeet: Math.max(0, Number(entry.remainingFeet || 0))
+      remainingFeet: Math.max(0, Number(entry.remainingFeet || 0)),
+      autoPlanningSuppressed: Boolean(entry.autoPlanningSuppressed)
     })),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],

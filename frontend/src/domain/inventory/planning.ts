@@ -43,6 +43,12 @@ export interface RemoveJobBoxAllocationsResult {
   releasedFeet: number;
 }
 
+export interface ClearAllocationPlannerSuppressionPayload {
+  jobNumber: string;
+  requirementId: string;
+  reason?: string;
+}
+
 export interface AllocationEntry {
   allocationId: string;
   boxId: string;
@@ -246,6 +252,7 @@ export interface JobRequirementLine {
   allocatedWithInstallDateFeet?: number;
   allocatedWithoutInstallDateFeet?: number;
   remainingFeet: number;
+  autoPlanningSuppressed?: boolean;
 }
 
 export interface JobListEntry {
@@ -291,6 +298,7 @@ export interface JobDetail {
 
 export interface AllocationJobDetail {
   summary: AllocationJobSummary;
+  requirements?: JobRequirementLine[];
   allocations: AllocationJobDetailEntry[];
   usage: JobUsageEntry[];
   usageTimeline: JobUsageTimelineEntry[];

@@ -11,6 +11,7 @@ import {
 import { useToast } from '../../../components/Toast';
 import type { Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
+import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import {
   useAllocateBox,
   useAllocationPreview,
@@ -265,8 +266,11 @@ export function AllocateDialog({ open, box, onOpen, onCancel }: AllocateDialogPr
 
         toast.push({
           title,
-          description:
-            warnings.join(' ') || `${allocationSummary}.${remainingSummary}`.trim(),
+          description: formatMutationWarningDescription(
+            warnings,
+            `${allocationSummary}.${remainingSummary}`.trim(),
+            'allocate-film'
+          ),
           variant: 'success'
         });
       })

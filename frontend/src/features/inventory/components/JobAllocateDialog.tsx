@@ -3,6 +3,7 @@ import { DialogSurface } from '../../../components/DialogSurface';
 import { useToast } from '../../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import type { FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../domain';
+import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import {
   useAllocateBox,
   useAllocationPreview,
@@ -315,7 +316,11 @@ export function JobAllocateDialog({
         ? ` ${result.remainingUncoveredFeet} LF remains unallocated. Create a film order separately if needed.`
         : '';
 
-    return warnings.join(' ') || `${summary}.${remainingSuffix}`.trim();
+    return formatMutationWarningDescription(
+      warnings,
+      `${summary}.${remainingSuffix}`.trim(),
+      'job-allocate-film'
+    );
   }
 
   function getAllocationSuccessTitle(

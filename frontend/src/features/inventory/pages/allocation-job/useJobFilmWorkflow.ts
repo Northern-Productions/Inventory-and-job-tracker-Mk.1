@@ -1,5 +1,6 @@
 import { useCallback, useState, type SetStateAction } from 'react';
 import type { useToast } from '../../../../components/Toast';
+import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import type {
   AllocationJobDetailEntry,
   BoxMutationResult,
@@ -138,9 +139,11 @@ export function useJobFilmWorkflow({
       });
       pushToast({
         title: `Removed allocation ${result.allocationId}`,
-        description:
-          warnings.join(' ') ||
+        description: formatMutationWarningDescription(
+          warnings,
           `Removed ${result.removedAllocationCount} allocation${result.removedAllocationCount === 1 ? '' : 's'} for box ${result.boxId}.`,
+          'remove-job-box-allocation'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -205,8 +208,11 @@ export function useJobFilmWorkflow({
 
       pushToast({
         title: `Checked out ${entry.boxId}`,
-        description:
-          warnings.join(' ') || `Box ${entry.boxId} was checked out for job ${targetJobNumber}.`,
+        description: formatMutationWarningDescription(
+          warnings,
+          `Box ${entry.boxId} was checked out for job ${targetJobNumber}.`,
+          'checkout-job-box'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -288,9 +294,11 @@ export function useJobFilmWorkflow({
 
         pushToast({
           title: `Checked in ${entry.boxId}`,
-          description:
-            warnings.join(' ') ||
+          description: formatMutationWarningDescription(
+            warnings,
             `Box ${entry.boxId} was checked in from job ${summary?.jobNumber || entry.jobNumber}.`,
+            'checkin-job-box'
+          ),
           variant: 'success'
         });
         maybeOpenReturnCompletionPrompt(previousHasOutstandingMaterials);

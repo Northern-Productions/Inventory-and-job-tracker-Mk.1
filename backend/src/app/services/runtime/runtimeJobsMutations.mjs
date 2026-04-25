@@ -720,6 +720,39 @@ async function removeJobBoxAllocation(client, orgId, payload, actor) {
   );
 }
 
+async function clearAllocationPlannerSuppression(client, orgId, payload, actor) {
+  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
+  const requirementId = requireString(payload.requirementId, 'RequirementID');
+  const reason =
+    asTrimmedString(payload.reason) ||
+    'User resumed auto-planning for requirement from job detail page.';
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_clear_allocation_planner_suppression(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [
+      orgId,
+      asTrimmedString(actor),
+      JSON.stringify({
+        jobNumber,
+        requirementId,
+        reason
+      })
+    ]
+  );
+  const result = row?.result || {};
+  const detailJobNumber = asTrimmedString(result.jobNumber) || jobNumber;
+
+  return ok(await buildJobDetail(client, orgId, detailJobNumber), [
+    `Auto planning resumed for requirement ${requirementId} on job ${detailJobNumber}.`
+  ]);
+}
+
 async function deleteFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
   const filmOrderId = requireString(payload.filmOrderId, 'FilmOrderID');
@@ -816,6 +849,7 @@ export {
   createFilmOrder,
   cancelJob,
   removeJobBoxAllocation,
+  clearAllocationPlannerSuppression,
   deleteFilmOrder,
   deleteBox,
 };

@@ -172,6 +172,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   usePendingCancelCaulkTransferIds: () => new Set(),
   usePendingRemoveJobBoxAllocationIds: () => new Set(),
   useRemoveJobBoxAllocations: () => buildMutationState(),
+  useClearAllocationPlannerSuppression: () => buildMutationState(),
   useSetBoxStatus: () => buildMutationState(),
   useSetJobStagedForPickup: () => buildMutationState(),
   useBox: () => ({

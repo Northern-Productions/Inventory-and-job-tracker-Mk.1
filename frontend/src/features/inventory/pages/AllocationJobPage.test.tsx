@@ -22,6 +22,7 @@ const useDeleteFilmOrderMock = vi.fn();
 const usePendingDeleteFilmOrderIdsMock = vi.fn();
 const usePendingRemoveJobBoxAllocationIdsMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
+const useClearAllocationPlannerSuppressionMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useSetJobStagedForPickupMock = vi.fn();
 const useBoxMock = vi.fn();
@@ -86,6 +87,7 @@ vi.mock('../hooks/useInventoryQueries', async (importOriginal) => {
     usePendingRemoveJobBoxAllocationIds: () => usePendingRemoveJobBoxAllocationIdsMock(),
     usePendingSetBoxStatusBoxIds: () => new Set(),
     useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
+    useClearAllocationPlannerSuppression: () => useClearAllocationPlannerSuppressionMock(),
     useSetBoxStatus: () => useSetBoxStatusMock(),
     useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
     useBox: () => useBoxMock(),
@@ -258,6 +260,7 @@ describe('AllocationJobPage', () => {
     usePendingDeleteFilmOrderIdsMock.mockReturnValue(new Set());
     usePendingRemoveJobBoxAllocationIdsMock.mockReturnValue(new Set());
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
+    useClearAllocationPlannerSuppressionMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useSetJobStagedForPickupMock.mockReturnValue(buildMutationState());
     useBoxMock.mockReturnValue({

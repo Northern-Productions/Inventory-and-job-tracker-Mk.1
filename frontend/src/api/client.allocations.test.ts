@@ -22,6 +22,7 @@ import {
   addCaulkJobAllocation,
   applyAllocationPlan,
   checkinCaulkJobAllocation,
+  clearAllocationPlannerSuppression,
   checkoutCaulkJobAllocation,
   getAllocationJob,
   previewAllocationPlan,
@@ -253,6 +254,69 @@ describe('allocations API client caulk routes', () => {
     expect(result.result.releasedReservedTubes).toBe(4);
     expect(result.warnings).toEqual(['released reserve']);
     expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/caulk/remove', {
+      body: payload
+    });
+  });
+
+  it('posts planner suppression clears and normalizes requirement pause state', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: {
+          jobNumber: '000123',
+          warehouse: 'IL1',
+          sections: null,
+          installDate: '',
+          crewLeader: '',
+          status: 'READY',
+          lifecycleStatus: 'ACTIVE',
+          isLaborOnly: false,
+          isStagedForPickup: false,
+          requiredFeet: 100,
+          allocatedFeet: 100,
+          remainingFeet: 0,
+          requiredTubes: 0,
+          allocatedTubes: 0,
+          remainingTubes: 0,
+          requirementCount: 1,
+          allocationCount: 1,
+          filmOrderCount: 0,
+          hasOrderedAllocations: false,
+          createdAt: '',
+          updatedAt: '',
+          notes: ''
+        },
+        requirements: [
+          {
+            requirementId: 'req-1',
+            manufacturer: '3M',
+            filmName: 'Night Vision 15',
+            widthIn: 36,
+            requiredFeet: 100,
+            allocatedFeet: 100,
+            remainingFeet: 0,
+            autoPlanningSuppressed: false
+          }
+        ],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const payload = {
+      jobNumber: '000123',
+      requirementId: 'req-1',
+      reason: 'resume'
+    };
+    const result = await clearAllocationPlannerSuppression(payload);
+
+    expect(result.result.requirements[0].autoPlanningSuppressed).toBe(false);
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/planner-suppression/clear', {
       body: payload
     });
   });

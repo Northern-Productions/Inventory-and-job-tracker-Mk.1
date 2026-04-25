@@ -47,6 +47,13 @@ test('buildAutoPlannerScope ignores routes that do not affect material planning'
   assert.equal(buildAutoPlannerScope('/profile/username', {}, {}), null);
 });
 
+test('buildAutoPlannerScope leaves suppression resume to its SQL mutation wrapper', () => {
+  assert.equal(
+    buildAutoPlannerScope('/allocations/planner-suppression/clear', { jobNumber: '18722' }, {}),
+    null
+  );
+});
+
 test('getJobNumberForPlannerDetailReload reloads only job detail mutation responses', () => {
   assert.equal(
     getJobNumberForPlannerDetailReload('/jobs/create', { jobNumber: '18722' }, {}),

@@ -16,6 +16,7 @@ import {
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import {
   usePendingCancelCaulkTransferIds,
   usePendingReceiveCaulkTransferIds
@@ -195,7 +196,11 @@ export default function CaulkStockDetailsPage() {
       ]);
       toast.push({
         title: `Received transfer ${result.transferId}`,
-        description: warnings.join(' ') || 'The transferred caulk is now available in this warehouse.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The transferred caulk is now available in this warehouse.',
+          'receive-caulk-transfer'
+        ),
         variant: 'success'
       });
     },
@@ -220,7 +225,11 @@ export default function CaulkStockDetailsPage() {
       ]);
       toast.push({
         title: `Cancelled transfer ${result.transferId}`,
-        description: warnings.join(' ') || 'The pending caulk transfer was cancelled.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The pending caulk transfer was cancelled.',
+          'cancel-caulk-transfer'
+        ),
         variant: 'success'
       });
     },

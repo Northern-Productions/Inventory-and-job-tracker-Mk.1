@@ -39,6 +39,7 @@ function buildOptimisticJobRequirements(
     widthIn: entry.widthIn,
     requiredFeet: entry.requiredFeet,
     allocatedFeet: 0,
+    autoPlanningSuppressed: false,
     remainingFeet: entry.requiredFeet
   }));
 }

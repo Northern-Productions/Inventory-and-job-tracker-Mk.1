@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { APIError } from '../../../../api/http';
 import type { useToast } from '../../../../components/Toast';
+import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import type {
   AllocationEntry,
   Box,
@@ -131,7 +132,11 @@ export function useBoxDetailActions({
   ) {
     pushToast({
       title,
-      description: warnings.join(' ') || successDescription,
+      description: formatMutationWarningDescription(
+        warnings,
+        successDescription,
+        'box-detail-mutation'
+      ),
       actionLabel: 'Undo',
       onAction: async () => {
         try {
@@ -142,7 +147,11 @@ export function useBoxDetailActions({
 
           pushToast({
             title: 'Undo completed',
-            description: undone.warnings.join(' ') || `${boxIdValue} was reverted.`,
+            description: formatMutationWarningDescription(
+              undone.warnings,
+              `${boxIdValue} was reverted.`,
+              'undo-box-mutation'
+            ),
             variant: 'success'
           });
           onUndoSuccess?.(undone.result.box);

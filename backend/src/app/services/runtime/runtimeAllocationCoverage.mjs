@@ -510,6 +510,23 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
   return coverage;
 }
 
+/**
+ * PURPOSE:
+ * Builds public film requirement coverage rows from stored allocations and
+ * attaches planner suppression state for user-paused AUTO planning.
+ *
+ * AFFECTS:
+ * Job detail Film Requirements, status/readiness math, Order actions, and
+ * Resume auto-plan UI.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * jobsRepository requirement suppression query, Supabase Edge equivalent,
+ * frontend jobRequirementCoverage, and planner suppression migration 0086.
+ *
+ * COMMON FAILURE MODES:
+ * Stale remaining LF, backend/frontend status drift, or suppressed
+ * requirements being hidden from the user.
+ */
 function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
   const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = [];
@@ -538,7 +555,8 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
         cappedAllocatedFeet,
         Math.max(0, Number(coverageSummary.allocatedWithoutInstallDateFeet || 0))
       ),
-      remainingFeet
+      remainingFeet,
+      autoPlanningSuppressed: requirement.autoPlanningSuppressed === true
     });
   }
 

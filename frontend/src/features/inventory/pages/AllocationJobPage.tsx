@@ -53,9 +53,11 @@ export default function AllocationJobPage() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending,
+    isResumeAutoPlanningPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     handleOrderFilmRequirement,
+    handleResumeAutoPlanning,
     handleOrderAllFilmRequirements,
     handleCancelRequirementOrder,
     lifecycleWorkflow,
@@ -158,8 +160,10 @@ export default function AllocationJobPage() {
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         isCreateFilmOrderPending={isCreateFilmOrderPending}
+        isResumeAutoPlanningPending={isResumeAutoPlanningPending}
         pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
         onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
+        onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}
         onCancelRequirementOrder={handleCancelRequirementOrder}
         onOrderAll={() => setIsOrderAllConfirmOpen(true)}
       />

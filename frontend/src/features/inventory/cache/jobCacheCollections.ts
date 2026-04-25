@@ -292,6 +292,7 @@ export function syncJobSummaryCachesFromDetail(
       ? {
           ...current,
           summary: buildAllocationJobSummaryFromJobDetail(detail, current.summary),
+          requirements: detail.requirements,
           allocations: detail.allocations,
           usage: detail.usage,
           usageTimeline: detail.usageTimeline,

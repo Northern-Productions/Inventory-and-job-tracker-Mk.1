@@ -1227,6 +1227,14 @@ function mapBackendBootstrapError(message: string): string {
     return 'Database migration 0065_caulk_transfer_assist_and_new_products.sql is required. Apply missing backend migrations through 0065, then retry.';
   }
   if (
+    normalized.includes('relation "app.allocation_planner_suppressions" does not exist') ||
+    (normalized.includes('function public.api_acl_clear_allocation_planner_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_acl_record_auto_planned_allocation_suppression') && normalized.includes('does not exist')) ||
+    (normalized.includes('function app_api.film_requirement_planner_signature') && normalized.includes('does not exist'))
+  ) {
+    return 'Database migration 0086_planner_suppressions.sql is required. Apply missing backend and Supabase migrations through 0086, then retry.';
+  }
+  if (
     (normalized.includes('function public.api_acl_reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.reconcile_auto_planned_allocations') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.assert_film_box_allocation_capacity') && normalized.includes('does not exist'))
@@ -3161,6 +3169,23 @@ function buildAllocationCoverageByRequirementId(
   return coverageByRequirementId;
 }
 
+/**
+ * PURPOSE:
+ * Builds public film requirement coverage rows from stored allocations and
+ * attaches planner suppression state for user-paused AUTO planning.
+ *
+ * AFFECTS:
+ * Job detail Film Requirements, status/readiness math, Order actions, and
+ * Resume auto-plan UI.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * backend runtimeAllocationCoverage, Supabase requirement read RPCs, frontend
+ * jobRequirementCoverage, and planner suppression migration 0086.
+ *
+ * COMMON FAILURE MODES:
+ * Stale remaining LF, backend/frontend status drift, or suppressed
+ * requirements being hidden from the user.
+ */
 function buildPublicJobRequirementEntries(requirements: any[], allocations: any[], boxById: Record<string, any>) {
   const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = requirements.map((requirement, index) => {
@@ -3185,6 +3210,7 @@ function buildPublicJobRequirementEntries(requirements: any[], allocations: any[
         Math.max(0, Number(coverageSummary.allocatedWithoutInstallDateFeet || 0)),
       ),
       remainingFeet,
+      autoPlanningSuppressed: requirement.autoPlanningSuppressed === true,
     };
   });
   response.sort((left, right) => {
@@ -6503,6 +6529,21 @@ async function removeJobBoxAllocation(client: any, identity: AuthIdentity, paylo
   const releasedFeet =
     target.status === "ACTIVE" || target.status === "FULFILLED" ? integerOrZero(target.allocatedFeet) : 0;
   const nowIso = new Date().toISOString();
+
+  if (
+    asTrimmedString(target.allocationSource).toUpperCase() === "AUTO_PLANNED" &&
+    asTrimmedString(target.allocationKind).toUpperCase() !== "EXTRA" &&
+    asTrimmedString(target.requirementId)
+  ) {
+    await rpcOrThrow<Record<string, unknown>>(client, "api_acl_record_auto_planned_allocation_suppression", {
+      p_org_id: orgId,
+      p_actor: actor,
+      p_payload: {
+        allocationId: target.allocationId,
+        reason: note,
+      },
+    });
+  }
 
   const { error: updateAllocationError } = await serviceClient
     .schema("app")

@@ -6,6 +6,7 @@ export {
   useCheckinCaulkJobAllocation,
   useCheckoutCaulkJobAllocation,
   useReceiveCaulkTransfer,
+  useClearAllocationPlannerSuppression,
   useRemoveCaulkJobAllocation,
   useRemoveJobBoxAllocations,
   useUpdateCaulkJobAllocation

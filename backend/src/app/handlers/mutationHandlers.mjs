@@ -27,6 +27,7 @@ import {
   completeJob,
   createJob,
   deleteJob,
+  clearAllocationPlannerSuppression,
   removeJobBoxAllocation,
   reopenJob,
   setJobStagedPickup,
@@ -163,6 +164,8 @@ const mutationHandlers = {
     ),
   '/allocations/remove-box': async ({ client, orgId, authContext, params }) =>
     removeJobBoxAllocation(client, orgId, params, authContext.actor),
+  '/allocations/planner-suppression/clear': async ({ client, orgId, authContext, params }) =>
+    clearAllocationPlannerSuppression(client, orgId, params, authContext.actor),
   '/jobs/create': async ({ client, orgId, authContext, params }) =>
     createJob(client, orgId, normalizeLegacySchedulePayload('/jobs/create', params), authContext.actor),
   '/jobs/update': async ({ client, orgId, authContext, params }) =>

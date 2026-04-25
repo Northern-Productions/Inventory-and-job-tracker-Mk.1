@@ -181,6 +181,12 @@ function buildRequirementIdentityKey(
   )}|${Math.max(0, Number(requirement.widthIn || 0))}`;
 }
 
+function buildRequirementSuppressionSignature(
+  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn' | 'requiredFeet'>
+) {
+  return `${buildRequirementIdentityKey(requirement)}|${Math.max(0, Number(requirement.requiredFeet || 0))}`;
+}
+
 function compareCatalogStrings(left: string, right: string) {
   return normalizeLookupSegment(left).localeCompare(normalizeLookupSegment(right));
 }
@@ -258,6 +264,15 @@ function buildNextRequirementLines(
       widthIn: entry.widthIn,
       requiredFeet: entry.requiredFeet,
       allocatedFeet: 0,
+      autoPlanningSuppressed:
+        matchedRequirement?.autoPlanningSuppressed === true &&
+        buildRequirementSuppressionSignature(matchedRequirement) ===
+          buildRequirementSuppressionSignature({
+            manufacturer: entry.manufacturer,
+            filmName: entry.filmName,
+            widthIn: entry.widthIn,
+            requiredFeet: entry.requiredFeet
+          }),
       remainingFeet: entry.requiredFeet
     };
   });
@@ -529,6 +544,16 @@ export function createOptimisticJobDetailAfterAllocationRemoval(detail: JobDetai
   return {
     detail: recomputeOptimisticJobDetail({
       ...detail,
+      requirements:
+        removedAllocation.allocationSource === 'AUTO_PLANNED' &&
+        removedAllocation.allocationKind !== 'EXTRA' &&
+        removedAllocation.requirementId
+          ? detail.requirements.map((requirement) =>
+              requirement.requirementId === removedAllocation.requirementId
+                ? { ...requirement, autoPlanningSuppressed: true }
+                : requirement
+            )
+          : detail.requirements,
       allocations: detail.allocations.filter((entry) => entry.allocationId !== allocationId)
     }),
     removedAllocation

@@ -16,4 +16,5 @@ export {
   deleteJob,
   cancelJob,
   removeJobBoxAllocation,
+  clearAllocationPlannerSuppression,
 } from './runtime/runtimeJobsMutations.mjs';

@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState, type SetStateAction } from 'react';
 import type { useToast } from '../../../../components/Toast';
+import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import type {
   FilmOrderEntry,
   JobCaulkTransferAlert,
@@ -150,7 +151,11 @@ export function useJobLifecycleWorkflow({
       .then(({ warnings }) => {
         pushToast({
           title: `Saved job ${payload.jobNumber}`,
-          description: warnings.join(' ') || `Job ${payload.jobNumber} was updated.`,
+          description: formatMutationWarningDescription(
+            warnings,
+            `Job ${payload.jobNumber} was updated.`,
+            'update-job'
+          ),
           variant: 'success'
         });
       })
@@ -190,7 +195,11 @@ export function useJobLifecycleWorkflow({
       });
       pushToast({
         title: `Completed job ${summary.jobNumber}`,
-        description: warnings.join(' ') || `Job ${summary.jobNumber} was completed.`,
+        description: formatMutationWarningDescription(
+          warnings,
+          `Job ${summary.jobNumber} was completed.`,
+          'complete-job'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -315,9 +324,11 @@ export function useJobLifecycleWorkflow({
       });
       pushToast({
         title: 'Checked out all materials',
-        description:
-          warnings.join(' ') ||
+        description: formatMutationWarningDescription(
+          warnings,
           `All eligible film and caulk allocations for job ${summary.jobNumber} were checked out.`,
+          'checkout-all-job-materials'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -354,7 +365,11 @@ export function useJobLifecycleWorkflow({
       });
       pushToast({
         title: `Reopened job ${summary.jobNumber}`,
-        description: warnings.join(' ') || `Job ${summary.jobNumber} is active again.`,
+        description: formatMutationWarningDescription(
+          warnings,
+          `Job ${summary.jobNumber} is active again.`,
+          'reopen-job'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -388,7 +403,11 @@ export function useJobLifecycleWorkflow({
       });
       pushToast({
         title: `Deleted ${order.filmOrderId}`,
-        description: warnings.join(' ') || 'The film order was removed.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The film order was removed.',
+          'delete-job-film-order'
+        ),
         variant: 'success'
       });
     } catch (error) {
@@ -435,11 +454,13 @@ export function useJobLifecycleWorkflow({
       });
       pushToast({
         title: nextIsStaged ? 'Marked staged for pickup' : 'Cleared staged pickup',
-        description:
-          warnings.join(' ') ||
-          (nextIsStaged
+        description: formatMutationWarningDescription(
+          warnings,
+          nextIsStaged
             ? `Installers can now see that job ${summary.jobNumber} is staged for pickup.`
-            : `Job ${summary.jobNumber} is no longer marked staged for pickup.`),
+            : `Job ${summary.jobNumber} is no longer marked staged for pickup.`,
+          'set-job-staged-pickup'
+        ),
         variant: 'success'
       });
     } catch (error) {

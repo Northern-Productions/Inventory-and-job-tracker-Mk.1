@@ -15,7 +15,10 @@ import type {
   CaulkJobAllocationMutationResult,
   CaulkJobCheckoutMutationResult,
   CheckinCaulkJobAllocationPayload,
+  ClearAllocationPlannerSuppressionPayload,
   CheckoutCaulkJobAllocationPayload,
+  JobDetail,
+  JobRequirementLine,
   RemoveJobBoxAllocationsPayload,
   RemoveJobBoxAllocationsResult,
   RemoveCaulkJobAllocationPayload,
@@ -71,10 +74,39 @@ function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
   } as T;
 }
 
+function normalizeJobDetailSummary(summary: JobDetail['summary']): JobDetail['summary'] {
+  return {
+    ...summary,
+    isLaborOnly: Boolean(summary.isLaborOnly),
+    isStagedForPickup: Boolean(summary.isStagedForPickup),
+    hasOrderedAllocations: Boolean(summary.hasOrderedAllocations),
+    requiredFeet: Math.max(0, Number(summary.requiredFeet || 0)),
+    allocatedFeet: Math.max(0, Number(summary.allocatedFeet || 0)),
+    allocatedWithInstallDateFeet: Math.max(0, Number(summary.allocatedWithInstallDateFeet || 0)),
+    allocatedWithoutInstallDateFeet: Math.max(0, Number(summary.allocatedWithoutInstallDateFeet || 0)),
+    remainingFeet: Math.max(0, Number(summary.remainingFeet || 0)),
+    requiredTubes: Math.max(0, Number(summary.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(summary.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(summary.remainingTubes || 0))
+  };
+}
+
 function normalizeCaulkAllocationEntry<T extends CaulkJobAllocationEntry>(entry: T): T {
   return {
     ...entry,
     allocationSource: normalizeAllocationSource(entry.allocationSource)
+  };
+}
+
+function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementLine {
+  return {
+    ...entry,
+    requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
+    allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
+    allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
+    allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),
+    remainingFeet: Math.max(0, Number(entry.remainingFeet || 0)),
+    autoPlanningSuppressed: Boolean(entry.autoPlanningSuppressed)
   };
 }
 
@@ -134,6 +166,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
   return {
     ...detail,
     summary: normalizeAllocationJobSummary(detail.summary),
+    requirements: (detail.requirements || []).map(normalizeJobRequirementLine),
     allocations: (detail.allocations || []).map(normalizeAllocationEntry),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
@@ -142,6 +175,32 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
     caulkCheckouts: detail.caulkCheckouts || [],
     filmTransferAlerts: detail.filmTransferAlerts || [],
     caulkTransferAlerts: detail.caulkTransferAlerts || []
+  };
+}
+
+export async function clearAllocationPlannerSuppression(
+  payload: ClearAllocationPlannerSuppressionPayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('allocations', 'write');
+  const response = await request<JobDetail>('POST', '/allocations/planner-suppression/clear', {
+    body: payload
+  });
+
+  return {
+    result: {
+      ...response.data,
+      summary: normalizeJobDetailSummary(response.data.summary),
+      requirements: (response.data.requirements || []).map(normalizeJobRequirementLine),
+      allocations: (response.data.allocations || []).map(normalizeAllocationEntry),
+      usage: response.data.usage || [],
+      usageTimeline: response.data.usageTimeline || [],
+      caulkRequirements: response.data.caulkRequirements || [],
+      caulkAllocations: (response.data.caulkAllocations || []).map(normalizeCaulkAllocationEntry),
+      caulkCheckouts: response.data.caulkCheckouts || [],
+      filmTransferAlerts: response.data.filmTransferAlerts || [],
+      caulkTransferAlerts: response.data.caulkTransferAlerts || []
+    },
+    warnings: response.warnings
   };
 }
 

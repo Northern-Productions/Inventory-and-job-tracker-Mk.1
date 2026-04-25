@@ -15,6 +15,7 @@ import type { CreateFilmOrderPayload, FilmOrderEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
 import { FilmOrderLinkedBoxes } from '../components/FilmOrderLinkedBoxes';
@@ -173,7 +174,11 @@ export default function FilmOrdersPage() {
       });
       toast.push({
         title: `Deleted ${order.filmOrderId}`,
-        description: warnings.join(' ') || 'The film order was removed.',
+        description: formatMutationWarningDescription(
+          warnings,
+          'The film order was removed.',
+          'delete-film-order'
+        ),
         variant: 'success'
       });
     } catch (error) {

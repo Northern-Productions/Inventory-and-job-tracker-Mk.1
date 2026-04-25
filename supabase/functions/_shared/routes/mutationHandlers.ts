@@ -476,6 +476,18 @@ const mutationHandlers: Record<string, MutationHandler> = {
   "/allocations/remove-box": async ({ client, identity, payload }, deps) => {
     return await deps.removeJobBoxAllocation(client, identity, payload);
   },
+  "/allocations/planner-suppression/clear": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_clear_allocation_planner_suppression",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(await deps.buildJobDetail(client, orgId, result.jobNumber || normalizedPayload.jobNumber), [
+      `Auto planning resumed for requirement ${deps.asTrimmedString(normalizedPayload.requirementId)} on job ${deps.asTrimmedString(result.jobNumber || normalizedPayload.jobNumber)}.`,
+    ]);
+  },
   "/allocations/caulk/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(
       client,
@@ -640,8 +652,8 @@ const mutationHandlers: Record<string, MutationHandler> = {
  * caulk stock/allocation changes, and transfer-triggered replanning.
  *
  * WHEN CHANGING THIS, ALSO CHECK:
- * backend runtimeAutoAllocationPlanner.mjs, migration 0085 planner scope
- * parsing, and frontend mutation invalidation around job detail reloads.
+ * backend runtimeAutoAllocationPlanner.mjs, planner migrations 0085/0086,
+ * and frontend mutation invalidation around job detail reloads.
  *
  * COMMON FAILURE MODES:
  * Stale AUTO_PLANNED rows after Edge mutations, planner work running too

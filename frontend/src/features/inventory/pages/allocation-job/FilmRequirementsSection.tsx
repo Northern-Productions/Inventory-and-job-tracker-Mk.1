@@ -19,8 +19,10 @@ interface FilmRequirementsSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   isCreateFilmOrderPending: boolean;
+  isResumeAutoPlanningPending: boolean;
   pendingDeleteFilmOrderIds: Set<string>;
   onOrderRequirement: (requirement: JobRequirementLine) => void;
+  onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
   onCancelRequirementOrder: (order: FilmOrderEntry) => void;
   onOrderAll: () => void;
 }
@@ -33,8 +35,10 @@ export function FilmRequirementsSection({
   isAuthenticated,
   clientIdConfigured,
   isCreateFilmOrderPending,
+  isResumeAutoPlanningPending,
   pendingDeleteFilmOrderIds,
   onOrderRequirement,
+  onResumeAutoPlanning,
   onCancelRequirementOrder,
   onOrderAll
 }: FilmRequirementsSectionProps) {
@@ -80,7 +84,7 @@ export function FilmRequirementsSection({
       );
     }
 
-    return (
+    const orderButton = (
       <Button
         type="button"
         variant="secondary"
@@ -92,6 +96,30 @@ export function FilmRequirementsSection({
       >
         Order
       </Button>
+    );
+
+    if (!entry.autoPlanningSuppressed || remainingFeet <= 0) {
+      return orderButton;
+    }
+
+    return (
+      <div className="film-order-actions film-order-actions--stacked">
+        <span className="muted-text">Auto planning paused</span>
+        <div className="film-order-actions">
+          {orderButton}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!isAuthenticated || !clientIdConfigured}
+            loading={isResumeAutoPlanningPending}
+            loadingLabel="Resuming"
+            onClick={() => onResumeAutoPlanning(entry)}
+          >
+            Resume auto-plan
+          </Button>
+        </div>
+      </div>
     );
   }
 
