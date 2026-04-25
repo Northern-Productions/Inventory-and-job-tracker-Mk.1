@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0080_restore_boxes_set_status_post_save_recalc.sql';
+const LATEST_MIGRATION = '0082_create_cancel_active_allocations_for_box_job_wrapper.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -60,6 +60,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.recalculate_physical_box_allocatable_now(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.recalculate_film_order(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
+  { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
+  { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
@@ -162,6 +164,25 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'candidate.manufacturer_key = requirement.manufacturer_key',
       'not requirement.is_exterior',
       'or candidate.is_exterior'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)',
+    includes: [
+      'return app_api.append_roll_history_entry(',
+      "app_api.require_text(p_box_id, 'BoxID')",
+      "coalesce(nullif(app_api.trim_text(p_job_number), ''), 'UNKNOWN')"
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)',
+    includes: [
+      'return app_api.cancel_active_allocations_for_box_job_checkin(',
+      'p_actor,',
+      'p_box_id,',
+      'p_job_number,'
     ],
     excludes: []
   },

@@ -18,8 +18,8 @@ The function keeps the existing frontend contract:
 
 From repo root:
 
-- Apply the mirrored Supabase migrations through `supabase/migrations/20260421170000_restore_linked_receipt_post_save_recalc.sql` before deploying the Edge function.
-- That mirrored checkpoint corresponds to `backend/migrations/0077_restore_linked_receipt_post_save_recalc.sql` in the canonical backend migration history.
+- Apply the mirrored Supabase migrations through `supabase/migrations/20260425093000_create_cancel_active_allocations_for_box_job_wrapper.sql` before deploying the Edge function.
+- That mirrored checkpoint corresponds to `backend/migrations/0082_create_cancel_active_allocations_for_box_job_wrapper.sql` in the canonical backend migration history.
 
 ```bash
 npx supabase login
