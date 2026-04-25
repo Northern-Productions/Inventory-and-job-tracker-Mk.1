@@ -2575,14 +2575,65 @@ function buildCaulkCoverageByProductId(caulkAllocations: any[]) {
   return totals;
 }
 
-function buildPublicCaulkRequirementEntries(caulkRequirements: any[], caulkAllocations: any[]) {
-  const coverageByProductId = buildCaulkCoverageByProductId(caulkAllocations);
+function buildCaulkCoverageByRequirementId(
+  caulkRequirements: any[],
+  caulkAllocations: any[],
+  options: { jobNumber?: unknown } = {},
+) {
+  const totals: Record<string, number> = {};
+  const requirementById: Record<string, { requirement: any; jobNumber: string }> = {};
+  const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
+
+  for (const requirement of Array.isArray(caulkRequirements) ? caulkRequirements : []) {
+    const requirementId = asTrimmedString(requirement.requirementId || requirement.id);
+    if (!requirementId) {
+      continue;
+    }
+
+    requirementById[requirementId] = {
+      requirement,
+      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
+    };
+  }
+
+  for (const allocation of Array.isArray(caulkAllocations) ? caulkAllocations : []) {
+    const requirementId = asTrimmedString(allocation.requirementId);
+    const requirementEntry = requirementId ? requirementById[requirementId] : null;
+    if (
+      !requirementEntry ||
+      asTrimmedString(allocation.status).toUpperCase() === "CANCELLED" ||
+      integerOrZero(allocation.allocatedTubes) <= 0
+    ) {
+      continue;
+    }
+
+    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+    if (
+      requirementJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+    ) {
+      continue;
+    }
+
+    if (asTrimmedString(allocation.productId) !== asTrimmedString(requirementEntry.requirement.productId)) {
+      continue;
+    }
+
+    totals[requirementId] = integerOrZero(totals[requirementId]) + Math.max(0, integerOrZero(allocation.allocatedTubes));
+  }
+
+  return totals;
+}
+
+function buildPublicCaulkRequirementEntries(caulkRequirements: any[], caulkAllocations: any[], options: { jobNumber?: unknown } = {}) {
+  const coverageByRequirementId = buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, options);
   const response = (Array.isArray(caulkRequirements) ? caulkRequirements : []).map((entry) => {
+    const requirementId = asTrimmedString(entry.requirementId);
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
-    const allocatedTubes = Math.max(0, integerOrZero(coverageByProductId[asTrimmedString(entry.productId)] || 0));
+    const allocatedTubes = Math.max(0, integerOrZero(coverageByRequirementId[requirementId] || 0));
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     return {
-      requirementId: asTrimmedString(entry.requirementId),
+      requirementId,
       jobNumber: asTrimmedString(entry.jobNumber),
       productId: asTrimmedString(entry.productId),
       manufacturerId: asTrimmedString(entry.manufacturerId),
@@ -2904,7 +2955,8 @@ function getNextFeetAvailableAfterAllocationRelease(box: any, releasedFeet: unkn
 }
 
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation: any, box: any) {
-  if (!box || allocation.status !== "ACTIVE") {
+  void allocation;
+  if (!box) {
     return false;
   }
 
@@ -3016,166 +3068,87 @@ function addRequirementCoverageFeet(
   return appliedFeet;
 }
 
-function buildAllocationCoverageByRequirementId(requirements: any[], allocations: any[], boxById: Record<string, any>) {
-  const grouped: Record<string, {
-    requirements: Array<{
-      requirementId: string;
-      manufacturer: string;
-      filmName: string;
-      widthIn: number;
-      requiredFeet: number;
-      isExterior: boolean;
-      specificity: number;
-      index: number;
-    }>;
-    pools: Array<{
-      manufacturer: string;
-      filmName: string;
-      widthIn: number;
-      remainingFeet: number;
-      isExterior: boolean;
-      index: number;
-    }>;
-  }> = {};
+function getRequirementCoverageId(requirement: any, index: number) {
+  return asTrimmedString(requirement?.id || requirement?.requirementId) || `generated-${index}`;
+}
+
+function findCoverageBoxById(boxById: Record<string, any>, boxId: unknown) {
+  const normalizedBoxId = asTrimmedString(boxId);
+  if (!normalizedBoxId) {
+    return null;
+  }
+
+  return boxById[normalizedBoxId] || boxById[normalizedBoxId.toUpperCase()] || null;
+}
+
+function buildAllocationCoverageByRequirementId(
+  requirements: any[],
+  allocations: any[],
+  boxById: Record<string, any>,
+  options: { jobNumber?: unknown } = {},
+) {
   const coverageByRequirementId: Record<string, ReturnType<typeof createEmptyRequirementCoverageSummary>> = {};
-  const requirementById: Record<string, any> = {};
+  const requirementById: Record<string, {
+    requirement: any;
+    requirementId: string;
+    jobNumber: string;
+    requiredFeet: number;
+  }> = {};
+  const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
-    requirementById[requirementId] = requirement;
-    const groupKey = getPlanningFilmManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: [],
-      };
-    }
-
-    grouped[groupKey].requirements.push({
+    const requirementId = getRequirementCoverageId(requirement, index);
+    requirementById[requirementId] = {
+      requirement,
       requirementId,
-      manufacturer: requirement.manufacturer,
-      filmName: requirement.filmName,
-      widthIn: Number(requirement.widthIn) || 0,
+      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
-      isExterior: planningFilmIsExterior(requirement.manufacturer, requirement.filmName),
-      specificity: describePlanningFilmIdentity(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
-      index,
-    });
+    };
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
+    const allocationStatus = asTrimmedString(allocation.status).toUpperCase();
+    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (
-      allocation.status === "CANCELLED" ||
-      allocation.allocatedFeet <= 0 ||
+      allocationStatus === "CANCELLED" ||
+      coveredFeet <= 0 ||
       normalizeAllocationKind(allocation.allocationKind) === "EXTRA"
     ) {
       continue;
     }
-    const box = boxById[allocation.boxId];
-    if (!box) {
-      continue;
-    }
-    if (shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
-      continue;
-    }
 
     const boundRequirementId = asTrimmedString(allocation.requirementId);
-    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
-    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
-    if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
-      addRequirementCoverageFeet(
-        coverageByRequirementId,
-        boundRequirementId,
-        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        getAllocationReservationState(allocation),
-        coveredFeet,
-      );
+    const requirementEntry = boundRequirementId ? requirementById[boundRequirementId] : null;
+    if (!requirementEntry) {
       continue;
     }
 
-    const groupKey = getPlanningFilmManufacturerGroupKey(box.manufacturer, box.filmName);
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: [],
-      };
+    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+    if (
+      requirementJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+    ) {
+      continue;
     }
-    grouped[groupKey].pools.push({
-      manufacturer: box.manufacturer,
-      filmName: box.filmName,
-      widthIn: Number(box.widthIn) || 0,
-      remainingFeet: coveredFeet,
-      reservationState: getAllocationReservationState(allocation),
-      isExterior: planningFilmIsExterior(box.manufacturer, box.filmName),
-      index,
-    });
-  }
 
-  for (const group of Object.values(grouped)) {
-    group.requirements.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? -1 : 1;
-      }
-
-      if (left.widthIn !== right.widthIn) {
-        return right.widthIn - left.widthIn;
-      }
-
-      if (left.specificity !== right.specificity) {
-        return right.specificity - left.specificity;
-      }
-
-      return left.index - right.index;
-    });
-    group.pools.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? 1 : -1;
-      }
-
-      return left.widthIn - right.widthIn;
-    });
-
-    for (const requirement of group.requirements) {
-      let remainingNeed = Math.max(
-        0,
-        requirement.requiredFeet -
-          Math.max(0, Number(coverageByRequirementId[requirement.requirementId]?.allocatedFeet || 0)),
-      );
-      const compatiblePools = group.pools
-        .filter(
-          (pool) =>
-            pool.remainingFeet > 0 &&
-            pool.widthIn >= requirement.widthIn &&
-            Boolean(
-              getPlanningFilmMatch(
-                pool.manufacturer,
-                pool.filmName,
-                requirement.manufacturer,
-                requirement.filmName,
-              )
-            ),
-        )
-        .sort((left, right) => compareCoveragePoolsForRequirement(left, right, requirement));
-
-      for (const pool of compatiblePools) {
-        if (remainingNeed <= 0) {
-          break;
-        }
-
-        const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
-        pool.remainingFeet -= assignedFeet;
-        remainingNeed -= assignedFeet;
-        addRequirementCoverageFeet(
-          coverageByRequirementId,
-          requirement.requirementId,
-          requirement.requiredFeet,
-          pool.reservationState,
-          assignedFeet,
-        );
-      }
+    const box = findCoverageBoxById(boxById, allocation.boxId);
+    if (!box || shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
+      continue;
     }
+
+    if (!allocationMatchesRequirement(box, requirementEntry.requirement)) {
+      continue;
+    }
+
+    addRequirementCoverageFeet(
+      coverageByRequirementId,
+      boundRequirementId,
+      requirementEntry.requiredFeet,
+      getAllocationReservationState(allocation),
+      coveredFeet,
+    );
   }
 
   return coverageByRequirementId;
@@ -3183,8 +3156,8 @@ function buildAllocationCoverageByRequirementId(requirements: any[], allocations
 
 function buildPublicJobRequirementEntries(requirements: any[], allocations: any[], boxById: Record<string, any>) {
   const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
-  const response = requirements.map((requirement) => {
-    const requirementId = asTrimmedString(requirement.id) || createLogId();
+  const response = requirements.map((requirement, index) => {
+    const requirementId = getRequirementCoverageId(requirement, index);
     const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
     const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
@@ -3229,192 +3202,27 @@ function isOpenMaterialFilmOrder(entry: any) {
   return status === "FILM_ORDER" || status === "FILM_ON_THE_WAY";
 }
 
-function normalizeWarehouse(value: unknown): string {
-  return asTrimmedString(value).toUpperCase();
-}
-
 function getRequirementId(requirement: any): string {
   return asTrimmedString(requirement?.requirementId || requirement?.id);
 }
 
-function isSameWarehouseInStockBox(box: any, jobWarehouse: unknown) {
-  return (
-    asTrimmedString(box?.status).toUpperCase() === "IN_STOCK" &&
-    normalizeWarehouse(box?.warehouse) === normalizeWarehouse(jobWarehouse)
-  );
-}
-
-function buildReadinessFilmPools(requirements: any[], allocations: any[], allBoxes: any[], jobWarehouse: unknown) {
-  const scheduledCoverageByRequirementId: Record<string, number> = {};
-  const pools: Array<{ box: any; remainingFeet: number }> = [];
-  const requirementById: Record<string, any> = {};
-
-  for (const requirement of Array.isArray(requirements) ? requirements : []) {
-    const requirementId = getRequirementId(requirement);
-    if (requirementId) {
-      requirementById[requirementId] = requirement;
-    }
-  }
-
-  const boxById: Record<string, any> = {};
+function indexReadinessBoxes(allBoxes: any[], boxById: Record<string, any> = {}) {
+  const response: Record<string, any> = { ...(boxById || {}) };
   for (const box of Array.isArray(allBoxes) ? allBoxes : []) {
-    const boxId = asTrimmedString(box?.boxId).toUpperCase();
+    const boxId = asTrimmedString(box?.boxId);
     if (!boxId) {
       continue;
     }
-    boxById[boxId] = box;
-    if (isSameWarehouseInStockBox(box, jobWarehouse) && integerOrZero(box?.feetAvailable) > 0) {
-      pools.push({
-        box,
-        remainingFeet: integerOrZero(box.feetAvailable),
-      });
-    }
+
+    response[boxId] = box;
+    response[boxId.toUpperCase()] = box;
   }
 
-  for (const allocation of Array.isArray(allocations) ? allocations : []) {
-    if (
-      asTrimmedString(allocation?.status).toUpperCase() !== "ACTIVE" ||
-      !asTrimmedString(allocation?.installDate) ||
-      normalizeAllocationKind(allocation?.allocationKind) === "EXTRA"
-    ) {
-      continue;
-    }
-
-    const requirementId = asTrimmedString(allocation?.requirementId);
-    const requirement = requirementById[requirementId];
-    const box = boxById[asTrimmedString(allocation?.boxId).toUpperCase()];
-    if (!requirement || !box || !isSameWarehouseInStockBox(box, jobWarehouse)) {
-      continue;
-    }
-
-    if (!allocationMatchesRequirement(box, requirement)) {
-      continue;
-    }
-
-    scheduledCoverageByRequirementId[requirementId] =
-      integerOrZero(scheduledCoverageByRequirementId[requirementId]) +
-      getStoredAllocationCoveredFeet(allocation);
-  }
-
-  return {
-    pools,
-    scheduledCoverageByRequirementId,
-  };
-}
-
-function hasEnoughSameWarehouseInStockFilm(
-  requirements: any[],
-  allocations: any[],
-  allBoxes: any[],
-  jobWarehouse: unknown,
-) {
-  const requiredRequirements = (Array.isArray(requirements) ? requirements : []).filter(
-    (entry) => integerOrZero(entry?.requiredFeet) > 0,
-  );
-  if (!requiredRequirements.length) {
-    return true;
-  }
-
-  if (!normalizeWarehouse(jobWarehouse)) {
-    return false;
-  }
-
-  const { pools, scheduledCoverageByRequirementId } = buildReadinessFilmPools(
-    requiredRequirements,
-    allocations,
-    allBoxes,
-    jobWarehouse,
-  );
-
-  for (const requirement of requiredRequirements) {
-    let remainingNeed = Math.max(
-      integerOrZero(requirement.requiredFeet) -
-        integerOrZero(scheduledCoverageByRequirementId[getRequirementId(requirement)]),
-      0,
-    );
-
-    for (const pool of pools) {
-      if (remainingNeed <= 0) {
-        break;
-      }
-      if (pool.remainingFeet <= 0 || !allocationMatchesRequirement(pool.box, requirement)) {
-        continue;
-      }
-
-      const coveragePlan = planCoverageAllocation(
-        remainingNeed,
-        pool.remainingFeet,
-        Number(pool.box.widthIn) || 0,
-        Number(requirement.widthIn) || 0,
-      );
-      pool.remainingFeet = Math.max(0, pool.remainingFeet - integerOrZero(coveragePlan.allocatedFeet));
-      remainingNeed = Math.max(0, coveragePlan.remainingCoveredFeet);
-    }
-
-    if (remainingNeed > 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function hasEnoughSameWarehouseInStockCaulk(
-  caulkRequirements: any[],
-  caulkAllocations: any[],
-  caulkStockEntries: any[],
-  jobWarehouse: unknown,
-) {
-  const requirements = (Array.isArray(caulkRequirements) ? caulkRequirements : []).filter(
-    (entry) => integerOrZero(entry?.requiredTubes) > 0,
-  );
-  if (!requirements.length) {
-    return true;
-  }
-
-  if (!normalizeWarehouse(jobWarehouse)) {
-    return false;
-  }
-
-  const stockByProductId: Record<string, number> = {};
-  for (const entry of Array.isArray(caulkStockEntries) ? caulkStockEntries : []) {
-    if (normalizeWarehouse(entry?.warehouse) !== normalizeWarehouse(jobWarehouse)) {
-      continue;
-    }
-    const productId = asTrimmedString(entry?.productId);
-    stockByProductId[productId] = integerOrZero(stockByProductId[productId]) + integerOrZero(entry?.tubesOnHand);
-  }
-
-  const reservedByProductId: Record<string, number> = {};
-  for (const allocation of Array.isArray(caulkAllocations) ? caulkAllocations : []) {
-    if (
-      asTrimmedString(allocation?.status).toUpperCase() !== "ACTIVE" ||
-      normalizeWarehouse(allocation?.warehouse) !== normalizeWarehouse(jobWarehouse) ||
-      allocation?.pendingTransfer
-    ) {
-      continue;
-    }
-
-    const productId = asTrimmedString(allocation?.productId);
-    reservedByProductId[productId] =
-      integerOrZero(reservedByProductId[productId]) + integerOrZero(allocation?.reservedTubesRemaining);
-  }
-
-  for (const requirement of requirements) {
-    const productId = asTrimmedString(requirement?.productId);
-    const requiredTubes = integerOrZero(requirement.requiredTubes);
-    const availableTubes = integerOrZero(stockByProductId[productId]) + integerOrZero(reservedByProductId[productId]);
-    if (availableTubes < requiredTubes) {
-      return false;
-    }
-
-    stockByProductId[productId] = Math.max(0, integerOrZero(stockByProductId[productId]) - requiredTubes);
-  }
-
-  return true;
+  return response;
 }
 
 function deriveInStockReadinessStatus(params: {
+  jobNumber?: unknown;
   lifecycleStatus: unknown;
   isLaborOnly: boolean;
   requirements: any[];
@@ -3423,13 +3231,14 @@ function deriveInStockReadinessStatus(params: {
   caulkAllocations: any[];
   filmOrders: any[];
   allBoxes: any[];
+  boxById?: Record<string, any>;
   caulkStockEntries: any[];
   jobWarehouse: unknown;
 }) {
   /**
    * PURPOSE:
    * Mirrors backend READY/FILM_ORDER derivation for Supabase Edge reads using
-   * only IN_STOCK film and physical caulk in the job warehouse.
+   * strict stored allocation coverage bound to each requirement.
    *
    * AFFECTS:
    * Supabase job list/detail APIs, allocation summaries, calendar/search reads,
@@ -3437,12 +3246,14 @@ function deriveInStockReadinessStatus(params: {
    *
    * WHEN CHANGING THIS, ALSO CHECK:
    * backend runtimeJobSummaries.mjs, frontend jobSummaryMath/jobCalendar, and
-   * auto-shortage no-op migrations.
+   * strict film/caulk allocation coverage helpers.
    *
    * COMMON FAILURE MODES:
-   * ORDERED/TRANSFER/other-warehouse inventory making jobs READY, duplicate
-   * caulk stock consumption, or local backend and Edge status drift.
+   * Trusting stale remaining values, counting stale requirement IDs, allowing
+   * fallback allocation matching, or local backend and Edge status drift.
    */
+  void params.caulkStockEntries;
+  void params.jobWarehouse;
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(params.lifecycleStatus);
   if (normalizedLifecycleStatus === "CANCELLED") {
     return "CANCELLED";
@@ -3468,18 +3279,44 @@ function deriveInStockReadinessStatus(params: {
       : "FILM_ORDER";
   }
 
-  const filmReady = hasEnoughSameWarehouseInStockFilm(
+  const readinessBoxById = indexReadinessBoxes(params.allBoxes, params.boxById || {});
+  const filmCoverageByRequirementId = buildAllocationCoverageByRequirementId(
     requirements,
     params.allocations,
-    params.allBoxes,
-    params.jobWarehouse,
+    readinessBoxById,
+    { jobNumber: params.jobNumber },
   );
-  const caulkReady = hasEnoughSameWarehouseInStockCaulk(
+  const caulkCoverageByRequirementId = buildCaulkCoverageByRequirementId(
     caulkRequirements,
     params.caulkAllocations,
-    params.caulkStockEntries,
-    params.jobWarehouse,
+    { jobNumber: params.jobNumber },
   );
+  const filmReady = requirements.every((requirement) => {
+    const requiredFeet = integerOrZero(requirement?.requiredFeet);
+    if (requiredFeet <= 0) {
+      return true;
+    }
+
+    const requirementId = getRequirementId(requirement);
+    if (!requirementId) {
+      return false;
+    }
+
+    return integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet) >= requiredFeet;
+  });
+  const caulkReady = caulkRequirements.every((requirement) => {
+    const requiredTubes = integerOrZero(requirement?.requiredTubes);
+    if (requiredTubes <= 0) {
+      return true;
+    }
+
+    const requirementId = getRequirementId(requirement);
+    if (!requirementId) {
+      return false;
+    }
+
+    return integerOrZero(caulkCoverageByRequirementId[requirementId]) >= requiredTubes;
+  });
 
   return filmReady && caulkReady ? "READY" : "FILM_ORDER";
 }
@@ -3707,8 +3544,10 @@ function computeJobStatusFromRequirements(
   filmOrders: any[],
   options: {
     allBoxes?: any[];
+    boxById?: Record<string, any>;
     caulkAllocations?: any[];
     caulkStockEntries?: any[];
+    jobNumber?: unknown;
     jobWarehouse?: unknown;
   } = {},
 ) {
@@ -3722,7 +3561,9 @@ function computeJobStatusFromRequirements(
     caulkAllocations: options.caulkAllocations || [],
     filmOrders,
     allBoxes: options.allBoxes || [],
+    boxById: options.boxById || {},
     caulkStockEntries: options.caulkStockEntries || [],
+    jobNumber: options.jobNumber || "",
     jobWarehouse: options.jobWarehouse || "",
   });
 }
@@ -3800,6 +3641,7 @@ function buildJobListEntry(
   boxById: Record<string, any> = {},
   options: {
     allBoxes?: any[];
+    boxById?: Record<string, any>;
     caulkAllocations?: any[];
     caulkStockEntries?: any[];
     jobWarehouse?: unknown;
@@ -3846,8 +3688,10 @@ function buildJobListEntry(
       filmOrders,
       {
         allBoxes: options.allBoxes || Object.values(boxById || {}),
+        boxById: options.boxById || boxById,
         caulkAllocations: options.caulkAllocations || [],
         caulkStockEntries: options.caulkStockEntries || [],
+        jobNumber: jobHeader.jobNumber || "",
         jobWarehouse: options.jobWarehouse || jobHeader.warehouse || "",
       },
     ),
@@ -4731,8 +4575,10 @@ async function buildAllocationJobList(client: any, orgId: string) {
         caulkAllocations: caulkPlanning.allocationsByJob[jobNumber] || [],
         filmOrders,
         allBoxes,
+        boxById,
         caulkStockEntries: allCaulkStock,
         jobWarehouse: header?.warehouse || "",
+        jobNumber,
       });
       return summary;
     })
@@ -4820,8 +4666,10 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     caulkAllocations,
     filmOrders,
     allBoxes,
+    boxById,
     caulkStockEntries,
     jobWarehouse: header?.warehouse || "",
+    jobNumber: normalizedJobNumber,
   });
 
   return {

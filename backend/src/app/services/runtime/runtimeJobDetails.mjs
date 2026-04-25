@@ -402,8 +402,10 @@ function buildAllocationJobDetailPayload(detailContext) {
     caulkAllocations: detailContext.caulkAllocations,
     filmOrders: detailContext.filmOrders,
     allBoxes: detailContext.allBoxes,
+    boxById: detailContext.boxById,
     caulkStockEntries: detailContext.caulkStockEntries,
     jobWarehouse: detailContext.header?.warehouse || '',
+    jobNumber: detailContext.jobNumber,
   });
 
   return {

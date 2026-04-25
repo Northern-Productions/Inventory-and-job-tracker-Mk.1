@@ -1,4 +1,4 @@
-import type { CaulkTransferStatus } from './statuses';
+import type { AllocationSource, CaulkTransferStatus } from './statuses';
 import type { Warehouse } from './warehouses';
 
 export interface CaulkPendingTransferSummary {
@@ -73,6 +73,7 @@ export interface CaulkJobAllocationEntry {
   outstandingCheckoutTubes: number;
   openCheckoutCount: number;
   status: 'ACTIVE' | 'CANCELLED' | string;
+  allocationSource: AllocationSource;
   createdAt: string;
   createdBy: string;
   updatedAt: string;

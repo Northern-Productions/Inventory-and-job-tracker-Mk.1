@@ -385,6 +385,18 @@ function normalizeAllocationKind(value) {
   return asTrimmedString(value).toUpperCase() === 'EXTRA' ? 'EXTRA' : 'REQUIREMENT';
 }
 
+function normalizeAllocationSource(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (
+    normalized === 'AUTO_PLANNED' ||
+    normalized === 'FILM_ORDER_RECEIPT' ||
+    normalized === 'DIRECT_TO_JOB_SITE'
+  ) {
+    return normalized;
+  }
+  return 'MANUAL';
+}
+
 function parseIntegerInput(value, fieldName) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || Math.trunc(parsed) !== parsed) {
@@ -934,6 +946,7 @@ export {
   integerOrZero,
   integerOrNull,
   normalizeAllocationKind,
+  normalizeAllocationSource,
   parseIntegerInput,
   requireUuid,
   cloneValue,

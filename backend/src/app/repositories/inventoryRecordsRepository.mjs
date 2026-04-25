@@ -4,6 +4,7 @@ import {
   createLogId,
   integerOrZero,
   normalizeAllocationKind,
+  normalizeAllocationSource,
 } from '../core/helpers.mjs';
 import {
   normalizeCatalogWriteFilmKeyInput,
@@ -261,7 +262,8 @@ async function saveAllocationRecord(client, orgId, entry) {
         notes,
         crew_leader,
         film_order_id,
-        allocation_kind
+        allocation_kind,
+        allocation_source
       )
       values (
         $1,$2,$3,$4,$5,$6,
@@ -272,7 +274,7 @@ async function saveAllocationRecord(client, orgId, entry) {
         coalesce($12::timestamptz, now()),
         $13,
         nullif($14, '')::timestamptz,
-        $15,$16,$17,$18,$19
+        $15,$16,$17,$18,$19,$20
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
@@ -291,7 +293,8 @@ async function saveAllocationRecord(client, orgId, entry) {
         notes = excluded.notes,
         crew_leader = excluded.crew_leader,
         film_order_id = excluded.film_order_id,
-        allocation_kind = excluded.allocation_kind
+        allocation_kind = excluded.allocation_kind,
+        allocation_source = excluded.allocation_source
       returning *
     `,
     [
@@ -314,6 +317,7 @@ async function saveAllocationRecord(client, orgId, entry) {
       entry.crewLeader,
       entry.filmOrderId,
       normalizeAllocationKind(entry.allocationKind),
+      normalizeAllocationSource(entry.allocationSource),
     ]
   );
 

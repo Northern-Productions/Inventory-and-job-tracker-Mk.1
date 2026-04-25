@@ -11,6 +11,7 @@ import type {
   AllocateBoxPayload,
   ApplyAllocationPlanPayload,
   ApplyAllocationPlanResult,
+  CaulkJobAllocationEntry,
   CaulkJobAllocationMutationResult,
   CaulkJobCheckoutMutationResult,
   CheckinCaulkJobAllocationPayload,
@@ -23,6 +24,19 @@ import type {
 } from '../../domain';
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
+import type { AllocationSource } from '../../domain';
+
+function normalizeAllocationSource(value: unknown): AllocationSource {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (
+    normalized === 'AUTO_PLANNED' ||
+    normalized === 'FILM_ORDER_RECEIPT' ||
+    normalized === 'DIRECT_TO_JOB_SITE'
+  ) {
+    return normalized;
+  }
+  return 'MANUAL';
+}
 
 function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
   return {
@@ -41,6 +55,7 @@ function normalizeAllocationJobSummary(summary: AllocationJobSummary): Allocatio
 function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
   return {
     ...entry,
+    allocationSource: normalizeAllocationSource(entry.allocationSource),
     allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
     coveredFeet: Math.max(0, Number(entry.coveredFeet || 0)),
     backedPhysicalFeet: Math.max(
@@ -54,6 +69,13 @@ function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
     reservationState:
       entry.reservationState === 'WITH_INSTALL_DATE' ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE'
   } as T;
+}
+
+function normalizeCaulkAllocationEntry<T extends CaulkJobAllocationEntry>(entry: T): T {
+  return {
+    ...entry,
+    allocationSource: normalizeAllocationSource(entry.allocationSource)
+  };
 }
 
 function normalizeAllocationPreview(preview: AllocationPreview): AllocationPreview {
@@ -116,7 +138,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
     caulkRequirements: detail.caulkRequirements || [],
-    caulkAllocations: detail.caulkAllocations || [],
+    caulkAllocations: (detail.caulkAllocations || []).map(normalizeCaulkAllocationEntry),
     caulkCheckouts: detail.caulkCheckouts || [],
     filmTransferAlerts: detail.filmTransferAlerts || [],
     caulkTransferAlerts: detail.caulkTransferAlerts || []

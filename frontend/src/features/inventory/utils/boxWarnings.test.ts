@@ -53,6 +53,7 @@ function createAllocation(overrides: Partial<AllocationEntry> = {}): AllocationE
     allocatedFeet: 20,
     coveredFeet: Number(overrides.coveredFeet ?? overrides.allocatedFeet ?? 20),
     allocationKind: 'REQUIREMENT',
+    allocationSource: 'MANUAL',
     status: 'ACTIVE',
     createdAt: '2026-03-04T12:00:00.000Z',
     createdBy: 'tester',

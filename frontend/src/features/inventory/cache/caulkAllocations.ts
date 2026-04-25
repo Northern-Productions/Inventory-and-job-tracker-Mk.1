@@ -115,6 +115,7 @@ export function applyOptimisticAddCaulkAllocationToCaches(
     outstandingCheckoutTubes: 0,
     openCheckoutCount: 0,
     status: 'ACTIVE',
+    allocationSource: 'MANUAL',
     createdAt: now,
     createdBy: 'Pending...',
     updatedAt: now,

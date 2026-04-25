@@ -7,12 +7,7 @@ import type {
   JobCaulkRequirementLine,
   UpdateJobPayload
 } from '../../../domain';
-import {
-  compareJobPlanningFilmMatches,
-  canJobPlanningFilmSatisfyRequirement,
-  describeJobPlanningFilm,
-  getJobPlanningFilmMatch
-} from '../utils/jobPlanningFilmIdentity';
+import { canJobPlanningFilmSatisfyRequirement } from '../utils/jobPlanningFilmIdentity';
 import {
   addOptimisticLinkedBoxToFilmOrder,
   countUnresolvedFilmOrders,
@@ -28,19 +23,7 @@ type UpdateJobCaulkRequirementInput = NonNullable<UpdateJobPayload['caulkRequire
   requirementId?: string;
 };
 
-function getPlanningManufacturerGroupKey(manufacturer: string, filmName: string) {
-  return describeJobPlanningFilm(manufacturer, filmName).manufacturerKey;
-}
-
-function isExteriorPlanningFilm(manufacturer: string, filmName: string) {
-  return describeJobPlanningFilm(manufacturer, filmName).isExterior;
-}
-
 function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetailEntry) {
-  if (allocation.status !== 'ACTIVE') {
-    return false;
-  }
-
   return allocation.boxStatus === 'ZEROED' || allocation.boxStatus === 'RETIRED';
 }
 
@@ -59,206 +42,52 @@ function allocationMatchesRequirement(
   );
 }
 
-function compareCoveragePoolsForRequirement(
-  left: {
-    manufacturer: string;
-    filmName: string;
-    widthIn: number;
-    isExterior: boolean;
-    index: number;
-  },
-  right: {
-    manufacturer: string;
-    filmName: string;
-    widthIn: number;
-    isExterior: boolean;
-    index: number;
-  },
-  requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName'>
-) {
-  const leftMatch = getJobPlanningFilmMatch(
-    left.manufacturer,
-    left.filmName,
-    requirement.manufacturer,
-    requirement.filmName
-  );
-  const rightMatch = getJobPlanningFilmMatch(
-    right.manufacturer,
-    right.filmName,
-    requirement.manufacturer,
-    requirement.filmName
-  );
-
-  if (leftMatch && rightMatch) {
-    const matchComparison = compareJobPlanningFilmMatches(leftMatch, rightMatch);
-    if (matchComparison !== 0) {
-      return matchComparison;
-    }
-  }
-
-  const requirementIsExterior = isExteriorPlanningFilm(requirement.manufacturer, requirement.filmName);
-  if (!requirementIsExterior && left.isExterior !== right.isExterior) {
-    return left.isExterior ? 1 : -1;
-  }
-
-  if (left.widthIn !== right.widthIn) {
-    return left.widthIn - right.widthIn;
-  }
-
-  return left.index - right.index;
+function normalizeJobNumberKey(value: string) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function rebuildRequirementCoverage(
   requirements: JobRequirementLine[],
-  allocations: AllocationJobDetailEntry[]
+  allocations: AllocationJobDetailEntry[],
+  jobNumber: string
 ) {
-  const grouped: Record<
-    string,
-    {
-      requirements: Array<{
-        requirementId: string;
-        manufacturer: string;
-        filmName: string;
-        widthIn: number;
-        requiredFeet: number;
-        isExterior: boolean;
-        specificity: number;
-        index: number;
-      }>;
-      pools: Array<{
-        manufacturer: string;
-        filmName: string;
-        widthIn: number;
-        remainingFeet: number;
-        isExterior: boolean;
-        index: number;
-      }>;
-    }
-  > = {};
   const coverageByRequirementId: Record<string, number> = {};
   const requirementById: Record<string, JobRequirementLine> = {};
+  const expectedJobNumber = normalizeJobNumberKey(jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const groupKey = getPlanningManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
     requirementById[requirement.requirementId] = requirement;
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: []
-      };
-    }
-
-    grouped[groupKey].requirements.push({
-      requirementId: requirement.requirementId,
-      manufacturer: requirement.manufacturer,
-      filmName: requirement.filmName,
-      widthIn: Number(requirement.widthIn) || 0,
-      requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
-      isExterior: isExteriorPlanningFilm(requirement.manufacturer, requirement.filmName),
-      specificity: describeJobPlanningFilm(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
-      index
-    });
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
+    const boundRequirementId = String(allocation.requirementId || '').trim();
+    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
+    const coveredFeet = getAllocationCoveredFeet(allocation);
     if (
       allocation.status === 'CANCELLED' ||
-      allocation.allocatedFeet <= 0 ||
+      coveredFeet <= 0 ||
       allocation.allocationKind === 'EXTRA' ||
-      shouldIgnoreOptimisticAllocationCoverage(allocation)
+      shouldIgnoreOptimisticAllocationCoverage(allocation) ||
+      !boundRequirement
     ) {
       continue;
     }
 
-    const boundRequirementId = String(allocation.requirementId || '').trim();
-    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
-    const coveredFeet = getAllocationCoveredFeet(allocation);
+    if (
+      expectedJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== expectedJobNumber
+    ) {
+      continue;
+    }
+
     if (boundRequirement && allocationMatchesRequirement(allocation, boundRequirement)) {
       const nextCoveredFeet = Math.min(
         Math.max(0, Number(boundRequirement.requiredFeet || 0)),
         Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) + coveredFeet
       );
       coverageByRequirementId[boundRequirementId] = nextCoveredFeet;
-      continue;
-    }
-
-    const groupKey = getPlanningManufacturerGroupKey(allocation.manufacturer, allocation.filmName);
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: []
-      };
-    }
-
-    grouped[groupKey].pools.push({
-      manufacturer: allocation.manufacturer,
-      filmName: allocation.filmName,
-      widthIn: Number(allocation.widthIn) || 0,
-      remainingFeet: coveredFeet,
-      isExterior: isExteriorPlanningFilm(allocation.manufacturer, allocation.filmName),
-      index
-    });
-  }
-
-  const groupedValues = Object.values(grouped);
-  for (let groupIndex = 0; groupIndex < groupedValues.length; groupIndex += 1) {
-    const group = groupedValues[groupIndex];
-    group.requirements.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? -1 : 1;
-      }
-
-      if (left.widthIn !== right.widthIn) {
-        return right.widthIn - left.widthIn;
-      }
-
-      if (left.specificity !== right.specificity) {
-        return right.specificity - left.specificity;
-      }
-
-      return left.index - right.index;
-    });
-    group.pools.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? 1 : -1;
-      }
-
-      return left.widthIn - right.widthIn;
-    });
-
-    for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
-      const requirement = group.requirements[requirementIndex];
-      const coveredBeforePools = Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0));
-      let remainingNeed = Math.max(0, requirement.requiredFeet - coveredBeforePools);
-      const compatiblePools = group.pools
-        .filter(
-          (pool) =>
-            pool.remainingFeet > 0 &&
-            pool.widthIn >= requirement.widthIn &&
-            Boolean(
-              getJobPlanningFilmMatch(
-                pool.manufacturer,
-                pool.filmName,
-                requirement.manufacturer,
-                requirement.filmName
-              )
-            )
-        )
-        .sort((left, right) => compareCoveragePoolsForRequirement(left, right, requirement));
-
-      for (let poolIndex = 0; poolIndex < compatiblePools.length && remainingNeed > 0; poolIndex += 1) {
-        const pool = compatiblePools[poolIndex];
-        const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
-        pool.remainingFeet -= assignedFeet;
-        remainingNeed -= assignedFeet;
-      }
-
-      coverageByRequirementId[requirement.requirementId] = Math.min(
-        requirement.requiredFeet,
-        requirement.requiredFeet - Math.max(0, remainingNeed)
-      );
     }
   }
 
@@ -309,7 +138,11 @@ function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements:
 }
 
 function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
-  const nextRequirements = rebuildRequirementCoverage(detail.requirements, detail.allocations);
+  const nextRequirements = rebuildRequirementCoverage(
+    detail.requirements,
+    detail.allocations,
+    detail.summary.jobNumber
+  );
   const requiredFeet = nextRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
   const allocatedFeet = nextRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
   const remainingFeet = nextRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
@@ -352,22 +185,31 @@ function compareCatalogStrings(left: string, right: string) {
   return normalizeLookupSegment(left).localeCompare(normalizeLookupSegment(right));
 }
 
-function buildCaulkCoverageByProductId(detail: JobDetail) {
-  const coverageByProductId: Record<string, number> = {};
+function buildCaulkCoverageByRequirementId(detail: JobDetail) {
+  const coverageByRequirementId: Record<string, number> = {};
+  const requirementById = Object.fromEntries(
+    detail.caulkRequirements.map((entry) => [entry.requirementId, entry])
+  ) as Record<string, JobCaulkRequirementLine>;
 
   for (let index = 0; index < detail.caulkAllocations.length; index += 1) {
     const allocation = detail.caulkAllocations[index];
-    const productId = String(allocation.productId || '').trim();
-    if (!productId || String(allocation.status || '').trim().toUpperCase() === 'CANCELLED') {
+    const requirementId = String(allocation.requirementId || '').trim();
+    const requirement = requirementId ? requirementById[requirementId] : null;
+    if (
+      !requirement ||
+      String(allocation.status || '').trim().toUpperCase() === 'CANCELLED' ||
+      Number(allocation.allocatedTubes || 0) <= 0 ||
+      String(allocation.productId || '').trim() !== String(requirement.productId || '').trim()
+    ) {
       continue;
     }
 
-    coverageByProductId[productId] =
-      Math.max(0, Number(coverageByProductId[productId] || 0)) +
+    coverageByRequirementId[requirementId] =
+      Math.max(0, Number(coverageByRequirementId[requirementId] || 0)) +
       Math.max(0, Number(allocation.allocatedTubes || 0));
   }
 
-  return coverageByProductId;
+  return coverageByRequirementId;
 }
 
 function buildNextRequirementLines(
@@ -482,7 +324,7 @@ function buildNextCaulkRequirementLines(
     detail.caulkRequirements.map((entry) => [entry.productId, entry])
   ) as Record<string, JobCaulkRequirementLine>;
   const caulkMetadataByProductId = buildCaulkMetadataLookup(detail, caulkProducts);
-  const coverageByProductId = buildCaulkCoverageByProductId(detail);
+  const coverageByRequirementId = buildCaulkCoverageByRequirementId(detail);
 
   return nextRequirements
     .map((entry, index) => {
@@ -492,7 +334,7 @@ function buildNextCaulkRequirementLines(
         : currentRequirementByProductId[entry.productId];
       const productMetadata = caulkMetadataByProductId[entry.productId];
       const requiredTubes = Math.max(0, Math.floor(Number(entry.requiredTubes || 0)));
-      const allocatedTubes = Math.max(0, Number(coverageByProductId[entry.productId] || 0));
+      const allocatedTubes = Math.max(0, Number(coverageByRequirementId[explicitRequirementId || currentRequirement?.requirementId || ''] || 0));
 
       return {
         requirementId:

@@ -821,6 +821,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
         created_by,
         updated_at,
         updated_by,
+        allocation_source,
         notes
       )
       values (
@@ -843,6 +844,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
         $10::text,
         now(),
         $10::text,
+        'MANUAL',
         $12::text
       )
     `,

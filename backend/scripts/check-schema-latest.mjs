@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0083_film_order_manual_approval_in_stock_readiness.sql';
+const LATEST_MIGRATION = '0084_allocation_source_metadata.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -16,8 +16,11 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'table', signature: 'app.caulk_transfers' },
   { kind: 'table', signature: 'app.box_dealers' },
+  { kind: 'type', signature: 'app.allocation_source' },
   { kind: 'type', signature: 'app.caulk_transfer_status' },
   { kind: 'column', signature: 'app.boxes.dealer' },
+  { kind: 'column', signature: 'app.allocations.allocation_source' },
+  { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },

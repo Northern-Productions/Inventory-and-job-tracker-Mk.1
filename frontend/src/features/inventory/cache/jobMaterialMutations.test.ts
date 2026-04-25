@@ -26,6 +26,7 @@ function buildAllocation(overrides: Record<string, unknown> = {}) {
     coveredFeet: 10,
     status: 'ACTIVE' as const,
     allocationKind: 'REQUIREMENT' as const,
+    allocationSource: 'MANUAL' as const,
     createdAt: '2026-04-10T10:00:00Z',
     createdBy: 'tester',
     resolvedAt: '',

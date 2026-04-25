@@ -61,6 +61,7 @@ function buildFilmAllocationEntry(
     coveredFeet: 20,
     status: 'ACTIVE',
     allocationKind: 'REQUIREMENT',
+    allocationSource: 'MANUAL',
     createdAt: '2026-04-15T09:00:00Z',
     createdBy: 'tester',
     resolvedAt: '',

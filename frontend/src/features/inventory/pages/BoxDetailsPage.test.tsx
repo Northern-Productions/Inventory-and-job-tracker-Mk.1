@@ -1100,6 +1100,7 @@ describe('BoxDetailsPage', () => {
           allocatedFeet: 20,
           coveredFeet: 20,
           allocationKind: 'REQUIREMENT',
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE',
           createdAt: '2026-04-15T10:00:00Z',
           createdBy: 'tester',

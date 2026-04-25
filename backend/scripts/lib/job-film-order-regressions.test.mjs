@@ -145,13 +145,15 @@ test('buildJobListEntry only counts unresolved film orders', () => {
   assert.equal(summary.filmOrderCount, 1);
 });
 
-test('deriveInStockReadinessStatus only counts same-warehouse in-stock film', () => {
+test('deriveInStockReadinessStatus derives film readiness from strict stored allocation coverage', () => {
   const base = {
+    jobNumber: '19413',
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     requirements: [
       {
         requirementId: 'req-1',
+        jobNumber: '19413',
         manufacturer: 'Security',
         filmName: 'Madico Safetyshield 800',
         widthIn: 60,
@@ -160,68 +162,55 @@ test('deriveInStockReadinessStatus only counts same-warehouse in-stock film', ()
       }
     ],
     caulkRequirements: [],
-    allocations: [],
+    allocations: [
+      {
+        allocationId: 'alloc-checked-out',
+        boxId: 'IL1-CHECKED-OUT',
+        jobNumber: '19413',
+        requirementId: 'req-1',
+        status: 'ACTIVE',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 40,
+        coveredFeet: 40
+      }
+    ],
     caulkAllocations: [],
     filmOrders: [],
     caulkStockEntries: [],
-    jobWarehouse: 'IL1'
+    jobWarehouse: 'IL1',
+    allBoxes: [
+      {
+        boxId: 'IL1-CHECKED-OUT',
+        warehouse: 'IL1',
+        status: 'CHECKED_OUT',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60,
+        feetAvailable: 0
+      }
+    ]
   };
 
   assert.equal(
-    deriveInStockReadinessStatus({
-      ...base,
-      allBoxes: [
-        {
-          boxId: 'IL1-READY',
-          warehouse: 'IL1',
-          status: 'IN_STOCK',
-          manufacturer: 'Security',
-          filmName: 'Madico Safetyshield 800',
-          widthIn: 60,
-          feetAvailable: 40
-        }
-      ]
-    }),
+    deriveInStockReadinessStatus(base),
     'READY'
   );
   assert.equal(
     deriveInStockReadinessStatus({
       ...base,
-      allBoxes: [
-        {
-          boxId: 'IL2-WRONG-WAREHOUSE',
-          warehouse: 'IL2',
-          status: 'IN_STOCK',
-          manufacturer: 'Security',
-          filmName: 'Madico Safetyshield 800',
-          widthIn: 60,
-          feetAvailable: 100
-        }
-      ]
+      allocations: [],
+      allBoxes: base.allBoxes.map((box) => ({ ...box, status: 'IN_STOCK', feetAvailable: 100 }))
     }),
     'FILM_ORDER'
   );
   assert.equal(
     deriveInStockReadinessStatus({
       ...base,
-      allBoxes: [
+      allocations: [
         {
-          boxId: 'IL1-ORDERED',
-          warehouse: 'IL1',
-          status: 'ORDERED',
-          manufacturer: 'Security',
-          filmName: 'Madico Safetyshield 800',
-          widthIn: 60,
-          feetAvailable: 100
-        },
-        {
-          boxId: 'IL1-TRANSFER',
-          warehouse: 'IL1',
-          status: 'TRANSFER',
-          manufacturer: 'Security',
-          filmName: 'Madico Safetyshield 800',
-          widthIn: 60,
-          feetAvailable: 100
+          ...base.allocations[0],
+          allocatedFeet: 25,
+          coveredFeet: 25
         }
       ]
     }),
@@ -229,14 +218,194 @@ test('deriveInStockReadinessStatus only counts same-warehouse in-stock film', ()
   );
 });
 
-test('deriveInStockReadinessStatus only counts same-warehouse physical caulk stock', () => {
+test('deriveInStockReadinessStatus excludes invalid film allocation coverage', () => {
   const base = {
+    jobNumber: '19413',
+    lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    requirements: [
+      {
+        requirementId: 'req-1',
+        jobNumber: '19413',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60,
+        requiredFeet: 40
+      }
+    ],
+    caulkRequirements: [],
+    allocations: [],
+    caulkAllocations: [],
+    filmOrders: [],
+    allBoxes: [
+      {
+        boxId: 'IL1-BOX',
+        warehouse: 'IL1',
+        status: 'CHECKED_OUT',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60
+      }
+    ],
+    caulkStockEntries: [],
+    jobWarehouse: 'IL1'
+  };
+
+  const validAllocation = {
+    allocationId: 'alloc-1',
+    boxId: 'IL1-BOX',
+    jobNumber: '19413',
+    requirementId: 'req-1',
+    status: 'ACTIVE',
+    allocationKind: 'REQUIREMENT',
+    allocatedFeet: 40,
+    coveredFeet: 40
+  };
+
+  const invalidCases = [
+    { ...validAllocation, status: 'CANCELLED' },
+    { ...validAllocation, requirementId: 'req-stale' },
+    { ...validAllocation, requirementId: '' },
+    { ...validAllocation, jobNumber: '99999' },
+    { ...validAllocation, allocationKind: 'EXTRA' },
+    { ...validAllocation, boxId: 'IL1-MISSING' }
+  ];
+
+  for (const allocation of invalidCases) {
+    assert.equal(
+      deriveInStockReadinessStatus({
+        ...base,
+        allocations: [allocation]
+      }),
+      'FILM_ORDER'
+    );
+  }
+
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allBoxes: [{ ...base.allBoxes[0], filmName: 'Different Film' }],
+      allocations: [validAllocation]
+    }),
+    'FILM_ORDER'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allBoxes: [{ ...base.allBoxes[0], widthIn: 48 }],
+      allocations: [validAllocation]
+    }),
+    'FILM_ORDER'
+  );
+});
+
+test('deriveInStockReadinessStatus requires every material requirement to be covered', () => {
+  const base = {
+    jobNumber: '19413',
+    lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    requirements: [
+      {
+        requirementId: 'req-1',
+        jobNumber: '19413',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60,
+        requiredFeet: 40
+      },
+      {
+        requirementId: 'req-2',
+        jobNumber: '19413',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 48,
+        requiredFeet: 20
+      }
+    ],
+    caulkRequirements: [],
+    caulkAllocations: [],
+    filmOrders: [],
+    allBoxes: [
+      {
+        boxId: 'IL1-BOX-1',
+        warehouse: 'IL1',
+        status: 'CHECKED_OUT',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60
+      },
+      {
+        boxId: 'IL1-BOX-2',
+        warehouse: 'IL1',
+        status: 'IN_STOCK',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 48
+      }
+    ],
+    caulkStockEntries: [],
+    jobWarehouse: 'IL1'
+  };
+
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allocations: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'IL1-BOX-1',
+          jobNumber: '19413',
+          requirementId: 'req-1',
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          allocatedFeet: 40,
+          coveredFeet: 40
+        }
+      ]
+    }),
+    'FILM_ORDER'
+  );
+
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allocations: [
+        {
+          allocationId: 'alloc-1',
+          boxId: 'IL1-BOX-1',
+          jobNumber: '19413',
+          requirementId: 'req-1',
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          allocatedFeet: 40,
+          coveredFeet: 40
+        },
+        {
+          allocationId: 'alloc-2',
+          boxId: 'IL1-BOX-2',
+          jobNumber: '19413',
+          requirementId: 'req-2',
+          status: 'FULFILLED',
+          allocationKind: 'REQUIREMENT',
+          allocatedFeet: 20,
+          coveredFeet: 20
+        }
+      ]
+    }),
+    'READY'
+  );
+});
+
+test('deriveInStockReadinessStatus derives caulk readiness from strict stored allocation coverage', () => {
+  const base = {
+    jobNumber: '19413',
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     requirements: [],
     caulkRequirements: [
       {
         requirementId: 'caulk-req-1',
+        jobNumber: '19413',
         productId: 'product-1',
         requiredTubes: 6,
         remainingTubes: 6
@@ -252,14 +421,24 @@ test('deriveInStockReadinessStatus only counts same-warehouse physical caulk sto
   assert.equal(
     deriveInStockReadinessStatus({
       ...base,
-      caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL1', tubesOnHand: 6 }]
+      caulkAllocations: [
+        {
+          requirementId: 'caulk-req-1',
+          jobNumber: '19413',
+          productId: 'product-1',
+          status: 'ACTIVE',
+          allocatedTubes: 6
+        }
+      ],
+      caulkStockEntries: []
     }),
     'READY'
   );
   assert.equal(
     deriveInStockReadinessStatus({
       ...base,
-      caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL2', tubesOnHand: 60 }]
+      caulkAllocations: [],
+      caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL1', tubesOnHand: 60 }]
     }),
     'FILM_ORDER'
   );
@@ -268,11 +447,11 @@ test('deriveInStockReadinessStatus only counts same-warehouse physical caulk sto
       ...base,
       caulkAllocations: [
         {
+          requirementId: 'caulk-req-stale',
+          jobNumber: '19413',
           productId: 'product-1',
-          warehouse: 'IL1',
           status: 'ACTIVE',
-          reservedTubesRemaining: 6,
-          pendingTransfer: { transferId: 'transfer-1' }
+          allocatedTubes: 6
         }
       ],
       caulkStockEntries: []

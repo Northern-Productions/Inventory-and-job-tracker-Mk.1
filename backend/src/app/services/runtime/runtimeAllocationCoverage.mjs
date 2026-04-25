@@ -334,7 +334,8 @@ function getStoredAllocationCoveredFeet(allocation) {
 }
 
 function shouldIgnoreAllocationCoverageForBoxStatus(allocation, box) {
-  if (!box || allocation.status !== 'ACTIVE') {
+  void allocation;
+  if (!box) {
     return false;
   }
 
@@ -412,46 +413,79 @@ function addRequirementCoverageFeet(coverage, requirementId, requiredFeet, reser
   return appliedFeet;
 }
 
-function buildAllocationCoverageByRequirementId(requirements, allocations, boxById) {
-  const grouped = {};
+function getRequirementCoverageId(requirement, index) {
+  return asTrimmedString(requirement?.id || requirement?.requirementId) || `generated-${index}`;
+}
+
+function findCoverageBoxById(boxById, boxId) {
+  const normalizedBoxId = asTrimmedString(boxId);
+  if (!normalizedBoxId) {
+    return null;
+  }
+
+  return boxById[normalizedBoxId] || boxById[normalizedBoxId.toUpperCase()] || null;
+}
+
+/**
+ * PURPOSE:
+ * Computes requirement coverage only from stored allocations bound directly
+ * to the same requirement and job.
+ *
+ * AFFECTS:
+ * Job READY/FILM_ORDER status, requirement remaining LF, order amounts,
+ * staging checks, and frontend optimistic cache parity.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * Supabase api-handler mirrored helper, frontend jobRequirementCoverage,
+ * allocation apply/remove flows, and requirement edit behavior.
+ *
+ * COMMON FAILURE MODES:
+ * Counting stale requirement IDs, falling back across requirements, ignoring
+ * checked-out allocations, or trusting raw inventory availability.
+ */
+function buildAllocationCoverageByRequirementId(requirements, allocations, boxById, options = {}) {
   const coverage = {};
   const requirementById = {};
+  const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
-    requirementById[requirementId] = requirement;
-    const groupKey = getRequirementPlanningManufacturerGroupKey(requirement.manufacturer, requirement.filmName);
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: []
-      };
-    }
-
-    grouped[groupKey].requirements.push({
+    const requirementId = getRequirementCoverageId(requirement, index);
+    requirementById[requirementId] = {
+      requirement,
       requirementId,
-      manufacturer: requirement.manufacturer,
-      filmName: requirement.filmName,
-      widthIn: Number(requirement.widthIn) || 0,
-      requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
-      isExterior: requirementFilmIsExterior(requirement.manufacturer, requirement.filmName),
-      specificity: describeRequirementPlanningFilm(requirement.manufacturer, requirement.filmName).compactFamilyFilmName.length,
-      index
-    });
+      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
+      requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0))
+    };
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
+    const allocationStatus = asTrimmedString(allocation.status).toUpperCase();
+    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
     if (
-      allocation.status === 'CANCELLED' ||
-      allocation.allocatedFeet <= 0 ||
+      allocationStatus === 'CANCELLED' ||
+      coveredFeet <= 0 ||
       normalizeAllocationKind(allocation.allocationKind) === 'EXTRA'
     ) {
       continue;
     }
 
-    const box = boxById[allocation.boxId];
+    const boundRequirementId = asTrimmedString(allocation.requirementId);
+    const requirementEntry = boundRequirementId ? requirementById[boundRequirementId] : null;
+    if (!requirementEntry) {
+      continue;
+    }
+
+    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+    if (
+      requirementJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+    ) {
+      continue;
+    }
+
+    const box = findCoverageBoxById(boxById, allocation.boxId);
     if (!box) {
       continue;
     }
@@ -460,100 +494,17 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
-    const boundRequirementId = asTrimmedString(allocation.requirementId);
-    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
-    const coveredFeet = getStoredAllocationCoveredFeet(allocation);
-    if (boundRequirement && allocationMatchesRequirement(box, boundRequirement)) {
-      addRequirementCoverageFeet(
-        coverage,
-        boundRequirementId,
-        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        getAllocationReservationState(allocation),
-        coveredFeet
-      );
+    if (!allocationMatchesRequirement(box, requirementEntry.requirement)) {
       continue;
     }
 
-    const groupKey = getRequirementPlanningManufacturerGroupKey(box.manufacturer, box.filmName);
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        requirements: [],
-        pools: []
-      };
-    }
-
-    grouped[groupKey].pools.push({
-      manufacturer: box.manufacturer,
-      filmName: box.filmName,
-      widthIn: Number(box.widthIn) || 0,
-      remainingFeet: coveredFeet,
-      reservationState: getAllocationReservationState(allocation),
-      isExterior: requirementFilmIsExterior(box.manufacturer, box.filmName),
-      index
-    });
-  }
-
-  const groupValues = Object.values(grouped);
-  for (let groupIndex = 0; groupIndex < groupValues.length; groupIndex += 1) {
-    const group = groupValues[groupIndex];
-    group.requirements.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? -1 : 1;
-      }
-
-      if (left.widthIn !== right.widthIn) {
-        return right.widthIn - left.widthIn;
-      }
-
-      if (left.specificity !== right.specificity) {
-        return right.specificity - left.specificity;
-      }
-      return left.index - right.index;
-    });
-    group.pools.sort((left, right) => {
-      if (left.isExterior !== right.isExterior) {
-        return left.isExterior ? 1 : -1;
-      }
-
-      return left.widthIn - right.widthIn;
-    });
-
-    for (let requirementIndex = 0; requirementIndex < group.requirements.length; requirementIndex += 1) {
-      const requirement = group.requirements[requirementIndex];
-      let remainingNeed = Math.max(
-        0,
-        requirement.requiredFeet - Math.max(0, Number(coverage[requirement.requirementId] || 0))
-      );
-      const compatiblePools = group.pools
-        .filter(
-          (pool) =>
-            pool.remainingFeet > 0 &&
-            pool.widthIn >= requirement.widthIn &&
-            Boolean(
-              getRequirementPlanningFilmMatch(
-                pool.manufacturer,
-                pool.filmName,
-                requirement.manufacturer,
-                requirement.filmName
-              )
-            )
-        )
-        .sort((left, right) => compareRequirementCoveragePoolsForRequirement(left, right, requirement));
-
-      for (let poolIndex = 0; poolIndex < compatiblePools.length && remainingNeed > 0; poolIndex += 1) {
-        const pool = compatiblePools[poolIndex];
-        const assignedFeet = Math.min(pool.remainingFeet, remainingNeed);
-        pool.remainingFeet -= assignedFeet;
-        remainingNeed -= assignedFeet;
-        addRequirementCoverageFeet(
-          coverage,
-          requirement.requirementId,
-          requirement.requiredFeet,
-          pool.reservationState,
-          assignedFeet
-        );
-      }
-    }
+    addRequirementCoverageFeet(
+      coverage,
+      boundRequirementId,
+      requirementEntry.requiredFeet,
+      getAllocationReservationState(allocation),
+      coveredFeet
+    );
   }
 
   return coverage;
@@ -565,7 +516,7 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    const requirementId = asTrimmedString(requirement.id) || `generated-${index}`;
+    const requirementId = getRequirementCoverageId(requirement, index);
     const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
     const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
@@ -612,6 +563,57 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
   return response;
 }
 
+function buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, options = {}) {
+  const totals = {};
+  const requirementById = {};
+  const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
+  const requirements = Array.isArray(caulkRequirements) ? caulkRequirements : [];
+
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = requirements[index];
+    const requirementId = asTrimmedString(requirement.requirementId || requirement.id);
+    if (!requirementId) {
+      continue;
+    }
+
+    requirementById[requirementId] = {
+      requirement,
+      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber)
+    };
+  }
+
+  const allocations = Array.isArray(caulkAllocations) ? caulkAllocations : [];
+  for (let index = 0; index < allocations.length; index += 1) {
+    const allocation = allocations[index];
+    const requirementId = asTrimmedString(allocation.requirementId);
+    const requirementEntry = requirementId ? requirementById[requirementId] : null;
+    if (
+      !requirementEntry ||
+      asTrimmedString(allocation.status).toUpperCase() === 'CANCELLED' ||
+      integerOrZero(allocation.allocatedTubes) <= 0
+    ) {
+      continue;
+    }
+
+    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+    if (
+      requirementJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+    ) {
+      continue;
+    }
+
+    if (asTrimmedString(allocation.productId) !== asTrimmedString(requirementEntry.requirement.productId)) {
+      continue;
+    }
+
+    totals[requirementId] =
+      integerOrZero(totals[requirementId]) + Math.max(0, integerOrZero(allocation.allocatedTubes));
+  }
+
+  return totals;
+}
+
 function buildCaulkCoverageByProductId(caulkAllocations) {
   const totals = {};
 
@@ -628,23 +630,26 @@ function buildCaulkCoverageByProductId(caulkAllocations) {
   return totals;
 }
 
-function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations) {
-  const coverageByProductId = buildCaulkCoverageByProductId(
-    Array.isArray(caulkAllocations) ? caulkAllocations : []
+function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, options = {}) {
+  const coverageByRequirementId = buildCaulkCoverageByRequirementId(
+    Array.isArray(caulkRequirements) ? caulkRequirements : [],
+    Array.isArray(caulkAllocations) ? caulkAllocations : [],
+    options
   );
   const source = Array.isArray(caulkRequirements) ? caulkRequirements : [];
   const response = [];
 
   for (let index = 0; index < source.length; index += 1) {
     const entry = source[index];
+    const requirementId = asTrimmedString(entry.requirementId);
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
     const allocatedTubes = Math.max(
       0,
-      integerOrZero(coverageByProductId[asTrimmedString(entry.productId)] || 0)
+      integerOrZero(coverageByRequirementId[requirementId] || 0)
     );
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     response.push({
-      requirementId: asTrimmedString(entry.requirementId),
+      requirementId,
       jobNumber: asTrimmedString(entry.jobNumber),
       productId: asTrimmedString(entry.productId),
       manufacturerId: asTrimmedString(entry.manufacturerId),
@@ -865,6 +870,7 @@ export {
   compareRequirementCoveragePoolsForRequirement,
   buildAllocationCoverageByRequirementId,
   buildPublicJobRequirementEntries,
+  buildCaulkCoverageByRequirementId,
   buildCaulkCoverageByProductId,
   buildPublicCaulkRequirementEntries,
   summarizeCaulkRequirementCoverage,

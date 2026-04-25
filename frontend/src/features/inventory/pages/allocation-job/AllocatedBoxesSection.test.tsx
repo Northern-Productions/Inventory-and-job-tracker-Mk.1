@@ -17,6 +17,7 @@ function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): Allocati
     coveredFeet: 40,
     requirementId: 'req-1',
     allocationKind: 'REQUIREMENT',
+    allocationSource: 'MANUAL',
     status: 'ACTIVE',
     createdAt: '2026-04-01T12:00:00Z',
     createdBy: 'tester',

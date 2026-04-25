@@ -20,6 +20,7 @@ function buildAllocation(overrides: Record<string, unknown> = {}) {
     coveredFeet: Number(overrides.coveredFeet ?? allocatedFeet),
     status: 'ACTIVE' as const,
     allocationKind: 'REQUIREMENT' as const,
+    allocationSource: 'MANUAL' as const,
     createdAt: '',
     createdBy: '',
     resolvedAt: '',

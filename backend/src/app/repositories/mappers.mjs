@@ -7,6 +7,7 @@ import {
   integerOrNull,
   integerOrZero,
   normalizeAllocationKind,
+  normalizeAllocationSource,
   numericOrNull,
 } from '../core/helpers.mjs';
 import { canonicalizeManufacturerLabel } from '../core/catalog.mjs';
@@ -247,7 +248,8 @@ function mapDbAllocationRow(row) {
         : integerOrZero(row.backed_physical_feet),
     reservationState: asTrimmedString(row.reservation_state),
     requirementId: asTrimmedString(row.requirement_id),
-    allocationKind: normalizeAllocationKind(row.allocation_kind),
+    allocationKind: normalizeAllocationKind(row.allocation_kind ?? row.allocationKind),
+    allocationSource: normalizeAllocationSource(row.allocation_source ?? row.allocationSource),
     status: asTrimmedString(row.status) || 'ACTIVE',
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
@@ -276,6 +278,7 @@ function toPublicAllocation(entry) {
     reservationState: asTrimmedString(entry.reservationState) || 'WITHOUT_INSTALL_DATE',
     requirementId: asTrimmedString(entry.requirementId),
     allocationKind: normalizeAllocationKind(entry.allocationKind),
+    allocationSource: normalizeAllocationSource(entry.allocationSource),
     status: entry.status,
     createdAt: entry.createdAt,
     createdBy: entry.createdBy,
@@ -455,6 +458,7 @@ function mapDbCaulkJobAllocationRow(row) {
     outstandingCheckoutTubes: integerOrZero(row.outstanding_checkout_tubes),
     openCheckoutCount: integerOrZero(row.open_checkout_count),
     status: asTrimmedString(row.status) || 'ACTIVE',
+    allocationSource: normalizeAllocationSource(row.allocation_source ?? row.allocationSource),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
     updatedAt: formatTimestamp(row.updated_at),

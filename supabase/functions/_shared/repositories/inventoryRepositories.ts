@@ -23,6 +23,18 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return deps.asTrimmedString(value).toUpperCase() === "EXTRA" ? "EXTRA" : "REQUIREMENT";
   }
 
+  function normalizeAllocationSource(value: unknown) {
+    const normalized = deps.asTrimmedString(value).toUpperCase();
+    if (
+      normalized === "AUTO_PLANNED" ||
+      normalized === "FILM_ORDER_RECEIPT" ||
+      normalized === "DIRECT_TO_JOB_SITE"
+    ) {
+      return normalized;
+    }
+    return "MANUAL";
+  }
+
   function computeAllocationPlanningFeet(
     status: unknown,
     initialFeet: unknown,
@@ -247,7 +259,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
           : deps.integerOrZero(row.backed_physical_feet),
       reservationState: deps.asTrimmedString(row.reservation_state),
       requirementId: deps.asTrimmedString(row.requirement_id),
-      allocationKind: normalizeAllocationKind(row.allocation_kind),
+      allocationKind: normalizeAllocationKind(row.allocation_kind ?? row.allocationKind),
+      allocationSource: normalizeAllocationSource(row.allocation_source ?? row.allocationSource),
       status: deps.asTrimmedString(row.status) || "ACTIVE",
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
@@ -276,6 +289,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       reservationState: deps.asTrimmedString(entry.reservationState) || "WITHOUT_INSTALL_DATE",
       requirementId: deps.asTrimmedString(entry.requirementId),
       allocationKind: normalizeAllocationKind(entry.allocationKind),
+      allocationSource: normalizeAllocationSource(entry.allocationSource),
       status: entry.status,
       createdAt: entry.createdAt,
       createdBy: entry.createdBy,
@@ -431,6 +445,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       outstandingCheckoutTubes: deps.integerOrZero(row.outstanding_checkout_tubes),
       openCheckoutCount: deps.integerOrZero(row.open_checkout_count),
       status: deps.asTrimmedString(row.status) || "ACTIVE",
+      allocationSource: normalizeAllocationSource(row.allocation_source ?? row.allocationSource),
       createdAt: deps.formatTimestamp(row.created_at),
       createdBy: deps.asTrimmedString(row.created_by),
       updatedAt: deps.formatTimestamp(row.updated_at),

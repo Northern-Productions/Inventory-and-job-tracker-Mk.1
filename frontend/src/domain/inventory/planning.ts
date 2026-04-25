@@ -1,4 +1,12 @@
-import type { BoxStatus, AllocationKind, AllocationStatus, FilmOrderStatus, AllocationJobStatus, JobStatus } from './statuses';
+import type {
+  BoxStatus,
+  AllocationKind,
+  AllocationSource,
+  AllocationStatus,
+  FilmOrderStatus,
+  AllocationJobStatus,
+  JobStatus
+} from './statuses';
 import type { Warehouse } from './warehouses';
 
 export interface AllocateBoxPayload {
@@ -48,6 +56,7 @@ export interface AllocationEntry {
   reservationState?: 'WITH_INSTALL_DATE' | 'WITHOUT_INSTALL_DATE';
   requirementId?: string;
   allocationKind: AllocationKind;
+  allocationSource: AllocationSource;
   status: AllocationStatus;
   createdAt: string;
   createdBy: string;

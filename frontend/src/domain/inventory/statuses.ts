@@ -1,5 +1,6 @@
 import {
   ALLOCATION_JOB_STATUSES as RUNTIME_ALLOCATION_JOB_STATUSES,
+  ALLOCATION_SOURCES as RUNTIME_ALLOCATION_SOURCES,
   BOX_STATUSES as RUNTIME_BOX_STATUSES,
   FILM_ORDER_STATUSES as RUNTIME_FILM_ORDER_STATUSES,
   JOB_STATUSES as RUNTIME_JOB_STATUSES
@@ -25,6 +26,8 @@ export const ALLOCATION_STATUSES = ['ACTIVE', 'FULFILLED', 'CANCELLED'] as const
 export type AllocationStatus = (typeof ALLOCATION_STATUSES)[number];
 export const ALLOCATION_KINDS = ['REQUIREMENT', 'EXTRA'] as const;
 export type AllocationKind = (typeof ALLOCATION_KINDS)[number];
+export const ALLOCATION_SOURCES = [...RUNTIME_ALLOCATION_SOURCES] as const;
+export type AllocationSource = (typeof ALLOCATION_SOURCES)[number];
 export const FILM_ORDER_STATUSES = [...RUNTIME_FILM_ORDER_STATUSES] as const;
 export type FilmOrderStatus = (typeof FILM_ORDER_STATUSES)[number];
 export const ALLOCATION_JOB_STATUSES = [...RUNTIME_ALLOCATION_JOB_STATUSES] as const;

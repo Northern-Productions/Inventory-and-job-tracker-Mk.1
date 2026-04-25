@@ -303,8 +303,10 @@ async function buildAllocationJobList(client, orgId) {
       caulkAllocations: groupedCaulkAllocations[jobNumber] || [],
       filmOrders,
       allBoxes,
+      boxById,
       caulkStockEntries: allCaulkStock,
       jobWarehouse: header?.warehouse || '',
+      jobNumber,
     });
 
     response.push(summary);

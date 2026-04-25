@@ -223,6 +223,109 @@ describe('inventoryMutationUtils', () => {
     expect(detail.summary.status).toBe('READY');
   });
 
+  it('derives optimistic READY status from strict stored allocation coverage', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M',
+        filmName: 'Safety Shield',
+        widthIn: 48,
+        requiredFeet: 40,
+        allocatedFeet: 0,
+        remainingFeet: 40
+      }
+    ]);
+    const allocation: AllocationJobDetailEntry = {
+      allocationId: 'alloc-checked-out',
+      boxId: 'IL1-6552',
+      warehouse: 'IL1',
+      jobNumber: '29050',
+      installDate: '2026-04-06',
+      crewLeader: 'Crew',
+      allocatedFeet: 40,
+      coveredFeet: 40,
+      requirementId: 'req-1',
+      allocationKind: 'REQUIREMENT',
+      allocationSource: 'MANUAL',
+      status: 'ACTIVE',
+      createdAt: '2026-04-06T00:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '2026-04-06T10:00:00Z',
+      resolvedBy: 'crew',
+      filmOrderId: '',
+      notes: '',
+      manufacturer: '3M',
+      filmName: 'Safety Shield',
+      widthIn: 48,
+      boxStatus: 'CHECKED_OUT',
+      checkedOutOnThisJob: true
+    };
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [allocation]);
+
+    expect(nextDetail.summary.status).toBe('READY');
+    expect(nextDetail.summary.allocatedFeet).toBe(40);
+    expect(nextDetail.summary.remainingFeet).toBe(0);
+    expect(nextDetail.requirements[0]).toMatchObject({
+      allocatedFeet: 40,
+      remainingFeet: 0
+    });
+  });
+
+  it('does not let stale or mismatched allocations cover optimistic requirements', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M',
+        filmName: 'Safety Shield',
+        widthIn: 48,
+        requiredFeet: 40,
+        allocatedFeet: 0,
+        remainingFeet: 40
+      }
+    ]);
+    const baseAllocation: AllocationJobDetailEntry = {
+      allocationId: 'alloc-stale',
+      boxId: 'IL1-6552',
+      warehouse: 'IL1',
+      jobNumber: '29050',
+      installDate: '2026-04-06',
+      crewLeader: 'Crew',
+      allocatedFeet: 40,
+      coveredFeet: 40,
+      requirementId: 'req-stale',
+      allocationKind: 'REQUIREMENT',
+      allocationSource: 'MANUAL',
+      status: 'ACTIVE',
+      createdAt: '2026-04-06T00:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: '',
+      notes: '',
+      manufacturer: '3M',
+      filmName: 'Safety Shield',
+      widthIn: 48,
+      boxStatus: 'CHECKED_OUT',
+      checkedOutOnThisJob: true
+    };
+
+    const staleDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [baseAllocation]);
+    const mismatchedFilmDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [
+      {
+        ...baseAllocation,
+        allocationId: 'alloc-mismatch',
+        requirementId: 'req-1',
+        filmName: 'Different Film'
+      }
+    ]);
+
+    expect(staleDetail.summary.status).toBe('FILM_ORDER');
+    expect(staleDetail.summary.remainingFeet).toBe(40);
+    expect(mismatchedFilmDetail.summary.status).toBe('FILM_ORDER');
+    expect(mismatchedFilmDetail.summary.remainingFeet).toBe(40);
+  });
+
   it('creates and stores optimistic film orders for immediate UI updates', () => {
     const queryClient = createQueryClient();
     const optimisticFilmOrder = createOptimisticFilmOrderFromPayload({
@@ -866,6 +969,7 @@ describe('inventoryMutationUtils', () => {
           filmOrderId: '',
           requirementId: 'req-fasara',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           boxStatus: 'IN_STOCK' as const,
           checkedOutOnThisJob: false
         },
@@ -889,6 +993,7 @@ describe('inventoryMutationUtils', () => {
           filmOrderId: '',
           requirementId: 'req-50',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           boxStatus: 'IN_STOCK' as const,
           checkedOutOnThisJob: false
         },
@@ -912,6 +1017,7 @@ describe('inventoryMutationUtils', () => {
           filmOrderId: '',
           requirementId: 'req-72',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           boxStatus: 'IN_STOCK' as const,
           checkedOutOnThisJob: false
         }
@@ -1107,7 +1213,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -1129,7 +1237,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -1222,7 +1332,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -1244,7 +1356,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -1356,6 +1470,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 2,
           requirementId: 'req-50',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:20:03.817Z',
           createdBy: 'tester',
@@ -1379,6 +1494,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 10,
           requirementId: 'req-72',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:20:34.647Z',
           createdBy: 'tester',
@@ -1487,6 +1603,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 10,
           requirementId: 'req-72',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:20:34.647Z',
           createdBy: 'tester',
@@ -1522,6 +1639,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 2,
           requirementId: 'req-50',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:22:00.000Z',
           createdBy: 'Pending...',
@@ -1590,6 +1708,7 @@ describe('inventoryMutationUtils', () => {
         coveredFeet: 20,
         requirementId: 'req-int',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-06T12:00:00Z',
         createdBy: 'tester',
@@ -1661,6 +1780,7 @@ describe('inventoryMutationUtils', () => {
         coveredFeet: 20,
         requirementId: 'req-ext',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-06T12:00:00Z',
         createdBy: 'tester',
@@ -1692,13 +1812,13 @@ describe('inventoryMutationUtils', () => {
         filmName: 'Prestige 60',
         widthIn: 60,
         requiredFeet: 50,
-        allocatedFeet: 20,
-        remainingFeet: 30
+        allocatedFeet: 0,
+        remainingFeet: 50
       }
     ]);
   });
 
-  it('reserves pooled exterior coverage for exterior requirements before interior ones', () => {
+  it('does not pool unbound exterior allocation coverage across requirements', () => {
     const detail = buildFilmRequirementCoverageDetail([
       {
         requirementId: 'req-ext',
@@ -1732,6 +1852,7 @@ describe('inventoryMutationUtils', () => {
         coveredFeet: 50,
         requirementId: '',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-06T12:00:00Z',
         createdBy: 'tester',
@@ -1754,8 +1875,8 @@ describe('inventoryMutationUtils', () => {
         filmName: 'Prestige 60 Exterior',
         widthIn: 60,
         requiredFeet: 30,
-        allocatedFeet: 30,
-        remainingFeet: 0
+        allocatedFeet: 0,
+        remainingFeet: 30
       },
       {
         requirementId: 'req-int',
@@ -1763,13 +1884,13 @@ describe('inventoryMutationUtils', () => {
         filmName: 'Prestige 60',
         widthIn: 60,
         requiredFeet: 50,
-        allocatedFeet: 20,
-        remainingFeet: 30
+        allocatedFeet: 0,
+        remainingFeet: 50
       }
     ]);
   });
 
-  it('keeps pooled descriptive RN07 coverage on the exact descriptive requirement before the broader shorthand requirement', () => {
+  it('does not pool unbound descriptive RN07 coverage across requirements', () => {
     const detail = buildFilmRequirementCoverageDetail([
       {
         requirementId: 'req-base',
@@ -1803,6 +1924,7 @@ describe('inventoryMutationUtils', () => {
         coveredFeet: 10,
         requirementId: '',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-06T12:00:00Z',
         createdBy: 'tester',
@@ -1834,8 +1956,8 @@ describe('inventoryMutationUtils', () => {
         filmName: 'RN 07 Refl. One Way Mirror',
         widthIn: 48,
         requiredFeet: 20,
-        allocatedFeet: 10,
-        remainingFeet: 10
+        allocatedFeet: 0,
+        remainingFeet: 20
       }
     ]);
   });
@@ -1858,13 +1980,14 @@ describe('inventoryMutationUtils', () => {
         allocationId: 'alloc-rn07-base',
         boxId: 'IL1-6769',
         warehouse: 'IL1',
-        jobNumber: '17170',
+        jobNumber: '29050',
         installDate: '2026-04-15',
         crewLeader: 'Danny',
         allocatedFeet: 10,
         coveredFeet: 10,
         requirementId: 'req-base',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-07T16:00:00Z',
         createdBy: 'tester',
@@ -1882,13 +2005,14 @@ describe('inventoryMutationUtils', () => {
         allocationId: 'alloc-rn07-desc',
         boxId: 'IL1-6915',
         warehouse: 'IL1',
-        jobNumber: '17170',
+        jobNumber: '29050',
         installDate: '2026-04-15',
         crewLeader: 'Danny',
         allocatedFeet: 5,
         coveredFeet: 5,
         requirementId: 'req-base',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-07T16:00:05Z',
         createdBy: 'tester',
@@ -1985,6 +2109,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 20,
           requirementId: 'req-fasara',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:19:35.984Z',
           createdBy: 'tester',
@@ -2008,6 +2133,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 10,
           requirementId: 'req-72',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-03T17:20:34.647Z',
           createdBy: 'tester',
@@ -2043,6 +2169,7 @@ describe('inventoryMutationUtils', () => {
           allocatedFeet: 2,
           requirementId: 'req-50',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-06T07:03:24.227Z',
           createdBy: 'Pending...',
@@ -2545,7 +2672,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 11,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -2567,7 +2696,9 @@ describe('inventoryMutationUtils', () => {
           installDate: '2026-04-02',
           crewLeader: 'Crew',
           allocatedFeet: 9,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -2675,6 +2806,7 @@ describe('inventoryMutationUtils', () => {
         crewLeader: 'Crew',
         allocatedFeet: 11,
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-02T00:00:00Z',
         createdBy: 'tester',
@@ -3107,7 +3239,9 @@ describe('inventoryMutationUtils', () => {
           crewLeader: 'Crew',
           allocatedFeet: 11,
           coveredFeet: 11,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -3130,7 +3264,9 @@ describe('inventoryMutationUtils', () => {
           crewLeader: 'Crew',
           allocatedFeet: 9,
           coveredFeet: 9,
+          requirementId: 'req-1',
           allocationKind: 'REQUIREMENT' as const,
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE' as const,
           createdAt: '2026-04-02T00:00:00Z',
           createdBy: 'tester',
@@ -3245,7 +3381,9 @@ describe('inventoryMutationUtils', () => {
         crewLeader: 'Crew',
         allocatedFeet: 11,
         coveredFeet: 11,
+        requirementId: 'req-1',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-02T00:00:00Z',
         createdBy: 'tester',
@@ -3265,7 +3403,9 @@ describe('inventoryMutationUtils', () => {
         crewLeader: 'Crew',
         allocatedFeet: 9,
         coveredFeet: 9,
+        requirementId: 'req-1',
         allocationKind: 'REQUIREMENT',
+        allocationSource: 'MANUAL' as const,
         status: 'ACTIVE',
         createdAt: '2026-04-02T00:00:00Z',
         createdBy: 'tester',
@@ -3428,6 +3568,7 @@ describe('inventoryMutationUtils', () => {
           coveredFeet: 10,
           requirementId: 'req-1',
           allocationKind: 'REQUIREMENT',
+          allocationSource: 'MANUAL' as const,
           status: 'ACTIVE',
           createdAt: '2026-04-06T00:00:00Z',
           createdBy: 'tester',
@@ -3477,6 +3618,7 @@ describe('inventoryMutationUtils', () => {
       coveredFeet: 16,
       requirementId: 'req-72',
       allocationKind: 'REQUIREMENT' as const,
+      allocationSource: 'MANUAL' as const,
       status: 'ACTIVE' as const,
       createdAt: '2026-04-06T00:00:00Z',
       createdBy: 'tester',
@@ -3865,6 +4007,7 @@ describe('inventoryMutationUtils', () => {
       coveredFeet: 16,
       requirementId: 'req-72',
       allocationKind: 'REQUIREMENT' as const,
+      allocationSource: 'MANUAL' as const,
       status: 'ACTIVE' as const,
       createdAt: '2026-04-06T00:00:00Z',
       createdBy: 'tester',

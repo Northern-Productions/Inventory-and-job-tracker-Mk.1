@@ -68,6 +68,7 @@ function renderDialog(stockRows: unknown[], editorOverrides: Record<string, unkn
             outstandingCheckoutTubes: 0,
             openCheckoutCount: 0,
             status: 'ACTIVE',
+            allocationSource: 'MANUAL',
             createdAt: '2026-04-16T00:00:00Z',
             createdBy: 'tester',
             updatedAt: '2026-04-16T00:00:00Z',
