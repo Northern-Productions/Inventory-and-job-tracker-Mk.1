@@ -32,6 +32,7 @@ export default function AllocationJobPage() {
     caulkProductsQuery,
     filmCatalogQuery,
     filmOrders,
+    orderableFilmOrderGroups,
     isReadOnlyJob,
     isLaborOnlyDisplayJob,
     stagingBlockingMessage,
@@ -51,6 +52,12 @@ export default function AllocationJobPage() {
     canAddCaulkAllocation,
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
+    isCreateFilmOrderPending,
+    isOrderAllConfirmOpen,
+    setIsOrderAllConfirmOpen,
+    handleOrderFilmRequirement,
+    handleOrderAllFilmRequirements,
+    handleCancelRequirementOrder,
     lifecycleWorkflow,
     filmWorkflow,
     caulkWorkflow,
@@ -143,7 +150,19 @@ export default function AllocationJobPage() {
         onOpenTransferBox={openInventoryBox}
       />
 
-      <FilmRequirementsSection requirements={requirements} isPhoneLayout={isPhoneLayout} />
+      <FilmRequirementsSection
+        requirements={requirements}
+        filmOrders={filmOrders}
+        isPhoneLayout={isPhoneLayout}
+        isReadOnlyJob={isReadOnlyJob}
+        isAuthenticated={auth.isAuthenticated}
+        clientIdConfigured={auth.clientIdConfigured}
+        isCreateFilmOrderPending={isCreateFilmOrderPending}
+        pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
+        onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
+        onCancelRequirementOrder={handleCancelRequirementOrder}
+        onOrderAll={() => setIsOrderAllConfirmOpen(true)}
+      />
 
       <CaulkRequirementsSection requirements={caulkRequirements} isPhoneLayout={isPhoneLayout} />
 
@@ -250,6 +269,10 @@ export default function AllocationJobPage() {
           lifecycleWorkflow.setFilmOrderToDelete(null);
           void lifecycleWorkflow.handleDeleteFilmOrder(order, reason);
         }}
+        isOrderAllConfirmOpen={isOrderAllConfirmOpen}
+        orderableFilmRequirementCount={orderableFilmOrderGroups.length}
+        onCancelOrderAll={() => setIsOrderAllConfirmOpen(false)}
+        onConfirmOrderAll={() => void handleOrderAllFilmRequirements()}
         allocationToRemove={filmWorkflow.allocationToRemove}
         onCancelRemoveAllocation={() => filmWorkflow.setAllocationToRemove(null)}
         onConfirmRemoveAllocation={(entry, reason) => {

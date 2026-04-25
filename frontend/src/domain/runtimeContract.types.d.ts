@@ -13,8 +13,8 @@ declare module './runtimeContract.mjs' {
   export const FEATURE_AREAS: readonly FeatureArea[];
   export const BOX_STATUSES: readonly ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'TRANSFER', 'ZEROED', 'RETIRED'];
   export const FILM_ORDER_STATUSES: readonly ['FILM_ORDER', 'FILM_ON_THE_WAY', 'FULFILLED', 'CANCELLED'];
-  export const JOB_STATUSES: readonly ['ALLOCATE', 'CONFLICT', 'READY', 'COMPLETED', 'CANCELLED'];
-  export const ALLOCATION_JOB_STATUSES: readonly ['ALLOCATE', 'READY', 'ON_ORDER', 'FILM_ORDER', 'COMPLETED', 'CANCELLED'];
+  export const JOB_STATUSES: readonly ['READY', 'FILM_ORDER', 'COMPLETED', 'CANCELLED'];
+  export const ALLOCATION_JOB_STATUSES: readonly ['READY', 'FILM_ORDER', 'COMPLETED', 'CANCELLED'];
   export const WAREHOUSE_CODE_PATTERN: RegExp;
   export const ROUTE_FEATURE_MAP: Readonly<Record<string, FeatureArea>>;
   export const READ_PATHS: readonly string[];

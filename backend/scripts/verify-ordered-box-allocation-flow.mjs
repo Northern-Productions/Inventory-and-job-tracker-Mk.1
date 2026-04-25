@@ -1135,8 +1135,8 @@ async function main() {
       `Expected shortage verification receipt to move the box to IN_STOCK, received ${shortageReceivedBox?.status}.`
     );
     assert(
-      (shortageReceiveResult?.warnings || []).some((warning) => /Created 1 shortage film order/i.test(asTrimmedString(warning))),
-      `Expected shortage verification receipt to report the created shortage film order, received ${JSON.stringify(shortageReceiveResult?.warnings || [])}.`
+      !(shortageReceiveResult?.warnings || []).some((warning) => /shortage film order/i.test(asTrimmedString(warning))),
+      `Expected shortage verification receipt to avoid auto shortage film-order warnings, received ${JSON.stringify(shortageReceiveResult?.warnings || [])}.`
     );
 
     const shortageFilmOrderRows = await client.query(
@@ -1158,28 +1158,18 @@ async function main() {
       [orgId, shortageJobNumber, shortageBoxId]
     );
     assert(
-      shortageFilmOrderRows.rows.length === 1,
-      `Expected shortage receipt flow to create exactly one shortage film order during order receipt, received ${shortageFilmOrderRows.rows.length}.`
-    );
-    assert(
-      Number(shortageFilmOrderRows.rows[0]?.requested_feet || 0) === 30 &&
-        Number(shortageFilmOrderRows.rows[0]?.remaining_to_order_feet || 0) === 30 &&
-        asTrimmedString(shortageFilmOrderRows.rows[0]?.source_box_id) === shortageBoxId,
-      `Expected shortage receipt flow to preserve the unmet 30 LF as a shortage order, received ${JSON.stringify(shortageFilmOrderRows.rows[0] || null)}.`
+      shortageFilmOrderRows.rows.length === 0,
+      `Expected shortage receipt flow to avoid auto-creating shortage film orders during receipt, received ${shortageFilmOrderRows.rows.length}.`
     );
 
     const shortageJobDetail = await buildJobDetail(client, orgId, shortageJobNumber);
     assert(
-      Number(shortageJobDetail?.summary?.filmOrderCount || 0) === 1,
-      `Expected shortage verification job summary to show the open shortage film order created during receipt, received ${shortageJobDetail?.summary?.filmOrderCount}.`
+      Number(shortageJobDetail?.summary?.filmOrderCount || 0) === 0,
+      `Expected shortage verification job summary to avoid open auto film orders, received ${shortageJobDetail?.summary?.filmOrderCount}.`
     );
-    const shortageJobFilmOrder = (shortageJobDetail?.filmOrders || []).find(
-      (entry) => entry.sourceBoxId === shortageBoxId
-    );
-    assert(shortageJobFilmOrder, 'Expected shortage verification job detail to include the shortage film order created during receipt.');
     assert(
-      shortageJobFilmOrder.status === 'FILM_ORDER',
-      `Expected shortage verification job detail to keep the shortage film order open, received ${shortageJobFilmOrder?.status}.`
+      shortageJobDetail?.summary?.status === 'FILM_ORDER',
+      `Expected shortage verification job summary to remain FILM_ORDER while material is short, received ${shortageJobDetail?.summary?.status}.`
     );
 
     let belowAllocatedError = null;

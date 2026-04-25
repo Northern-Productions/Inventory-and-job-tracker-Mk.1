@@ -34,7 +34,6 @@ import { cancelAllocationsForZeroedBox } from '../checkout/cancellations.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
-import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 import {
   assertDirectToJobSiteFlagIsServerOwned,
   assertNoShipDirectToJobSiteFlag,
@@ -398,26 +397,6 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
-  }
-
-  if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {
-    const shortageReconciliation = await reconcileReservationShortagesForBox(
-      client,
-      orgId,
-      updatedBox.boxId,
-      actor,
-      { allowPlaceholderShortages: true }
-    );
-    if (shortageReconciliation.createdCount > 0) {
-      warnings.push(
-        `Created ${shortageReconciliation.createdCount} shortage film order${shortageReconciliation.createdCount === 1 ? '' : 's'} after confirming the updated box footage.`
-      );
-    }
-    if (shortageReconciliation.deletedCount > 0) {
-      warnings.push(
-        `Removed ${shortageReconciliation.deletedCount} stale shortage film order${shortageReconciliation.deletedCount === 1 ? '' : 's'} after confirming the updated box footage.`
-      );
-    }
   }
 
   await seedFilmCatalogRecordIfMissing(client, orgId, {

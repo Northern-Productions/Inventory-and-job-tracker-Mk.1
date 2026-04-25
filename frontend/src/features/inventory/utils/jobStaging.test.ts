@@ -44,7 +44,7 @@ function buildDetail(overrides: Partial<JobDetail> = {}): JobDetail {
       sections: null,
       installDate: '2026-04-01',
       crewLeader: 'Crew',
-      status: 'ALLOCATE',
+      status: 'FILM_ORDER',
       lifecycleStatus: 'ACTIVE',
       isLaborOnly: false,
       isStagedForPickup: false,

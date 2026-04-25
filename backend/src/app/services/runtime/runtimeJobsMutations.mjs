@@ -73,7 +73,6 @@ import { getAllocationReservationState } from '../../../../../shared/domain/film
 import {
   capturePhysicalFeetAvailableByBoxId,
   recalculateReservationBoxesByIds,
-  reconcileReservationShortagesForJob,
 } from './runtimeAllocationReservationReconciliation.mjs';
 
 function getRestoredAllocatableFeet(entry) {
@@ -281,16 +280,9 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
     });
   }
 
-  const shortageReconciliation = installDateChanged
-    ? await reconcileReservationShortagesForJob(client, orgId, jobNumber, actor, {
-        allowPlaceholderShortages: false,
-      })
-    : { createdCount: 0, updatedCount: 0, deletedCount: 0 };
-
   return {
     updatedAllocationCount,
     updatedFilmOrderCount,
-    shortageReconciliation,
   };
 }
 
@@ -391,16 +383,6 @@ async function updateJob(client, orgId, payload, actor) {
     if (syncResult.updatedAllocationCount > 0 || syncResult.updatedFilmOrderCount > 0) {
       warnings.push(
         `Updated scheduling metadata on ${syncResult.updatedAllocationCount} active allocation${syncResult.updatedAllocationCount === 1 ? '' : 's'} and ${syncResult.updatedFilmOrderCount} open film order${syncResult.updatedFilmOrderCount === 1 ? '' : 's'}.`
-      );
-    }
-    if (syncResult.shortageReconciliation.createdCount > 0) {
-      warnings.push(
-        `Created ${syncResult.shortageReconciliation.createdCount} shortage film order${syncResult.shortageReconciliation.createdCount === 1 ? '' : 's'} after rebalancing scheduled reservations.`
-      );
-    }
-    if (syncResult.shortageReconciliation.deletedCount > 0) {
-      warnings.push(
-        `Removed ${syncResult.shortageReconciliation.deletedCount} stale shortage film order${syncResult.shortageReconciliation.deletedCount === 1 ? '' : 's'} after rebalancing scheduled reservations.`
       );
     }
   }
@@ -639,6 +621,23 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const existingJob = await findJobByNumber(client, orgId, jobNumber);
   if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
     throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
+  }
+
+  const duplicateKey = normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn);
+  const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const duplicateOrder = existingFilmOrders.find((entry) => {
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status !== 'FILM_ORDER' && status !== 'FILM_ON_THE_WAY') {
+      return false;
+    }
+
+    return normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === duplicateKey;
+  });
+  if (duplicateOrder) {
+    throw new HttpError(
+      409,
+      `Film order ${duplicateOrder.filmOrderId} already covers this job requirement. Cancel it before creating another order.`
+    );
   }
 
   const jobId = await getOrResolveJobId(client, orgId, jobNumber);

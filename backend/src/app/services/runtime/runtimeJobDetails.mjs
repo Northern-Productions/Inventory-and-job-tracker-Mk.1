@@ -12,12 +12,14 @@ import {
   listCaulkJobAllocationsByJob,
   listCaulkJobCheckoutsByJob,
   listRollHistoryByJob,
+  listBoxes,
   listBoxesByIds,
   listFilmOrderLinksByFilmOrderIds,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   listActiveAllocationsForJobConflictCheck,
 } from '../runtimeDeps.mjs';
+import { listCaulkStock } from '../caulk.mjs';
 import {
   buildAllocationJobSummary,
   buildPublicJobRequirementEntries,
@@ -29,6 +31,7 @@ import {
   buildLegacyJobHeaderFromData,
   buildPublicAllocationEntriesForJob,
   buildPublicFilmOrdersForJob,
+  deriveInStockReadinessStatus,
 } from './runtimeJobSummaries.mjs';
 import {
   buildJobFilmTransferAlerts,
@@ -210,7 +213,9 @@ function buildDetailContext(
   boxes,
   conflictAllocations,
   pendingTransfersByBoxRecordId,
-  publicFilmOrders
+  publicFilmOrders,
+  allBoxes = [],
+  caulkStockEntries = []
 ) {
   const boxById = indexBoxesById(boxes);
   const publicRequirements = buildPublicJobRequirementEntries(baseData.requirements, baseData.allocations, boxById);
@@ -222,6 +227,8 @@ function buildDetailContext(
     resolvedBaseContext.header?.warehouse || '',
     baseData.allocations,
     boxById,
+    allBoxes,
+    caulkStockEntries,
     pendingTransfersByBoxRecordId
   );
   const caulkTransferAlerts = buildJobCaulkTransferAlerts(
@@ -256,6 +263,8 @@ function buildDetailContext(
     ),
     filmTransferAlerts,
     caulkTransferAlerts,
+    allBoxes,
+    caulkStockEntries,
   };
 }
 
@@ -264,6 +273,8 @@ async function loadJobDetailContext(client, orgId, jobNumber) {
   const baseData = await loadBaseJobDetailData(client, orgId, normalizedJobNumber);
   const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
   const boxes = await listBoxesByIds(client, orgId, resolvedBaseContext.boxIds);
+  const allBoxes = await listBoxes(client, orgId);
+  const caulkStockEntries = await listCaulkStock(client, orgId, {});
   const conflictAllocations = await listActiveAllocationsForJobConflictCheck(
     client,
     orgId,
@@ -289,7 +300,9 @@ async function loadJobDetailContext(client, orgId, jobNumber) {
     boxes,
     conflictAllocations,
     pendingTransfersByBoxRecordId,
-    publicFilmOrders
+    publicFilmOrders,
+    allBoxes,
+    caulkStockEntries
   );
 }
 
@@ -297,7 +310,7 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const baseData = await loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber);
   const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
-  const [boxes, conflictAllocations] = await runParallelReadTasks([
+  const [boxes, conflictAllocations, allBoxes, caulkStockEntries] = await runParallelReadTasks([
     (client) => listBoxesByIds(client, orgId, resolvedBaseContext.boxIds),
     (client) =>
       listActiveAllocationsForJobConflictCheck(
@@ -308,6 +321,8 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
         normalizedJobNumber,
         resolvedBaseContext.crewLeader
       ),
+    (client) => listBoxes(client, orgId),
+    (client) => listCaulkStock(client, orgId, {}),
   ]);
   const boxById = indexBoxesById(boxes);
   const [pendingTransfersByBoxRecordId, publicFilmOrders] = await runParallelReadTasks([
@@ -329,7 +344,9 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
     boxes,
     conflictAllocations,
     pendingTransfersByBoxRecordId,
-    publicFilmOrders
+    publicFilmOrders,
+    allBoxes,
+    caulkStockEntries
   );
 }
 
@@ -342,7 +359,12 @@ function buildJobDetailPayload(detailContext) {
       detailContext.filmOrders,
       detailContext.conflictAllocations,
       detailContext.publicCaulkRequirements,
-      detailContext.boxById
+      detailContext.boxById,
+      {
+        allBoxes: detailContext.allBoxes,
+        caulkAllocations: detailContext.caulkAllocations,
+        caulkStockEntries: detailContext.caulkStockEntries,
+      }
     ),
     requirements: detailContext.publicRequirements,
     allocations: detailContext.publicAllocations,
@@ -358,20 +380,34 @@ function buildJobDetailPayload(detailContext) {
 }
 
 function buildAllocationJobDetailPayload(detailContext) {
+  const summary = buildAllocationJobSummary(
+    detailContext.jobNumber,
+    detailContext.allocations,
+    detailContext.filmOrders,
+    detailContext.publicRequirements,
+    detailContext.publicCaulkRequirements,
+    detailContext.header?.lifecycleStatus || 'ACTIVE',
+    Boolean(detailContext.header?.isLaborOnly),
+    Boolean(detailContext.header?.isStagedForPickup),
+    detailContext.header?.installDate || '',
+    detailContext.header?.crewLeader || '',
+    detailContext.boxById
+  );
+  summary.status = deriveInStockReadinessStatus({
+    lifecycleStatus: detailContext.header?.lifecycleStatus || 'ACTIVE',
+    isLaborOnly: Boolean(detailContext.header?.isLaborOnly),
+    requirements: detailContext.publicRequirements,
+    caulkRequirements: detailContext.publicCaulkRequirements,
+    allocations: detailContext.allocations,
+    caulkAllocations: detailContext.caulkAllocations,
+    filmOrders: detailContext.filmOrders,
+    allBoxes: detailContext.allBoxes,
+    caulkStockEntries: detailContext.caulkStockEntries,
+    jobWarehouse: detailContext.header?.warehouse || '',
+  });
+
   return {
-    summary: buildAllocationJobSummary(
-      detailContext.jobNumber,
-      detailContext.allocations,
-      detailContext.filmOrders,
-      detailContext.publicRequirements,
-      detailContext.publicCaulkRequirements,
-      detailContext.header?.lifecycleStatus || 'ACTIVE',
-      Boolean(detailContext.header?.isLaborOnly),
-      Boolean(detailContext.header?.isStagedForPickup),
-      detailContext.header?.installDate || '',
-      detailContext.header?.crewLeader || '',
-      detailContext.boxById
-    ),
+    summary,
     allocations: detailContext.publicAllocations,
     usage: detailContext.usage,
     usageTimeline: detailContext.usageTimeline,

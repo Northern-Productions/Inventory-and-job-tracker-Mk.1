@@ -19,6 +19,10 @@ interface JobConfirmationDialogsProps {
   filmOrderToDelete: FilmOrderEntry | null;
   onCancelDeleteFilmOrder: () => void;
   onConfirmDeleteFilmOrder: (order: FilmOrderEntry, reason: string) => void;
+  isOrderAllConfirmOpen: boolean;
+  orderableFilmRequirementCount: number;
+  onCancelOrderAll: () => void;
+  onConfirmOrderAll: () => void;
   allocationToRemove: AllocationJobDetailEntry | null;
   onCancelRemoveAllocation: () => void;
   onConfirmRemoveAllocation: (entry: AllocationJobDetailEntry, reason: string) => void;
@@ -54,6 +58,10 @@ export function JobConfirmationDialogs({
   filmOrderToDelete,
   onCancelDeleteFilmOrder,
   onConfirmDeleteFilmOrder,
+  isOrderAllConfirmOpen,
+  orderableFilmRequirementCount,
+  onCancelOrderAll,
+  onConfirmOrderAll,
   allocationToRemove,
   onCancelRemoveAllocation,
   onConfirmRemoveAllocation,
@@ -93,13 +101,13 @@ export function JobConfirmationDialogs({
 
       <ConfirmDialog
         open={Boolean(filmOrderToDelete)}
-        title="Delete Film Order"
+        title="Cancel Film Order"
         message={
           filmOrderToDelete
-            ? `Delete film order ${filmOrderToDelete.filmOrderId}? Any active allocations tied to this film order will be released back to inventory.`
+            ? `Cancel film order ${filmOrderToDelete.filmOrderId}? Any active allocations tied to this film order will be released back to inventory.`
             : ''
         }
-        confirmLabel="Delete"
+        confirmLabel="Cancel Order"
         cancelLabel="Keep Film Order"
         onCancel={onCancelDeleteFilmOrder}
         onConfirm={(reason) => {
@@ -109,6 +117,16 @@ export function JobConfirmationDialogs({
 
           onConfirmDeleteFilmOrder(filmOrderToDelete, reason);
         }}
+      />
+
+      <ConfirmDialog
+        open={isOrderAllConfirmOpen}
+        title="Order All Film"
+        message={`Create ${orderableFilmRequirementCount} film order${orderableFilmRequirementCount === 1 ? '' : 's'} for the unmet film requirements on job ${jobNumber}?`}
+        confirmLabel="Create Orders"
+        cancelLabel="Review Requirements"
+        onCancel={onCancelOrderAll}
+        onConfirm={onConfirmOrderAll}
       />
 
       <ConfirmDialog

@@ -7,7 +7,10 @@ import {
 } from '../../src/app/core/catalog.mjs';
 import { saveFilmOrderRecord } from '../../src/app/repositories/inventoryRecordsRepository.mjs';
 import { replaceJobRequirementsForJob } from '../../src/app/repositories/jobsRepository.mjs';
-import { buildJobListEntry } from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
+import {
+  buildJobListEntry,
+  deriveInStockReadinessStatus
+} from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
 import { buildPublicJobUsageTimelineEntries } from '../../src/app/services/runtime/runtimeTransferUsage.mjs';
 
 function createRecordingClient(rowsByQuery = []) {
@@ -140,6 +143,142 @@ test('buildJobListEntry only counts unresolved film orders', () => {
   );
 
   assert.equal(summary.filmOrderCount, 1);
+});
+
+test('deriveInStockReadinessStatus only counts same-warehouse in-stock film', () => {
+  const base = {
+    lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    requirements: [
+      {
+        requirementId: 'req-1',
+        manufacturer: 'Security',
+        filmName: 'Madico Safetyshield 800',
+        widthIn: 60,
+        requiredFeet: 40,
+        remainingFeet: 40
+      }
+    ],
+    caulkRequirements: [],
+    allocations: [],
+    caulkAllocations: [],
+    filmOrders: [],
+    caulkStockEntries: [],
+    jobWarehouse: 'IL1'
+  };
+
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allBoxes: [
+        {
+          boxId: 'IL1-READY',
+          warehouse: 'IL1',
+          status: 'IN_STOCK',
+          manufacturer: 'Security',
+          filmName: 'Madico Safetyshield 800',
+          widthIn: 60,
+          feetAvailable: 40
+        }
+      ]
+    }),
+    'READY'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allBoxes: [
+        {
+          boxId: 'IL2-WRONG-WAREHOUSE',
+          warehouse: 'IL2',
+          status: 'IN_STOCK',
+          manufacturer: 'Security',
+          filmName: 'Madico Safetyshield 800',
+          widthIn: 60,
+          feetAvailable: 100
+        }
+      ]
+    }),
+    'FILM_ORDER'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allBoxes: [
+        {
+          boxId: 'IL1-ORDERED',
+          warehouse: 'IL1',
+          status: 'ORDERED',
+          manufacturer: 'Security',
+          filmName: 'Madico Safetyshield 800',
+          widthIn: 60,
+          feetAvailable: 100
+        },
+        {
+          boxId: 'IL1-TRANSFER',
+          warehouse: 'IL1',
+          status: 'TRANSFER',
+          manufacturer: 'Security',
+          filmName: 'Madico Safetyshield 800',
+          widthIn: 60,
+          feetAvailable: 100
+        }
+      ]
+    }),
+    'FILM_ORDER'
+  );
+});
+
+test('deriveInStockReadinessStatus only counts same-warehouse physical caulk stock', () => {
+  const base = {
+    lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    requirements: [],
+    caulkRequirements: [
+      {
+        requirementId: 'caulk-req-1',
+        productId: 'product-1',
+        requiredTubes: 6,
+        remainingTubes: 6
+      }
+    ],
+    allocations: [],
+    caulkAllocations: [],
+    filmOrders: [],
+    allBoxes: [],
+    jobWarehouse: 'IL1'
+  };
+
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL1', tubesOnHand: 6 }]
+    }),
+    'READY'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL2', tubesOnHand: 60 }]
+    }),
+    'FILM_ORDER'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      caulkAllocations: [
+        {
+          productId: 'product-1',
+          warehouse: 'IL1',
+          status: 'ACTIVE',
+          reservedTubesRemaining: 6,
+          pendingTransfer: { transferId: 'transfer-1' }
+        }
+      ],
+      caulkStockEntries: []
+    }),
+    'FILM_ORDER'
+  );
 });
 
 test('normalizeJobRequirementEntriesForWrite preserves explicit Prestige 40 Exterior labels', async () => {

@@ -21,7 +21,7 @@ function renderStatusBadges(entry: JobListEntry) {
   return (
     <div className="detail-actions">
       <span className={`badge badge-${displayStatus}`}>{formatStatusLabel(displayStatus)}</span>
-      {entry.hasOrderedAllocations && displayStatus !== 'ON_ORDER' ? (
+      {entry.hasOrderedAllocations ? (
         <span className="badge badge-ON_ORDER">ON ORDER</span>
       ) : null}
     </div>

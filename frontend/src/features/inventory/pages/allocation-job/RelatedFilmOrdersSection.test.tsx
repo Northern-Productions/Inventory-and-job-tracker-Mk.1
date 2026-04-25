@@ -69,7 +69,7 @@ describe('RelatedFilmOrdersSection', () => {
 
     expect(
       screen.getByText(
-        'Manual orders are created from Film Orders. Auto shortage orders appear after return/weigh or schedule rebalance.'
+        'Manual orders are created only from explicit order actions. Cancel an unresolved order before creating another for the same film requirement.'
       )
     ).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Ordered Box IDs' })).toBeTruthy();

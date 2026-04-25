@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0082_create_cancel_active_allocations_for_box_job_wrapper.sql';
+const LATEST_MIGRATION = '0083_film_order_manual_approval_in_stock_readiness.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -34,6 +34,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_film_orders_create(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)' },
@@ -116,8 +117,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Only in-stock, ordered, or matching transfer boxes can be allocated.',
       'is in transfer status but no pending transfer was found.',
       'is transferring to %s and cannot be allocated to a job in %s.',
-      'Created from a shortage while trying to allocate'
+      'Created from a shortage while trying to allocate',
+      'delete from app.film_orders'
     ]
+  },
+  {
+    signature: 'public.api_film_orders_create(uuid, text, jsonb)',
+    includes: [
+      "coalesce(fo.status::text, '') in ('FILM_ORDER', 'FILM_ON_THE_WAY')",
+      'app_api.normalize_job_requirement_lookup_key(',
+      'app_api.resolve_canonical_film_name(',
+      'perform app_api.raise_http(',
+      'Cancel it before creating another order.',
+      'v_order := app_api.save_film_order(v_order);'
+    ],
+    excludes: ['Created from a shortage while trying to allocate']
   },
   {
     signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)',
@@ -224,12 +238,30 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)',
     includes: [
-      'v_target_warehouse := app_api.require_org_warehouse(',
-      'v_target_orphan_requested_feet := greatest(v_target_requested_feet - v_committed_requested_feet, 0);',
-      'perform app_api.save_film_order(v_primary_orphan);',
-      'perform app_api.save_film_order(v_new_order);'
+      'return jsonb_build_object(',
+      "'createdCount', 0",
+      "'updatedCount', 0",
+      "'deletedCount', 0"
     ],
-    excludes: ['::app.warehouse']
+    excludes: [
+      'perform app_api.save_film_order(',
+      'delete from app.film_orders',
+      'v_target_orphan_requested_feet'
+    ]
+  },
+  {
+    signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)',
+    includes: [
+      'return jsonb_build_object(',
+      "'createdCount', 0",
+      "'updatedCount', 0",
+      "'deletedCount', 0"
+    ],
+    excludes: [
+      'perform app_api.save_film_order(',
+      'delete from app.film_orders',
+      'v_target_orphan_requested_feet'
+    ]
   },
   {
     signature: 'app_api.save_box(app.boxes)',

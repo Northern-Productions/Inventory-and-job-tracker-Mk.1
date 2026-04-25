@@ -301,15 +301,11 @@ function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements:
     return 'READY' as const;
   }
 
-  if (detail.filmOrders.some((entry) => entry.status === 'FILM_ORDER')) {
+  if (detail.filmOrders.some((entry) => isUnresolvedFilmOrder(entry))) {
     return 'FILM_ORDER' as const;
   }
 
-  if (detail.filmOrders.some((entry) => isUnresolvedFilmOrder(entry))) {
-    return 'ON_ORDER' as const;
-  }
-
-  return 'ALLOCATE';
+  return 'FILM_ORDER';
 }
 
 function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {

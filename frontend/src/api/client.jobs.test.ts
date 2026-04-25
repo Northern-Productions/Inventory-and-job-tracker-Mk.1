@@ -48,7 +48,7 @@ function buildJobListEntry(overrides: Record<string, unknown> = {}) {
     sections: null,
     installDate: '2026-03-05',
     crewLeader: '',
-    status: 'ALLOCATE',
+    status: 'FILM_ORDER',
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     isStagedForPickup: false,
@@ -369,7 +369,7 @@ describe('jobs API client canonical routes', () => {
         summary: buildJobListEntry({
           jobNumber: '000123',
           lifecycleStatus: 'ACTIVE',
-          status: 'ALLOCATE'
+          status: 'FILM_ORDER'
         }),
         requirements: [],
         allocations: [],

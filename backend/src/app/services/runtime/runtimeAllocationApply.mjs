@@ -35,7 +35,6 @@ import {
   parseIntegerInput,
   requireUuid,
   cloneValue,
-  createLogId,
   createTransferId,
   roundToDecimals,
   normalizeWarehouseCodeFormat,
@@ -199,8 +198,6 @@ import {
   allocationMatchesRequirement,
   normalizeRequirementFilmKey,
   planningFilmCanSatisfyRequirement,
-  getStoredAllocationCoveredFeet,
-  shouldIgnoreAllocationCoverageForBoxStatus
 } from './runtimeAllocationCoverage.mjs';
 import { resolveExistingOrLegacyJobHeader } from './runtimeJobsRead.mjs';
 import {
@@ -211,7 +208,6 @@ import {
   normalizeOptionalWarehouse,
   createAllocationRecord,
 } from './runtimeAllocationPlanning.mjs';
-import { deleteStaleAutoShortageFilmOrdersForRequirement } from './runtimeAllocationCleanup.mjs';
 import { buildBoxReservationMetrics } from './runtimeAllocationReservations.mjs';
 
 async function buildPendingTransfersByBoxRecordId(client, orgId, boxes) {
@@ -321,44 +317,6 @@ function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobN
   }
 
   return selectedRequirement;
-}
-
-function calculateRemainingFeetForRequirement(requirement, allocations, boxById) {
-  if (!requirement) {
-    return 0;
-  }
-
-  const requirementId = asTrimmedString(requirement.id);
-  const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
-  if (!requirementId || requiredFeet <= 0) {
-    return 0;
-  }
-
-  let coveredFeet = 0;
-  const source = Array.isArray(allocations) ? allocations : [];
-  for (let index = 0; index < source.length; index += 1) {
-    const allocation = source[index];
-    if (
-      asTrimmedString(allocation.requirementId) !== requirementId ||
-      asTrimmedString(allocation.status).toUpperCase() === 'CANCELLED' ||
-      normalizeAllocationKind(allocation.allocationKind) === 'EXTRA'
-    ) {
-      continue;
-    }
-
-    const box = boxById[allocation.boxId];
-    if (!box || shouldIgnoreAllocationCoverageForBoxStatus(allocation, box)) {
-      continue;
-    }
-
-    if (!allocationMatchesRequirement(box, requirement)) {
-      continue;
-    }
-
-    coveredFeet += getStoredAllocationCoveredFeet(allocation);
-  }
-
-  return Math.max(0, requiredFeet - Math.min(requiredFeet, coveredFeet));
 }
 
 async function applyAllocationPlan(client, orgId, payload, actor) {
@@ -619,29 +577,6 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
         ? reservationSnapshot.reservationState
         : (asTrimmedString(allocation?.installDate) ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE'),
     });
-  }
-
-  let remainingRequirementFeet = null;
-  if (requestedFeet > 0 && selectedRequirement) {
-    remainingRequirementFeet = calculateRemainingFeetForRequirement(
-      selectedRequirement,
-      await listAllocationsByJob(client, orgId, jobContext.jobNumber),
-      boxById
-    );
-    const deletedFilmOrders = await deleteStaleAutoShortageFilmOrdersForRequirement(
-      client,
-      orgId,
-      jobContext.jobNumber,
-      selectedRequirement,
-      remainingRequirementFeet
-    );
-    if (deletedFilmOrders.length > 0) {
-      warnings.push(
-        `Removed ${deletedFilmOrders.length} stale shortage film order${
-          deletedFilmOrders.length === 1 ? '' : 's'
-        } for job ${jobContext.jobNumber} after fulfilling the selected requirement.`
-      );
-    }
   }
 
   return ok(

@@ -57,7 +57,7 @@ function renderFilmOrderActions({
         onClick={() => onDeleteOrder(order)}
         disabled={pendingDeleteFilmOrderIds.has(order.filmOrderId.trim().toUpperCase())}
       >
-        Delete
+        Cancel
       </Button>
     </>
   );
@@ -77,8 +77,8 @@ export function RelatedFilmOrdersSection({
         <h2>Related Film Orders</h2>
       </div>
       <p className="muted-text">
-        Manual orders are created from Film Orders. Auto shortage orders appear after return/weigh
-        or schedule rebalance.
+        Manual orders are created only from explicit order actions. Cancel an unresolved order
+        before creating another for the same film requirement.
       </p>
       {!orders.length ? (
         <div className="empty-state">No film orders were created for this job.</div>

@@ -1559,6 +1559,21 @@ async function listBoxesByIds(orgId: string, boxIds: string[]) {
   return rows.map((row) => mapDbBoxRow(row)).filter(isPresent);
 }
 
+async function listCaulkStockEntries(client: any, orgId: string) {
+  const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_stock", {
+    p_org_id: orgId,
+    p_warehouse: "",
+    p_manufacturer: "",
+    p_q: "",
+  });
+
+  return (entriesRaw || []).map((entry) => ({
+    warehouse: asTrimmedString(entry.warehouse).toUpperCase(),
+    productId: asTrimmedString(entry.product_id),
+    tubesOnHand: Math.max(0, integerOrZero(entry.tubes_on_hand)),
+  }));
+}
+
 async function listFilmOrderLinksByFilmOrderIds(orgId: string, filmOrderIds: string[]) {
   const normalizedFilmOrderIds = Array.from(
     new Set((Array.isArray(filmOrderIds) ? filmOrderIds : []).map((filmOrderId) => asTrimmedString(filmOrderId)).filter(Boolean)),
@@ -3209,6 +3224,266 @@ function buildPublicJobRequirementEntries(requirements: any[], allocations: any[
   return response;
 }
 
+function isOpenMaterialFilmOrder(entry: any) {
+  const status = asTrimmedString(entry?.status).toUpperCase();
+  return status === "FILM_ORDER" || status === "FILM_ON_THE_WAY";
+}
+
+function normalizeWarehouse(value: unknown): string {
+  return asTrimmedString(value).toUpperCase();
+}
+
+function getRequirementId(requirement: any): string {
+  return asTrimmedString(requirement?.requirementId || requirement?.id);
+}
+
+function isSameWarehouseInStockBox(box: any, jobWarehouse: unknown) {
+  return (
+    asTrimmedString(box?.status).toUpperCase() === "IN_STOCK" &&
+    normalizeWarehouse(box?.warehouse) === normalizeWarehouse(jobWarehouse)
+  );
+}
+
+function buildReadinessFilmPools(requirements: any[], allocations: any[], allBoxes: any[], jobWarehouse: unknown) {
+  const scheduledCoverageByRequirementId: Record<string, number> = {};
+  const pools: Array<{ box: any; remainingFeet: number }> = [];
+  const requirementById: Record<string, any> = {};
+
+  for (const requirement of Array.isArray(requirements) ? requirements : []) {
+    const requirementId = getRequirementId(requirement);
+    if (requirementId) {
+      requirementById[requirementId] = requirement;
+    }
+  }
+
+  const boxById: Record<string, any> = {};
+  for (const box of Array.isArray(allBoxes) ? allBoxes : []) {
+    const boxId = asTrimmedString(box?.boxId).toUpperCase();
+    if (!boxId) {
+      continue;
+    }
+    boxById[boxId] = box;
+    if (isSameWarehouseInStockBox(box, jobWarehouse) && integerOrZero(box?.feetAvailable) > 0) {
+      pools.push({
+        box,
+        remainingFeet: integerOrZero(box.feetAvailable),
+      });
+    }
+  }
+
+  for (const allocation of Array.isArray(allocations) ? allocations : []) {
+    if (
+      asTrimmedString(allocation?.status).toUpperCase() !== "ACTIVE" ||
+      !asTrimmedString(allocation?.installDate) ||
+      normalizeAllocationKind(allocation?.allocationKind) === "EXTRA"
+    ) {
+      continue;
+    }
+
+    const requirementId = asTrimmedString(allocation?.requirementId);
+    const requirement = requirementById[requirementId];
+    const box = boxById[asTrimmedString(allocation?.boxId).toUpperCase()];
+    if (!requirement || !box || !isSameWarehouseInStockBox(box, jobWarehouse)) {
+      continue;
+    }
+
+    if (!allocationMatchesRequirement(box, requirement)) {
+      continue;
+    }
+
+    scheduledCoverageByRequirementId[requirementId] =
+      integerOrZero(scheduledCoverageByRequirementId[requirementId]) +
+      getStoredAllocationCoveredFeet(allocation);
+  }
+
+  return {
+    pools,
+    scheduledCoverageByRequirementId,
+  };
+}
+
+function hasEnoughSameWarehouseInStockFilm(
+  requirements: any[],
+  allocations: any[],
+  allBoxes: any[],
+  jobWarehouse: unknown,
+) {
+  const requiredRequirements = (Array.isArray(requirements) ? requirements : []).filter(
+    (entry) => integerOrZero(entry?.requiredFeet) > 0,
+  );
+  if (!requiredRequirements.length) {
+    return true;
+  }
+
+  if (!normalizeWarehouse(jobWarehouse)) {
+    return false;
+  }
+
+  const { pools, scheduledCoverageByRequirementId } = buildReadinessFilmPools(
+    requiredRequirements,
+    allocations,
+    allBoxes,
+    jobWarehouse,
+  );
+
+  for (const requirement of requiredRequirements) {
+    let remainingNeed = Math.max(
+      integerOrZero(requirement.requiredFeet) -
+        integerOrZero(scheduledCoverageByRequirementId[getRequirementId(requirement)]),
+      0,
+    );
+
+    for (const pool of pools) {
+      if (remainingNeed <= 0) {
+        break;
+      }
+      if (pool.remainingFeet <= 0 || !allocationMatchesRequirement(pool.box, requirement)) {
+        continue;
+      }
+
+      const coveragePlan = planCoverageAllocation(
+        remainingNeed,
+        pool.remainingFeet,
+        Number(pool.box.widthIn) || 0,
+        Number(requirement.widthIn) || 0,
+      );
+      pool.remainingFeet = Math.max(0, pool.remainingFeet - integerOrZero(coveragePlan.allocatedFeet));
+      remainingNeed = Math.max(0, coveragePlan.remainingCoveredFeet);
+    }
+
+    if (remainingNeed > 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function hasEnoughSameWarehouseInStockCaulk(
+  caulkRequirements: any[],
+  caulkAllocations: any[],
+  caulkStockEntries: any[],
+  jobWarehouse: unknown,
+) {
+  const requirements = (Array.isArray(caulkRequirements) ? caulkRequirements : []).filter(
+    (entry) => integerOrZero(entry?.requiredTubes) > 0,
+  );
+  if (!requirements.length) {
+    return true;
+  }
+
+  if (!normalizeWarehouse(jobWarehouse)) {
+    return false;
+  }
+
+  const stockByProductId: Record<string, number> = {};
+  for (const entry of Array.isArray(caulkStockEntries) ? caulkStockEntries : []) {
+    if (normalizeWarehouse(entry?.warehouse) !== normalizeWarehouse(jobWarehouse)) {
+      continue;
+    }
+    const productId = asTrimmedString(entry?.productId);
+    stockByProductId[productId] = integerOrZero(stockByProductId[productId]) + integerOrZero(entry?.tubesOnHand);
+  }
+
+  const reservedByProductId: Record<string, number> = {};
+  for (const allocation of Array.isArray(caulkAllocations) ? caulkAllocations : []) {
+    if (
+      asTrimmedString(allocation?.status).toUpperCase() !== "ACTIVE" ||
+      normalizeWarehouse(allocation?.warehouse) !== normalizeWarehouse(jobWarehouse) ||
+      allocation?.pendingTransfer
+    ) {
+      continue;
+    }
+
+    const productId = asTrimmedString(allocation?.productId);
+    reservedByProductId[productId] =
+      integerOrZero(reservedByProductId[productId]) + integerOrZero(allocation?.reservedTubesRemaining);
+  }
+
+  for (const requirement of requirements) {
+    const productId = asTrimmedString(requirement?.productId);
+    const requiredTubes = integerOrZero(requirement.requiredTubes);
+    const availableTubes = integerOrZero(stockByProductId[productId]) + integerOrZero(reservedByProductId[productId]);
+    if (availableTubes < requiredTubes) {
+      return false;
+    }
+
+    stockByProductId[productId] = Math.max(0, integerOrZero(stockByProductId[productId]) - requiredTubes);
+  }
+
+  return true;
+}
+
+function deriveInStockReadinessStatus(params: {
+  lifecycleStatus: unknown;
+  isLaborOnly: boolean;
+  requirements: any[];
+  caulkRequirements: any[];
+  allocations: any[];
+  caulkAllocations: any[];
+  filmOrders: any[];
+  allBoxes: any[];
+  caulkStockEntries: any[];
+  jobWarehouse: unknown;
+}) {
+  /**
+   * PURPOSE:
+   * Mirrors backend READY/FILM_ORDER derivation for Supabase Edge reads using
+   * only IN_STOCK film and physical caulk in the job warehouse.
+   *
+   * AFFECTS:
+   * Supabase job list/detail APIs, allocation summaries, calendar/search reads,
+   * and optimistic frontend reconciliation that trusts returned status pills.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * backend runtimeJobSummaries.mjs, frontend jobSummaryMath/jobCalendar, and
+   * auto-shortage no-op migrations.
+   *
+   * COMMON FAILURE MODES:
+   * ORDERED/TRANSFER/other-warehouse inventory making jobs READY, duplicate
+   * caulk stock consumption, or local backend and Edge status drift.
+   */
+  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(params.lifecycleStatus);
+  if (normalizedLifecycleStatus === "CANCELLED") {
+    return "CANCELLED";
+  }
+
+  if (normalizedLifecycleStatus === "COMPLETED") {
+    return "COMPLETED";
+  }
+
+  const requirements = Array.isArray(params.requirements) ? params.requirements : [];
+  const caulkRequirements = Array.isArray(params.caulkRequirements) ? params.caulkRequirements : [];
+  const filmOrders = Array.isArray(params.filmOrders) ? params.filmOrders : [];
+  const hasMaterialRequirements =
+    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
+    caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
+
+  if (!hasMaterialRequirements) {
+    return params.isLaborOnly ||
+      requirements.length ||
+      caulkRequirements.length ||
+      !filmOrders.some(isOpenMaterialFilmOrder)
+      ? "READY"
+      : "FILM_ORDER";
+  }
+
+  const filmReady = hasEnoughSameWarehouseInStockFilm(
+    requirements,
+    params.allocations,
+    params.allBoxes,
+    params.jobWarehouse,
+  );
+  const caulkReady = hasEnoughSameWarehouseInStockCaulk(
+    caulkRequirements,
+    params.caulkAllocations,
+    params.caulkStockEntries,
+    params.jobWarehouse,
+  );
+
+  return filmReady && caulkReady ? "READY" : "FILM_ORDER";
+}
+
 function resolveAllocationJobMetadata(allocations: any[], filmOrders: any[]) {
   let installDate = "";
   let crewLeader = "";
@@ -3306,7 +3581,7 @@ function buildAllocationJobSummary(
     const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
     const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
     if (hasRemainingFilm || hasRemainingCaulk) {
-      status = hasFilmOrder ? "FILM_ORDER" : hasFilmOnTheWay ? "ON_ORDER" : "ALLOCATE";
+      status = "FILM_ORDER";
     } else {
       status = "READY";
     }
@@ -3315,7 +3590,7 @@ function buildAllocationJobSummary(
   } else if (hasFilmOrder) {
     status = "FILM_ORDER";
   } else if (hasFilmOnTheWay) {
-    status = "ON_ORDER";
+    status = "FILM_ORDER";
   } else if (hasActiveAllocation) {
     status = "READY";
   } else if (hasCancelledRecord) {
@@ -3419,7 +3694,7 @@ function deriveJobStatusFromLegacyAllocationData(allocations: any[], filmOrders:
   if (legacySummary.status === "READY" || legacySummary.status === "COMPLETED") {
     return "READY";
   }
-  return "ALLOCATE";
+  return "FILM_ORDER";
 }
 
 function computeJobStatusFromRequirements(
@@ -3430,54 +3705,26 @@ function computeJobStatusFromRequirements(
   caulkRequirements: any[],
   allocations: any[],
   filmOrders: any[],
+  options: {
+    allBoxes?: any[];
+    caulkAllocations?: any[];
+    caulkStockEntries?: any[];
+    jobWarehouse?: unknown;
+  } = {},
 ) {
-  const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
-  if (normalizedLifecycleStatus === "CANCELLED") {
-    return "CANCELLED";
-  }
-  if (normalizedLifecycleStatus === "COMPLETED") {
-    return "COMPLETED";
-  }
-  const hasMaterialRequirements =
-    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
-    caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
-  if (!hasMaterialRequirements) {
-    if (isLaborOnly || requirements.length || caulkRequirements.length) {
-      return "READY";
-    }
-
-    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ORDER")) {
-      return "FILM_ORDER";
-    }
-
-    if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ON_THE_WAY")) {
-      return "ON_ORDER";
-    }
-
-    return deriveJobStatusFromLegacyAllocationData(allocations, filmOrders);
-  }
-  const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
-  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
-  if (!hasRemainingFilm && !hasRemainingCaulk) {
-    return "READY";
-  }
-  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ORDER")) {
-    return "FILM_ORDER";
-  }
-  if (filmOrders.some((entry) => asTrimmedString(entry.status).toUpperCase() === "FILM_ON_THE_WAY")) {
-    return "ON_ORDER";
-  }
-  for (const requirement of requirements) {
-    if (requirement.remainingFeet > 0) {
-      return "ALLOCATE";
-    }
-  }
-  for (const requirement of caulkRequirements) {
-    if (requirement.remainingTubes > 0) {
-      return "ALLOCATE";
-    }
-  }
-  return "ALLOCATE";
+  void isStagedForPickup;
+  return deriveInStockReadinessStatus({
+    lifecycleStatus,
+    isLaborOnly,
+    requirements,
+    caulkRequirements,
+    allocations,
+    caulkAllocations: options.caulkAllocations || [],
+    filmOrders,
+    allBoxes: options.allBoxes || [],
+    caulkStockEntries: options.caulkStockEntries || [],
+    jobWarehouse: options.jobWarehouse || "",
+  });
 }
 
 function hasOpenFilmOrders(filmOrders: any[]) {
@@ -3551,6 +3798,12 @@ function buildJobListEntry(
   filmOrders: any[],
   caulkRequirements: any[] = [],
   boxById: Record<string, any> = {},
+  options: {
+    allBoxes?: any[];
+    caulkAllocations?: any[];
+    caulkStockEntries?: any[];
+    jobWarehouse?: unknown;
+  } = {},
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let installDate = jobHeader.installDate;
@@ -3591,6 +3844,12 @@ function buildJobListEntry(
       caulkRequirements,
       allocations,
       filmOrders,
+      {
+        allBoxes: options.allBoxes || Object.values(boxById || {}),
+        caulkAllocations: options.caulkAllocations || [],
+        caulkStockEntries: options.caulkStockEntries || [],
+        jobWarehouse: options.jobWarehouse || jobHeader.warehouse || "",
+      },
     ),
     lifecycleStatus: effectiveLifecycleStatus,
     requiredFeet,
@@ -4392,6 +4651,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
   const allFilmOrders = await listFilmOrders(client, orgId);
   const allRequirements = await listJobRequirements(client, orgId);
   const allBoxes = await listBoxes(client, orgId);
+  const allCaulkStock = await listCaulkStockEntries(client, orgId);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const groupedRequirements: Record<string, any[]> = {};
@@ -4449,7 +4709,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         return null;
       }
 
-      return buildAllocationJobSummary(
+      const summary = buildAllocationJobSummary(
         jobNumber,
         allocations,
         filmOrders,
@@ -4462,6 +4722,19 @@ async function buildAllocationJobList(client: any, orgId: string) {
         header?.crewLeader || "",
         boxById,
       );
+      summary.status = deriveInStockReadinessStatus({
+        lifecycleStatus: header?.lifecycleStatus || "ACTIVE",
+        isLaborOnly: Boolean(header?.isLaborOnly),
+        requirements,
+        caulkRequirements: publicCaulkRequirements,
+        allocations,
+        caulkAllocations: caulkPlanning.allocationsByJob[jobNumber] || [],
+        filmOrders,
+        allBoxes,
+        caulkStockEntries: allCaulkStock,
+        jobWarehouse: header?.warehouse || "",
+      });
+      return summary;
     })
     .filter((entry): entry is any => Boolean(entry));
   response.sort(compareAllocationJobSummaries);
@@ -4503,6 +4776,8 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
   );
   const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
+  const allBoxes = await listBoxes(client, orgId);
+  const caulkStockEntries = await listCaulkStockEntries(client, orgId);
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -4523,20 +4798,34 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     header?.warehouse || "",
     caulkAllocations,
   );
+  const summary = buildAllocationJobSummary(
+    normalizedJobNumber,
+    allocations,
+    filmOrders,
+    publicRequirements,
+    publicCaulkRequirements,
+    header?.lifecycleStatus || "ACTIVE",
+    Boolean(header?.isLaborOnly),
+    Boolean(header?.isStagedForPickup),
+    header?.installDate || "",
+    header?.crewLeader || "",
+    boxById,
+  );
+  summary.status = deriveInStockReadinessStatus({
+    lifecycleStatus: header?.lifecycleStatus || "ACTIVE",
+    isLaborOnly: Boolean(header?.isLaborOnly),
+    requirements: publicRequirements,
+    caulkRequirements: publicCaulkRequirements,
+    allocations,
+    caulkAllocations,
+    filmOrders,
+    allBoxes,
+    caulkStockEntries,
+    jobWarehouse: header?.warehouse || "",
+  });
+
   return {
-    summary: buildAllocationJobSummary(
-      normalizedJobNumber,
-      allocations,
-      filmOrders,
-      publicRequirements,
-      publicCaulkRequirements,
-      header?.lifecycleStatus || "ACTIVE",
-      Boolean(header?.isLaborOnly),
-      Boolean(header?.isStagedForPickup),
-      header?.installDate || "",
-      header?.crewLeader || "",
-      boxById,
-    ),
+    summary,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
@@ -4591,6 +4880,7 @@ async function buildJobsList(
   const allFilmOrders = await listFilmOrders(client, orgId);
   const allRequirements = await listJobRequirements(client, orgId);
   const allBoxes = await listBoxes(client, orgId);
+  const allCaulkStock = await listCaulkStockEntries(client, orgId);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const groupedRequirements: Record<string, any[]> = {};
@@ -4648,7 +4938,12 @@ async function buildJobsList(
     );
     const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
     const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
-    const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements, boxById);
+    const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      allBoxes,
+      caulkAllocations: caulkPlanning.allocationsByJob[jobNumber] || [],
+      caulkStockEntries: allCaulkStock,
+      jobWarehouse: header.warehouse || "",
+    });
     if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
       return entries;
     }
@@ -4755,6 +5050,8 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
   );
   const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
+  const allBoxes = await listBoxes(client, orgId);
+  const caulkStockEntries = await listCaulkStockEntries(client, orgId);
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -4776,7 +5073,12 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     caulkAllocations,
   );
   return {
-    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById),
+    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      allBoxes,
+      caulkAllocations,
+      caulkStockEntries,
+      jobWarehouse: header?.warehouse || "",
+    }),
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),

@@ -1,15 +1,11 @@
 import {
   asTrimmedString,
   integerOrZero,
-  createLogId,
   normalizeJobNumberKey,
   normalizeJobRequirementLookupKey,
   listFilmOrdersByJob,
   listFilmOrderLinksByFilmOrderId,
   listAllocationsByFilmOrderId,
-  saveFilmOrderRecord,
-  deleteFilmOrderLinksByFilmOrderId,
-  deleteFilmOrderRecord,
 } from '../runtimeDeps.mjs';
 import { isUnresolvedFilmOrderStatus } from './runtimeFilmOrderSchedule.mjs';
 
@@ -100,25 +96,6 @@ async function loadAutoShortageFilmOrdersForRequirement(client, orgId, jobNumber
   return response;
 }
 
-async function deleteAutoShortageFilmOrderEntries(client, orgId, entries) {
-  const deleted = [];
-  const source = Array.isArray(entries) ? entries : [];
-
-  for (let index = 0; index < source.length; index += 1) {
-    const filmOrder = source[index]?.filmOrder || source[index];
-    const filmOrderId = asTrimmedString(filmOrder?.filmOrderId);
-    if (!filmOrderId) {
-      continue;
-    }
-
-    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
-    await deleteFilmOrderRecord(client, orgId, filmOrderId);
-    deleted.push(filmOrder);
-  }
-
-  return deleted;
-}
-
 async function deleteOrphanAutoShortageFilmOrdersForRequirement(
   client,
   orgId,
@@ -126,16 +103,29 @@ async function deleteOrphanAutoShortageFilmOrdersForRequirement(
   requirement,
   filmOrders = null
 ) {
-  const candidates = await loadAutoShortageFilmOrdersForRequirement(
-    client,
-    orgId,
-    jobNumber,
-    requirement,
-    filmOrders
-  );
-  const orphanCandidates = candidates.filter((entry) => entry.isOrphan);
-  await deleteAutoShortageFilmOrderEntries(client, orgId, orphanCandidates);
-  return orphanCandidates.map((entry) => entry.filmOrder);
+  /**
+   * PURPOSE:
+   * Preserves legacy auto-shortage film orders now that film orders require
+   * explicit user approval.
+   *
+   * AFFECTS:
+   * Allocation apply, box receive/update reconciliation, job schedule sync,
+   * and any old cleanup path that used to silently delete shortage orders.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * runtimeAllocationCleanup.mjs, runtimeAllocationReservationReconciliation.mjs,
+   * mirrored Supabase migrations, and film-order delete/cancel UI flows.
+   *
+   * COMMON FAILURE MODES:
+   * Reintroducing hidden order deletion, stale UI after manual cancel, or
+   * backend/Supabase drift where one runtime still mutates orders.
+   */
+  void client;
+  void orgId;
+  void jobNumber;
+  void requirement;
+  void filmOrders;
+  return [];
 }
 
 async function reconcileAutoShortageFilmOrdersForRequirement(
@@ -152,104 +142,20 @@ async function reconcileAutoShortageFilmOrdersForRequirement(
     warehouse = '',
   }
 ) {
-  const normalizedJobNumber = asTrimmedString(jobNumber || job?.jobNumber);
-  const shortageFeetTarget = integerOrZero(targetRequestedFeet);
-  const candidates = await loadAutoShortageFilmOrdersForRequirement(
-    client,
-    orgId,
-    normalizedJobNumber,
-    requirement,
-    filmOrders
-  );
-  const orphanCandidates = candidates.filter((entry) => entry.isOrphan);
-  const committedRequestedFeet = candidates
-    .filter((entry) => !entry.isOrphan)
-    .reduce((total, entry) => total + integerOrZero(entry?.filmOrder?.requestedFeet), 0);
-  const targetOrphanRequestedFeet = Math.max(0, shortageFeetTarget - committedRequestedFeet);
-  const deleted = [];
-  let created = null;
-  let updated = null;
-
-  if (targetOrphanRequestedFeet <= 0) {
-    const deletedEntries = await deleteAutoShortageFilmOrderEntries(client, orgId, orphanCandidates);
-    deleted.push(...deletedEntries);
-    return {
-      created,
-      updated,
-      deleted,
-      committedRequestedFeet,
-      targetRequestedFeet: shortageFeetTarget,
-    };
-  }
-
-  const [primaryOrphan, ...extraOrphans] = orphanCandidates;
-  if (primaryOrphan) {
-    const nextFilmOrder = {
-      ...primaryOrphan.filmOrder,
-      warehouse: asTrimmedString(warehouse).toUpperCase() || asTrimmedString(primaryOrphan.filmOrder.warehouse),
-      requestedFeet: targetOrphanRequestedFeet,
-      coveredFeet: 0,
-      orderedFeet: 0,
-      remainingToOrderFeet: targetOrphanRequestedFeet,
-      installDate: asTrimmedString(job?.installDate),
-      crewLeader: asTrimmedString(job?.crewLeader),
-      status: 'FILM_ORDER',
-      sourceBoxId: asTrimmedString(sourceBox?.boxId) || asTrimmedString(primaryOrphan.filmOrder.sourceBoxId),
-      resolvedAt: '',
-      resolvedBy: '',
-      updatedAt: new Date().toISOString(),
-      updatedBy: asTrimmedString(actor),
-    };
-
-    const hasMeaningfulChange =
-      integerOrZero(primaryOrphan.filmOrder.requestedFeet) !== targetOrphanRequestedFeet ||
-      integerOrZero(primaryOrphan.filmOrder.remainingToOrderFeet) !== targetOrphanRequestedFeet ||
-      asTrimmedString(primaryOrphan.filmOrder.installDate) !== asTrimmedString(job?.installDate) ||
-      asTrimmedString(primaryOrphan.filmOrder.crewLeader) !== asTrimmedString(job?.crewLeader) ||
-      asTrimmedString(primaryOrphan.filmOrder.warehouse).toUpperCase() !==
-        (asTrimmedString(nextFilmOrder.warehouse).toUpperCase()) ||
-      asTrimmedString(primaryOrphan.filmOrder.sourceBoxId) !== asTrimmedString(nextFilmOrder.sourceBoxId) ||
-      asTrimmedString(primaryOrphan.filmOrder.status).toUpperCase() !== 'FILM_ORDER' ||
-      integerOrZero(primaryOrphan.filmOrder.coveredFeet) !== 0 ||
-      integerOrZero(primaryOrphan.filmOrder.orderedFeet) !== 0;
-
-    if (hasMeaningfulChange) {
-      updated = await saveFilmOrderRecord(client, orgId, nextFilmOrder);
-    }
-  } else if (sourceBox && requirement) {
-    created = await saveFilmOrderRecord(client, orgId, {
-      filmOrderId: createLogId(),
-      jobId: job?.id || '',
-      jobNumber: normalizedJobNumber,
-      warehouse: asTrimmedString(warehouse).toUpperCase() || asTrimmedString(sourceBox.warehouse).toUpperCase(),
-      manufacturer: requirement.manufacturer,
-      filmName: requirement.filmName,
-      widthIn: Number(requirement.widthIn) || Number(sourceBox.widthIn) || 0,
-      requestedFeet: targetOrphanRequestedFeet,
-      coveredFeet: 0,
-      orderedFeet: 0,
-      remainingToOrderFeet: targetOrphanRequestedFeet,
-      installDate: asTrimmedString(job?.installDate),
-      crewLeader: asTrimmedString(job?.crewLeader),
-      status: 'FILM_ORDER',
-      sourceBoxId: asTrimmedString(sourceBox.boxId),
-      createdAt: new Date().toISOString(),
-      createdBy: asTrimmedString(actor),
-      resolvedAt: '',
-      resolvedBy: '',
-      notes: `Created from a shortage while reconciling reserved film for job ${normalizedJobNumber}.`,
-    });
-  }
-
-  const deletedEntries = await deleteAutoShortageFilmOrderEntries(client, orgId, extraOrphans);
-  deleted.push(...deletedEntries);
-
+  void client;
+  void orgId;
+  void actor;
+  void job;
+  void requirement;
+  void sourceBox;
+  void filmOrders;
+  void warehouse;
   return {
-    created,
-    updated,
-    deleted,
-    committedRequestedFeet,
-    targetRequestedFeet: shortageFeetTarget,
+    created: null,
+    updated: null,
+    deleted: [],
+    committedRequestedFeet: 0,
+    targetRequestedFeet: integerOrZero(targetRequestedFeet),
   };
 }
 

@@ -41,7 +41,7 @@ function deriveAllocationJobStatusFromFilmOrders(
   }
 
   if (filmOrders.some((entry) => isUnresolvedFilmOrder(entry))) {
-    return 'ON_ORDER' as const;
+    return 'FILM_ORDER' as const;
   }
 
   return currentStatus;

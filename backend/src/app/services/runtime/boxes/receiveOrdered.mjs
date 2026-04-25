@@ -15,7 +15,6 @@ import {
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
-import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 import { getAllocationReservationState } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function parseOptionalReceivedWeight(value) {
@@ -110,24 +109,6 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
   let persistedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
   persistedBox = await saveBoxRecord(client, orgId, persistedBox);
   await recalculateFilmOrdersForBoxLinks(client, orgId, persistedBox.boxId, actor);
-
-  const shortageReconciliation = await reconcileReservationShortagesForBox(
-    client,
-    orgId,
-    persistedBox.boxId,
-    actor,
-    { allowPlaceholderShortages: true }
-  );
-  if (shortageReconciliation.createdCount > 0) {
-    warnings.push(
-      `Created ${shortageReconciliation.createdCount} shortage film order${shortageReconciliation.createdCount === 1 ? '' : 's'} after receiving the ordered box.`
-    );
-  }
-  if (shortageReconciliation.deletedCount > 0) {
-    warnings.push(
-      `Removed ${shortageReconciliation.deletedCount} stale shortage film order${shortageReconciliation.deletedCount === 1 ? '' : 's'} after receiving the ordered box.`
-    );
-  }
 
   await seedFilmCatalogRecordIfMissing(client, orgId, {
     filmKey: persistedBox.filmKey,

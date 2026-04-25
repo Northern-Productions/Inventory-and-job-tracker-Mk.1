@@ -11,7 +11,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     sections: null,
     installDate: '2026-03-20',
     crewLeader: '',
-    status: 'ALLOCATE',
+    status: 'FILM_ORDER',
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     isStagedForPickup: false,
@@ -60,15 +60,15 @@ describe('sortJobs', () => {
     expect(result.map((entry) => entry.jobNumber)).toEqual(['1002', '1001', '1003']);
   });
 
-  it('can prioritize allocate and film-order workflows', () => {
+  it('can prioritize ready and film-order workflows', () => {
     const entries = [
       buildJob({ jobNumber: '1', installDate: '2026-03-21', status: 'READY' }),
-      buildJob({ jobNumber: '2', installDate: '2026-03-22', status: 'ALLOCATE' }),
-      buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'ALLOCATE', filmOrderCount: 2 })
+      buildJob({ jobNumber: '2', installDate: '2026-03-22', status: 'FILM_ORDER' }),
+      buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'FILM_ORDER', filmOrderCount: 2 })
     ];
 
-    expect(sortJobs(entries, 'allocate').map((entry) => entry.jobNumber)).toEqual(['2', '1', '3']);
-    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['3', '1', '2']);
+    expect(sortJobs(entries, 'ready').map((entry) => entry.jobNumber)).toEqual(['1', '2', '3']);
+    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['2', '3', '1']);
   });
 
   it('keeps exact search matches ahead of prefix and contains matches', () => {

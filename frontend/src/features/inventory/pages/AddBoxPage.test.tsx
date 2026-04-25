@@ -547,7 +547,7 @@ describe('AddBoxPage', () => {
     ).toBe(0);
     expect(
       queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob('2941'))?.summary.status
-    ).toBe('ON_ORDER');
+    ).toBe('FILM_ORDER');
 
     deferred.resolve({
       result: {

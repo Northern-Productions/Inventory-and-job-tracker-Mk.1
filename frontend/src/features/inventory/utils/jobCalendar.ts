@@ -325,15 +325,12 @@ export function getCalendarJobStatusClass(
   switch (getJobListDisplayStatus(entry.status, entry.filmOrderCount)) {
     case 'READY':
       return 'job-calendar-job-link-status-ready';
-    case 'CONFLICT':
-      return 'job-calendar-job-link-status-conflict';
     case 'FILM_ORDER':
       return 'job-calendar-job-link-status-film-order';
     case 'CANCELLED':
       return 'job-calendar-job-link-status-cancelled';
-    case 'ALLOCATE':
     default:
-      return 'job-calendar-job-link-status-allocate';
+      return 'job-calendar-job-link-status-film-order';
   }
 }
 

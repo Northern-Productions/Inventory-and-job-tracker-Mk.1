@@ -192,6 +192,7 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
+import { listCaulkStock } from '../caulk.mjs';
 import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } from './runtimeAllocationCoverage.mjs';
 import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData } from './runtimeJobSummaries.mjs';
 import { checkoutAllJobMaterials, loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
@@ -215,6 +216,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const allCaulkRequirements = await listJobCaulkRequirements(client, orgId);
   const allCaulkAllocations = await listCaulkJobAllocations(client, orgId);
   const allBoxes = await listBoxes(client, orgId);
+  const allCaulkStock = await listCaulkStock(client, orgId, {});
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
   const groupedRequirements = groupEntriesByJobNumber(allRequirements);
@@ -298,7 +300,12 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
       filmOrders,
       allAllocations,
       publicCaulkRequirements,
-      boxById
+      boxById,
+      {
+        allBoxes,
+        caulkAllocations: groupedCaulkAllocations[jobNumber] || [],
+        caulkStockEntries: allCaulkStock,
+      }
     );
 
     if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {

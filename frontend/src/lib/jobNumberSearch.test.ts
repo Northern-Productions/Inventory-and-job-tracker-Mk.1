@@ -11,7 +11,7 @@ function buildJob(overrides: Partial<JobListEntry> = {}): JobListEntry {
     sections: rest.sections ?? null,
     installDate: rest.installDate || '',
     crewLeader: rest.crewLeader || '',
-    status: rest.status || 'ALLOCATE',
+    status: rest.status || 'READY',
     lifecycleStatus: rest.lifecycleStatus || 'ACTIVE',
     isLaborOnly: rest.isLaborOnly ?? false,
     isStagedForPickup: rest.isStagedForPickup ?? false,

@@ -33,7 +33,6 @@ import {
   parseIntegerInput,
   requireUuid,
   cloneValue,
-  createLogId,
   createTransferId,
   roundToDecimals,
   normalizeWarehouseCodeFormat,
@@ -193,9 +192,7 @@ import {
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
 import { recalculateFilmOrder } from './runtimeAllocationPlanning.mjs';
-import { isUnresolvedFilmOrderStatus } from './runtimeFilmOrderSchedule.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
-import { deleteOrphanAutoShortageFilmOrdersForRequirement } from './runtimeAutoShortageFilmOrders.mjs';
 
 function getRestoredAllocatableFeet(entry) {
   return getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0;
@@ -217,60 +214,30 @@ function buildStaleAutoShortageFilmOrderCleanupCandidates({
   filmOrderLinksById = {},
   filmOrderAllocationsById = {}
 }) {
-  if (!requirement || integerOrZero(remainingRequirementFeet) > 0) {
-    return [];
-  }
-
-  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
-  const requirementKey = normalizeJobRequirementLookupKey(
-    requirement.manufacturer,
-    requirement.filmName,
-    requirement.widthIn
-  );
-  const source = Array.isArray(filmOrders) ? filmOrders : [];
-  const response = [];
-
-  for (let index = 0; index < source.length; index += 1) {
-    const filmOrder = source[index];
-    const filmOrderId = asTrimmedString(filmOrder && filmOrder.filmOrderId);
-    if (!filmOrderId) {
-      continue;
-    }
-
-    if (!isUnresolvedFilmOrderStatus(filmOrder.status)) {
-      continue;
-    }
-
-    if (!asTrimmedString(filmOrder.sourceBoxId)) {
-      continue;
-    }
-
-    if (normalizedJobNumber && normalizeJobNumberKey(filmOrder.jobNumber) !== normalizedJobNumber) {
-      continue;
-    }
-
-    if (
-      normalizeJobRequirementLookupKey(
-        filmOrder.manufacturer,
-        filmOrder.filmName,
-        filmOrder.widthIn
-      ) !== requirementKey
-    ) {
-      continue;
-    }
-
-    if (countFilmOrderStateEntries(filmOrderLinksById[filmOrderId]) > 0) {
-      continue;
-    }
-
-    if (countFilmOrderStateEntries(filmOrderAllocationsById[filmOrderId]) > 0) {
-      continue;
-    }
-
-    response.push(filmOrder);
-  }
-
-  return response;
+  /**
+   * PURPOSE:
+   * Keeps legacy auto-shortage film orders from being silently removed now
+   * that film orders are user-approved records.
+   *
+   * AFFECTS:
+   * Allocation apply, job requirement fulfillment, and manual film-order
+   * review/cancel workflows.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * runtimeAutoShortageFilmOrders.mjs, public.api_allocations_apply migrations,
+   * FilmRequirementsSection order/cancel actions, and FilmOrdersPage delete.
+   *
+   * COMMON FAILURE MODES:
+   * Hidden film-order deletion after allocation, duplicate order creation, or
+   * local backend and Supabase SQL disagreeing about stale-order cleanup.
+   */
+  void jobNumber;
+  void requirement;
+  void remainingRequirementFeet;
+  void filmOrders;
+  void filmOrderLinksById;
+  void filmOrderAllocationsById;
+  return [];
 }
 
 async function deleteStaleAutoShortageFilmOrdersForRequirement(
@@ -280,15 +247,12 @@ async function deleteStaleAutoShortageFilmOrdersForRequirement(
   requirement,
   remainingRequirementFeet
 ) {
-  if (!requirement || integerOrZero(remainingRequirementFeet) > 0) {
-    return [];
-  }
-  return deleteOrphanAutoShortageFilmOrdersForRequirement(
-    client,
-    orgId,
-    jobNumber,
-    requirement
-  );
+  void client;
+  void orgId;
+  void jobNumber;
+  void requirement;
+  void remainingRequirementFeet;
+  return [];
 }
 
 async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, reason) {

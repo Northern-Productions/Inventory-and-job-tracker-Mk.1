@@ -32,7 +32,7 @@ function collectCandidateIds(options) {
   return buildStaleAutoShortageFilmOrderCleanupCandidates(options).map((entry) => entry.filmOrderId);
 }
 
-test('selects an orphan auto shortage film order after the requirement is fully covered', () => {
+test('preserves orphan auto shortage film orders after the requirement is fully covered', () => {
   const requirement = buildRequirement();
   const filmOrders = [buildFilmOrder()];
 
@@ -45,7 +45,7 @@ test('selects an orphan auto shortage film order after the requirement is fully 
       filmOrderLinksById: { 'FO-1': [] },
       filmOrderAllocationsById: { 'FO-1': [] },
     }),
-    ['FO-1'],
+    [],
   );
 });
 
@@ -117,7 +117,7 @@ test('preserves shortage film orders when the requirement still has remaining fe
   );
 });
 
-test('selects every orphan auto shortage order that matches the fulfilled merged requirement', () => {
+test('preserves every orphan auto shortage order that matches the fulfilled merged requirement', () => {
   const requirement = buildRequirement();
   const filmOrders = [
     buildFilmOrder({ filmOrderId: 'FO-1' }),
@@ -134,6 +134,6 @@ test('selects every orphan auto shortage order that matches the fulfilled merged
       filmOrderLinksById: { 'FO-1': [], 'FO-2': [], 'FO-3': [] },
       filmOrderAllocationsById: { 'FO-1': [], 'FO-2': [], 'FO-3': [] },
     }),
-    ['FO-1', 'FO-2'],
+    [],
   );
 });

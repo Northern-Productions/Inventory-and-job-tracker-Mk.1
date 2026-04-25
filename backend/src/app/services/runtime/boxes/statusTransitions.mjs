@@ -38,7 +38,6 @@ import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
-import { reconcileReservationShortagesForBox } from '../runtimeAllocationReservationReconciliation.mjs';
 import {
   assertDirectToJobSiteFlagIsServerOwned,
   assertNoShipDirectToJobSiteFlag,
@@ -304,25 +303,6 @@ async function setBoxStatus(client, orgId, payload, actor) {
       await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
     }
 
-    if (updatedBox.status === 'IN_STOCK' || updatedBox.status === 'TRANSFER') {
-      const shortageReconciliation = await reconcileReservationShortagesForBox(
-        client,
-        orgId,
-        updatedBox.boxId,
-        actor,
-        { allowPlaceholderShortages: true }
-      );
-      if (shortageReconciliation.createdCount > 0) {
-        warnings.push(
-          `Created ${shortageReconciliation.createdCount} shortage film order${shortageReconciliation.createdCount === 1 ? '' : 's'} after confirming the returned box footage.`
-        );
-      }
-      if (shortageReconciliation.deletedCount > 0) {
-        warnings.push(
-          `Removed ${shortageReconciliation.deletedCount} stale shortage film order${shortageReconciliation.deletedCount === 1 ? '' : 's'} after confirming the returned box footage.`
-        );
-      }
-    }
   }
 
   const publicBefore = toPublicBox(

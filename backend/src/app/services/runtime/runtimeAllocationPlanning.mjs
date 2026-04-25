@@ -710,39 +710,34 @@ async function createFilmOrderForShortage(
   user,
   shortageWarehouse
 ) {
-  if (shortageFeet <= 0) {
-    return null;
-  }
-
-  const resolvedWarehouse = asTrimmedString(shortageWarehouse).toUpperCase() || sourceBox.warehouse;
-  const jobId = await getOrResolveJobId(client, orgId, jobContext.jobNumber);
-
-  return saveFilmOrderRecord(client, orgId, {
-    filmOrderId: createLogId(),
-    jobId,
-    jobNumber: jobContext.jobNumber,
-    warehouse: resolvedWarehouse,
-    manufacturer: selectedRequirement ? selectedRequirement.manufacturer : sourceBox.manufacturer,
-    filmName: selectedRequirement ? selectedRequirement.filmName : sourceBox.filmName,
-    widthIn: Number(shortageWidthIn) > 0
-      ? Number(shortageWidthIn)
-      : selectedRequirement
-        ? Number(selectedRequirement.widthIn) || sourceBox.widthIn
-        : sourceBox.widthIn,
-    requestedFeet: shortageFeet,
-    coveredFeet: 0,
-    orderedFeet: 0,
-    remainingToOrderFeet: shortageFeet,
-    installDate: jobContext.installDate,
-    crewLeader: jobContext.crewLeader,
-    status: 'FILM_ORDER',
-    sourceBoxId: sourceBox.boxId,
-    createdAt: new Date().toISOString(),
-    createdBy: asTrimmedString(user),
-    resolvedAt: '',
-    resolvedBy: '',
-    notes: `Created from a shortage while trying to allocate ${requestedFeet} LF.`
-  });
+  /**
+   * PURPOSE:
+   * Guards the retired auto-shortage order path. Film orders must now be
+   * created only by explicit user actions.
+   *
+   * AFFECTS:
+   * Allocation preview/apply, ordered receipt, inventory check-in, and any
+   * legacy service export that still calls shortage-order creation.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * runtimeAutoShortageFilmOrders.mjs, runtimeJobsMutations.createFilmOrder,
+   * mirrored SQL reconciliation functions, and job detail Order buttons.
+   *
+   * COMMON FAILURE MODES:
+   * Hidden purchasing records from shortage detection, duplicated manual
+   * orders, or frontend cache assuming an automatic filmOrder response.
+   */
+  void client;
+  void orgId;
+  void sourceBox;
+  void selectedRequirement;
+  void jobContext;
+  void requestedFeet;
+  void shortageFeet;
+  void shortageWidthIn;
+  void user;
+  void shortageWarehouse;
+  return null;
 }
 
 async function linkBoxToFilmOrder(client, orgId, filmOrderId, box, user) {

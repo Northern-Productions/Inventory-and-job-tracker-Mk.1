@@ -103,7 +103,7 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
     sections: null,
     installDate: '2026-03-20',
     crewLeader: 'Crew',
-    status: 'ALLOCATE',
+    status: 'FILM_ORDER',
     lifecycleStatus: 'ACTIVE',
     isLaborOnly: false,
     isStagedForPickup: false,
@@ -521,7 +521,7 @@ describe('AllocationJobPage', () => {
     const detail = buildMaterialJobDetail({
       summary: buildSummary({
         warehouse: 'MS1',
-        status: 'ALLOCATE',
+        status: 'FILM_ORDER',
         requiredFeet: 8,
         allocatedFeet: 8,
         remainingFeet: 0

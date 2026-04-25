@@ -4,13 +4,13 @@ import { rankJobNumberSearchCandidates } from '../../../domain/jobNumberSearchMa
 export type JobSortOption =
   | 'install_date_asc'
   | 'install_date_desc'
-  | 'allocate'
+  | 'ready'
   | 'film_order';
 
 export const JOB_SORT_OPTIONS: Array<{ label: string; value: JobSortOption }> = [
   { label: 'Install Date Ascending', value: 'install_date_asc' },
   { label: 'Install Date Descending', value: 'install_date_desc' },
-  { label: 'Allocate', value: 'allocate' },
+  { label: 'Ready', value: 'ready' },
   { label: 'Film Order', value: 'film_order' }
 ];
 
@@ -81,7 +81,7 @@ function compareInstallDateDescending(left: JobListEntry, right: JobListEntry) {
 }
 
 export function getJobListDisplayStatus(status: string, filmOrderCount: number) {
-  if (status === 'ALLOCATE' && filmOrderCount > 0) {
+  if (status === 'READY' && filmOrderCount > 0) {
     return 'FILM_ORDER';
   }
 
@@ -94,8 +94,8 @@ export function describeJobSort(sort: JobSortOption) {
       return 'install date ascending';
     case 'install_date_desc':
       return 'install date descending';
-    case 'allocate':
-      return 'allocate first';
+    case 'ready':
+      return 'ready first';
     case 'film_order':
       return 'film order first';
     default:
@@ -109,11 +109,11 @@ export function compareJobsBySort(left: JobListEntry, right: JobListEntry, sort:
       return compareInstallDateAscending(left, right);
     case 'install_date_desc':
       return compareInstallDateDescending(left, right);
-    case 'allocate': {
+    case 'ready': {
       const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
       const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-      const leftRank = leftDisplayStatus === 'ALLOCATE' ? 0 : 1;
-      const rightRank = rightDisplayStatus === 'ALLOCATE' ? 0 : 1;
+      const leftRank = leftDisplayStatus === 'READY' ? 0 : 1;
+      const rightRank = rightDisplayStatus === 'READY' ? 0 : 1;
       return compareNumbers(leftRank, rightRank) || compareInstallDateAscending(left, right);
     }
     case 'film_order': {

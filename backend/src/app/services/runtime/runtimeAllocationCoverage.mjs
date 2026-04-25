@@ -813,17 +813,13 @@ function buildAllocationJobSummary(
       }
     }
 
-    if (hasRemainingFilm || hasRemainingCaulk) {
-      status = hasFilmOrder ? 'FILM_ORDER' : hasFilmOnTheWay ? 'ON_ORDER' : 'ALLOCATE';
-    } else {
-      status = 'READY';
-    }
+    status = hasRemainingFilm || hasRemainingCaulk ? 'FILM_ORDER' : 'READY';
   } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = 'READY';
   } else if (hasFilmOrder) {
     status = 'FILM_ORDER';
   } else if (hasFilmOnTheWay) {
-    status = 'ON_ORDER';
+    status = 'FILM_ORDER';
   } else if (hasActiveAllocation) {
     status = 'READY';
   } else if (hasCancelledRecord) {

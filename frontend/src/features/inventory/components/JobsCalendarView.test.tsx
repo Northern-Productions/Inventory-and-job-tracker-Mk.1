@@ -49,7 +49,7 @@ describe('JobsCalendarView', () => {
               status: 'COMPLETED',
               lifecycleStatus: 'COMPLETED'
             }),
-            buildJob({ jobNumber: '10003', installDate: '2026-03-24', status: 'ALLOCATE' }),
+            buildJob({ jobNumber: '10003', installDate: '2026-03-24', status: 'FILM_ORDER' }),
             buildJob({ jobNumber: '10004', installDate: '2026-03-24' })
           ]}
           navigationStatus={{ kind: 'loading', label: 'Loading Mar 29 - Apr 4, 2026...' }}

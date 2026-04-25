@@ -118,7 +118,7 @@ test('mapDbFilmOrderRow derives AUTO_SHORTAGE origin when a source box is presen
   assert.equal(toPublicFilmOrder(entry, []).origin, 'AUTO_SHORTAGE');
 });
 
-test('reconcileAutoShortageFilmOrdersForRequirement keeps the shortage order width on the unmet requirement', async () => {
+test('reconcileAutoShortageFilmOrdersForRequirement no longer creates shortage film orders', async () => {
   const client = createRecordingClient();
 
   const result = await reconcileAutoShortageFilmOrdersForRequirement(client, 'org-1', {
@@ -144,17 +144,18 @@ test('reconcileAutoShortageFilmOrdersForRequirement keeps the shortage order wid
     warehouse: 'IL1',
   });
 
-  assert.equal(result.created?.widthIn, 60);
-  assert.equal(result.created?.requestedFeet, 41);
-  assert.equal(result.created?.sourceBoxId, 'IL1-6923');
-  assert.equal(result.created?.origin, 'AUTO_SHORTAGE');
+  assert.equal(result.created, null);
+  assert.equal(result.updated, null);
+  assert.deepEqual(result.deleted, []);
+  assert.equal(result.committedRequestedFeet, 0);
+  assert.equal(result.targetRequestedFeet, 41);
   assert.equal(
     client.calls.some((call) => String(call.text).includes('insert into app.film_orders')),
-    true,
+    false,
   );
 });
 
-test('reconcileAutoShortageFilmOrdersForRequirement updates orphan shortage orders with indexed warehouses', async () => {
+test('reconcileAutoShortageFilmOrdersForRequirement preserves legacy orphan shortage orders', async () => {
   const client = createRecordingClient({
     filmOrderRowsByJob: [
       {
@@ -214,12 +215,10 @@ test('reconcileAutoShortageFilmOrdersForRequirement updates orphan shortage orde
   });
 
   assert.equal(result.created, null);
-  assert.equal(result.updated?.filmOrderId, 'FO-ORPHAN');
-  assert.equal(result.updated?.warehouse, 'IL1');
-  assert.equal(result.updated?.requestedFeet, 41);
-  assert.equal(result.updated?.remainingToOrderFeet, 41);
-  assert.equal(result.updated?.sourceBoxId, 'IL1-6923');
-  assert.equal(result.updated?.installDate, '2026-04-24');
-  assert.equal(result.updated?.crewLeader, 'Napo');
+  assert.equal(result.updated, null);
   assert.equal(result.deleted.length, 0);
+  assert.equal(
+    client.calls.some((call) => String(call.text).includes('update app.film_orders')),
+    false,
+  );
 });

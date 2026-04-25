@@ -192,10 +192,15 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
+import { listCaulkStock } from '../caulk.mjs';
 import { buildJobFilmTransferAlerts, buildPublicJobUsageEntries, buildPublicJobUsageTimelineEntries } from './runtimeTransferUsage.mjs';
 import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } from './runtimeAllocationCoverage.mjs';
 import { buildAllocationJobSummary, } from './runtimeAllocationCoverage.mjs';
-import { buildPublicAllocationEntriesForJob, buildPublicFilmOrdersForJob } from './runtimeJobSummaries.mjs';
+import {
+  buildPublicAllocationEntriesForJob,
+  buildPublicFilmOrdersForJob,
+  deriveInStockReadinessStatus,
+} from './runtimeJobSummaries.mjs';
 import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
 import {
   buildAllocationJobDetailPayload,
@@ -211,6 +216,7 @@ async function buildAllocationJobList(client, orgId) {
   const allCaulkRequirements = await listJobCaulkRequirements(client, orgId);
   const allCaulkAllocations = await listCaulkJobAllocations(client, orgId);
   const allBoxes = await listBoxes(client, orgId);
+  const allCaulkStock = await listCaulkStock(client, orgId, {});
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
   const groupedRequirements = groupEntriesByJobNumber(allRequirements);
@@ -275,21 +281,33 @@ async function buildAllocationJobList(client, orgId) {
       continue;
     }
 
-    response.push(
-      buildAllocationJobSummary(
-        jobNumber,
-        allocations,
-        filmOrders,
-        requirements,
-        publicCaulkRequirements,
-        header?.lifecycleStatus || 'ACTIVE',
-        Boolean(header?.isLaborOnly),
-        Boolean(header?.isStagedForPickup),
-        header?.installDate || '',
-        header?.crewLeader || '',
-        boxById
-      )
+    const summary = buildAllocationJobSummary(
+      jobNumber,
+      allocations,
+      filmOrders,
+      requirements,
+      publicCaulkRequirements,
+      header?.lifecycleStatus || 'ACTIVE',
+      Boolean(header?.isLaborOnly),
+      Boolean(header?.isStagedForPickup),
+      header?.installDate || '',
+      header?.crewLeader || '',
+      boxById
     );
+    summary.status = deriveInStockReadinessStatus({
+      lifecycleStatus: header?.lifecycleStatus || 'ACTIVE',
+      isLaborOnly: Boolean(header?.isLaborOnly),
+      requirements,
+      caulkRequirements: publicCaulkRequirements,
+      allocations,
+      caulkAllocations: groupedCaulkAllocations[jobNumber] || [],
+      filmOrders,
+      allBoxes,
+      caulkStockEntries: allCaulkStock,
+      jobWarehouse: header?.warehouse || '',
+    });
+
+    response.push(summary);
   }
 
   response.sort(compareAllocationJobSummaries);

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import type { CaulkJobCheckoutEntry, JobFilmTransferAlert } from '../../../../domain';
@@ -13,6 +13,7 @@ import {
   useCheckoutCaulkJobAllocation,
   useCaulkProducts,
   useCompleteJob,
+  useCreateFilmOrder,
   useDeleteJob,
   useDeleteFilmOrder,
   useFilmCatalog,
@@ -42,6 +43,11 @@ import { useCaulkWorkflow } from './useCaulkWorkflow';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
 import { buildAddBoxTarget } from './helpers';
+import {
+  findUnresolvedOrderForRequirement,
+  getOrderableFilmRequirements,
+  normalizeFilmRequirementOrderKey
+} from './filmRequirementOrders';
 
 export function useAllocationJobPageModel() {
   const navigate = useNavigate();
@@ -54,6 +60,7 @@ export function useAllocationJobPageModel() {
   const jobNumber = safeDecodePathParam(params.jobNumber);
   const jobQuery = useJob(jobNumber);
   const updateJobMutation = useUpdateJob();
+  const createFilmOrderMutation = useCreateFilmOrder();
   const addCaulkAllocationMutation = useAddCaulkJobAllocation();
   const updateCaulkAllocationMutation = useUpdateCaulkJobAllocation();
   const checkoutCaulkAllocationMutation = useCheckoutCaulkJobAllocation();
@@ -74,6 +81,7 @@ export function useAllocationJobPageModel() {
   const setBoxStatusMutation = useSetBoxStatus();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const caulkProductsQuery = useCaulkProducts();
+  const [isOrderAllConfirmOpen, setIsOrderAllConfirmOpen] = useState(false);
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
@@ -135,6 +143,29 @@ export function useAllocationJobPageModel() {
     [allocations]
   );
   const filmOrders = detail?.filmOrders || [];
+  const orderableFilmRequirements = useMemo(
+    () => getOrderableFilmRequirements(requirements, filmOrders),
+    [requirements, filmOrders]
+  );
+  const orderableFilmOrderGroups = useMemo(() => {
+    const grouped = new Map<
+      string,
+      { requirement: (typeof requirements)[number]; requestedFeet: number }
+    >();
+    for (const requirement of orderableFilmRequirements) {
+      const key = normalizeFilmRequirementOrderKey(requirement);
+      const current = grouped.get(key);
+      if (current) {
+        current.requestedFeet += Math.max(0, Number(requirement.remainingFeet || 0));
+      } else {
+        grouped.set(key, {
+          requirement,
+          requestedFeet: Math.max(0, Number(requirement.remainingFeet || 0))
+        });
+      }
+    }
+    return Array.from(grouped.values());
+  }, [orderableFilmRequirements]);
   const isExtraFilmMode = useMemo(
     () => requirements.length > 0 && requirements.every((entry) => entry.remainingFeet <= 0),
     [requirements]
@@ -312,6 +343,119 @@ export function useAllocationJobPageModel() {
     cancelCaulkTransferPending: cancelCaulkTransferMutation.isPending
   });
 
+  async function createOrderForRequirement(
+    requirement: (typeof requirements)[number],
+    requestedFeetOverride?: number
+  ) {
+    if (!summary) {
+      return false;
+    }
+
+    const remainingFeet = Math.max(
+      0,
+      Number(requestedFeetOverride ?? requirement.remainingFeet ?? 0)
+    );
+    if (remainingFeet <= 0) {
+      toast.push({
+        title: 'No film to order',
+        description: 'This requirement is already fully covered.',
+        variant: 'error'
+      });
+      return false;
+    }
+
+    if (findUnresolvedOrderForRequirement(requirement, filmOrders)) {
+      toast.push({
+        title: 'Film order already exists',
+        description: 'Cancel the existing unresolved order before creating another one for this requirement.',
+        variant: 'error'
+      });
+      return false;
+    }
+
+    await createFilmOrderMutation.mutateAsync({
+      jobNumber: summary.jobNumber,
+      warehouse: summary.warehouse,
+      manufacturer: requirement.manufacturer,
+      filmName: requirement.filmName,
+      widthIn: requirement.widthIn,
+      requestedFeet: remainingFeet
+    });
+    return true;
+  }
+
+  async function handleOrderFilmRequirement(requirement: (typeof requirements)[number]) {
+    if (
+      isReadOnlyJob ||
+      !ensureActionAccess({
+        actionLabel: 'creating film orders',
+        feature: 'film_orders',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      const created = await createOrderForRequirement(requirement);
+      if (created) {
+        toast.push({
+          title: 'Film order created',
+          description: `${Math.max(0, Number(requirement.remainingFeet || 0))} LF of ${requirement.filmName} was added for job ${summary?.jobNumber}.`,
+          variant: 'success'
+        });
+      }
+    } catch (error) {
+      toast.push({
+        title: 'Unable to create film order',
+        description: error instanceof Error ? error.message : 'The create request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleOrderAllFilmRequirements() {
+    if (
+      isReadOnlyJob ||
+      !ensureActionAccess({
+        actionLabel: 'creating film orders',
+        feature: 'film_orders',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    const targets = orderableFilmOrderGroups;
+    if (!targets.length) {
+      setIsOrderAllConfirmOpen(false);
+      return;
+    }
+
+    let createdCount = 0;
+    try {
+      for (const target of targets) {
+        const created = await createOrderForRequirement(target.requirement, target.requestedFeet);
+        if (created) {
+          createdCount += 1;
+        }
+      }
+
+      setIsOrderAllConfirmOpen(false);
+      toast.push({
+        title: createdCount === 1 ? 'Film order created' : 'Film orders created',
+        description: `${createdCount} unmet film requirement${createdCount === 1 ? '' : 's'} queued for job ${summary?.jobNumber}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to create all film orders',
+        description: error instanceof Error ? error.message : 'One of the create requests failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   return {
     auth,
     isPhoneLayout,
@@ -330,6 +474,8 @@ export function useAllocationJobPageModel() {
     caulkProductsQuery,
     filmCatalogQuery,
     filmOrders,
+    orderableFilmRequirements,
+    orderableFilmOrderGroups,
     isReadOnlyJob,
     isLaborOnlyDisplayJob,
     stagingBlockingMessage,
@@ -349,6 +495,12 @@ export function useAllocationJobPageModel() {
     canAddCaulkAllocation,
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
+    isCreateFilmOrderPending: createFilmOrderMutation.isPending,
+    isOrderAllConfirmOpen,
+    setIsOrderAllConfirmOpen,
+    handleOrderFilmRequirement,
+    handleOrderAllFilmRequirements,
+    handleCancelRequirementOrder: lifecycleWorkflow.setFilmOrderToDelete,
     lifecycleWorkflow,
     filmWorkflow,
     caulkWorkflow,

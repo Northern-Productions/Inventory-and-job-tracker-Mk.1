@@ -78,7 +78,7 @@ export function JobOverviewHeroSection({
             <span className="detail-header-pill detail-header-pill-labor-only">LABOR ONLY</span>
           ) : null}
           <span className={`badge badge-${summary.status}`}>{formatBadgeLabel(summary.status)}</span>
-          {summary.hasOrderedAllocations && summary.status !== 'ON_ORDER' ? (
+          {summary.hasOrderedAllocations ? (
             <span className="badge badge-ON_ORDER">ON ORDER</span>
           ) : null}
           {isReadOnlyJob ? <span className="muted-text">Read-only</span> : null}

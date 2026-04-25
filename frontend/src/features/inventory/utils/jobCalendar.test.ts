@@ -124,7 +124,7 @@ describe('jobCalendar', () => {
     ).toBe('job-calendar-job-link-status-completed');
     expect(
       getCalendarJobStatusClass(
-        buildJob({ jobNumber: '50000', status: 'ALLOCATE', isStagedForPickup: true })
+        buildJob({ jobNumber: '50000', status: 'FILM_ORDER', isStagedForPickup: true })
       )
     ).toBe('job-calendar-job-link-status-ready');
   });

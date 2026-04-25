@@ -170,7 +170,7 @@ async function main() {
   const hasExplicitExpected = hasExplicitExpectedSummary();
   const expected = hasExplicitExpected
     ? {
-        status: asTrimmedString(process.env.VERIFY_EDGE_EXPECTED_STATUS || 'ALLOCATE'),
+        status: asTrimmedString(process.env.VERIFY_EDGE_EXPECTED_STATUS || 'FILM_ORDER'),
         requiredFeet: integerEnv('VERIFY_EDGE_EXPECTED_REQUIRED_FEET', 34),
         allocatedFeet: integerEnv('VERIFY_EDGE_EXPECTED_ALLOCATED_FEET', 32),
         remainingFeet: integerEnv('VERIFY_EDGE_EXPECTED_REMAINING_FEET', 2)

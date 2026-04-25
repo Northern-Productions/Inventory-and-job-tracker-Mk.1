@@ -37,7 +37,7 @@ function buildAllocationJobSummary(overrides: Record<string, unknown> = {}) {
     jobNumber: '000123',
     installDate: '2026-03-05',
     crewLeader: '',
-    status: 'ALLOCATE',
+    status: 'FILM_ORDER',
     activeAllocatedFeet: 0,
     fulfilledAllocatedFeet: 0,
     requiredTubes: 0,
