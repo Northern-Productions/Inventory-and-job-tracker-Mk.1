@@ -126,6 +126,9 @@ const readHandlers: Record<string, ReadHandler> = {
       console.log("DB TIME:", Date.now() - dbStart, "ms");
 
       return ok(summary);
+    } catch (err) {
+      console.error("ERROR /app/attention-summary:", err);
+      throw err;
     } finally {
       console.log("TIMING /app/attention-summary:", Date.now() - start, "ms");
     }
