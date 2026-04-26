@@ -34,6 +34,7 @@ import {
   integerOrZero,
   integerOrNull,
   normalizeAllocationKind,
+  normalizeAllocationSource,
   parseIntegerInput,
   requireUuid,
   cloneValue,
@@ -149,6 +150,7 @@ import {
   listAllocationsByJob,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
+  listManualRequirementAllocationMergeCandidates,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
@@ -548,6 +550,135 @@ async function getOrResolveJobId(client, orgId, jobNumber) {
   return header ? header.id : null;
 }
 
+const MANUAL_REQUIREMENT_MERGE_SOURCES = new Set(['MANUAL', 'AUTO_PLANNED']);
+
+function normalizeAllocationKey(value) {
+  return asTrimmedString(value).toUpperCase();
+}
+
+function allocationJobMatchesMergeTarget(candidate, target) {
+  const candidateJobId = asTrimmedString(candidate?.jobId);
+  const targetJobId = asTrimmedString(target?.jobId);
+  if (candidateJobId && targetJobId) {
+    return candidateJobId === targetJobId;
+  }
+
+  return normalizeAllocationKey(candidate?.jobNumber) === normalizeAllocationKey(target?.jobNumber);
+}
+
+function compareManualRequirementMergeCandidates(left, right) {
+  const sourcePriority = (entry) => {
+    const source = normalizeAllocationSource(entry?.allocationSource);
+    if (source === 'MANUAL') {
+      return 0;
+    }
+    if (source === 'AUTO_PLANNED') {
+      return 1;
+    }
+    return 2;
+  };
+  const priorityDelta = sourcePriority(left) - sourcePriority(right);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  const createdDelta = asTrimmedString(left?.createdAt).localeCompare(asTrimmedString(right?.createdAt));
+  if (createdDelta !== 0) {
+    return createdDelta;
+  }
+
+  return asTrimmedString(left?.allocationId).localeCompare(asTrimmedString(right?.allocationId));
+}
+
+function isManualRequirementMergeTarget(candidate, target) {
+  return (
+    candidate &&
+    target &&
+    normalizeAllocationKind(candidate.allocationKind) === 'REQUIREMENT' &&
+    normalizeAllocationKind(target.allocationKind) === 'REQUIREMENT' &&
+    normalizeAllocationKey(candidate.status) === 'ACTIVE' &&
+    MANUAL_REQUIREMENT_MERGE_SOURCES.has(normalizeAllocationSource(candidate.allocationSource)) &&
+    normalizeAllocationSource(target.allocationSource) === 'MANUAL' &&
+    asTrimmedString(candidate.filmOrderId) === asTrimmedString(target.filmOrderId) &&
+    !asTrimmedString(target.filmOrderId) &&
+    normalizeAllocationKey(candidate.boxId) === normalizeAllocationKey(target.boxId) &&
+    asTrimmedString(candidate.requirementId) === asTrimmedString(target.requirementId) &&
+    Boolean(asTrimmedString(target.requirementId)) &&
+    allocationJobMatchesMergeTarget(candidate, target)
+  );
+}
+
+function buildSupersededManualMergeNote(primaryAllocationId) {
+  return `Superseded by manual allocation merge into ${asTrimmedString(primaryAllocationId)}.`;
+}
+
+/**
+ * PURPOSE:
+ * Consolidates manual same-job/same-requirement/same-box allocation writes so a
+ * user override owns one active REQUIREMENT row instead of duplicate MANUAL and
+ * AUTO_PLANNED rows.
+ *
+ * AFFECTS:
+ * Manual Allocate Job Film apply flow, SQL api_allocations_apply parity, job
+ * detail allocation rows, requirement coverage totals, and allocation caches.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * inventoryRecordsRepository merge candidate query, paired backend/Supabase
+ * migrations, frontend optimistic allocation cache behavior, and planner
+ * suppression rules for user-owned boxes.
+ *
+ * COMMON FAILURE MODES:
+ * Merging EXTRA or film-order rows, reviving cancelled history, double-counting
+ * a superseded AUTO_PLANNED row, or tracking the merged total as new capacity.
+ */
+function buildManualRequirementAllocationMergePlan(existingAllocations, addition, options = {}) {
+  const candidates = (Array.isArray(existingAllocations) ? existingAllocations : [])
+    .filter((entry) => isManualRequirementMergeTarget(entry, addition))
+    .sort(compareManualRequirementMergeCandidates);
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  const primary = cloneValue(candidates[0]);
+  const supersededAllocations = [];
+  let allocatedFeet = integerOrZero(primary.allocatedFeet);
+  let coveredFeet = integerOrZero(primary.coveredFeet) || integerOrZero(primary.allocatedFeet);
+  const resolvedAt = asTrimmedString(options.resolvedAt) || new Date().toISOString();
+  const resolvedBy = asTrimmedString(options.resolvedBy);
+
+  for (let index = 1; index < candidates.length; index += 1) {
+    const candidate = cloneValue(candidates[index]);
+    allocatedFeet += integerOrZero(candidate.allocatedFeet);
+    coveredFeet += integerOrZero(candidate.coveredFeet) || integerOrZero(candidate.allocatedFeet);
+    candidate.status = 'CANCELLED';
+    candidate.resolvedAt = resolvedAt;
+    candidate.resolvedBy = resolvedBy;
+    candidate.notes = buildSupersededManualMergeNote(primary.allocationId);
+    supersededAllocations.push(candidate);
+  }
+
+  primary.allocatedFeet = allocatedFeet + integerOrZero(addition.allocatedFeet);
+  primary.coveredFeet = coveredFeet + (integerOrZero(addition.coveredFeet) || integerOrZero(addition.allocatedFeet));
+  primary.allocationSource = 'MANUAL';
+  primary.status = 'ACTIVE';
+  primary.resolvedAt = '';
+  primary.resolvedBy = '';
+  primary.boxId = addition.boxId || primary.boxId;
+  primary.warehouse = addition.warehouse || primary.warehouse;
+  primary.jobId = addition.jobId || primary.jobId;
+  primary.jobNumber = addition.jobNumber || primary.jobNumber;
+  primary.installDate = addition.installDate || primary.installDate;
+  primary.crewLeader = addition.crewLeader || primary.crewLeader;
+  primary.requirementId = addition.requirementId || primary.requirementId;
+  primary.filmOrderId = asTrimmedString(addition.filmOrderId);
+
+  return {
+    mergedAllocation: primary,
+    supersededAllocations
+  };
+}
+
 async function createAllocationRecord(
   client,
   orgId,
@@ -558,10 +689,12 @@ async function createAllocationRecord(
   user,
   filmOrderId,
   allocationKind = 'REQUIREMENT',
-  requirementId = ''
+  requirementId = '',
+  options = {}
 ) {
   const jobId = await getOrResolveJobId(client, orgId, jobContext.jobNumber);
-  return saveAllocationRecord(client, orgId, {
+  const allocationSource = normalizeAllocationSource(options.allocationSource);
+  const entry = {
     allocationId: createLogId(),
     boxId: box.boxId,
     warehouse: box.warehouse,
@@ -579,8 +712,32 @@ async function createAllocationRecord(
     notes: '',
     crewLeader: jobContext.crewLeader,
     filmOrderId: asTrimmedString(filmOrderId),
-    allocationKind: normalizeAllocationKind(allocationKind)
-  });
+    allocationKind: normalizeAllocationKind(allocationKind),
+    allocationSource
+  };
+
+  if (
+    entry.allocationKind === 'REQUIREMENT' &&
+    allocationSource === 'MANUAL' &&
+    entry.requirementId &&
+    !entry.filmOrderId
+  ) {
+    const mergePlan = buildManualRequirementAllocationMergePlan(
+      await listManualRequirementAllocationMergeCandidates(client, orgId, entry),
+      entry,
+      { resolvedBy: asTrimmedString(user) }
+    );
+
+    if (mergePlan) {
+      for (let index = 0; index < mergePlan.supersededAllocations.length; index += 1) {
+        await saveAllocationRecord(client, orgId, mergePlan.supersededAllocations[index]);
+      }
+
+      return saveAllocationRecord(client, orgId, mergePlan.mergedAllocation);
+    }
+  }
+
+  return saveAllocationRecord(client, orgId, entry);
 }
 
 async function sumFilmOrderCoveredFeet(client, orgId, filmOrderId) {
@@ -828,6 +985,7 @@ export {
   parseCrossWarehouseFlag,
   normalizeOptionalWarehouse,
   getOrResolveJobId,
+  buildManualRequirementAllocationMergePlan,
   createAllocationRecord,
   sumFilmOrderCoveredFeet,
   sumFilmOrderOrderedFeet,

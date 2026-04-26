@@ -488,7 +488,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
         consumeAllocatableFeet: Boolean(jobContext.installDate),
       })
     );
-    trackActiveAllocationForCapacity(activeAllocationsByBox, allocation);
+    trackActiveAllocationForCapacity(activeAllocationsByBox, {
+      ...allocation,
+      allocatedFeet: plannedAllocation.allocatedFeet,
+      coveredFeet: plannedAllocation.coveredFeet,
+    });
     createdAllocationRecords.push(allocation);
   }
 

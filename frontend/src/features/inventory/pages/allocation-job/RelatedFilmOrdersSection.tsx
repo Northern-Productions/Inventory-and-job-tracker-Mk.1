@@ -51,14 +51,16 @@ function renderFilmOrderActions({
           Order Film
         </Button>
       )}
-      <Button
-        type="button"
-        variant="danger"
-        onClick={() => onDeleteOrder(order)}
-        disabled={pendingDeleteFilmOrderIds.has(order.filmOrderId.trim().toUpperCase())}
-      >
-        Cancel
-      </Button>
+      {order.status === 'FILM_ORDER' ? (
+        <Button
+          type="button"
+          variant="danger"
+          onClick={() => onDeleteOrder(order)}
+          disabled={pendingDeleteFilmOrderIds.has(order.filmOrderId.trim().toUpperCase())}
+        >
+          Cancel
+        </Button>
+      ) : null}
     </>
   );
 }

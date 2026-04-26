@@ -19,6 +19,9 @@ interface JobConfirmationDialogsProps {
   filmOrderToDelete: FilmOrderEntry | null;
   onCancelDeleteFilmOrder: () => void;
   onConfirmDeleteFilmOrder: (order: FilmOrderEntry, reason: string) => void;
+  staleFilmOrderPromptOrders: FilmOrderEntry[];
+  onKeepStaleFilmOrders: () => void;
+  onConfirmCancelStaleFilmOrders: () => void;
   isOrderAllConfirmOpen: boolean;
   orderableFilmRequirementCount: number;
   onCancelOrderAll: () => void;
@@ -58,6 +61,9 @@ export function JobConfirmationDialogs({
   filmOrderToDelete,
   onCancelDeleteFilmOrder,
   onConfirmDeleteFilmOrder,
+  staleFilmOrderPromptOrders,
+  onKeepStaleFilmOrders,
+  onConfirmCancelStaleFilmOrders,
   isOrderAllConfirmOpen,
   orderableFilmRequirementCount,
   onCancelOrderAll,
@@ -87,6 +93,15 @@ export function JobConfirmationDialogs({
   onCancelReopenJob,
   onConfirmReopenJob
 }: JobConfirmationDialogsProps) {
+  const staleFilmOrderPromptMessage =
+    staleFilmOrderPromptOrders.length === 1
+      ? `Job requirements are fulfilled. Do you want to cancel the active film order on this job for ${staleFilmOrderPromptOrders[0].filmName}?`
+      : staleFilmOrderPromptOrders.length > 1
+        ? `Job requirements are fulfilled. Do you want to cancel these active film orders on this job? ${staleFilmOrderPromptOrders
+            .map((order) => `${order.filmOrderId}: ${order.filmName}`)
+            .join('; ')}`
+        : '';
+
   return (
     <>
       <DeleteConfirmDialog
@@ -117,6 +132,24 @@ export function JobConfirmationDialogs({
 
           onConfirmDeleteFilmOrder(filmOrderToDelete, reason);
         }}
+      />
+
+      <ConfirmDialog
+        open={staleFilmOrderPromptOrders.length > 0}
+        title={
+          staleFilmOrderPromptOrders.length > 1
+            ? 'Cancel Fulfilled Film Orders'
+            : 'Cancel Fulfilled Film Order'
+        }
+        message={staleFilmOrderPromptMessage}
+        confirmLabel={
+          staleFilmOrderPromptOrders.length > 1 ? 'Cancel Film Orders' : 'Cancel Film Order'
+        }
+        cancelLabel={
+          staleFilmOrderPromptOrders.length > 1 ? 'Keep Film Orders' : 'Keep Film Order'
+        }
+        onCancel={onKeepStaleFilmOrders}
+        onConfirm={onConfirmCancelStaleFilmOrders}
       />
 
       <ConfirmDialog

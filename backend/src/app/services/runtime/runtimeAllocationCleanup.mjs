@@ -206,6 +206,51 @@ function countFilmOrderStateEntries(entry) {
   return integerOrZero(entry);
 }
 
+function assertPlainPendingFilmOrderCancellationAllowed(order, allocations = [], links = []) {
+  /**
+   * PURPOSE:
+   * Protects film-order cancellation from erasing orders that have already
+   * started fulfillment or originated from automated shortage handling.
+   *
+   * AFFECTS:
+   * Job detail film-order cancellation, stale fulfilled-requirement prompts,
+   * Edge/SQL delete parity, linked ordered-box receipt flows, and allocation
+   * cleanup behavior.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * public.api_film_orders_delete migrations, filmOrderCoveragePrompt.ts,
+   * RelatedFilmOrdersSection actions, and ordered-box receive tests.
+   *
+   * COMMON FAILURE MODES:
+   * Deleting on-the-way orders, releasing receipt-backed allocations, hiding
+   * fulfilled history, or allowing auto-shortage orders to be removed as if
+   * they were plain manual requests.
+   */
+  const status = asTrimmedString(order?.status).toUpperCase();
+  if (status !== 'FILM_ORDER') {
+    throw new HttpError(400, 'Only open pending film orders can be cancelled.');
+  }
+
+  if (asTrimmedString(order?.sourceBoxId)) {
+    throw new HttpError(400, 'Automated shortage film orders cannot be cancelled from this action.');
+  }
+
+  if (integerOrZero(order?.coveredFeet) > 0 || integerOrZero(order?.orderedFeet) > 0) {
+    throw new HttpError(400, 'Film orders with fulfillment activity cannot be cancelled.');
+  }
+
+  if (Array.isArray(links) && links.length > 0) {
+    throw new HttpError(400, 'Film orders with linked ordered boxes cannot be cancelled.');
+  }
+
+  const hasDownstreamAllocation = (Array.isArray(allocations) ? allocations : []).some(
+    (entry) => asTrimmedString(entry?.status).toUpperCase() !== 'CANCELLED'
+  );
+  if (hasDownstreamAllocation) {
+    throw new HttpError(400, 'Film orders with fulfillment allocations cannot be cancelled.');
+  }
+}
+
 function buildStaleAutoShortageFilmOrderCleanupCandidates({
   jobNumber,
   requirement,
@@ -531,6 +576,8 @@ async function cancelFilmOrderAndReleaseAllocations(client, orgId, filmOrderId, 
   }
 
   const allocations = await listAllocationsByFilmOrderId(client, orgId, filmOrderId);
+  const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+  assertPlainPendingFilmOrderCancellationAllowed(existing, allocations, links);
   const activeByBoxId = {};
   let activeCount = 0;
   const resolvedAt = new Date().toISOString();

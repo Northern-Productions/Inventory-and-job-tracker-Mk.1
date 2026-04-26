@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0087_allocation_reserved_availability.sql';
+const LATEST_MIGRATION = '0089_guard_plain_pending_film_order_delete.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -39,6 +39,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_create(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)' },
@@ -71,6 +73,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.stored_film_allocated_feet_for_box(uuid, text)' },
   { kind: 'function', signature: 'app_api.active_film_allocated_feet_for_box(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.create_or_merge_manual_requirement_allocation_with_coverage(uuid, app.boxes, jsonb, integer, integer, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
@@ -128,6 +131,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_allocations_apply(uuid, text, jsonb)',
     includes: [
+      'app_api.create_or_merge_manual_requirement_allocation_with_coverage(',
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',
       'Extra box %s must use a compatible film and meet the requested width for this allocation.',
@@ -153,6 +157,19 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_order := app_api.save_film_order(v_order);'
     ],
     excludes: ['Created from a shortage while trying to allocate']
+  },
+  {
+    signature: 'public.api_film_orders_delete(uuid, text, jsonb)',
+    includes: [
+      "coalesce(v_order.status::text, '') <> 'FILM_ORDER'",
+      "nullif(app_api.trim_text(v_order.source_box_id), '') is not null",
+      'coalesce(v_order.covered_feet, 0) > 0 or coalesce(v_order.ordered_feet, 0) > 0',
+      'from app.film_order_box_links l',
+      "a.status <> 'CANCELLED'",
+      'Film orders with linked ordered boxes cannot be cancelled.',
+      'Film orders with fulfillment allocations cannot be cancelled.'
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)',

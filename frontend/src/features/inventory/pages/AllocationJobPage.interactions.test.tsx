@@ -2,7 +2,7 @@
 
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AllocationJobDetailEntry, Box, JobListEntry } from '../../../domain';
+import type { AllocationJobDetailEntry, Box, FilmOrderEntry, JobListEntry } from '../../../domain';
 import { JobConfirmationDialogs } from './allocation-job/JobConfirmationDialogs';
 import { useJobFilmWorkflow } from './allocation-job/useJobFilmWorkflow';
 
@@ -105,7 +105,41 @@ function buildSummary(overrides: Partial<JobListEntry> = {}): JobListEntry {
   };
 }
 
-function renderJobDialogs(onConfirmFilmCheckin = vi.fn()) {
+function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
+  return {
+    filmOrderId: 'FO-1',
+    jobNumber: '4580',
+    warehouse: 'MS1',
+    manufacturer: '3M Fasara',
+    filmName: 'Milano Milky White SH2MAML',
+    widthIn: 50,
+    requestedFeet: 20,
+    coveredFeet: 0,
+    orderedFeet: 0,
+    remainingToOrderFeet: 20,
+    installDate: '2026-04-15',
+    crewLeader: 'Crew',
+    status: 'FILM_ORDER',
+    sourceBoxId: '',
+    origin: 'MANUAL',
+    createdAt: '2026-04-15T08:00:00Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    linkedBoxes: [],
+    ...overrides
+  };
+}
+
+function renderJobDialogs(
+  onConfirmFilmCheckin = vi.fn(),
+  overrides: Partial<{
+    staleFilmOrderPromptOrders: FilmOrderEntry[];
+    onKeepStaleFilmOrders: () => void;
+    onConfirmCancelStaleFilmOrders: () => void;
+  }> = {}
+) {
   return render(
     <JobConfirmationDialogs
       jobNumber="4580"
@@ -116,6 +150,9 @@ function renderJobDialogs(onConfirmFilmCheckin = vi.fn()) {
       filmOrderToDelete={null}
       onCancelDeleteFilmOrder={vi.fn()}
       onConfirmDeleteFilmOrder={vi.fn()}
+      staleFilmOrderPromptOrders={overrides.staleFilmOrderPromptOrders || []}
+      onKeepStaleFilmOrders={overrides.onKeepStaleFilmOrders || vi.fn()}
+      onConfirmCancelStaleFilmOrders={overrides.onConfirmCancelStaleFilmOrders || vi.fn()}
       isOrderAllConfirmOpen={false}
       orderableFilmRequirementCount={0}
       onCancelOrderAll={vi.fn()}
@@ -184,6 +221,29 @@ describe('Allocation job film returns', () => {
         })
       )
     );
+  });
+
+  it('renders a stale fulfilled-requirement film order prompt with explicit keep and cancel actions', async () => {
+    const onKeepStaleFilmOrders = vi.fn();
+    const onConfirmCancelStaleFilmOrders = vi.fn();
+    renderJobDialogs(vi.fn(), {
+      staleFilmOrderPromptOrders: [buildFilmOrderEntry()],
+      onKeepStaleFilmOrders,
+      onConfirmCancelStaleFilmOrders
+    });
+
+    const dialog = await screen.findByRole('dialog', { name: 'Cancel Fulfilled Film Order' });
+    expect(
+      within(dialog).getByText(
+        'Job requirements are fulfilled. Do you want to cancel the active film order on this job for Milano Milky White SH2MAML?'
+      )
+    ).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep Film Order' }));
+    expect(onKeepStaleFilmOrders).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel Film Order' }));
+    expect(onConfirmCancelStaleFilmOrders).toHaveBeenCalledTimes(1);
   });
 
   it('submits fulfilled checked-out rows through the allocation-job workflow without resending an unchanged core type', async () => {

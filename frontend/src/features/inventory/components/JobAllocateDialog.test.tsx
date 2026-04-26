@@ -110,6 +110,7 @@ function renderDialog(
     filmOrders: FilmOrderEntry[];
     isExtraFilmMode: boolean;
     onCancel: () => void;
+    onRequirementAllocationApplied: Parameters<typeof JobAllocateDialog>[0]['onRequirementAllocationApplied'];
   }> = {}
 ) {
   const queryClient = createQueryClient();
@@ -138,6 +139,7 @@ function renderDialog(
         filmOrders={overrides.filmOrders || []}
         isExtraFilmMode={overrides.isExtraFilmMode || false}
         onCancel={overrides.onCancel || (() => undefined)}
+        onRequirementAllocationApplied={overrides.onRequirementAllocationApplied}
       />
     </QueryClientProvider>
   );
@@ -378,6 +380,99 @@ describe('JobAllocateDialog', () => {
       )
     );
     expect(onCancel).toHaveBeenCalledTimes(1);
+
+    queryClient.clear();
+  });
+
+  it('notifies the page with pre-allocation coverage after a user saves requirement allocation', async () => {
+    const onRequirementAllocationApplied = vi.fn().mockResolvedValue(undefined);
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-BOX',
+            allocatedFeet: 15,
+            coveredFeet: 15
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockReturnValue(
+      buildPreviewState({
+        data: {
+          jobNumber: '55555',
+          installDate: '',
+          crewLeader: '',
+          requestedFeet: 15,
+          requestedWidthIn: 48,
+          sourceBoxId: 'IL1-BOX',
+          sourceWarehouse: 'IL1',
+          sourceWidthIn: 48,
+          sourceBoxFeetAvailable: 50,
+          sourceSuggestedFeet: 15,
+          sourceSuggestedCoveredFeet: 15,
+          sourceConflicts: [],
+          suggestions: [],
+          defaultCoveredFeet: 15,
+          defaultRemainingFeet: 0
+        }
+      })
+    );
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      filmOrders: [
+        {
+          filmOrderId: 'FO-1',
+          jobNumber: '55555',
+          warehouse: 'IL1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requestedFeet: 15,
+          coveredFeet: 0,
+          orderedFeet: 0,
+          remainingToOrderFeet: 15,
+          installDate: '',
+          crewLeader: '',
+          status: 'FILM_ORDER',
+          sourceBoxId: '',
+          origin: 'MANUAL',
+          createdAt: '2026-04-20T10:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          linkedBoxes: []
+        }
+      ],
+      onRequirementAllocationApplied
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(onRequirementAllocationApplied).toHaveBeenCalledTimes(1));
+    expect(onRequirementAllocationApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requirements: [
+          expect.objectContaining({
+            requirementId: 'req-1',
+            remainingFeet: 15
+          })
+        ],
+        filmOrders: [expect.objectContaining({ filmOrderId: 'FO-1' })]
+      })
+    );
 
     queryClient.clear();
   });

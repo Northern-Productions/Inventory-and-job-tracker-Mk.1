@@ -113,4 +113,34 @@ describe('RelatedFilmOrdersSection', () => {
     );
     expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
   });
+
+  it('only shows the destructive cancel action for plain open film orders', () => {
+    render(
+      <MemoryRouter>
+        <RelatedFilmOrdersSection
+          orders={[
+            buildFilmOrderEntry({ filmOrderId: 'FO-OPEN', filmName: 'Open Roll' }),
+            buildFilmOrderEntry({
+              filmOrderId: 'FO-ON-WAY',
+              filmName: 'Ordered Roll',
+              status: 'FILM_ON_THE_WAY',
+              orderedFeet: 41,
+              remainingToOrderFeet: 0
+            })
+          ]}
+          isPhoneLayout={false}
+          isReadOnlyJob={false}
+          pendingDeleteFilmOrderIds={new Set()}
+          onOrderFilm={vi.fn()}
+          onDeleteOrder={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    const openRow = screen.getByText(/Open Roll/, { selector: 'td' }).closest('tr');
+    const onWayRow = screen.getByText(/Ordered Roll/, { selector: 'td' }).closest('tr');
+
+    expect(within(openRow as HTMLTableRowElement).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(within(onWayRow as HTMLTableRowElement).queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
 });

@@ -27,6 +27,7 @@ export {
   integerOrZero,
   integerOrNull,
   normalizeAllocationKind,
+  normalizeAllocationSource,
   parseIntegerInput,
   requireUuid,
   cloneValue,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { JobRequirementLine } from '../../../../domain';
+import type { FilmOrderEntry, JobRequirementLine } from '../../../../domain';
 import { FilmRequirementsSection } from './FilmRequirementsSection';
 
 function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequirementLine {
@@ -14,6 +14,32 @@ function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequi
     allocatedFeet: 60,
     remainingFeet: 40,
     autoPlanningSuppressed: false,
+    ...overrides
+  };
+}
+
+function buildFilmOrder(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
+  return {
+    filmOrderId: 'FO-1',
+    jobNumber: '4803',
+    warehouse: 'IL1',
+    manufacturer: '3M',
+    filmName: 'Night Vision 15',
+    widthIn: 36,
+    requestedFeet: 40,
+    coveredFeet: 0,
+    orderedFeet: 0,
+    remainingToOrderFeet: 40,
+    installDate: '2026-04-25',
+    crewLeader: 'Crew',
+    status: 'FILM_ORDER',
+    sourceBoxId: '',
+    createdAt: '2026-04-25T00:00:00.000Z',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    linkedBoxes: [],
     ...overrides
   };
 }
@@ -52,5 +78,34 @@ describe('FilmRequirementsSection planner suppression actions', () => {
 
     expect(orderRequirement).toHaveBeenCalledWith(requirement);
     expect(resumeAutoPlanning).toHaveBeenCalledWith(requirement);
+  });
+
+  it('labels the unresolved film-order row action as Cancel Order', () => {
+    const cancelRequirementOrder = vi.fn();
+    const requirement = buildRequirement();
+    const order = buildFilmOrder();
+
+    render(
+      <FilmRequirementsSection
+        requirements={[requirement]}
+        filmOrders={[order]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={cancelRequirementOrder}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Order' }));
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(cancelRequirementOrder).toHaveBeenCalledWith(order);
   });
 });

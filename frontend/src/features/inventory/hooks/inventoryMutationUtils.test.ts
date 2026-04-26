@@ -2356,6 +2356,107 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
+  it('does not append an optimistic duplicate when manual allocation will merge an existing auto-planned row', () => {
+    const queryClient = createQueryClient();
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 15',
+        widthIn: 60,
+        requiredFeet: 100,
+        allocatedFeet: 60,
+        remainingFeet: 40
+      }
+    ]);
+    detail.summary.jobNumber = '4803';
+    detail.summary.allocatedFeet = 60;
+    detail.summary.remainingFeet = 40;
+    detail.summary.allocationCount = 1;
+    detail.allocations = [
+      {
+        allocationId: 'auto-1',
+        boxId: 'IL1-6594',
+        warehouse: 'IL1',
+        jobNumber: '4803',
+        installDate: '2026-04-06',
+        crewLeader: 'Crew',
+        allocatedFeet: 60,
+        coveredFeet: 60,
+        requirementId: 'req-1',
+        allocationKind: 'REQUIREMENT',
+        allocationSource: 'AUTO_PLANNED',
+        status: 'ACTIVE',
+        createdAt: '2026-04-06T00:00:00Z',
+        createdBy: 'planner',
+        resolvedAt: '',
+        resolvedBy: '',
+        filmOrderId: '',
+        notes: '',
+        manufacturer: '3M',
+        filmName: 'Night Vision 15',
+        widthIn: 60,
+        boxStatus: 'IN_STOCK',
+        checkedOutOnThisJob: false
+      }
+    ];
+
+    queryClient.setQueryData(inventoryKeys.job('4803'), detail);
+    queryClient.setQueryData(inventoryKeys.box('IL1-6594'), {
+      boxId: 'IL1-6594',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 15',
+      widthIn: 60,
+      initialFeet: 100,
+      feetAvailable: 40,
+      lotRun: '',
+      status: 'IN_STOCK',
+      orderDate: '2026-04-01',
+      receivedDate: '2026-04-02',
+      initialWeightLbs: null,
+      lastRollWeightLbs: null,
+      lastWeighedDate: '',
+      filmKey: '3M|NIGHT VISION 15',
+      coreType: '',
+      coreWeightLbs: null,
+      lfWeightLbsPerFt: null,
+      pricePerLf: null,
+      purchaseCost: null,
+      notes: '',
+      hasEverBeenCheckedOut: false,
+      lastCheckoutJob: '',
+      lastCheckoutDate: '',
+      zeroedDate: '',
+      zeroedReason: '',
+      zeroedBy: ''
+    });
+
+    const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-6594',
+      jobNumber: '4803',
+      requestedFeet: 20,
+      requestedWidthIn: 60,
+      requirementId: 'req-1',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
+      crossWarehouse: false,
+      jobWarehouse: 'IL1'
+    });
+
+    expect(result.allocations).toEqual([]);
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('4803'))?.allocations).toEqual([
+      expect.objectContaining({
+        allocationId: 'auto-1',
+        allocationSource: 'AUTO_PLANNED',
+        allocatedFeet: 60
+      })
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.box('IL1-6594'))).toMatchObject({
+      feetAvailable: 40
+    });
+  });
+
   it('applies optimistic cross-warehouse additions using cached search results', () => {
     const queryClient = createQueryClient();
     const detail = {

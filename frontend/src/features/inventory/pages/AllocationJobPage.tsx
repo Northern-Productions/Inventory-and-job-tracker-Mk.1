@@ -56,6 +56,10 @@ export default function AllocationJobPage() {
     isResumeAutoPlanningPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
+    staleFilmOrderPromptOrders,
+    handleKeepStaleFilmOrders,
+    handleCancelStaleFilmOrders,
+    maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleResumeAutoPlanning,
     handleOrderAllFilmRequirements,
@@ -273,6 +277,9 @@ export default function AllocationJobPage() {
           lifecycleWorkflow.setFilmOrderToDelete(null);
           void lifecycleWorkflow.handleDeleteFilmOrder(order, reason);
         }}
+        staleFilmOrderPromptOrders={staleFilmOrderPromptOrders}
+        onKeepStaleFilmOrders={handleKeepStaleFilmOrders}
+        onConfirmCancelStaleFilmOrders={() => void handleCancelStaleFilmOrders()}
         isOrderAllConfirmOpen={isOrderAllConfirmOpen}
         orderableFilmRequirementCount={orderableFilmOrderGroups.length}
         onCancelOrderAll={() => setIsOrderAllConfirmOpen(false)}
@@ -394,6 +401,7 @@ export default function AllocationJobPage() {
         isAllocateOpen={filmWorkflow.isAllocateOpen}
         isExtraFilmMode={isExtraFilmMode}
         onCancelAllocate={filmWorkflow.closeAllocateDialog}
+        onRequirementAllocationApplied={maybeOpenStaleFilmOrderPromptAfterUserChange}
       />
     </>
   );

@@ -18,6 +18,10 @@ import {
   type FilmCheckinDraft
 } from '../../utils/boxHelpers';
 import { buildFilmTransferCheckoutMessage } from './helpers';
+import {
+  createFilmOrderCoverageSnapshot,
+  type FilmOrderCoverageSnapshot
+} from './filmOrderCoveragePrompt';
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
@@ -34,8 +38,12 @@ interface UseJobFilmWorkflowArgs {
   previousHasOutstandingMaterials: boolean;
   filmTransferAlertsByBoxId: Record<string, JobFilmTransferAlert>;
   pendingRemoveJobBoxAllocationIds: Set<string>;
+  filmCoverageSnapshot?: FilmOrderCoverageSnapshot | null;
   ensureSignedIn: (actionLabel: string) => boolean;
   maybeOpenReturnCompletionPrompt: (previousHasOutstandingMaterials: boolean) => void;
+  onUserDrivenFilmCoverageChange?: (
+    previousSnapshot: FilmOrderCoverageSnapshot
+  ) => void | Promise<void>;
   pushToast: PushToast;
   removeJobBoxAllocations: MutationFn<
     RemoveJobBoxAllocationsPayload,
@@ -50,8 +58,10 @@ export function useJobFilmWorkflow({
   previousHasOutstandingMaterials,
   filmTransferAlertsByBoxId,
   pendingRemoveJobBoxAllocationIds,
+  filmCoverageSnapshot,
   ensureSignedIn,
   maybeOpenReturnCompletionPrompt,
+  onUserDrivenFilmCoverageChange,
   pushToast,
   removeJobBoxAllocations,
   setBoxStatus
@@ -130,6 +140,7 @@ export function useJobFilmWorkflow({
     }
 
     try {
+      const previousFilmOrderCoverageSnapshot = createFilmOrderCoverageSnapshot(filmCoverageSnapshot);
       const { result, warnings } = await removeJobBoxAllocations({
         jobNumber: summary?.jobNumber || entry.jobNumber,
         allocationId: entry.allocationId,
@@ -146,6 +157,7 @@ export function useJobFilmWorkflow({
         ),
         variant: 'success'
       });
+      await onUserDrivenFilmCoverageChange?.(previousFilmOrderCoverageSnapshot);
     } catch (error) {
       pushToast({
         title: 'Unable to remove allocation',

@@ -200,6 +200,53 @@ async function listActiveAllocations(client, orgId) {
   return rows.map(mapDbAllocationRow);
 }
 
+async function listManualRequirementAllocationMergeCandidates(client, orgId, entry) {
+  const normalizedRequirementId = asTrimmedString(entry?.requirementId);
+  const normalizedBoxId = asTrimmedString(entry?.boxId);
+  const normalizedJobNumber = asTrimmedString(entry?.jobNumber);
+  if (!normalizedRequirementId || !normalizedBoxId || !normalizedJobNumber) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.allocations
+      where org_id = $1
+        and box_id = $2
+        and status = 'ACTIVE'
+        and coalesce(allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
+        and requirement_id = $3::uuid
+        and coalesce(film_order_id, '') = coalesce($6::text, '')
+        and coalesce(allocation_source::text, 'MANUAL') in ('MANUAL', 'AUTO_PLANNED')
+        and case
+          when $4::uuid is not null and job_id is not null then job_id = $4::uuid
+          else upper(trim(coalesce(job_number, ''))) = upper(trim($5::text))
+        end
+      order by
+        case coalesce(allocation_source::text, 'MANUAL')
+          when 'MANUAL' then 0
+          when 'AUTO_PLANNED' then 1
+          else 2
+        end,
+        created_at asc,
+        allocation_id asc
+      for update
+    `,
+    [
+      orgId,
+      normalizedBoxId,
+      normalizedRequirementId,
+      entry?.jobId || null,
+      normalizedJobNumber,
+      asTrimmedString(entry?.filmOrderId),
+    ]
+  );
+
+  return rows.map(mapDbAllocationRow);
+}
+
 async function listActiveAllocationsForJobConflictCheck(
   client,
   orgId,
@@ -615,6 +662,7 @@ export {
   listAllocationsByJob,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
+  listManualRequirementAllocationMergeCandidates,
   listActiveAllocationsForJobConflictCheck,
   saveAllocationRecord,
   listFilmOrders,

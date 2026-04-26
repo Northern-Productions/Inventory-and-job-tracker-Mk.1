@@ -18,6 +18,11 @@ import {
   summarizeReturnedMaterials
 } from '../../utils/jobReturnedMaterials';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
+import {
+  createFilmOrderCoverageSnapshot,
+  didFilmRequirementDemandChange,
+  type FilmOrderCoverageSnapshot
+} from './filmOrderCoveragePrompt';
 import { getMaterialTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
@@ -46,7 +51,7 @@ interface UseJobLifecycleWorkflowArgs {
   pushToast: PushToast;
   navigateToAllocations: () => void;
   navigateToJobDetail: (jobNumber: string) => void;
-  updateJob: MutationFn<UpdateJobPayload, { warnings: string[] }>;
+  updateJob: MutationFn<UpdateJobPayload, { result: JobDetail; warnings: string[] }>;
   completeJob: MutationFn<{ jobNumber: string; reason: string }, { warnings: string[] }>;
   deleteJob: MutationFn<{ jobNumber: string }, unknown>;
   reopenJob: MutationFn<{ jobNumber: string; reason: string }, { warnings: string[] }>;
@@ -59,6 +64,10 @@ interface UseJobLifecycleWorkflowArgs {
     { jobNumber: string; isStagedForPickup: boolean; autoCheckoutRemaining?: boolean },
     { warnings: string[] }
   >;
+  onUserDrivenFilmCoverageChange?: (
+    previousSnapshot: FilmOrderCoverageSnapshot,
+    afterDetail?: JobDetail
+  ) => void | Promise<void>;
 }
 
 export function useJobLifecycleWorkflow({
@@ -80,7 +89,8 @@ export function useJobLifecycleWorkflow({
   reopenJob,
   deleteFilmOrder,
   checkoutAllJobMaterials,
-  setJobStagedForPickup
+  setJobStagedForPickup,
+  onUserDrivenFilmCoverageChange
 }: UseJobLifecycleWorkflowArgs) {
   const queryClient = useQueryClient();
   const [isEditOpenState, setIsEditOpenState] = useState(false);
@@ -141,6 +151,7 @@ export function useJobLifecycleWorkflow({
 
     const payload = buildUpdateJobPayload(submitPayload, isLaborOnly);
     const draftSnapshot = cloneJobEditorSubmitPayload(submitPayload);
+    const previousFilmOrderCoverageSnapshot = createFilmOrderCoverageSnapshot(detail);
 
     setPendingLaborOnlyUpdate(null);
     setEditDraftOverride(null);
@@ -148,7 +159,7 @@ export function useJobLifecycleWorkflow({
 
     const savePromise = updateJob(payload);
     void savePromise
-      .then(({ warnings }) => {
+      .then(async ({ result, warnings }) => {
         pushToast({
           title: `Saved job ${payload.jobNumber}`,
           description: formatMutationWarningDescription(
@@ -158,6 +169,10 @@ export function useJobLifecycleWorkflow({
           ),
           variant: 'success'
         });
+        const nextFilmOrderCoverageSnapshot = createFilmOrderCoverageSnapshot(result);
+        if (didFilmRequirementDemandChange(previousFilmOrderCoverageSnapshot, nextFilmOrderCoverageSnapshot)) {
+          await onUserDrivenFilmCoverageChange?.(previousFilmOrderCoverageSnapshot, result);
+        }
       })
       .catch((error) => {
         setEditDraftOverride(draftSnapshot);

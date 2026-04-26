@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
-import type { CaulkJobCheckoutEntry, JobFilmTransferAlert } from '../../../../domain';
+import type { CaulkJobCheckoutEntry, FilmOrderEntry, JobDetail, JobFilmTransferAlert } from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
@@ -40,6 +41,7 @@ import {
 } from '../../utils/jobStaging';
 import { useActionAccess } from '../../hooks/useActionAccess';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
+import { inventoryKeys } from '../../hooks/inventoryQueryKeys';
 import { useCaulkWorkflow } from './useCaulkWorkflow';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
@@ -49,9 +51,16 @@ import {
   getOrderableFilmRequirements,
   normalizeFilmRequirementOrderKey
 } from './filmRequirementOrders';
+import {
+  buildStaleFilmOrderPromptKey,
+  createFilmOrderCoverageSnapshot,
+  findStaleManualFilmOrdersAfterCoverageTransition,
+  type FilmOrderCoverageSnapshot
+} from './filmOrderCoveragePrompt';
 
 export function useAllocationJobPageModel() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
@@ -84,6 +93,10 @@ export function useAllocationJobPageModel() {
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const caulkProductsQuery = useCaulkProducts();
   const [isOrderAllConfirmOpen, setIsOrderAllConfirmOpen] = useState(false);
+  const [staleFilmOrderPromptOrders, setStaleFilmOrderPromptOrders] = useState<FilmOrderEntry[]>([]);
+  const [dismissedStaleFilmOrderPromptKeys, setDismissedStaleFilmOrderPromptKeys] = useState<
+    Set<string>
+  >(() => new Set());
 
   const detail = jobQuery.data;
   const summary = detail?.summary;
@@ -276,6 +289,51 @@ export function useAllocationJobPageModel() {
     });
   }
 
+  const maybeOpenStaleFilmOrderPromptAfterUserChange = useCallback(
+    async (previousSnapshot: FilmOrderCoverageSnapshot, afterDetailOverride?: JobDetail) => {
+      const normalizedJobNumber = summary?.jobNumber || jobNumber;
+      if (!normalizedJobNumber) {
+        return;
+      }
+
+      const afterDetail =
+        afterDetailOverride ||
+        (await jobQuery.refetch()).data ||
+        queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
+      if (!afterDetail) {
+        return;
+      }
+
+      const staleOrders = findStaleManualFilmOrdersAfterCoverageTransition({
+        before: previousSnapshot,
+        after: createFilmOrderCoverageSnapshot(afterDetail),
+        dismissedPromptKeys: dismissedStaleFilmOrderPromptKeys
+      });
+      if (staleOrders.length > 0) {
+        setStaleFilmOrderPromptOrders(staleOrders);
+      }
+    },
+    [
+      dismissedStaleFilmOrderPromptKeys,
+      jobNumber,
+      jobQuery,
+      queryClient,
+      summary?.jobNumber
+    ]
+  );
+
+  function handleKeepStaleFilmOrders() {
+    const promptKeys = staleFilmOrderPromptOrders.map(buildStaleFilmOrderPromptKey).filter(Boolean);
+    setDismissedStaleFilmOrderPromptKeys((current) => {
+      const next = new Set(current);
+      for (const key of promptKeys) {
+        next.add(key);
+      }
+      return next;
+    });
+    setStaleFilmOrderPromptOrders([]);
+  }
+
   const lifecycleWorkflow = useJobLifecycleWorkflow({
     detail,
     summary,
@@ -296,7 +354,8 @@ export function useAllocationJobPageModel() {
     reopenJob: reopenJobMutation.mutateAsync,
     deleteFilmOrder: deleteFilmOrderMutation.mutateAsync,
     checkoutAllJobMaterials: checkoutAllJobMaterialsMutation.mutateAsync,
-    setJobStagedForPickup: setJobStagedForPickupMutation.mutateAsync
+    setJobStagedForPickup: setJobStagedForPickupMutation.mutateAsync,
+    onUserDrivenFilmCoverageChange: maybeOpenStaleFilmOrderPromptAfterUserChange
   });
   const filmCatalogQuery = useFilmCatalog({ enabled: lifecycleWorkflow.isEditOpen });
 
@@ -306,8 +365,10 @@ export function useAllocationJobPageModel() {
     previousHasOutstandingMaterials: hasOutstandingReturnedMaterials,
     filmTransferAlertsByBoxId,
     pendingRemoveJobBoxAllocationIds,
+    filmCoverageSnapshot: createFilmOrderCoverageSnapshot(detail),
     ensureSignedIn,
     maybeOpenReturnCompletionPrompt: lifecycleWorkflow.maybeOpenReturnCompletionPrompt,
+    onUserDrivenFilmCoverageChange: maybeOpenStaleFilmOrderPromptAfterUserChange,
     pushToast: toast.push,
     removeJobBoxAllocations: removeJobBoxAllocationsMutation.mutateAsync,
     setBoxStatus: setBoxStatusMutation.mutateAsync
@@ -344,6 +405,18 @@ export function useAllocationJobPageModel() {
     cancelCaulkTransfer: cancelCaulkTransferMutation.mutateAsync,
     cancelCaulkTransferPending: cancelCaulkTransferMutation.isPending
   });
+
+  async function handleCancelStaleFilmOrders() {
+    const orders = staleFilmOrderPromptOrders;
+    setStaleFilmOrderPromptOrders([]);
+
+    for (const order of orders) {
+      await lifecycleWorkflow.handleDeleteFilmOrder(
+        order,
+        `Cancelled after job requirements were fulfilled for ${order.filmName}.`
+      );
+    }
+  }
 
   async function createOrderForRequirement(
     requirement: (typeof requirements)[number],
@@ -534,6 +607,10 @@ export function useAllocationJobPageModel() {
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
+    staleFilmOrderPromptOrders,
+    handleKeepStaleFilmOrders,
+    handleCancelStaleFilmOrders,
+    maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleResumeAutoPlanning,
     handleOrderAllFilmRequirements,

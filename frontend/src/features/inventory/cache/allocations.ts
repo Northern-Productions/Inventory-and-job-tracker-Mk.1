@@ -66,6 +66,92 @@ function findMatchingAllocationPreview(queryClient: QueryClient, payload: ApplyA
   return null;
 }
 
+const MANUAL_MERGE_ALLOCATION_SOURCES = new Set(['MANUAL', 'AUTO_PLANNED']);
+
+type ManualRequirementMergeCandidate = Pick<
+  AllocationJobDetailEntry,
+  'boxId' | 'jobNumber' | 'requirementId' | 'allocationKind' | 'allocationSource' | 'status' | 'filmOrderId'
+>;
+
+function normalizeAllocationMergeKey(value: unknown) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function isManualRequirementMergeCandidate(
+  candidate: ManualRequirementMergeCandidate,
+  pending: ManualRequirementMergeCandidate
+) {
+  return (
+    normalizeAllocationMergeKey(candidate.status) === 'ACTIVE' &&
+    normalizeAllocationMergeKey(candidate.allocationKind || 'REQUIREMENT') === 'REQUIREMENT' &&
+    normalizeAllocationMergeKey(pending.allocationKind || 'REQUIREMENT') === 'REQUIREMENT' &&
+    MANUAL_MERGE_ALLOCATION_SOURCES.has(normalizeAllocationMergeKey(candidate.allocationSource || 'MANUAL')) &&
+    normalizeAllocationMergeKey(pending.allocationSource || 'MANUAL') === 'MANUAL' &&
+    normalizeAllocationMergeKey(candidate.filmOrderId) === '' &&
+    normalizeAllocationMergeKey(pending.filmOrderId) === '' &&
+    normalizeAllocationMergeKey(candidate.boxId) === normalizeAllocationMergeKey(pending.boxId) &&
+    normalizeAllocationMergeKey(candidate.jobNumber) === normalizeAllocationMergeKey(pending.jobNumber) &&
+    String(candidate.requirementId || '').trim() === String(pending.requirementId || '').trim() &&
+    String(pending.requirementId || '').trim() !== ''
+  );
+}
+
+/**
+ * PURPOSE:
+ * Prevents optimistic manual allocation writes from temporarily appending the
+ * duplicate row that backend/SQL will merge into an existing MANUAL or
+ * AUTO_PLANNED same-box requirement allocation.
+ *
+ * AFFECTS:
+ * Allocate Job Film optimistic UI, job detail allocation rows, box allocation
+ * lists, and rollback bookkeeping for failed applies.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * runtimeAllocationPlanning.mjs merge rules, api_allocations_apply migrations,
+ * and inventoryMutationUtils optimistic allocation tests.
+ *
+ * COMMON FAILURE MODES:
+ * Removing unrelated EXTRA rows, hiding film-order allocations, or rolling
+ * back a real existing allocation because a merge was represented as pending.
+ */
+function removeRowsHandledByManualMerge(
+  queryClient: QueryClient,
+  jobNumber: string,
+  optimisticRows: OptimisticAllocationBuildResult
+) {
+  const mergeCandidates: ManualRequirementMergeCandidate[] = [];
+  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(jobNumber));
+  const allocationJob = queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob(jobNumber));
+
+  mergeCandidates.push(...(currentJob?.allocations || []), ...(allocationJob?.allocations || []));
+  if (!mergeCandidates.length) {
+    return optimisticRows;
+  }
+
+  const skippedAllocationIds = new Set<string>();
+  for (let index = 0; index < optimisticRows.jobAllocations.length; index += 1) {
+    const pending = optimisticRows.jobAllocations[index];
+    if (mergeCandidates.some((candidate) => isManualRequirementMergeCandidate(candidate, pending))) {
+      skippedAllocationIds.add(pending.allocationId);
+      optimisticRows.allocatedFeetByBoxId[pending.boxId] =
+        Math.max(0, (optimisticRows.allocatedFeetByBoxId[pending.boxId] || 0) - pending.allocatedFeet);
+    }
+  }
+
+  if (!skippedAllocationIds.size) {
+    return optimisticRows;
+  }
+
+  optimisticRows.allocations = optimisticRows.allocations.filter(
+    (entry) => !skippedAllocationIds.has(entry.allocationId)
+  );
+  optimisticRows.jobAllocations = optimisticRows.jobAllocations.filter(
+    (entry) => !skippedAllocationIds.has(entry.allocationId)
+  );
+
+  return optimisticRows;
+}
+
 interface OptimisticAllocationBuildResult {
   allocations: AllocationEntry[];
   jobAllocations: AllocationJobDetailEntry[];
@@ -470,7 +556,11 @@ export function applyOptimisticAllocationAdditionToCaches(
   payload: ApplyAllocationPlanPayload
 ) {
   const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
-  const optimisticRows = buildOptimisticAllocationRows(queryClient, payload, currentJob);
+  const optimisticRows = removeRowsHandledByManualMerge(
+    queryClient,
+    payload.jobNumber,
+    buildOptimisticAllocationRows(queryClient, payload, currentJob)
+  );
   const syncedAllocationJobFromDetail = Boolean(currentJob);
 
   if (!optimisticRows.allocations.length) {

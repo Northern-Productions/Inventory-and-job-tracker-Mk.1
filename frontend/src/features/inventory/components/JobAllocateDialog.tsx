@@ -33,6 +33,25 @@ interface JobAllocateDialogProps {
   filmOrders: FilmOrderEntry[];
   isExtraFilmMode?: boolean;
   onCancel: () => void;
+  onRequirementAllocationApplied?: (previousSnapshot: {
+    requirements: JobRequirementLine[];
+    filmOrders: FilmOrderEntry[];
+  }) => void | Promise<void>;
+}
+
+function cloneFilmOrderPromptSnapshot(
+  requirements: JobRequirementLine[],
+  filmOrders: FilmOrderEntry[]
+) {
+  return {
+    requirements: requirements.map((entry) => ({ ...entry })),
+    filmOrders: filmOrders.map((entry) => ({
+      ...entry,
+      linkedBoxes: Array.isArray(entry.linkedBoxes)
+        ? entry.linkedBoxes.map((linkedBox) => ({ ...linkedBox }))
+        : []
+    }))
+  };
 }
 
 export function JobAllocateDialog({
@@ -44,7 +63,8 @@ export function JobAllocateDialog({
   requirements,
   filmOrders,
   isExtraFilmMode = false,
-  onCancel
+  onCancel,
+  onRequirementAllocationApplied
 }: JobAllocateDialogProps) {
   const toast = useToast();
   const auth = useAuth();
@@ -424,10 +444,14 @@ export function JobAllocateDialog({
     };
 
     const completedRequirementId = selectedRequirement.requirementId;
+    const previousFilmOrderCoverageSnapshot = cloneFilmOrderPromptSnapshot(requirements, filmOrders);
     setError('');
     setSubmitAction('allocate');
     try {
       const result = await submitAllocation(payload);
+      if (!isExtraFilmMode) {
+        await onRequirementAllocationApplied?.(previousFilmOrderCoverageSnapshot);
+      }
       const coveredRequirementFeet = result.allocations.reduce(
         (sum, entry) => sum + Number(entry.coveredFeet ?? entry.allocatedFeet ?? 0),
         0

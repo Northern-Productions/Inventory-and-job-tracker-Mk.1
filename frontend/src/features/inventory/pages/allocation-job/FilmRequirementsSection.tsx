@@ -79,7 +79,7 @@ export function FilmRequirementsSection({
           loadingLabel="Cancelling"
           onClick={() => onCancelRequirementOrder(matchingOrder)}
         >
-          Cancel
+          Cancel Order
         </Button>
       );
     }

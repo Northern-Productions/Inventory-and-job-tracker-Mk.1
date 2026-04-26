@@ -69,6 +69,10 @@ type JobWorkflowDialogsProps = {
   isAllocateOpen: boolean;
   isExtraFilmMode: boolean;
   onCancelAllocate: () => void;
+  onRequirementAllocationApplied?: (previousSnapshot: {
+    requirements: JobRequirementLine[];
+    filmOrders: FilmOrderEntry[];
+  }) => void | Promise<void>;
 };
 
 export function JobWorkflowDialogs({
@@ -117,7 +121,8 @@ export function JobWorkflowDialogs({
   onConfirmLaborOnly,
   isAllocateOpen,
   isExtraFilmMode,
-  onCancelAllocate
+  onCancelAllocate,
+  onRequirementAllocationApplied
 }: JobWorkflowDialogsProps) {
   return (
     <>
@@ -197,6 +202,7 @@ export function JobWorkflowDialogs({
         filmOrders={filmOrders}
         isExtraFilmMode={isExtraFilmMode}
         onCancel={onCancelAllocate}
+        onRequirementAllocationApplied={onRequirementAllocationApplied}
       />
     </>
   );
