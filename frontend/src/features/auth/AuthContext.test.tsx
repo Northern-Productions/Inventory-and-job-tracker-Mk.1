@@ -288,6 +288,35 @@ describe('AuthContext', () => {
     expect(queryClient.getQueryData(jobsListKey)).toBeUndefined();
   });
 
+  it('surfaces auth context failures without repeatedly refreshing access state', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+    getAuthContextMock.mockRejectedValue(new Error('Auth context failed'));
+
+    const { queryClient } = renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('error').textContent).toBe('Auth context failed');
+    });
+
+    const settledRefreshCallCount = getAuthContextMock.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(getAuthContextMock).toHaveBeenCalledTimes(settledRefreshCallCount);
+    expect(settledRefreshCallCount).toBeLessThanOrEqual(2);
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        call.some((entry) => String(entry).includes('Maximum update depth exceeded'))
+      )
+    ).toBe(false);
+    consoleErrorSpy.mockRestore();
+    queryClient.clear();
+  });
+
   it('clears cached jobs data when the authenticated user or org changes', async () => {
     getSessionMock.mockResolvedValue({
       data: { session: createSession() },

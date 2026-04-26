@@ -102,6 +102,7 @@ function buildPreviewState(
 
 function renderDialog(
   overrides: Partial<{
+    open: boolean;
     jobNumber: string;
     warehouse: Warehouse;
     installDate: string;
@@ -118,7 +119,7 @@ function renderDialog(
   const view = render(
     <QueryClientProvider client={queryClient}>
       <JobAllocateDialog
-        open
+        open={overrides.open ?? true}
         jobNumber={overrides.jobNumber || '55555'}
         warehouse={overrides.warehouse || 'IL1'}
         installDate={overrides.installDate || ''}
@@ -217,6 +218,57 @@ describe('JobAllocateDialog', () => {
     });
 
     expect(document.querySelector('.dialog-actions.dialog-actions-sticky-footer')).not.toBeNull();
+    queryClient.clear();
+  });
+
+  it('does not reset closed allocation dialog arrays in a render loop', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { queryClient, rerender } = renderDialog({
+      open: false,
+      requirements: [
+        {
+          requirementId: 'req-closed',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <JobAllocateDialog
+          open={false}
+          jobNumber="55555"
+          warehouse="IL1"
+          installDate=""
+          crewLeader=""
+          requirements={[
+            {
+              requirementId: 'req-closed',
+              manufacturer: 'Llumar',
+              filmName: 'RN 07',
+              widthIn: 48,
+              requiredFeet: 15,
+              allocatedFeet: 0,
+              remainingFeet: 15
+            }
+          ]}
+          filmOrders={[]}
+          onCancel={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        call.some((entry) => String(entry).includes('Maximum update depth exceeded'))
+      )
+    ).toBe(false);
+    consoleErrorSpy.mockRestore();
     queryClient.clear();
   });
 

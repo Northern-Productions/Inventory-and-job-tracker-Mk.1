@@ -241,14 +241,31 @@ export function JobAllocateDialog({
     return mapped;
   }, [plannedSelection.allocations]);
 
+  /**
+   * PURPOSE:
+   * Keeps allocation dialog draft state aligned with the selected job requirement
+   * and clears stale drafts when the dialog closes.
+   *
+   * AFFECTS:
+   * AllocationJobPage, Allocate Film / Allocate Extra dialogs, live allocation
+   * preview queries, and stale film-order prompts after allocations apply.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * useAllocationJobPageModel, useJobFilmWorkflow, JobWorkflowDialogs, and
+   * allocation/remove-box failure handling on the job detail page.
+   *
+   * COMMON FAILURE MODES:
+   * Fresh array resets can cause render loops, stale selected boxes can submit
+   * the wrong preview, and repeated failed requests must remain visible.
+   */
   useEffect(() => {
     if (!open) {
-      setSelectedRequirementId('');
-      setRequestedFeet('');
-      setSelectedBoxIds([]);
-      setError('');
-      setCompletedRequirementIds([]);
-      setSubmitAction(null);
+      setSelectedRequirementId((current) => (current ? '' : current));
+      setRequestedFeet((current) => (current ? '' : current));
+      setSelectedBoxIds((current) => (current.length ? [] : current));
+      setError((current) => (current ? '' : current));
+      setCompletedRequirementIds((current) => (current.length ? [] : current));
+      setSubmitAction((current) => (current === null ? current : null));
       return;
     }
 

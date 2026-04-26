@@ -162,6 +162,27 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
   });
 
+  it('keeps navigation usable when app attention summary fails', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    useAppAttentionSummaryMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Attention summary failed')
+    });
+
+    renderLayout('/allocations');
+
+    expect(screen.getByRole('link', { name: 'Jobs' })).toBeTruthy();
+    expect(screen.getByText('Nested page')).toBeTruthy();
+    expect(
+      consoleErrorSpy.mock.calls.some((call) =>
+        call.some((entry) => String(entry).includes('Maximum update depth exceeded'))
+      )
+    ).toBe(false);
+    consoleErrorSpy.mockRestore();
+  });
+
   it('clears the desktop film-orders attention dot as soon as the last actionable order is gone', () => {
     let hasFilmOrdersNeedingAttention = true;
     useAppAttentionSummaryMock.mockImplementation(() =>
