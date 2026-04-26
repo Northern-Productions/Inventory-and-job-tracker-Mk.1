@@ -4,13 +4,10 @@ import {
   deriveFilmOrderStatusFromLinkedBoxes,
   formatFilmOrderDealerLabel,
   formatFilmOrderLinkedBoxIds,
-  formatFilmOrderOriginLabel,
   getFilmOrderDealerNames,
   getFilmOrderLinkedBoxes,
   getFilmOrderLinkedBoxIds,
   getNextFilmOrderLinkedBoxToReceive,
-  getFilmOrderOrigin,
-  getFilmOrderOriginSourceBoxId,
   hasFilmOrdersNeedingAttention,
   hasFilmOrderInstallDate,
   isFilmOrderNeedingAttention,
@@ -79,18 +76,6 @@ describe('filmOrders helpers', () => {
         installDate: '2026-04-13'
       })
     ).toBe(false);
-  });
-
-  it('derives auto-shortage origin from the source box when the API payload does not spell it out', () => {
-    expect(getFilmOrderOrigin({ sourceBoxId: 'IL1-6923' })).toBe('AUTO_SHORTAGE');
-    expect(formatFilmOrderOriginLabel({ sourceBoxId: 'IL1-6923' })).toBe('Auto shortage');
-    expect(getFilmOrderOriginSourceBoxId({ sourceBoxId: 'IL1-6923' })).toBe('IL1-6923');
-  });
-
-  it('preserves explicit manual origin and hides the source box helper text', () => {
-    expect(getFilmOrderOrigin({ origin: 'MANUAL', sourceBoxId: 'IL1-6923' })).toBe('MANUAL');
-    expect(formatFilmOrderOriginLabel({ origin: 'MANUAL', sourceBoxId: '' })).toBe('Manual');
-    expect(getFilmOrderOriginSourceBoxId({ origin: 'MANUAL', sourceBoxId: '' })).toBe('');
   });
 
   it('returns an empty linked-box list and placeholder when no ordered boxes are linked', () => {

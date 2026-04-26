@@ -28,9 +28,7 @@ import {
 } from '../hooks/useInventoryQueries';
 import {
   formatFilmOrderDealerLabel,
-  formatFilmOrderOriginLabel,
   getNextFilmOrderLinkedBoxToReceive,
-  getFilmOrderOriginSourceBoxId,
   isFilmOrderNeedingAttention,
   isUnresolvedFilmOrder
 } from '../utils/filmOrders';
@@ -236,8 +234,8 @@ export default function FilmOrdersPage() {
           box tied to the job, or RECEIVE to walk in boxes that are already on the way.
         </p>
         <p className="muted-text">
-          Manual orders are created from Film Orders. Auto shortage orders are created after
-          return/weigh or schedule rebalance, not at checkout.
+          Film orders are created from explicit order actions in Film Orders before incoming boxes
+          are added or received for the job.
         </p>
         <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
@@ -251,7 +249,6 @@ export default function FilmOrdersPage() {
                 const isDeletePending = pendingDeleteFilmOrderIds.has(
                   order.filmOrderId.trim().toUpperCase()
                 );
-                const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
                 const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
                 const receiveTarget = buildReceiveOrderedTarget(order);
                 const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
@@ -283,9 +280,7 @@ export default function FilmOrdersPage() {
                       <MobileField label="Ordered Box ID" value={<FilmOrderLinkedBoxes order={order} />} />
                       <MobileField label="Install Date" value={formatDate(order.installDate)} />
                       <MobileField label="Created" value={formatDate(order.createdAt)} />
-                      <MobileField label="Origin" value={formatFilmOrderOriginLabel(order)} />
                       <MobileField label="Dealer" value={formatFilmOrderDealerLabel(order)} />
-                      {sourceBoxId ? <MobileField label="Source Box" value={sourceBoxId} /> : null}
                     </MobileFieldList>
                     <MobileActionStack>
                       {order.status === 'FULFILLED' ? null : (
@@ -327,7 +322,6 @@ export default function FilmOrdersPage() {
                     <th className="col-ordered-box-id">Ordered Box ID</th>
                     <th>Install Date</th>
                     <th>Created</th>
-                    <th>Origin</th>
                     <th>Dealer</th>
                     <th>Actions</th>
                   </tr>
@@ -337,7 +331,6 @@ export default function FilmOrdersPage() {
                     const isDeletePending = pendingDeleteFilmOrderIds.has(
                       order.filmOrderId.trim().toUpperCase()
                     );
-                    const sourceBoxId = getFilmOrderOriginSourceBoxId(order);
                     const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
                     const receiveTarget = buildReceiveOrderedTarget(order);
                     const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
@@ -368,10 +361,6 @@ export default function FilmOrdersPage() {
                         </td>
                         <td>{formatDate(order.installDate)}</td>
                         <td>{formatDate(order.createdAt)}</td>
-                        <td>
-                          <div>{formatFilmOrderOriginLabel(order)}</div>
-                          {sourceBoxId ? <div className="muted-text">Source box: {sourceBoxId}</div> : null}
-                        </td>
                         <td>{formatFilmOrderDealerLabel(order)}</td>
                         <td>
                           <div className="film-order-actions">

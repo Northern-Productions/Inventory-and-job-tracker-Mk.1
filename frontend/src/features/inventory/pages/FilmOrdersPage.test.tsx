@@ -254,7 +254,6 @@ describe('FilmOrdersPage', () => {
       'Ordered Box ID',
       'Install Date',
       'Created',
-      'Origin',
       'Dealer',
       'Actions'
     ]);
@@ -302,7 +301,7 @@ describe('FilmOrdersPage', () => {
     expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
   });
 
-  it('shows linked ordered box ids as box-detail links while keeping shortage source boxes separate', () => {
+  it('shows linked ordered box ids and dealer text without exposing origin/source-box display', () => {
     renderPage([
       buildFilmOrderEntry({
         filmOrderId: 'FO-AUTO',
@@ -333,8 +332,8 @@ describe('FilmOrdersPage', () => {
         sourceBoxId: 'IL1-6923'
       }),
       buildFilmOrderEntry({
-        filmOrderId: 'FO-MANUAL',
-        filmName: 'Manual Roll',
+        filmOrderId: 'FO-PLAIN',
+        filmName: 'Plain Roll',
         linkedBoxes: [],
         sourceBoxId: ''
       })
@@ -342,14 +341,19 @@ describe('FilmOrdersPage', () => {
 
     expect(
       screen.getByText(
-        'Manual orders are created from Film Orders. Auto shortage orders are created after return/weigh or schedule rebalance, not at checkout.'
+        'Film orders are created from explicit order actions in Film Orders before incoming boxes are added or received for the job.'
       )
     ).toBeTruthy();
     expect(screen.getAllByRole('columnheader', { name: 'Ordered Box ID' })[0]).toBeTruthy();
-    expect(screen.getByText('Auto shortage')).toBeTruthy();
-    expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
+    expect(screen.queryByText('Origin')).toBeNull();
+    expect(screen.queryByText('Auto shortage')).toBeNull();
+    expect(screen.queryByText('Manual')).toBeNull();
+    expect(screen.queryByText(/Source box:/)).toBeNull();
     expect(screen.getByText('Decorative Films, Accent')).toBeTruthy();
-    expect(screen.getByText('Manual')).toBeTruthy();
+    expect(screen.getByText(/Plain Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.getAllByText('FILM ORDER')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'FILM ORDERED' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
     expect(screen.getByLabelText('Received IL1-0005')).toBeTruthy();
     expect(screen.queryByLabelText('Received MS1-0042')).toBeNull();
     expect(screen.getByRole('link', { name: 'IL1-0005' }).getAttribute('href')).toBe(
@@ -358,7 +362,7 @@ describe('FilmOrdersPage', () => {
     expect(screen.getByRole('link', { name: 'MS1-0042' }).getAttribute('href')).toBe(
       '/inventory/MS1-0042'
     );
-    const manualRow = screen.getByText(/Manual Roll/, { selector: 'td' }).closest('tr');
+    const manualRow = screen.getByText(/Plain Roll/, { selector: 'td' }).closest('tr');
     expect(manualRow).toBeTruthy();
     expect(within(manualRow as HTMLTableRowElement).getAllByText('--')).toHaveLength(2);
   });

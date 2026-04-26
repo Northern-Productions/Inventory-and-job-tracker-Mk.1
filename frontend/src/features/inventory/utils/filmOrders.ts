@@ -2,7 +2,6 @@ import type { FilmOrderEntry, FilmOrderLinkedBox, FilmOrderStatus } from '../../
 
 type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
   Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet' | 'installDate'>>;
-type FilmOrderOriginEntry = Partial<Pick<FilmOrderEntry, 'origin' | 'sourceBoxId'>>;
 type FilmOrderLinkedBoxesEntry = Partial<Pick<FilmOrderEntry, 'linkedBoxes'>>;
 
 export const FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL = '--';
@@ -33,33 +32,6 @@ interface FilmOrderLinkedBoxSelectionOptions {
 interface FilmOrderDerivedStateOptions {
   actor?: string;
   now?: string;
-}
-
-export function getFilmOrderOrigin(
-  order: FilmOrderOriginEntry | null | undefined
-): NonNullable<FilmOrderEntry['origin']> {
-  const explicitOrigin = String(order?.origin || '').trim().toUpperCase();
-  if (explicitOrigin === 'AUTO_SHORTAGE' || explicitOrigin === 'MANUAL') {
-    return explicitOrigin;
-  }
-
-  return String(order?.sourceBoxId || '').trim() ? 'AUTO_SHORTAGE' : 'MANUAL';
-}
-
-export function formatFilmOrderOriginLabel(
-  order: FilmOrderOriginEntry | null | undefined
-): string {
-  return getFilmOrderOrigin(order) === 'AUTO_SHORTAGE' ? 'Auto shortage' : 'Manual';
-}
-
-export function getFilmOrderOriginSourceBoxId(
-  order: FilmOrderOriginEntry | null | undefined
-): string {
-  if (getFilmOrderOrigin(order) !== 'AUTO_SHORTAGE') {
-    return '';
-  }
-
-  return String(order?.sourceBoxId || '').trim();
 }
 
 function normalizeLinkedBoxId(value: string) {

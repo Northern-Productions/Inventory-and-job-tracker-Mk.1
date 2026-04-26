@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 describe('RelatedFilmOrdersSection', () => {
-  it('shows linked ordered box ids as box-detail links while keeping shortage source boxes separate', () => {
+  it('shows linked ordered box ids, statuses, and actions without exposing origin/source-box display', () => {
     render(
       <MemoryRouter>
         <RelatedFilmOrdersSection
@@ -52,8 +52,8 @@ describe('RelatedFilmOrdersSection', () => {
               ]
             }),
             buildFilmOrderEntry({
-              filmOrderId: 'FO-MANUAL',
-              filmName: 'Manual Roll',
+              filmOrderId: 'FO-PLAIN',
+              filmName: 'Plain Roll',
               sourceBoxId: '',
               linkedBoxes: []
             })
@@ -69,13 +69,16 @@ describe('RelatedFilmOrdersSection', () => {
 
     expect(
       screen.getByText(
-        'Manual orders are created only from explicit order actions. Cancel an unresolved order before creating another for the same film requirement.'
+        'Film orders are created only from explicit order actions. Cancel an unresolved order before creating another for the same film requirement.'
       )
     ).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Ordered Box IDs' })).toBeTruthy();
-    expect(screen.getByText('Auto shortage')).toBeTruthy();
-    expect(screen.getByText('Source box: IL1-6923')).toBeTruthy();
-    expect(screen.getByText('Manual')).toBeTruthy();
+    expect(screen.queryByText('Origin')).toBeNull();
+    expect(screen.queryByText('Auto shortage')).toBeNull();
+    expect(screen.queryByText(/Source box:/)).toBeNull();
+    expect(screen.getAllByText('FILM ORDER')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Order Film' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(2);
     expect(screen.getByRole('link', { name: 'IL1-0005' }).getAttribute('href')).toBe(
       '/inventory/IL1-0005'
     );
@@ -84,7 +87,7 @@ describe('RelatedFilmOrdersSection', () => {
     expect(screen.getByRole('link', { name: 'MS1-0042' }).getAttribute('href')).toBe(
       '/inventory/MS1-0042'
     );
-    const manualRow = screen.getByText(/Manual Roll/, { selector: 'td' }).closest('tr');
+    const manualRow = screen.getByText(/Plain Roll/, { selector: 'td' }).closest('tr');
     expect(manualRow).toBeTruthy();
     expect(within(manualRow as HTMLTableRowElement).getByText('--')).toBeTruthy();
   });
