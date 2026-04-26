@@ -356,44 +356,44 @@ begin
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
       and a.status = 'ACTIVE'
       and coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
       and app_api.film_allocation_reserves_capacity(a, bx.status)
       and coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
       and a.status = 'ACTIVE'
       and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'
       and upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
       and app_api.film_allocation_reserves_capacity(a, b.status::text)
       and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'
       and upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
         and a.status = 'ACTIVE'
     ), 0) > bx.capacity;
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
         and app_api.film_allocation_reserves_capacity(a, bx.status)
         and (
           coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
           or upper(coalesce(bx.status, '')) = 'CHECKED_OUT'
         )
     ), 0) > bx.capacity;
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   if v_next = v_base then

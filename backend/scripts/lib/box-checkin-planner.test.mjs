@@ -171,28 +171,27 @@ test('planBoxCheckIn keeps normal weight-only returns on the existing derived pa
   assert.equal(plan.sameJobActiveAllocatedFeet, 15);
 });
 
-test('planBoxCheckIn flags manual reservations that exceed returned physical LF', () => {
-  const plan = planBoxCheckIn(
-    buildBox(),
-    {
-      lastRollWeightLbs: 1.9,
-      currentFeetOnRoll: 5,
-    },
-    [
-      buildAllocation(),
-      buildAllocation({
-        allocationId: 'alloc-2',
-        jobNumber: '7777',
-        allocatedFeet: 10,
-      }),
-    ],
-    '4580'
+test('planBoxCheckIn rejects manual reservations that exceed returned physical LF', () => {
+  assert.throws(
+    () =>
+      planBoxCheckIn(
+        buildBox(),
+        {
+          lastRollWeightLbs: 1.9,
+          currentFeetOnRoll: 5,
+        },
+        [
+          buildAllocation(),
+          buildAllocation({
+            allocationId: 'alloc-2',
+            jobNumber: '7777',
+            allocatedFeet: 10,
+          }),
+        ],
+        '4580'
+      ),
+    /CurrentFeetOnRoll cannot be lower than the box's locked allocated feet \(10\)\./
   );
-
-  assert.equal(plan.physicalFeetAfterCheckIn, 5);
-  assert.equal(plan.feetAvailableAfterCheckIn, 0);
-  assert.equal(plan.manualReservationOverageFeet, 5);
-  assert.equal(plan.autoPlannedReservationOverageFeet, 0);
 });
 
 test('planBoxCheckIn leaves AUTO_PLANNED overage for planner reconciliation', () => {

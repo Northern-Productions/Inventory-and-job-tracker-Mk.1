@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0089_guard_plain_pending_film_order_delete.sql';
+const LATEST_MIGRATION = '0090_roll_weight_log_created_at.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -21,6 +21,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.boxes.dealer' },
   { kind: 'column', signature: 'app.allocations.allocation_source' },
   { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
+  { kind: 'column', signature: 'app.roll_weight_log.created_at' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },

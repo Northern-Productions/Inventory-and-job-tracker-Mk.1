@@ -356,56 +356,54 @@ begin
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
       and a.status = 'ACTIVE'
       and coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
       and app_api.film_allocation_reserves_capacity(a, bx.status)
       and coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
       and a.status = 'ACTIVE'
       and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'
       and upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
       and app_api.film_allocation_reserves_capacity(a, b.status::text)
       and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'
       and upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    $old$
+    replace($old$
         and a.status = 'ACTIVE'
     ), 0) > bx.capacity;
-$old$,
-    $new$
+$old$, E'\r\n', E'\n'),
+    replace($new$
         and app_api.film_allocation_reserves_capacity(a, bx.status)
         and (
           coalesce(a.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'
           or upper(coalesce(bx.status, '')) = 'CHECKED_OUT'
         )
     ), 0) > bx.capacity;
-$new$
+$new$, E'\r\n', E'\n')
   );
 
   if v_next = v_base then
-    -- If the function already appears patched, do nothing.
-    if v_base like '%film_allocation_reserves_capacity%' then
+    if v_base like '%app_api.film_allocation_reserves_capacity(a, bx.status)%'
+      and v_base like '%app_api.film_allocation_reserves_capacity(a, b.status::text)%'
+    then
       return;
     end if;
 
-    -- Production may have a function-body variant that does not match the
-    -- expected string snippets. Do not block the rest of the migration chain.
-    raise notice 'Skipping reconcile_auto_planned_allocations patch: expected snippets not found';
-    return;
+    raise exception 'reconcile_auto_planned_allocations patch did not match expected snippets';
   end if;
 
   execute v_next;
