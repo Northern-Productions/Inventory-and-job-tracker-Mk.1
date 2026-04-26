@@ -84,6 +84,8 @@ const filmNameAliasCache = new Map<string, {
   aliases: Record<string, string>;
 }>();
 const BOX_TRANSFER_QUERY_BATCH_SIZE = 100;
+const JOBS_CALENDAR_CANDIDATE_LIMIT = 500;
+const JOBS_CALENDAR_DETAIL_BATCH_SIZE = 25;
 
 function normalizeCollapsedCatalogLabel(value: unknown): string {
   return asTrimmedString(value).replace(/\s+/g, " ");
@@ -1467,6 +1469,7 @@ const {
   findFilmOrderById,
   listFilmOrderLinksByFilmOrderId,
   listJobs,
+  listJobsCalendar,
   findJobByNumber,
   listJobRequirements,
   listJobRequirementsByJob,
@@ -4950,6 +4953,109 @@ async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, or
   );
 }
 
+/**
+ * PURPOSE:
+ * Builds full public calendar job entries from a prefiltered job-header set.
+ *
+ * AFFECTS:
+ * /jobs/calendar reads, calendar status badges, job links, and allocation
+ * readiness summaries returned to the frontend.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * buildJobsList, buildJobListEntry, calendar query caching, and the indexed
+ * api_acl_list_jobs_calendar RPC used to choose candidate jobs.
+ *
+ * COMMON FAILURE MODES:
+ * Accidentally reintroducing full box reads, dropping status/detail fields,
+ * overloading the Edge/database with unbounded per-job RPCs, or changing the
+ * lifecycle filtering contract for calendar entries.
+ */
+async function buildJobsCalendarEntriesForHeaders(
+  client: any,
+  orgId: string,
+  jobHeaders: any[],
+  lifecycleFilter: "ACTIVE" | "COMPLETED" | "",
+) {
+  const detailRows: Array<{
+    header: any;
+    allocations: any[];
+    filmOrders: any[];
+    requirements: any[];
+    caulkRequirements: any[];
+    caulkAllocations: any[];
+  }> = [];
+
+  for (const headerBatch of chunkValues(jobHeaders, JOBS_CALENDAR_DETAIL_BATCH_SIZE)) {
+    const batchRows = await Promise.all(
+      headerBatch.map(async (header) => {
+        const jobNumber = asTrimmedString(header?.jobNumber);
+        if (!jobNumber) {
+          return null;
+        }
+
+        const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
+          listAllocationsByJob(client, orgId, jobNumber),
+          listFilmOrdersByJob(client, orgId, jobNumber),
+          listJobRequirementsByJob(client, orgId, jobNumber),
+          listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+          listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+        ]);
+
+        return {
+          header,
+          allocations,
+          filmOrders,
+          requirements,
+          caulkRequirements,
+          caulkAllocations,
+        };
+      }),
+    );
+    detailRows.push(...batchRows.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)));
+  }
+
+  if (!detailRows.length) {
+    return [];
+  }
+
+  const allAllocations = detailRows.flatMap((entry) => entry.allocations);
+  const allBoxes = await listBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
+  const boxById = indexBoxesById(allBoxes);
+  const entries = detailRows.reduce<any[]>((response, row) => {
+    const requirements = buildPublicJobRequirementEntries(row.requirements, row.allocations, boxById);
+    const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
+      row.caulkRequirements,
+      row.caulkAllocations,
+    );
+    const entry = buildJobListEntry(
+      row.header,
+      requirements,
+      row.allocations,
+      row.filmOrders,
+      publicCaulkRequirements,
+      boxById,
+      {
+        allBoxes,
+        caulkAllocations: row.caulkAllocations,
+        caulkStockEntries: [],
+        jobWarehouse: row.header?.warehouse || "",
+      },
+    );
+
+    if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
+      return response;
+    }
+    if (lifecycleFilter === "COMPLETED" && entry.status !== "COMPLETED") {
+      return response;
+    }
+    response.push(entry);
+    return response;
+  }, []);
+
+  entries.sort(compareJobsListEntries);
+  return entries;
+}
+
 async function buildJobsCalendar(
   client: any,
   orgId: string,
@@ -4961,17 +5067,44 @@ async function buildJobsCalendar(
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
-  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
+  let rangeStart = `${normalizedMonth}-01`;
+  const lastDayOfMonth = new Date(
+    Number(normalizedMonth.slice(0, 4)),
+    Number(normalizedMonth.slice(5, 7)),
+    0
+  ).getDate();
+
+  let rangeEnd = `${normalizedMonth}-${String(lastDayOfMonth).padStart(2, "0")}`;
   if (normalizedView === "week") {
-    const weekStart = getCalendarWeekStart(normalizedAnchorDate);
-    const weekEnd = shiftCalendarDate(weekStart, 6);
+    rangeStart = getCalendarWeekStart(normalizedAnchorDate);
+    rangeEnd = shiftCalendarDate(rangeStart, 6);
+  }
+
+  const calendarMonths = Array.from(new Set([rangeStart.slice(0, 7), rangeEnd.slice(0, 7)]));
+  const monthHeaders = await Promise.all(
+    calendarMonths.map((calendarMonth) => listJobsCalendar(client, orgId, calendarMonth, lifecycleFilter)),
+  );
+  const candidateHeaders = monthHeaders
+    .flat()
+    .filter((job) => {
+      const installDate = asTrimmedString(job?.installDate);
+      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= rangeStart && installDate <= rangeEnd;
+    })
+    .slice(0, JOBS_CALENDAR_CANDIDATE_LIMIT);
+
+  if (!candidateHeaders.length) {
+    return [];
+  }
+
+  const entries = await buildJobsCalendarEntriesForHeaders(client, orgId, candidateHeaders, lifecycleFilter);
+  if (normalizedView === "week") {
     return entries.filter((entry) => {
       const installDate = asTrimmedString((entry as Record<string, unknown>).installDate);
-      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= weekStart && installDate <= weekEnd;
+      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= rangeStart && installDate <= rangeEnd;
     });
   }
 
-  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
   return entries.filter((entry) => asTrimmedString((entry as Record<string, unknown>).installDate).slice(0, 7) === normalizedMonth);
 }
 
