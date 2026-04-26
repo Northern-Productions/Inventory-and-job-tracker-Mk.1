@@ -40,13 +40,16 @@ describe('offline inventory filters', () => {
   it('matches the default inventory behavior and hides retired or zeroed boxes', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1001', manufacturer: '3M' }),
+      createBox({ boxId: 'IL1-6734', status: 'CHECKED_OUT', feetAvailable: 0, allocatableNowFeet: 0 }),
+      createBox({ boxId: 'IL1-6942', status: 'TRANSFER', feetAvailable: 0, allocatableNowFeet: 0 }),
+      createBox({ boxId: 'IL1-7001', status: 'ORDERED', feetAvailable: 0, allocatableNowFeet: 0 }),
       createBox({ boxId: 'IL1-1002', status: 'ZEROED' }),
       createBox({ boxId: 'IL1-1003', status: 'RETIRED' })
     ];
 
     const result = filterOfflineBoxes(boxes, { warehouse: 'IL1' });
 
-    expect(result.map((box) => box.boxId)).toEqual(['IL1-1001']);
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-1001', 'IL1-6734', 'IL1-6942', 'IL1-7001']);
   });
 
   it('keeps reserved in-stock boxes visible even when available and allocatable feet are zero', () => {

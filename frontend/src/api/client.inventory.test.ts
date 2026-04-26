@@ -116,6 +116,28 @@ describe('inventory API client', () => {
     });
   });
 
+  it('preserves remote inventory rows beyond the first thousand results', async () => {
+    const remoteBoxes = Array.from({ length: 1002 }, (_, index) => ({
+      boxId: index === 1000 ? 'IL1-6734' : index === 1001 ? 'IL1-6942' : `IL1-${String(index + 1).padStart(4, '0')}`,
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Prestige 40',
+      widthIn: 60,
+      initialFeet: 100,
+      feetAvailable: 0,
+      allocatableNowFeet: 0,
+      allocationPlanningFeet: 0,
+      status: 'CHECKED_OUT'
+    }));
+    requestReadWithFallbackMock.mockResolvedValueOnce(remoteBoxes);
+
+    const boxes = await searchBoxes({ warehouse: 'IL1' });
+
+    expect(boxes).toHaveLength(1002);
+    expect(boxes[boxes.length - 2]?.boxId).toBe('IL1-6734');
+    expect(boxes[boxes.length - 1]?.boxId).toBe('IL1-6942');
+  });
+
   it('passes transfer-plan query params through GET /boxes/transfer/plan', async () => {
     requestReadWithFallbackMock.mockResolvedValueOnce({
       destinationBoxId: 'MS1-1234-IL1',

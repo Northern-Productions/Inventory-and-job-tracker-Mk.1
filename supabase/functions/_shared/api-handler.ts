@@ -84,6 +84,7 @@ const filmNameAliasCache = new Map<string, {
   aliases: Record<string, string>;
 }>();
 const BOX_TRANSFER_QUERY_BATCH_SIZE = 100;
+const WAREHOUSE_BOX_READ_PAGE_SIZE = 1000;
 const JOBS_CALENDAR_CANDIDATE_LIMIT = 500;
 const JOBS_CALENDAR_DETAIL_BATCH_SIZE = 25;
 
@@ -1300,17 +1301,15 @@ async function listInternalBoxRecordIdsByBoxId(orgId: string, boxIds: string[]) 
   return idsByBoxId;
 }
 
-async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: string[]) {
-  const normalizedWarehouses = Array.from(
-    new Set(warehouses.map((warehouse) => asTrimmedString(warehouse).toUpperCase()).filter(Boolean)),
-  );
-  if (!normalizedWarehouses.length) {
-    return [];
-  }
-
+export async function fetchWarehouseBoxRowsForInventory(
+  serviceClient: any,
+  orgId: string,
+  normalizedWarehouses: string[],
+  pageSize = WAREHOUSE_BOX_READ_PAGE_SIZE,
+) {
   /**
    * PURPOSE:
-   * Loads only the requested warehouse rows for /boxes/search before box mapping.
+   * Pages warehouse box rows for /boxes/search so large warehouses are not silently truncated.
    *
    * AFFECTS:
    * Inventory search, offline inventory snapshots, and allocation planning values shown on box rows.
@@ -1319,22 +1318,50 @@ async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: st
    * Frontend offline sync ordering, local backend buildSearchBoxes, and app.boxes warehouse indexes.
    *
    * COMMON FAILURE MODES:
-   * Falling back to all-org box RPCs can repeat expensive JSON aggregation and hit authenticated statement timeouts.
+   * Missing later box IDs after PostgREST row caps, or falling back to all-org RPCs that timeout.
    */
-  const serviceClient = requireServiceRoleClient();
+  const normalizedPageSize = Math.max(1, Math.floor(pageSize));
   const rows: any[] = [];
   for (const warehouseBatch of chunkValues(normalizedWarehouses, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
-    const { data, error } = await serviceClient
-      .schema("app")
-      .from("boxes")
-      .select("*")
-      .eq("org_id", orgId)
-      .in("warehouse", warehouseBatch)
-      .order("box_id", { ascending: true });
-    throwOnSupabaseError(error, "Unable to load warehouse box snapshots");
-    rows.push(...(Array.isArray(data) ? data : []));
+    let pageStart = 0;
+    while (true) {
+      const pageEnd = pageStart + normalizedPageSize - 1;
+      const { data, error } = await serviceClient
+        .schema("app")
+        .from("boxes")
+        .select("*")
+        .eq("org_id", orgId)
+        .in("warehouse", warehouseBatch)
+        .order("box_id", { ascending: true })
+        .range(pageStart, pageEnd);
+      throwOnSupabaseError(error, "Unable to load warehouse box snapshots");
+      const pageRows = Array.isArray(data) ? data : [];
+      rows.push(...pageRows);
+
+      if (pageRows.length < normalizedPageSize) {
+        break;
+      }
+
+      pageStart += normalizedPageSize;
+    }
   }
 
+  return rows;
+}
+
+async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: string[]) {
+  const normalizedWarehouses = Array.from(
+    new Set(warehouses.map((warehouse) => asTrimmedString(warehouse).toUpperCase()).filter(Boolean)),
+  );
+  if (!normalizedWarehouses.length) {
+    return [];
+  }
+
+  const rows = await fetchWarehouseBoxRowsForInventory(
+    requireServiceRoleClient(),
+    orgId,
+    normalizedWarehouses,
+  );
   const mappedBoxes: any[] = [];
   for (const row of rows) {
     const mapped = mapDbBoxRow(row);
