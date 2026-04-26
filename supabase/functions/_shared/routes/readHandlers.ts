@@ -118,7 +118,17 @@ type ReadHandler = (
 
 const readHandlers: Record<string, ReadHandler> = {
   "/app/attention-summary": async ({ client, orgId, identity }, deps) => {
-    return ok(await deps.buildAppAttentionSummary(client, orgId, identity));
+    const start = Date.now();
+
+    try {
+      const dbStart = Date.now();
+      const summary = await deps.buildAppAttentionSummary(client, orgId, identity);
+      console.log("DB TIME:", Date.now() - dbStart, "ms");
+
+      return ok(summary);
+    } finally {
+      console.log("TIMING /app/attention-summary:", Date.now() - start, "ms");
+    }
   },
   "/admin/access/requests": async ({ client, orgId, params }, deps) => {
     const status = deps.asTrimmedString(params.status);
@@ -437,16 +447,24 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus, jobNumbers) });
   },
   "/jobs/calendar": async ({ client, orgId, params }, deps) => {
-    return ok({
-      entries: await deps.buildJobsCalendar(
+    const start = Date.now();
+
+    try {
+      const dbStart = Date.now();
+      const entries = await deps.buildJobsCalendar(
         client,
         orgId,
         params.view,
         params.anchorDate,
         params.month,
         params.lifecycleStatus
-      )
-    });
+      );
+      console.log("DB TIME:", Date.now() - dbStart, "ms");
+
+      return ok({ entries });
+    } finally {
+      console.log("TIMING /jobs/calendar:", Date.now() - start, "ms");
+    }
   },
   "/jobs/search": async ({ client, orgId, params }, deps) => {
     const limitValue = Number(params.limit);
