@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accessRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const accessRefreshTokenRef = useRef('');
   const sessionTokenRef = useRef(session?.token || '');
+  const sessionUserIdRef = useRef(session?.user?.sub || '');
   const resolvedAuthScopeSignatureRef = useRef('');
   const isAuthenticated = Boolean(session?.token && session.user?.email && session.user?.name);
 
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setErrorMessage(nextErrorMessage);
       setPasswordResetMessage(nextPasswordResetMessage);
       sessionTokenRef.current = '';
+      sessionUserIdRef.current = '';
       resolvedAuthScopeSignatureRef.current = '';
       setStoredAuthSession(null);
       setSession(null);
@@ -220,13 +222,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     sessionTokenRef.current = session?.token || '';
-  }, [session?.token]);
+    sessionUserIdRef.current = session?.user?.sub || '';
+  }, [session?.token, session?.user?.sub]);
   useSupabaseAuthSessionLifecycle({
+    accessContextRef,
     applyAccessContext,
     authConfigured,
     clearRecoveryUrlState,
     finalizeSignedOutState,
     resolvedAuthScopeSignatureRef,
+    sessionUserIdRef,
     setAccessRefreshError,
     setErrorMessage,
     setIsAccessReady,

@@ -66,6 +66,30 @@ function createSession(overrides: Partial<Session> = {}): Session {
   } as Session;
 }
 
+function createAccessContext(overrides: Record<string, unknown> = {}) {
+  return {
+    orgId: 'org-1',
+    accessStatus: 'approved',
+    role: 'owner',
+    permissions: {},
+    isAdminConsoleAllowed: true,
+    pendingCount: 0,
+    receivesInAppNotifications: true,
+    ...overrides
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function Probe() {
   const auth = useAuth();
 
@@ -77,6 +101,8 @@ function Probe() {
       <div data-testid="message">{auth.passwordResetMessage}</div>
       <div data-testid="error">{auth.errorMessage}</div>
       <div data-testid="access-ready">{String(auth.isAccessReady)}</div>
+      <div data-testid="access-status">{auth.accessStatus}</div>
+      <div data-testid="access-refresh-error">{auth.accessRefreshError}</div>
       <button type="button" onClick={() => void auth.requestPasswordReset('user@example.com')}>
         request-reset
       </button>
@@ -85,6 +111,9 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void auth.signOut()}>
         sign-out
+      </button>
+      <button type="button" onClick={() => void auth.refreshAccessContext()}>
+        refresh-access
       </button>
     </div>
   );
@@ -153,15 +182,7 @@ describe('AuthContext', () => {
     });
     isSupabaseAuthConfiguredMock.mockReturnValue(true);
     getStoredAuthSessionMock.mockReturnValue(null);
-    getAuthContextMock.mockResolvedValue({
-      orgId: 'org-1',
-      accessStatus: 'approved',
-      role: 'owner',
-      permissions: {},
-      isAdminConsoleAllowed: true,
-      pendingCount: 0,
-      receivesInAppNotifications: true
-    });
+    getAuthContextMock.mockResolvedValue(createAccessContext());
     setStoredAuthSessionMock.mockReset();
     setClientAccessContextMock.mockReset();
     requestUsernameChangeApiMock.mockReset();
@@ -314,6 +335,100 @@ describe('AuthContext', () => {
       )
     ).toBe(false);
     consoleErrorSpy.mockRestore();
+    queryClient.clear();
+  });
+
+  it('keeps loaded access context available during a same-user token refresh', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+
+    const { queryClient } = renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    });
+
+    const refreshContext = createDeferred<ReturnType<typeof createAccessContext>>();
+    getAuthContextMock.mockImplementationOnce(() => refreshContext.promise);
+
+    authStateChangeHandler?.(
+      'TOKEN_REFRESHED',
+      createSession({
+        access_token: 'access-token-refreshed'
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('access-ready').textContent).toBe('false');
+    });
+    expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    expect(screen.getByTestId('access-refresh-error').textContent).toBe('');
+
+    refreshContext.resolve(createAccessContext({ pendingCount: 2 }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    });
+    queryClient.clear();
+  });
+
+  it('preserves loaded access context when a background refresh fails without expiring the session', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+
+    const { queryClient } = renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    });
+
+    getAuthContextMock.mockRejectedValueOnce(new Error('Temporary auth context outage'));
+    fireEvent.click(screen.getByRole('button', { name: 'refresh-access' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-refresh-error').textContent).toBe(
+        'Temporary auth context outage'
+      );
+    });
+    expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    expect(screen.getByTestId('error').textContent).toBe('');
+    queryClient.clear();
+  });
+
+  it('clears protected access state when a refresh reports an expired session', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+
+    const { queryClient } = renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    });
+
+    getAuthContextMock.mockRejectedValueOnce(new Error('token expired'));
+    fireEvent.click(screen.getByRole('button', { name: 'refresh-access' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('false');
+      expect(screen.getByTestId('access-status').textContent).toBe('');
+      expect(screen.getByTestId('error').textContent).toBe(
+        'Your session expired. Please sign in again.'
+      );
+    });
     queryClient.clear();
   });
 

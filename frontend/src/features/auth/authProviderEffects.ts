@@ -11,11 +11,13 @@ interface FinalizeSignedOutStateOptions {
 }
 
 interface UseSupabaseAuthSessionLifecycleOptions {
+  accessContextRef: MutableRefObject<EffectiveAccessContext | null>;
   applyAccessContext: (nextContext: EffectiveAccessContext | null) => void;
   authConfigured: boolean;
   clearRecoveryUrlState: () => void;
   finalizeSignedOutState: (options?: FinalizeSignedOutStateOptions) => void;
   resolvedAuthScopeSignatureRef: MutableRefObject<string>;
+  sessionUserIdRef: MutableRefObject<string>;
   setAccessRefreshError: Dispatch<SetStateAction<string>>;
   setErrorMessage: Dispatch<SetStateAction<string>>;
   setIsAccessReady: Dispatch<SetStateAction<boolean>>;
@@ -33,12 +35,44 @@ interface UseAuthAccessRefreshEffectsOptions {
   throttleMs: number;
 }
 
+/**
+ * PURPOSE:
+ * Decides whether a Supabase auth event is a same-user validation refresh that
+ * can keep the current access context visible while /auth/context revalidates.
+ *
+ * AFFECTS:
+ * Protected route mounting, in-progress form state, and access-gated nav while
+ * browser focus/token refresh events run in the background.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * AuthContext.refreshAccessContext, App.tsx loader gating, and auth context
+ * tests that cover same-user refresh, different-user sign-in, and sign-out.
+ *
+ * COMMON FAILURE MODES:
+ * Clearing access context for a same-user refresh, preserving access for a
+ * different user, or hiding expired-session sign-out behind stale permissions.
+ */
+function shouldPreserveAccessContextForSessionRefresh(
+  previousUserId: string,
+  nextSession: AuthSession | null,
+  accessContext: EffectiveAccessContext | null,
+) {
+  return Boolean(
+    previousUserId &&
+      nextSession?.user?.sub &&
+      nextSession.user.sub === previousUserId &&
+      accessContext,
+  );
+}
+
 export function useSupabaseAuthSessionLifecycle({
+  accessContextRef,
   applyAccessContext,
   authConfigured,
   clearRecoveryUrlState,
   finalizeSignedOutState,
   resolvedAuthScopeSignatureRef,
+  sessionUserIdRef,
   setAccessRefreshError,
   setErrorMessage,
   setIsAccessReady,
@@ -54,6 +88,7 @@ export function useSupabaseAuthSessionLifecycle({
     if (!authConfigured || !supabase) {
       setStoredAuthSession(null);
       setSession(null);
+      sessionUserIdRef.current = '';
       applyAccessContext(null);
       setErrorMessage('');
       setPasswordResetMessage('');
@@ -84,6 +119,7 @@ export function useSupabaseAuthSessionLifecycle({
         const nextSession = mapSupabaseSession(data.session);
         setStoredAuthSession(nextSession);
         setSession(nextSession);
+        sessionUserIdRef.current = nextSession?.user?.sub || '';
         if (!nextSession) {
           resolvedAuthScopeSignatureRef.current = '';
           applyAccessContext(null);
@@ -115,6 +151,7 @@ export function useSupabaseAuthSessionLifecycle({
         if (!isCancelled) {
           setStoredAuthSession(null);
           setSession(null);
+          sessionUserIdRef.current = '';
           applyAccessContext(null);
           setAccessRefreshError('');
           setPasswordResetMessage('');
@@ -143,8 +180,15 @@ export function useSupabaseAuthSessionLifecycle({
       }
 
       const mapped = mapSupabaseSession(nextSession);
+      const previousUserId = sessionUserIdRef.current;
+      const preserveCurrentAccessContext = shouldPreserveAccessContextForSessionRefresh(
+        previousUserId,
+        mapped,
+        accessContextRef.current,
+      );
       setStoredAuthSession(mapped);
       setSession(mapped);
+      sessionUserIdRef.current = mapped?.user?.sub || '';
       if (!mapped) {
         finalizeSignedOutState();
       } else {
@@ -159,6 +203,11 @@ export function useSupabaseAuthSessionLifecycle({
           setPasswordResetMessage('');
           setErrorMessage('');
           clearRecoveryUrlState();
+        } else if (preserveCurrentAccessContext) {
+          setAccessRefreshError('');
+          setIsAccessReady(false);
+          setIsPasswordRecovery(false);
+          setErrorMessage('');
         } else {
           applyAccessContext(null);
           setAccessRefreshError('');
@@ -172,11 +221,13 @@ export function useSupabaseAuthSessionLifecycle({
       subscription.unsubscribe();
     };
   }, [
+    accessContextRef,
     applyAccessContext,
     authConfigured,
     clearRecoveryUrlState,
     finalizeSignedOutState,
     resolvedAuthScopeSignatureRef,
+    sessionUserIdRef,
     setAccessRefreshError,
     setErrorMessage,
     setIsAccessReady,

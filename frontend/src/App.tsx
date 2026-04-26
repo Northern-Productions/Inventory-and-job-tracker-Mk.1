@@ -33,6 +33,7 @@ function PwaUpdateBanner() {
 
 export default function App() {
   const auth = useAuth();
+  const isInitialAccessLoading = auth.isAuthenticated && !auth.isAccessReady && !auth.accessContext;
 
   if (auth.isPasswordRecovery) {
     return (
@@ -52,7 +53,7 @@ export default function App() {
     );
   }
 
-  if (!auth.isAccessReady && !auth.accessContext) {
+  if (isInitialAccessLoading) {
     return (
       <>
         <PwaUpdateBanner />
