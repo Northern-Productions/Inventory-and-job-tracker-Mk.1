@@ -29,13 +29,10 @@ export async function buildAppAttentionSummary(
   orgId: string,
   identity: AuthIdentity,
   deps: {
-    buildJobsList: (
+    hasActiveJobsNeedingAllocation: (
       client: any,
       orgId: string,
-      limit: number,
-      lifecycleStatus?: unknown,
-      jobNumbers?: unknown,
-    ) => Promise<Record<string, unknown>[]>;
+    ) => Promise<boolean>;
     buildFilmOrdersList: (client: any, orgId: string) => Promise<Record<string, unknown>[]>;
     rpcOrThrow: <T>(client: any, fn: string, params?: Record<string, unknown>) => Promise<T>;
   },
@@ -44,8 +41,8 @@ export async function buildAppAttentionSummary(
   const canReadFilmOrders = canReadFeature(identity, "film_orders");
   const canReviewAccessRequests = identity.role === "owner";
 
-  const [jobs, filmOrders, accessRequests] = await Promise.all([
-    canReadJobs ? deps.buildJobsList(client, orgId, 0, "ACTIVE") : Promise.resolve([]),
+  const [hasJobsNeedingAllocation, filmOrders, accessRequests] = await Promise.all([
+    canReadJobs ? deps.hasActiveJobsNeedingAllocation(client, orgId) : Promise.resolve(false),
     canReadFilmOrders ? deps.buildFilmOrdersList(client, orgId) : Promise.resolve([]),
     canReviewAccessRequests
       ? deps.rpcOrThrow<Record<string, unknown>[]>(client, "api_list_access_requests", {
@@ -56,11 +53,7 @@ export async function buildAppAttentionSummary(
   ]);
 
   return {
-    hasJobsNeedingAllocation: jobs.some(
-      (entry) =>
-        String(entry.lifecycleStatus || "").trim().toUpperCase() === "ACTIVE" &&
-        (Number(entry.remainingFeet || 0) > 0 || Number(entry.remainingTubes || 0) > 0),
-    ),
+    hasJobsNeedingAllocation,
     hasFilmOrdersNeedingAttention: filmOrders.some((entry) => isFilmOrderNeedingAttention(entry)),
     pendingAccessRequests: accessRequests.length > 0,
   };

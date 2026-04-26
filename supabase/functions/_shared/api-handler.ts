@@ -4878,6 +4878,78 @@ async function buildJobsSearchResults(
   });
 }
 
+async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, orgId: string) {
+  const jobs = (await listJobs(client, orgId)).slice(0, 500);
+  const activeJobs = jobs.filter(
+    (job) => asTrimmedString(job?.lifecycleStatus).toUpperCase() === "ACTIVE",
+  );
+
+  if (!activeJobs.length) {
+    return false;
+  }
+
+  const activeJobNumbers = new Set(
+    activeJobs.map((job) => normalizeJobNumberKey(job?.jobNumber)).filter(Boolean),
+  );
+  const [allRequirements, allAllocations] = await Promise.all([
+    listJobRequirements(client, orgId),
+    listAllocations(client, orgId),
+  ]);
+  const requirementsByJobNumber: Record<string, any[]> = {};
+  const allocationsByJobNumber: Record<string, any[]> = {};
+  const relevantAllocations = allAllocations.filter((allocation) =>
+    activeJobNumbers.has(normalizeJobNumberKey(allocation?.jobNumber)),
+  );
+  const boxById = indexBoxesById(
+    await listBoxesByIds(orgId, collectAllocationBoxIds(relevantAllocations)),
+  );
+
+  for (const requirement of allRequirements) {
+    const jobNumber = normalizeJobNumberKey(requirement?.jobNumber);
+    if (!activeJobNumbers.has(jobNumber)) {
+      continue;
+    }
+    if (!requirementsByJobNumber[jobNumber]) {
+      requirementsByJobNumber[jobNumber] = [];
+    }
+    requirementsByJobNumber[jobNumber].push(requirement);
+  }
+
+  for (const allocation of relevantAllocations) {
+    const jobNumber = normalizeJobNumberKey(allocation?.jobNumber);
+    if (!activeJobNumbers.has(jobNumber)) {
+      continue;
+    }
+    if (!allocationsByJobNumber[jobNumber]) {
+      allocationsByJobNumber[jobNumber] = [];
+    }
+    allocationsByJobNumber[jobNumber].push(allocation);
+  }
+
+  for (const job of activeJobs) {
+    const jobNumber = normalizeJobNumberKey(job?.jobNumber);
+    const requirements = buildPublicJobRequirementEntries(
+      requirementsByJobNumber[jobNumber] || [],
+      allocationsByJobNumber[jobNumber] || [],
+      boxById,
+    );
+
+    if (requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0)) {
+      return true;
+    }
+  }
+
+  const caulkPlanning = await loadCaulkPlanningByJobNumbers(
+    client,
+    orgId,
+    activeJobs.map((job) => asTrimmedString(job?.jobNumber)).filter(Boolean),
+  );
+
+  return Object.values(caulkPlanning.requirementsByJob).some((requirements) =>
+    requirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0),
+  );
+}
+
 async function buildJobsCalendar(
   client: any,
   orgId: string,
@@ -6765,7 +6837,7 @@ async function dispatchRead(
   return dispatchReadWithHandlers(client, identity.orgId, logicalPath, params, identity, {
     buildAppAttentionSummary: (readClient, readOrgId, identity) =>
       buildAppAttentionSummaryFromService(readClient, readOrgId, identity, {
-        buildJobsList,
+        hasActiveJobsNeedingAllocation: hasActiveJobsNeedingAllocationForAttentionSummary,
         buildFilmOrdersList,
         rpcOrThrow,
       }),
