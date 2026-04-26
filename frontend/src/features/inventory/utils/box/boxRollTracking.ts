@@ -4,6 +4,7 @@ import type {
   BoxStatus,
   CoreType
 } from '../../../../domain';
+import { getPhysicalStockFeet } from '../../../../domain';
 import { deriveCreateFeetAvailable } from './boxLifecycle';
 
 export const CORE_TYPE_OPTIONS = [
@@ -104,8 +105,10 @@ export function isLowStockFeetValue(feetAvailable: number): boolean {
   return feetAvailable > 0 && feetAvailable < LOW_STOCK_THRESHOLD_LF;
 }
 
-export function isLowStockBox(box: Pick<Box, 'status' | 'feetAvailable'>): boolean {
-  return box.status === 'IN_STOCK' && isLowStockFeetValue(box.feetAvailable);
+export function isLowStockBox(
+  box: Pick<Box, 'status' | 'feetAvailable'> & Partial<Pick<Box, 'physicalFeetAvailable'>>
+): boolean {
+  return box.status === 'IN_STOCK' && isLowStockFeetValue(getPhysicalStockFeet(box));
 }
 
 export function getActiveAllocatedFeet(

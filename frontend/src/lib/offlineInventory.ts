@@ -1,4 +1,4 @@
-import type { Box, SearchBoxesParams, Warehouse } from '../domain';
+import { getPhysicalStockFeet, type Box, type SearchBoxesParams, type Warehouse } from '../domain';
 import { matchesBoxSearchQuery, rankBoxSearchCandidates } from '../domain/boxSearchMatcher.mjs';
 import { normalizeManufacturerLookupKey } from './manufacturerCanonicalization';
 
@@ -8,6 +8,23 @@ const BOX_STORE = 'boxes';
 const SYNC_META_STORE = 'sync-meta';
 const LOW_STOCK_THRESHOLD_LF = 10;
 const STANDARD_OFFLINE_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
+
+/**
+ * PURPOSE:
+ * Keeps default inventory visibility status-only so reserved boxes with 0 allocatable LF still appear.
+ *
+ * AFFECTS:
+ * Inventory tab filtering, offline fallback search, and warehouse snapshot browsing.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /boxes/search filtering, InventoryTable stock columns, and explicit Zeroed status filter behavior.
+ *
+ * COMMON FAILURE MODES:
+ * Hiding fully reserved boxes, treating 0 allocatable LF as zeroed stock, or blocking box detail access.
+ */
+function shouldHideFromDefaultInventory(box: Pick<Box, 'status'>, status: string, showRetired: boolean): boolean {
+  return !showRetired && !status && (box.status === 'ZEROED' || box.status === 'RETIRED');
+}
 
 export interface OfflineInventorySyncMeta {
   warehouse: Warehouse;
@@ -49,7 +66,7 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
       continue;
     }
 
-    if (!showRetired && !status && (box.status === 'ZEROED' || box.status === 'RETIRED')) {
+    if (shouldHideFromDefaultInventory(box, status, showRetired)) {
       continue;
     }
 
@@ -284,7 +301,8 @@ async function getAllOfflineBoxes(): Promise<Box[]> {
 }
 
 function isLowStockBox(box: Box): boolean {
-  return box.status === 'IN_STOCK' && box.feetAvailable > 0 && box.feetAvailable < LOW_STOCK_THRESHOLD_LF;
+  const physicalStockFeet = getPhysicalStockFeet(box);
+  return box.status === 'IN_STOCK' && physicalStockFeet > 0 && physicalStockFeet < LOW_STOCK_THRESHOLD_LF;
 }
 
 function prioritizeLowStockBoxes(boxes: Box[]): Box[] {
@@ -301,8 +319,10 @@ function prioritizeLowStockBoxes(boxes: Box[]): Box[] {
   }
 
   lowStock.sort((a, b) => {
-    if (a.feetAvailable !== b.feetAvailable) {
-      return a.feetAvailable - b.feetAvailable;
+    const leftPhysicalStockFeet = getPhysicalStockFeet(a);
+    const rightPhysicalStockFeet = getPhysicalStockFeet(b);
+    if (leftPhysicalStockFeet !== rightPhysicalStockFeet) {
+      return leftPhysicalStockFeet - rightPhysicalStockFeet;
     }
 
     return a.boxId < b.boxId ? -1 : a.boxId > b.boxId ? 1 : 0;

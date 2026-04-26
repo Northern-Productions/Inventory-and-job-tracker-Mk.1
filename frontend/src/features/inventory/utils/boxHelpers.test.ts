@@ -378,6 +378,8 @@ describe('boxHelpers', () => {
     expect(isLowStockFeetValue(10)).toBe(false);
     expect(isLowStockFeetValue(0)).toBe(false);
     expect(isLowStockBox({ status: 'IN_STOCK', feetAvailable: 4 })).toBe(true);
+    expect(isLowStockBox({ status: 'IN_STOCK', feetAvailable: 0, physicalFeetAvailable: 6 })).toBe(true);
+    expect(isLowStockBox({ status: 'IN_STOCK', feetAvailable: 4, physicalFeetAvailable: 0 })).toBe(false);
     expect(isLowStockBox({ status: 'CHECKED_OUT', feetAvailable: 4 })).toBe(false);
   });
 

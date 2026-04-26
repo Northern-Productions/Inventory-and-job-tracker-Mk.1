@@ -49,6 +49,31 @@ describe('offline inventory filters', () => {
     expect(result.map((box) => box.boxId)).toEqual(['IL1-1001']);
   });
 
+  it('keeps reserved in-stock boxes visible even when available and allocatable feet are zero', () => {
+    const boxes = [
+      createBox({
+        boxId: 'IL1-5130',
+        feetAvailable: 0,
+        physicalFeetAvailable: 6,
+        allocatableNowFeet: 0,
+        allocationPlanningFeet: 0
+      }),
+      createBox({
+        boxId: 'IL1-5131',
+        feetAvailable: 0,
+        physicalFeetAvailable: 100,
+        allocatableNowFeet: 0,
+        allocationPlanningFeet: 0,
+        allocatedWithInstallDateFeet: 100
+      }),
+      createBox({ boxId: 'IL1-5132', status: 'ZEROED', feetAvailable: 0 })
+    ];
+
+    const result = filterOfflineBoxes(boxes, { warehouse: 'IL1' });
+
+    expect(result.map((box) => box.boxId)).toEqual(['IL1-5130', 'IL1-5131']);
+  });
+
   it('filters by search text, manufacturer, film, width, and explicit statuses', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1001', manufacturer: '3M Fasara', filmName: 'Night Vision', widthIn: 36 }),

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Box } from '../../../domain';
 import { InventoryTable } from './InventoryTable';
@@ -74,6 +74,41 @@ describe('InventoryTable', () => {
       'Dealer'
     ]);
     expect(screen.getByText('Eastman Performance Films')).toBeTruthy();
+  });
+
+  it('renders reserved boxes with physical stock, zero allocatable availability, and working links', () => {
+    useIsPhoneLayoutMock.mockReturnValue(false);
+    const onSelect = vi.fn();
+
+    render(
+      <InventoryTable
+        boxes={[
+          buildBox({
+            boxId: '5130',
+            dealer: 'Llumar Select Pro',
+            feetAvailable: 0,
+            physicalFeetAvailable: 6,
+            allocatableNowFeet: 0,
+            allocationPlanningFeet: 0,
+            initialFeet: 700
+          })
+        ]}
+        onSelect={onSelect}
+      />
+    );
+
+    const boxLink = screen.getByRole('button', { name: 'IL1-5130' });
+    const row = boxLink.closest('tr');
+    expect(row).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getByText('6')).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getByText('0')).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getByText('LOW STOCK')).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getByText('IN_STOCK')).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getByText('Llumar Select Pro')).toBeTruthy();
+
+    fireEvent.click(boxLink);
+
+    expect(onSelect).toHaveBeenCalledWith('IL1-5130');
   });
 
   it('renders dealer on the mobile card layout', () => {

@@ -8,6 +8,7 @@ import {
   MobileRecordCard,
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
+import { getAllocatableStockFeet, getPhysicalStockFeet } from '../../../domain';
 import type { Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
@@ -45,6 +46,11 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
       <div className="mobile-record-list">
         {boxes.map((box, index) => {
           const displayBoxId = displayBoxIds[index] || box.boxId;
+          const physicalStockFeet = getPhysicalStockFeet(box);
+          const allocatableStockFeet = getAllocatableStockFeet(box);
+          const lowStockBadge = isLowStockBox(box) ? (
+            <span className="stock-flag stock-flag-low">LOW STOCK</span>
+          ) : null;
 
           return (
             <MobileRecordCard key={box.boxId}>
@@ -57,19 +63,19 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
               <MobileFieldList>
                 <MobileField label="Warehouse" value={box.warehouse} />
                 <MobileField label="Width" value={box.widthIn} />
-                <MobileField label="On Hand Linear Ft" value={box.initialFeet} />
                 <MobileField
-                  label="Available Linear Ft"
+                  label="On Hand Linear Ft"
                   value={
-                    isLowStockBox(box) ? (
+                    lowStockBadge ? (
                       <>
-                        {box.feetAvailable} <span className="stock-flag stock-flag-low">LOW STOCK</span>
+                        {physicalStockFeet} {lowStockBadge}
                       </>
                     ) : (
-                      box.feetAvailable
+                      physicalStockFeet
                     )
                   }
                 />
+                <MobileField label="Available Linear Ft" value={allocatableStockFeet} />
                 <MobileField label="Last Weighed" value={formatDate(box.lastWeighedDate)} />
                 <MobileField label="Dealer" value={box.dealer || '--'} />
               </MobileFieldList>
@@ -108,6 +114,11 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
         <tbody>
           {boxes.map((box, index) => {
             const displayBoxId = displayBoxIds[index] || box.boxId;
+            const physicalStockFeet = getPhysicalStockFeet(box);
+            const allocatableStockFeet = getAllocatableStockFeet(box);
+            const lowStockBadge = isLowStockBox(box) ? (
+              <span className="stock-flag stock-flag-low">LOW STOCK</span>
+            ) : null;
 
             return (
               <tr key={box.boxId}>
@@ -119,13 +130,13 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
                 <td>{box.manufacturer}</td>
                 <td>{box.filmName}</td>
                 <td>{box.widthIn}</td>
-                <td className="col-on-hand-linear-ft">{box.initialFeet}</td>
-                <td className="col-available-linear-ft">
+                <td className="col-on-hand-linear-ft">
                   <div className="stock-cell">
-                    <span>{box.feetAvailable}</span>
-                    {isLowStockBox(box) ? <span className="stock-flag stock-flag-low">LOW STOCK</span> : null}
+                    <span>{physicalStockFeet}</span>
+                    {lowStockBadge}
                   </div>
                 </td>
+                <td className="col-available-linear-ft">{allocatableStockFeet}</td>
                 <td>
                   <span className={`badge badge-${box.status}`}>{box.status}</span>
                 </td>
