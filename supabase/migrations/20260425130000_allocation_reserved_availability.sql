@@ -29,17 +29,17 @@ security definer
 set search_path = public, app, app_api
 as $$
   select
-    coalesce(p_allocation.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
-    and p_allocation.requirement_id is not null
+    coalesce((p_allocation).allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
+    and (p_allocation).requirement_id is not null
     and (
-      p_allocation.job_id is not null
-      or app_api.trim_text(p_allocation.job_number) <> ''
+      (p_allocation).job_id is not null
+      or app_api.trim_text((p_allocation).job_number) <> ''
     )
-    and coalesce(p_allocation.allocated_feet, 0) > 0
+    and coalesce((p_allocation).allocated_feet, 0) > 0
     and (
-      p_allocation.status = 'ACTIVE'
+      (p_allocation).status = 'ACTIVE'
       or (
-        p_allocation.status = 'FULFILLED'
+        (p_allocation).status = 'FULFILLED'
         and upper(coalesce(p_box_status, '')) = 'CHECKED_OUT'
       )
     );
@@ -57,10 +57,10 @@ set search_path = public, app, app_api
 as $$
   select
     app_api.film_allocation_reserves_capacity(p_allocation, p_box_status)
-    and p_allocation.status = 'ACTIVE'
-    and p_allocation.job_date is not null
+    and (p_allocation).status = 'ACTIVE'
+    and (p_allocation).job_date is not null
     and upper(coalesce(p_box_status, '')) in ('IN_STOCK', 'TRANSFER')
-    and coalesce(p_allocation.allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED';
+    and coalesce((p_allocation).allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED';
 $$;
 
 create or replace function app_api.reserved_film_allocated_feet_for_box(

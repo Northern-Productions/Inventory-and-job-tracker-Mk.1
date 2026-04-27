@@ -26,13 +26,13 @@ test('allocation reserved availability migration counts only qualifying capacity
   const migration = await readFile(backendMigrationPath, 'utf8');
 
   assert.match(migration, /film_allocation_reserves_capacity/);
-  assert.match(migration, /p_allocation\.requirement_id is not null/);
-  assert.match(migration, /p_allocation\.job_id is not null/);
-  assert.match(migration, /coalesce\(p_allocation\.allocation_kind::text, 'REQUIREMENT'\) = 'REQUIREMENT'/);
-  assert.match(migration, /p_allocation\.status = 'ACTIVE'/);
-  assert.match(migration, /p_allocation\.status = 'FULFILLED'/);
+  assert.match(migration, /\(p_allocation\)\.requirement_id is not null/);
+  assert.match(migration, /\(p_allocation\)\.job_id is not null/);
+  assert.match(migration, /coalesce\(\(p_allocation\)\.allocation_kind::text, 'REQUIREMENT'\) = 'REQUIREMENT'/);
+  assert.match(migration, /\(p_allocation\)\.status = 'ACTIVE'/);
+  assert.match(migration, /\(p_allocation\)\.status = 'FULFILLED'/);
   assert.match(migration, /upper\(coalesce\(p_box_status, ''\)\) = 'CHECKED_OUT'/);
   assert.doesNotMatch(migration, /p_allocation\.job_date is not null\s+or/);
-  assert.match(migration, /coalesce\(p_allocation\.allocation_source::text, 'MANUAL'\) <> 'AUTO_PLANNED'/);
+  assert.match(migration, /coalesce\(\(p_allocation\)\.allocation_source::text, 'MANUAL'\) <> 'AUTO_PLANNED'/);
   assert.match(migration, /app_api\.film_allocation_reserves_capacity\(a, bx\.status\)/);
 });
