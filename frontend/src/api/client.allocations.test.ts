@@ -27,6 +27,7 @@ import {
   getAllocationJob,
   previewAllocationPlan,
   removeCaulkJobAllocation,
+  removeJobBoxAllocations,
   updateCaulkJobAllocation
 } from './client';
 import { request } from './http';
@@ -178,6 +179,34 @@ describe('allocations API client caulk routes', () => {
         requirementId: 'req-72',
         selectedSuggestionBoxIds: [],
         extraAllocations: []
+      }
+    });
+  });
+
+  it('posts remove-box with the allocation row id, not the box id', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobNumber: '4953',
+        allocationId: 'alloc-6868',
+        boxId: 'IL1-6868',
+        removedAllocationCount: 1,
+        releasedFeet: 60
+      },
+      warnings: []
+    });
+
+    const result = await removeJobBoxAllocations({
+      jobNumber: '4953',
+      allocationId: 'alloc-6868',
+      reason: 'Removed allocation alloc-6868 for box IL1-6868 from job 4953.'
+    });
+
+    expect(result.result.allocationId).toBe('alloc-6868');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/remove-box', {
+      body: {
+        jobNumber: '4953',
+        allocationId: 'alloc-6868',
+        reason: 'Removed allocation alloc-6868 for box IL1-6868 from job 4953.'
       }
     });
   });

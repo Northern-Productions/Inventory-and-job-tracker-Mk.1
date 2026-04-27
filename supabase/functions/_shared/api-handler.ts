@@ -6732,111 +6732,27 @@ async function recalculateFilmOrderAfterAllocationMutation(
 }
 
 async function removeJobBoxAllocation(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
-  const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
   const jobNumber = requireString(payload.jobNumber, "JobNumber");
   const allocationId = requireString(payload.allocationId, "AllocationID");
-  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
-  const serviceClient = requireServiceRoleClientForJobs();
-
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
-  if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
-    throw new HttpError(400, `Job ${jobNumber} is closed and allocation rows cannot be removed.`);
-  }
-
-  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
-  const target = allocations.find((entry) => asTrimmedString(entry.allocationId) === allocationId);
-  if (!target) {
-    throw new HttpError(404, `Allocation ${allocationId} was not found for job ${jobNumber}.`);
-  }
-
-  if (target.status === "CANCELLED") {
-    warnings.push(`Allocation ${allocationId} was already cancelled for job ${jobNumber}.`);
-    return ok({
+  const result = await rpcOrThrow<Record<string, unknown>>(client, "api_acl_allocations_remove_box", {
+    p_org_id: orgId,
+    p_actor: actor,
+    p_payload: {
+      ...payload,
       jobNumber,
-      allocationId: target.allocationId,
-      boxId: target.boxId,
-      removedAllocationCount: 0,
-      releasedFeet: 0,
-    }, warnings);
-  }
-
-  const box = await findBoxById(client, orgId, target.boxId);
-  if (
-    box &&
-    box.status === "CHECKED_OUT" &&
-    normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobNumber
-  ) {
-    throw new HttpError(
-      400,
-      `Box ${target.boxId} is checked out on job ${jobNumber} and cannot be removed until the box is checked in.`,
-    );
-  }
-
-  const note = asTrimmedString(payload.reason) ||
-    `Removed allocation ${target.allocationId} for box ${target.boxId} from job ${jobNumber} on allocation detail page.`;
-  const releasedFeet =
-    target.status === "ACTIVE" || target.status === "FULFILLED" ? integerOrZero(target.allocatedFeet) : 0;
-  const nowIso = new Date().toISOString();
-
-  if (
-    asTrimmedString(target.allocationSource).toUpperCase() === "AUTO_PLANNED" &&
-    asTrimmedString(target.allocationKind).toUpperCase() !== "EXTRA" &&
-    asTrimmedString(target.requirementId)
-  ) {
-    await rpcOrThrow<Record<string, unknown>>(client, "api_acl_record_auto_planned_allocation_suppression", {
-      p_org_id: orgId,
-      p_actor: actor,
-      p_payload: {
-        allocationId: target.allocationId,
-        reason: note,
-      },
-    });
-  }
-
-  const { error: updateAllocationError } = await serviceClient
-    .schema("app")
-    .from("allocations")
-    .update({
-      status: "CANCELLED",
-      resolved_at: nowIso,
-      resolved_by: actor,
-      notes: note,
-    })
-    .eq("org_id", orgId)
-    .eq("id", target.id);
-  throwOnSupabaseError(updateAllocationError, `Unable to remove allocation ${target.allocationId}`);
-
-  if (releasedFeet > 0 && box && box.status !== "ZEROED" && box.status !== "RETIRED") {
-    const nextFeetAvailable = getNextFeetAvailableAfterAllocationRelease(box, releasedFeet);
-    const { error: updateBoxError } = await serviceClient
-      .schema("app")
-      .from("boxes")
-      .update({
-        feet_available: nextFeetAvailable,
-      })
-      .eq("org_id", orgId)
-      .eq("id", box.id);
-    throwOnSupabaseError(updateBoxError, `Unable to update box ${target.boxId}`);
-  }
-
-  const filmOrderId = asTrimmedString(target.filmOrderId);
-  if (filmOrderId) {
-    await recalculateFilmOrderAfterAllocationMutation(client, serviceClient, orgId, filmOrderId, actor);
-  }
-
-  warnings.push(
-    `Removed allocation ${target.allocationId} for box ${target.boxId} on job ${jobNumber}. Released ${releasedFeet} LF back to planning capacity.`,
-  );
+      allocationId,
+    },
+  });
 
   return ok({
-    jobNumber,
-    allocationId: target.allocationId,
-    boxId: target.boxId,
-    removedAllocationCount: 1,
-    releasedFeet,
-  }, warnings);
+    jobNumber: asTrimmedString(result.jobNumber),
+    allocationId: asTrimmedString(result.allocationId),
+    boxId: asTrimmedString(result.boxId),
+    removedAllocationCount: integerOrZero(result.removedAllocationCount),
+    releasedFeet: integerOrZero(result.releasedFeet),
+  }, Array.isArray(result.warnings) ? result.warnings.map(asTrimmedString).filter(Boolean) : []);
 }
 
 async function reopenJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {

@@ -88,7 +88,6 @@ const PLANNER_MUTATION_ROUTES = new Set([
   "/boxes/transfer/cancel",
   "/allocations/add",
   "/allocations/apply",
-  "/allocations/remove-box",
   "/jobs/create",
   "/jobs/update",
   "/jobs/set-staged-pickup",
@@ -473,8 +472,24 @@ const mutationHandlers: Record<string, MutationHandler> = {
       remainingUncoveredFeet: deps.integerOrZero(result.remainingUncoveredFeet),
     }, result.warnings || []);
   },
-  "/allocations/remove-box": async ({ client, identity, payload }, deps) => {
-    return await deps.removeJobBoxAllocation(client, identity, payload);
+  "/allocations/remove-box": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    deps.requireString(normalizedPayload.allocationId, "AllocationID");
+
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_allocations_remove_box",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok({
+      jobNumber: deps.asTrimmedString(result.jobNumber),
+      allocationId: deps.asTrimmedString(result.allocationId),
+      boxId: deps.asTrimmedString(result.boxId),
+      removedAllocationCount: deps.integerOrZero(result.removedAllocationCount),
+      releasedFeet: deps.integerOrZero(result.releasedFeet),
+    }, Array.isArray(result.warnings) ? result.warnings : []);
   },
   "/allocations/planner-suppression/clear": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(

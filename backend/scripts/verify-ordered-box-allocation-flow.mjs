@@ -10,7 +10,6 @@ import {
   findBoxById,
   previewAllocationPlan,
   receiveOrderedBox,
-  removeAllocationFromJob,
   removeJobBoxAllocation,
   setBoxStatus,
   updateBox,
@@ -175,6 +174,28 @@ async function invokeAllocationsApplyRpc(client, orgId, actor, payload) {
   return rawValue;
 }
 
+async function invokeAllocationsRemoveBoxRpc(client, orgId, actor, payload) {
+  const result = await client.query(
+    `
+      select public.api_acl_allocations_remove_box(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, actor, JSON.stringify(payload)]
+  );
+
+  const rawValue = result.rows[0]?.result ?? null;
+  if (typeof rawValue === 'string') {
+    return JSON.parse(rawValue);
+  }
+  if (rawValue && typeof rawValue === 'object' && rawValue.data && typeof rawValue.data === 'object') {
+    return rawValue.data;
+  }
+  return rawValue;
+}
+
 async function captureExpectedRpcError(client, callback) {
   rpcSavepointCounter += 1;
   const savepointName = `expected_rpc_error_${rpcSavepointCounter}`;
@@ -287,6 +308,29 @@ async function insertVerificationJob(client, orgId, jobNumber, warehouse, dueDat
   };
 }
 
+async function insertVerificationRequirement(client, orgId, jobId, actor, overrides = {}) {
+  const nowIso = new Date().toISOString();
+  const requirementId = crypto.randomUUID();
+  const requirementColumns = await getTableColumns(client, "job_requirements");
+
+  await insertAppRow(client, "job_requirements", requirementColumns, {
+    id: requirementId,
+    org_id: orgId,
+    job_id: jobId,
+    manufacturer: asTrimmedString(overrides.manufacturer) || "3M Solar",
+    film_name: asTrimmedString(overrides.filmName) || "Prestige 60",
+    width_in: Number(overrides.widthIn || 60),
+    required_feet: Number(overrides.requiredFeet || 40),
+    notes: asTrimmedString(overrides.requirementNotes),
+    created_at: nowIso,
+    created_by: actor,
+    updated_at: nowIso,
+    updated_by: actor
+  });
+
+  return requirementId;
+}
+
 async function main() {
   const client = new Client({
     connectionString: requireDatabaseUrl(),
@@ -376,6 +420,41 @@ async function main() {
     assert(
       Number(createdAllocation.allocatedFeet || 0) === 40,
       `Expected ordered allocation to reserve 40 LF, received ${createdAllocation?.allocatedFeet}.`
+    );
+
+    const wrongJobNumber = `92${uniqueSuffix}`;
+    await insertVerificationJob(
+      client,
+      orgId,
+      wrongJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        crewLeader: "Wrong Job Remove Guard",
+        jobNotes: "Atomic remove wrong-job guard verification job."
+      }
+    );
+    const { error: wrongJobRemovalError } = await captureExpectedRpcError(client, () =>
+      invokeAllocationsRemoveBoxRpc(client, orgId, actor, {
+        jobNumber: wrongJobNumber,
+        allocationId: createdAllocation.allocationId,
+        reason: "Wrong job guard should not remove this allocation."
+      })
+    );
+    assert(wrongJobRemovalError, "Expected atomic remove to reject an allocation id scoped to a different job.");
+    const allocationAfterWrongJobRemoval = await client.query(
+      `
+        select status::text as status
+        from app.allocations
+        where org_id = $1::uuid
+          and allocation_id = $2::text
+      `,
+      [orgId, createdAllocation.allocationId]
+    );
+    assert(
+      asTrimmedString(allocationAfterWrongJobRemoval.rows[0]?.status) === "ACTIVE",
+      "Expected wrong-job remove failure to leave the allocation active."
     );
 
     let refreshedBox = await findBoxById(client, orgId, boxId);
@@ -1090,13 +1169,25 @@ async function main() {
       `Expected extra allocation removal response to include job ${jobNumber}, received ${extraRemoval?.jobNumber}.`
     );
 
-    const removal = await removeAllocationFromJob(
+    await client.query(
+      `
+        update app.allocations
+        set allocation_source = 'AUTO_PLANNED'
+        where org_id = $1::uuid
+          and allocation_id = $2::text
+      `,
+      [orgId, createdAllocation.allocationId]
+    );
+
+    const removal = await invokeAllocationsRemoveBoxRpc(
       client,
       orgId,
-      jobNumber,
-      createdAllocation.allocationId,
       actor,
-      "Ordered allocation flow verification cleanup."
+      {
+        jobNumber,
+        allocationId: createdAllocation.allocationId,
+        reason: "Ordered allocation flow verification cleanup."
+      }
     );
     assert(Number(removal?.removedAllocationCount || 0) === 1, "Expected ordered allocation removal to cancel exactly one allocation.");
 
@@ -1127,6 +1218,114 @@ async function main() {
     );
     const reappliedAllocation = (reapplyResult?.data?.allocations || []).find((entry) => entry.boxId === boxId);
     assert(reappliedAllocation, "Expected ordered allocation reapply to create a fresh allocation.");
+
+    const multiWidthJobNumber = `91${uniqueSuffix}`;
+    const multiWidthJob = await insertVerificationJob(
+      client,
+      orgId,
+      multiWidthJobNumber,
+      warehouse,
+      dueDate,
+      actor,
+      {
+        requiredFeet: 60,
+        widthIn: 60,
+        crewLeader: "Multi Width Flow",
+        jobNotes: "Atomic remove multi-width requirement verification job."
+      }
+    );
+    const multiWidth60RequirementId = asTrimmedString(multiWidthJob?.requirementId);
+    const multiWidth72RequirementId = await insertVerificationRequirement(
+      client,
+      orgId,
+      multiWidthJob.jobId,
+      actor,
+      {
+        requiredFeet: 72,
+        widthIn: 72,
+        requirementNotes: "Second same-film requirement at a different width."
+      }
+    );
+    const multiWidthBoxId = `${warehouse}-MW6-${uniqueSuffix}`;
+    await addBox(
+      client,
+      orgId,
+      buildBoxPayload(multiWidthBoxId, dueDate, {
+        widthIn: 60,
+        initialFeet: 80,
+        notes: "Multi-width remove/reallocate verification box."
+      }),
+      actor
+    );
+    const multiWidthApply = await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId: multiWidthBoxId,
+        jobNumber: multiWidthJobNumber,
+        requestedFeet: 25,
+        requestedWidthIn: 60,
+        requirementId: multiWidth60RequirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      },
+      actor
+    );
+    const multiWidthAllocation = (multiWidthApply?.data?.allocations || []).find((entry) => entry.boxId === multiWidthBoxId);
+    assert(multiWidthAllocation, "Expected multi-width verification allocation to be created.");
+    await client.query(
+      `
+        update app.allocations
+        set allocation_source = 'AUTO_PLANNED'
+        where org_id = $1::uuid
+          and allocation_id = $2::text
+      `,
+      [orgId, multiWidthAllocation.allocationId]
+    );
+
+    let multiWidthDetail = await buildJobDetail(client, orgId, multiWidthJobNumber);
+    let multiWidth60Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth60RequirementId);
+    let multiWidth72Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth72RequirementId);
+    assert(Number(multiWidth60Requirement?.allocatedFeet || 0) === 25, "Expected 60-inch requirement to show the initial allocation.");
+    assert(Number(multiWidth60Requirement?.remainingFeet || 0) === 35, "Expected 60-inch requirement remaining LF to reflect the initial allocation.");
+    assert(Number(multiWidth72Requirement?.allocatedFeet || 0) === 0, "Expected 72-inch requirement to remain unallocated.");
+    assert(Number(multiWidth72Requirement?.remainingFeet || 0) === 72, "Expected 72-inch requirement remaining LF to stay independent.");
+
+    const multiWidthRemoval = await invokeAllocationsRemoveBoxRpc(client, orgId, actor, {
+      jobNumber: multiWidthJobNumber,
+      allocationId: multiWidthAllocation.allocationId,
+      reason: "Multi-width requirement remove/reallocate verification."
+    });
+    assert(Number(multiWidthRemoval?.removedAllocationCount || 0) === 1, "Expected multi-width allocation removal to cancel one allocation.");
+    multiWidthDetail = await buildJobDetail(client, orgId, multiWidthJobNumber);
+    multiWidth60Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth60RequirementId);
+    multiWidth72Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth72RequirementId);
+    assert(Number(multiWidth60Requirement?.allocatedFeet || 0) === 0, "Expected 60-inch requirement allocation to clear after removal.");
+    assert(Number(multiWidth60Requirement?.remainingFeet || 0) === 60, "Expected 60-inch requirement remaining LF to restore after removal.");
+    assert(Number(multiWidth72Requirement?.allocatedFeet || 0) === 0, "Expected 72-inch requirement to stay unallocated after 60-inch removal.");
+    assert(Number(multiWidth72Requirement?.remainingFeet || 0) === 72, "Expected 72-inch requirement remaining LF to stay unchanged after 60-inch removal.");
+
+    await applyAllocationPlan(
+      client,
+      orgId,
+      {
+        boxId: multiWidthBoxId,
+        jobNumber: multiWidthJobNumber,
+        requestedFeet: 25,
+        requestedWidthIn: 60,
+        requirementId: multiWidth60RequirementId,
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      },
+      actor
+    );
+    multiWidthDetail = await buildJobDetail(client, orgId, multiWidthJobNumber);
+    multiWidth60Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth60RequirementId);
+    multiWidth72Requirement = (multiWidthDetail?.requirements || []).find((entry) => entry.requirementId === multiWidth72RequirementId);
+    assert(Number(multiWidth60Requirement?.allocatedFeet || 0) === 25, "Expected 60-inch requirement allocation to return after reapply.");
+    assert(Number(multiWidth60Requirement?.remainingFeet || 0) === 35, "Expected 60-inch requirement remaining LF to recalculate after reapply.");
+    assert(Number(multiWidth72Requirement?.allocatedFeet || 0) === 0, "Expected 72-inch requirement to remain unallocated after 60-inch reapply.");
+    assert(Number(multiWidth72Requirement?.remainingFeet || 0) === 72, "Expected 72-inch requirement remaining LF to stay independent after reapply.");
 
     refreshedBox = await findBoxById(client, orgId, boxId);
     const receiptResult = await receiveOrderedBox(

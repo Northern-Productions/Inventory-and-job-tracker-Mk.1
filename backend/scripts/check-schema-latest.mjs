@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0090_roll_weight_log_created_at.sql';
+const LATEST_MIGRATION = '0091_atomic_job_allocation_remove.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -39,6 +39,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_create(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
@@ -146,6 +148,32 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Created from a shortage while trying to allocate',
       'delete from app.film_orders'
     ]
+  },
+  {
+    signature: 'public.api_allocations_remove_box(uuid, text, jsonb)',
+    includes: [
+      "v_allocation_id text := app_api.require_text(v_payload->>'allocationId', 'AllocationID');",
+      'from app.allocations a',
+      'and a.allocation_id = v_allocation_id',
+      'for update;',
+      'update app.allocations',
+      'where org_id = p_org_id',
+      'and allocation_id = v_allocation.allocation_id',
+      'perform app_api.record_auto_planned_allocation_suppression(',
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box.box_id);',
+      'perform app_api.recalculate_film_order(p_org_id, v_film_order_id, v_actor);',
+      'perform app_api.reconcile_auto_planned_allocations(',
+      "'warnings', to_jsonb(v_warnings)"
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'write');",
+      'return public.api_allocations_remove_box(p_org_id, p_actor, p_payload);'
+    ],
+    excludes: []
   },
   {
     signature: 'public.api_film_orders_create(uuid, text, jsonb)',

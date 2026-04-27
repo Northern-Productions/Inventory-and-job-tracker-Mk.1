@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AllocationJobDetailEntry } from '../../../../domain';
 import { AllocatedBoxesSection } from './AllocatedBoxesSection';
 
@@ -35,6 +35,10 @@ function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): Allocati
 }
 
 describe('AllocatedBoxesSection', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it('shows ordered allocations as waiting for receipt with no checkout action', () => {
     render(
       <AllocatedBoxesSection
@@ -60,5 +64,43 @@ describe('AllocatedBoxesSection', () => {
     expect(screen.getByText('Waiting for receipt')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+  });
+
+  it('passes the allocation row to remove handlers for IL1-6868 style rows', () => {
+    const onRemoveAllocation = vi.fn();
+    const entry = buildEntry({
+      allocationId: 'alloc-6868',
+      boxId: 'IL1-6868',
+      jobNumber: '4953'
+    });
+
+    render(
+      <AllocatedBoxesSection
+        entries={[entry]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        canOpenAllocateDialog={true}
+        allocateButtonLabel="Allocate Film"
+        isAuthenticated={true}
+        clientIdConfigured={true}
+        isStatusMutationPending={() => false}
+        filmTransferAlertsByBoxId={{}}
+        onOpenAllocateDialog={vi.fn()}
+        onOpenBox={vi.fn()}
+        onOpenFilmCheckin={vi.fn()}
+        onCheckoutAllocation={vi.fn()}
+        onRemoveAllocation={onRemoveAllocation}
+        isAllocationRemovalPending={() => false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(onRemoveAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-6868',
+        boxId: 'IL1-6868'
+      })
+    );
   });
 });
