@@ -191,3 +191,163 @@ Deno.test("/allocations/remove-box validates allocation id before calling RPC", 
 
   throw new Error("Expected remove-box without allocationId to fail.");
 });
+
+Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and reloads job detail", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const jobDetailCalls: Array<Record<string, unknown>> = [];
+  let plannerCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/create",
+    {
+      jobNumber: "81234",
+      warehouse: "IL1",
+      requirements: [],
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "81234",
+          warnings: ["SQL planner completed."],
+        };
+      },
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+        jobDetailCalls.push({ orgId, jobNumber });
+        return {
+          jobNumber,
+          plannerSource: "sql",
+        };
+      },
+      reconcileAutoPlannedAllocations: async () => {
+        plannerCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_jobs_create",
+        orgId: "org-1",
+        actor: "tester",
+        payload: {
+          jobNumber: "81234",
+          warehouse: "IL1",
+          requirements: [],
+        },
+      },
+    ],
+    "Expected /jobs/create to call the SQL ACL create RPC.",
+  );
+  assertEquals(plannerCallCount, 0, "Expected /jobs/create to skip the redundant Edge planner pass.");
+  assertEquals(
+    jobDetailCalls,
+    [{ orgId: "org-1", jobNumber: "81234" }],
+    "Expected /jobs/create to reload canonical job detail after SQL create.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        jobNumber: "81234",
+        plannerSource: "sql",
+      },
+      warnings: ["SQL planner completed."],
+    },
+    "Expected /jobs/create response to return reloaded job detail and SQL warnings.",
+  );
+});
+
+Deno.test("planner mutation routes still run Edge planner reconciliation when SQL does not own it", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/boxes/delete",
+    {
+      boxId: "IL1-9000",
+      reason: "Wrong box.",
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          boxId: "IL1-9000",
+          logId: "LOG-9000",
+        };
+      },
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {
+          warnings: ["Planner checked box scope."],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_boxes_delete",
+        orgId: "org-1",
+        actor: "tester",
+        payload: {
+          boxId: "IL1-9000",
+          reason: "Wrong box.",
+        },
+      },
+    ],
+    "Expected /boxes/delete to call its SQL RPC before Edge planner reconciliation.",
+  );
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {
+          boxIds: ["IL1-9000"],
+        },
+      },
+    ],
+    "Expected /boxes/delete to keep Edge planner reconciliation.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        boxId: "IL1-9000",
+        logId: "LOG-9000",
+      },
+      warnings: ["Planner checked box scope."],
+    },
+    "Expected Edge planner warnings to still append for non-SQL-owned planner routes.",
+  );
+});

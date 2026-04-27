@@ -100,6 +100,27 @@ const PLANNER_MUTATION_ROUTES = new Set([
   "/audit/undo",
 ]);
 
+/**
+ * PURPOSE:
+ * Marks mutation routes where the called SQL RPC already reconciles planner
+ * state atomically, so Edge must not run the same planner pass again.
+ *
+ * AFFECTS:
+ * POST /jobs/create response timing, job detail reloads, and AUTO_PLANNED
+ * reconciliation ownership between Edge and database RPCs.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * SQL ACL wrappers such as public.api_acl_jobs_create, dispatcher tests, and
+ * frontend mutation timeout behavior.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate planner execution, stale job details if SQL no longer reconciles,
+ * or hidden planner skips for routes that still depend on Edge reconciliation.
+ */
+const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  "/jobs/create",
+]);
+
 const ORG_WIDE_MUTATION_ROUTES = new Set([
   "/jobs/complete",
   "/jobs/delete",
@@ -681,6 +702,10 @@ function buildAutoPlannerScope(
   deps: MutationHandlerDeps,
 ) {
   if (!PLANNER_MUTATION_ROUTES.has(logicalPath)) {
+    return null;
+  }
+
+  if (SQL_PLANNER_HANDLED_ROUTES.has(logicalPath)) {
     return null;
   }
 
