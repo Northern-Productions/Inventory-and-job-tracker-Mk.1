@@ -136,8 +136,10 @@ function createAllocationRow(overrides = {}) {
 function createRecordingClient() {
   const state = {
     box: createBoxRow(),
+    boxes: null,
     filmOrder: createFilmOrderRow(),
     filmOrderLink: createFilmOrderLinkRow(),
+    filmOrderLinks: null,
     jobRequirements: [createJobRequirementRow()],
     allocations: [],
     auditEntries: [],
@@ -149,6 +151,34 @@ function createRecordingClient() {
     state.allocations
       .filter((entry) => entry.box_id === boxId && String(entry.status || '').toUpperCase() === 'ACTIVE')
       .reduce((total, entry) => total + Number(entry.allocated_feet || 0), 0);
+
+  const getBoxes = () => (Array.isArray(state.boxes) ? state.boxes : state.box ? [state.box] : []);
+  const getLinks = () =>
+    Array.isArray(state.filmOrderLinks) ? state.filmOrderLinks : state.filmOrderLink ? [state.filmOrderLink] : [];
+
+  const saveBoxState = (row) => {
+    if (Array.isArray(state.boxes)) {
+      const index = state.boxes.findIndex((entry) => entry.box_id === row.box_id);
+      if (index >= 0) {
+        state.boxes.splice(index, 1, row);
+      } else {
+        state.boxes.push(row);
+      }
+    }
+    state.box = row;
+  };
+
+  const saveLinkState = (row) => {
+    if (Array.isArray(state.filmOrderLinks)) {
+      const index = state.filmOrderLinks.findIndex((entry) => entry.link_id === row.link_id);
+      if (index >= 0) {
+        state.filmOrderLinks.splice(index, 1, row);
+      } else {
+        state.filmOrderLinks.push(row);
+      }
+    }
+    state.filmOrderLink = row;
+  };
 
   const withBoxMetrics = (row) =>
     row
@@ -169,7 +199,8 @@ function createRecordingClient() {
       }
 
       if (sql.includes('select') && sql.includes('from app.boxes b') && sql.includes('and b.box_id = $2')) {
-        return { rows: state.box && state.box.box_id === params[1] ? [withBoxMetrics(state.box)] : [] };
+        const box = getBoxes().find((entry) => entry.box_id === params[1]);
+        return { rows: box ? [withBoxMetrics(box)] : [] };
       }
 
       if (sql.includes('select * from app.allocations') && sql.includes('and box_id = $2')) {
@@ -183,19 +214,17 @@ function createRecordingClient() {
 
       if (sql.includes('select * from app.film_order_box_links') && sql.includes('and box_id = $2')) {
         return {
-          rows:
-            state.filmOrderLink && state.filmOrderLink.box_id === params[1]
-              ? [{ ...state.filmOrderLink }]
-              : [],
+          rows: getLinks()
+            .filter((entry) => entry.box_id === params[1])
+            .map((entry) => ({ ...entry })),
         };
       }
 
       if (sql.includes('select * from app.film_order_box_links') && sql.includes('and film_order_id = $2')) {
         return {
-          rows:
-            state.filmOrderLink && state.filmOrderLink.film_order_id === params[1]
-              ? [{ ...state.filmOrderLink }]
-              : [],
+          rows: getLinks()
+            .filter((entry) => entry.film_order_id === params[1])
+            .map((entry) => ({ ...entry })),
         };
       }
 
@@ -267,7 +296,7 @@ function createRecordingClient() {
       }
 
       if (sql.includes('insert into app.film_order_box_links') && sql.includes('on conflict (org_id, link_id) do update set')) {
-        state.filmOrderLink = {
+        const row = {
           id: state.filmOrderLink?.id || 'film-order-link-row-1',
           org_id: params[0],
           link_id: params[1],
@@ -278,7 +307,8 @@ function createRecordingClient() {
           created_at: params[6] || state.filmOrderLink?.created_at || '2026-04-23T09:05:00Z',
           created_by: params[7],
         };
-        return { rows: [{ ...state.filmOrderLink }] };
+        saveLinkState(row);
+        return { rows: [{ ...row }] };
       }
 
       if (sql.includes('insert into app.film_orders') && sql.includes('on conflict (org_id, film_order_id) do update set')) {
@@ -310,8 +340,9 @@ function createRecordingClient() {
       }
 
       if (sql.includes('insert into app.boxes') && sql.includes('on conflict (org_id, box_id) do update set')) {
-        state.box = {
-          id: state.box?.id || 'box-row-1',
+        const existingBox = getBoxes().find((entry) => entry.box_id === params[1]) || state.box;
+        const row = {
+          id: existingBox?.id || 'box-row-1',
           org_id: params[0],
           box_id: params[1],
           warehouse: params[2],
@@ -342,10 +373,11 @@ function createRecordingClient() {
           zeroed_date: params[27] || null,
           zeroed_reason: params[28],
           zeroed_by: params[29],
-          created_at: state.box?.created_at || '2026-04-23T09:00:00Z',
+          created_at: existingBox?.created_at || '2026-04-23T09:00:00Z',
           updated_at: '2026-04-23T10:00:00Z',
         };
-        return { rows: [withBoxMetrics(state.box)] };
+        saveBoxState(row);
+        return { rows: [withBoxMetrics(row)] };
       }
 
       if (sql.includes('insert into app.audit_log')) {
@@ -447,6 +479,153 @@ test('receiveOrderedBox resolves an existing ordered placeholder allocation inst
   assert.equal(client.state.filmOrder.covered_feet, 100);
   assert.equal(client.state.filmOrder.status, 'FULFILLED');
   assert.equal(client.state.filmOrderLink.auto_allocated_feet, 100);
+  assert.equal(client.state.box.feet_available, 0);
+});
+
+test('receiveOrderedBox canonicalizes compatible film aliases across multiple linked boxes without duplicate rows', async () => {
+  const client = createRecordingClient();
+  client.state.boxes = [
+    createBoxRow({
+      id: 'box-row-6944',
+      box_id: 'IL1-6944',
+      manufacturer: 'Llumar',
+      film_name: 'Frost NRMPS2',
+      width_in: 48,
+      initial_feet: 100,
+      feet_available: 100,
+    }),
+    createBoxRow({
+      id: 'box-row-6945',
+      box_id: 'IL1-6945',
+      manufacturer: 'Llumar',
+      film_name: 'Frost NRMPS2',
+      width_in: 48,
+      initial_feet: 100,
+      feet_available: 100,
+    }),
+    createBoxRow({
+      id: 'box-row-6946',
+      box_id: 'IL1-6946',
+      manufacturer: 'Llumar',
+      film_name: 'Frost NRMPS2',
+      width_in: 48,
+      initial_feet: 30,
+      feet_available: 30,
+    }),
+  ];
+  client.state.box = client.state.boxes[0];
+  client.state.filmOrder = createFilmOrderRow({
+    film_order_id: '20260416123431490-540',
+    job_number: '4486',
+    manufacturer: 'Llumar',
+    film_name: 'Frost NRMPS2',
+    width_in: 48,
+    requested_feet: 230,
+    covered_feet: 0,
+    ordered_feet: 230,
+    job_date: null,
+  });
+  client.state.filmOrderLinks = [
+    createFilmOrderLinkRow({
+      id: 'link-row-6944',
+      link_id: 'link-6944',
+      film_order_id: '20260416123431490-540',
+      box_id: 'IL1-6944',
+      ordered_feet: 100,
+    }),
+    createFilmOrderLinkRow({
+      id: 'link-row-6945',
+      link_id: 'link-6945',
+      film_order_id: '20260416123431490-540',
+      box_id: 'IL1-6945',
+      ordered_feet: 100,
+    }),
+    createFilmOrderLinkRow({
+      id: 'link-row-6946',
+      link_id: 'link-6946',
+      film_order_id: '20260416123431490-540',
+      box_id: 'IL1-6946',
+      ordered_feet: 30,
+    }),
+  ];
+  client.state.filmOrderLink = client.state.filmOrderLinks[0];
+  client.state.jobRequirements = [
+    createJobRequirementRow({
+      id: 'req-4486',
+      job_number: '4486',
+      manufacturer: 'Llumar',
+      film_name: 'Frost (NRM PS2)',
+      width_in: 48,
+      required_feet: 230,
+    }),
+  ];
+  client.state.allocations = [
+    createAllocationRow({
+      id: 'allocation-row-6944',
+      allocation_id: 'ALLOC-6944',
+      box_id: 'IL1-6944',
+      job_number: '4486',
+      requirement_id: 'req-4486',
+      allocated_feet: 100,
+      covered_feet: 100,
+      job_date: null,
+    }),
+    createAllocationRow({
+      id: 'allocation-row-6945',
+      allocation_id: 'ALLOC-6945',
+      box_id: 'IL1-6945',
+      job_number: '4486',
+      requirement_id: 'req-4486',
+      allocated_feet: 100,
+      covered_feet: 100,
+      job_date: null,
+    }),
+    createAllocationRow({
+      id: 'allocation-row-6946',
+      allocation_id: 'ALLOC-6946',
+      box_id: 'IL1-6946',
+      job_number: '4486',
+      requirement_id: 'req-4486',
+      allocated_feet: 30,
+      covered_feet: 30,
+      job_date: null,
+    }),
+  ];
+
+  for (const boxId of ['IL1-6944', 'IL1-6945', 'IL1-6946']) {
+    const response = await receiveOrderedBox(client, 'org-1', { boxId }, 'warehouse-user');
+    assert.equal(response.ok, true);
+  }
+
+  const activeRows = client.state.allocations.filter((entry) => entry.status === 'ACTIVE');
+  assert.equal(activeRows.length, 3);
+  assert.deepEqual(
+    activeRows.map((entry) => [entry.box_id, entry.allocated_feet, entry.film_order_id, entry.allocation_source]),
+    [
+      ['IL1-6944', 100, '20260416123431490-540', 'FILM_ORDER_RECEIPT'],
+      ['IL1-6945', 100, '20260416123431490-540', 'FILM_ORDER_RECEIPT'],
+      ['IL1-6946', 30, '20260416123431490-540', 'FILM_ORDER_RECEIPT'],
+    ]
+  );
+  assert.equal(activeRows.reduce((total, entry) => total + entry.allocated_feet, 0), 230);
+  assert.deepEqual(
+    client.state.filmOrderLinks.map((entry) => [entry.box_id, entry.ordered_feet, entry.auto_allocated_feet]),
+    [
+      ['IL1-6944', 100, 100],
+      ['IL1-6945', 100, 100],
+      ['IL1-6946', 30, 30],
+    ]
+  );
+  assert.equal(client.state.filmOrder.covered_feet, 230);
+  assert.equal(client.state.filmOrder.status, 'FULFILLED');
+  assert.deepEqual(
+    client.state.boxes.map((entry) => [entry.box_id, entry.feet_available]),
+    [
+      ['IL1-6944', 0],
+      ['IL1-6945', 0],
+      ['IL1-6946', 0],
+    ]
+  );
 });
 
 test('receiveOrderedBox splits larger placeholders without increasing total active allocated feet', async () => {

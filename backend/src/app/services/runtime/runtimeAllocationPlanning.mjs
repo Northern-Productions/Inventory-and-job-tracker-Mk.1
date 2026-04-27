@@ -203,6 +203,7 @@ import {
   getStoredAllocationCoveredFeet,
   allocationMatchesRequirement,
   normalizeRequirementFilmKey,
+  planningFilmCanSatisfyRequirement,
   getRequirementPlanningFilmMatch,
   requirementFilmIsExterior,
 } from './runtimeAllocationCoverage.mjs';
@@ -920,24 +921,31 @@ async function linkBoxToFilmOrder(client, orgId, filmOrderId, box, user) {
   return recalculateFilmOrder(client, orgId, existing.filmOrderId, user);
 }
 
-function findFilmOrderRequirement(requirements, filmOrder) {
-  const targetKey = normalizeJobRequirementLookupKey(filmOrder.manufacturer, filmOrder.filmName, filmOrder.widthIn);
+function filmOrderMatchesRequirement(filmOrder, requirement) {
   return (
-    (Array.isArray(requirements) ? requirements : []).find(
-      (entry) => normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === targetKey
+    normalizeRequirementWidthKey(filmOrder.widthIn) === normalizeRequirementWidthKey(requirement?.widthIn) &&
+    planningFilmCanSatisfyRequirement(
+      filmOrder.manufacturer,
+      filmOrder.filmName,
+      requirement?.manufacturer,
+      requirement?.filmName
+    )
+  );
+}
+
+function findFilmOrderRequirement(requirements, filmOrder) {
+  return (
+    (Array.isArray(requirements) ? requirements : []).find((entry) =>
+      filmOrderMatchesRequirement(filmOrder, entry)
     ) || null
   );
 }
 
 function findResolvableReceiptAllocation(allocations, filmOrder, requirements) {
   const jobKey = normalizeJobNumberKey(filmOrder.jobNumber);
-  const targetRequirementKey = normalizeJobRequirementLookupKey(filmOrder.manufacturer, filmOrder.filmName, filmOrder.widthIn);
   const matchingRequirementIds = new Set(
     (Array.isArray(requirements) ? requirements : [])
-      .filter(
-        (entry) =>
-          normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === targetRequirementKey
-      )
+      .filter((entry) => filmOrderMatchesRequirement(filmOrder, entry))
       .map((entry) => asTrimmedString(entry.id))
       .filter(Boolean)
   );
@@ -1089,6 +1097,7 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
         warnings.push(
           `${reusedFeet} LF placeholder from ${box.boxId} was resolved to job ${filmOrder.jobNumber} for Film Order ${filmOrder.filmOrderId}.`
         );
+        box.feetAvailable = Math.max(box.feetAvailable - reusedFeet, 0);
       }
     }
 
@@ -1117,9 +1126,7 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
       { allocationSource: 'FILM_ORDER_RECEIPT' }
     );
 
-    if (filmOrder.installDate) {
-      box.feetAvailable = Math.max(box.feetAvailable - allocationFeet, 0);
-    }
+    box.feetAvailable = Math.max(box.feetAvailable - allocationFeet, 0);
     link.autoAllocatedFeet += allocationFeet;
     await saveFilmOrderLinkRecord(client, orgId, link);
     warnings.push(

@@ -57,6 +57,26 @@ test('buildBoxReservationSnapshot counts AUTO_PLANNED reservations without relyi
   assert.equal(snapshot.allocatedWithoutInstallDateFeet, 100);
 });
 
+test('buildBoxReservationSnapshot treats received film-order allocations as physical commitments without install dates', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ feetAvailable: 0 }),
+    [
+      buildAllocation({
+        allocationId: 'receipt-without-install-date',
+        allocatedFeet: 100,
+        installDate: '',
+        allocationSource: 'FILM_ORDER_RECEIPT',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 100);
+  assert.equal(snapshot.activeAllocatedFeet, 100);
+  assert.equal(snapshot.allocatableNowFeet, 0);
+  assert.equal(snapshot.allocatedWithoutInstallDateFeet, 100);
+  assert.equal(snapshot.allocationSnapshotsById['receipt-without-install-date'].backedPhysicalFeet, 100);
+});
+
 test('buildBoxReservationSnapshot excludes extra, placeholder, cancelled, and invalid allocations', () => {
   const snapshot = buildBoxReservationSnapshot(
     buildBox({ feetAvailable: 100 }),
