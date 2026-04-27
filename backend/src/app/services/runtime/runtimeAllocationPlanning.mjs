@@ -709,7 +709,7 @@ async function createAllocationRecord(
     createdBy: asTrimmedString(user),
     resolvedAt: '',
     resolvedBy: '',
-    notes: '',
+    notes: asTrimmedString(options.notes),
     crewLeader: jobContext.crewLeader,
     filmOrderId: asTrimmedString(filmOrderId),
     allocationKind: normalizeAllocationKind(allocationKind),
@@ -920,6 +920,92 @@ async function linkBoxToFilmOrder(client, orgId, filmOrderId, box, user) {
   return recalculateFilmOrder(client, orgId, existing.filmOrderId, user);
 }
 
+function findFilmOrderRequirement(requirements, filmOrder) {
+  const targetKey = normalizeJobRequirementLookupKey(filmOrder.manufacturer, filmOrder.filmName, filmOrder.widthIn);
+  return (
+    (Array.isArray(requirements) ? requirements : []).find(
+      (entry) => normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === targetKey
+    ) || null
+  );
+}
+
+function findResolvableReceiptAllocation(allocations, filmOrder, requirements) {
+  const jobKey = normalizeJobNumberKey(filmOrder.jobNumber);
+  const targetRequirementKey = normalizeJobRequirementLookupKey(filmOrder.manufacturer, filmOrder.filmName, filmOrder.widthIn);
+  const matchingRequirementIds = new Set(
+    (Array.isArray(requirements) ? requirements : [])
+      .filter(
+        (entry) =>
+          normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === targetRequirementKey
+      )
+      .map((entry) => asTrimmedString(entry.id))
+      .filter(Boolean)
+  );
+  const sourceRank = (entry) => {
+    const source = normalizeAllocationSource(entry?.allocationSource);
+    if (source === 'MANUAL') {
+      return 0;
+    }
+    if (source === 'AUTO_PLANNED') {
+      return 1;
+    }
+    return 2;
+  };
+
+  return (
+    (Array.isArray(allocations) ? allocations : [])
+      .filter((entry) => {
+        if (!entry || entry.status !== 'ACTIVE') {
+          return false;
+        }
+        if (normalizeAllocationKind(entry.allocationKind) !== 'REQUIREMENT') {
+          return false;
+        }
+        if (!matchingRequirementIds.has(asTrimmedString(entry.requirementId))) {
+          return false;
+        }
+        if (asTrimmedString(entry.filmOrderId)) {
+          return false;
+        }
+        if (entry.jobId && filmOrder.jobId) {
+          return entry.jobId === filmOrder.jobId;
+        }
+        return normalizeJobNumberKey(entry.jobNumber) === jobKey;
+      })
+      .sort((left, right) => {
+        const rankDiff = sourceRank(left) - sourceRank(right);
+        if (rankDiff !== 0) {
+          return rankDiff;
+        }
+        const createdDiff = String(left.createdAt || '').localeCompare(String(right.createdAt || ''));
+        if (createdDiff !== 0) {
+          return createdDiff;
+        }
+        return String(left.allocationId || '').localeCompare(String(right.allocationId || ''));
+      })[0] || null
+  );
+}
+
+/**
+ * PURPOSE:
+ * Converts linked ordered boxes into one canonical allocation record when
+ * physical stock is received, reusing a matching job requirement reservation
+ * before creating any new receipt allocation.
+ *
+ * AFFECTS:
+ * Ordered-box receive, film order coverage, job detail allocated rows, and
+ * box physical LF edit validation.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * app_api.process_linked_box_receipt, public.api_acl_boxes_receive_ordered,
+ * shared allocation reservation metrics, and film order receive regression
+ * tests.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate active rows for the same box/job requirement, film order coverage
+ * drift, placeholder + physical double-counting, or received LF correction
+ * being blocked by stale reservation rows.
+ */
 async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings) {
   const links = await listFilmOrderLinksByBoxId(client, orgId, box.boxId);
   const recalculatedOrders = {};
@@ -937,8 +1023,76 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
 
     recalculatedOrders[filmOrder.filmOrderId] = true;
 
-    const remainingNeed = Math.max(filmOrder.requestedFeet - filmOrder.coveredFeet, 0);
-    const linkCapacity = Math.max(link.orderedFeet - link.autoAllocatedFeet, 0);
+    const requirements = await listJobRequirementsByJob(client, orgId, filmOrder.jobNumber);
+    let requirement = null;
+    let remainingNeed = Math.max(filmOrder.requestedFeet - filmOrder.coveredFeet, 0);
+    let linkCapacity = Math.max(link.orderedFeet - link.autoAllocatedFeet, 0);
+
+    if (remainingNeed > 0 && linkCapacity > 0) {
+      const existingAllocation = findResolvableReceiptAllocation(
+        await listAllocationsByBox(client, orgId, box.boxId),
+        filmOrder,
+        requirements
+      );
+      const reusedFeet = Math.min(remainingNeed, linkCapacity, existingAllocation?.allocatedFeet || 0);
+
+      if (existingAllocation && reusedFeet > 0) {
+        requirement =
+          requirements.find((entry) => asTrimmedString(entry.id) === asTrimmedString(existingAllocation.requirementId)) ||
+          null;
+
+        if (reusedFeet === existingAllocation.allocatedFeet) {
+          existingAllocation.filmOrderId = filmOrder.filmOrderId;
+          existingAllocation.allocationSource = 'FILM_ORDER_RECEIPT';
+          existingAllocation.coveredFeet = existingAllocation.coveredFeet || existingAllocation.allocatedFeet;
+          existingAllocation.notes =
+            existingAllocation.notes ||
+            `Resolved ordered-box placeholder on receipt for Film Order ${filmOrder.filmOrderId}.`;
+          await saveAllocationRecord(client, orgId, existingAllocation);
+        } else {
+          const originalAllocationId = existingAllocation.allocationId;
+          const originalCoveredFeet = existingAllocation.coveredFeet || existingAllocation.allocatedFeet;
+          existingAllocation.allocatedFeet = Math.max(existingAllocation.allocatedFeet - reusedFeet, 0);
+          existingAllocation.coveredFeet = Math.max(originalCoveredFeet - reusedFeet, 0);
+          existingAllocation.notes =
+            existingAllocation.notes ||
+            `Split ${reusedFeet} LF to resolve ordered-box receipt for Film Order ${filmOrder.filmOrderId}.`;
+          await saveAllocationRecord(client, orgId, existingAllocation);
+
+          await createAllocationRecord(
+            client,
+            orgId,
+            box,
+            {
+              jobNumber: filmOrder.jobNumber,
+              installDate: filmOrder.installDate,
+              crewLeader: filmOrder.crewLeader
+            },
+            reusedFeet,
+            reusedFeet,
+            user,
+            filmOrder.filmOrderId,
+            'REQUIREMENT',
+            existingAllocation.requirementId,
+            {
+              allocationSource: 'FILM_ORDER_RECEIPT',
+              notes: `Split from ordered-box placeholder ${originalAllocationId} on receipt for Film Order ${filmOrder.filmOrderId}.`
+            }
+          );
+        }
+
+        link.autoAllocatedFeet += reusedFeet;
+        await saveFilmOrderLinkRecord(client, orgId, link);
+        filmOrder.coveredFeet += reusedFeet;
+        remainingNeed = Math.max(filmOrder.requestedFeet - filmOrder.coveredFeet, 0);
+        linkCapacity = Math.max(link.orderedFeet - link.autoAllocatedFeet, 0);
+        warnings.push(
+          `${reusedFeet} LF placeholder from ${box.boxId} was resolved to job ${filmOrder.jobNumber} for Film Order ${filmOrder.filmOrderId}.`
+        );
+      }
+    }
+
+    requirement ||= findFilmOrderRequirement(requirements, filmOrder);
     const allocationFeet = Math.min(remainingNeed, linkCapacity, box.feetAvailable);
 
     if (allocationFeet <= 0) {
@@ -957,7 +1111,10 @@ async function processLinkedFilmOrderReceipt(client, orgId, box, user, warnings)
       allocationFeet,
       allocationFeet,
       user,
-      filmOrder.filmOrderId
+      filmOrder.filmOrderId,
+      'REQUIREMENT',
+      requirement?.id || '',
+      { allocationSource: 'FILM_ORDER_RECEIPT' }
     );
 
     if (filmOrder.installDate) {

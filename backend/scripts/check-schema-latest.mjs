@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0092_safe_update_job_create_planner.sql';
+const LATEST_MIGRATION = '0093_ordered_receipt_allocation_canonicalization.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -75,6 +75,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.reserved_film_allocated_feet_for_box(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.stored_film_allocated_feet_for_box(uuid, text)' },
   { kind: 'function', signature: 'app_api.active_film_allocated_feet_for_box(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.physical_film_commitment_feet_for_box(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.find_order_receipt_requirement_id(uuid, text, text, text, numeric)' },
   { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.create_or_merge_manual_requirement_allocation_with_coverage(uuid, app.boxes, jsonb, integer, integer, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
@@ -108,12 +110,20 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)',
-    includes: ['v_recalculate_film_order_ids', 'perform app_api.recalculate_film_order(p_org_id, v_recalculate_film_order_id, p_actor);'],
+    includes: [
+      'v_recalculate_film_order_ids',
+      'app_api.find_order_receipt_requirement_id(',
+      'Resolved ordered-box placeholder on receipt for Film Order %s.',
+      'Split from ordered-box placeholder %s on receipt for Film Order %s.',
+      "v_existing_allocation.allocation_source := 'FILM_ORDER_RECEIPT'::app.allocation_source;",
+      'perform app_api.recalculate_film_order(p_org_id, v_recalculate_film_order_id, p_actor);'
+    ],
     excludes: ['v_box.feet_available <= 0']
   },
   {
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
     includes: [
+      'v_locked_allocated_feet := app_api.physical_film_commitment_feet_for_box(p_org_id, v_lookup_box_id);',
       'v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
       'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
@@ -121,7 +131,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'SET_STATUS'",
       'app_api.reconcile_auto_shortage_film_orders_for_box('
     ],
-    excludes: ['public.api_boxes_update(p_org_id, p_actor, v_payload)']
+    excludes: [
+      'public.api_boxes_update(p_org_id, p_actor, v_payload)',
+      'v_locked_allocated_feet := app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id);'
+    ]
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
@@ -300,9 +313,22 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "if v_status not in ('IN_STOCK', 'CHECKED_OUT') then",
       "perform app_api.raise_http(400, 'Status must be IN_STOCK or CHECKED_OUT.');",
       'perform app_api.assert_can_checkout_box_from_warehouse(v_existing);',
+      'and coalesce(a.allocation_kind::text, \'REQUIREMENT\') = \'REQUIREMENT\'',
+      'and a.requirement_id is not null',
+      'and a.job_date is not null',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
     ],
     excludes: []
+  },
+  {
+    signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',
+    includes: [
+      'v_active_allocated_feet := app_api.physical_film_commitment_feet_for_box(',
+      'v_feet_available := greatest(v_initial_feet - v_active_allocated_feet, 0);'
+    ],
+    excludes: [
+      "select coalesce(sum(a.allocated_feet), 0)::integer\n    into v_active_allocated_feet\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = v_box_id\n      and a.status = 'ACTIVE';"
+    ]
   },
   {
     signature: 'public.api_boxes_add(uuid, text, jsonb)',

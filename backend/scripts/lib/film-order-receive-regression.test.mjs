@@ -87,11 +87,58 @@ function createFilmOrderLinkRow(overrides = {}) {
   };
 }
 
+function createJobRequirementRow(overrides = {}) {
+  return {
+    id: 'req-row-1',
+    org_id: 'org-1',
+    job_id: 'job-row-1',
+    job_number: '5555',
+    manufacturer: 'Solar Gard',
+    film_name: 'Slate 20',
+    width_in: 36,
+    required_feet: 100,
+    notes: '',
+    created_at: '2026-04-23T09:00:00Z',
+    created_by: 'tester',
+    updated_at: '2026-04-23T09:00:00Z',
+    updated_by: 'tester',
+    ...overrides,
+  };
+}
+
+function createAllocationRow(overrides = {}) {
+  return {
+    id: 'allocation-row-1',
+    org_id: 'org-1',
+    allocation_id: 'ALLOC-PLACEHOLDER-1',
+    box_id: 'IL1-ORDERED-1',
+    job_id: 'job-row-1',
+    job_number: '5555',
+    warehouse: 'IL1',
+    job_date: '2026-04-24',
+    allocated_feet: 100,
+    covered_feet: 100,
+    requirement_id: 'req-row-1',
+    status: 'ACTIVE',
+    created_at: '2026-04-23T09:10:00Z',
+    created_by: 'tester',
+    resolved_at: null,
+    resolved_by: '',
+    notes: '',
+    crew_leader: 'Crew',
+    film_order_id: '',
+    allocation_kind: 'REQUIREMENT',
+    allocation_source: 'MANUAL',
+    ...overrides,
+  };
+}
+
 function createRecordingClient() {
   const state = {
     box: createBoxRow(),
     filmOrder: createFilmOrderRow(),
     filmOrderLink: createFilmOrderLinkRow(),
+    jobRequirements: [createJobRequirementRow()],
     allocations: [],
     auditEntries: [],
     filmCatalogSeeds: [],
@@ -170,6 +217,14 @@ function createRecordingClient() {
         };
       }
 
+      if (sql.includes('from app.job_requirements r') && sql.includes('upper(trim(j.job_number)) = upper(trim($2))')) {
+        return {
+          rows: state.jobRequirements
+            .filter((entry) => String(entry.job_number).toUpperCase() === String(params[1]).toUpperCase())
+            .slice(),
+        };
+      }
+
       if (sql.includes('select * from app.jobs') && sql.includes('upper(trim(job_number)) = upper(trim($2))')) {
         return { rows: [] };
       }
@@ -196,8 +251,14 @@ function createRecordingClient() {
           crew_leader: params[16],
           film_order_id: params[17],
           allocation_kind: params[18],
+          allocation_source: params[19],
         };
-        state.allocations = [row];
+        const existingIndex = state.allocations.findIndex((entry) => entry.allocation_id === row.allocation_id);
+        if (existingIndex >= 0) {
+          state.allocations.splice(existingIndex, 1, { ...state.allocations[existingIndex], ...row });
+        } else {
+          state.allocations.push(row);
+        }
         return { rows: [{ ...row }] };
       }
 
@@ -357,4 +418,71 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
 
   assert.equal(client.state.auditEntries.length, 1);
   assert.match(client.state.auditEntries[0].notes, /Received ordered box IL1-ORDERED-1 at 12.5 lbs with lot run LOT-42/);
+});
+
+test('receiveOrderedBox resolves an existing ordered placeholder allocation instead of creating a duplicate row', async () => {
+  const client = createRecordingClient();
+  client.state.allocations = [createAllocationRow()];
+
+  const response = await receiveOrderedBox(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-ORDERED-1',
+      receivedWeightLbs: '8.75',
+    },
+    'warehouse-user'
+  );
+
+  assert.equal(response.ok, true);
+  assert.match(
+    response.warnings.join(' '),
+    /100 LF placeholder from IL1-ORDERED-1 was resolved to job 5555 for Film Order FO-RECEIVE-1/i
+  );
+  assert.equal(client.state.allocations.length, 1);
+  assert.equal(client.state.allocations[0].allocation_id, 'ALLOC-PLACEHOLDER-1');
+  assert.equal(client.state.allocations[0].film_order_id, 'FO-RECEIVE-1');
+  assert.equal(client.state.allocations[0].allocation_source, 'FILM_ORDER_RECEIPT');
+  assert.equal(client.state.allocations[0].covered_feet, 100);
+  assert.equal(client.state.filmOrder.covered_feet, 100);
+  assert.equal(client.state.filmOrder.status, 'FULFILLED');
+  assert.equal(client.state.filmOrderLink.auto_allocated_feet, 100);
+});
+
+test('receiveOrderedBox splits larger placeholders without increasing total active allocated feet', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    initial_feet: 200,
+    feet_available: 200,
+  });
+  client.state.allocations = [
+    createAllocationRow({
+      allocation_id: 'ALLOC-PLACEHOLDER-200',
+      allocated_feet: 150,
+      covered_feet: 150,
+    }),
+  ];
+
+  const response = await receiveOrderedBox(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-ORDERED-1',
+    },
+    'warehouse-user'
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(client.state.allocations.length, 2);
+
+  const placeholder = client.state.allocations.find((entry) => entry.allocation_id === 'ALLOC-PLACEHOLDER-200');
+  const receipt = client.state.allocations.find((entry) => entry.film_order_id === 'FO-RECEIVE-1');
+  assert.equal(placeholder.allocated_feet, 50);
+  assert.equal(placeholder.covered_feet, 50);
+  assert.equal(placeholder.film_order_id, '');
+  assert.equal(receipt.allocated_feet, 100);
+  assert.equal(receipt.covered_feet, 100);
+  assert.equal(receipt.allocation_source, 'FILM_ORDER_RECEIPT');
+  assert.equal(client.state.allocations.reduce((total, entry) => total + entry.allocated_feet, 0), 150);
+  assert.equal(client.state.filmOrderLink.auto_allocated_feet, 100);
 });
