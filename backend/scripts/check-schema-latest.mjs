@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0091_atomic_job_allocation_remove.sql';
+const LATEST_MIGRATION = '0092_safe_update_job_create_planner.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -86,6 +86,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_record_auto_planned_allocation_suppression(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_clear_allocation_planner_suppression(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.save_allocation(app.allocations)' },
+  { kind: 'function', signature: 'app_api.save_job(app.jobs)' },
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
@@ -349,6 +350,16 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'app_api.save_job(app.jobs)',
+    includes: [
+      'on conflict (org_id, job_number) do update set',
+      'where app.jobs.org_id = excluded.org_id\n    and app.jobs.job_number = excluded.job_number'
+    ],
+    excludes: [
+      'updated_by = excluded.updated_by\n  returning * into v_row;'
+    ]
+  },
+  {
     signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)',
     includes: [
       'perform pg_advisory_xact_lock',
@@ -362,12 +373,20 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
       'app_api.plan_allocation_coverage(',
-      "'AUTO_PLANNED allocation created by planner reconciliation.'"
+      "'AUTO_PLANNED allocation created by planner reconciliation.'",
+      'set remaining = bx.capacity - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, bx.status)\n      and coalesce(a.allocation_source::text, \'MANUAL\') <> \'AUTO_PLANNED\'\n  ), 0)\n  where bx.box_id is not null;',
+      'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0)\n  where bx.box_id is not null;',
+      'where auto_planner_desired_film.job_id = excluded.job_id\n          and auto_planner_desired_film.requirement_id = excluded.requirement_id\n          and auto_planner_desired_film.box_id = excluded.box_id;',
+      'where auto_planner_desired_caulk.job_id = excluded.job_id\n        and auto_planner_desired_caulk.requirement_id = excluded.requirement_id\n        and auto_planner_desired_caulk.product_id = excluded.product_id\n        and auto_planner_desired_caulk.warehouse = excluded.warehouse;'
     ],
     excludes: [
       'perform app_api.save_film_order(',
       'delete from app.film_orders',
-      "upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'\n          and not bx.skipped"
+      "upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'\n          and not bx.skipped",
+      'set remaining = bx.capacity - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, bx.status)\n      and coalesce(a.allocation_source::text, \'MANUAL\') <> \'AUTO_PLANNED\'\n  ), 0);',
+      'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0);',
+      'covered_feet = auto_planner_desired_film.covered_feet + excluded.covered_feet;',
+      'allocated_tubes = auto_planner_desired_caulk.allocated_tubes + excluded.allocated_tubes;'
     ]
   },
   {
