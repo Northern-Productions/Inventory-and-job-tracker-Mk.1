@@ -672,6 +672,10 @@ th {
   gap: 0.75rem;
 }
 
+.toast-body > div {
+  min-width: 0;
+}
+
 .toast-symbol {
   display: inline-flex;
   align-items: center;
@@ -2970,6 +2974,19 @@ td.col-available-linear-ft {
 .toast p {
   margin: 0.35rem 0 0;
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.toast-success p,
+.toast-warning p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.toast-error p {
+  white-space: pre-wrap;
 }
 
 .toast-success {

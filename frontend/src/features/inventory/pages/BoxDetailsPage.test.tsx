@@ -803,6 +803,69 @@ describe('BoxDetailsPage', () => {
     );
   });
 
+  it('summarizes planner warnings after receiving an ordered box without dumping raw diagnostics', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const receiveOrderedState = buildMutationState();
+    receiveOrderedState.mutateAsync.mockResolvedValue({
+      ...buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        receivedDate: '2026-04-17',
+        feetAvailable: 500,
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      warnings: [
+        'Skipped AUTO caulk planning for product DOW-795-BLK in IL1 because existing active allocations exceed physical stock.',
+        'Skipped AUTO caulk planning for product DOW-795-BLK in IL1 because existing active allocations exceed physical stock.',
+        'Skipped AUTO caulk planning for product DOW-795-WHT in IL1 because existing active allocations exceed physical stock.',
+        'Skipped AUTO caulk planning for product DOW-995-GRY in IL1 because existing active allocations exceed physical stock.'
+      ]
+    });
+    useReceiveOrderedBoxMock.mockReturnValue(receiveOrderedState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        lotRun: '',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Box received',
+          description:
+            'Box received with planner warnings. Some legacy reservations may need review. 3 planner warnings hidden.',
+          actionLabel: 'Undo'
+        })
+      )
+    );
+
+    const toastDescription = toastPushMock.mock.calls[0]?.[0]?.description as string;
+    expect(toastDescription).not.toContain('DOW-795-BLK');
+    expect(toastDescription).not.toContain('Skipped AUTO caulk planning');
+
+    warnSpy.mockRestore();
+  });
+
   it('auto-opens the QR section when showQr=1 is present in the search params', () => {
     const html = renderPage();
 

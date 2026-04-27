@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { APIError } from '../../../../api/http';
 import type { useToast } from '../../../../components/Toast';
-import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
+import {
+  formatMutationWarningDescription,
+  type MutationWarningFormatOptions
+} from '../../../../lib/mutationWarnings';
 import type {
   AllocationEntry,
   Box,
@@ -68,6 +71,9 @@ type UndoMutationFn = (payload: UndoAuditPayload) => Promise<{
 }>;
 type UpsertDealerMutationFn = (payload: UpsertBoxDealerPayload) => Promise<BoxDealerEntry>;
 
+const ORDERED_RECEIVE_PLANNER_WARNING_SUMMARY =
+  'Box received with planner warnings. Some legacy reservations may need review.';
+
 interface UseBoxDetailActionsArgs {
   box: Box | undefined;
   boxId: string;
@@ -128,6 +134,7 @@ export function useBoxDetailActions({
     boxIdValue: string,
     warnings: string[],
     successDescription = `${boxIdValue} was saved successfully.`,
+    warningOptions: MutationWarningFormatOptions = {},
     onUndoSuccess?: (restoredBox: Box | null) => void
   ) {
     pushToast({
@@ -135,7 +142,8 @@ export function useBoxDetailActions({
       description: formatMutationWarningDescription(
         warnings,
         successDescription,
-        'box-detail-mutation'
+        'box-detail-mutation',
+        warningOptions
       ),
       actionLabel: 'Undo',
       onAction: async () => {
@@ -480,7 +488,10 @@ export function useBoxDetailActions({
         'Box received',
         result.box.boxId,
         warnings,
-        `${result.box.boxId} was received and moved into in-stock inventory.`
+        `${result.box.boxId} was received and moved into in-stock inventory.`,
+        {
+          plannerSummary: ORDERED_RECEIVE_PLANNER_WARNING_SUMMARY
+        }
       );
     } catch (error) {
       pushToast({
