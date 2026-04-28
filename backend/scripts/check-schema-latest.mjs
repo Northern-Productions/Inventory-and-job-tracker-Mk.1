@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0097_fix_append_roll_history_without_timezone_overload.sql';
+const LATEST_MIGRATION = '0098_box_checkin_reconciliation.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -22,6 +22,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.allocations.allocation_source' },
   { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
   { kind: 'column', signature: 'app.roll_weight_log.created_at' },
+  { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
@@ -50,6 +51,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_box_dealers(uuid)' },
   { kind: 'function', signature: 'public.api_acl_box_dealers_upsert(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_set_status(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.film_order_matches_requirement(uuid, uuid, text, text, numeric, uuid, text, text, numeric)' },
+  { kind: 'function', signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)' },
+  { kind: 'function', signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
@@ -376,9 +380,24 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'and coalesce(a.allocation_kind::text, \'REQUIREMENT\') = \'REQUIREMENT\'',
       'and a.requirement_id is not null',
       'and a.job_date is not null',
-      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
+      'v_reconciliation_result := app_api.reconcile_box_checkin_allocations(',
+      "v_box.feet_available := coalesce(",
     ],
-    excludes: []
+    excludes: ['Received physical LF cannot be lower than the box']
+  },
+  {
+    signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)',
+    includes: [
+      'for update;',
+      'order by a.created_at asc, a.allocation_id asc',
+      'app_api.compute_covered_feet_from_allocation(',
+      "set status = 'CANCELLED'",
+      'app_api.reconcile_existing_film_order_need_for_requirement(',
+      "'updatedFilmOrderIds'",
+      "'warnings'"
+    ],
+    excludes: ['job_date asc', 'due_date', 'install date']
   },
   {
     signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',

@@ -14,8 +14,8 @@ import type { FilmOrderEntry, JobRequirementLine } from '../../../../domain';
  * migration logic, FilmOrdersPage creation, and allocation-job tests.
  *
  * COMMON FAILURE MODES:
- * Duplicate unresolved orders, wrong width ordered, stale buttons after cancel,
- * or using allocated box width instead of requirement width.
+ * Duplicate unresolved orders, wrong requirement IDs, stale buttons after
+ * cancel, or using allocated box width instead of requirement width.
  */
 export function normalizeFilmRequirementOrderKey(
   entry: Pick<JobRequirementLine | FilmOrderEntry, 'manufacturer' | 'filmName' | 'widthIn'>
@@ -34,12 +34,21 @@ export function findUnresolvedOrderForRequirement(
   requirement: JobRequirementLine,
   filmOrders: FilmOrderEntry[]
 ) {
+  const requirementId = String(requirement.requirementId || '').trim();
   const requirementKey = normalizeFilmRequirementOrderKey(requirement);
-  return filmOrders.find(
-    (order) =>
-      isUnresolvedRequirementFilmOrder(order) &&
-      normalizeFilmRequirementOrderKey(order) === requirementKey
-  );
+  return filmOrders.find((order) => {
+    if (!isUnresolvedRequirementFilmOrder(order)) {
+      return false;
+    }
+
+    const orderRequirementId = String(order.requirementId || '').trim();
+    if (requirementId && orderRequirementId) {
+      return orderRequirementId === requirementId &&
+        normalizeFilmRequirementOrderKey(order) === requirementKey;
+    }
+
+    return normalizeFilmRequirementOrderKey(order) === requirementKey;
+  });
 }
 
 export function getOrderableFilmRequirements(

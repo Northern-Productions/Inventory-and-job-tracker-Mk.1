@@ -324,6 +324,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       id: row.id,
       orgId: row.org_id,
       filmOrderId: deps.asTrimmedString(row.film_order_id),
+      requirementId: deps.asTrimmedString(row.requirement_id),
       jobId: row.job_id || null,
       jobNumber: deps.asTrimmedString(row.job_number),
       warehouse: deps.asTrimmedString(row.warehouse),
@@ -350,6 +351,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
   function toPublicFilmOrder(entry: any, linkedBoxes: any[]) {
     return {
       filmOrderId: entry.filmOrderId,
+      requirementId: deps.asTrimmedString(entry.requirementId),
       jobNumber: entry.jobNumber,
       warehouse: entry.warehouse,
       manufacturer: entry.manufacturer,

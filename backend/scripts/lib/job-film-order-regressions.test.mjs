@@ -545,6 +545,6 @@ test('job requirement and film order repositories preserve write-normalized labe
     createdAt: '2026-04-15T08:00:00Z',
     createdBy: 'tester'
   });
-  assert.equal(filmOrdersClient.calls[0].params[5], '3M Solar');
-  assert.equal(filmOrdersClient.calls[0].params[6], 'Prestige 40 Exterior');
+  assert.equal(filmOrdersClient.calls[0].params[6], '3M Solar');
+  assert.equal(filmOrdersClient.calls[0].params[7], 'Prestige 40 Exterior');
 });

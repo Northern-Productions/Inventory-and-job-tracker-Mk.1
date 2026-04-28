@@ -747,6 +747,66 @@ function resolveAllocationJobMetadata(allocations, filmOrders) {
   return { installDate, crewLeader };
 }
 
+
+function filmOrderMatchesRequirement(filmOrder, requirement) {
+  const orderRequirementId = asTrimmedString(filmOrder?.requirementId);
+  const requirementId = asTrimmedString(requirement?.requirementId || requirement?.id);
+  const productMatches =
+    planningFilmCanSatisfyRequirement(
+      filmOrder?.manufacturer,
+      filmOrder?.filmName,
+      requirement?.manufacturer,
+      requirement?.filmName
+    ) &&
+    Number(filmOrder?.widthIn || 0) === Number(requirement?.widthIn || 0);
+
+  if (orderRequirementId || requirementId) {
+    return Boolean(orderRequirementId && requirementId && orderRequirementId === requirementId && productMatches);
+  }
+
+  return productMatches;
+}
+
+function getFilmOnTheWayFeetForRequirement(filmOrders, requirement) {
+  let total = 0;
+  const entries = Array.isArray(filmOrders) ? filmOrders : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (asTrimmedString(entry?.status).toUpperCase() !== 'FILM_ON_THE_WAY') {
+      continue;
+    }
+
+    if (!filmOrderMatchesRequirement(entry, requirement)) {
+      continue;
+    }
+
+    // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
+    const orderedFeet = integerOrZero(entry.orderedFeet);
+    total += orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+  }
+
+  return total;
+}
+
+function areFilmShortagesFullyOnTheWay(requirements, filmOrders) {
+  const entries = Array.isArray(requirements) ? requirements : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const requirement = entries[index];
+    const requiredFeet = integerOrZero(requirement.requiredFeet);
+    const allocatedFeet = integerOrZero(requirement.allocatedFeet);
+    const missingFeet = Math.max(0, requiredFeet - allocatedFeet);
+    if (missingFeet <= 0) {
+      continue;
+    }
+
+    if (getFilmOnTheWayFeetForRequirement(filmOrders, requirement) < missingFeet) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function buildAllocationJobSummary(
   jobNumber,
   allocations,
@@ -836,13 +896,19 @@ function buildAllocationJobSummary(
       }
     }
 
-    status = hasRemainingFilm || hasRemainingCaulk ? 'FILM_ORDER' : 'READY';
+    if (!hasRemainingFilm && !hasRemainingCaulk) {
+      status = 'READY';
+    } else if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(requirements, filmOrders)) {
+      status = 'ORDERED';
+    } else {
+      status = 'FILM_ORDER';
+    }
   } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = 'READY';
   } else if (hasFilmOrder) {
     status = 'FILM_ORDER';
   } else if (hasFilmOnTheWay) {
-    status = 'FILM_ORDER';
+    status = 'ORDERED';
   } else if (hasActiveAllocation) {
     status = 'READY';
   } else if (hasCancelledRecord) {
@@ -893,5 +959,8 @@ export {
   buildPublicCaulkRequirementEntries,
   summarizeCaulkRequirementCoverage,
   resolveAllocationJobMetadata,
+  filmOrderMatchesRequirement,
+  getFilmOnTheWayFeetForRequirement,
+  areFilmShortagesFullyOnTheWay,
   buildAllocationJobSummary,
 };

@@ -325,6 +325,8 @@ export function getCalendarJobStatusClass(
   switch (getJobListDisplayStatus(entry.status, entry.filmOrderCount)) {
     case 'READY':
       return 'job-calendar-job-link-status-ready';
+    case 'ORDERED':
+      return 'job-calendar-job-link-status-ordered';
     case 'FILM_ORDER':
       return 'job-calendar-job-link-status-film-order';
     case 'CANCELLED':

@@ -197,6 +197,7 @@ import {
   buildAllocationCoverageByRequirementId,
   buildAllocationJobSummary,
   buildCaulkCoverageByRequirementId,
+  getFilmOnTheWayFeetForRequirement,
   getStoredAllocationCoveredFeet,
   resolveAllocationJobMetadata,
   summarizeCaulkRequirementCoverage,
@@ -382,12 +383,16 @@ function deriveInStockReadinessStatus({
   const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
   const hasMaterialRequirements = hasJobMaterialRequirements(normalizedRequirements, normalizedCaulkRequirements);
   if (!hasMaterialRequirements) {
-    return isLaborOnly ||
-      normalizedRequirements.length ||
-      normalizedCaulkRequirements.length ||
-      !normalizedFilmOrders.some(isOpenMaterialFilmOrder)
-      ? 'READY'
-      : 'FILM_ORDER';
+    if (isLaborOnly || normalizedRequirements.length || normalizedCaulkRequirements.length) {
+      return 'READY';
+    }
+    if (!normalizedFilmOrders.some(isOpenMaterialFilmOrder)) {
+      return 'READY';
+    }
+    if (normalizedFilmOrders.some((entry) => asTrimmedString(entry?.status).toUpperCase() === 'FILM_ORDER')) {
+      return 'FILM_ORDER';
+    }
+    return 'ORDERED';
   }
 
   const readinessBoxById = indexReadinessBoxes(allBoxes, boxById);
@@ -430,7 +435,27 @@ function deriveInStockReadinessStatus({
     return integerOrZero(caulkCoverageByRequirementId[requirementId]) >= requiredTubes;
   });
 
-  return filmReady && caulkReady ? 'READY' : 'FILM_ORDER';
+  if (filmReady && caulkReady) {
+    return 'READY';
+  }
+
+  const filmOrdered = normalizedRequirements.every((requirement) => {
+    const requiredFeet = integerOrZero(requirement?.requiredFeet);
+    if (requiredFeet <= 0) {
+      return true;
+    }
+
+    const requirementId = getRequirementId(requirement);
+    if (!requirementId) {
+      return false;
+    }
+
+    const allocatedFeet = integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet);
+    const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
+    return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(normalizedFilmOrders, requirement) >= missingFeet;
+  });
+
+  return caulkReady && filmOrdered ? 'ORDERED' : 'FILM_ORDER';
 }
 
 function computeJobStatusFromRequirements(

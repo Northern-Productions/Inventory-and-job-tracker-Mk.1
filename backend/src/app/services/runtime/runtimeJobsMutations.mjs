@@ -609,6 +609,8 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const filmName = canonical.filmName;
   const widthIn = coerceNonNegativeNumber(payload.widthIn, 'WidthIn');
   const requestedFeet = coerceFeetValue(payload.requestedFeet, 'RequestedFeet', warnings, false);
+  const requirementId = asTrimmedString(payload.requirementId);
+  let selectedRequirement = null;
 
   if (widthIn <= 0) {
     throw new HttpError(400, 'WidthIn must be greater than zero.');
@@ -624,11 +626,34 @@ async function createFilmOrder(client, orgId, payload, actor) {
   }
 
   const duplicateKey = normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn);
+  if (requirementId) {
+    const requirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+    selectedRequirement = requirements.find((entry) => asTrimmedString(entry.id || entry.requirementId) === requirementId) || null;
+    if (!selectedRequirement) {
+      throw new HttpError(404, 'Job requirement was not found.');
+    }
+
+    const requirementKey = normalizeJobRequirementLookupKey(
+      selectedRequirement.manufacturer,
+      selectedRequirement.filmName,
+      selectedRequirement.widthIn
+    );
+    if (requirementKey !== duplicateKey) {
+      throw new HttpError(400, 'Film order product and width must match the selected requirement.');
+    }
+  }
+
   const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
   const duplicateOrder = existingFilmOrders.find((entry) => {
     const status = asTrimmedString(entry?.status).toUpperCase();
     if (status !== 'FILM_ORDER' && status !== 'FILM_ON_THE_WAY') {
       return false;
+    }
+
+    const existingRequirementId = asTrimmedString(entry.requirementId);
+    if (requirementId && existingRequirementId) {
+      return existingRequirementId === requirementId &&
+        normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === duplicateKey;
     }
 
     return normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn) === duplicateKey;
@@ -643,6 +668,7 @@ async function createFilmOrder(client, orgId, payload, actor) {
   const jobId = await getOrResolveJobId(client, orgId, jobNumber);
   const entry = await saveFilmOrderRecord(client, orgId, {
     filmOrderId: createLogId(),
+    requirementId,
     jobId,
     jobNumber,
     warehouse,

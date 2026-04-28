@@ -239,13 +239,6 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
   }
 
   const manualReservationOverageFeet = Math.max(otherStoredAllocatedFeet - physicalFeetAfterCheckIn, 0);
-  if (manualReservationOverageFeet > 0) {
-    const subject = currentFeetOnRoll === null ? 'Received physical LF' : 'CurrentFeetOnRoll';
-    throw new HttpError(
-      400,
-      `${subject} cannot be lower than the box's locked allocated feet (${otherStoredAllocatedFeet}).`
-    );
-  }
 
   const autoPlannedReservationOverageFeet = Math.max(
     otherActiveAllocatedFeet - Math.max(physicalFeetAfterCheckIn, otherStoredAllocatedFeet),

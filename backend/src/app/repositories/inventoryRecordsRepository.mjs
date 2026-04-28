@@ -325,6 +325,7 @@ async function saveAllocationRecord(client, orgId, entry) {
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
+        requirement_id = excluded.requirement_id,
         job_id = excluded.job_id,
         job_number = excluded.job_number,
         warehouse = excluded.warehouse,
@@ -438,6 +439,7 @@ async function saveFilmOrderRecord(client, orgId, entry) {
       insert into app.film_orders (
         org_id,
         film_order_id,
+        requirement_id,
         job_id,
         job_number,
         warehouse,
@@ -459,15 +461,16 @@ async function saveFilmOrderRecord(client, orgId, entry) {
         created_by
       )
       values (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-        nullif($13, '')::date,
-        $14,$15,$16,
-        nullif($17, '')::timestamptz,
-        $18,$19,
-        coalesce($20::timestamptz, now()),
-        $21
+        $1,$2,nullif($3, '')::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+        nullif($14, '')::date,
+        $15,$16,$17,
+        nullif($18, '')::timestamptz,
+        $19,$20,
+        coalesce($21::timestamptz, now()),
+        $22
       )
       on conflict (org_id, film_order_id) do update set
+        requirement_id = excluded.requirement_id,
         job_id = excluded.job_id,
         job_number = excluded.job_number,
         warehouse = excluded.warehouse,
@@ -492,6 +495,7 @@ async function saveFilmOrderRecord(client, orgId, entry) {
     [
       orgId,
       filmOrderId,
+      asTrimmedString(entry.requirementId),
       entry.jobId,
       entry.jobNumber,
       entry.warehouse,
@@ -515,6 +519,35 @@ async function saveFilmOrderRecord(client, orgId, entry) {
   );
 
   return mapDbFilmOrderRow(row);
+}
+
+async function reconcileBoxCheckinAllocations(client, orgId, entry, actor) {
+  const row = await queryRow(
+    client,
+    `
+      select app_api.reconcile_box_checkin_allocations(
+        $1::uuid,
+        $2::text,
+        $3::text,
+        $4::integer
+      ) as result
+    `,
+    [
+      orgId,
+      asTrimmedString(actor),
+      asTrimmedString(entry?.boxId),
+      integerOrZero(entry?.physicalFeetAfter),
+    ]
+  );
+
+  return row?.result || {
+    warnings: [],
+    affectedJobNumbers: [],
+    reducedAllocationIds: [],
+    cancelledAllocationIds: [],
+    updatedFilmOrderIds: [],
+    feetAvailable: Math.max(0, integerOrZero(entry?.physicalFeetAfter)),
+  };
 }
 
 async function deleteFilmOrderRecord(client, orgId, filmOrderId) {
@@ -669,6 +702,7 @@ export {
   listFilmOrdersByJob,
   findFilmOrderById,
   saveFilmOrderRecord,
+  reconcileBoxCheckinAllocations,
   deleteFilmOrderRecord,
   listFilmOrderLinks,
   listFilmOrderLinksByFilmOrderId,

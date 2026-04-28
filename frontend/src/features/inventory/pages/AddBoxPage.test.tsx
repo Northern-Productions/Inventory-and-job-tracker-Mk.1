@@ -133,6 +133,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
 function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
   return {
     filmOrderId: 'FO-1',
+    requirementId: 'req-1',
     jobNumber: '2941',
     warehouse: 'IL1',
     manufacturer: '3M Solar',
@@ -547,7 +548,7 @@ describe('AddBoxPage', () => {
     ).toBe(0);
     expect(
       queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob('2941'))?.summary.status
-    ).toBe('FILM_ORDER');
+    ).toBe('ORDERED');
 
     deferred.resolve({
       result: {

@@ -27,11 +27,13 @@
       "ALLOCATE",
       "CONFLICT",
       "READY",
+      "ORDERED",
       "COMPLETED",
       "CANCELLED"
     ],
     "allocationJobs": [
       "READY",
+      "ORDERED",
       "ON_ORDER",
       "FILM_ORDER",
       "COMPLETED",

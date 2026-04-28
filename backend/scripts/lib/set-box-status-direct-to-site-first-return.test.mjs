@@ -142,6 +142,23 @@ function createRecordingClient() {
         return { rows: [] };
       }
 
+      if (sql.includes('select app_api.reconcile_box_checkin_allocations')) {
+        return {
+          rows: [
+            {
+              result: {
+                warnings: [],
+                affectedJobNumbers: [],
+                reducedAllocationIds: [],
+                cancelledAllocationIds: [],
+                updatedFilmOrderIds: [],
+                feetAvailable: Math.max(0, Number(params[3] || 0)),
+              },
+            },
+          ],
+        };
+      }
+
       if (sql.includes('insert into app.audit_log')) {
         state.auditEntries.push({
           org_id: params[0],

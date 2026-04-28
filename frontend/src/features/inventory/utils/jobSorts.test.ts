@@ -64,11 +64,12 @@ describe('sortJobs', () => {
     const entries = [
       buildJob({ jobNumber: '1', installDate: '2026-03-21', status: 'READY' }),
       buildJob({ jobNumber: '2', installDate: '2026-03-22', status: 'FILM_ORDER' }),
-      buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'FILM_ORDER', filmOrderCount: 2 })
+      buildJob({ jobNumber: '3', installDate: '2026-03-23', status: 'FILM_ORDER', filmOrderCount: 2 }),
+      buildJob({ jobNumber: '4', installDate: '2026-03-20', status: 'ORDERED' })
     ];
 
-    expect(sortJobs(entries, 'ready').map((entry) => entry.jobNumber)).toEqual(['1', '2', '3']);
-    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['2', '3', '1']);
+    expect(sortJobs(entries, 'ready').map((entry) => entry.jobNumber)).toEqual(['1', '4', '2', '3']);
+    expect(sortJobs(entries, 'film_order').map((entry) => entry.jobNumber)).toEqual(['2', '3', '4', '1']);
   });
 
   it('keeps exact search matches ahead of prefix and contains matches', () => {

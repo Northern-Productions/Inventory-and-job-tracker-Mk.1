@@ -18,6 +18,7 @@ import {
   findBoxById,
   saveBoxRecord,
   listAllocationsByBox,
+  reconcileBoxCheckinAllocations,
   appendAuditEntry,
   appendRollHistoryEntry,
 } from '../../runtimeDeps.mjs';
@@ -209,17 +210,30 @@ async function setBoxStatus(client, orgId, payload, actor) {
       }
     }
 
+    const reconciliationResult = await reconcileBoxCheckinAllocations(
+      client,
+      orgId,
+      {
+        boxId: updatedBox.boxId,
+        physicalFeetAfter: checkInPlan.physicalFeetAfterCheckIn
+      },
+      actor
+    );
+    if (Array.isArray(reconciliationResult.warnings) && reconciliationResult.warnings.length > 0) {
+      warnings.push(...reconciliationResult.warnings);
+    }
+
     if (checkInPlan.otherJobs.length > 0) {
       warnings.push(`This box still has active allocations for ${checkInPlan.otherJobs.join(', ')}.`);
     }
     if (checkInPlan.autoPlannedReservationOverageFeet > 0) {
       warnings.push(
-        `${checkInPlan.autoPlannedReservationOverageFeet} LF of AUTO_PLANNED reservations no longer fit this box and will be replanned from available same-warehouse stock.`
+        `${checkInPlan.autoPlannedReservationOverageFeet} LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order.`
       );
     }
     if (checkInPlan.manualReservationOverageFeet > 0) {
       warnings.push(
-        `${checkInPlan.manualReservationOverageFeet} LF of manual reservations no longer fit this box. Review and explicitly release or reassign those allocations.`
+        `${checkInPlan.manualReservationOverageFeet} LF of manual reservations no longer fit this box and were reconciled by reservation order.`
       );
     }
 
@@ -232,7 +246,10 @@ async function setBoxStatus(client, orgId, payload, actor) {
     updatedBox.coreType = checkInPlan.coreType || updatedBox.coreType;
     updatedBox.coreWeightLbs = checkInPlan.coreWeightLbs;
     updatedBox.lfWeightLbsPerFt = checkInPlan.lfWeightLbsPerFt;
-    updatedBox.feetAvailable = checkInPlan.feetAvailableAfterCheckIn;
+    updatedBox.feetAvailable = Math.max(
+      0,
+      Number(reconciliationResult.feetAvailable ?? checkInPlan.feetAvailableAfterCheckIn) || 0
+    );
 
     const warningBeforeBox = { ...existing, feetAvailable: checkInPlan.physicalFeetBeforeCheckIn };
     const warningAfterBox = { ...updatedBox, feetAvailable: checkInPlan.physicalFeetAfterCheckIn };

@@ -81,6 +81,10 @@ function compareInstallDateDescending(left: JobListEntry, right: JobListEntry) {
 }
 
 export function getJobListDisplayStatus(status: string, filmOrderCount: number) {
+  if (status === 'ORDERED') {
+    return 'ORDERED';
+  }
+
   if (status === 'READY' && filmOrderCount > 0) {
     return 'FILM_ORDER';
   }
@@ -112,15 +116,15 @@ export function compareJobsBySort(left: JobListEntry, right: JobListEntry, sort:
     case 'ready': {
       const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
       const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-      const leftRank = leftDisplayStatus === 'READY' ? 0 : 1;
-      const rightRank = rightDisplayStatus === 'READY' ? 0 : 1;
+      const leftRank = leftDisplayStatus === 'READY' ? 0 : leftDisplayStatus === 'ORDERED' ? 1 : 2;
+      const rightRank = rightDisplayStatus === 'READY' ? 0 : rightDisplayStatus === 'ORDERED' ? 1 : 2;
       return compareNumbers(leftRank, rightRank) || compareInstallDateAscending(left, right);
     }
     case 'film_order': {
       const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
       const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-      const leftRank = leftDisplayStatus === 'FILM_ORDER' ? 0 : 1;
-      const rightRank = rightDisplayStatus === 'FILM_ORDER' ? 0 : 1;
+      const leftRank = leftDisplayStatus === 'FILM_ORDER' ? 0 : leftDisplayStatus === 'ORDERED' ? 1 : 2;
+      const rightRank = rightDisplayStatus === 'FILM_ORDER' ? 0 : rightDisplayStatus === 'ORDERED' ? 1 : 2;
       return compareNumbers(leftRank, rightRank) || compareInstallDateAscending(left, right);
     }
     default:

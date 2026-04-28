@@ -127,6 +127,12 @@ describe('jobCalendar', () => {
         buildJob({ jobNumber: '50000', status: 'FILM_ORDER', isStagedForPickup: true })
       )
     ).toBe('job-calendar-job-link-status-ready');
+
+    expect(
+      getCalendarJobStatusClass(
+        buildJob({ jobNumber: '60000', status: 'ORDERED' })
+      )
+    ).toBe('job-calendar-job-link-status-ordered');
   });
 
   it('prefers the current workflow when cross-workflow search results tie', () => {

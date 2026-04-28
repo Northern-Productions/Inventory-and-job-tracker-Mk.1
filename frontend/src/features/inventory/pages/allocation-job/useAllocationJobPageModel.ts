@@ -450,6 +450,7 @@ export function useAllocationJobPageModel() {
 
     await createFilmOrderMutation.mutateAsync({
       jobNumber: summary.jobNumber,
+      requirementId: requirement.requirementId,
       warehouse: summary.warehouse,
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,

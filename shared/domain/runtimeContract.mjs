@@ -15,8 +15,8 @@ export const FEATURE_AREAS = Object.freeze([
 
 export const BOX_STATUSES = Object.freeze(['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'TRANSFER', 'ZEROED', 'RETIRED']);
 export const FILM_ORDER_STATUSES = Object.freeze(['FILM_ORDER', 'FILM_ON_THE_WAY', 'FULFILLED', 'CANCELLED']);
-export const JOB_STATUSES = Object.freeze(['READY', 'FILM_ORDER', 'COMPLETED', 'CANCELLED']);
-export const ALLOCATION_JOB_STATUSES = Object.freeze(['READY', 'FILM_ORDER', 'COMPLETED', 'CANCELLED']);
+export const JOB_STATUSES = Object.freeze(['READY', 'ORDERED', 'FILM_ORDER', 'COMPLETED', 'CANCELLED']);
+export const ALLOCATION_JOB_STATUSES = Object.freeze(['READY', 'ORDERED', 'FILM_ORDER', 'COMPLETED', 'CANCELLED']);
 export const ALLOCATION_SOURCES = Object.freeze([
   'MANUAL',
   'AUTO_PLANNED',

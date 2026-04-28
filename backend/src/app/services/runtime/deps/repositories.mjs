@@ -42,6 +42,7 @@ export {
   listFilmOrdersByJob,
   findFilmOrderById,
   saveFilmOrderRecord,
+  reconcileBoxCheckinAllocations,
   deleteFilmOrderRecord,
   listFilmOrderLinks,
   listFilmOrderLinksByFilmOrderId,

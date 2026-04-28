@@ -40,8 +40,8 @@ function deriveAllocationJobStatusFromFilmOrders(
     return 'FILM_ORDER' as const;
   }
 
-  if (filmOrders.some((entry) => isUnresolvedFilmOrder(entry))) {
-    return 'FILM_ORDER' as const;
+  if (filmOrders.some((entry) => entry.status === 'FILM_ON_THE_WAY')) {
+    return 'ORDERED' as const;
   }
 
   return currentStatus;
@@ -304,6 +304,7 @@ export function createOptimisticFilmOrderFromPayload(
 
   return {
     filmOrderId: `pending-film-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    requirementId: String(payload.requirementId || '').trim(),
     jobNumber: payload.jobNumber,
     warehouse: payload.warehouse,
     manufacturer: payload.manufacturer,

@@ -46,10 +46,10 @@ test('roll history overload hotfix uses explicit insert columns for both overloa
   assert.doesNotMatch(migration, /app_api\.append_roll_history_entry\(/);
 });
 
-test('schema check points to the roll history overload hotfix', async () => {
+test('latest schema check still validates the roll history overload hotfix semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0097_fix_append_roll_history_without_timezone_overload\.sql/);
+  assert.match(schemaCheck, /0098_box_checkin_reconciliation\.sql/);
   assert.match(schemaCheck, /insert into app\.roll_weight_log \(/);
   assert.match(schemaCheck, /created_at\\n  \)/);
   assert.match(schemaCheck, /timestamp with time zone/);

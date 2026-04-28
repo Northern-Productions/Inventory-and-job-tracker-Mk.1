@@ -306,6 +306,7 @@ function mapDbFilmOrderRow(row) {
     id: row.id,
     orgId: row.org_id,
     filmOrderId: asTrimmedString(row.film_order_id),
+    requirementId: asTrimmedString(row.requirement_id),
     jobId: row.job_id || null,
     jobNumber: asTrimmedString(row.job_number),
     warehouse: asTrimmedString(row.warehouse),
@@ -332,6 +333,7 @@ function mapDbFilmOrderRow(row) {
 function toPublicFilmOrder(entry, linkedBoxes) {
   return {
     filmOrderId: entry.filmOrderId,
+    requirementId: asTrimmedString(entry.requirementId),
     jobNumber: entry.jobNumber,
     warehouse: entry.warehouse,
     manufacturer: entry.manufacturer,

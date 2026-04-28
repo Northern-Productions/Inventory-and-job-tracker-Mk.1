@@ -3298,6 +3298,53 @@ function indexReadinessBoxes(allBoxes: any[], boxById: Record<string, any> = {})
   return response;
 }
 
+
+function filmOrderMatchesRequirement(filmOrder: any, requirement: any): boolean {
+  const orderRequirementId = asTrimmedString(filmOrder?.requirementId);
+  const requirementId = asTrimmedString(requirement?.requirementId || requirement?.id);
+  const productMatches = planningFilmCanSatisfyRequirement(
+    filmOrder?.manufacturer,
+    filmOrder?.filmName,
+    requirement?.manufacturer,
+    requirement?.filmName,
+  ) && Number(filmOrder?.widthIn || 0) === Number(requirement?.widthIn || 0);
+
+  if (orderRequirementId || requirementId) {
+    return Boolean(orderRequirementId && requirementId && orderRequirementId === requirementId && productMatches);
+  }
+
+  return productMatches;
+}
+
+function getFilmOnTheWayFeetForRequirement(filmOrders: any[], requirement: any): number {
+  let total = 0;
+  for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
+    if (asTrimmedString(entry?.status).toUpperCase() !== "FILM_ON_THE_WAY") {
+      continue;
+    }
+    if (!filmOrderMatchesRequirement(entry, requirement)) {
+      continue;
+    }
+    // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
+    const orderedFeet = integerOrZero(entry.orderedFeet);
+    total += orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+  }
+  return total;
+}
+
+function areFilmShortagesFullyOnTheWay(requirements: any[], filmOrders: any[]): boolean {
+  for (const requirement of Array.isArray(requirements) ? requirements : []) {
+    const missingFeet = Math.max(
+      0,
+      integerOrZero(requirement?.requiredFeet) - integerOrZero(requirement?.allocatedFeet),
+    );
+    if (missingFeet > 0 && getFilmOnTheWayFeetForRequirement(filmOrders, requirement) < missingFeet) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function deriveInStockReadinessStatus(params: {
   jobNumber?: unknown;
   lifecycleStatus: unknown;
@@ -3348,12 +3395,16 @@ function deriveInStockReadinessStatus(params: {
     caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
 
   if (!hasMaterialRequirements) {
-    return params.isLaborOnly ||
-      requirements.length ||
-      caulkRequirements.length ||
-      !filmOrders.some(isOpenMaterialFilmOrder)
-      ? "READY"
-      : "FILM_ORDER";
+    if (params.isLaborOnly || requirements.length || caulkRequirements.length) {
+      return "READY";
+    }
+    if (!filmOrders.some(isOpenMaterialFilmOrder)) {
+      return "READY";
+    }
+    if (filmOrders.some((entry) => asTrimmedString(entry?.status).toUpperCase() === "FILM_ORDER")) {
+      return "FILM_ORDER";
+    }
+    return "ORDERED";
   }
 
   const readinessBoxById = indexReadinessBoxes(params.allBoxes, params.boxById || {});
@@ -3395,7 +3446,25 @@ function deriveInStockReadinessStatus(params: {
     return integerOrZero(caulkCoverageByRequirementId[requirementId]) >= requiredTubes;
   });
 
-  return filmReady && caulkReady ? "READY" : "FILM_ORDER";
+  if (filmReady && caulkReady) {
+    return "READY";
+  }
+
+  const filmOrdered = requirements.every((requirement) => {
+    const requiredFeet = integerOrZero(requirement?.requiredFeet);
+    if (requiredFeet <= 0) {
+      return true;
+    }
+    const requirementId = getRequirementId(requirement);
+    if (!requirementId) {
+      return false;
+    }
+    const allocatedFeet = integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet);
+    const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
+    return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
+  });
+
+  return caulkReady && filmOrdered ? "ORDERED" : "FILM_ORDER";
 }
 
 function resolveAllocationJobMetadata(allocations: any[], filmOrders: any[]) {
@@ -3494,17 +3563,19 @@ function buildAllocationJobSummary(
   } else if (hasMaterialRequirements) {
     const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
     const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
-    if (hasRemainingFilm || hasRemainingCaulk) {
-      status = "FILM_ORDER";
-    } else {
+    if (!hasRemainingFilm && !hasRemainingCaulk) {
       status = "READY";
+    } else if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(requirements, filmOrders)) {
+      status = "ORDERED";
+    } else {
+      status = "FILM_ORDER";
     }
   } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = "READY";
   } else if (hasFilmOrder) {
     status = "FILM_ORDER";
   } else if (hasFilmOnTheWay) {
-    status = "FILM_ORDER";
+    status = "ORDERED";
   } else if (hasActiveAllocation) {
     status = "READY";
   } else if (hasCancelledRecord) {

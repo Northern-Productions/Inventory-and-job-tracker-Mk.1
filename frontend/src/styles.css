@@ -3627,6 +3627,10 @@ td.col-available-linear-ft {
   color: #2d6f8f;
 }
 
+.job-calendar-job-link-status-ordered {
+  color: #075985;
+}
+
 .job-calendar-job-link-status-conflict {
   color: #9b3547;
 }

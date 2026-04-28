@@ -107,6 +107,43 @@ function rebuildRequirementCoverage(
   });
 }
 
+
+function filmOrderMatchesRequirement(
+  order: FilmOrderEntry,
+  requirement: Pick<JobRequirementLine, 'requirementId' | 'manufacturer' | 'filmName' | 'widthIn'>
+) {
+  const orderRequirementId = String(order.requirementId || '').trim();
+  const requirementId = String(requirement.requirementId || '').trim();
+  const productMatches = allocationMatchesRequirement(order, requirement);
+
+  if (orderRequirementId || requirementId) {
+    return Boolean(orderRequirementId && requirementId && orderRequirementId === requirementId && productMatches);
+  }
+
+  return productMatches;
+}
+
+function getFilmOnTheWayFeetForRequirement(filmOrders: FilmOrderEntry[], requirement: JobRequirementLine) {
+  return filmOrders.reduce((sum, order) => {
+    if (order.status !== 'FILM_ON_THE_WAY' || !filmOrderMatchesRequirement(order, requirement)) {
+      return sum;
+    }
+
+    // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
+    const orderedFeet = Math.max(0, Number(order.orderedFeet || 0));
+    return sum + (orderedFeet > 0 ? orderedFeet : Math.max(0, Number(order.requestedFeet || 0)));
+  }, 0);
+}
+
+function areFilmShortagesFullyOnTheWay(requirements: JobRequirementLine[], filmOrders: FilmOrderEntry[]) {
+  return requirements.every((requirement) => {
+    const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
+    const allocatedFeet = Math.max(0, Number(requirement.allocatedFeet || 0));
+    const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
+    return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
+  });
+}
+
 function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements: JobRequirementLine[]) {
   const lifecycleStatus = detail.summary.lifecycleStatus;
   if (lifecycleStatus === 'CANCELLED') {
@@ -130,11 +167,11 @@ function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements:
     return 'READY' as const;
   }
 
-  if (detail.filmOrders.some((entry) => isUnresolvedFilmOrder(entry))) {
-    return 'FILM_ORDER' as const;
+  if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(nextRequirements, detail.filmOrders)) {
+    return 'ORDERED' as const;
   }
 
-  return 'FILM_ORDER';
+  return 'FILM_ORDER' as const;
 }
 
 function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
