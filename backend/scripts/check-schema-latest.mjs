@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0095_narrow_auto_planner_scope.sql';
+const LATEST_MIGRATION = '0097_fix_append_roll_history_without_timezone_overload.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -92,6 +92,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.save_job(app.jobs)' },
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
+  { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp without time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
@@ -300,11 +301,35 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)',
     includes: [
-      'return app_api.append_roll_history_entry(',
+      'insert into app.roll_weight_log (',
+      'created_at\n  )',
+      "upper(app_api.require_text(p_warehouse, 'Warehouse'))",
       "app_api.require_text(p_box_id, 'BoxID')",
-      "coalesce(nullif(app_api.trim_text(p_job_number), ''), 'UNKNOWN')"
+      "coalesce(nullif(app_api.trim_text(p_job_number), ''), 'UNKNOWN')",
+      'return v_log_id;'
     ],
-    excludes: []
+    excludes: [
+      'app_api.append_roll_history_entry(',
+      '::app.roll_weight_log',
+      '::app.warehouse'
+    ]
+  },
+  {
+    signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp without time zone, text, numeric, numeric, integer, integer, text)',
+    includes: [
+      'insert into app.roll_weight_log (',
+      'created_at\n  )',
+      "upper(app_api.require_text(p_warehouse, 'Warehouse'))",
+      "app_api.require_text(p_box_id, 'BoxID')",
+      "coalesce(nullif(app_api.trim_text(p_job_number), ''), 'UNKNOWN')",
+      'coalesce(p_checked_in_at::timestamptz, now())',
+      'return v_log_id;'
+    ],
+    excludes: [
+      'app_api.append_roll_history_entry(',
+      '::app.roll_weight_log',
+      '::app.warehouse'
+    ]
   },
   {
     signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)',
