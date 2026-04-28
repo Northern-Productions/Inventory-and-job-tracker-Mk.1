@@ -233,8 +233,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_film_orders_create(uuid, text, jsonb)',
     includes: [
       "coalesce(fo.status::text, '') in ('FILM_ORDER', 'FILM_ON_THE_WAY')",
-      'app_api.normalize_job_requirement_lookup_key(',
-      'app_api.resolve_canonical_film_name(',
+      'app_api.film_order_matches_requirement(',
+      'Film order product and width must match the selected requirement.',
       'perform app_api.raise_http(',
       'Cancel it before creating another order.',
       'v_order := app_api.save_film_order(v_order);'

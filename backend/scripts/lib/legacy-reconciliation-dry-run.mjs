@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { Client } from "pg";
 
@@ -106,6 +107,10 @@ function readEnvFile(envPath) {
   return { path: resolvedPath, values };
 }
 
+function sha256File(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(path.resolve(filePath))).digest("hex");
+}
+
 function extractSupabaseProjectRef(supabaseUrl) {
   const text = asTrimmedString(supabaseUrl);
   if (!text) {
@@ -163,12 +168,25 @@ function resolveLegacyReconciliationConfig(options, scriptName, { allowApply = f
     throw new Error("Apply mode requires --reviewed-report pointing to the reviewed dry-run JSON artifact.");
   }
 
+  const reviewedReportSha256 = normalizeProjectRef(options["reviewed-report-sha256"]);
+  if (applyMode && !reviewedReportSha256) {
+    throw new Error("Apply mode requires --reviewed-report-sha256 for the reviewed dry-run JSON artifact.");
+  }
+
+  if (applyMode && reviewedReportSha256 !== sha256File(reviewedReportPath)) {
+    throw new Error("Reviewed report checksum mismatch; rerun dry-run review before applying.");
+  }
+
   if (applyMode && asTrimmedString(options.out)) {
     throw new Error("Apply mode writes no dry-run report; use --reviewed-report instead of --out.");
   }
 
   if (!applyMode && reviewedReportPath) {
     throw new Error("--reviewed-report is only valid with --apply.");
+  }
+
+  if (!applyMode && reviewedReportSha256) {
+    throw new Error("--reviewed-report-sha256 is only valid with --apply.");
   }
 
   const mode = applyMode ? "apply" : "dry-run";
@@ -250,6 +268,7 @@ function resolveLegacyReconciliationConfig(options, scriptName, { allowApply = f
     orgId,
     reportPath,
     reviewedReportPath: reviewedReportPath ? path.resolve(reviewedReportPath) : null,
+    reviewedReportSha256: reviewedReportSha256 || null,
     actor: asTrimmedString(options.actor) || "legacy-reconciliation-dev-apply",
     expectedProjectRef,
     supabaseProjectRef,

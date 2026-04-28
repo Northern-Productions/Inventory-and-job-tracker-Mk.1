@@ -52,6 +52,14 @@ function createRecordingClient() {
     auditEntries: [],
     rollHistoryEntries: [],
     filmOrderLinks: [],
+    reconciliationResult: {
+      warnings: [],
+      affectedJobNumbers: [],
+      reducedAllocationIds: [],
+      cancelledAllocationIds: [],
+      updatedFilmOrderIds: [],
+      feetAvailable: 0,
+    },
     calls: [],
   };
 
@@ -81,7 +89,7 @@ function createRecordingClient() {
       }
 
       if (sql.includes('select * from app.allocations') && sql.includes('and box_id = $2')) {
-        return { rows: [] };
+        return { rows: state.allocations.filter((entry) => entry.box_id === params[1]) };
       }
 
       if (sql.includes('select * from app.audit_log') && sql.includes('and box_id = $2')) {
@@ -147,12 +155,9 @@ function createRecordingClient() {
           rows: [
             {
               result: {
-                warnings: [],
-                affectedJobNumbers: [],
-                reducedAllocationIds: [],
-                cancelledAllocationIds: [],
-                updatedFilmOrderIds: [],
-                feetAvailable: Math.max(0, Number(params[3] || 0)),
+                ...state.reconciliationResult,
+                feetAvailable:
+                  state.reconciliationResult.feetAvailable ?? Math.max(0, Number(params[3] || 0)),
               },
             },
           ],
@@ -205,4 +210,76 @@ test('setBoxStatus reuses the direct-to-site first-return note for roll history 
   assert.match(rollHistoryNote, new RegExp(`^${DIRECT_TO_SITE_FIRST_RETURN_PREFIX}: `));
   assert.equal(auditNote, rollHistoryNote);
   assert.match(auditNote, /Additional note: Returned after install/);
+});
+
+test('setBoxStatus delegates check-in overuse reconciliation and surfaces affected warnings', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    box_id: 'IL1-DTS-2',
+    core_type: 'Red plastic',
+    last_checkout_job: '5555',
+  });
+  client.state.allocations = [
+    {
+      id: 'allocation-row-1',
+      org_id: 'org-1',
+      allocation_id: 'alloc-other-job',
+      box_id: 'IL1-DTS-2',
+      warehouse: 'IL1',
+      job_id: 'job-row-7777',
+      job_number: '7777',
+      job_date: '2026-04-25',
+      allocated_feet: 10,
+      covered_feet: 10,
+      backed_physical_feet: null,
+      reservation_state: 'WITH_INSTALL_DATE',
+      requirement_id: '11111111-1111-4111-8111-111111111111',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: '2026-04-20T12:00:00Z',
+      created_by: 'planner',
+      resolved_at: null,
+      resolved_by: '',
+      notes: '',
+      crew_leader: '',
+      film_order_id: '',
+    },
+  ];
+  client.state.reconciliationResult = {
+    warnings: [
+      'Reduced allocation alloc-other-job for job 7777 from 10 LF to 5 LF because box IL1-DTS-2 physically returned with less LF.',
+    ],
+    affectedJobNumbers: ['7777'],
+    reducedAllocationIds: ['alloc-other-job'],
+    cancelledAllocationIds: [],
+    updatedFilmOrderIds: [],
+    feetAvailable: 0,
+  };
+
+  const response = await setBoxStatus(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-DTS-2',
+      status: 'IN_STOCK',
+      lastRollWeightLbs: 2.5,
+      currentFeetOnRoll: 5,
+      coreType: 'Red plastic',
+      auditNote: 'Returned with less LF than other reservations expected',
+    },
+    'warehouse-user'
+  );
+
+  const reconcileCall = client.state.calls.find((call) =>
+    call.sql.includes('select app_api.reconcile_box_checkin_allocations')
+  );
+
+  assert.equal(response.ok, true);
+  assert.ok(reconcileCall, 'expected check-in flow to call reconciliation RPC');
+  assert.equal(reconcileCall.params[2], 'IL1-DTS-2');
+  assert.equal(reconcileCall.params[3], 5);
+  assert.equal(client.state.box.feet_available, 0);
+  assert.match(response.warnings.join(' '), /Reduced allocation alloc-other-job/);
+  assert.match(response.warnings.join(' '), /manual reservations no longer fit this box/);
 });

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -20,6 +21,15 @@ function writeTempEnv(contents, name = ".env.dev") {
   const filePath = path.join(dir, name);
   fs.writeFileSync(filePath, contents, "utf8");
   return filePath;
+}
+
+function writeReviewedReport(envPath, contents = "{}\n") {
+  const filePath = path.join(path.dirname(envPath), "reviewed.json");
+  fs.writeFileSync(filePath, contents, "utf8");
+  return {
+    filePath,
+    sha256: crypto.createHash("sha256").update(contents).digest("hex")
+  };
 }
 
 test("dry-run config enforces DEV project ref and rejects apply mode", () => {
@@ -59,6 +69,7 @@ test("legacy apply config requires reviewed report and explicit confirmation", (
 SUPABASE_URL=https://${DEV_PROJECT_REF}.supabase.co
 DEV_DATABASE_URL=postgresql://postgres:secret@db.${DEV_PROJECT_REF}.supabase.co:5432/postgres
 `);
+  const reviewedReport = writeReviewedReport(envPath);
 
   assert.throws(
     () =>
@@ -91,6 +102,41 @@ DEV_DATABASE_URL=postgresql://postgres:secret@db.${DEV_PROJECT_REF}.supabase.co:
     /requires --reviewed-report/
   );
 
+  assert.throws(
+    () =>
+      resolveLegacyReconciliationConfig(
+        {
+          env: envPath,
+          "expected-project-ref": DEV_PROJECT_REF,
+          "org-id": "11111111-1111-4111-8111-111111111111",
+          apply: true,
+          "confirm-apply": APPLY_CONFIRMATION,
+          "reviewed-report": reviewedReport.filePath
+        },
+        "test-script",
+        { allowApply: true }
+      ),
+    /requires --reviewed-report-sha256/
+  );
+
+  assert.throws(
+    () =>
+      resolveLegacyReconciliationConfig(
+        {
+          env: envPath,
+          "expected-project-ref": DEV_PROJECT_REF,
+          "org-id": "11111111-1111-4111-8111-111111111111",
+          apply: true,
+          "confirm-apply": APPLY_CONFIRMATION,
+          "reviewed-report": reviewedReport.filePath,
+          "reviewed-report-sha256": "0".repeat(64)
+        },
+        "test-script",
+        { allowApply: true }
+      ),
+    /checksum mismatch/
+  );
+
   const config = resolveLegacyReconciliationConfig(
     {
       env: envPath,
@@ -98,7 +144,8 @@ DEV_DATABASE_URL=postgresql://postgres:secret@db.${DEV_PROJECT_REF}.supabase.co:
       "org-id": "11111111-1111-4111-8111-111111111111",
       apply: true,
       "confirm-apply": APPLY_CONFIRMATION,
-      "reviewed-report": "reviewed.json"
+      "reviewed-report": reviewedReport.filePath,
+      "reviewed-report-sha256": reviewedReport.sha256
     },
     "test-script",
     { allowApply: true }
@@ -107,6 +154,7 @@ DEV_DATABASE_URL=postgresql://postgres:secret@db.${DEV_PROJECT_REF}.supabase.co:
   assert.equal(config.mode, "apply");
   assert.equal(config.supabaseProjectRef, DEV_PROJECT_REF);
   assert.match(config.reviewedReportPath, /reviewed\.json$/);
+  assert.equal(config.reviewedReportSha256, reviewedReport.sha256);
 });
 
 test("dry-run config hard rejects PROD project refs", () => {
