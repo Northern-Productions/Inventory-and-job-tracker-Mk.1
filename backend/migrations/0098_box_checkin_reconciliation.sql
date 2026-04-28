@@ -218,6 +218,7 @@ set search_path = public, app, app_api
 as $$
 declare
   v_requirement app.job_requirements;
+  v_job_number text := '';
   v_primary_order app.film_orders;
   v_allocated_covered_feet integer := 0;
   v_missing_feet integer := 0;
@@ -238,6 +239,12 @@ begin
     return jsonb_build_object('updated', false, 'reason', 'REQUIREMENT_NOT_FOUND');
   end if;
 
+  select coalesce(j.job_number, '')
+  into v_job_number
+  from app.jobs j
+  where j.org_id = p_org_id
+    and j.id = v_requirement.job_id;
+
   -- FILM_ON_THE_WAY coverage uses the approved ordered LF once present;
   -- requested LF is a legacy fallback for older rows without ordered LF.
   select coalesce(sum(
@@ -255,7 +262,7 @@ begin
     and a.requirement_id = v_requirement.id
     and a.status = 'ACTIVE'
     and coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
-    and upper(trim(coalesce(a.job_number, ''))) = upper(trim(coalesce(v_requirement.job_number, '')))
+    and upper(trim(coalesce(a.job_number, ''))) = upper(trim(coalesce(v_job_number, '')))
     and coalesce(b.status::text, '') not in ('ZEROED', 'RETIRED')
     and app_api.requirement_film_is_compatible(
       p_org_id,
@@ -280,7 +287,7 @@ begin
   into v_on_the_way_feet
   from app.film_orders fo
   where fo.org_id = p_org_id
-    and upper(trim(coalesce(fo.job_number, ''))) = upper(trim(coalesce(v_requirement.job_number, '')))
+    and upper(trim(coalesce(fo.job_number, ''))) = upper(trim(coalesce(v_job_number, '')))
     and coalesce(fo.status::text, '') = 'FILM_ON_THE_WAY'
     and app_api.film_order_matches_requirement(
       p_org_id,
@@ -300,7 +307,7 @@ begin
   into v_primary_order
   from app.film_orders fo
   where fo.org_id = p_org_id
-    and upper(trim(coalesce(fo.job_number, ''))) = upper(trim(coalesce(v_requirement.job_number, '')))
+    and upper(trim(coalesce(fo.job_number, ''))) = upper(trim(coalesce(v_job_number, '')))
     and coalesce(fo.status::text, '') = 'FILM_ORDER'
     and app_api.film_order_matches_requirement(
       p_org_id,
@@ -322,7 +329,7 @@ begin
       'updated', false,
       'reason', 'NO_MATCHING_FILM_ORDER',
       'requirementId', v_requirement.id,
-      'jobNumber', coalesce(v_requirement.job_number, ''),
+      'jobNumber', coalesce(v_job_number, ''),
       'missingFeet', v_missing_feet,
       'onTheWayFeet', v_on_the_way_feet,
       'neededOrderFeet', v_needed_order_feet
@@ -356,7 +363,7 @@ begin
     'updated', true,
     'filmOrderId', coalesce(v_primary_order.film_order_id, ''),
     'requirementId', v_requirement.id,
-    'jobNumber', coalesce(v_requirement.job_number, ''),
+    'jobNumber', coalesce(v_job_number, ''),
     'missingFeet', v_missing_feet,
     'onTheWayFeet', v_on_the_way_feet,
     'neededOrderFeet', v_needed_order_feet
@@ -576,6 +583,7 @@ declare
   v_requirement_id_text text := app_api.trim_text(p_payload->>'requirementId');
   v_requirement_id uuid := null;
   v_requirement app.job_requirements;
+  v_requirement_job_number text := '';
   v_order app.film_orders;
   v_job app.jobs;
 begin
@@ -632,7 +640,13 @@ begin
       perform app_api.raise_http(404, 'Job requirement was not found.');
     end if;
 
-    if upper(trim(coalesce(v_requirement.job_number, ''))) <> upper(trim(v_order.job_number)) then
+    select coalesce(j.job_number, '')
+    into v_requirement_job_number
+    from app.jobs j
+    where j.org_id = p_org_id
+      and j.id = v_requirement.job_id;
+
+    if upper(trim(coalesce(v_requirement_job_number, ''))) <> upper(trim(v_order.job_number)) then
       perform app_api.raise_http(400, 'RequirementID must belong to the same job as the film order.');
     end if;
 

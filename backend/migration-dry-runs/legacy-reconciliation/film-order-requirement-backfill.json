@@ -1,0 +1,313 @@
+{
+  "metadata": {
+    "generatedAt": "2026-04-28T22:07:10.588Z",
+    "mode": "dry-run",
+    "script": "film-order-requirement-backfill",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.dev",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "projectRef": "uxiltcpbhthhinonttrc",
+    "databaseProjectRef": "uxiltcpbhthhinonttrc",
+    "dryRunOnly": true,
+    "mutationsAllowed": false,
+    "schemaChecks": {
+      "allocationsCoveredFeet": true,
+      "filmOrdersRequirementId": true,
+      "allocationsRequirementId": true,
+      "boxPhysicalFeetAvailable": true,
+      "filmOrderMatchesRequirement": true,
+      "requirementFilmIsCompatible": true,
+      "filmAllocationReservesCapacity": true,
+      "computeCoveredFeetFromAllocation": true,
+      "filmAllocationConsumesStoredCapacity": true
+    }
+  },
+  "requirementBackfill": {
+    "summary": {
+      "scannedFilmOrders": 9,
+      "wouldBackfill": 9,
+      "ambiguous": 0,
+      "unmatched": 0
+    },
+    "candidates": [
+      {
+        "filmOrderId": "20260409060347662-852",
+        "rowId": "c79df94c-823c-4020-b785-2af0b4cac1be",
+        "status": "FULFILLED",
+        "jobId": "23516c26-2de8-4beb-8109-356a45f9b302",
+        "jobNumber": "18764",
+        "film": {
+          "manufacturer": "Avery Dennison",
+          "filmName": "Natura 15",
+          "widthIn": 60
+        },
+        "requestedFeet": 56,
+        "orderedFeet": 75,
+        "coveredFeet": 19,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T06:03:47.662Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "afbbbc24-969b-4fa9-9bfb-8be3d1d97f47",
+        "matchingRequirements": [
+          {
+            "requirementId": "afbbbc24-969b-4fa9-9bfb-8be3d1d97f47",
+            "jobId": "23516c26-2de8-4beb-8109-356a45f9b302",
+            "jobNumber": "18764",
+            "manufacturer": "Avery Dennison",
+            "filmName": "Natura 15",
+            "widthIn": 60,
+            "requiredFeet": 150
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260409191432860-090",
+        "rowId": "b0d5e8a3-aebd-49e8-8d55-dcac1d6bb651",
+        "status": "FULFILLED",
+        "jobId": "f50a7098-bd70-4057-9629-11c4a2a7a6c7",
+        "jobNumber": "18679",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "Transparent White Matte SXWFTWM",
+          "widthIn": 24
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 30,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T19:14:32.820Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "203637f0-fd9d-4708-a116-b427c0ae7ba7",
+        "matchingRequirements": [
+          {
+            "requirementId": "203637f0-fd9d-4708-a116-b427c0ae7ba7",
+            "jobId": "f50a7098-bd70-4057-9629-11c4a2a7a6c7",
+            "jobNumber": "18679",
+            "manufacturer": "SOLYX",
+            "filmName": "Transparent White Matte SXWFTWM",
+            "widthIn": 24,
+            "requiredFeet": 30
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260409193544458-894",
+        "rowId": "c93bf89f-5e26-40eb-bab2-ce43a95c2481",
+        "status": "FULFILLED",
+        "jobId": "b79587d2-8095-4c91-a3a2-5f8edf44adb5",
+        "jobNumber": "4692",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "SpectraSelect 70 V70 SR CDF",
+          "widthIn": 60
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T19:35:44.442Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "eae9d701-895d-4ca2-ba6c-f47adea379b4",
+        "matchingRequirements": [
+          {
+            "requirementId": "eae9d701-895d-4ca2-ba6c-f47adea379b4",
+            "jobId": "b79587d2-8095-4c91-a3a2-5f8edf44adb5",
+            "jobNumber": "4692",
+            "manufacturer": "Llumar",
+            "filmName": "SpectraSelect 70 V70 SR CDF",
+            "widthIn": 60,
+            "requiredFeet": 30
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260413200838819-199",
+        "rowId": "0484fd4b-b85e-4b76-af2d-4c46a9bbaa9e",
+        "status": "FILM_ORDER",
+        "jobId": "b84c2aac-02b1-4603-bb9d-f5d3a4fb9f74",
+        "jobNumber": "18812",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "3M Ultra S800",
+          "widthIn": 60
+        },
+        "requestedFeet": 700,
+        "orderedFeet": 0,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 700,
+        "createdAt": "2026-04-13T20:08:38.779Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "38d397af-72c3-4ce7-8608-2b5c53ad12a7",
+        "matchingRequirements": [
+          {
+            "requirementId": "38d397af-72c3-4ce7-8608-2b5c53ad12a7",
+            "jobId": "b84c2aac-02b1-4603-bb9d-f5d3a4fb9f74",
+            "jobNumber": "18812",
+            "manufacturer": "Security",
+            "filmName": "3M Ultra S800",
+            "widthIn": 60,
+            "requiredFeet": 700
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260413200900131-822",
+        "rowId": "714e0fc5-7ca0-4861-85d8-7b6102149e61",
+        "status": "FILM_ORDER",
+        "jobId": "b84c2aac-02b1-4603-bb9d-f5d3a4fb9f74",
+        "jobNumber": "18812",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "3M Ultra S800",
+          "widthIn": 72
+        },
+        "requestedFeet": 700,
+        "orderedFeet": 0,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 700,
+        "createdAt": "2026-04-13T20:09:00.128Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "3025db5c-9dc7-40a1-8eba-bb2452c2959c",
+        "matchingRequirements": [
+          {
+            "requirementId": "3025db5c-9dc7-40a1-8eba-bb2452c2959c",
+            "jobId": "b84c2aac-02b1-4603-bb9d-f5d3a4fb9f74",
+            "jobNumber": "18812",
+            "manufacturer": "Security",
+            "filmName": "3M Ultra S800",
+            "widthIn": 72,
+            "requiredFeet": 700
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260416123431490-540",
+        "rowId": "a9bce35e-7e1a-4b95-a322-fa7ca8c115f1",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+        "jobNumber": "4486",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 48
+        },
+        "requestedFeet": 230,
+        "orderedFeet": 230,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-16T12:34:31.480Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+        "matchingRequirements": [
+          {
+            "requirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+            "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+            "jobNumber": "4486",
+            "manufacturer": "Llumar",
+            "filmName": "Frost (NRM PS2)",
+            "widthIn": 48,
+            "requiredFeet": 230
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260420145928880-389",
+        "rowId": "ca96fdb5-2424-477e-ad40-d5a8c3723989",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "655cd8b3-f9c7-4129-906e-2c7e5f39d092",
+        "jobNumber": "19389",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "One Way Perf SX1940",
+          "widthIn": 60
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-20T14:59:27.501Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "f9fbff82-1230-4229-a08f-35ad0b8dc657",
+        "matchingRequirements": [
+          {
+            "requirementId": "f9fbff82-1230-4229-a08f-35ad0b8dc657",
+            "jobId": "655cd8b3-f9c7-4129-906e-2c7e5f39d092",
+            "jobNumber": "19389",
+            "manufacturer": "SOLYX",
+            "filmName": "One Way Perf SX1940",
+            "widthIn": 60,
+            "requiredFeet": 160
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260424000451574-277",
+        "rowId": "677252c8-caf1-4c2a-9755-c3d3e5d01b26",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": null,
+        "jobNumber": "5555",
+        "film": {
+          "manufacturer": "Solar Gard",
+          "filmName": "Slate 20",
+          "widthIn": 36
+        },
+        "requestedFeet": 100,
+        "orderedFeet": 100,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-24T00:04:51.575Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "479b8e22-8ebc-496f-ae35-3b8a2f50c690",
+        "matchingRequirements": [
+          {
+            "requirementId": "479b8e22-8ebc-496f-ae35-3b8a2f50c690",
+            "jobId": "8a0986a3-5b83-41fb-93dc-fc7e2d311e78",
+            "jobNumber": "5555",
+            "manufacturer": "Solar Gard",
+            "filmName": "Slate 20",
+            "widthIn": 36,
+            "requiredFeet": 50
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260426184648331-880",
+        "rowId": "6057b9e4-b1d6-47c3-b8b5-39a6395eac28",
+        "status": "FILM_ORDER",
+        "jobId": "0f568b9e-dc44-4c0d-b2ac-3eabc4a23664",
+        "jobNumber": "777777777",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Night Vision 15",
+          "widthIn": 36
+        },
+        "requestedFeet": 14,
+        "orderedFeet": 0,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 14,
+        "createdAt": "2026-04-26T18:46:48.331Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "00cdfa04-a168-4731-83ce-e6783d90a7cc",
+        "matchingRequirements": [
+          {
+            "requirementId": "00cdfa04-a168-4731-83ce-e6783d90a7cc",
+            "jobId": "0f568b9e-dc44-4c0d-b2ac-3eabc4a23664",
+            "jobNumber": "777777777",
+            "manufacturer": "3M Solar",
+            "filmName": "Night Vision 15",
+            "widthIn": 36,
+            "requiredFeet": 200
+          }
+        ]
+      }
+    ]
+  }
+}
