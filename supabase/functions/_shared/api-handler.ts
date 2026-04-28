@@ -13,6 +13,11 @@ import {
   SUPABASE_URL
 } from "./config.ts";
 import { HttpError, ok } from "./http.ts";
+import {
+  getRouteTimingErrorCategory,
+  maybeLogRouteTiming,
+  resolveRouteTimingRequestId,
+} from "./route-timing.ts";
 import { ensureEffectiveRouteAccess } from "./acl.ts";
 import { resolveAuthContext as resolveAuthContextFromModule } from "./auth.ts";
 import { createInventoryRepositories } from "./repositories/index.ts";
@@ -6996,6 +7001,13 @@ async function dispatchMutation(
 }
 
 export async function handleApiRequest(request: Request, canonicalName = "api"): Promise<Response> {
+  const startedAt = Date.now();
+  const requestId = resolveRouteTimingRequestId(request.headers);
+  let logicalPath = "";
+  let timingStatusCode = 500;
+  let timingOk = false;
+  let timingCacheState: "hit" | "miss" | "none" = "none";
+  let errorCategory = "";
   const corsHeaders = buildCorsHeaders(request);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -7007,52 +7019,61 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     });
   }
 
-  const requestUrl = new URL(request.url);
-  const requestBody = request.method === "POST" ? await request.text() : "";
-  const bodyJson = request.method === "POST" ? parseBodyJson(requestBody) : null;
-  const logicalPath = resolveLogicalPath(requestUrl, bodyJson, canonicalName);
-
-  if (logicalPath === "/health" || requestUrl.pathname.endsWith("/health")) {
-    return jsonResponse(request, 200, {
-      ok: true,
-      data: {
-        status: "ok",
-        mode: "supabase",
-        timestamp: new Date().toISOString(),
-        sheets: [],
-        apiBuildSha: API_BUILD_SHA,
-        apiBuiltAt: API_BUILT_AT,
-      },
-      warnings: [],
-    });
-  }
-
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return jsonResponse(request, 500, {
-      ok: false,
-      error: "SUPABASE_URL and SUPABASE_ANON_KEY must be configured for the Edge API.",
-    });
-  }
-
-  const useCache = shouldUseCache(request.method, logicalPath);
-  const authorization = request.headers.get("authorization") || "";
-  const authKey = await sha1Hex(authorization);
-  const cacheRouteKey = request.method === "POST" ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
-  const cacheKey = request.method === "POST"
-    ? `${request.method}|${cacheRouteKey}|${await sha1Hex(requestBody)}|${authKey}`
-    : `${request.method}|${cacheRouteKey}|${authKey}`;
-
-  if (useCache) {
-    pruneCache();
-    const cached = cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      const headers = buildCorsHeaders(request);
-      headers.set("Content-Type", cached.contentType);
-      return new Response(cached.body, { status: cached.status, headers });
-    }
-  }
-
   try {
+    const requestUrl = new URL(request.url);
+    const requestBody = request.method === "POST" ? await request.text() : "";
+    const bodyJson = request.method === "POST" ? parseBodyJson(requestBody) : null;
+    logicalPath = resolveLogicalPath(requestUrl, bodyJson, canonicalName);
+
+    if (logicalPath === "/health" || requestUrl.pathname.endsWith("/health")) {
+      timingStatusCode = 200;
+      timingOk = true;
+      return jsonResponse(request, 200, {
+        ok: true,
+        data: {
+          status: "ok",
+          mode: "supabase",
+          timestamp: new Date().toISOString(),
+          sheets: [],
+          apiBuildSha: API_BUILD_SHA,
+          apiBuiltAt: API_BUILT_AT,
+        },
+        warnings: [],
+      });
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      errorCategory = "ConfigurationError";
+      timingStatusCode = 500;
+      timingOk = false;
+      return jsonResponse(request, 500, {
+        ok: false,
+        error: "SUPABASE_URL and SUPABASE_ANON_KEY must be configured for the Edge API.",
+      });
+    }
+
+    const useCache = shouldUseCache(request.method, logicalPath);
+    const authorization = request.headers.get("authorization") || "";
+    const authKey = await sha1Hex(authorization);
+    const cacheRouteKey = request.method === "POST" ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
+    const cacheKey = request.method === "POST"
+      ? `${request.method}|${cacheRouteKey}|${await sha1Hex(requestBody)}|${authKey}`
+      : `${request.method}|${cacheRouteKey}|${authKey}`;
+
+    timingCacheState = useCache ? "miss" : "none";
+    if (useCache) {
+      pruneCache();
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        const headers = buildCorsHeaders(request);
+        headers.set("Content-Type", cached.contentType);
+        timingStatusCode = cached.status;
+        timingOk = cached.status >= 200 && cached.status < 400;
+        timingCacheState = "hit";
+        return new Response(cached.body, { status: cached.status, headers });
+      }
+    }
+
     const { identity, client } = await resolveAuthContext(request);
     if (logicalPath === "/auth/context") {
       const payload = ok({
@@ -7067,6 +7088,8 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       const responseBody = JSON.stringify(payload);
       const headers = buildCorsHeaders(request);
       headers.set("Content-Type", "application/json; charset=utf-8");
+      timingStatusCode = 200;
+      timingOk = true;
       return new Response(responseBody, { status: 200, headers });
     }
 
@@ -7093,19 +7116,38 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
 
     const headers = buildCorsHeaders(request);
     headers.set("Content-Type", "application/json; charset=utf-8");
+    timingStatusCode = 200;
+    timingOk = true;
     return new Response(responseBody, { status: 200, headers });
   } catch (error) {
+    errorCategory = getRouteTimingErrorCategory(error);
     if (error instanceof HttpError) {
+      timingStatusCode = error.statusCode;
+      timingOk = false;
       return jsonResponse(request, error.statusCode, {
         ok: false,
         error: error.message,
         warnings: error.warnings || [],
       });
     }
+    timingStatusCode = 500;
+    timingOk = false;
     return jsonResponse(request, 500, {
       ok: false,
       error: error instanceof Error ? error.message : "Unexpected server error.",
       warnings: [],
+    });
+  } finally {
+    maybeLogRouteTiming({
+      runtime: "supabase-edge",
+      method: request.method,
+      route: logicalPath,
+      statusCode: timingStatusCode,
+      ok: timingOk,
+      durationMs: Date.now() - startedAt,
+      cache: timingCacheState,
+      requestId,
+      errorCategory,
     });
   }
 }
