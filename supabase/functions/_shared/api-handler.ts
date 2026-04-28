@@ -4708,8 +4708,6 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
   );
   const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
-  const allBoxes = await listBoxes(client, orgId);
-  const caulkStockEntries = await listCaulkStockEntries(client, orgId);
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -4751,9 +4749,9 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     allocations,
     caulkAllocations,
     filmOrders,
-    allBoxes,
+    allBoxes: boxes,
     boxById,
-    caulkStockEntries,
+    caulkStockEntries: [],
     jobWarehouse: header?.warehouse || "",
     jobNumber: normalizedJobNumber,
   });
@@ -5186,8 +5184,6 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
   );
   const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
-  const allBoxes = await listBoxes(client, orgId);
-  const caulkStockEntries = await listCaulkStockEntries(client, orgId);
   const boxById = indexBoxesById(boxes);
   const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
     await listPendingBoxTransfersByBoxRecordIds(
@@ -5208,11 +5204,28 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     header?.warehouse || "",
     caulkAllocations,
   );
+  /**
+   * PURPOSE:
+   * Keep single-job detail reads scoped to boxes referenced by the job instead
+   * of loading the full org inventory.
+   *
+   * AFFECTS:
+   * GET /jobs/get, post-mutation job detail reloads, readiness status, and
+   * staged-pickup transfer warnings.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * backend runtimeJobDetails.mjs, deriveInStockReadinessStatus, film order
+   * linked-box enrichment, and route timing logs for /jobs/get.
+   *
+   * COMMON FAILURE MODES:
+   * Full inventory refetch regressions, missing linked boxes in allocation
+   * coverage, or Edge/backend detail drift.
+   */
   return {
     summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
-      allBoxes,
+      allBoxes: boxes,
       caulkAllocations,
-      caulkStockEntries,
+      caulkStockEntries: [],
       jobWarehouse: header?.warehouse || "",
     }),
     requirements: publicRequirements,

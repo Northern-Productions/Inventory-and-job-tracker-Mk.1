@@ -106,19 +106,28 @@ const PLANNER_MUTATION_ROUTES = new Set([
  * state atomically, so Edge must not run the same planner pass again.
  *
  * AFFECTS:
- * POST /jobs/create response timing, job detail reloads, and AUTO_PLANNED
- * reconciliation ownership between Edge and database RPCs.
+ * Job, allocation, and box mutation response timing, job detail reloads, and
+ * AUTO_PLANNED reconciliation ownership between Edge and database RPCs.
  *
  * WHEN CHANGING THIS, ALSO CHECK:
- * SQL ACL wrappers such as public.api_acl_jobs_create, dispatcher tests, and
- * frontend mutation timeout behavior.
+ * SQL ACL wrappers such as public.api_acl_jobs_update/api_acl_boxes_update,
+ * dispatcher tests, checkout-all subflows, and frontend mutation timeout
+ * behavior.
  *
  * COMMON FAILURE MODES:
  * Duplicate planner execution, stale job details if SQL no longer reconciles,
  * or hidden planner skips for routes that still depend on Edge reconciliation.
  */
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  "/allocations/add",
+  "/allocations/apply",
+  "/allocations/remove-box",
+  "/boxes/set-status",
+  "/boxes/update",
+  "/jobs/checkout-all",
   "/jobs/create",
+  "/jobs/set-staged-pickup",
+  "/jobs/update",
 ]);
 
 const ORG_WIDE_MUTATION_ROUTES = new Set([

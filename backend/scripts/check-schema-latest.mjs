@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0094_ordered_receipt_requirement_compatibility.sql';
+const LATEST_MIGRATION = '0095_narrow_auto_planner_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -79,6 +79,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.find_order_receipt_requirement_id(uuid, text, text, text, numeric)' },
   { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.create_or_merge_manual_requirement_allocation_with_coverage(uuid, app.boxes, jsonb, integer, integer, text, text, text, uuid)' },
+  { kind: 'function', signature: 'app_api.auto_planner_scope_job_numbers(uuid, jsonb)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
@@ -420,9 +421,27 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ]
   },
   {
+    signature: 'app_api.auto_planner_scope_job_numbers(uuid, jsonb)',
+    includes: [
+      'auto_planner_scope_jobs',
+      'auto_planner_scope_boxes',
+      'auto_planner_scope_caulk_pairs',
+      'app_api.requirement_film_is_compatible(',
+      "sb.status = 'IN_STOCK'",
+      'j.lifecycle_status = \'ACTIVE\''
+    ],
+    excludes: [
+      'auto_planner_scope_warehouses',
+      'upper(j.warehouse::text) in (select warehouse from auto_planner_scope_warehouses)'
+    ]
+  },
+  {
     signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)',
     includes: [
       'perform pg_advisory_xact_lock',
+      'create temporary table if not exists auto_planner_explicit_job_scope',
+      'create temporary table if not exists auto_planner_explicit_box_scope',
+      'create temporary table if not exists auto_planner_explicit_caulk_scope',
       'create temporary table if not exists auto_planner_warnings',
       'create temporary table if not exists auto_planner_suppressed_film',
       'app.allocation_planner_suppressions',
@@ -434,6 +453,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
       'app_api.plan_allocation_coverage(',
       "'AUTO_PLANNED allocation created by planner reconciliation.'",
+      'on conflict (box_id) do nothing;',
+      'perform 1\n  from app.boxes b\n  join auto_planner_boxes bx',
       'set remaining = bx.capacity - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, bx.status)\n      and coalesce(a.allocation_source::text, \'MANUAL\') <> \'AUTO_PLANNED\'\n  ), 0)\n  where bx.box_id is not null;',
       'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0)\n  where bx.box_id is not null;',
       'where auto_planner_desired_film.job_id = excluded.job_id\n          and auto_planner_desired_film.requirement_id = excluded.requirement_id\n          and auto_planner_desired_film.box_id = excluded.box_id;',
@@ -442,6 +463,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: [
       'perform app_api.save_film_order(',
       'delete from app.film_orders',
+      'upper(coalesce(b.warehouse::text, \'\')) in (select warehouse from auto_planner_jobs)\n      or exists',
       "upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'\n          and not bx.skipped",
       'set remaining = bx.capacity - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, bx.status)\n      and coalesce(a.allocation_source::text, \'MANUAL\') <> \'AUTO_PLANNED\'\n  ), 0);',
       'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0);',

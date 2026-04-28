@@ -12,14 +12,12 @@ import {
   listCaulkJobAllocationsByJob,
   listCaulkJobCheckoutsByJob,
   listRollHistoryByJob,
-  listBoxes,
   listBoxesByIds,
   listFilmOrderLinksByFilmOrderIds,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   listActiveAllocationsForJobConflictCheck,
 } from '../runtimeDeps.mjs';
-import { listCaulkStock } from '../caulk.mjs';
 import {
   buildAllocationJobSummary,
   buildPublicJobRequirementEntries,
@@ -217,6 +215,22 @@ function buildDetailContext(
   allBoxes = [],
   caulkStockEntries = []
 ) {
+  /**
+   * PURPOSE:
+   * Shapes job detail from targeted job-owned reads only.
+   *
+   * AFFECTS:
+   * /jobs/get, post-mutation job detail reloads, allocation detail views, and
+   * status/transfer warning derivation.
+   *
+   * WHEN CHANGING THIS, ALSO CHECK:
+   * Supabase buildJobDetail, runtimeJobSummaries readiness math, film order
+   * linked-box enrichment, and staged-pickup validation.
+   *
+   * COMMON FAILURE MODES:
+   * Reintroducing full org inventory reads, missing linked boxes in status
+   * coverage, or letting local/Edge job detail payloads drift.
+   */
   const boxById = indexBoxesById(boxes);
   const publicRequirements = buildPublicJobRequirementEntries(baseData.requirements, baseData.allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
@@ -227,8 +241,6 @@ function buildDetailContext(
     resolvedBaseContext.header?.warehouse || '',
     baseData.allocations,
     boxById,
-    allBoxes,
-    caulkStockEntries,
     pendingTransfersByBoxRecordId
   );
   const caulkTransferAlerts = buildJobCaulkTransferAlerts(
@@ -273,8 +285,6 @@ async function loadJobDetailContext(client, orgId, jobNumber) {
   const baseData = await loadBaseJobDetailData(client, orgId, normalizedJobNumber);
   const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
   const boxes = await listBoxesByIds(client, orgId, resolvedBaseContext.boxIds);
-  const allBoxes = await listBoxes(client, orgId);
-  const caulkStockEntries = await listCaulkStock(client, orgId, {});
   const conflictAllocations = await listActiveAllocationsForJobConflictCheck(
     client,
     orgId,
@@ -301,8 +311,8 @@ async function loadJobDetailContext(client, orgId, jobNumber) {
     conflictAllocations,
     pendingTransfersByBoxRecordId,
     publicFilmOrders,
-    allBoxes,
-    caulkStockEntries
+    boxes,
+    []
   );
 }
 
@@ -310,7 +320,7 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const baseData = await loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber);
   const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
-  const [boxes, conflictAllocations, allBoxes, caulkStockEntries] = await runParallelReadTasks([
+  const [boxes, conflictAllocations] = await runParallelReadTasks([
     (client) => listBoxesByIds(client, orgId, resolvedBaseContext.boxIds),
     (client) =>
       listActiveAllocationsForJobConflictCheck(
@@ -321,8 +331,6 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
         normalizedJobNumber,
         resolvedBaseContext.crewLeader
       ),
-    (client) => listBoxes(client, orgId),
-    (client) => listCaulkStock(client, orgId, {}),
   ]);
   const boxById = indexBoxesById(boxes);
   const [pendingTransfersByBoxRecordId, publicFilmOrders] = await runParallelReadTasks([
@@ -345,8 +353,8 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
     conflictAllocations,
     pendingTransfersByBoxRecordId,
     publicFilmOrders,
-    allBoxes,
-    caulkStockEntries
+    boxes,
+    []
   );
 }
 

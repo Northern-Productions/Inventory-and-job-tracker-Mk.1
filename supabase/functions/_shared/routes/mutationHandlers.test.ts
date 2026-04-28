@@ -270,6 +270,109 @@ Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and relo
   );
 });
 
+Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation", async () => {
+  const cases = [
+    {
+      route: "/jobs/update",
+      payload: { jobNumber: "81234", requirements: [] },
+      expectedRpc: "api_acl_jobs_update",
+    },
+    {
+      route: "/allocations/add",
+      payload: { jobNumber: "81234", boxId: "IL1-100", allocatedFeet: 10 },
+      expectedRpc: "api_acl_allocations_apply",
+    },
+    {
+      route: "/allocations/apply",
+      payload: { jobNumber: "81234", boxId: "IL1-100", allocatedFeet: 10 },
+      expectedRpc: "api_acl_allocations_apply",
+    },
+    {
+      route: "/boxes/update",
+      payload: { boxId: "IL1-100" },
+      expectedRpc: "api_acl_boxes_update",
+    },
+    {
+      route: "/boxes/set-status",
+      payload: { boxId: "IL1-100", status: "CHECKED_OUT", auditNote: "Checked out for job 81234." },
+      expectedRpc: "api_acl_boxes_set_status",
+    },
+    {
+      route: "/jobs/checkout-all",
+      payload: { jobNumber: "81234" },
+      expectedRpc: "",
+    },
+    {
+      route: "/jobs/set-staged-pickup",
+      payload: { jobNumber: "81234", isStagedForPickup: true },
+      expectedRpc: "",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const rpcCalls: string[] = [];
+    let plannerCallCount = 0;
+    let detailCallCount = 0;
+
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-1", actor: "tester", role: "owner" } as any,
+      testCase.route,
+      testCase.payload,
+      buildDeps({
+        callMutationRpc: async (_client: unknown, fn: string) => {
+          rpcCalls.push(fn);
+          if (fn.includes("boxes")) {
+            return { boxId: "IL1-100", logId: "LOG-100", warnings: ["SQL planner completed."] };
+          }
+          if (fn.includes("allocations")) {
+            return {
+              allocationIds: [],
+              remainingUncoveredFeet: 0,
+              warnings: ["SQL planner completed."],
+            };
+          }
+          return { jobNumber: "81234", warnings: ["SQL planner completed."] };
+        },
+        findBoxById: async () => ({
+          id: "box-record-1",
+          boxId: "IL1-100",
+          status: "IN_STOCK",
+          feetAvailable: 50,
+          initialFeet: 50,
+        }),
+        toPublicBox: (box: Record<string, unknown>) => ({ boxId: box.boxId }),
+        buildJobDetail: async () => {
+          detailCallCount += 1;
+          return { summary: { jobNumber: "81234" } };
+        },
+        checkoutAllJobMaterials: async () => ({ jobNumber: "81234", warnings: ["Checkout SQL planner completed."] }),
+        setJobStagedPickup: async () => ({ jobNumber: "81234", warnings: ["Staged pickup completed."] }),
+        reconcileAutoPlannedAllocations: async () => {
+          plannerCallCount += 1;
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(
+      plannerCallCount,
+      0,
+      `Expected ${testCase.route} to skip the redundant Edge planner pass.`,
+    );
+    if (testCase.expectedRpc) {
+      assertEquals(
+        rpcCalls,
+        [testCase.expectedRpc],
+        `Expected ${testCase.route} to delegate planner ownership to its SQL RPC.`,
+      );
+    }
+    if (testCase.route.startsWith("/jobs/")) {
+      assertEquals(detailCallCount, 1, `Expected ${testCase.route} to reload job detail once.`);
+    }
+  }
+});
+
 Deno.test("planner mutation routes still run Edge planner reconciliation when SQL does not own it", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const plannerCalls: Array<Record<string, unknown>> = [];
