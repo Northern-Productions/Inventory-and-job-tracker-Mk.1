@@ -37,3 +37,8 @@ supabase/.temp/
 .vercel
 
 .secrets/
+
+# Smoke runs can create per-run cleanup/debug artifacts; keep only the
+# reviewed final reconciliation report that is intentionally tracked.
+backend/migration-dry-runs/smoke/*.json
+!backend/migration-dry-runs/smoke/box-checkin-reconciliation.json
