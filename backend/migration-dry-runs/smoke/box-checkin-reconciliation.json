@@ -1,0 +1,1498 @@
+{
+  "metadata": {
+    "generatedAt": "2026-04-29T06:25:32.765Z",
+    "script": "smoke-box-checkin-reconciliation-flow",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.dev",
+    "projectRef": "uxiltcpbhthhinonttrc",
+    "databaseProjectRef": "uxiltcpbhthhinonttrc",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "runTag": "SMOKE_RECON_20260429062532_1059",
+    "warehouse": "IL1",
+    "frontendUrl": "http://127.0.0.1:5173",
+    "confirmation": "RUN_DEV_BOX_CHECKIN_RECONCILIATION_SMOKE",
+    "mutatesDevData": true
+  },
+  "smokeAccess": {
+    "tokenSource": "file",
+    "passwordLoginUsed": false,
+    "userId": "f7dc1c59-4a88-4fab-8915-85181d7ada83",
+    "maskedEmail": "r***@mgtfilms.com",
+    "intendedSmokeEmailMasked": "s***@mailinator.com",
+    "intendedSmokeUserId": "",
+    "smokeUserMatched": false,
+    "smokeUserEmailMatched": false,
+    "smokeUserIdMatched": false,
+    "ownerOverrideAllowed": true,
+    "ownerOverrideUsed": true,
+    "authRunMode": "owner-override",
+    "role": "owner",
+    "accessStatus": "approved",
+    "isAdminConsoleAllowed": true,
+    "projectRef": "uxiltcpbhthhinonttrc",
+    "smokeEmailContainsProdRef": false
+  },
+  "schemaPreflight": {
+    "filmOrdersRequirementId": true,
+    "boxPhysicalFeetAvailable": true,
+    "filmOrderMatchesRequirement": true,
+    "reconcileBoxCheckinAllocations": true,
+    "reconcileExistingFilmOrderNeedForRequirement": true
+  },
+  "created": {
+    "boxIds": [
+      "IL1-SMRE-25321059-A",
+      "IL1-SMRE-25321059-B",
+      "IL1-SMRE-25321059-B-OW",
+      "IL1-SMRE-25321059-C",
+      "IL1-SMRE-25321059-O"
+    ],
+    "jobNumbers": [
+      "91321059",
+      "92321059",
+      "93321059",
+      "94321059",
+      "95321059",
+      "97321059",
+      "98321059",
+      "99321059"
+    ],
+    "requirementIds": [
+      "0d2309c9-7db1-4386-98cd-4317e2f51836",
+      "28f88c0d-9cd9-4f52-b26a-3e569b9c9b99",
+      "6495b85b-d881-472d-8ca4-d66fc42ae6a6",
+      "778f1be9-3515-4956-b523-bc2e53f7e5e6",
+      "78410f45-28af-41e3-86eb-6e3e0138b54f",
+      "7e388ccc-a096-4a07-94c9-71d4dad09144",
+      "8b2a6abe-6945-4b8b-be6a-d13625a627cc",
+      "fe50ddd5-20df-4e0d-8558-7a61feb4c428"
+    ],
+    "allocationIds": [
+      "20260429062543514-629",
+      "20260429062552994-298",
+      "20260429062605923-377",
+      "20260429062643683-140",
+      "20260429062652112-637",
+      "20260429062704705-113",
+      "20260429062749777-895",
+      "20260429062758069-735",
+      "20260429062805850-149",
+      "20260429062850142-004"
+    ],
+    "filmOrderIds": [
+      "20260429062616336-760",
+      "20260429062714814-498",
+      "20260429062836730-860"
+    ],
+    "auditLogIds": [
+      "20260429062539780-323",
+      "20260429062622684-283",
+      "20260429062628326-763",
+      "20260429062639786-748",
+      "20260429062718595-434",
+      "20260429062728426-668",
+      "20260429062734066-295",
+      "20260429062745834-000",
+      "20260429062814609-907",
+      "20260429062820112-580",
+      "20260429062840109-425",
+      "20260429062852704-051"
+    ]
+  },
+  "steps": [
+    {
+      "label": "GET /auth/context",
+      "method": "GET",
+      "path": "/auth/context",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: create primary received box",
+      "method": "POST",
+      "path": "/boxes/add",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "FILM DATA was created from the first received weight for SMOKE TEST FILM|SMOKE RECON EDITABLE-ORDER 0625321059."
+      ]
+    },
+    {
+      "label": "editable-order: reload primary box after create",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: create checkout job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: checkout job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: create target job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: target job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: reload checkout before install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: move target install date earlier",
+      "method": "POST",
+      "path": "/jobs/update",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "Updated scheduling metadata on 1 active allocation and 0 open film orders."
+      ]
+    },
+    {
+      "label": "editable-order: reload checkout after install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: reload target after install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: create manual film order",
+      "method": "POST",
+      "path": "/film-orders/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: list film orders before check-in",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: check out primary box",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 3,
+      "warnings": [
+        "Kept 1 allocation totaling 75 LF linked to job 91321059 after checkout.",
+        "This box still has active allocations for 92321059.",
+        "Skipped AUTO planning for box IL1-SMRE-25321059-A because fixed allocations outside this planner scope exceed physical capacity."
+      ]
+    },
+    {
+      "label": "editable-order: reload primary box before check-in",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: check in primary box with dynamic LF",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 4,
+      "warnings": [
+        "Released 1 active planning allocation totaling 75 LF for job 91321059 during check-in.",
+        "Reduced allocation 20260429062605923-377 for job 92321059 from 25 LF to 10 LF because box IL1-SMRE-25321059-A physically returned with less LF.",
+        "This box still has active allocations for 92321059.",
+        "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+      ]
+    },
+    {
+      "label": "editable-order: reload target after reconciliation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "editable-order: list film orders after check-in",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: create primary received box",
+      "method": "POST",
+      "path": "/boxes/add",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "FILM DATA was created from the first received weight for SMOKE TEST FILM|SMOKE RECON ON-WAY-ORDER 0625321059."
+      ]
+    },
+    {
+      "label": "on-way-order: reload primary box after create",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: create checkout job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: checkout job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: create target job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: target job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: reload checkout before install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: move target install date earlier",
+      "method": "POST",
+      "path": "/jobs/update",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "Updated scheduling metadata on 1 active allocation and 0 open film orders."
+      ]
+    },
+    {
+      "label": "on-way-order: reload checkout after install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: reload target after install-date check",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: create manual film order",
+      "method": "POST",
+      "path": "/film-orders/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: link ordered box to manual film order",
+      "method": "POST",
+      "path": "/boxes/add",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "Box IL1-SMRE-25321059-B-OW was linked to Film Order 20260429062714814-498 for job 94321059."
+      ]
+    },
+    {
+      "label": "on-way-order: reload target after on-way order link",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: list film orders before check-in",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: check out primary box",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 3,
+      "warnings": [
+        "Kept 1 allocation totaling 75 LF linked to job 93321059 after checkout.",
+        "This box still has active allocations for 94321059.",
+        "Skipped AUTO planning for box IL1-SMRE-25321059-B because fixed allocations outside this planner scope exceed physical capacity."
+      ]
+    },
+    {
+      "label": "on-way-order: reload primary box before check-in",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: check in primary box with dynamic LF",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 4,
+      "warnings": [
+        "Released 1 active planning allocation totaling 75 LF for job 93321059 during check-in.",
+        "Reduced allocation 20260429062704705-113 for job 94321059 from 25 LF to 10 LF because box IL1-SMRE-25321059-B physically returned with less LF.",
+        "This box still has active allocations for 94321059.",
+        "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+      ]
+    },
+    {
+      "label": "on-way-order: reload target after reconciliation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "on-way-order: list film orders after check-in",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: create primary received box",
+      "method": "POST",
+      "path": "/boxes/add",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "FILM DATA was created from the first received weight for SMOKE TEST FILM|SMOKE RECON FULL-CANCELLATION 0625321059."
+      ]
+    },
+    {
+      "label": "full-cancellation: reload primary box after create",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: create checkout job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: checkout job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: create preserved-priority job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: preserved-priority job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: create lower-priority job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: lower-priority job: reload before allocation",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: check out primary box",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 3,
+      "warnings": [
+        "Kept 1 allocation totaling 75 LF linked to job 97321059 after checkout.",
+        "This box still has active allocations for 99321059, 98321059.",
+        "Skipped AUTO planning for box IL1-SMRE-25321059-C because fixed allocations outside this planner scope exceed physical capacity."
+      ]
+    },
+    {
+      "label": "full-cancellation: reload primary box before check-in",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: check in primary box to cancel lower-priority reservation",
+      "method": "POST",
+      "path": "/boxes/set-status",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 4,
+      "warnings": [
+        "Released 1 active planning allocation totaling 75 LF for job 97321059 during check-in.",
+        "Cancelled allocation 20260429062805850-149 for job 99321059 because box IL1-SMRE-25321059-C no longer has enough physical LF.",
+        "This box still has active allocations for 99321059, 98321059.",
+        "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+      ]
+    },
+    {
+      "label": "full-cancellation: reload preserved-priority job after check-in",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "full-cancellation: reload lower-priority job after check-in",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: create short job",
+      "method": "POST",
+      "path": "/jobs/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: reload short job",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: create manual film order",
+      "method": "POST",
+      "path": "/film-orders/create",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: add ordered box linked to film order",
+      "method": "POST",
+      "path": "/boxes/add",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "Box IL1-SMRE-25321059-O was linked to Film Order 20260429062836730-860 for job 95321059."
+      ]
+    },
+    {
+      "label": "receive: reload after ordered box link",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: list after ordered link",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: receive ordered box",
+      "method": "POST",
+      "path": "/boxes/receive",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 1,
+      "warnings": [
+        "40 LF from IL1-SMRE-25321059-O was automatically allocated to job 95321059 for Film Order 20260429062836730-860."
+      ]
+    },
+    {
+      "label": "receive: reload ordered box after receipt",
+      "method": "GET",
+      "path": "/boxes/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: reload after receipt",
+      "method": "GET",
+      "path": "/jobs/get",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "label": "receive: list after receipt",
+      "method": "GET",
+      "path": "/film-orders/list",
+      "statusCode": 200,
+      "ok": true,
+      "warningCount": 0,
+      "warnings": []
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "editable-order",
+      "boxId": "IL1-SMRE-25321059-A",
+      "checkoutJobNumber": "91321059",
+      "targetJobNumber": "92321059",
+      "targetRequirementId": "28f88c0d-9cd9-4f52-b26a-3e569b9c9b99",
+      "filmOrderId": "20260429062616336-760",
+      "onWayBoxId": "",
+      "before": {
+        "targetAllocatedFeet": 25,
+        "targetMissingFeet": 25,
+        "targetStatus": "FILM_ORDER",
+        "filmOrderStatus": "FILM_ORDER"
+      },
+      "reconciliation": {
+        "activeOtherReservedBeforeCheckin": 25,
+        "dynamicPhysicalFeetAfter": 10,
+        "targetAllocatedAfter": 10,
+        "targetMissingAfter": 40,
+        "cancellationJobNumber": "",
+        "cancellationAllocatedBefore": 0,
+        "cancellationStatusAfter": "",
+        "targetStatusAfter": "FILM_ORDER",
+        "warnings": [
+          "Released 1 active planning allocation totaling 75 LF for job 91321059 during check-in.",
+          "Reduced allocation 20260429062605923-377 for job 92321059 from 25 LF to 10 LF because box IL1-SMRE-25321059-A physically returned with less LF.",
+          "This box still has active allocations for 92321059.",
+          "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+        ]
+      },
+      "filmOrderAfter": {
+        "filmOrderId": "20260429062616336-760",
+        "status": "FILM_ORDER",
+        "requestedFeet": 40,
+        "orderedFeet": 0,
+        "remainingToOrderFeet": 40
+      }
+    },
+    {
+      "name": "on-way-order",
+      "boxId": "IL1-SMRE-25321059-B",
+      "checkoutJobNumber": "93321059",
+      "targetJobNumber": "94321059",
+      "targetRequirementId": "78410f45-28af-41e3-86eb-6e3e0138b54f",
+      "filmOrderId": "20260429062714814-498",
+      "onWayBoxId": "IL1-SMRE-25321059-B-OW",
+      "before": {
+        "targetAllocatedFeet": 25,
+        "targetMissingFeet": 25,
+        "targetStatus": "FILM_ORDER",
+        "filmOrderStatus": "FILM_ON_THE_WAY"
+      },
+      "reconciliation": {
+        "activeOtherReservedBeforeCheckin": 25,
+        "dynamicPhysicalFeetAfter": 10,
+        "targetAllocatedAfter": 10,
+        "targetMissingAfter": 40,
+        "cancellationJobNumber": "",
+        "cancellationAllocatedBefore": 0,
+        "cancellationStatusAfter": "",
+        "targetStatusAfter": "FILM_ORDER",
+        "warnings": [
+          "Released 1 active planning allocation totaling 75 LF for job 93321059 during check-in.",
+          "Reduced allocation 20260429062704705-113 for job 94321059 from 25 LF to 10 LF because box IL1-SMRE-25321059-B physically returned with less LF.",
+          "This box still has active allocations for 94321059.",
+          "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+        ]
+      },
+      "filmOrderAfter": {
+        "filmOrderId": "20260429062714814-498",
+        "status": "FILM_ON_THE_WAY",
+        "requestedFeet": 25,
+        "orderedFeet": 25,
+        "remainingToOrderFeet": 0
+      }
+    },
+    {
+      "name": "full-cancellation",
+      "boxId": "IL1-SMRE-25321059-C",
+      "checkoutJobNumber": "97321059",
+      "preservedJobNumber": "98321059",
+      "cancellationJobNumber": "99321059",
+      "physicalFeetBefore": 114,
+      "physicalFeetAfter": 20,
+      "preservedAllocatedBefore": 20,
+      "cancellationAllocatedBefore": 15,
+      "cancellationAllocatedAfter": 0,
+      "warnings": [
+        "Released 1 active planning allocation totaling 75 LF for job 97321059 during check-in.",
+        "Cancelled allocation 20260429062805850-149 for job 99321059 because box IL1-SMRE-25321059-C no longer has enough physical LF.",
+        "This box still has active allocations for 99321059, 98321059.",
+        "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+      ]
+    },
+    {
+      "name": "receive",
+      "jobNumber": "95321059",
+      "requirementId": "7e388ccc-a096-4a07-94c9-71d4dad09144",
+      "filmOrderId": "20260429062836730-860",
+      "orderedBoxId": "IL1-SMRE-25321059-O",
+      "finalStatus": "READY",
+      "finalRequirement": {
+        "requiredFeet": 40,
+        "allocatedFeet": 40,
+        "remainingFeet": 0
+      },
+      "finalFilmOrder": {
+        "status": "FULFILLED",
+        "requestedFeet": 40,
+        "orderedFeet": 40,
+        "coveredFeet": 40,
+        "remainingToOrderFeet": 0
+      }
+    }
+  ],
+  "invariants": [
+    {
+      "name": "editable-order: first reservation receives full LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "91321059",
+        "allocatedFeet": 75,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "editable-order: second reservation receives only remaining LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "92321059",
+        "primaryPhysicalFeet": 100,
+        "allocatedFeet": 25,
+        "expectedAllocatedFeet": 25,
+        "missingFeet": 25,
+        "status": "FILM_ORDER"
+      }
+    },
+    {
+      "name": "editable-order: install date does not steal existing reservations",
+      "ok": true,
+      "details": {
+        "checkoutAllocatedBefore": 75,
+        "checkoutAllocatedAfter": 75,
+        "targetAllocatedBefore": 25,
+        "targetAllocatedAfter": 25
+      }
+    },
+    {
+      "name": "editable-order: dynamic check-in LF is lower than other active reservations",
+      "ok": true,
+      "details": {
+        "dynamicPhysicalFeetAfter": 10,
+        "activeOtherReservedBeforeCheckin": 25
+      }
+    },
+    {
+      "name": "editable-order: post check-in: active reserved LF does not exceed physical LF",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-A",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "editable-order: post check-in: allocatable LF matches physical LF minus active reservations",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-A",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "editable-order: post check-in: stored feet_available is non-negative",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-A",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "editable-order: downstream allocation reduced to physical reality",
+      "ok": true,
+      "details": {
+        "targetAllocatedBefore": 25,
+        "targetAllocatedAfter": 10,
+        "targetCoveredAfter": 10,
+        "targetMissingAfter": 40,
+        "dynamicPhysicalFeetAfter": 10,
+        "expectedTargetAllocatedAfter": 10
+      }
+    },
+    {
+      "name": "editable-order: reconciliation does not auto-create film orders",
+      "ok": true,
+      "details": {
+        "beforeCount": 1,
+        "afterCount": 1
+      }
+    },
+    {
+      "name": "editable-order: editable FILM_ORDER updates to new shortage",
+      "ok": true,
+      "details": {
+        "orderBefore": {
+          "status": "FILM_ORDER",
+          "requestedFeet": 25
+        },
+        "orderAfter": {
+          "status": "FILM_ORDER",
+          "requestedFeet": 40
+        },
+        "targetMissingAfter": 40,
+        "resultingJobStatus": "FILM_ORDER"
+      }
+    },
+    {
+      "name": "on-way-order: first reservation receives full LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "93321059",
+        "allocatedFeet": 75,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "on-way-order: second reservation receives only remaining LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "94321059",
+        "primaryPhysicalFeet": 100,
+        "allocatedFeet": 25,
+        "expectedAllocatedFeet": 25,
+        "missingFeet": 25,
+        "status": "FILM_ORDER"
+      }
+    },
+    {
+      "name": "on-way-order: install date does not steal existing reservations",
+      "ok": true,
+      "details": {
+        "checkoutAllocatedBefore": 75,
+        "checkoutAllocatedAfter": 75,
+        "targetAllocatedBefore": 25,
+        "targetAllocatedAfter": 25
+      }
+    },
+    {
+      "name": "on-way-order: fully covered on-the-way shortage derives ORDERED before check-in",
+      "ok": true,
+      "details": {
+        "jobNumber": "94321059",
+        "jobStatus": "ORDERED",
+        "orderStatus": "FILM_ON_THE_WAY",
+        "targetMissingBefore": 25,
+        "orderedFeet": 25
+      }
+    },
+    {
+      "name": "on-way-order: dynamic check-in LF is lower than other active reservations",
+      "ok": true,
+      "details": {
+        "dynamicPhysicalFeetAfter": 10,
+        "activeOtherReservedBeforeCheckin": 25
+      }
+    },
+    {
+      "name": "on-way-order: post check-in: active reserved LF does not exceed physical LF",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-B",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "on-way-order: post check-in: allocatable LF matches physical LF minus active reservations",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-B",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "on-way-order: post check-in: stored feet_available is non-negative",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-B",
+        "status": "IN_STOCK",
+        "feet_available": 10,
+        "physical_lf": 10,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 10,
+        "active_covered_lf": 10
+      }
+    },
+    {
+      "name": "on-way-order: downstream allocation reduced to physical reality",
+      "ok": true,
+      "details": {
+        "targetAllocatedBefore": 25,
+        "targetAllocatedAfter": 10,
+        "targetCoveredAfter": 10,
+        "targetMissingAfter": 40,
+        "dynamicPhysicalFeetAfter": 10,
+        "expectedTargetAllocatedAfter": 10
+      }
+    },
+    {
+      "name": "on-way-order: reconciliation does not auto-create film orders",
+      "ok": true,
+      "details": {
+        "beforeCount": 1,
+        "afterCount": 1
+      }
+    },
+    {
+      "name": "on-way-order: FILM_ON_THE_WAY order is not silently increased",
+      "ok": true,
+      "details": {
+        "orderBefore": {
+          "status": "FILM_ON_THE_WAY",
+          "requestedFeet": 25,
+          "orderedFeet": 25
+        },
+        "orderAfter": {
+          "status": "FILM_ON_THE_WAY",
+          "requestedFeet": 25,
+          "orderedFeet": 25
+        },
+        "resultingJobStatus": "FILM_ORDER"
+      }
+    },
+    {
+      "name": "full-cancellation: primary box has room for preserved and lower-priority reservations",
+      "ok": true,
+      "details": {
+        "primaryPhysicalFeet": 114,
+        "checkoutRequiredFeet": 75,
+        "preservedRequiredFeet": 20
+      }
+    },
+    {
+      "name": "full-cancellation: checkout reservation receives full LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "97321059",
+        "allocatedFeet": 75,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "full-cancellation: preserved-priority reservation receives full LF",
+      "ok": true,
+      "details": {
+        "jobNumber": "98321059",
+        "allocatedFeet": 20,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "full-cancellation: allocatable LF remains before lower-priority reservation",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-C",
+        "status": "IN_STOCK",
+        "feet_available": 114,
+        "physical_lf": 114,
+        "allocatable_now_lf": 19,
+        "active_reserved_lf": 95,
+        "active_covered_lf": 95,
+        "cancellationRequiredFeet": 15
+      }
+    },
+    {
+      "name": "full-cancellation: lower-priority reservation is established before check-in",
+      "ok": true,
+      "details": {
+        "jobNumber": "99321059",
+        "allocatedFeet": 15,
+        "requiredFeet": 15,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "full-cancellation: post check-in: active reserved LF does not exceed physical LF",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-C",
+        "status": "IN_STOCK",
+        "feet_available": 20,
+        "physical_lf": 20,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 20,
+        "active_covered_lf": 20
+      }
+    },
+    {
+      "name": "full-cancellation: post check-in: allocatable LF matches physical LF minus active reservations",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-C",
+        "status": "IN_STOCK",
+        "feet_available": 20,
+        "physical_lf": 20,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 20,
+        "active_covered_lf": 20
+      }
+    },
+    {
+      "name": "full-cancellation: post check-in: stored feet_available is non-negative",
+      "ok": true,
+      "details": {
+        "box_id": "IL1-SMRE-25321059-C",
+        "status": "IN_STOCK",
+        "feet_available": 20,
+        "physical_lf": 20,
+        "allocatable_now_lf": 0,
+        "active_reserved_lf": 20,
+        "active_covered_lf": 20
+      }
+    },
+    {
+      "name": "full-cancellation: preserved-priority reservation remains after check-in",
+      "ok": true,
+      "details": {
+        "jobNumber": "98321059",
+        "allocatedBefore": 20,
+        "allocatedAfter": 20,
+        "status": "READY"
+      }
+    },
+    {
+      "name": "full-cancellation: lower-priority reservation is fully cancelled",
+      "ok": true,
+      "details": {
+        "jobNumber": "99321059",
+        "allocatedBefore": 15,
+        "allocatedAfter": 0,
+        "remainingFeet": 15,
+        "status": "FILM_ORDER",
+        "warnings": [
+          "Released 1 active planning allocation totaling 75 LF for job 97321059 during check-in.",
+          "Cancelled allocation 20260429062805850-149 for job 99321059 because box IL1-SMRE-25321059-C no longer has enough physical LF.",
+          "This box still has active allocations for 99321059, 98321059.",
+          "15 LF of AUTO_PLANNED reservations no longer fit this box and were reconciled by reservation order."
+        ]
+      }
+    },
+    {
+      "name": "receive: job starts as FILM_ORDER with no matching inventory",
+      "ok": true,
+      "details": {
+        "jobNumber": "95321059",
+        "status": "FILM_ORDER",
+        "remainingFeet": 40
+      }
+    },
+    {
+      "name": "receive: fully covered on-the-way shortage derives ORDERED",
+      "ok": true,
+      "details": {
+        "jobNumber": "95321059",
+        "jobStatus": "ORDERED",
+        "orderStatus": "FILM_ON_THE_WAY",
+        "orderedFeet": 40
+      }
+    },
+    {
+      "name": "receive: received order allocates and job becomes READY",
+      "ok": true,
+      "details": {
+        "jobNumber": "95321059",
+        "jobStatus": "READY",
+        "allocatedFeet": 40,
+        "remainingFeet": 0,
+        "orderStatus": "FULFILLED"
+      }
+    },
+    {
+      "name": "directly taggable created entities include the runTag",
+      "ok": true,
+      "details": {
+        "failures": []
+      }
+    },
+    {
+      "name": "created child entities are tied to tagged parent records",
+      "ok": true,
+      "details": {
+        "failures": []
+      }
+    },
+    {
+      "name": "final unexpected-state validation is clean",
+      "ok": true,
+      "details": {
+        "unexpectedStates": []
+      }
+    }
+  ],
+  "entityTagging": {
+    "boxes": [
+      {
+        "boxId": "IL1-SMRE-25321059-A",
+        "directTagged": true
+      },
+      {
+        "boxId": "IL1-SMRE-25321059-B",
+        "directTagged": true
+      },
+      {
+        "boxId": "IL1-SMRE-25321059-B-OW",
+        "directTagged": true
+      },
+      {
+        "boxId": "IL1-SMRE-25321059-C",
+        "directTagged": true
+      },
+      {
+        "boxId": "IL1-SMRE-25321059-O",
+        "directTagged": true
+      }
+    ],
+    "jobs": [
+      {
+        "jobNumber": "91321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "92321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "93321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "94321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "95321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "97321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "98321059",
+        "directTagged": true
+      },
+      {
+        "jobNumber": "99321059",
+        "directTagged": true
+      }
+    ],
+    "allocations": [
+      {
+        "allocationId": "20260429062543514-629",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062552994-298",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062605923-377",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062643683-140",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062652112-637",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062704705-113",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062749777-895",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062758069-735",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062805850-149",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "allocationId": "20260429062850142-004",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      }
+    ],
+    "filmOrders": [
+      {
+        "filmOrderId": "20260429062616336-760",
+        "directTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "filmOrderId": "20260429062714814-498",
+        "directTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      },
+      {
+        "filmOrderId": "20260429062836730-860",
+        "directTagged": true,
+        "parentJobTagged": true,
+        "parentRequirementTagged": true
+      }
+    ],
+    "filmOrderLinks": [
+      {
+        "filmOrderId": "20260429062714814-498",
+        "boxId": "IL1-SMRE-25321059-B-OW",
+        "directTagged": false,
+        "parentFilmOrderTagged": true,
+        "parentBoxTagged": true
+      },
+      {
+        "filmOrderId": "20260429062836730-860",
+        "boxId": "IL1-SMRE-25321059-O",
+        "directTagged": false,
+        "parentFilmOrderTagged": true,
+        "parentBoxTagged": true
+      }
+    ],
+    "auditLogs": [
+      {
+        "logId": "20260429062539780-323",
+        "action": "ADD_BOX",
+        "boxId": "IL1-SMRE-25321059-A",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062622684-283",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-A",
+        "directTagged": false,
+        "parentBoxTagged": true,
+        "parentOnlyReason": "Audit note format may be workflow-sensitive; row is tied to a tagged box."
+      },
+      {
+        "logId": "20260429062628326-763",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-A",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062639786-748",
+        "action": "ADD_BOX",
+        "boxId": "IL1-SMRE-25321059-B",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062718595-434",
+        "action": "ADD_BOX",
+        "boxId": "IL1-SMRE-25321059-B-OW",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062728426-668",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-B",
+        "directTagged": false,
+        "parentBoxTagged": true,
+        "parentOnlyReason": "Audit note format may be workflow-sensitive; row is tied to a tagged box."
+      },
+      {
+        "logId": "20260429062734066-295",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-B",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062745834-000",
+        "action": "ADD_BOX",
+        "boxId": "IL1-SMRE-25321059-C",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062814609-907",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-C",
+        "directTagged": false,
+        "parentBoxTagged": true,
+        "parentOnlyReason": "Audit note format may be workflow-sensitive; row is tied to a tagged box."
+      },
+      {
+        "logId": "20260429062820112-580",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-C",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062840109-425",
+        "action": "ADD_BOX",
+        "boxId": "IL1-SMRE-25321059-O",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      },
+      {
+        "logId": "20260429062852704-051",
+        "action": "SET_STATUS",
+        "boxId": "IL1-SMRE-25321059-O",
+        "directTagged": true,
+        "parentBoxTagged": true,
+        "parentOnlyReason": ""
+      }
+    ],
+    "directlyTaggableFailures": [],
+    "parentTaggingFailures": []
+  },
+  "unexpectedStates": [],
+  "summary": {
+    "success": true,
+    "stepCount": 60,
+    "invariantCount": 37,
+    "failedInvariantCount": 0,
+    "scenarioCount": 4,
+    "createdCounts": {
+      "boxIds": 5,
+      "jobNumbers": 8,
+      "requirementIds": 8,
+      "allocationIds": 10,
+      "filmOrderIds": 3,
+      "auditLogIds": 12
+    },
+    "directlyTaggableFailureCount": 0,
+    "parentTaggingFailureCount": 0,
+    "unexpectedStateCount": 0
+  },
+  "success": true
+}
