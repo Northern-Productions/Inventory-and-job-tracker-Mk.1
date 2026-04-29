@@ -325,7 +325,6 @@ async function saveAllocationRecord(client, orgId, entry) {
       )
       on conflict (org_id, allocation_id) do update set
         box_id = excluded.box_id,
-        requirement_id = excluded.requirement_id,
         job_id = excluded.job_id,
         job_number = excluded.job_number,
         warehouse = excluded.warehouse,
