@@ -16,6 +16,7 @@ import {
   findFilmOrderById,
   findJobByNumber,
   listAllocationsByBox,
+  reconcileBoxCheckinAllocations,
   saveBoxRecord,
   seedFilmCatalogRecordIfMissing,
   appendAuditEntry,
@@ -30,7 +31,6 @@ import {
   hasPositiveReactivationSignal,
   resolveAllocationsForCheckout,
 } from '../checkout/checkoutFlow.mjs';
-import { cancelAllocationsForZeroedBox } from '../checkout/cancellations.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
@@ -365,12 +365,19 @@ async function updateBox(client, orgId, payload, actor) {
     }
 
     stampZeroedMetadata(updatedBox, actor, payload.auditNote);
-    const cancelledAllocationCount = await cancelAllocationsForZeroedBox(
+    const reconciliationResult = await reconcileBoxCheckinAllocations(
       client,
       orgId,
-      updatedBox.boxId,
+      {
+        boxId: updatedBox.boxId,
+        physicalFeetAfter: 0
+      },
       actor
     );
+    if (Array.isArray(reconciliationResult.warnings) && reconciliationResult.warnings.length > 0) {
+      warnings.push(...reconciliationResult.warnings);
+    }
+    updatedBox.feetAvailable = Math.max(0, Number(reconciliationResult.feetAvailable ?? 0) || 0);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     auditAction = 'ZERO_OUT_BOX';
 
@@ -388,11 +395,6 @@ async function updateBox(client, orgId, payload, actor) {
       );
     }
 
-    if (cancelledAllocationCount > 0) {
-      warnings.push(
-        `${cancelledAllocationCount} allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
-      );
-    }
   } else {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);

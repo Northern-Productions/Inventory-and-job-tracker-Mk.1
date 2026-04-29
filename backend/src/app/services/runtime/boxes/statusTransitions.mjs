@@ -27,10 +27,7 @@ import {
   autoLinkRemainingJobFeetToCheckedOutBox,
 } from '../runtimeAllocationLinks.mjs';
 import { resolveAllocationsForCheckout } from '../checkout/checkoutFlow.mjs';
-import {
-  cancelActiveAllocationsForCheckInJob,
-  cancelAllocationsForZeroedBox,
-} from '../checkout/cancellations.mjs';
+import { cancelActiveAllocationsForCheckInJob } from '../checkout/cancellations.mjs';
 import {
   findLatestCheckoutAuditEntryByBoxId,
   getCheckoutJobNumberFromAuditNotes,
@@ -298,23 +295,11 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     if (autoMoveToZeroed) {
       stampZeroedMetadata(updatedBox, actor, payload.auditNote);
-      const cancelledAllocationCount = await cancelAllocationsForZeroedBox(
-        client,
-        orgId,
-        updatedBox.boxId,
-        actor
-      );
       updatedBox = await saveBoxRecord(client, orgId, updatedBox);
       auditAction = 'ZERO_OUT_BOX';
       warnings.push(
         'Box was automatically moved to zeroed out inventory because Available Feet or Last Roll Weight reached 0.'
       );
-
-      if (cancelledAllocationCount > 0) {
-        warnings.push(
-          `${cancelledAllocationCount} allocation${cancelledAllocationCount === 1 ? ' was' : 's were'} cancelled because the box moved to zeroed out inventory.`
-        );
-      }
     } else {
       if (reachedZeroState && existing.feetAvailable <= 0) {
         warnings.push('Box stayed in active inventory because it has not had Available Feet above 0 yet.');

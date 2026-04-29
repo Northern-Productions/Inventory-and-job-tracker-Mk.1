@@ -12,9 +12,7 @@ export {
   loadJobStagingValidationState,
 } from './stagingValidation.mjs';
 export {
-  cancelActiveAllocationsForBox,
   cancelActiveAllocationsForCheckInJob,
-  cancelAllocationsForZeroedBox,
   reactivateFulfilledAllocationsForUndo,
   reactivateCancelledAllocationsForZeroUndo,
 } from './cancellations.mjs';

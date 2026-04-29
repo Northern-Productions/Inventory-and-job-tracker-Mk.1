@@ -202,7 +202,7 @@ describe('boxZeroedTransition', () => {
     );
     expect(message).toContain('Received Date and Core Weight');
     expect(message).toContain('can move this box to zeroed inventory');
-    expect(message).toContain('cancel any active allocations');
+    expect(message).toContain('backend reconciliation update any active reservations');
     expect(zeroLinearFeetMessage).toContain('Saving Current Linear Feet as 0');
     expect(zeroLinearFeetMessage).toContain('Choose Keep Active');
   });

@@ -175,8 +175,8 @@ export function buildZeroedInventoryWarningMessage(
   const historySentence = missingFieldsText ? `This box is missing ${missingFieldsText}. ` : '';
 
   if (trigger === 'linearFeet') {
-    return `${historySentence}Saving Current Linear Feet as 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and cancel any active allocations tied to this box.`;
+    return `${historySentence}Saving Current Linear Feet as 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and let backend reconciliation update any active reservations tied to this box.`;
   }
 
-  return `${historySentence}Saving a Last Roll Weight of 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and cancel any active allocations tied to this box.`;
+  return `${historySentence}Saving a Last Roll Weight of 0 can move this box to zeroed inventory. Choose Keep Active to save the edit without moving the box, or Move To Zeroed to zero it out and let backend reconciliation update any active reservations tied to this box.`;
 }

@@ -1,7 +1,6 @@
-// Purpose: Auto-linking and reconciliation helpers for checked-out or zeroed boxes.
+// Purpose: Auto-linking and reconciliation helpers for checked-out boxes.
 import {
   HttpError,
-  ZEROED_BOX_AUTO_CANCEL_NOTE,
   queryRow,
   queryRows,
   ok,
@@ -493,64 +492,6 @@ async function reconcileCheckedOutBoxAllocationLinksForJob(client, orgId, jobNum
   }
 }
 
-async function reconcileZeroedBoxAllocationStateByBoxId(client, orgId, boxId, user) {
-  const box = await findBoxById(client, orgId, boxId);
-  if (!box) {
-    return {
-      cancelledCount: 0,
-      skippedReason: 'BOX_NOT_FOUND'
-    };
-  }
-
-  if (box.status !== 'ZEROED') {
-    return {
-      cancelledCount: 0,
-      skippedReason: 'NOT_ZEROED'
-    };
-  }
-
-  const cancelledCount = await cancelAllocationsForZeroedBox(client, orgId, box.boxId, user);
-  return {
-    cancelledCount,
-    skippedReason: cancelledCount > 0 ? '' : 'NO_ALLOCATIONS_TO_CANCEL'
-  };
-}
-
-async function reconcileZeroedBoxAllocationStateForJob(client, orgId, jobNumber, user) {
-  const allocations = await listAllocationsByJob(client, orgId, requireString(jobNumber, 'jobNumber'));
-  const boxes = await listBoxes(client, orgId);
-  const boxesById = {};
-  const zeroedBoxIds = {};
-  let cancelledCount = 0;
-
-  for (let index = 0; index < boxes.length; index += 1) {
-    boxesById[boxes[index].boxId] = boxes[index];
-  }
-
-  for (let index = 0; index < allocations.length; index += 1) {
-    const allocation = allocations[index];
-    if (allocation.status === 'CANCELLED') {
-      continue;
-    }
-
-    const box = boxesById[allocation.boxId];
-    if (!box || box.status !== 'ZEROED' || zeroedBoxIds[box.boxId]) {
-      continue;
-    }
-
-    zeroedBoxIds[box.boxId] = true;
-  }
-
-  for (const boxId of Object.keys(zeroedBoxIds)) {
-    const result = await reconcileZeroedBoxAllocationStateByBoxId(client, orgId, boxId, user);
-    cancelledCount += result.cancelledCount;
-  }
-
-  return {
-    cancelledCount
-  };
-}
-
 export {
   hasNonCancelledAllocationForBoxJob,
   readFeetAvailableFromAuditState,
@@ -563,6 +504,4 @@ export {
   reconcileCheckedOutBoxAllocationLink,
   reconcileCheckedOutBoxAllocationLinkByBoxId,
   reconcileCheckedOutBoxAllocationLinksForJob,
-  reconcileZeroedBoxAllocationStateByBoxId,
-  reconcileZeroedBoxAllocationStateForJob,
 };

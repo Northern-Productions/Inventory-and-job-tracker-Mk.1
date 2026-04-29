@@ -10,6 +10,4 @@ export { checkoutAllJobMaterials } from './runtime/runtimeCheckoutOperations.mjs
 export {
   reconcileCheckedOutBoxAllocationLinkByBoxId,
   reconcileCheckedOutBoxAllocationLinksForJob,
-  reconcileZeroedBoxAllocationStateByBoxId,
-  reconcileZeroedBoxAllocationStateForJob,
 } from './runtime/runtimeAllocationLinks.mjs';

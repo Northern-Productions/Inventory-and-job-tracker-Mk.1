@@ -1,10 +1,8 @@
-// Purpose: Keep read-time allocation reconciliation isolated from the transport entrypoint.
+// Purpose: Keep read-time checked-out allocation linking isolated from the transport entrypoint.
 import { withReadClient } from '../../db/client.mjs';
 import {
   reconcileCheckedOutBoxAllocationLinkByBoxId,
   reconcileCheckedOutBoxAllocationLinksForJob,
-  reconcileZeroedBoxAllocationStateByBoxId,
-  reconcileZeroedBoxAllocationStateForJob,
 } from '../services/allocations.mjs';
 
 export async function runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext) {
@@ -16,7 +14,6 @@ export async function runAutomaticAllocationReconciliationForRead(logicalPath, p
     if (logicalPath === '/boxes/get') {
       const boxId = params && params.boxId;
       await reconcileCheckedOutBoxAllocationLinkByBoxId(client, authContext.orgId, boxId, authContext.actor);
-      await reconcileZeroedBoxAllocationStateByBoxId(client, authContext.orgId, boxId, authContext.actor);
       return;
     }
 
@@ -27,6 +24,5 @@ export async function runAutomaticAllocationReconciliationForRead(logicalPath, p
       jobNumber,
       authContext.actor
     );
-    await reconcileZeroedBoxAllocationStateForJob(client, authContext.orgId, jobNumber, authContext.actor);
   });
 }

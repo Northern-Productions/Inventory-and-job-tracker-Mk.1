@@ -9,34 +9,6 @@ import {
 } from '../../runtimeDeps.mjs';
 import { recalculateFilmOrder } from '../runtimeAllocationPlanning.mjs';
 
-async function cancelActiveAllocationsForBox(client, orgId, boxId, user, reason) {
-  const cancellable = (await listAllocationsByBox(client, orgId, boxId)).filter(
-    (entry) => entry.status === 'ACTIVE'
-  );
-  const resolvedAt = new Date().toISOString();
-  const trimmedReason = asTrimmedString(reason);
-  const affectedFilmOrders = {};
-
-  for (let index = 0; index < cancellable.length; index += 1) {
-    const entry = cloneValue(cancellable[index]);
-    entry.status = 'CANCELLED';
-    entry.resolvedAt = resolvedAt;
-    entry.resolvedBy = asTrimmedString(user);
-    entry.notes = trimmedReason || entry.notes;
-    await saveAllocationRecord(client, orgId, entry);
-
-    if (entry.filmOrderId) {
-      affectedFilmOrders[entry.filmOrderId] = true;
-    }
-  }
-
-  for (const filmOrderId of Object.keys(affectedFilmOrders)) {
-    await recalculateFilmOrder(client, orgId, filmOrderId, user);
-  }
-
-  return cancellable.length;
-}
-
 async function cancelActiveAllocationsForCheckInJob(client, orgId, boxId, jobNumber, user, reason = '') {
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
   if (!normalizedJobNumber) {
@@ -76,16 +48,6 @@ async function cancelActiveAllocationsForCheckInJob(client, orgId, boxId, jobNum
   }
 
   return { cancelledCount, cancelledFeet };
-}
-
-async function cancelAllocationsForZeroedBox(client, orgId, boxId, user) {
-  return cancelActiveAllocationsForBox(
-    client,
-    orgId,
-    boxId,
-    user,
-    ZEROED_BOX_AUTO_CANCEL_NOTE
-  );
 }
 
 async function reactivateFulfilledAllocationsForUndo(client, orgId, boxId, jobNumber) {
@@ -142,9 +104,7 @@ async function reactivateCancelledAllocationsForZeroUndo(client, orgId, boxId) {
 }
 
 export {
-  cancelActiveAllocationsForBox,
   cancelActiveAllocationsForCheckInJob,
-  cancelAllocationsForZeroedBox,
   reactivateFulfilledAllocationsForUndo,
   reactivateCancelledAllocationsForZeroUndo,
 };
