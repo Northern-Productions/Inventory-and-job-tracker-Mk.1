@@ -491,7 +491,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app.allocation_planner_suppressions',
       'if v_is_suppressed then',
       'truncate auto_planner_desired_caulk',
-      'app_api.film_allocation_reserves_capacity(a, bx.status)',
+      'app_api.film_allocation_reserves_capacity(a, b.status::text)',
       "coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'",
       "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
