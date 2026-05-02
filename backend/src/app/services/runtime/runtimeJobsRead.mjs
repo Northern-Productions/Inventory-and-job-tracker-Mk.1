@@ -1,4 +1,5 @@
 // Purpose: Job list, search, calendar, detail, and staging read helpers.
+import { runParallelReadTasks } from '../../../db/client.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -203,20 +204,98 @@ import {
   loadJobDetailContextWithPooledReads,
 } from './runtimeJobDetails.mjs';
 
-async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = []) {
+const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
+
+function normalizeSummarySnapshotConcurrency(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return SUMMARY_SNAPSHOT_READ_CONCURRENCY;
+  }
+
+  return Math.floor(numericValue);
+}
+
+function shouldUsePooledSummaryReads(client) {
+  return !client || typeof client.release === 'function';
+}
+
+async function runBoundedTasksOnClient(client, taskFactories, maxConcurrency) {
+  const results = new Array(taskFactories.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < taskFactories.length) {
+      const taskIndex = nextIndex;
+      nextIndex += 1;
+      results[taskIndex] = await taskFactories[taskIndex](client);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxConcurrency, taskFactories.length) },
+      () => runWorker()
+    )
+  );
+  return results;
+}
+
+async function runSummarySnapshotReads(client, taskFactories, maxConcurrency = SUMMARY_SNAPSHOT_READ_CONCURRENCY) {
+  if (shouldUsePooledSummaryReads(client)) {
+    return runParallelReadTasks(taskFactories, { maxConcurrency });
+  }
+
+  return runBoundedTasksOnClient(client, taskFactories, maxConcurrency);
+}
+
+/**
+ * PURPOSE:
+ * Builds public job-list summaries from org-scoped job, allocation, order,
+ * requirement, box, and caulk snapshots.
+ *
+ * AFFECTS:
+ * Jobs list/search/calendar reads, allocation job summaries, app shell job
+ * previews, and reports that reuse job summary state.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /jobs/list, /jobs/search, /jobs/calendar, /allocations/jobs,
+ * /reports/summary, Edge api-handler parity, and job summary parity checks.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate full-org reads, stale preloaded snapshots, local/Edge drift,
+ * changed sort/filter behavior, or report response-shape regressions.
+ */
+async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = [], options = {}) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const normalizedJobNumberFilters = normalizeStringArrayParam(jobNumbers);
   const jobNumberFilterSet = normalizedJobNumberFilters.length
     ? new Set(normalizedJobNumberFilters)
     : null;
-  const jobs = await listJobs(client, orgId);
-  const allAllocations = await listAllocations(client, orgId);
-  const allFilmOrders = await listFilmOrders(client, orgId);
-  const allRequirements = await listJobRequirements(client, orgId);
-  const allCaulkRequirements = await listJobCaulkRequirements(client, orgId);
-  const allCaulkAllocations = await listCaulkJobAllocations(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
-  const allCaulkStock = await listCaulkStock(client, orgId, {});
+  const hasPreloadedBoxes = Array.isArray(options.preloadedBoxes);
+  const snapshotConcurrency = normalizeSummarySnapshotConcurrency(options.snapshotConcurrency);
+  const readTasks = [
+    (readClient) => listJobs(readClient, orgId),
+    (readClient) => listAllocations(readClient, orgId),
+    (readClient) => listFilmOrders(readClient, orgId),
+    (readClient) => listJobRequirements(readClient, orgId),
+    (readClient) => listJobCaulkRequirements(readClient, orgId),
+    (readClient) => listCaulkJobAllocations(readClient, orgId),
+  ];
+  if (!hasPreloadedBoxes) {
+    readTasks.push((readClient) => listBoxes(readClient, orgId));
+  }
+  readTasks.push((readClient) => listCaulkStock(readClient, orgId, {}));
+
+  const snapshotResults = await runSummarySnapshotReads(client, readTasks, snapshotConcurrency);
+  let snapshotIndex = 0;
+  const jobs = snapshotResults[snapshotIndex++];
+  const allAllocations = snapshotResults[snapshotIndex++];
+  const allFilmOrders = snapshotResults[snapshotIndex++];
+  const allRequirements = snapshotResults[snapshotIndex++];
+  const allCaulkRequirements = snapshotResults[snapshotIndex++];
+  const allCaulkAllocations = snapshotResults[snapshotIndex++];
+  const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
+  const allCaulkStock = snapshotResults[snapshotIndex++];
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
   const groupedRequirements = groupEntriesByJobNumber(allRequirements);

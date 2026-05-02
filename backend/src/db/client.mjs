@@ -40,21 +40,72 @@ export async function withReadClient(callback) {
   }
 }
 
-export async function runParallelReadTasks(taskFactories) {
+function normalizeReadTaskConcurrency(value, taskCount) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return taskCount;
+  }
+
+  return Math.max(1, Math.min(taskCount, Math.floor(numericValue)));
+}
+
+async function runReadTaskWithClient(taskFactory) {
+  const client = await pool.connect();
+  try {
+    return await taskFactory(client);
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * PURPOSE:
+ * Runs independent read snapshots with optional bounded fan-out.
+ *
+ * AFFECTS:
+ * Pooled read routes that gather several org-scoped snapshots, including job
+ * lists, allocation summaries, job details, and report summary enrichment.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * readHandlers pooled route selection, runtimeJobsRead, runtimeAllocationViews,
+ * runtimeJobDetails, route timing tests, and DEV concurrency audit results.
+ *
+ * COMMON FAILURE MODES:
+ * Pool saturation under concurrent page loads, leaked clients, result ordering
+ * drift, or masking a read error instead of failing the route.
+ */
+export async function runParallelReadTasks(taskFactories, options = {}) {
   ensureConfigured();
   const tasks = Array.isArray(taskFactories) ? taskFactories : [];
   for (let index = 0; index < tasks.length; index += 1) {
     assertCallback(tasks[index], 'runParallelReadTasks');
   }
 
-  const clients = await Promise.all(tasks.map(() => pool.connect()));
-  try {
-    return await Promise.all(tasks.map((taskFactory, index) => taskFactory(clients[index])));
-  } finally {
-    for (let index = 0; index < clients.length; index += 1) {
-      clients[index].release();
+  const maxConcurrency = normalizeReadTaskConcurrency(options.maxConcurrency, tasks.length);
+  if (maxConcurrency >= tasks.length) {
+    const clients = await Promise.all(tasks.map(() => pool.connect()));
+    try {
+      return await Promise.all(tasks.map((taskFactory, index) => taskFactory(clients[index])));
+    } finally {
+      for (let index = 0; index < clients.length; index += 1) {
+        clients[index].release();
+      }
     }
   }
+
+  const results = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < tasks.length) {
+      const taskIndex = nextIndex;
+      nextIndex += 1;
+      results[taskIndex] = await runReadTaskWithClient(tasks[taskIndex]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: maxConcurrency }, () => runWorker()));
+  return results;
 }
 
 export async function withMutation(callback) {

@@ -154,7 +154,15 @@ const readHandlers = {
     ok({ entries: await listPendingCaulkTransfers(client, orgId, params) }),
 };
 
-const POOLED_READ_HANDLERS = new Set(['/allocations/by-job', '/jobs/get']);
+const POOLED_READ_HANDLERS = new Set([
+  '/allocations/by-job',
+  '/allocations/jobs',
+  '/jobs/calendar',
+  '/jobs/get',
+  '/jobs/list',
+  '/jobs/search',
+  '/reports/summary',
+]);
 
 function normalizeLegacyScheduleParams(params) {
   if (!params || typeof params !== 'object') {

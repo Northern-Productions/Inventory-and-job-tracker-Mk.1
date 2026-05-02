@@ -4646,19 +4646,54 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   return filtered;
 }
 
+const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
+
+async function runBoundedSnapshotReads(
+  taskFactories: Array<() => Promise<any>>,
+  maxConcurrency = SUMMARY_SNAPSHOT_READ_CONCURRENCY,
+): Promise<any[]> {
+  if (!taskFactories.length) {
+    return [];
+  }
+
+  const workerCount = Math.max(1, Math.min(taskFactories.length, Math.floor(maxConcurrency)));
+  const results = new Array(taskFactories.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < taskFactories.length) {
+      const taskIndex = nextIndex;
+      nextIndex += 1;
+      results[taskIndex] = await taskFactories[taskIndex]();
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
 async function buildAllocationJobList(client: any, orgId: string) {
-  const jobs = await listJobs(client, orgId);
-  const allAllocations = await listAllocations(client, orgId);
-  const allFilmOrders = await listFilmOrders(client, orgId);
-  const allRequirements = await listJobRequirements(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
-  const allCaulkStock = await listCaulkStockEntries(client, orgId);
+  const [
+    jobs,
+    allAllocations,
+    allFilmOrders,
+    allRequirements,
+    allBoxes,
+    allCaulkStock,
+  ] = await runBoundedSnapshotReads([
+    () => listJobs(client, orgId),
+    () => listAllocations(client, orgId),
+    () => listFilmOrders(client, orgId),
+    () => listJobRequirements(client, orgId),
+    () => listBoxes(client, orgId),
+    () => listCaulkStockEntries(client, orgId),
+  ]);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const groupedRequirements: Record<string, any[]> = {};
   const jobNumbers: Record<string, boolean> = {};
   const jobHeadersByNumber: Record<string, any> = {};
-  const boxById = Object.fromEntries(allBoxes.map((box) => [box.boxId, box]));
+  const boxById = Object.fromEntries(allBoxes.map((box: any) => [box.boxId, box]));
 
   for (const job of jobs) {
     if (asTrimmedString(job.jobNumber)) {
@@ -4869,26 +4904,58 @@ async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumb
   };
 }
 
+/**
+ * PURPOSE:
+ * Builds public job-list summaries from org-scoped job, allocation, order,
+ * requirement, box, and caulk snapshots.
+ *
+ * AFFECTS:
+ * Jobs list/search/calendar reads, allocation job summaries, app shell job
+ * previews, and reports that reuse job summary state.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /jobs/list, /jobs/search, /jobs/calendar, /allocations/jobs,
+ * /reports/summary, local runtime parity, and job summary parity checks.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate full-org reads, stale preloaded snapshots, local/Edge drift,
+ * changed sort/filter behavior, or report response-shape regressions.
+ */
 async function buildJobsList(
   client: any,
   orgId: string,
   limit: number,
   lifecycleStatus?: unknown,
   jobNumbers: unknown = [],
+  options: { preloadedBoxes?: any[]; snapshotConcurrency?: number } = {},
 ) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const jobNumberFilterSet = new Set(normalizeStringArrayParam(jobNumbers));
-  const jobs = await listJobs(client, orgId);
-  const allAllocations = await listAllocations(client, orgId);
-  const allFilmOrders = await listFilmOrders(client, orgId);
-  const allRequirements = await listJobRequirements(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
-  const allCaulkStock = await listCaulkStockEntries(client, orgId);
+  const hasPreloadedBoxes = Array.isArray(options.preloadedBoxes);
+  const snapshotTasks: Array<() => Promise<any>> = [
+    () => listJobs(client, orgId),
+    () => listAllocations(client, orgId),
+    () => listFilmOrders(client, orgId),
+    () => listJobRequirements(client, orgId),
+  ];
+  if (!hasPreloadedBoxes) {
+    snapshotTasks.push(() => listBoxes(client, orgId));
+  }
+  snapshotTasks.push(() => listCaulkStockEntries(client, orgId));
+
+  const snapshotResults = await runBoundedSnapshotReads(snapshotTasks, options.snapshotConcurrency);
+  let snapshotIndex = 0;
+  const jobs = snapshotResults[snapshotIndex++];
+  const allAllocations = snapshotResults[snapshotIndex++];
+  const allFilmOrders = snapshotResults[snapshotIndex++];
+  const allRequirements = snapshotResults[snapshotIndex++];
+  const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
+  const allCaulkStock = snapshotResults[snapshotIndex++];
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const groupedRequirements: Record<string, any[]> = {};
   const byJobNumber: Record<string, any> = {};
-  const boxById = Object.fromEntries(allBoxes.map((box) => [box.boxId, box]));
+  const boxById = Object.fromEntries(allBoxes.map((box: any) => [box.boxId, box]));
 
   for (const job of jobs) {
     if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(job.jobNumber)) {
@@ -5417,7 +5484,10 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
   });
 
-  const allJobEntries = await buildJobsList(client, orgId, 0);
+  const allJobEntries = await buildJobsList(client, orgId, 0, undefined, [], {
+    preloadedBoxes: allBoxes,
+    snapshotConcurrency: 1,
+  });
   for (const jobEntry of allJobEntries) {
     const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
     if (lifecycleStatus !== "COMPLETED" && lifecycleStatus !== "CANCELLED") {
