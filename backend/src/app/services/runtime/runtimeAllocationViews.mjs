@@ -1,4 +1,5 @@
 // Purpose: Allocation job list and detail read builders.
+import { runParallelReadTasks } from '../../../db/client.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -208,15 +209,61 @@ import {
   loadJobDetailContextWithPooledReads,
 } from './runtimeJobDetails.mjs';
 
+const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
+
+function shouldUsePooledSummaryReads(client) {
+  return !client || typeof client.release === 'function';
+}
+
+async function runBoundedTasksOnClient(client, taskFactories, maxConcurrency) {
+  const results = new Array(taskFactories.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < taskFactories.length) {
+      const taskIndex = nextIndex;
+      nextIndex += 1;
+      results[taskIndex] = await taskFactories[taskIndex](client);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxConcurrency, taskFactories.length) },
+      () => runWorker()
+    )
+  );
+  return results;
+}
+
+async function runSummarySnapshotReads(client, taskFactories) {
+  if (shouldUsePooledSummaryReads(client)) {
+    return runParallelReadTasks(taskFactories, { maxConcurrency: SUMMARY_SNAPSHOT_READ_CONCURRENCY });
+  }
+
+  return runBoundedTasksOnClient(client, taskFactories, SUMMARY_SNAPSHOT_READ_CONCURRENCY);
+}
+
 async function buildAllocationJobList(client, orgId) {
-  const jobs = await listJobs(client, orgId);
-  const allAllocations = await listAllocations(client, orgId);
-  const allFilmOrders = await listFilmOrders(client, orgId);
-  const allRequirements = await listJobRequirements(client, orgId);
-  const allCaulkRequirements = await listJobCaulkRequirements(client, orgId);
-  const allCaulkAllocations = await listCaulkJobAllocations(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
-  const allCaulkStock = await listCaulkStock(client, orgId, {});
+  const [
+    jobs,
+    allAllocations,
+    allFilmOrders,
+    allRequirements,
+    allCaulkRequirements,
+    allCaulkAllocations,
+    allBoxes,
+    allCaulkStock,
+  ] = await runSummarySnapshotReads(client, [
+    (readClient) => listJobs(readClient, orgId),
+    (readClient) => listAllocations(readClient, orgId),
+    (readClient) => listFilmOrders(readClient, orgId),
+    (readClient) => listJobRequirements(readClient, orgId),
+    (readClient) => listJobCaulkRequirements(readClient, orgId),
+    (readClient) => listCaulkJobAllocations(readClient, orgId),
+    (readClient) => listBoxes(readClient, orgId),
+    (readClient) => listCaulkStock(readClient, orgId, {}),
+  ]);
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
   const groupedRequirements = groupEntriesByJobNumber(allRequirements);

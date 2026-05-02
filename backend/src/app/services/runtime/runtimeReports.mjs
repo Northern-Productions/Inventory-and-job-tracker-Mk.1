@@ -1,4 +1,5 @@
 // Purpose: Reports and owner inventory valuation runtime helpers.
+import { runParallelReadTasks } from '../../../db/client.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -194,6 +195,17 @@ import {
 } from '../runtimeDeps.mjs';
 import { buildJobsList } from './runtimeJobsRead.mjs';
 
+async function loadReportBoxesSnapshot(client, orgId) {
+  if (client) {
+    return listBoxes(client, orgId);
+  }
+
+  const [allBoxes] = await runParallelReadTasks([
+    (readClient) => listBoxes(readClient, orgId),
+  ], { maxConcurrency: 1 });
+  return allBoxes;
+}
+
 function boxMatchesReportFilters(box, filters) {
   if (filters.warehouse && box.warehouse !== filters.warehouse) {
     return false;
@@ -266,7 +278,7 @@ async function buildReportsSummary(client, orgId, params) {
     from: asTrimmedString(params.from),
     to: asTrimmedString(params.to)
   };
-  const allBoxes = await listBoxes(client, orgId);
+  const allBoxes = await loadReportBoxesSnapshot(client, orgId);
   const activeBoxes = allBoxes.filter((box) => box.status !== 'ZEROED' && box.status !== 'RETIRED');
   const widthGroups = {};
   const availableFeetByWidth = [];
@@ -359,7 +371,10 @@ async function buildReportsSummary(client, orgId, params) {
 
   zeroedByMonth.sort((left, right) => (left.month < right.month ? -1 : left.month > right.month ? 1 : 0));
 
-  const allJobEntries = await buildJobsList(client, orgId, 0, undefined, [], { preloadedBoxes: allBoxes });
+  const allJobEntries = await buildJobsList(client, orgId, 0, undefined, [], {
+    preloadedBoxes: allBoxes,
+    snapshotConcurrency: 1,
+  });
   for (let index = 0; index < allJobEntries.length; index += 1) {
     const jobEntry = allJobEntries[index];
     const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);

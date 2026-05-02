@@ -8,6 +8,7 @@ import {
   buildJobsList,
   buildJobsSearchResults,
 } from '../../src/app/services/runtime/runtimeJobsRead.mjs';
+import { buildAllocationJobList } from '../../src/app/services/runtime/runtimeAllocationViews.mjs';
 import { buildReportsSummary } from '../../src/app/services/runtime/runtimeReports.mjs';
 
 const ORG_ID = 'ecf4f1c5-f153-4072-b814-18a41c52fcdc';
@@ -100,7 +101,51 @@ function buildJobRows() {
   ];
 }
 
-function createFakeClient() {
+function buildAllocationRows() {
+  return [
+    {
+      id: 'allocation-active',
+      org_id: ORG_ID,
+      allocation_id: 'ALLOC-30003',
+      box_id: 'IL1-1000',
+      warehouse: 'IL1',
+      job_id: 'job-active',
+      job_number: '30003',
+      job_date: '2026-02-14',
+      allocated_feet: 40,
+      covered_feet: 40,
+      requirement_id: 'requirement-active',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      crew_leader: 'Active Lead',
+    },
+  ];
+}
+
+function buildRequirementRows() {
+  return [
+    {
+      id: 'requirement-active',
+      org_id: ORG_ID,
+      job_id: 'job-active',
+      job_number: '30003',
+      manufacturer: '3M',
+      film_name: 'Solar Film',
+      width_in: 60,
+      required_feet: 40,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+}
+
+function createFakeClient(options = {}) {
+  const allocations = Array.isArray(options.allocations) ? options.allocations : [];
+  const requirements = Array.isArray(options.requirements) ? options.requirements : [];
+  const queryDelayMs = Number.isFinite(options.queryDelayMs) ? Math.max(0, Math.floor(options.queryDelayMs)) : 0;
   const counts = {
     boxes: 0,
     jobs: 0,
@@ -111,44 +156,58 @@ function createFakeClient() {
     caulkAllocations: 0,
     caulkStock: 0,
   };
+  const concurrency = {
+    active: 0,
+    maxActive: 0,
+  };
 
   return {
     counts,
+    concurrency,
     async query(text) {
-      const normalized = String(text).replace(/\s+/g, ' ').toLowerCase();
-      if (normalized.includes('from app.boxes b')) {
-        counts.boxes += 1;
-        return { rows: buildBoxRows() };
+      concurrency.active += 1;
+      concurrency.maxActive = Math.max(concurrency.maxActive, concurrency.active);
+      try {
+        if (queryDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, queryDelayMs));
+        }
+        const normalized = String(text).replace(/\s+/g, ' ').toLowerCase();
+        if (normalized.includes('from app.boxes b')) {
+          counts.boxes += 1;
+          return { rows: buildBoxRows() };
+        }
+        if (normalized.includes('from app.job_requirements r')) {
+          counts.requirements += 1;
+          return { rows: requirements };
+        }
+        if (normalized.includes('from app.job_caulk_requirements r')) {
+          counts.caulkRequirements += 1;
+          return { rows: [] };
+        }
+        if (normalized.includes('from app.caulk_job_allocations a')) {
+          counts.caulkAllocations += 1;
+          return { rows: [] };
+        }
+        if (normalized.includes('from app.caulk_stock s')) {
+          counts.caulkStock += 1;
+          return { rows: [] };
+        }
+        if (normalized.includes('from app.allocations')) {
+          counts.allocations += 1;
+          return { rows: allocations };
+        }
+        if (normalized.includes('from app.film_orders')) {
+          counts.filmOrders += 1;
+          return { rows: [] };
+        }
+        if (normalized.includes('from app.jobs')) {
+          counts.jobs += 1;
+          return { rows: buildJobRows() };
+        }
+        throw new Error(`Unexpected query in reports summary box reuse test: ${normalized.slice(0, 160)}`);
+      } finally {
+        concurrency.active -= 1;
       }
-      if (normalized.includes('from app.job_requirements r')) {
-        counts.requirements += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.job_caulk_requirements r')) {
-        counts.caulkRequirements += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.caulk_job_allocations a')) {
-        counts.caulkAllocations += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.caulk_stock s')) {
-        counts.caulkStock += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.allocations')) {
-        counts.allocations += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.film_orders')) {
-        counts.filmOrders += 1;
-        return { rows: [] };
-      }
-      if (normalized.includes('from app.jobs')) {
-        counts.jobs += 1;
-        return { rows: buildJobRows() };
-      }
-      throw new Error(`Unexpected query in reports summary box reuse test: ${normalized.slice(0, 160)}`);
     },
   };
 }
@@ -167,11 +226,12 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
 });
 
 test('buildReportsSummary reuses its already-loaded box snapshot for job summaries', async () => {
-  const client = createFakeClient();
+  const client = createFakeClient({ queryDelayMs: 5 });
 
   const summary = await buildReportsSummary(client, ORG_ID, { warehouse: 'IL1' });
 
   assert.equal(client.counts.boxes, 1);
+  assert.equal(client.concurrency.maxActive, 1);
   assert.deepEqual(Object.keys(summary), [
     'availableFeetByWidth',
     'neverCheckedOut',
@@ -198,6 +258,52 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
   );
 });
 
+test('buildAllocationJobList preserves allocation summaries with parallelized snapshot reads', async () => {
+  const client = createFakeClient({
+    allocations: buildAllocationRows(),
+    requirements: buildRequirementRows(),
+  });
+
+  const entries = await buildAllocationJobList(client, ORG_ID);
+
+  assert.equal(client.counts.jobs, 1);
+  assert.equal(client.counts.allocations, 1);
+  assert.equal(client.counts.filmOrders, 1);
+  assert.equal(client.counts.requirements, 1);
+  assert.equal(client.counts.caulkRequirements, 1);
+  assert.equal(client.counts.caulkAllocations, 1);
+  assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.caulkStock, 1);
+  assert.deepEqual(entries.map((entry) => entry.jobNumber), ['30003']);
+  assert.equal(entries[0].activeAllocatedFeet, 40);
+  assert.equal(entries[0].status, 'READY');
+});
+
+test('summary snapshot reads are bounded while preserving job-list rows', async () => {
+  const client = createFakeClient({ queryDelayMs: 5 });
+
+  const entries = await buildJobsList(client, ORG_ID, 0);
+
+  assert.equal(client.concurrency.maxActive, 2);
+  assert.deepEqual(
+    entries.map((entry) => entry.jobNumber).sort(),
+    ['10001', '20002', '30003']
+  );
+});
+
+test('allocation snapshot reads are bounded while preserving allocation rows', async () => {
+  const client = createFakeClient({
+    allocations: buildAllocationRows(),
+    requirements: buildRequirementRows(),
+    queryDelayMs: 5,
+  });
+
+  const entries = await buildAllocationJobList(client, ORG_ID);
+
+  assert.equal(client.concurrency.maxActive, 2);
+  assert.deepEqual(entries.map((entry) => entry.jobNumber), ['30003']);
+});
+
 test('jobs search keeps its existing default box-loading behavior', async () => {
   const client = createFakeClient();
 
@@ -217,14 +323,24 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
     'utf8'
   );
   const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
+  const localReadHandlersSource = fs.readFileSync(
+    path.join(repoRoot, 'backend/src/app/handlers/readHandlers.mjs'),
+    'utf8'
+  );
 
   assert.match(
     localReportsSource,
-    /buildJobsList\(client, orgId, 0, undefined, \[\], \{ preloadedBoxes: allBoxes \}\)/
+    /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
   assert.match(
     edgeSource,
-    /buildJobsList\(client, orgId, 0, undefined, \[\], \{ preloadedBoxes: allBoxes \}\)/
+    /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
   assert.match(edgeSource, /zeroedBoxes,/);
+  assert.match(localReadHandlersSource, /'\/allocations\/jobs'/);
+  assert.match(localReadHandlersSource, /'\/jobs\/calendar'/);
+  assert.match(localReadHandlersSource, /'\/jobs\/list'/);
+  assert.match(localReadHandlersSource, /'\/jobs\/search'/);
+  assert.match(localReadHandlersSource, /'\/reports\/summary'/);
+  assert.match(edgeSource, /await runBoundedSnapshotReads\(\[\s*\(\) => listJobs\(client, orgId\),\s*\(\) => listAllocations\(client, orgId\),\s*\(\) => listFilmOrders\(client, orgId\),\s*\(\) => listJobRequirements\(client, orgId\),/s);
 });
