@@ -1,0 +1,729 @@
+{
+  "metadata": {
+    "generatedAt": "2026-05-02T13:27:30.362Z",
+    "mode": "dry-run",
+    "script": "box-allocation-reconciliation",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.prod",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "projectRef": "tiwpulgvxtwlmqdnyuzd",
+    "databaseProjectRef": "tiwpulgvxtwlmqdnyuzd",
+    "dryRunOnly": true,
+    "mutationsAllowed": false,
+    "schemaChecks": {
+      "allocationsCoveredFeet": true,
+      "filmOrdersRequirementId": true,
+      "allocationsRequirementId": true,
+      "boxPhysicalFeetAvailable": true,
+      "filmOrderMatchesRequirement": true,
+      "requirementFilmIsCompatible": true,
+      "filmAllocationReservesCapacity": true,
+      "computeCoveredFeetFromAllocation": true,
+      "filmAllocationConsumesStoredCapacity": true
+    },
+    "productionDryRun": true,
+    "physicalLfSource": "app_api.box_physical_feet_available(box)",
+    "reservationPriority": [
+      "allocation.created_at asc",
+      "allocation.allocation_id asc"
+    ],
+    "statusScope": "film requirements; lifecycle COMPLETED/CANCELLED overrides are preserved"
+  },
+  "allocationReconciliation": {
+    "summary": {
+      "affectedBoxes": 7,
+      "overAllocatedLf": 92,
+      "allocationsWouldBeReduced": 4,
+      "allocationsWouldBeCancelled": 6,
+      "affectedJobs": 6,
+      "jobsNeedingUserApprovedFilmOrder": 6,
+      "existingFilmOrdersWouldUpdate": 0
+    },
+    "boxes": [
+      {
+        "boxId": "IL1-6753",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "3M Ultra S800",
+          "widthIn": 72
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 22,
+        "storedFeetAvailable": 22,
+        "totalActiveReservedLf": 52,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 30,
+        "resultingStoredFeetAvailable": 22,
+        "activeAllocations": [
+          {
+            "allocationId": "20260413191517550-339",
+            "createdAt": "2026-04-13T19:15:17.414Z",
+            "jobNumber": "18992",
+            "requirementId": "890639b9-84b4-435c-b888-caff7e924ae0",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 20,
+            "afterAllocatedFeet": 20,
+            "beforeCoveredFeet": 40,
+            "afterCoveredFeet": 40,
+            "decision": "preserve"
+          },
+          {
+            "allocationId": "20260416152859367-362",
+            "createdAt": "2026-04-16T15:28:59.209Z",
+            "jobNumber": "4449",
+            "requirementId": "41e6b0ab-6f76-4576-8f49-2fbd9ce3a3c3",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 5,
+            "afterAllocatedFeet": 2,
+            "beforeCoveredFeet": 5,
+            "afterCoveredFeet": 2,
+            "decision": "reduce"
+          },
+          {
+            "allocationId": "20260416153909903-597",
+            "createdAt": "2026-04-16T15:39:09.850Z",
+            "jobNumber": "4447",
+            "requirementId": "92d05198-5cb5-488a-8cb2-a7a436cae3c0",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 2,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 2,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          },
+          {
+            "allocationId": "20260422145618397-065",
+            "createdAt": "2026-04-22T14:56:18.189Z",
+            "jobNumber": "4947",
+            "requirementId": "b067873c-18fb-401f-8792-b72b0e238098",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 20,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 40,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          },
+          {
+            "allocationId": "20260422145633242-927",
+            "createdAt": "2026-04-22T14:56:33.019Z",
+            "jobNumber": "4947",
+            "requirementId": "e66d25a0-95cb-4786-b8cc-225af47ad879",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 5,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 5,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          }
+        ],
+        "preservedAllocationIds": [
+          "20260413191517550-339"
+        ],
+        "reducedAllocationIds": [
+          "20260416152859367-362"
+        ],
+        "cancelledAllocationIds": [
+          "20260416153909903-597",
+          "20260422145618397-065",
+          "20260422145633242-927"
+        ],
+        "affectedJobNumbers": [
+          "4447",
+          "4449",
+          "4947"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "4447",
+            "jobId": "be756213-c151-44ec-9a43-fde0e429596f",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "731bdabf-ecda-44f5-ac71-9953195feb35",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 60
+                },
+                "requiredFeet": 20,
+                "allocatedAfter": 0,
+                "missingAfter": 20,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 20,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "92d05198-5cb5-488a-8cb2-a7a436cae3c0",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 72
+                },
+                "requiredFeet": 2,
+                "allocatedAfter": 0,
+                "missingAfter": 2,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 2,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "f809d881-297f-44de-8db6-cfa316b53a22",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 36
+                },
+                "requiredFeet": 120,
+                "allocatedAfter": 0,
+                "missingAfter": 120,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 120,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          },
+          {
+            "jobNumber": "4449",
+            "jobId": "f97852f4-769a-42ef-9ea9-ceec24de4417",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "24107553-14f2-4e90-8437-acf870fdd501",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 60
+                },
+                "requiredFeet": 35,
+                "allocatedAfter": 35,
+                "missingAfter": 0,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 0,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": false
+              },
+              {
+                "requirementId": "41e6b0ab-6f76-4576-8f49-2fbd9ce3a3c3",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 72
+                },
+                "requiredFeet": 5,
+                "allocatedAfter": 2,
+                "missingAfter": 3,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 3,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "6bb64ff3-b945-4a80-94fc-bb3bf257a254",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 36
+                },
+                "requiredFeet": 20,
+                "allocatedAfter": 10,
+                "missingAfter": 10,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 10,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          },
+          {
+            "jobNumber": "4947",
+            "jobId": "c8427340-f832-4734-aad6-be930b73c505",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "b067873c-18fb-401f-8792-b72b0e238098",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 36
+                },
+                "requiredFeet": 40,
+                "allocatedAfter": 0,
+                "missingAfter": 40,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 40,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "e66d25a0-95cb-4786-b8cc-225af47ad879",
+                "film": {
+                  "manufacturer": "Security",
+                  "filmName": "3M Ultra S800",
+                  "widthIn": 72
+                },
+                "requiredFeet": 5,
+                "allocatedAfter": 0,
+                "missingAfter": 5,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 5,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-5705",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 40 Exterior",
+          "widthIn": 60
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 0,
+        "storedFeetAvailable": 0,
+        "totalActiveReservedLf": 28,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 28,
+        "resultingStoredFeetAvailable": 0,
+        "activeAllocations": [
+          {
+            "allocationId": "20260420205746314-971",
+            "createdAt": "2026-04-20T20:57:46.215Z",
+            "jobNumber": "4781",
+            "requirementId": "9e79d123-37dc-4994-97a2-37f4243f5563",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 28,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 28,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [],
+        "cancelledAllocationIds": [
+          "20260420205746314-971"
+        ],
+        "affectedJobNumbers": [
+          "4781"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "4781",
+            "jobId": "f66eba49-621f-41f1-a539-8319ef76d76a",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "9e79d123-37dc-4994-97a2-37f4243f5563",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 60
+                },
+                "requiredFeet": 75,
+                "allocatedAfter": 33,
+                "missingAfter": 42,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 42,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "d5a1d571-13e3-4fff-b992-df8091e084f9",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 72
+                },
+                "requiredFeet": 3,
+                "allocatedAfter": 1,
+                "missingAfter": 2,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 2,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-6054",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 40 Exterior",
+          "widthIn": 60
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 28,
+        "storedFeetAvailable": 28,
+        "totalActiveReservedLf": 42,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 14,
+        "resultingStoredFeetAvailable": 28,
+        "activeAllocations": [
+          {
+            "allocationId": "20260420205746915-184",
+            "createdAt": "2026-04-20T20:57:46.215Z",
+            "jobNumber": "4781",
+            "requirementId": "9e79d123-37dc-4994-97a2-37f4243f5563",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 42,
+            "afterAllocatedFeet": 28,
+            "beforeCoveredFeet": 42,
+            "afterCoveredFeet": 28,
+            "decision": "reduce"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [
+          "20260420205746915-184"
+        ],
+        "cancelledAllocationIds": [],
+        "affectedJobNumbers": [
+          "4781"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "4781",
+            "jobId": "f66eba49-621f-41f1-a539-8319ef76d76a",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "9e79d123-37dc-4994-97a2-37f4243f5563",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 60
+                },
+                "requiredFeet": 75,
+                "allocatedAfter": 33,
+                "missingAfter": 42,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 42,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "d5a1d571-13e3-4fff-b992-df8091e084f9",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 72
+                },
+                "requiredFeet": 3,
+                "allocatedAfter": 1,
+                "missingAfter": 2,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 2,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-6839",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 50",
+          "widthIn": 60
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 0,
+        "storedFeetAvailable": 0,
+        "totalActiveReservedLf": 7,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 7,
+        "resultingStoredFeetAvailable": 0,
+        "activeAllocations": [
+          {
+            "allocationId": "20260420134702420-581",
+            "createdAt": "2026-04-20T13:47:02.337Z",
+            "jobNumber": "17024",
+            "requirementId": "2c9e62e4-8a40-48be-8f04-7a09debcf68b",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 7,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 7,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [],
+        "cancelledAllocationIds": [
+          "20260420134702420-581"
+        ],
+        "affectedJobNumbers": [
+          "17024"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "17024",
+            "jobId": "baa9ae60-8774-4c9e-941e-f9f3e287c083",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "2c9e62e4-8a40-48be-8f04-7a09debcf68b",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 50",
+                  "widthIn": 60
+                },
+                "requiredFeet": 7,
+                "allocatedAfter": 0,
+                "missingAfter": 7,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 7,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-6443",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "White Matte SXWFWM",
+          "widthIn": 48
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 0,
+        "storedFeetAvailable": 0,
+        "totalActiveReservedLf": 6,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 6,
+        "resultingStoredFeetAvailable": 0,
+        "activeAllocations": [
+          {
+            "allocationId": "20260422192623072-265",
+            "createdAt": "2026-04-22T19:26:22.992Z",
+            "jobNumber": "18394",
+            "requirementId": "399467f2-57a7-43da-a0c6-82b1be92c385",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 6,
+            "afterAllocatedFeet": 0,
+            "beforeCoveredFeet": 6,
+            "afterCoveredFeet": 0,
+            "decision": "cancel"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [],
+        "cancelledAllocationIds": [
+          "20260422192623072-265"
+        ],
+        "affectedJobNumbers": [
+          "18394"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "18394",
+            "jobId": "77cc6122-3537-42df-911f-add4b80e8cfe",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "399467f2-57a7-43da-a0c6-82b1be92c385",
+                "film": {
+                  "manufacturer": "SOLYX",
+                  "filmName": "White Matte SXWFWM",
+                  "widthIn": 48
+                },
+                "requiredFeet": 12,
+                "allocatedAfter": 1,
+                "missingAfter": 11,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 11,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-6491",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "White Matte SXWFWM",
+          "widthIn": 72
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 1,
+        "storedFeetAvailable": 1,
+        "totalActiveReservedLf": 6,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 5,
+        "resultingStoredFeetAvailable": 1,
+        "activeAllocations": [
+          {
+            "allocationId": "20260422192623417-649",
+            "createdAt": "2026-04-22T19:26:22.992Z",
+            "jobNumber": "18394",
+            "requirementId": "399467f2-57a7-43da-a0c6-82b1be92c385",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 6,
+            "afterAllocatedFeet": 1,
+            "beforeCoveredFeet": 6,
+            "afterCoveredFeet": 1,
+            "decision": "reduce"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [
+          "20260422192623417-649"
+        ],
+        "cancelledAllocationIds": [],
+        "affectedJobNumbers": [
+          "18394"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "18394",
+            "jobId": "77cc6122-3537-42df-911f-add4b80e8cfe",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "399467f2-57a7-43da-a0c6-82b1be92c385",
+                "film": {
+                  "manufacturer": "SOLYX",
+                  "filmName": "White Matte SXWFWM",
+                  "widthIn": 48
+                },
+                "requiredFeet": 12,
+                "allocatedAfter": 1,
+                "missingAfter": 11,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 11,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      },
+      {
+        "boxId": "IL1-5385",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 40 Exterior",
+          "widthIn": 72
+        },
+        "status": "IN_STOCK",
+        "physicalLf": 1,
+        "storedFeetAvailable": 1,
+        "totalActiveReservedLf": 3,
+        "totalActiveStoredLf": 0,
+        "overAllocatedLf": 2,
+        "resultingStoredFeetAvailable": 1,
+        "activeAllocations": [
+          {
+            "allocationId": "20260420205816562-547",
+            "createdAt": "2026-04-20T20:58:16.330Z",
+            "jobNumber": "4781",
+            "requirementId": "d5a1d571-13e3-4fff-b992-df8091e084f9",
+            "allocationSource": "MANUAL",
+            "consumesStoredCapacity": false,
+            "beforeAllocatedFeet": 3,
+            "afterAllocatedFeet": 1,
+            "beforeCoveredFeet": 3,
+            "afterCoveredFeet": 1,
+            "decision": "reduce"
+          }
+        ],
+        "preservedAllocationIds": [],
+        "reducedAllocationIds": [
+          "20260420205816562-547"
+        ],
+        "cancelledAllocationIds": [],
+        "affectedJobNumbers": [
+          "4781"
+        ],
+        "affectedJobs": [
+          {
+            "jobNumber": "4781",
+            "jobId": "f66eba49-621f-41f1-a539-8319ef76d76a",
+            "lifecycleStatus": "ACTIVE",
+            "resultingJobStatus": "FILM_ORDER",
+            "requirementStatuses": [
+              {
+                "requirementId": "9e79d123-37dc-4994-97a2-37f4243f5563",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 60
+                },
+                "requiredFeet": 75,
+                "allocatedAfter": 33,
+                "missingAfter": 42,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 42,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              },
+              {
+                "requirementId": "d5a1d571-13e3-4fff-b992-df8091e084f9",
+                "film": {
+                  "manufacturer": "3M Solar",
+                  "filmName": "Prestige 40",
+                  "widthIn": 72
+                },
+                "requiredFeet": 3,
+                "allocatedAfter": 1,
+                "missingAfter": 2,
+                "filmOnTheWayCoverage": 0,
+                "neededOrderFeet": 2,
+                "existingFilmOrderUpdate": null,
+                "needsUserApprovedFilmOrder": true
+              }
+            ],
+            "needsUserApprovedFilmOrder": true,
+            "existingFilmOrderUpdates": []
+          }
+        ]
+      }
+    ]
+  }
+}

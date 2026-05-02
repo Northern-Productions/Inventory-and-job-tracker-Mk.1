@@ -1,0 +1,53 @@
+{
+  "metadata": {
+    "generatedAt": "2026-05-02T13:50:43.767Z",
+    "mode": "apply",
+    "script": "film-order-requirement-backfill",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.prod",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "projectRef": "tiwpulgvxtwlmqdnyuzd",
+    "databaseProjectRef": "tiwpulgvxtwlmqdnyuzd",
+    "reviewedReport": "backend\\migration-dry-runs\\prod-reconciliation\\film-order-requirement-backfill.json",
+    "reviewedReportSha256": "280c438c6ef7f2531881562edb647b152240b84c1c7d8d07e481f9e47ee7ee30",
+    "mutationsAllowed": true
+  },
+  "summary": {
+    "reviewedCandidates": 23,
+    "eligibleCandidates": 22,
+    "linked": 22,
+    "alreadyLinkedToReviewedRequirement": 0,
+    "skipped": 1,
+    "linkedFilmOrderIds": [
+      "20260409060347662-852",
+      "20260409191432860-090",
+      "20260409193544458-894",
+      "20260416123431490-540",
+      "20260420145928880-389",
+      "20260422151557748-934",
+      "20260422185610472-489",
+      "20260423213510404-675",
+      "20260423213513139-847",
+      "20260423214039064-676",
+      "20260423215123453-362",
+      "20260426233156257-468",
+      "20260427222927666-210",
+      "20260427222929018-197",
+      "20260427224734428-545",
+      "20260427224735721-482",
+      "20260427224736783-581",
+      "20260427224737686-967",
+      "20260428165428643-259",
+      "20260430154430972-399",
+      "20260430154431959-590",
+      "20260430154432913-585"
+    ],
+    "skippedFilmOrders": [
+      {
+        "filmOrderId": "20260423215237258-764",
+        "reason": "UNMATCHED",
+        "reviewedMatchedRequirementId": null
+      }
+    ],
+    "liveSkippedRows": []
+  }
+}

@@ -1,0 +1,381 @@
+{
+  "metadata": {
+    "generatedAt": "2026-05-02T13:50:43.767Z",
+    "mode": "apply",
+    "script": "box-allocation-reconciliation",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.prod",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "projectRef": "tiwpulgvxtwlmqdnyuzd",
+    "databaseProjectRef": "tiwpulgvxtwlmqdnyuzd",
+    "reviewedReport": "backend\\migration-dry-runs\\prod-reconciliation\\box-allocation-reconciliation.json",
+    "reviewedReportSha256": "a08a956b6dd12dfe4f6fa19a4a9e1fe0ef2009fc9f13fcc75973bd75b44f2490",
+    "actor": "prod-reconciliation-apply",
+    "mutationsAllowed": true,
+    "filmOnTheWayBefore": [],
+    "filmOnTheWayAfter": []
+  },
+  "summary": {
+    "reviewedBoxes": 7,
+    "appliedBoxes": 7,
+    "skippedBoxes": 0,
+    "allocationsPreserved": 1,
+    "allocationsReduced": 4,
+    "allocationsCancelled": 6,
+    "affectedJobNumbers": [
+      "4447",
+      "4449",
+      "4781",
+      "4947",
+      "17024",
+      "18394"
+    ],
+    "boxResults": [
+      {
+        "boxId": "IL1-6753",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 1,
+          "reduce": 1,
+          "cancel": 3
+        },
+        "result": {
+          "boxId": "IL1-6753",
+          "warnings": [
+            "Reduced allocation 20260416152859367-362 for job 4449 from 5 LF to 2 LF because box IL1-6753 physically returned with less LF.",
+            "Cancelled allocation 20260416153909903-597 for job 4447 because box IL1-6753 no longer has enough physical LF.",
+            "Cancelled allocation 20260422145618397-065 for job 4947 because box IL1-6753 no longer has enough physical LF.",
+            "Cancelled allocation 20260422145633242-927 for job 4947 because box IL1-6753 no longer has enough physical LF."
+          ],
+          "reducedCount": 1,
+          "feetAvailable": 22,
+          "cancelledCount": 3,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 22,
+          "activeReservedFeet": 22,
+          "affectedJobNumbers": [
+            "4447",
+            "4449",
+            "4947"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [
+            "20260416152859367-362"
+          ],
+          "cancelledAllocationIds": [
+            "20260416153909903-597",
+            "20260422145618397-065",
+            "20260422145633242-927"
+          ]
+        },
+        "verification": {
+          "box_id": "IL1-6753",
+          "physical_lf": 22,
+          "active_reserved_lf": 22,
+          "feet_available": 22
+        }
+      },
+      {
+        "boxId": "IL1-5705",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 0,
+          "cancel": 1
+        },
+        "result": {
+          "boxId": "IL1-5705",
+          "warnings": [
+            "Cancelled allocation 20260420205746314-971 for job 4781 because box IL1-5705 no longer has enough physical LF."
+          ],
+          "reducedCount": 0,
+          "feetAvailable": 0,
+          "cancelledCount": 1,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 0,
+          "activeReservedFeet": 0,
+          "affectedJobNumbers": [
+            "4781"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [],
+          "cancelledAllocationIds": [
+            "20260420205746314-971"
+          ]
+        },
+        "verification": {
+          "box_id": "IL1-5705",
+          "physical_lf": 0,
+          "active_reserved_lf": 0,
+          "feet_available": 0
+        }
+      },
+      {
+        "boxId": "IL1-6054",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 1,
+          "cancel": 0
+        },
+        "result": {
+          "boxId": "IL1-6054",
+          "warnings": [
+            "Reduced allocation 20260420205746915-184 for job 4781 from 42 LF to 28 LF because box IL1-6054 physically returned with less LF."
+          ],
+          "reducedCount": 1,
+          "feetAvailable": 28,
+          "cancelledCount": 0,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 28,
+          "activeReservedFeet": 28,
+          "affectedJobNumbers": [
+            "4781"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [
+            "20260420205746915-184"
+          ],
+          "cancelledAllocationIds": []
+        },
+        "verification": {
+          "box_id": "IL1-6054",
+          "physical_lf": 28,
+          "active_reserved_lf": 28,
+          "feet_available": 28
+        }
+      },
+      {
+        "boxId": "IL1-6839",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 0,
+          "cancel": 1
+        },
+        "result": {
+          "boxId": "IL1-6839",
+          "warnings": [
+            "Cancelled allocation 20260420134702420-581 for job 17024 because box IL1-6839 no longer has enough physical LF."
+          ],
+          "reducedCount": 0,
+          "feetAvailable": 0,
+          "cancelledCount": 1,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 0,
+          "activeReservedFeet": 0,
+          "affectedJobNumbers": [
+            "17024"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [],
+          "cancelledAllocationIds": [
+            "20260420134702420-581"
+          ]
+        },
+        "verification": {
+          "box_id": "IL1-6839",
+          "physical_lf": 0,
+          "active_reserved_lf": 0,
+          "feet_available": 0
+        }
+      },
+      {
+        "boxId": "IL1-6443",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 0,
+          "cancel": 1
+        },
+        "result": {
+          "boxId": "IL1-6443",
+          "warnings": [
+            "Cancelled allocation 20260422192623072-265 for job 18394 because box IL1-6443 no longer has enough physical LF."
+          ],
+          "reducedCount": 0,
+          "feetAvailable": 0,
+          "cancelledCount": 1,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 0,
+          "activeReservedFeet": 0,
+          "affectedJobNumbers": [
+            "18394"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [],
+          "cancelledAllocationIds": [
+            "20260422192623072-265"
+          ]
+        },
+        "verification": {
+          "box_id": "IL1-6443",
+          "physical_lf": 0,
+          "active_reserved_lf": 0,
+          "feet_available": 0
+        }
+      },
+      {
+        "boxId": "IL1-6491",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 1,
+          "cancel": 0
+        },
+        "result": {
+          "boxId": "IL1-6491",
+          "warnings": [
+            "Reduced allocation 20260422192623417-649 for job 18394 from 6 LF to 1 LF because box IL1-6491 physically returned with less LF."
+          ],
+          "reducedCount": 1,
+          "feetAvailable": 1,
+          "cancelledCount": 0,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 1,
+          "activeReservedFeet": 1,
+          "affectedJobNumbers": [
+            "18394"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [
+            "20260422192623417-649"
+          ],
+          "cancelledAllocationIds": []
+        },
+        "verification": {
+          "box_id": "IL1-6491",
+          "physical_lf": 1,
+          "active_reserved_lf": 1,
+          "feet_available": 1
+        }
+      },
+      {
+        "boxId": "IL1-5385",
+        "applied": true,
+        "reviewedDecisionCounts": {
+          "preserve": 0,
+          "reduce": 1,
+          "cancel": 0
+        },
+        "result": {
+          "boxId": "IL1-5385",
+          "warnings": [
+            "Reduced allocation 20260420205816562-547 for job 4781 from 3 LF to 1 LF because box IL1-5385 physically returned with less LF."
+          ],
+          "reducedCount": 1,
+          "feetAvailable": 1,
+          "cancelledCount": 0,
+          "activeStoredFeet": 0,
+          "physicalFeetAfter": 1,
+          "activeReservedFeet": 1,
+          "affectedJobNumbers": [
+            "4781"
+          ],
+          "updatedFilmOrderIds": [],
+          "reducedAllocationIds": [
+            "20260420205816562-547"
+          ],
+          "cancelledAllocationIds": []
+        },
+        "verification": {
+          "box_id": "IL1-5385",
+          "physical_lf": 1,
+          "active_reserved_lf": 1,
+          "feet_available": 1
+        }
+      }
+    ],
+    "invariantRows": [
+      {
+        "box_id": "IL1-5385",
+        "physical_lf": 1,
+        "active_reserved_lf": 1,
+        "feet_available": 1
+      },
+      {
+        "box_id": "IL1-5705",
+        "physical_lf": 0,
+        "active_reserved_lf": 0,
+        "feet_available": 0
+      },
+      {
+        "box_id": "IL1-6054",
+        "physical_lf": 28,
+        "active_reserved_lf": 28,
+        "feet_available": 28
+      },
+      {
+        "box_id": "IL1-6443",
+        "physical_lf": 0,
+        "active_reserved_lf": 0,
+        "feet_available": 0
+      },
+      {
+        "box_id": "IL1-6491",
+        "physical_lf": 1,
+        "active_reserved_lf": 1,
+        "feet_available": 1
+      },
+      {
+        "box_id": "IL1-6753",
+        "physical_lf": 22,
+        "active_reserved_lf": 22,
+        "feet_available": 22
+      },
+      {
+        "box_id": "IL1-6839",
+        "physical_lf": 0,
+        "active_reserved_lf": 0,
+        "feet_available": 0
+      }
+    ],
+    "finalAffectedJobs": [
+      {
+        "jobNumber": "4447",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 142
+      },
+      {
+        "jobNumber": "4449",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 13
+      },
+      {
+        "jobNumber": "4781",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 44
+      },
+      {
+        "jobNumber": "4947",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 45
+      },
+      {
+        "jobNumber": "17024",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 7
+      },
+      {
+        "jobNumber": "18394",
+        "resultingJobStatus": "FILM_ORDER",
+        "needsUserApprovedFilmOrder": true,
+        "existingFilmOrderUpdates": [],
+        "shortageAfter": 11
+      }
+    ],
+    "filmOnTheWaySnapshotUnchanged": true,
+    "filmOrderCountBefore": 0,
+    "filmOrderCountAfter": 0,
+    "autoCreatedFilmOrdersDetected": false
+  }
+}

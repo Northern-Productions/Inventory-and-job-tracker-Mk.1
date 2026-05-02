@@ -1,0 +1,738 @@
+{
+  "metadata": {
+    "generatedAt": "2026-05-02T13:27:28.509Z",
+    "mode": "dry-run",
+    "script": "film-order-requirement-backfill",
+    "envPath": "C:\\Users\\Rober\\OneDrive\\Desktop\\Work\\Spreadsheet-inventory-tracker\\backend\\.env.prod",
+    "orgId": "ecf4f1c5-f153-4072-b814-18a41c52fcdc",
+    "projectRef": "tiwpulgvxtwlmqdnyuzd",
+    "databaseProjectRef": "tiwpulgvxtwlmqdnyuzd",
+    "dryRunOnly": true,
+    "mutationsAllowed": false,
+    "schemaChecks": {
+      "allocationsCoveredFeet": true,
+      "filmOrdersRequirementId": true,
+      "allocationsRequirementId": true,
+      "boxPhysicalFeetAvailable": true,
+      "filmOrderMatchesRequirement": true,
+      "requirementFilmIsCompatible": true,
+      "filmAllocationReservesCapacity": true,
+      "computeCoveredFeetFromAllocation": true,
+      "filmAllocationConsumesStoredCapacity": true
+    },
+    "productionDryRun": true
+  },
+  "requirementBackfill": {
+    "summary": {
+      "scannedFilmOrders": 23,
+      "wouldBackfill": 22,
+      "ambiguous": 0,
+      "unmatched": 1
+    },
+    "candidates": [
+      {
+        "filmOrderId": "20260409060347662-852",
+        "rowId": "c79df94c-823c-4020-b785-2af0b4cac1be",
+        "status": "CANCELLED",
+        "jobId": "23516c26-2de8-4beb-8109-356a45f9b302",
+        "jobNumber": "18764",
+        "film": {
+          "manufacturer": "Avery Dennison",
+          "filmName": "Natura 15",
+          "widthIn": 60
+        },
+        "requestedFeet": 56,
+        "orderedFeet": 75,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T06:03:47.662Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "afbbbc24-969b-4fa9-9bfb-8be3d1d97f47",
+        "matchingRequirements": [
+          {
+            "requirementId": "afbbbc24-969b-4fa9-9bfb-8be3d1d97f47",
+            "jobId": "23516c26-2de8-4beb-8109-356a45f9b302",
+            "jobNumber": "18764",
+            "manufacturer": "Avery Dennison",
+            "filmName": "Natura 15",
+            "widthIn": 60,
+            "requiredFeet": 150
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260409191432860-090",
+        "rowId": "b0d5e8a3-aebd-49e8-8d55-dcac1d6bb651",
+        "status": "FULFILLED",
+        "jobId": "f50a7098-bd70-4057-9629-11c4a2a7a6c7",
+        "jobNumber": "18679",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "Transparent White Matte SXWFTWM",
+          "widthIn": 24
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 30,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T19:14:32.820Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "203637f0-fd9d-4708-a116-b427c0ae7ba7",
+        "matchingRequirements": [
+          {
+            "requirementId": "203637f0-fd9d-4708-a116-b427c0ae7ba7",
+            "jobId": "f50a7098-bd70-4057-9629-11c4a2a7a6c7",
+            "jobNumber": "18679",
+            "manufacturer": "SOLYX",
+            "filmName": "Transparent White Matte SXWFTWM",
+            "widthIn": 24,
+            "requiredFeet": 30
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260409193544458-894",
+        "rowId": "c93bf89f-5e26-40eb-bab2-ce43a95c2481",
+        "status": "FULFILLED",
+        "jobId": "b79587d2-8095-4c91-a3a2-5f8edf44adb5",
+        "jobNumber": "4692",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "SpectraSelect 70 V70 SR CDF",
+          "widthIn": 60
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-09T19:35:44.442Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "eae9d701-895d-4ca2-ba6c-f47adea379b4",
+        "matchingRequirements": [
+          {
+            "requirementId": "eae9d701-895d-4ca2-ba6c-f47adea379b4",
+            "jobId": "b79587d2-8095-4c91-a3a2-5f8edf44adb5",
+            "jobNumber": "4692",
+            "manufacturer": "Llumar",
+            "filmName": "SpectraSelect 70 V70 SR CDF",
+            "widthIn": 60,
+            "requiredFeet": 30
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260416123431490-540",
+        "rowId": "a9bce35e-7e1a-4b95-a322-fa7ca8c115f1",
+        "status": "FULFILLED",
+        "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+        "jobNumber": "4486",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 48
+        },
+        "requestedFeet": 230,
+        "orderedFeet": 230,
+        "coveredFeet": 230,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-16T12:34:31.480Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+        "matchingRequirements": [
+          {
+            "requirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+            "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+            "jobNumber": "4486",
+            "manufacturer": "Llumar",
+            "filmName": "Frost (NRM PS2)",
+            "widthIn": 48,
+            "requiredFeet": 230
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260420145928880-389",
+        "rowId": "ca96fdb5-2424-477e-ad40-d5a8c3723989",
+        "status": "FULFILLED",
+        "jobId": "655cd8b3-f9c7-4129-906e-2c7e5f39d092",
+        "jobNumber": "19389",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "One Way Perf SX1940",
+          "widthIn": 60
+        },
+        "requestedFeet": 30,
+        "orderedFeet": 30,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-20T14:59:27.501Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "aea0bdf7-cd26-44bd-8a48-20fe603c90e2",
+        "matchingRequirements": [
+          {
+            "requirementId": "aea0bdf7-cd26-44bd-8a48-20fe603c90e2",
+            "jobId": "655cd8b3-f9c7-4129-906e-2c7e5f39d092",
+            "jobNumber": "19389",
+            "manufacturer": "SOLYX",
+            "filmName": "One Way Perf SX1940",
+            "widthIn": 60,
+            "requiredFeet": 15
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260422151557748-934",
+        "rowId": "8ec6e800-c05a-42a4-ba26-44ac1d1ea51f",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "970eaf15-3277-4602-a6a6-06c2d5982ec8",
+        "jobNumber": "018916",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "Madico Safetyshield 800 Optivision 15",
+          "widthIn": 72
+        },
+        "requestedFeet": 10,
+        "orderedFeet": 25,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-22T15:15:57.734Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "8601064d-9ab0-4967-9e7b-91f02b556c9a",
+        "matchingRequirements": [
+          {
+            "requirementId": "8601064d-9ab0-4967-9e7b-91f02b556c9a",
+            "jobId": "970eaf15-3277-4602-a6a6-06c2d5982ec8",
+            "jobNumber": "018916",
+            "manufacturer": "Security",
+            "filmName": "Madico Safetyshield 800 Optivision 15",
+            "widthIn": 72,
+            "requiredFeet": 10
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260422185610472-489",
+        "rowId": "e1511245-9aea-4ab9-b31d-30a86ca10f21",
+        "status": "FULFILLED",
+        "jobId": "2e6731c6-bc15-481a-a694-d3822cf28b1a",
+        "jobNumber": "4714",
+        "film": {
+          "manufacturer": "SOLYX",
+          "filmName": "SX-9100 Chicago",
+          "widthIn": 60
+        },
+        "requestedFeet": 12,
+        "orderedFeet": 12,
+        "coveredFeet": 12,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-22T18:56:10.465Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "edff6a04-e2f9-4d57-9883-eee3c08efb50",
+        "matchingRequirements": [
+          {
+            "requirementId": "edff6a04-e2f9-4d57-9883-eee3c08efb50",
+            "jobId": "2e6731c6-bc15-481a-a694-d3822cf28b1a",
+            "jobNumber": "4714",
+            "manufacturer": "SOLYX",
+            "filmName": "SX-9100 Chicago",
+            "widthIn": 60,
+            "requiredFeet": 12
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260423213510404-675",
+        "rowId": "b0b25d16-6f61-48b8-a704-ece0fefe6a80",
+        "status": "FULFILLED",
+        "jobId": "bc90cd50-d567-4a5b-b998-64ea01f936cf",
+        "jobNumber": "19016",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 50 Exterior",
+          "widthIn": 48
+        },
+        "requestedFeet": 43,
+        "orderedFeet": 50,
+        "coveredFeet": 43,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-23T21:35:10.387Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "7b275824-02b8-459f-a03f-f7023adfcfe0",
+        "matchingRequirements": [
+          {
+            "requirementId": "7b275824-02b8-459f-a03f-f7023adfcfe0",
+            "jobId": "bc90cd50-d567-4a5b-b998-64ea01f936cf",
+            "jobNumber": "19016",
+            "manufacturer": "3M Solar",
+            "filmName": "Prestige 50 Exterior",
+            "widthIn": 48,
+            "requiredFeet": 60
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260423213513139-847",
+        "rowId": "6a9bb8b2-42fc-4c30-b1bd-6c9f9a13900b",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "bc90cd50-d567-4a5b-b998-64ea01f936cf",
+        "jobNumber": "19016",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 50 Exterior",
+          "widthIn": 60
+        },
+        "requestedFeet": 160,
+        "orderedFeet": 160,
+        "coveredFeet": 60,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-23T21:35:13.131Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "f637be39-38ce-48d0-9cf6-d7852bf8e539",
+        "matchingRequirements": [
+          {
+            "requirementId": "f637be39-38ce-48d0-9cf6-d7852bf8e539",
+            "jobId": "bc90cd50-d567-4a5b-b998-64ea01f936cf",
+            "jobNumber": "19016",
+            "manufacturer": "3M Solar",
+            "filmName": "Prestige 50 Exterior",
+            "widthIn": 60,
+            "requiredFeet": 160
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260423214039064-676",
+        "rowId": "94882e60-53cd-49fc-a3b0-e77bd42fbd4a",
+        "status": "FULFILLED",
+        "jobId": "02ae173e-7421-4c44-a01c-031a8fb92f02",
+        "jobNumber": "19402",
+        "film": {
+          "manufacturer": "Solar Gard",
+          "filmName": "Slate 20",
+          "widthIn": 60
+        },
+        "requestedFeet": 45,
+        "orderedFeet": 50,
+        "coveredFeet": 45,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-23T21:40:39.023Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "065a823f-ab75-4f33-ac89-1e8c327f6a62",
+        "matchingRequirements": [
+          {
+            "requirementId": "065a823f-ab75-4f33-ac89-1e8c327f6a62",
+            "jobId": "02ae173e-7421-4c44-a01c-031a8fb92f02",
+            "jobNumber": "19402",
+            "manufacturer": "Solar Gard",
+            "filmName": "Slate 20",
+            "widthIn": 60,
+            "requiredFeet": 40
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260423215123453-362",
+        "rowId": "c3238829-8c49-4ebd-ae63-a6d53a37d319",
+        "status": "FULFILLED",
+        "jobId": "ad29df43-4a65-4f94-bec5-041f4423824b",
+        "jobNumber": "16423",
+        "film": {
+          "manufacturer": "3M Fasara",
+          "filmName": "Milano Milky White SH2MAML",
+          "widthIn": 60
+        },
+        "requestedFeet": 60,
+        "orderedFeet": 60,
+        "coveredFeet": 60,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-23T21:51:23.366Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "d29a93be-2cbc-477a-ae42-fc7c7d4ddccc",
+        "matchingRequirements": [
+          {
+            "requirementId": "d29a93be-2cbc-477a-ae42-fc7c7d4ddccc",
+            "jobId": "ad29df43-4a65-4f94-bec5-041f4423824b",
+            "jobNumber": "16423",
+            "manufacturer": "3M Fasara",
+            "filmName": "Milano Milky White SH2MAML",
+            "widthIn": 60,
+            "requiredFeet": 120
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260423215237258-764",
+        "rowId": "635eeec5-033e-47d1-87a9-8f3c89e6331d",
+        "status": "FULFILLED",
+        "jobId": "ad29df43-4a65-4f94-bec5-041f4423824b",
+        "jobNumber": "16423",
+        "film": {
+          "manufacturer": "3M Solar",
+          "filmName": "Prestige 70 Exterior",
+          "widthIn": 72
+        },
+        "requestedFeet": 100,
+        "orderedFeet": 100,
+        "coveredFeet": 100,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-23T21:52:37.207Z",
+        "updatedAt": null,
+        "matchStatus": "UNMATCHED",
+        "wouldSetRequirementId": null,
+        "matchingRequirements": []
+      },
+      {
+        "filmOrderId": "20260426233156257-468",
+        "rowId": "84494664-4e1c-42ef-9fbb-856e5d043c04",
+        "status": "CANCELLED",
+        "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+        "jobNumber": "4486",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost (NRM PS2)",
+          "widthIn": 48
+        },
+        "requestedFeet": 230,
+        "orderedFeet": 0,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 230,
+        "createdAt": "2026-04-26T23:31:56.080Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+        "matchingRequirements": [
+          {
+            "requirementId": "4ec17d13-fd53-4890-a7ac-9de5bd3e5379",
+            "jobId": "46999b15-c002-454b-8f87-1ca7a5f51d72",
+            "jobNumber": "4486",
+            "manufacturer": "Llumar",
+            "filmName": "Frost (NRM PS2)",
+            "widthIn": 48,
+            "requiredFeet": 230
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427222927666-210",
+        "rowId": "cf513dc6-123e-4a29-8102-f02bc3b51045",
+        "status": "FULFILLED",
+        "jobId": "f41f8053-d069-4c8c-ba1c-de4e6ff75be1",
+        "jobNumber": "19066",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 60
+        },
+        "requestedFeet": 100,
+        "orderedFeet": 100,
+        "coveredFeet": 100,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:29:27.652Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "ab75ac18-3f9e-436c-9f54-f45484b2fcdc",
+        "matchingRequirements": [
+          {
+            "requirementId": "ab75ac18-3f9e-436c-9f54-f45484b2fcdc",
+            "jobId": "f41f8053-d069-4c8c-ba1c-de4e6ff75be1",
+            "jobNumber": "19066",
+            "manufacturer": "Llumar",
+            "filmName": "Frost NRMPS2",
+            "widthIn": 60,
+            "requiredFeet": 100
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427222929018-197",
+        "rowId": "c0306269-008f-44ac-a14a-fa64d1c3f623",
+        "status": "FULFILLED",
+        "jobId": "f41f8053-d069-4c8c-ba1c-de4e6ff75be1",
+        "jobNumber": "19066",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 72
+        },
+        "requestedFeet": 230,
+        "orderedFeet": 230,
+        "coveredFeet": 230,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:29:29.008Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "06b3b4bb-3420-4479-9399-49ac751396d1",
+        "matchingRequirements": [
+          {
+            "requirementId": "06b3b4bb-3420-4479-9399-49ac751396d1",
+            "jobId": "f41f8053-d069-4c8c-ba1c-de4e6ff75be1",
+            "jobNumber": "19066",
+            "manufacturer": "Llumar",
+            "filmName": "Frost NRMPS2",
+            "widthIn": 72,
+            "requiredFeet": 230
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427224734428-545",
+        "rowId": "f80d1d85-b1e0-4d79-a162-c5e6cdbb6ff5",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+        "jobNumber": "19177",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 48
+        },
+        "requestedFeet": 25,
+        "orderedFeet": 25,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:47:34.414Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "86b72286-f5de-4d3e-9c69-57cfa9b5e938",
+        "matchingRequirements": [
+          {
+            "requirementId": "86b72286-f5de-4d3e-9c69-57cfa9b5e938",
+            "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+            "jobNumber": "19177",
+            "manufacturer": "Llumar",
+            "filmName": "Frost NRMPS2",
+            "widthIn": 48,
+            "requiredFeet": 25
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427224735721-482",
+        "rowId": "8532e13d-0200-4d45-8dc5-8f1094502031",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+        "jobNumber": "19177",
+        "film": {
+          "manufacturer": "Llumar",
+          "filmName": "Frost NRMPS2",
+          "widthIn": 72
+        },
+        "requestedFeet": 25,
+        "orderedFeet": 25,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:47:35.713Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "6507b2c5-013a-4c99-821c-20a5a77db86e",
+        "matchingRequirements": [
+          {
+            "requirementId": "6507b2c5-013a-4c99-821c-20a5a77db86e",
+            "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+            "jobNumber": "19177",
+            "manufacturer": "Llumar",
+            "filmName": "Frost NRMPS2",
+            "widthIn": 72,
+            "requiredFeet": 25
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427224736783-581",
+        "rowId": "c668837c-e670-41a9-8b68-1c0eaefa0470",
+        "status": "FULFILLED",
+        "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+        "jobNumber": "19177",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "Madico Graffiti Free 6 MIL",
+          "widthIn": 60
+        },
+        "requestedFeet": 45,
+        "orderedFeet": 75,
+        "coveredFeet": 45,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:47:36.780Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "fe7c29ce-93b8-4392-b177-1a85a62e3ea7",
+        "matchingRequirements": [
+          {
+            "requirementId": "fe7c29ce-93b8-4392-b177-1a85a62e3ea7",
+            "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+            "jobNumber": "19177",
+            "manufacturer": "Security",
+            "filmName": "Madico Graffiti Free 6 MIL",
+            "widthIn": 60,
+            "requiredFeet": 45
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260427224737686-967",
+        "rowId": "665c2bc9-fec5-4353-a73e-4bfdd336a608",
+        "status": "FULFILLED",
+        "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+        "jobNumber": "19177",
+        "film": {
+          "manufacturer": "Security",
+          "filmName": "Madico Graffiti Free 6 MIL",
+          "widthIn": 72
+        },
+        "requestedFeet": 34,
+        "orderedFeet": 50,
+        "coveredFeet": 34,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-27T22:47:37.683Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "4b807c32-19e4-440d-aaa6-146e37406e38",
+        "matchingRequirements": [
+          {
+            "requirementId": "4b807c32-19e4-440d-aaa6-146e37406e38",
+            "jobId": "5c80a688-60e6-4641-acfa-4ffbaa5a9fa1",
+            "jobNumber": "19177",
+            "manufacturer": "Security",
+            "filmName": "Madico Graffiti Free 6 MIL",
+            "widthIn": 72,
+            "requiredFeet": 125
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260428165428643-259",
+        "rowId": "1eff0350-e6f5-41e5-8e6f-46662ad1ebf9",
+        "status": "FILM_ORDER",
+        "jobId": "f584c581-b42a-43bf-9fb7-4ec180daf2e8",
+        "jobNumber": "3449",
+        "film": {
+          "manufacturer": "3M Fasara",
+          "filmName": "San Marino Milky Milky SH2MAMM",
+          "widthIn": 60
+        },
+        "requestedFeet": 78,
+        "orderedFeet": 0,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 78,
+        "createdAt": "2026-04-28T16:54:28.627Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "3b955425-60f0-4c63-a816-cbec649d42aa",
+        "matchingRequirements": [
+          {
+            "requirementId": "3b955425-60f0-4c63-a816-cbec649d42aa",
+            "jobId": "f584c581-b42a-43bf-9fb7-4ec180daf2e8",
+            "jobNumber": "3449",
+            "manufacturer": "3M Fasara",
+            "filmName": "San Marino Milky Milky SH2MAMM",
+            "widthIn": 60,
+            "requiredFeet": 110
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260430154430972-399",
+        "rowId": "f873a5e5-d685-45a0-9dfd-433489ff6951",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+        "jobNumber": "16242",
+        "film": {
+          "manufacturer": "3M Fasara",
+          "filmName": "Dusted Crystal",
+          "widthIn": 36
+        },
+        "requestedFeet": 25,
+        "orderedFeet": 30,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-30T15:44:30.967Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "a96a5f53-6f0d-41d5-98aa-eafc13b94ebd",
+        "matchingRequirements": [
+          {
+            "requirementId": "a96a5f53-6f0d-41d5-98aa-eafc13b94ebd",
+            "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+            "jobNumber": "16242",
+            "manufacturer": "3M Fasara",
+            "filmName": "Dusted Crystal",
+            "widthIn": 36,
+            "requiredFeet": 25
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260430154431959-590",
+        "rowId": "7bcc3992-4b6d-4c4e-bf83-9b35315bfe82",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+        "jobNumber": "16242",
+        "film": {
+          "manufacturer": "3M Fasara",
+          "filmName": "Dusted Crystal",
+          "widthIn": 48
+        },
+        "requestedFeet": 35,
+        "orderedFeet": 40,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-30T15:44:31.953Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "fdda4874-d0af-4d71-a6d3-37aedb2d9ed0",
+        "matchingRequirements": [
+          {
+            "requirementId": "fdda4874-d0af-4d71-a6d3-37aedb2d9ed0",
+            "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+            "jobNumber": "16242",
+            "manufacturer": "3M Fasara",
+            "filmName": "Dusted Crystal",
+            "widthIn": 48,
+            "requiredFeet": 35
+          }
+        ]
+      },
+      {
+        "filmOrderId": "20260430154432913-585",
+        "rowId": "49b3f540-3092-42d7-b0fd-d4b29cc6209c",
+        "status": "FILM_ON_THE_WAY",
+        "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+        "jobNumber": "16242",
+        "film": {
+          "manufacturer": "3M Fasara",
+          "filmName": "Dusted Crystal",
+          "widthIn": 60
+        },
+        "requestedFeet": 35,
+        "orderedFeet": 40,
+        "coveredFeet": 0,
+        "remainingToOrderFeet": 0,
+        "createdAt": "2026-04-30T15:44:32.909Z",
+        "updatedAt": null,
+        "matchStatus": "MATCHED",
+        "wouldSetRequirementId": "257be7d1-9d1a-40f7-96a6-f4340f80306d",
+        "matchingRequirements": [
+          {
+            "requirementId": "257be7d1-9d1a-40f7-96a6-f4340f80306d",
+            "jobId": "96835ec6-c52e-4227-900e-5f3ea988d56b",
+            "jobNumber": "16242",
+            "manufacturer": "3M Fasara",
+            "filmName": "Dusted Crystal",
+            "widthIn": 60,
+            "requiredFeet": 35
+          }
+        ]
+      }
+    ]
+  }
+}
