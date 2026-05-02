@@ -191,7 +191,14 @@ begin
     raise exception 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb) was not found';
   end if;
 
+  v_definition := replace(v_definition, E'\r\n', E'\n');
   v_next_definition := v_definition;
+  v_old_capacity := replace(v_old_capacity, E'\r\n', E'\n');
+  v_new_capacity := replace(v_new_capacity, E'\r\n', E'\n');
+  v_old_declaration := replace(v_old_declaration, E'\r\n', E'\n');
+  v_new_declaration := replace(v_new_declaration, E'\r\n', E'\n');
+  v_old_invariant_anchor := replace(v_old_invariant_anchor, E'\r\n', E'\n');
+  v_new_invariant_anchor := replace(v_new_invariant_anchor, E'\r\n', E'\n');
 
   if position(v_new_declaration in v_next_definition) = 0 then
     if position(v_old_declaration in v_next_definition) = 0 then
