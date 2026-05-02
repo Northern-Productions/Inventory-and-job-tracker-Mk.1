@@ -727,11 +727,15 @@ begin
 
   v_next := replace(
     v_next,
-    '  v_receipt_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);
-  v_requires_first_return_calibration boolean := false;',
-    '  v_receipt_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);
-  v_reconciliation_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);
-  v_requires_first_return_calibration boolean := false;'
+    replace($old$
+  v_receipt_result jsonb := jsonb_build_object('warnings', '[]'::jsonb);
+  v_requires_first_return_calibration boolean := false;
+$old$, E'\r\n', E'\n'),
+    replace($new$
+  v_receipt_result jsonb := jsonb_build_object('warnings', '[]'::jsonb);
+  v_reconciliation_result jsonb := jsonb_build_object('warnings', '[]'::jsonb);
+  v_requires_first_return_calibration boolean := false;
+$new$, E'\r\n', E'\n')
   );
 
   v_next := replace(
@@ -825,6 +829,11 @@ $new$, E'\r\n', E'\n')
     end if;
 
     raise exception 'api_boxes_set_status check-in reconciliation patch did not match expected snippets';
+  end if;
+
+  if position('v_reconciliation_result := app_api.reconcile_box_checkin_allocations' in v_next) > 0
+     and position('v_reconciliation_result jsonb' in v_next) = 0 then
+    raise exception 'api_boxes_set_status check-in reconciliation patch inserted references without declaring v_reconciliation_result';
   end if;
 
   execute v_next;
