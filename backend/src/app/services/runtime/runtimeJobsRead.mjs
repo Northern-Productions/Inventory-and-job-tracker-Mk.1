@@ -203,7 +203,24 @@ import {
   loadJobDetailContextWithPooledReads,
 } from './runtimeJobDetails.mjs';
 
-async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = []) {
+/**
+ * PURPOSE:
+ * Builds public job-list summaries from org-scoped job, allocation, order,
+ * requirement, box, and caulk snapshots.
+ *
+ * AFFECTS:
+ * Jobs list/search/calendar reads, allocation job summaries, app shell job
+ * previews, and reports that reuse job summary state.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /jobs/list, /jobs/search, /jobs/calendar, /allocations/jobs,
+ * /reports/summary, Edge api-handler parity, and job summary parity checks.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate full-org reads, stale preloaded snapshots, local/Edge drift,
+ * changed sort/filter behavior, or report response-shape regressions.
+ */
+async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = [], options = {}) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const normalizedJobNumberFilters = normalizeStringArrayParam(jobNumbers);
   const jobNumberFilterSet = normalizedJobNumberFilters.length
@@ -215,7 +232,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const allRequirements = await listJobRequirements(client, orgId);
   const allCaulkRequirements = await listJobCaulkRequirements(client, orgId);
   const allCaulkAllocations = await listCaulkJobAllocations(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
+  const allBoxes = Array.isArray(options.preloadedBoxes) ? options.preloadedBoxes : await listBoxes(client, orgId);
   const allCaulkStock = await listCaulkStock(client, orgId, {});
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);

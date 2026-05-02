@@ -4869,12 +4869,30 @@ async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumb
   };
 }
 
+/**
+ * PURPOSE:
+ * Builds public job-list summaries from org-scoped job, allocation, order,
+ * requirement, box, and caulk snapshots.
+ *
+ * AFFECTS:
+ * Jobs list/search/calendar reads, allocation job summaries, app shell job
+ * previews, and reports that reuse job summary state.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * /jobs/list, /jobs/search, /jobs/calendar, /allocations/jobs,
+ * /reports/summary, local runtime parity, and job summary parity checks.
+ *
+ * COMMON FAILURE MODES:
+ * Duplicate full-org reads, stale preloaded snapshots, local/Edge drift,
+ * changed sort/filter behavior, or report response-shape regressions.
+ */
 async function buildJobsList(
   client: any,
   orgId: string,
   limit: number,
   lifecycleStatus?: unknown,
   jobNumbers: unknown = [],
+  options: { preloadedBoxes?: any[] } = {},
 ) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const jobNumberFilterSet = new Set(normalizeStringArrayParam(jobNumbers));
@@ -4882,7 +4900,7 @@ async function buildJobsList(
   const allAllocations = await listAllocations(client, orgId);
   const allFilmOrders = await listFilmOrders(client, orgId);
   const allRequirements = await listJobRequirements(client, orgId);
-  const allBoxes = await listBoxes(client, orgId);
+  const allBoxes = Array.isArray(options.preloadedBoxes) ? options.preloadedBoxes : await listBoxes(client, orgId);
   const allCaulkStock = await listCaulkStockEntries(client, orgId);
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
@@ -5417,7 +5435,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     return left.boxId < right.boxId ? -1 : left.boxId > right.boxId ? 1 : 0;
   });
 
-  const allJobEntries = await buildJobsList(client, orgId, 0);
+  const allJobEntries = await buildJobsList(client, orgId, 0, undefined, [], { preloadedBoxes: allBoxes });
   for (const jobEntry of allJobEntries) {
     const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
     if (lifecycleStatus !== "COMPLETED" && lifecycleStatus !== "CANCELLED") {

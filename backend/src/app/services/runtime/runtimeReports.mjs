@@ -359,7 +359,7 @@ async function buildReportsSummary(client, orgId, params) {
 
   zeroedByMonth.sort((left, right) => (left.month < right.month ? -1 : left.month > right.month ? 1 : 0));
 
-  const allJobEntries = await buildJobsList(client, orgId, 0);
+  const allJobEntries = await buildJobsList(client, orgId, 0, undefined, [], { preloadedBoxes: allBoxes });
   for (let index = 0; index < allJobEntries.length; index += 1) {
     const jobEntry = allJobEntries[index];
     const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
