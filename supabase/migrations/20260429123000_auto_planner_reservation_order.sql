@@ -119,7 +119,10 @@ begin
     raise exception 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb) was not found';
   end if;
 
+  v_definition := replace(v_definition, E'\r\n', E'\n');
   v_next_definition := v_definition;
+  v_old_job_order := replace(v_old_job_order, E'\r\n', E'\n');
+  v_new_job_order := replace(v_new_job_order, E'\r\n', E'\n');
 
   if position(v_new_job_order in v_next_definition) = 0 then
     if position(v_old_job_order in v_next_definition) = 0 then
