@@ -63,7 +63,7 @@ test('box check-in reconciliation updates only existing FILM_ORDER rows', async 
 test('latest schema check requires box check-in reconciliation objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0100_auto_planner_reservation_order\.sql/);
+  assert.match(schemaCheck, /0101_roll_weight_feet_rounding_parity\.sql/);
   assert.match(schemaCheck, /app\.film_orders\.requirement_id/);
   assert.match(schemaCheck, /app_api\.reconcile_box_checkin_allocations\(uuid, text, text, integer\)/);
 });

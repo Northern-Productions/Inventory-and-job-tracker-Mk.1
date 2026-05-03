@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   assertLegalBoxWeightState,
   assertCanCheckoutBoxFromWarehouse,
+  deriveFeetAvailableFromRollWeight,
   getWarehouseCheckoutWeightRequirementMessage,
   hasBoxWeightBaseline,
   requiresFirstReturnCalibration,
@@ -102,4 +103,16 @@ test('requiresFirstReturnCalibration only allows the approved direct-to-site che
     ),
     false
   );
+});
+
+test('deriveFeetAvailableFromRollWeight rounds to frontend precision before flooring', () => {
+  assert.equal(deriveFeetAvailableFromRollWeight(24.65, 1.3333, 0.233167, 100), 100);
+  assert.equal(deriveFeetAvailableFromRollWeight(22.38, 1.3333, 0.233167, 100), 90);
+  assert.equal(deriveFeetAvailableFromRollWeight(12.9, 1.3333, 0.231334, 50), 50);
+});
+
+test('deriveFeetAvailableFromRollWeight preserves zero and initial-feet clamps', () => {
+  assert.equal(deriveFeetAvailableFromRollWeight(1, 1.3333, 0.233167, 100), 0);
+  assert.equal(deriveFeetAvailableFromRollWeight(-1, 1.3333, 0.233167, 100), 0);
+  assert.equal(deriveFeetAvailableFromRollWeight(100, 1.3333, 0.233167, 100), 100);
 });

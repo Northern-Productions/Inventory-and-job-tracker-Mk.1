@@ -612,7 +612,7 @@ function deriveFeetAvailableFromRollWeight(lastRollWeightLbs, coreWeightLbs, lfW
     );
   }
 
-  const rawFeet = (lastRollWeightLbs - coreWeightLbs) / lfWeightLbsPerFt;
+  const rawFeet = roundToDecimals((lastRollWeightLbs - coreWeightLbs) / lfWeightLbsPerFt, 2);
   if (rawFeet <= 0) {
     return 0;
   }
