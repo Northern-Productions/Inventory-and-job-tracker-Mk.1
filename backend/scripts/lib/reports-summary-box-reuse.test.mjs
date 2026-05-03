@@ -218,11 +218,39 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
   const entries = await buildJobsList(client, ORG_ID, 0);
 
   assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.caulkStock, 0);
   assert.equal(entries.length, 3);
   assert.deepEqual(
     entries.map((entry) => entry.jobNumber).sort(),
     ['10001', '20002', '30003']
   );
+  assert.deepEqual(Object.keys(entries.find((entry) => entry.jobNumber === '30003')), [
+    'jobNumber',
+    'warehouse',
+    'sections',
+    'installDate',
+    'crewLeader',
+    'status',
+    'lifecycleStatus',
+    'isLaborOnly',
+    'isStagedForPickup',
+    'requiredFeet',
+    'allocatedFeet',
+    'allocatedWithInstallDateFeet',
+    'allocatedWithoutInstallDateFeet',
+    'remainingFeet',
+    'requiredTubes',
+    'allocatedTubes',
+    'remainingTubes',
+    'requirementCount',
+    'allocationCount',
+    'filmOrderCount',
+    'hasOrderedAllocations',
+    'createdAt',
+    'updatedAt',
+    'notes',
+  ]);
+  assert.equal(entries.find((entry) => entry.jobNumber === '30003').status, 'READY');
 });
 
 test('buildReportsSummary reuses its already-loaded box snapshot for job summaries', async () => {
@@ -231,6 +259,7 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
   const summary = await buildReportsSummary(client, ORG_ID, { warehouse: 'IL1' });
 
   assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.caulkStock, 0);
   assert.equal(client.concurrency.maxActive, 1);
   assert.deepEqual(Object.keys(summary), [
     'availableFeetByWidth',
@@ -310,6 +339,7 @@ test('jobs search keeps its existing default box-loading behavior', async () => 
   const entries = await buildJobsSearchResults(client, ORG_ID, '30003', 25, 'ACTIVE');
 
   assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.caulkStock, 0);
   assert.deepEqual(
     entries.map((entry) => entry.jobNumber),
     ['30003']
@@ -320,6 +350,10 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const localReportsSource = fs.readFileSync(
     path.join(repoRoot, 'backend/src/app/services/runtime/runtimeReports.mjs'),
+    'utf8'
+  );
+  const localJobsReadSource = fs.readFileSync(
+    path.join(repoRoot, 'backend/src/app/services/runtime/runtimeJobsRead.mjs'),
     'utf8'
   );
   const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
@@ -343,4 +377,8 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
   assert.match(localReadHandlersSource, /'\/jobs\/search'/);
   assert.match(localReadHandlersSource, /'\/reports\/summary'/);
   assert.match(edgeSource, /await runBoundedSnapshotReads\(\[\s*\(\) => listJobs\(client, orgId\),\s*\(\) => listAllocations\(client, orgId\),\s*\(\) => listFilmOrders\(client, orgId\),\s*\(\) => listJobRequirements\(client, orgId\),/s);
+  const localBuildJobsList = localJobsReadSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+  const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+  assert.doesNotMatch(localBuildJobsList, /listCaulkStock|caulkStockEntries: allCaulkStock/);
+  assert.doesNotMatch(edgeBuildJobsList, /listCaulkStockEntries|caulkStockEntries: allCaulkStock/);
 });

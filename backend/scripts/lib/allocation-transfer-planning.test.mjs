@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAllocationPreviewPlan } from '../../src/app/services/runtime/runtimeAllocationPlanning.mjs';
+import { loadAllocationPreviewBoxes } from '../../src/app/services/runtime/runtimeAllocationApply.mjs';
 
 function buildBox(overrides = {}) {
   return {
@@ -157,4 +158,93 @@ test('rejects zeroed source boxes from allocation planning', () => {
       ),
     /no longer allocatable/i,
   );
+});
+
+test('loads only source warehouse boxes for non-cross-warehouse allocation preview', async () => {
+  const source = buildBox({ boxId: 'IL1-SOURCE', warehouse: 'IL1' });
+  const scopedBoxes = [source, buildBox({ boxId: 'IL1-CANDIDATE', warehouse: 'IL1' })];
+  let fullOrgReadCount = 0;
+  let warehouseReadArgs = null;
+
+  const boxes = await loadAllocationPreviewBoxes({}, 'org-1', source, false, {
+    listBoxes: async () => {
+      fullOrgReadCount += 1;
+      return [];
+    },
+    listBoxesByWarehouses: async (_client, orgId, warehouses) => {
+      warehouseReadArgs = { orgId, warehouses };
+      return scopedBoxes;
+    },
+  });
+
+  assert.equal(fullOrgReadCount, 0);
+  assert.deepEqual(warehouseReadArgs, { orgId: 'org-1', warehouses: ['IL1'] });
+  assert.deepEqual(boxes, scopedBoxes);
+});
+
+test('keeps full-org boxes for cross-warehouse allocation preview', async () => {
+  const source = buildBox({ boxId: 'IL1-SOURCE', warehouse: 'IL1' });
+  const fullOrgBoxes = [source, buildBox({ boxId: 'MS1-CANDIDATE', warehouse: 'MS1' })];
+  let warehouseReadCount = 0;
+
+  const boxes = await loadAllocationPreviewBoxes({}, 'org-1', source, true, {
+    listBoxes: async (_client, orgId) => {
+      assert.equal(orgId, 'org-1');
+      return fullOrgBoxes;
+    },
+    listBoxesByWarehouses: async () => {
+      warehouseReadCount += 1;
+      return [];
+    },
+  });
+
+  assert.equal(warehouseReadCount, 0);
+  assert.deepEqual(boxes, fullOrgBoxes);
+});
+
+test('non-cross-warehouse scoped snapshot preserves preview suggestions and allocation math', () => {
+  const source = buildBox({
+    id: 'source-record',
+    boxId: 'IL1-SOURCE',
+    warehouse: 'IL1',
+    feetAvailable: 10,
+    allocationPlanningFeet: 10,
+  });
+  const sameWarehouseCandidate = buildBox({
+    id: 'same-warehouse-record',
+    boxId: 'IL1-CANDIDATE',
+    warehouse: 'IL1',
+    feetAvailable: 40,
+    allocationPlanningFeet: 40,
+  });
+  const otherWarehouseCandidate = buildBox({
+    id: 'other-warehouse-record',
+    boxId: 'MS1-CANDIDATE',
+    warehouse: 'MS1',
+    feetAvailable: 40,
+    allocationPlanningFeet: 40,
+  });
+  const context = { jobNumber: '4803', installDate: '', crewLeader: '' };
+  const baseOptions = {
+    crossWarehouse: false,
+    minimumWidthIn: 72,
+    activeAllocationsByBox: {},
+    selectedRequirement: buildRequirement({ requiredFeet: 50 }),
+    jobWarehouse: 'IL1',
+    pendingTransfersByBoxRecordId: {},
+  };
+
+  const fullOrgPlan = buildAllocationPreviewPlan(source, 50, context, {
+    ...baseOptions,
+    allBoxes: [source, sameWarehouseCandidate, otherWarehouseCandidate],
+  });
+  const scopedPlan = buildAllocationPreviewPlan(source, 50, context, {
+    ...baseOptions,
+    allBoxes: [source, sameWarehouseCandidate],
+  });
+
+  assert.deepEqual(scopedPlan, fullOrgPlan);
+  assert.deepEqual(scopedPlan.suggestions.map((entry) => entry.boxId), ['IL1-CANDIDATE']);
+  assert.equal(scopedPlan.defaultCoveredFeet, 50);
+  assert.equal(scopedPlan.defaultRemainingFeet, 0);
 });

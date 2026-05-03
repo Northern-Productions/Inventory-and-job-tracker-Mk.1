@@ -125,6 +125,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByWarehouses,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -226,6 +227,34 @@ async function buildPendingTransfersByBoxRecordId(client, orgId, boxes) {
   );
 }
 
+/**
+ * PURPOSE:
+ * Loads the exact box candidate snapshot needed by allocation preview.
+ *
+ * AFFECTS:
+ * /allocations/preview, allocation suggestion ordering, transfer eligibility,
+ * and request latency for non-cross-warehouse allocation planning.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * Supabase readHandlers /allocations/preview parity, buildAllocationPreviewPlan
+ * candidate filtering, pending transfer lookup, and DEV timing audit results.
+ *
+ * COMMON FAILURE MODES:
+ * Accidentally narrowing cross-warehouse previews, using a stale/requested
+ * warehouse instead of the source box warehouse, or changing suggestion order.
+ */
+async function loadAllocationPreviewBoxes(client, orgId, sourceBox, crossWarehouse, deps = {}) {
+  const loadAllBoxes = deps.listBoxes || listBoxes;
+  const loadWarehouseBoxes = deps.listBoxesByWarehouses || listBoxesByWarehouses;
+  const sourceWarehouse = asTrimmedString(sourceBox?.warehouse).toUpperCase();
+
+  if (crossWarehouse || !sourceWarehouse) {
+    return loadAllBoxes(client, orgId);
+  }
+
+  return loadWarehouseBoxes(client, orgId, [sourceWarehouse]);
+}
+
 async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber) {
   const explicitWarehouse = normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse');
   if (explicitWarehouse) {
@@ -272,7 +301,7 @@ async function previewAllocationPlan(client, orgId, payload) {
 
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
-  const allBoxes = await listBoxes(client, orgId);
+  const allBoxes = await loadAllocationPreviewBoxes(client, orgId, source, crossWarehouse);
   const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
   const jobContext = await resolveJobContext(
     client,
@@ -612,6 +641,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
 }
 
 export {
+  loadAllocationPreviewBoxes,
   previewAllocationPlan,
   resolveSelectedRequirement,
   applyAllocationPlan,

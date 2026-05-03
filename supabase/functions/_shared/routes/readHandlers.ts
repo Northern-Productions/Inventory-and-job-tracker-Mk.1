@@ -69,6 +69,7 @@ export type ReadHandlerDeps = {
   ) => Promise<JobContext>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
+  listBoxesByWarehouses: (client: any, orgId: string, warehouses: string[]) => Promise<any[]>;
   buildPendingTransfersByBoxRecordId: (
     client: any,
     orgId: string,
@@ -398,7 +399,11 @@ const readHandlers: Record<string, ReadHandler> = {
       params.installDate ?? params.jobDate,
       params.crewLeader,
     );
-    const allBoxes = await deps.listBoxes(client, orgId);
+    const crossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
+    const sourceWarehouse = deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase();
+    const allBoxes = crossWarehouse || !sourceWarehouse
+      ? await deps.listBoxes(client, orgId)
+      : await deps.listBoxesByWarehouses(client, orgId, [sourceWarehouse]);
     const jobWarehouse = await deps.resolveAllocationJobWarehouse(
       client,
       orgId,
@@ -426,7 +431,7 @@ const readHandlers: Record<string, ReadHandler> = {
       params.requestedFeet,
       jobContext,
       {
-        crossWarehouse: deps.parseCrossWarehouseFlag(params.crossWarehouse),
+        crossWarehouse,
         minimumWidthIn: params.requestedWidthIn,
         allBoxes,
         activeAllocationsByBox: deps.buildActiveAllocationsByBoxIndex(await deps.listActiveAllocations(client, orgId)),
