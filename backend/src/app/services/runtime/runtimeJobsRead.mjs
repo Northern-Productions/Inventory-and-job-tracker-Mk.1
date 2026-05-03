@@ -193,7 +193,6 @@ import {
   getSharedJobPlanningFilmMatch,
   rankJobNumberSearchCandidates,
 } from '../runtimeDeps.mjs';
-import { listCaulkStock } from '../caulk.mjs';
 import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } from './runtimeAllocationCoverage.mjs';
 import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData } from './runtimeJobSummaries.mjs';
 import { checkoutAllJobMaterials, loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
@@ -284,7 +283,6 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   if (!hasPreloadedBoxes) {
     readTasks.push((readClient) => listBoxes(readClient, orgId));
   }
-  readTasks.push((readClient) => listCaulkStock(readClient, orgId, {}));
 
   const snapshotResults = await runSummarySnapshotReads(client, readTasks, snapshotConcurrency);
   let snapshotIndex = 0;
@@ -295,7 +293,6 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const allCaulkRequirements = snapshotResults[snapshotIndex++];
   const allCaulkAllocations = snapshotResults[snapshotIndex++];
   const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
-  const allCaulkStock = snapshotResults[snapshotIndex++];
   const groupedAllocations = groupEntriesByJobNumber(allAllocations);
   const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
   const groupedRequirements = groupEntriesByJobNumber(allRequirements);
@@ -383,7 +380,6 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
       {
         allBoxes,
         caulkAllocations: groupedCaulkAllocations[jobNumber] || [],
-        caulkStockEntries: allCaulkStock,
       }
     );
 

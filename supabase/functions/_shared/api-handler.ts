@@ -4941,7 +4941,6 @@ async function buildJobsList(
   if (!hasPreloadedBoxes) {
     snapshotTasks.push(() => listBoxes(client, orgId));
   }
-  snapshotTasks.push(() => listCaulkStockEntries(client, orgId));
 
   const snapshotResults = await runBoundedSnapshotReads(snapshotTasks, options.snapshotConcurrency);
   let snapshotIndex = 0;
@@ -4950,7 +4949,6 @@ async function buildJobsList(
   const allFilmOrders = snapshotResults[snapshotIndex++];
   const allRequirements = snapshotResults[snapshotIndex++];
   const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
-  const allCaulkStock = snapshotResults[snapshotIndex++];
   const groupedAllocations: Record<string, any[]> = {};
   const groupedFilmOrders: Record<string, any[]> = {};
   const groupedRequirements: Record<string, any[]> = {};
@@ -5011,7 +5009,6 @@ async function buildJobsList(
     const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
       allBoxes,
       caulkAllocations: caulkPlanning.allocationsByJob[jobNumber] || [],
-      caulkStockEntries: allCaulkStock,
       jobWarehouse: header.warehouse || "",
     });
     if (lifecycleFilter && entry.lifecycleStatus !== lifecycleFilter) {
@@ -7098,6 +7095,7 @@ async function dispatchRead(
     resolveJobContext,
     parseCrossWarehouseFlag,
     listBoxes,
+    listBoxesByWarehouses,
     buildPendingTransfersByBoxRecordId,
     listJobRequirementsByJob,
     buildActiveAllocationsByBoxIndex,
