@@ -162,6 +162,26 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
   });
 
+  it('shows Labels under desktop More and marks More active on the Labels route', () => {
+    renderLayout('/labels');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Labels' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More' }).className).toContain('nav-link-active');
+  });
+
+  it('shows Labels under the mobile More sheet', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+
+    renderLayout('/labels');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'More' });
+    expect(within(dialog).getByRole('button', { name: 'Labels' })).toBeTruthy();
+  });
+
   it('keeps navigation usable when app attention summary fails', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     useAppAttentionSummaryMock.mockReturnValue({

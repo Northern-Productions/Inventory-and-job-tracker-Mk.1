@@ -18,6 +18,7 @@ const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage')
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
 );
+const LabelMakerPage = lazy(() => import('../features/inventory/pages/LabelMakerPage'));
 const CaulkStockDetailsPage = lazy(() => import('../features/caulk/pages/CaulkStockDetailsPage'));
 const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessPage'));
 const OwnerNotificationPreferencesPage = lazy(
@@ -84,6 +85,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: '/checkout-history',
         element: withFeatureRoute(<CheckoutHistoryPage />, 'activity_history', 'read')
+      },
+      {
+        path: '/labels',
+        element: withFeatureRoute(<LabelMakerPage />, 'inventory', 'read')
       },
       {
         path: '/caulk',

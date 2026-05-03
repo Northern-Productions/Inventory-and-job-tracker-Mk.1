@@ -4,6 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { appRoutes } from './appRoutes';
 
 describe('app routes', () => {
+  it('registers the Labels workspace route', () => {
+    const rootRoute = appRoutes.find((route) => route.path === '/');
+    const labelsRoute = rootRoute?.children?.find((route) => route.path === '/labels');
+
+    expect(labelsRoute).toBeDefined();
+  });
+
   it('redirects the retired owner admin permissions page to the access page', () => {
     const rootRoute = appRoutes.find((route) => route.path === '/');
     const ownerAdminPermissionsRoute = rootRoute?.children?.find(
