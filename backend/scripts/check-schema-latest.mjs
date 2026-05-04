@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0101_roll_weight_feet_rounding_parity.sql';
+const LATEST_MIGRATION = '0103_service_role_app_schema_rest_access.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -575,6 +575,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   }
 ];
 
+const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
+  'api_get_auth_context',
+  'api_request_username_change',
+  'api_list_username_change_requests',
+  'api_get_user_feature_permissions',
+  'api_update_user_feature_permissions',
+];
+
 function sqlLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
@@ -675,6 +683,130 @@ async function runSchemaCheck() {
         '[schema-check] Required function bodies are out of date for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           semanticIssues.join('\n')
+      );
+    }
+
+    const publicRpcAllowlistSql = AUTHENTICATED_PUBLIC_RPC_ALLOWLIST.map((entry) => sqlLiteral(entry)).join(', ');
+    const permissionRows = await client.query(
+      `
+        with public_api_functions as (
+          select
+            p.oid,
+            p.oid::regprocedure::text as signature,
+            p.proname
+          from pg_proc p
+          join pg_namespace n
+            on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and p.proname like 'api\\_%' escape '\\'
+        ),
+        disallowed_authenticated_public_api as (
+          select signature
+          from public_api_functions
+          where proname not like 'api\\_acl\\_%' escape '\\'
+            and proname not in (${publicRpcAllowlistSql})
+            and has_function_privilege('authenticated', oid, 'EXECUTE')
+        )
+        select
+          has_schema_privilege('authenticated', 'public', 'USAGE') as authenticated_public_schema_usage,
+          has_function_privilege(
+            'authenticated',
+            'public.api_get_auth_context(uuid)'::regprocedure,
+            'EXECUTE'
+          ) as authenticated_auth_context_execute,
+          has_function_privilege(
+            'authenticated',
+            'public.api_acl_list_boxes(uuid)'::regprocedure,
+            'EXECUTE'
+          ) as authenticated_acl_list_boxes_execute,
+          case
+            when to_regprocedure('public.api_list_boxes(uuid)') is null then false
+            else has_function_privilege(
+              'authenticated',
+              'public.api_list_boxes(uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as authenticated_legacy_list_boxes_execute,
+          coalesce((select count(*) from disallowed_authenticated_public_api), 0)::integer
+            as disallowed_authenticated_public_api_count,
+          coalesce(
+            (select string_agg(signature, ', ' order by signature) from disallowed_authenticated_public_api),
+            ''
+          ) as disallowed_authenticated_public_api_signatures;
+      `
+    );
+
+    const permissionState = permissionRows.rows[0] || {};
+    const permissionIssues = [];
+    if (permissionState.authenticated_public_schema_usage !== true) {
+      permissionIssues.push('- privilege mismatch: authenticated lacks USAGE on schema public');
+    }
+    if (permissionState.authenticated_auth_context_execute !== true) {
+      permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_get_auth_context(uuid)');
+    }
+    if (permissionState.authenticated_acl_list_boxes_execute !== true) {
+      permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_acl_list_boxes(uuid)');
+    }
+    if (permissionState.authenticated_legacy_list_boxes_execute === true) {
+      permissionIssues.push('- privilege mismatch: authenticated can still execute public.api_list_boxes(uuid)');
+    }
+    if (Number(permissionState.disallowed_authenticated_public_api_count || 0) > 0) {
+      permissionIssues.push(
+        '- privilege mismatch: authenticated can execute disallowed public api_* RPCs: ' +
+          permissionState.disallowed_authenticated_public_api_signatures
+      );
+    }
+
+    if (permissionIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Public RPC permissions are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          permissionIssues.join('\n')
+      );
+    }
+
+    const serviceRoleRows = await client.query(
+      `
+        select
+          has_schema_privilege('service_role', 'app', 'USAGE') as service_role_app_schema_usage,
+          has_table_privilege('service_role', 'app.boxes', 'SELECT') as service_role_boxes_select,
+          has_table_privilege('service_role', 'app.boxes', 'INSERT') as service_role_boxes_insert,
+          has_table_privilege('service_role', 'app.boxes', 'UPDATE') as service_role_boxes_update,
+          has_table_privilege('service_role', 'app.boxes', 'DELETE') as service_role_boxes_delete,
+          has_schema_privilege('anon', 'app', 'USAGE') as anon_app_schema_usage,
+          has_schema_privilege('authenticated', 'app', 'USAGE') as authenticated_app_schema_usage;
+      `
+    );
+
+    const serviceRoleState = serviceRoleRows.rows[0] || {};
+    const serviceRoleIssues = [];
+    if (serviceRoleState.service_role_app_schema_usage !== true) {
+      serviceRoleIssues.push('- privilege mismatch: service_role lacks USAGE on schema app');
+    }
+    if (serviceRoleState.service_role_boxes_select !== true) {
+      serviceRoleIssues.push('- privilege mismatch: service_role cannot SELECT app.boxes');
+    }
+    if (serviceRoleState.service_role_boxes_insert !== true) {
+      serviceRoleIssues.push('- privilege mismatch: service_role cannot INSERT app.boxes');
+    }
+    if (serviceRoleState.service_role_boxes_update !== true) {
+      serviceRoleIssues.push('- privilege mismatch: service_role cannot UPDATE app.boxes');
+    }
+    if (serviceRoleState.service_role_boxes_delete !== true) {
+      serviceRoleIssues.push('- privilege mismatch: service_role cannot DELETE app.boxes');
+    }
+    if (serviceRoleState.anon_app_schema_usage === true) {
+      serviceRoleIssues.push('- privilege mismatch: anon has direct USAGE on schema app');
+    }
+    if (serviceRoleState.authenticated_app_schema_usage === true) {
+      serviceRoleIssues.push('- privilege mismatch: authenticated has direct USAGE on schema app');
+    }
+
+    if (serviceRoleIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Service-role app schema permissions are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          serviceRoleIssues.join('\n')
       );
     }
 
