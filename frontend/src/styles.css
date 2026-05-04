@@ -4014,6 +4014,12 @@ td.col-available-linear-ft {
   white-space: nowrap;
 }
 
+.print-label-grid-value-key-metric {
+  font-size: 18pt;
+  font-weight: 900;
+  line-height: 0.95;
+}
+
 .print-label-grid-value-date {
   font-size: 8pt;
 }

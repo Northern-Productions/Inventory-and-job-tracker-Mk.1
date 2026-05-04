@@ -54,6 +54,7 @@ describe('PrintableLabelSheet', () => {
     expect(html).toContain('print-label-qr-box');
     expect(html).toContain('print-label-film-name');
     expect(html).toContain('print-label-width');
+    expect(html).toContain('print-label-grid-value-key-metric');
     expect(html).toContain('print-label-box-id-block');
     expect(html).toContain('print-label-box-id-value');
     expect(html).toContain('print-label-run-number-block');
@@ -144,6 +145,30 @@ describe('PrintableLabelSheet', () => {
     expect(Number(runNumberRule?.[1])).toBeLessThan(Number(boxIdRule?.[1]));
     expect(styles).toContain('overflow-wrap: anywhere');
     expect(styles).toContain('word-break: break-word');
+  });
+
+  it('makes weight and balance log values larger than the other grid values', () => {
+    const html = renderToStaticMarkup(
+      <PrintableLabelSheet
+        labels={[
+          {
+            slot: 'A',
+            draft,
+            qrDataUrl: 'data:image/png;base64,abc',
+            qrPayload: 'MO1-0028',
+            qrError: ''
+          }
+        ]}
+      />
+    );
+    const styles = readFileSync('src/styles.css', 'utf8');
+    const keyMetricRule = styles.match(
+      /\.print-label-grid-value-key-metric\s*\{[^}]*font-size:\s*([0-9.]+)pt[^}]*font-weight:\s*([0-9]+)/s
+    );
+
+    expect(html.match(/print-label-grid-value-key-metric/g)).toHaveLength(2);
+    expect(keyMetricRule?.[1]).toBe('18');
+    expect(keyMetricRule?.[2]).toBe('900');
   });
 
   it('includes print CSS that hides app controls and prints only the label root', () => {

@@ -136,6 +136,17 @@ function sumInches(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
+function getLogValueClassName(index: number): string {
+  return [
+    'print-label-grid-cell',
+    'print-label-grid-value',
+    index === 0 ? 'print-label-grid-value-date' : '',
+    index === 2 || index === 4 ? 'print-label-grid-value-key-metric' : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 function LabelLogGrid({ draft, preset }: { draft: LabelDraft; preset: LabelTemplatePreset }) {
   return (
     <div
@@ -154,7 +165,7 @@ function LabelLogGrid({ draft, preset }: { draft: LabelDraft; preset: LabelTempl
       {[draft.date, draft.jobId, draft.weightLbs, draft.by, draft.balance, draft.checked].map((value, index) => (
         <div
           key={`value-${index}`}
-          className={`print-label-grid-cell print-label-grid-value ${index === 0 ? 'print-label-grid-value-date' : ''}`.trim()}
+          className={getLogValueClassName(index)}
         >
           {value}
         </div>
