@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildBoxReservationSnapshot } from '../../../shared/domain/filmAllocationReservations.mjs';
+import { applyReservationMetricsToBox } from '../../src/app/services/runtime/runtimeAllocationReservations.mjs';
+import { toPublicBox } from '../../src/app/repositories/inventoryRepositories.mjs';
 
 function buildBox(overrides = {}) {
   return {
@@ -126,4 +128,44 @@ test('buildBoxReservationSnapshot stops counting fulfilled allocations after che
 
   assert.equal(snapshot.activeAllocatedFeet, 0);
   assert.equal(snapshot.allocatableNowFeet, 55);
+});
+
+test('applyReservationMetricsToBox keeps full-roll edge cases at 100 LF with no allocations', () => {
+  const readPayload = toPublicBox(
+    applyReservationMetricsToBox(
+      buildBox({
+        boxId: 'IL1-6890',
+        feetAvailable: 99,
+        initialFeet: 100,
+        lastRollWeightLbs: 24.65,
+        coreWeightLbs: 1.3333,
+        lfWeightLbsPerFt: 0.233167,
+      }),
+      []
+    )
+  );
+
+  assert.equal(readPayload.physicalFeetAvailable, 100);
+  assert.equal(readPayload.allocatableNowFeet, 100);
+  assert.equal(readPayload.feetAvailable, 100);
+});
+
+test('applyReservationMetricsToBox separates full-roll physical LF from reserved allocatable LF', () => {
+  const readPayload = toPublicBox(
+    applyReservationMetricsToBox(
+      buildBox({
+        boxId: 'IL1-6890',
+        feetAvailable: 99,
+        initialFeet: 100,
+        lastRollWeightLbs: 24.65,
+        coreWeightLbs: 1.3333,
+        lfWeightLbsPerFt: 0.233167,
+      }),
+      [buildAllocation({ allocationId: 'reserved-1', allocatedFeet: 1 })]
+    )
+  );
+
+  assert.equal(readPayload.physicalFeetAvailable, 100);
+  assert.equal(readPayload.allocatableNowFeet, 99);
+  assert.equal(readPayload.feetAvailable, 99);
 });

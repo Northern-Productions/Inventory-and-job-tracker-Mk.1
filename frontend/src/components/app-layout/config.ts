@@ -86,6 +86,15 @@ export const navItems: NavItem[] = [
     mode: 'read'
   },
   {
+    to: '/labels',
+    desktopLabel: 'Labels',
+    mobileLabel: 'Labels',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    feature: 'inventory',
+    mode: 'read'
+  },
+  {
     to: '/activity',
     desktopLabel: 'Activity',
     mobileLabel: 'Activity',
@@ -165,6 +174,7 @@ export function resolveAppShellTheme(pathname: string): AppShellTheme {
     normalizedPath.startsWith('/reports') ||
     normalizedPath.startsWith('/activity') ||
     normalizedPath.startsWith('/checkout-history') ||
+    normalizedPath.startsWith('/labels') ||
     normalizedPath.startsWith('/admin/') ||
     normalizedPath.startsWith('/owner/')
   ) {

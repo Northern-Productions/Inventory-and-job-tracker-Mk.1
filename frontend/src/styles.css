@@ -3761,6 +3761,505 @@ td.col-available-linear-ft {
   font-weight: 800;
 }
 
+.label-print-note,
+.label-print-disabled-reason {
+  margin: 0.75rem 0 0;
+}
+
+.label-print-note {
+  color: var(--color-text-2);
+  font-weight: 700;
+}
+
+.label-print-disabled-reason,
+.label-warning {
+  color: #9b3547;
+  font-weight: 700;
+}
+
+.label-filter-panel {
+  margin-top: 1rem;
+}
+
+.label-box-picker,
+.label-slot-grid,
+.label-preview-panel {
+  margin-top: 1rem;
+}
+
+.label-results-wrap {
+  max-height: 34rem;
+  overflow: auto;
+}
+
+.label-results-table {
+  table-layout: fixed;
+}
+
+.label-results-col-id {
+  width: 9rem;
+}
+
+.label-results-col-manufacturer {
+  width: 8rem;
+}
+
+.label-results-col-film {
+  width: auto;
+}
+
+.label-results-col-width {
+  width: 4rem;
+}
+
+.label-results-col-lot-run {
+  width: 6.5rem;
+}
+
+.label-results-col-status {
+  width: 7rem;
+}
+
+.label-results-col-on-hand {
+  width: 5rem;
+}
+
+.label-results-col-last-weighed {
+  width: 7rem;
+}
+
+.label-results-col-use {
+  width: 8.75rem;
+}
+
+.label-results-table th,
+.label-results-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.label-results-lot-run-cell,
+.label-results-lot-run-header {
+  max-width: 6.5rem;
+}
+
+.label-results-lot-run-cell {
+  overflow: hidden;
+}
+
+.label-results-lot-run-text {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-results-use-cell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: -8px 0 12px rgba(18, 52, 59, 0.05);
+}
+
+.label-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 9rem;
+}
+
+.label-result-button-selected {
+  border-color: #12343b !important;
+  background: #12343b !important;
+  color: #fff !important;
+}
+
+.label-result-button-selected:hover,
+.label-result-button-selected:focus-visible {
+  background: #0d2830 !important;
+  color: #fff !important;
+}
+
+.label-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.label-slot-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.label-slot-title-row {
+  align-items: flex-start;
+}
+
+.label-slot-actions {
+  margin: 0;
+}
+
+.label-selected-box-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(18, 52, 59, 0.08);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.label-warning-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.label-warning-list .label-warning,
+.label-warning {
+  margin: 0;
+}
+
+.label-draft-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.label-preview-panel {
+  overflow: auto;
+}
+
+.label-preview-actions {
+  margin: 0;
+}
+
+.label-print-root {
+  display: grid;
+  justify-items: start;
+  overflow: auto;
+  padding: 0.5rem 0;
+}
+
+.label-print-only-root {
+  display: none;
+}
+
+.label-print-sheet {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 1px solid rgba(18, 52, 59, 0.14);
+  background: #fff;
+  color: #111;
+  box-shadow: 0 16px 40px rgba(18, 52, 59, 0.12);
+  font-family: "Aptos", "Segoe UI", Arial, sans-serif;
+}
+
+.print-label-columns {
+  display: grid;
+  align-items: start;
+  width: 100%;
+  height: 100%;
+}
+
+.print-label-card {
+  display: grid;
+  grid-template-rows: 0.31in auto 2.62in;
+  padding-inline: 0.067in;
+  box-sizing: border-box;
+  break-inside: avoid;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+}
+
+.print-label-card-empty {
+  visibility: hidden;
+}
+
+.print-label-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 9pt;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.print-label-log-grid {
+  display: grid;
+  border-top: 1px solid #000;
+  border-left: 1px solid #000;
+}
+
+.print-label-grid-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  font-size: 9pt;
+  line-height: 1;
+  text-align: center;
+}
+
+.print-label-grid-value {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.print-label-grid-value-date {
+  font-size: 8pt;
+}
+
+.print-label-grid-heading {
+  font-size: 8pt;
+  font-weight: 700;
+}
+
+.print-label-details {
+  display: grid;
+  grid-template-rows: 1.72in 0.9in;
+  height: 2.62in;
+  min-height: 0;
+  padding-top: 0;
+  overflow: hidden;
+  border: 1px solid #000;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.print-label-qr-box {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: stretch;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  box-sizing: border-box;
+  padding: 0.06in;
+}
+
+.print-label-qr-box img {
+  width: 1.05in;
+  height: 1.05in;
+  object-fit: contain;
+}
+
+.print-label-qr-fallback {
+  display: grid;
+  place-items: center;
+  width: 1.05in;
+  height: 1.05in;
+  border: 1px dashed #000;
+  font-size: 8pt;
+  text-align: center;
+}
+
+.print-label-film-name,
+.print-label-width {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  font-weight: 800;
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.print-label-film-name {
+  grid-column: 2;
+  grid-row: 1;
+  max-height: 1.72in;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  box-sizing: border-box;
+  padding: 0.04in 0.08in;
+  font-size: 20pt;
+}
+
+.print-label-width {
+  grid-column: 3;
+  grid-row: 1;
+  border-bottom: 1px solid #000;
+  box-sizing: border-box;
+  padding: 0.04in;
+  font-size: 24pt;
+  white-space: nowrap;
+}
+
+.print-label-box-id-block,
+.print-label-run-number-block {
+  display: grid;
+  grid-template-rows: 0.16in minmax(0, 1fr);
+  align-items: stretch;
+  justify-items: center;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0.035in 0.035in 0.025in;
+  text-align: center;
+}
+
+.print-label-box-id-block {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 1px solid #000;
+}
+
+.print-label-run-number-block {
+  grid-column: 2 / 4;
+  grid-row: 2;
+}
+
+.print-label-meta-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 900;
+  line-height: 0.86;
+  text-align: center;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.print-label-box-id-value {
+  font-size: 34pt;
+}
+
+.print-label-run-number-value {
+  font-size: 30pt;
+  letter-spacing: 0;
+}
+
+.print-label-meta-heading {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 9pt;
+  font-weight: 800;
+  line-height: 0.95;
+  white-space: nowrap;
+}
+
+@media print {
+  @page {
+    size: letter landscape;
+    margin: 0;
+  }
+
+  html,
+  body,
+  #root {
+    width: 11in !important;
+    min-width: 11in !important;
+    max-width: 11in !important;
+    height: 8.5in !important;
+    min-height: 8.5in !important;
+    max-height: 8.5in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #fff !important;
+  }
+
+  .route-content-animate {
+    animation: none !important;
+    transform: none !important;
+    will-change: auto !important;
+  }
+
+  .app-shell,
+  .app-main,
+  .route-content,
+  .label-preview-panel {
+    position: static !important;
+    width: 11in !important;
+    max-width: none !important;
+    height: 8.5in !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .app-shell::before {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  body > .label-print-only-root,
+  body > .label-print-only-root * {
+    visibility: visible !important;
+  }
+
+  body > .label-print-only-root.print-root {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    display: block !important;
+    width: 11in !important;
+    height: 8.5in !important;
+    min-height: 0 !important;
+    max-height: 8.5in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    animation: none !important;
+    will-change: auto !important;
+  }
+
+  .label-print-only-root .label-print-sheet {
+    width: 11in !important;
+    height: 8.5in !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    transform: none !important;
+    animation: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-label-card-empty {
+    visibility: hidden !important;
+  }
+}
+
 .job-calendar-week-card-empty {
   margin: 0;
   color: #638087;

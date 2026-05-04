@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import QRCode from 'qrcode';
 import type { useToast } from '../../../../components/Toast';
+import { createBoxQrCodeDataUrl } from '../../utils/qrCode';
 import { copyTextToClipboard, createBlobFromDataUrl } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
@@ -40,15 +40,7 @@ export function useBoxQrCode({ boxId, showQrFromSearchParam, pushToast }: UseBox
     setQrCodeDataUrl('');
     setQrCodeError('');
 
-    void QRCode.toDataURL(boxId, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: 220,
-      color: {
-        dark: '#12343b',
-        light: '#ffffffff'
-      }
-    })
+    void createBoxQrCodeDataUrl(boxId)
       .then((nextDataUrl: string) => {
         if (!isActive) {
           return;
