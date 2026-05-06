@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0103_service_role_app_schema_rest_access.sql';
+const LATEST_MIGRATION = '0106_grant_access_management_rpc_execute.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -25,10 +25,22 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
+  { kind: 'function', signature: 'public.api_list_access_requests(uuid, text)' },
+  { kind: 'function', signature: 'public.api_approve_access_request(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_deny_access_request(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_request_username_change(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_username_change_requests(uuid, text)' },
+  { kind: 'function', signature: 'public.api_approve_username_change_request(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_deny_username_change_request(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_get_member_feature_permissions(uuid)' },
+  { kind: 'function', signature: 'public.api_update_member_feature_permissions(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_get_user_feature_permissions(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_get_admin_feature_permissions(uuid)' },
+  { kind: 'function', signature: 'public.api_update_admin_feature_permissions(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_promote_member_to_admin(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_demote_admin_to_member(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_promote_admin_to_owner(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_key(uuid, text, text)' },
@@ -577,10 +589,42 @@ const REQUIRED_FUNCTION_SEMANTICS = [
 
 const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
   'api_get_auth_context',
+  'api_list_access_requests',
+  'api_approve_access_request',
+  'api_deny_access_request',
   'api_request_username_change',
   'api_list_username_change_requests',
+  'api_approve_username_change_request',
+  'api_deny_username_change_request',
+  'api_get_member_feature_permissions',
+  'api_update_member_feature_permissions',
   'api_get_user_feature_permissions',
   'api_update_user_feature_permissions',
+  'api_get_admin_feature_permissions',
+  'api_update_admin_feature_permissions',
+  'api_promote_member_to_admin',
+  'api_demote_admin_to_member',
+  'api_promote_admin_to_owner',
+];
+
+const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
+  'public.api_get_auth_context(uuid)',
+  'public.api_list_access_requests(uuid, text)',
+  'public.api_approve_access_request(uuid, text, jsonb)',
+  'public.api_deny_access_request(uuid, text, jsonb)',
+  'public.api_request_username_change(uuid, text, jsonb)',
+  'public.api_list_username_change_requests(uuid, text)',
+  'public.api_approve_username_change_request(uuid, text, jsonb)',
+  'public.api_deny_username_change_request(uuid, text, jsonb)',
+  'public.api_get_member_feature_permissions(uuid)',
+  'public.api_update_member_feature_permissions(uuid, text, jsonb)',
+  'public.api_get_user_feature_permissions(uuid, uuid)',
+  'public.api_update_user_feature_permissions(uuid, text, jsonb)',
+  'public.api_get_admin_feature_permissions(uuid)',
+  'public.api_update_admin_feature_permissions(uuid, text, jsonb)',
+  'public.api_promote_member_to_admin(uuid, text, jsonb)',
+  'public.api_demote_admin_to_member(uuid, text, jsonb)',
+  'public.api_promote_admin_to_owner(uuid, text, jsonb)',
 ];
 
 function sqlLiteral(value) {
@@ -687,6 +731,9 @@ async function runSchemaCheck() {
     }
 
     const publicRpcAllowlistSql = AUTHENTICATED_PUBLIC_RPC_ALLOWLIST.map((entry) => sqlLiteral(entry)).join(', ');
+    const requiredAuthenticatedPublicRpcSql = REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES.map(
+      (signature) => `(${sqlLiteral(signature)}::text)`
+    ).join(',\n            ');
     const permissionRows = await client.query(
       `
         with public_api_functions as (
@@ -706,6 +753,32 @@ async function runSchemaCheck() {
           where proname not like 'api\\_acl\\_%' escape '\\'
             and proname not in (${publicRpcAllowlistSql})
             and has_function_privilege('authenticated', oid, 'EXECUTE')
+        ),
+        required_authenticated_public_rpcs(signature) as (
+          values
+            ${requiredAuthenticatedPublicRpcSql}
+        ),
+        missing_authenticated_required_public_api as (
+          select r.signature
+          from required_authenticated_public_rpcs r
+          left join pg_proc p
+            on p.oid = to_regprocedure(r.signature)
+          where p.oid is null
+            or not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+        ),
+        anon_executable_required_public_api as (
+          select r.signature
+          from required_authenticated_public_rpcs r
+          join pg_proc p
+            on p.oid = to_regprocedure(r.signature)
+          where has_function_privilege('anon', p.oid, 'EXECUTE')
+        ),
+        service_role_executable_required_public_api as (
+          select r.signature
+          from required_authenticated_public_rpcs r
+          join pg_proc p
+            on p.oid = to_regprocedure(r.signature)
+          where has_function_privilege('service_role', p.oid, 'EXECUTE')
         )
         select
           has_schema_privilege('authenticated', 'public', 'USAGE') as authenticated_public_schema_usage,
@@ -714,6 +787,11 @@ async function runSchemaCheck() {
             'public.api_get_auth_context(uuid)'::regprocedure,
             'EXECUTE'
           ) as authenticated_auth_context_execute,
+          has_function_privilege(
+            'authenticated',
+            'public.api_list_access_requests(uuid, text)'::regprocedure,
+            'EXECUTE'
+          ) as authenticated_access_requests_execute,
           has_function_privilege(
             'authenticated',
             'public.api_acl_list_boxes(uuid)'::regprocedure,
@@ -732,7 +810,19 @@ async function runSchemaCheck() {
           coalesce(
             (select string_agg(signature, ', ' order by signature) from disallowed_authenticated_public_api),
             ''
-          ) as disallowed_authenticated_public_api_signatures;
+          ) as disallowed_authenticated_public_api_signatures,
+          coalesce(
+            (select string_agg(signature, ', ' order by signature) from missing_authenticated_required_public_api),
+            ''
+          ) as missing_authenticated_required_public_api_signatures,
+          coalesce(
+            (select string_agg(signature, ', ' order by signature) from anon_executable_required_public_api),
+            ''
+          ) as anon_executable_required_public_api_signatures,
+          coalesce(
+            (select string_agg(signature, ', ' order by signature) from service_role_executable_required_public_api),
+            ''
+          ) as service_role_executable_required_public_api_signatures;
       `
     );
 
@@ -744,6 +834,11 @@ async function runSchemaCheck() {
     if (permissionState.authenticated_auth_context_execute !== true) {
       permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_get_auth_context(uuid)');
     }
+    if (permissionState.authenticated_access_requests_execute !== true) {
+      permissionIssues.push(
+        '- privilege mismatch: authenticated cannot execute public.api_list_access_requests(uuid, text)'
+      );
+    }
     if (permissionState.authenticated_acl_list_boxes_execute !== true) {
       permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_acl_list_boxes(uuid)');
     }
@@ -754,6 +849,24 @@ async function runSchemaCheck() {
       permissionIssues.push(
         '- privilege mismatch: authenticated can execute disallowed public api_* RPCs: ' +
           permissionState.disallowed_authenticated_public_api_signatures
+      );
+    }
+    if (String(permissionState.missing_authenticated_required_public_api_signatures || '').length > 0) {
+      permissionIssues.push(
+        '- privilege mismatch: authenticated cannot execute required public api_* RPCs: ' +
+          permissionState.missing_authenticated_required_public_api_signatures
+      );
+    }
+    if (String(permissionState.anon_executable_required_public_api_signatures || '').length > 0) {
+      permissionIssues.push(
+        '- privilege mismatch: anon can execute authenticated-only public api_* RPCs: ' +
+          permissionState.anon_executable_required_public_api_signatures
+      );
+    }
+    if (String(permissionState.service_role_executable_required_public_api_signatures || '').length > 0) {
+      permissionIssues.push(
+        '- privilege mismatch: service_role can execute user-session public api_* RPCs: ' +
+          permissionState.service_role_executable_required_public_api_signatures
       );
     }
 
