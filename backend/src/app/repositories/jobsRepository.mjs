@@ -191,7 +191,20 @@ async function listJobCaulkRequirements(client, orgId) {
         p.tubes_per_case,
         r.required_tubes,
         r.notes,
-        r.updated_at
+        r.updated_at,
+        exists (
+          select 1
+          from app.allocation_planner_suppressions s
+          where s.org_id = r.org_id
+            and s.job_id = r.job_id
+            and s.material_type = 'CAULK'
+            and s.cleared_at is null
+            and s.requirement_signature = app_api.caulk_requirement_planner_signature(
+              r.product_id,
+              j.warehouse,
+              r.required_tubes
+            )
+        ) as auto_planning_suppressed
       from app.job_caulk_requirements r
       join app.jobs j
         on j.id = r.job_id
@@ -226,7 +239,20 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
         p.tubes_per_case,
         r.required_tubes,
         r.notes,
-        r.updated_at
+        r.updated_at,
+        exists (
+          select 1
+          from app.allocation_planner_suppressions s
+          where s.org_id = r.org_id
+            and s.job_id = r.job_id
+            and s.material_type = 'CAULK'
+            and s.cleared_at is null
+            and s.requirement_signature = app_api.caulk_requirement_planner_signature(
+              r.product_id,
+              j.warehouse,
+              r.required_tubes
+            )
+        ) as auto_planning_suppressed
       from app.job_caulk_requirements r
       join app.jobs j
         on j.id = r.job_id

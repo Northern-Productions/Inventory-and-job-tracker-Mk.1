@@ -225,6 +225,7 @@ function buildCaulkRequirement(
     requiredTubes: 20,
     allocatedTubes: 20,
     remainingTubes: 0,
+    autoPlanningSuppressed: false,
     notes: '',
     updatedAt: '2026-03-20T00:00:00Z',
     ...overrides
@@ -597,6 +598,38 @@ describe('AllocationJobPage', () => {
       allocatedTubes: 20,
       remainingTubes: 0
     });
+    expectCaulkRequirementTableTotals(html, requirement);
+  });
+
+  it('renders paused caulk auto-planning resume affordance for suppressed unmet requirements', () => {
+    const requirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20,
+      autoPlanningSuppressed: true
+    });
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [requirement],
+      caulkAllocations: []
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Auto planning paused');
+    expect(html).toContain('Resume auto-plan');
     expectCaulkRequirementTableTotals(html, requirement);
   });
 

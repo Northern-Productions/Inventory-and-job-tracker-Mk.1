@@ -2,7 +2,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
-import type { CaulkJobCheckoutEntry, FilmOrderEntry, JobDetail, JobFilmTransferAlert } from '../../../../domain';
+import type {
+  CaulkJobCheckoutEntry,
+  FilmOrderEntry,
+  JobCaulkRequirementLine,
+  JobDetail,
+  JobFilmTransferAlert
+} from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
@@ -522,6 +528,40 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleResumeCaulkAutoPlanning(requirement: JobCaulkRequirementLine) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'resuming caulk auto planning',
+        feature: 'allocations',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      await clearAutoPlanningSuppressionMutation.mutateAsync({
+        jobNumber: summary.jobNumber,
+        requirementId: requirement.requirementId,
+        materialType: 'CAULK',
+        reason: 'User resumed caulk auto-planning from job detail page.'
+      });
+      toast.push({
+        title: 'Caulk auto planning resumed',
+        description: `${requirement.productName} can be planned automatically again.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to resume caulk auto planning',
+        description: error instanceof Error ? error.message : 'The resume request failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleOrderAllFilmRequirements() {
     if (
       isReadOnlyJob ||
@@ -613,6 +653,7 @@ export function useAllocationJobPageModel() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleResumeAutoPlanning,
+    handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
     handleCancelRequirementOrder: lifecycleWorkflow.setFilmOrderToDelete,
     lifecycleWorkflow,

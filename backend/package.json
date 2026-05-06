@@ -14,6 +14,7 @@
     "catalog:3m-solar:night-vision:apply": "node scripts/apply-3m-solar-night-vision-cleanup.mjs --apply",
     "catalog:3m-solar:night-vision:dry": "node scripts/apply-3m-solar-night-vision-cleanup.mjs",
     "audit:caulk:fallback:dev": "node scripts/audit-caulk-fallback-coverage-dev.mjs",
+    "audit:caulk:suppressions:dev": "node scripts/audit-caulk-suppressions-dev.mjs",
     "audit:repo:hotspots": "node scripts/audit-repo-hotspots.mjs",
     "check:schema:0006": "node scripts/check-schema-0006.mjs",
     "check:schema:latest": "node scripts/check-schema-latest.mjs",

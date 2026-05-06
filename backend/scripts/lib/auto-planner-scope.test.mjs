@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   buildAutoPlannerScope,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
 } from '../../src/app/services/runtime/runtimeAutoAllocationPlanner.mjs';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const runtimeJobsMutationsPath = path.join(
+  repoRoot,
+  'backend',
+  'src',
+  'app',
+  'services',
+  'runtime',
+  'runtimeJobsMutations.mjs'
+);
 
 test('buildAutoPlannerScope narrows job edits to the changed job', () => {
   assert.deepEqual(
@@ -52,6 +66,24 @@ test('buildAutoPlannerScope leaves suppression resume to its SQL mutation wrappe
     buildAutoPlannerScope('/allocations/planner-suppression/clear', { jobNumber: '18722' }, {}),
     null
   );
+});
+
+test('buildAutoPlannerScope leaves caulk removal to its SQL mutation wrapper', () => {
+  assert.equal(
+    buildAutoPlannerScope(
+      '/allocations/caulk/remove',
+      { caulkAllocationId: 'caulk-1' },
+      { jobNumber: '18722', productId: 'product-1', warehouse: 'IL1' }
+    ),
+    null
+  );
+});
+
+test('local suppression resume forwards caulk material type to SQL owner', async () => {
+  const source = await readFile(runtimeJobsMutationsPath, 'utf8');
+
+  assert.match(source, /materialType:\s*payload\.materialType/);
+  assert.match(source, /material_type:\s*payload\.material_type/);
 });
 
 test('getJobNumberForPlannerDetailReload reloads only job detail mutation responses', () => {

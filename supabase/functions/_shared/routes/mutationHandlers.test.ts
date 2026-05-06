@@ -288,6 +288,11 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       expectedRpc: "api_acl_allocations_apply",
     },
     {
+      route: "/allocations/caulk/remove",
+      payload: { caulkAllocationId: "CAULK-100" },
+      expectedRpc: "api_acl_allocations_caulk_remove",
+    },
+    {
       route: "/boxes/update",
       payload: { boxId: "IL1-100" },
       expectedRpc: "api_acl_boxes_update",
@@ -322,6 +327,15 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       buildDeps({
         callMutationRpc: async (_client: unknown, fn: string) => {
           rpcCalls.push(fn);
+          if (fn === "api_acl_allocations_caulk_remove") {
+            return {
+              jobNumber: "81234",
+              caulkAllocationId: "CAULK-100",
+              releasedReservedTubes: 20,
+              autoPlanningSuppressed: true,
+              warnings: ["SQL planner completed."],
+            };
+          }
           if (fn.includes("boxes")) {
             return { boxId: "IL1-100", logId: "LOG-100", warnings: ["SQL planner completed."] };
           }
