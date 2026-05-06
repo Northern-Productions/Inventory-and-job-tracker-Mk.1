@@ -260,14 +260,13 @@ export function useAllocationJobPageModel() {
     [caulkRequirements]
   );
   const totalAllocatedCaulkTubes = useMemo(
-    () =>
-      caulkAllocations.reduce(
-        (sum, entry) => (entry.status === 'ACTIVE' ? sum + entry.allocatedTubes : sum),
-        0
-      ),
-    [caulkAllocations]
+    () => caulkRequirements.reduce((sum, entry) => sum + entry.allocatedTubes, 0),
+    [caulkRequirements]
   );
-  const totalRemainingCaulkTubes = Math.max(totalRequiredCaulkTubes - totalAllocatedCaulkTubes, 0);
+  const totalRemainingCaulkTubes = useMemo(
+    () => caulkRequirements.reduce((sum, entry) => sum + entry.remainingTubes, 0),
+    [caulkRequirements]
+  );
   const canDeleteJob = auth.clientIdConfigured && auth.isAuthenticated && (auth.isOwner || auth.isAdmin);
   const canEditStagedPickup =
     auth.clientIdConfigured &&

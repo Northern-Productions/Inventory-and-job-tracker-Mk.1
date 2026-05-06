@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobDetail } from '../../../domain';
+import { formatCaulkTubeBreakdown } from '../utils/caulkAllocationPlanning';
 import AllocationJobPage from './AllocationJobPage';
 
 const navigateMock = vi.fn();
@@ -207,6 +208,88 @@ function buildMaterialJobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
     ],
     ...overrides
   };
+}
+
+function buildCaulkRequirement(
+  overrides: Partial<JobDetail['caulkRequirements'][number]> = {}
+): JobDetail['caulkRequirements'][number] {
+  return {
+    requirementId: 'req1',
+    jobNumber: '000123',
+    productId: 'p1',
+    manufacturerId: 'm1',
+    manufacturer: 'DOW',
+    productName: '790 Black',
+    productCode: '790-BLK',
+    tubesPerCase: 20,
+    requiredTubes: 20,
+    allocatedTubes: 20,
+    remainingTubes: 0,
+    notes: '',
+    updatedAt: '2026-03-20T00:00:00Z',
+    ...overrides
+  };
+}
+
+function buildCaulkAllocation(
+  overrides: Partial<JobDetail['caulkAllocations'][number]> = {}
+): JobDetail['caulkAllocations'][number] {
+  return {
+    caulkAllocationId: 'alloc1',
+    requirementId: 'req1',
+    productId: 'p1',
+    manufacturerId: 'm1',
+    manufacturer: 'DOW',
+    productName: '790 Black',
+    productCode: '790-BLK',
+    tubesPerCase: 20,
+    warehouse: 'IL1',
+    allocatedTubes: 20,
+    reservedTubesRemaining: 20,
+    checkedOutTubesTotal: 0,
+    returnedUnusedTubesTotal: 0,
+    usedTubesTotal: 0,
+    overageTubesTotal: 0,
+    outstandingCheckoutTubes: 0,
+    openCheckoutCount: 0,
+    status: 'ACTIVE',
+    allocationSource: 'MANUAL',
+    createdAt: '2026-03-20T00:00:00Z',
+    createdBy: 'tester',
+    updatedAt: '2026-03-20T00:00:00Z',
+    updatedBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    ...overrides
+  };
+}
+
+function expectOverviewCaulkTotals(
+  html: string,
+  expected: { requiredTubes: number; allocatedTubes: number; remainingTubes: number }
+) {
+  expect(html).toContain(`<dt>Required Tubes</dt><dd>${expected.requiredTubes}</dd>`);
+  expect(html).toContain(`<dt>Allocated Tubes</dt><dd>${expected.allocatedTubes}</dd>`);
+  expect(html).toContain(`<dt>Remaining Tubes</dt><dd>${expected.remainingTubes}</dd>`);
+}
+
+function expectCaulkRequirementTableTotals(
+  html: string,
+  requirement: Pick<
+    JobDetail['caulkRequirements'][number],
+    'requiredTubes' | 'allocatedTubes' | 'remainingTubes' | 'tubesPerCase'
+  >
+) {
+  expect(html).toContain(
+    `<td>${requirement.requiredTubes}</td><td>${formatCaulkTubeBreakdown(
+      requirement.requiredTubes,
+      requirement.tubesPerCase
+    )}</td><td>${requirement.allocatedTubes}</td><td>${requirement.remainingTubes}</td><td>${formatCaulkTubeBreakdown(
+      requirement.remainingTubes,
+      requirement.tubesPerCase
+    )}</td>`
+  );
 }
 
 function renderPage(detail: JobDetail) {
@@ -435,6 +518,86 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('30 tubes | 2 full cases | 6 loose tubes');
     expect(html).toContain('6 tubes | 0 full cases | 6 loose tubes');
     expect(html).toContain('24 tubes | 2 full cases | 0 loose tubes');
+  });
+
+  it('uses requirement-linked caulk coverage for overview tube totals when allocation is bound', () => {
+    const requirement = buildCaulkRequirement({
+      allocatedTubes: 20,
+      remainingTubes: 0
+    });
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'READY',
+        requiredTubes: 20,
+        allocatedTubes: 20,
+        remainingTubes: 0
+      }) as JobDetail['summary'],
+      caulkRequirements: [requirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: requirement.requirementId,
+          allocatedTubes: 20,
+          reservedTubesRemaining: 20
+        })
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 20,
+      remainingTubes: 0
+    });
+    expectCaulkRequirementTableTotals(html, requirement);
+  });
+
+  it('does not count unbound ad-hoc caulk allocations toward overview requirement totals', () => {
+    const requirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [requirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: '',
+          allocatedTubes: 20,
+          reservedTubesRemaining: 20
+        })
+      ]
+    };
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    expectCaulkRequirementTableTotals(html, requirement);
   });
 
   it('renders the labor-only pill alongside the status badge when flagged', () => {
