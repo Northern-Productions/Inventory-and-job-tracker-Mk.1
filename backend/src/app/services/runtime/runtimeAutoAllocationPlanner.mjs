@@ -44,6 +44,10 @@ const ORG_WIDE_MUTATION_ROUTES = new Set([
   '/audit/undo',
 ]);
 
+const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  '/allocations/caulk/remove',
+]);
+
 const JOB_DETAIL_RELOAD_ROUTES = new Set([
   '/jobs/create',
   '/jobs/update',
@@ -72,6 +76,10 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
  */
 function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   if (!PLANNER_MUTATION_ROUTES.has(logicalPath)) {
+    return null;
+  }
+
+  if (SQL_PLANNER_HANDLED_ROUTES.has(logicalPath)) {
     return null;
   }
 

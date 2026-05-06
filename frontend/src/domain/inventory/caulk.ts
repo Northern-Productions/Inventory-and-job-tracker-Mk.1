@@ -50,6 +50,7 @@ export interface JobCaulkRequirementLine {
   requiredTubes: number;
   allocatedTubes: number;
   remainingTubes: number;
+  autoPlanningSuppressed?: boolean;
   notes: string;
   updatedAt: string;
 }
@@ -302,4 +303,5 @@ export interface CaulkJobCheckoutMutationResult extends CaulkJobAllocationMutati
 
 export interface RemoveCaulkJobAllocationResult extends CaulkJobAllocationMutationResult {
   releasedReservedTubes: number;
+  autoPlanningSuppressed?: boolean;
 }

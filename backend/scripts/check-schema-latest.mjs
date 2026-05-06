@@ -3,7 +3,7 @@ import { Client } from 'pg';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0106_grant_access_management_rpc_execute.sql';
+const LATEST_MIGRATION = '0107_caulk_auto_planner_suppression.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -68,6 +68,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transfers(uuid, text, uuid)' },
   { kind: 'function', signature: 'public.api_acl_caulk_upsert_product(uuid, text, jsonb)' },
@@ -99,8 +100,11 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
+  { kind: 'function', signature: 'app_api.caulk_requirement_planner_signature(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.record_auto_planned_allocation_suppression(uuid, text, text, text)' },
+  { kind: 'function', signature: 'app_api.record_auto_planned_caulk_allocation_suppression(uuid, text, text, text)' },
   { kind: 'function', signature: 'app_api.clear_allocation_planner_suppression_for_requirement(uuid, text, text, uuid, text)' },
+  { kind: 'function', signature: 'app_api.clear_caulk_allocation_planner_suppression_for_requirement(uuid, text, text, uuid, text)' },
   { kind: 'function', signature: 'app_api.clear_stale_allocation_planner_suppressions_for_job(uuid, text, uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_record_auto_planned_allocation_suppression(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_clear_allocation_planner_suppression(uuid, text, jsonb)' },
@@ -500,8 +504,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'create temporary table if not exists auto_planner_explicit_caulk_scope',
       'create temporary table if not exists auto_planner_warnings',
       'create temporary table if not exists auto_planner_suppressed_film',
+      'create temporary table if not exists auto_planner_suppressed_caulk',
       'app.allocation_planner_suppressions',
       'if v_is_suppressed then',
+      'from auto_planner_suppressed_caulk s',
       'truncate auto_planner_desired_caulk',
       'app_api.film_allocation_reserves_capacity(a, b.status::text)',
       "coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'",
@@ -541,7 +547,18 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'write')",
       'app_api.clear_allocation_planner_suppression_for_requirement(',
+      'app_api.clear_caulk_allocation_planner_suppression_for_requirement(',
+      "v_material_type text := upper(coalesce",
       'perform app_api.reconcile_auto_planned_allocations('
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)',
+    includes: [
+      'auto_planning_suppressed',
+      'app.allocation_planner_suppressions',
+      'app_api.caulk_requirement_planner_signature('
     ],
     excludes: []
   },

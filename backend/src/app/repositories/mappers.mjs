@@ -436,6 +436,7 @@ function mapDbCaulkJobRequirementRow(row) {
     productCode: asTrimmedString(row.product_code),
     tubesPerCase: integerOrZero(row.tubes_per_case),
     requiredTubes: integerOrZero(row.required_tubes),
+    autoPlanningSuppressed: row.auto_planning_suppressed === true,
     notes: asTrimmedString(row.notes),
     updatedAt: formatTimestamp(row.updated_at),
   };

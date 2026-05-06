@@ -3,6 +3,7 @@ import type {
   CreateJobPayload,
   DeleteJobPayload,
   DeleteJobResult,
+  JobCaulkRequirementLine,
   JobDetail,
   JobDetailResponse,
   JobListEntry,
@@ -39,6 +40,16 @@ function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
   };
 }
 
+function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
+  return {
+    ...entry,
+    requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),
+    autoPlanningSuppressed: Boolean(entry.autoPlanningSuppressed)
+  };
+}
+
 function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
@@ -54,7 +65,7 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
     })),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
-    caulkRequirements: detail.caulkRequirements || [],
+    caulkRequirements: (detail.caulkRequirements || []).map(normalizeCaulkRequirementLine),
     caulkAllocations: detail.caulkAllocations || [],
     caulkCheckouts: detail.caulkCheckouts || [],
     filmTransferAlerts: detail.filmTransferAlerts || [],

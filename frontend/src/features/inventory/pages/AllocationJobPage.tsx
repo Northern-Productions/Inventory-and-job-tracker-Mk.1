@@ -62,6 +62,7 @@ export default function AllocationJobPage() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleResumeAutoPlanning,
+    handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
     handleCancelRequirementOrder,
     lifecycleWorkflow,
@@ -172,7 +173,15 @@ export default function AllocationJobPage() {
         onOrderAll={() => setIsOrderAllConfirmOpen(true)}
       />
 
-      <CaulkRequirementsSection requirements={caulkRequirements} isPhoneLayout={isPhoneLayout} />
+      <CaulkRequirementsSection
+        requirements={caulkRequirements}
+        isPhoneLayout={isPhoneLayout}
+        isReadOnlyJob={isReadOnlyJob}
+        isAuthenticated={auth.isAuthenticated}
+        clientIdConfigured={auth.clientIdConfigured}
+        isResumeAutoPlanningPending={isResumeAutoPlanningPending}
+        onResumeAutoPlanning={(requirement) => void handleResumeCaulkAutoPlanning(requirement)}
+      />
 
       <AllocatedBoxesSection
         entries={visibleAllocations}

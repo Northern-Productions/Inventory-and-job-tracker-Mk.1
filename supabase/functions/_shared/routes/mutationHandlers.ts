@@ -119,6 +119,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
  * or hidden planner skips for routes that still depend on Edge reconciliation.
  */
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  "/allocations/caulk/remove",
   "/allocations/add",
   "/allocations/apply",
   "/allocations/remove-box",

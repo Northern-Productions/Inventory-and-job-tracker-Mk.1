@@ -767,6 +767,8 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
       JSON.stringify({
         jobNumber,
         requirementId,
+        materialType: payload.materialType,
+        material_type: payload.material_type,
         reason
       })
     ]

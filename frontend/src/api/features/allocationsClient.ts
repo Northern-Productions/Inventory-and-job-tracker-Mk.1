@@ -18,6 +18,7 @@ import type {
   ClearAllocationPlannerSuppressionPayload,
   CheckoutCaulkJobAllocationPayload,
   JobDetail,
+  JobCaulkRequirementLine,
   JobRequirementLine,
   RemoveJobBoxAllocationsPayload,
   RemoveJobBoxAllocationsResult,
@@ -110,6 +111,16 @@ function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementL
   };
 }
 
+function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
+  return {
+    ...entry,
+    requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),
+    autoPlanningSuppressed: Boolean(entry.autoPlanningSuppressed)
+  };
+}
+
 function normalizeAllocationPreview(preview: AllocationPreview): AllocationPreview {
   return {
     ...preview,
@@ -170,7 +181,7 @@ export async function getAllocationJob(jobNumber: string): Promise<AllocationJob
     allocations: (detail.allocations || []).map(normalizeAllocationEntry),
     usage: detail.usage || [],
     usageTimeline: detail.usageTimeline || [],
-    caulkRequirements: detail.caulkRequirements || [],
+    caulkRequirements: (detail.caulkRequirements || []).map(normalizeCaulkRequirementLine),
     caulkAllocations: (detail.caulkAllocations || []).map(normalizeCaulkAllocationEntry),
     caulkCheckouts: detail.caulkCheckouts || [],
     filmTransferAlerts: detail.filmTransferAlerts || [],
@@ -194,7 +205,7 @@ export async function clearAllocationPlannerSuppression(
       allocations: (response.data.allocations || []).map(normalizeAllocationEntry),
       usage: response.data.usage || [],
       usageTimeline: response.data.usageTimeline || [],
-      caulkRequirements: response.data.caulkRequirements || [],
+      caulkRequirements: (response.data.caulkRequirements || []).map(normalizeCaulkRequirementLine),
       caulkAllocations: (response.data.caulkAllocations || []).map(normalizeCaulkAllocationEntry),
       caulkCheckouts: response.data.caulkCheckouts || [],
       filmTransferAlerts: response.data.filmTransferAlerts || [],

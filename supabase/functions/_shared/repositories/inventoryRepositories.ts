@@ -434,6 +434,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       productCode: deps.asTrimmedString(row.product_code),
       tubesPerCase: deps.integerOrZero(row.tubes_per_case),
       requiredTubes: deps.integerOrZero(row.required_tubes),
+      autoPlanningSuppressed: row.auto_planning_suppressed === true,
       notes: deps.asTrimmedString(row.notes),
       updatedAt: deps.formatTimestamp(row.updated_at),
     };

@@ -645,11 +645,15 @@ export function useCaulkWorkflow({
 
       void removePromise
         .then(({ result, warnings }) => {
+          const baseDescription = `Released ${result.releasedReservedTubes} reserved tube${result.releasedReservedTubes === 1 ? '' : 's'}.`;
+          const defaultDescription = result.autoPlanningSuppressed
+            ? `${baseDescription} Auto planning is paused for this caulk requirement.`
+            : baseDescription;
           pushToast({
             title: `Removed caulk allocation ${result.caulkAllocationId}`,
             description: formatMutationWarningDescription(
               warnings,
-              `Released ${result.releasedReservedTubes} reserved tube${result.releasedReservedTubes === 1 ? '' : 's'}.`,
+              defaultDescription,
               'remove-caulk-allocation'
             ),
             variant: 'success'
