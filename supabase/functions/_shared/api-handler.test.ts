@@ -1,4 +1,8 @@
-import { fetchWarehouseBoxRowsForInventory } from "./api-handler.ts";
+import {
+  buildPublicCaulkRequirementEntries,
+  fetchWarehouseBoxRowsForInventory,
+  maybeLogCaulkFallbackCoverageDecision,
+} from "./api-handler.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
@@ -61,6 +65,144 @@ Deno.test("fetchWarehouseBoxRowsForInventory pages warehouse box reads past the 
     "Expected warehouse inventory to include rows from later pages.",
   );
   assertEquals(ranges, [[0, 2], [3, 5]], "Expected range pagination to continue until a short page.");
+});
+
+Deno.test("buildPublicCaulkRequirementEntries applies unbound caulk coverage in stable requirement order", () => {
+  const requirements = [
+    {
+      requirementId: "caulk-req-a",
+      jobNumber: "19413",
+      productId: "product-1",
+      manufacturer: "3M",
+      productName: "IPA Black",
+      productCode: "",
+      requiredTubes: 10,
+    },
+    {
+      requirementId: "caulk-req-b",
+      jobNumber: "19413",
+      productId: "product-1",
+      manufacturer: "3M",
+      productName: "IPA Black",
+      productCode: "",
+      requiredTubes: 10,
+    },
+  ];
+
+  const rows = buildPublicCaulkRequirementEntries(
+    requirements,
+    [
+      {
+        caulkAllocationId: "fallback-1",
+        requirementId: "",
+        jobNumber: "19413",
+        productId: "product-1",
+        warehouse: "IL1",
+        status: "ACTIVE",
+        allocatedTubes: 15,
+        reservedTubesRemaining: 15,
+        createdAt: "2026-05-06T10:00:00Z",
+      },
+    ],
+    { jobNumber: "19413", jobWarehouse: "IL1" },
+  );
+
+  assertEquals(
+    rows.map((row) => ({
+      requirementId: row.requirementId,
+      allocatedTubes: row.allocatedTubes,
+      remainingTubes: row.remainingTubes,
+    })),
+    [
+      { requirementId: "caulk-req-a", allocatedTubes: 10, remainingTubes: 0 },
+      { requirementId: "caulk-req-b", allocatedTubes: 5, remainingTubes: 5 },
+    ],
+    "Expected one unbound allocation to cover same-product requirements deterministically.",
+  );
+});
+
+Deno.test("caulk fallback debug logging is opt-in and blocked for PROD", () => {
+  const logs: unknown[] = [];
+
+  const entry = maybeLogCaulkFallbackCoverageDecision(
+    {
+      allocationId: "alloc-1",
+      jobNumber: "19413",
+      productId: "product-1",
+      product: "3M IPA Black",
+      tubesApplied: 6,
+      requirementIdsFulfilled: ["caulk-req-1"],
+    },
+    {
+      env: {
+        DEV_CAULK_FALLBACK_DEBUG_LOGS: "true",
+        SUPABASE_URL: "https://uxiltcpbhthhinonttrc.supabase.co",
+      },
+      logger: (message) => logs.push(JSON.parse(message)),
+    },
+  );
+
+  assertEquals(entry?.msg, "caulk_fallback_coverage", "Expected DEV debug flag to emit a structured log.");
+  assertEquals(
+    logs,
+    [
+      {
+        level: "debug",
+        msg: "caulk_fallback_coverage",
+        runtime: "supabase-edge",
+        allocationId: "alloc-1",
+        jobNumber: "19413",
+        productId: "product-1",
+        product: "3M IPA Black",
+        tubesApplied: 6,
+        requirementIdsFulfilled: ["caulk-req-1"],
+      },
+    ],
+    "Expected sanitized fallback coverage fields only.",
+  );
+
+  const prodEntry = maybeLogCaulkFallbackCoverageDecision(
+    {
+      allocationId: "alloc-prod",
+      jobNumber: "19413",
+      productId: "product-1",
+      product: "3M IPA Black",
+      tubesApplied: 6,
+      requirementIdsFulfilled: ["caulk-req-1"],
+    },
+    {
+      env: {
+        DEV_CAULK_FALLBACK_DEBUG_LOGS: "true",
+        SUPABASE_URL: "https://tiwpulgvxtwlmqdnyuzd.supabase.co",
+      },
+      logger: (message) => logs.push(JSON.parse(message)),
+    },
+  );
+
+  assertEquals(prodEntry, null, "Expected PROD project ref to hard-block fallback debug logs.");
+  assertEquals(logs.length, 1, "Expected no extra PROD log entry.");
+
+  const prodEnvEntry = maybeLogCaulkFallbackCoverageDecision(
+    {
+      allocationId: "alloc-prod-env",
+      jobNumber: "19413",
+      productId: "product-1",
+      product: "3M IPA Black",
+      tubesApplied: 6,
+      requirementIdsFulfilled: ["caulk-req-1"],
+    },
+    {
+      env: {
+        DEV_CAULK_FALLBACK_DEBUG_LOGS: "true",
+        VERCEL_ENV: "production",
+        SUPABASE_URL: "https://uxiltcpbhthhinonttrc.supabase.co",
+      },
+      logger: (message) => logs.push(JSON.parse(message)),
+    },
+  );
+
+  assertEquals(prodEnvEntry, null, "Expected PROD env markers to hard-block fallback debug logs.");
+  assertEquals(logs.length, 1, "Expected no PROD env marker log entry.");
 });
 
 Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse is false", async () => {

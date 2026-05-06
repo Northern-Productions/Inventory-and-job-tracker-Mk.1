@@ -228,28 +228,201 @@ function compareCatalogStrings(left: string, right: string) {
   return normalizeLookupSegment(left).localeCompare(normalizeLookupSegment(right));
 }
 
+type OrderedCaulkRequirementLine = JobCaulkRequirementLine & {
+  coverageOrder: number;
+};
+
+function getCaulkAllocationCoverageTubes(allocation: JobDetail['caulkAllocations'][number]) {
+  const allocatedTubes = Math.max(0, Number(allocation.allocatedTubes || 0));
+  if (allocatedTubes <= 0 || String(allocation.status || '').trim().toUpperCase() === 'CANCELLED') {
+    return 0;
+  }
+
+  const outstandingCheckoutTubes = Math.max(
+    0,
+    Number(allocation.outstandingCheckoutTubes || 0) > 0
+      ? Number(allocation.outstandingCheckoutTubes || 0)
+      : Number(allocation.checkedOutTubesTotal || 0) -
+          Number(allocation.returnedUnusedTubesTotal || 0) -
+          Number(allocation.usedTubesTotal || 0)
+  );
+  const committedTubes =
+    Math.max(0, Number(allocation.reservedTubesRemaining || 0)) +
+    outstandingCheckoutTubes +
+    Math.max(0, Number(allocation.usedTubesTotal || 0));
+
+  return Math.min(allocatedTubes, Math.max(0, committedTubes));
+}
+
+function addCaulkCoverageTubes(
+  coverageByRequirementId: Record<string, number>,
+  requirementId: string,
+  tubes: number
+) {
+  const normalizedRequirementId = String(requirementId || '').trim();
+  if (!normalizedRequirementId) {
+    return;
+  }
+
+  coverageByRequirementId[normalizedRequirementId] =
+    Math.max(0, Number(coverageByRequirementId[normalizedRequirementId] || 0)) +
+    Math.max(0, Math.floor(Number(tubes || 0)));
+}
+
+function buildCaulkFallbackRequirementGroupKey(productId: string, jobNumber: string) {
+  return `${String(productId || '').trim()}|${normalizeJobNumberKey(jobNumber)}`;
+}
+
+function caulkAllocationMatchesJob(
+  allocation: JobDetail['caulkAllocations'][number],
+  expectedJobNumber: string
+) {
+  const normalizedExpectedJobNumber = normalizeJobNumberKey(expectedJobNumber);
+  const allocationJobNumber = String(
+    (allocation as JobDetail['caulkAllocations'][number] & { jobNumber?: string }).jobNumber ||
+      expectedJobNumber
+  );
+  return (
+    !normalizedExpectedJobNumber ||
+    normalizeJobNumberKey(allocationJobNumber) === normalizedExpectedJobNumber
+  );
+}
+
+function caulkAllocationMatchesWarehouse(
+  allocation: JobDetail['caulkAllocations'][number],
+  expectedWarehouse: string
+) {
+  const normalizedExpectedWarehouse = String(expectedWarehouse || '').trim().toUpperCase();
+  const allocationWarehouse = String(allocation.warehouse || '').trim().toUpperCase();
+  return (
+    !normalizedExpectedWarehouse ||
+    !allocationWarehouse ||
+    allocationWarehouse === normalizedExpectedWarehouse
+  );
+}
+
+function compareCaulkFallbackAllocations(
+  left: JobDetail['caulkAllocations'][number],
+  right: JobDetail['caulkAllocations'][number]
+) {
+  const createdCompare = compareCatalogStrings(left.createdAt || '', right.createdAt || '');
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+
+  return compareCatalogStrings(left.caulkAllocationId || '', right.caulkAllocationId || '');
+}
+
+function compareCaulkFallbackRequirements(
+  left: OrderedCaulkRequirementLine,
+  right: OrderedCaulkRequirementLine
+) {
+  if (left.coverageOrder !== right.coverageOrder) {
+    return left.coverageOrder - right.coverageOrder;
+  }
+
+  return compareCatalogStrings(left.requirementId || '', right.requirementId || '');
+}
+
 function buildCaulkCoverageByRequirementId(detail: JobDetail) {
   const coverageByRequirementId: Record<string, number> = {};
-  const requirementById = Object.fromEntries(
-    detail.caulkRequirements.map((entry) => [entry.requirementId, entry])
-  ) as Record<string, JobCaulkRequirementLine>;
+  const requirementById: Record<string, JobCaulkRequirementLine> = {};
+  const requirementsByFallbackGroup = new Map<string, OrderedCaulkRequirementLine[]>();
+
+  for (let index = 0; index < detail.caulkRequirements.length; index += 1) {
+    const requirement = detail.caulkRequirements[index];
+    const requirementId = String(requirement.requirementId || '').trim();
+    if (!requirementId) {
+      continue;
+    }
+
+    requirementById[requirementId] = requirement;
+
+    const productId = String(requirement.productId || '').trim();
+    if (!productId) {
+      continue;
+    }
+
+    const key = buildCaulkFallbackRequirementGroupKey(productId, detail.summary.jobNumber);
+    const rows = requirementsByFallbackGroup.get(key) || [];
+    rows.push({ ...requirement, coverageOrder: index });
+    requirementsByFallbackGroup.set(key, rows);
+  }
+
+  for (const rows of requirementsByFallbackGroup.values()) {
+    rows.sort(compareCaulkFallbackRequirements);
+  }
 
   for (let index = 0; index < detail.caulkAllocations.length; index += 1) {
     const allocation = detail.caulkAllocations[index];
     const requirementId = String(allocation.requirementId || '').trim();
     const requirement = requirementId ? requirementById[requirementId] : null;
+    const coverageTubes = getCaulkAllocationCoverageTubes(allocation);
     if (
       !requirement ||
-      String(allocation.status || '').trim().toUpperCase() === 'CANCELLED' ||
-      Number(allocation.allocatedTubes || 0) <= 0 ||
+      coverageTubes <= 0 ||
       String(allocation.productId || '').trim() !== String(requirement.productId || '').trim()
     ) {
       continue;
     }
 
-    coverageByRequirementId[requirementId] =
-      Math.max(0, Number(coverageByRequirementId[requirementId] || 0)) +
-      Math.max(0, Number(allocation.allocatedTubes || 0));
+    if (!caulkAllocationMatchesJob(allocation, detail.summary.jobNumber)) {
+      continue;
+    }
+
+    if (!caulkAllocationMatchesWarehouse(allocation, detail.summary.warehouse || '')) {
+      continue;
+    }
+
+    addCaulkCoverageTubes(coverageByRequirementId, requirementId, coverageTubes);
+  }
+
+  const fallbackAllocations = detail.caulkAllocations
+    .filter((allocation) => {
+      if (String(allocation.requirementId || '').trim()) {
+        return false;
+      }
+      if (String(allocation.status || '').trim().toUpperCase() !== 'ACTIVE') {
+        return false;
+      }
+      if (!caulkAllocationMatchesJob(allocation, detail.summary.jobNumber)) {
+        return false;
+      }
+      if (!caulkAllocationMatchesWarehouse(allocation, detail.summary.warehouse || '')) {
+        return false;
+      }
+      return getCaulkAllocationCoverageTubes(allocation) > 0;
+    })
+    .sort(compareCaulkFallbackAllocations);
+
+  for (const allocation of fallbackAllocations) {
+    const productId = String(allocation.productId || '').trim();
+    const matchingRequirements =
+      requirementsByFallbackGroup.get(
+        buildCaulkFallbackRequirementGroupKey(productId, detail.summary.jobNumber)
+      ) || [];
+    let remainingAllocationTubes = getCaulkAllocationCoverageTubes(allocation);
+
+    for (
+      let index = 0;
+      index < matchingRequirements.length && remainingAllocationTubes > 0;
+      index += 1
+    ) {
+      const requirement = matchingRequirements[index];
+      const requiredTubes = Math.max(0, Number(requirement.requiredTubes || 0));
+      const coveredBefore = Math.min(
+        requiredTubes,
+        Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
+      );
+      const remainingRequirementTubes = Math.max(0, requiredTubes - coveredBefore);
+      if (remainingRequirementTubes <= 0) {
+        continue;
+      }
+
+      const appliedTubes = Math.min(remainingAllocationTubes, remainingRequirementTubes);
+      addCaulkCoverageTubes(coverageByRequirementId, requirement.requirementId, appliedTubes);
+      remainingAllocationTubes -= appliedTubes;
+    }
   }
 
   return coverageByRequirementId;
@@ -386,7 +559,10 @@ function buildNextCaulkRequirementLines(
         : currentRequirementByProductId[entry.productId];
       const productMetadata = caulkMetadataByProductId[entry.productId];
       const requiredTubes = Math.max(0, Math.floor(Number(entry.requiredTubes || 0)));
-      const allocatedTubes = Math.max(0, Number(coverageByRequirementId[explicitRequirementId || currentRequirement?.requirementId || ''] || 0));
+      const allocatedTubes = Math.min(
+        requiredTubes,
+        Math.max(0, Number(coverageByRequirementId[explicitRequirementId || currentRequirement?.requirementId || ''] || 0))
+      );
 
       return {
         requirementId:

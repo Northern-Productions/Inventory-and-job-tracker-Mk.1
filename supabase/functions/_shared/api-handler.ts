@@ -1669,6 +1669,10 @@ function buildJobStagingValidationState(params: {
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
     params.caulkRequirements,
     params.caulkAllocations,
+    {
+      jobNumber: params.jobNumber,
+      jobWarehouse: params.warehouse,
+    },
   );
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     params.warehouse,
@@ -2614,6 +2618,193 @@ function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<s
   return response;
 }
 
+const PROD_PROJECT_REF = "tiwpulgvxtwlmqdnyuzd";
+
+function getCaulkRequirementId(requirement: any): string {
+  return asTrimmedString(requirement?.requirementId || requirement?.id);
+}
+
+function getCaulkAllocationId(allocation: any, index = 0): string {
+  return asTrimmedString(allocation?.caulkAllocationId || allocation?.allocationId || allocation?.id || `allocation-${index}`);
+}
+
+function getCaulkAllocationOutstandingCheckoutTubes(allocation: any): number {
+  const storedOutstanding = integerOrZero(allocation?.outstandingCheckoutTubes);
+  if (storedOutstanding > 0) {
+    return storedOutstanding;
+  }
+
+  return Math.max(
+    0,
+    integerOrZero(allocation?.checkedOutTubesTotal) -
+      integerOrZero(allocation?.returnedUnusedTubesTotal) -
+      integerOrZero(allocation?.usedTubesTotal),
+  );
+}
+
+export function getCaulkAllocationCoverageTubes(allocation: any): number {
+  const allocatedTubes = integerOrZero(allocation?.allocatedTubes);
+  if (allocatedTubes <= 0 || asTrimmedString(allocation?.status).toUpperCase() === "CANCELLED") {
+    return 0;
+  }
+
+  const committedTubes =
+    integerOrZero(allocation?.reservedTubesRemaining) +
+    getCaulkAllocationOutstandingCheckoutTubes(allocation) +
+    integerOrZero(allocation?.usedTubesTotal);
+
+  return Math.min(allocatedTubes, Math.max(0, committedTubes));
+}
+
+function caulkFallbackProductLabel(entry: any): string {
+  return [entry?.manufacturer, entry?.productName, entry?.productCode]
+    .map(asTrimmedString)
+    .filter(Boolean)
+    .join(" ");
+}
+
+function compareCaulkFallbackRequirements(left: any, right: any): number {
+  const leftOrder = Number.isFinite(left?._coverageOrder) ? left._coverageOrder : 0;
+  const rightOrder = Number.isFinite(right?._coverageOrder) ? right._coverageOrder : 0;
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+  return compareCatalogStrings(getCaulkRequirementId(left), getCaulkRequirementId(right));
+}
+
+function compareCaulkFallbackAllocations(left: any, right: any): number {
+  const createdCompare = compareCatalogStrings(left?.createdAt, right?.createdAt);
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+  return compareCatalogStrings(getCaulkAllocationId(left), getCaulkAllocationId(right));
+}
+
+function buildCaulkFallbackRequirementGroupKey(productId: unknown, jobNumber: unknown): string {
+  return `${asTrimmedString(productId)}|${normalizeJobNumberKey(jobNumber)}`;
+}
+
+function caulkAllocationMatchesJob(allocation: any, expectedJobNumber: unknown): boolean {
+  const normalizedExpectedJobNumber = normalizeJobNumberKey(expectedJobNumber);
+  return !normalizedExpectedJobNumber || normalizeJobNumberKey(allocation?.jobNumber) === normalizedExpectedJobNumber;
+}
+
+function caulkAllocationMatchesWarehouse(allocation: any, expectedWarehouse: unknown): boolean {
+  const normalizedExpectedWarehouse = asTrimmedString(expectedWarehouse).toUpperCase();
+  const allocationWarehouse = asTrimmedString(allocation?.warehouse).toUpperCase();
+  return !normalizedExpectedWarehouse || !allocationWarehouse || allocationWarehouse === normalizedExpectedWarehouse;
+}
+
+function addCaulkCoverageTubes(coverageByRequirementId: Record<string, number>, requirementId: unknown, tubes: unknown) {
+  const normalizedRequirementId = asTrimmedString(requirementId);
+  if (!normalizedRequirementId) {
+    return;
+  }
+  coverageByRequirementId[normalizedRequirementId] =
+    integerOrZero(coverageByRequirementId[normalizedRequirementId]) + Math.max(0, integerOrZero(tubes));
+}
+
+function isTruthyEnvFlag(value: unknown): boolean {
+  return ["1", "true", "yes", "on"].includes(asTrimmedString(value).toLowerCase());
+}
+
+function readDenoEnv(name: string): string {
+  try {
+    return asTrimmedString(Deno.env.get(name));
+  } catch (_error) {
+    return "";
+  }
+}
+
+function extractSupabaseProjectRef(value: unknown): string {
+  const rawValue = asTrimmedString(value);
+  if (!rawValue) {
+    return "";
+  }
+  try {
+    const url = new URL(rawValue);
+    const directMatch = url.hostname.match(/^([a-z0-9]{20})\.supabase\.co$/i);
+    if (directMatch) {
+      return directMatch[1];
+    }
+    const dbMatch = url.hostname.match(/^db\.([a-z0-9]{20})\.supabase\.co$/i);
+    if (dbMatch) {
+      return dbMatch[1];
+    }
+    return url.hostname.includes(PROD_PROJECT_REF) ? PROD_PROJECT_REF : "";
+  } catch (_error) {
+    return rawValue.includes(PROD_PROJECT_REF) ? PROD_PROJECT_REF : "";
+  }
+}
+
+function caulkFallbackDebugIsProd(env: Record<string, unknown> | null = null): boolean {
+  const hasExplicitEnv = env !== null;
+  const readEnv = (name: string) => (hasExplicitEnv ? env?.[name] : readDenoEnv(name));
+  const appEnvValues = [readEnv("APP_ENV"), readEnv("NODE_ENV"), readEnv("VERCEL_ENV")]
+    .map((value) => asTrimmedString(value).toLowerCase())
+    .filter(Boolean);
+  if (appEnvValues.some((value) => value === "prod" || value === "production")) {
+    return true;
+  }
+
+  const projectRefs = [readEnv("SUPABASE_PROJECT_REF"), readEnv("PROJECT_REF")]
+    .map(asTrimmedString)
+    .filter(Boolean);
+  if (projectRefs.includes(PROD_PROJECT_REF)) {
+    return true;
+  }
+
+  return (
+    extractSupabaseProjectRef(readEnv("SUPABASE_URL") || (hasExplicitEnv ? "" : SUPABASE_URL)) === PROD_PROJECT_REF ||
+    extractSupabaseProjectRef(readEnv("DATABASE_URL") || readEnv("SUPABASE_DB_URL")) === PROD_PROJECT_REF
+  );
+}
+
+export function isCaulkFallbackDebugLoggingEnabled(env: Record<string, unknown> | null = null): boolean {
+  const flagValue = env === null ? readDenoEnv("DEV_CAULK_FALLBACK_DEBUG_LOGS") : env?.DEV_CAULK_FALLBACK_DEBUG_LOGS;
+  return isTruthyEnvFlag(flagValue) &&
+    !caulkFallbackDebugIsProd(env);
+}
+
+export function buildCaulkFallbackDebugLogEntry(input: any, runtime = "supabase-edge") {
+  return {
+    level: "debug",
+    msg: "caulk_fallback_coverage",
+    runtime,
+    allocationId: asTrimmedString(input?.allocationId),
+    jobNumber: asTrimmedString(input?.jobNumber),
+    productId: asTrimmedString(input?.productId),
+    product: asTrimmedString(input?.product),
+    tubesApplied: Math.max(0, integerOrZero(input?.tubesApplied)),
+    requirementIdsFulfilled: Array.isArray(input?.requirementIdsFulfilled)
+      ? input.requirementIdsFulfilled.map(asTrimmedString).filter(Boolean)
+      : [],
+  };
+}
+
+export function maybeLogCaulkFallbackCoverageDecision(
+  input: any,
+  options: { env?: Record<string, unknown> | null; logger?: (message: string) => void; runtime?: string } = {},
+) {
+  const env = options.env || null;
+  if (!isCaulkFallbackDebugLoggingEnabled(env)) {
+    return null;
+  }
+
+  const entry = buildCaulkFallbackDebugLogEntry(input, options.runtime || "supabase-edge");
+  if (!entry.allocationId || !entry.jobNumber || entry.tubesApplied <= 0 || entry.requirementIdsFulfilled.length === 0) {
+    return null;
+  }
+
+  try {
+    const logger = options.logger || console.log;
+    logger(JSON.stringify(entry));
+  } catch (_error) {
+    // Diagnostics must never affect coverage or API behavior.
+  }
+  return entry;
+}
+
 function buildCaulkCoverageByProductId(caulkAllocations: any[]) {
   const totals: Record<string, number> = {};
   for (const entry of caulkAllocations) {
@@ -2626,34 +2817,60 @@ function buildCaulkCoverageByProductId(caulkAllocations: any[]) {
   return totals;
 }
 
-function buildCaulkCoverageByRequirementId(
+export function buildCaulkCoverageByRequirementId(
   caulkRequirements: any[],
   caulkAllocations: any[],
-  options: { jobNumber?: unknown } = {},
+  options: {
+    jobNumber?: unknown;
+    jobWarehouse?: unknown;
+    debugEnv?: Record<string, unknown> | null;
+    debugLogger?: (message: string) => void;
+    debugRuntime?: string;
+  } = {},
 ) {
   const totals: Record<string, number> = {};
   const requirementById: Record<string, { requirement: any; jobNumber: string }> = {};
+  const requirementsByFallbackGroup: Record<string, any[]> = {};
   const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
 
-  for (const requirement of Array.isArray(caulkRequirements) ? caulkRequirements : []) {
-    const requirementId = asTrimmedString(requirement.requirementId || requirement.id);
+  const requirements = Array.isArray(caulkRequirements) ? caulkRequirements : [];
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = { ...requirements[index], _coverageOrder: index };
+    const requirementId = getCaulkRequirementId(requirement);
     if (!requirementId) {
       continue;
     }
 
+    const requirementJobNumber = normalizeJobNumberKey(requirement.jobNumber || options.jobNumber);
     requirementById[requirementId] = {
       requirement,
-      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
+      jobNumber: requirementJobNumber,
     };
+
+    const productId = asTrimmedString(requirement.productId);
+    if (!productId) {
+      continue;
+    }
+
+    const groupKey = buildCaulkFallbackRequirementGroupKey(productId, requirementJobNumber);
+    if (!requirementsByFallbackGroup[groupKey]) {
+      requirementsByFallbackGroup[groupKey] = [];
+    }
+    requirementsByFallbackGroup[groupKey].push(requirement);
   }
 
-  for (const allocation of Array.isArray(caulkAllocations) ? caulkAllocations : []) {
+  for (const groupKey of Object.keys(requirementsByFallbackGroup)) {
+    requirementsByFallbackGroup[groupKey].sort(compareCaulkFallbackRequirements);
+  }
+
+  const allocations = Array.isArray(caulkAllocations) ? caulkAllocations : [];
+  for (const allocation of allocations) {
     const requirementId = asTrimmedString(allocation.requirementId);
     const requirementEntry = requirementId ? requirementById[requirementId] : null;
+    const coverageTubes = getCaulkAllocationCoverageTubes(allocation);
     if (
       !requirementEntry ||
-      asTrimmedString(allocation.status).toUpperCase() === "CANCELLED" ||
-      integerOrZero(allocation.allocatedTubes) <= 0
+      coverageTubes <= 0
     ) {
       continue;
     }
@@ -2670,18 +2887,87 @@ function buildCaulkCoverageByRequirementId(
       continue;
     }
 
-    totals[requirementId] = integerOrZero(totals[requirementId]) + Math.max(0, integerOrZero(allocation.allocatedTubes));
+    addCaulkCoverageTubes(totals, requirementId, coverageTubes);
+  }
+
+  const fallbackAllocations = allocations
+    .filter((allocation) => {
+      if (asTrimmedString(allocation?.requirementId)) {
+        return false;
+      }
+      if (asTrimmedString(allocation?.status).toUpperCase() !== "ACTIVE") {
+        return false;
+      }
+      if (!caulkAllocationMatchesJob(allocation, expectedJobNumber)) {
+        return false;
+      }
+      if (!caulkAllocationMatchesWarehouse(allocation, options.jobWarehouse)) {
+        return false;
+      }
+      return getCaulkAllocationCoverageTubes(allocation) > 0;
+    })
+    .sort(compareCaulkFallbackAllocations);
+
+  for (let index = 0; index < fallbackAllocations.length; index += 1) {
+    const allocation = fallbackAllocations[index];
+    const allocationJobNumber = normalizeJobNumberKey(allocation.jobNumber || options.jobNumber);
+    const productId = asTrimmedString(allocation.productId);
+    const matchingRequirements = requirementsByFallbackGroup[
+      buildCaulkFallbackRequirementGroupKey(productId, allocationJobNumber || expectedJobNumber)
+    ] || [];
+    let remainingAllocationTubes = getCaulkAllocationCoverageTubes(allocation);
+    const impactedRequirementIds: string[] = [];
+    let appliedByAllocation = 0;
+
+    for (let reqIndex = 0; reqIndex < matchingRequirements.length && remainingAllocationTubes > 0; reqIndex += 1) {
+      const requirement = matchingRequirements[reqIndex];
+      const requirementId = getCaulkRequirementId(requirement);
+      const requiredTubes = Math.max(0, integerOrZero(requirement.requiredTubes));
+      const coveredBefore = Math.min(requiredTubes, integerOrZero(totals[requirementId]));
+      const remainingRequirementTubes = Math.max(0, requiredTubes - coveredBefore);
+      if (remainingRequirementTubes <= 0) {
+        continue;
+      }
+
+      const appliedTubes = Math.min(remainingAllocationTubes, remainingRequirementTubes);
+      addCaulkCoverageTubes(totals, requirementId, appliedTubes);
+      remainingAllocationTubes -= appliedTubes;
+      appliedByAllocation += appliedTubes;
+      impactedRequirementIds.push(requirementId);
+    }
+
+    if (appliedByAllocation > 0) {
+      maybeLogCaulkFallbackCoverageDecision(
+        {
+          allocationId: getCaulkAllocationId(allocation, index),
+          jobNumber: allocation.jobNumber || options.jobNumber,
+          productId,
+          product: caulkFallbackProductLabel(allocation),
+          tubesApplied: appliedByAllocation,
+          requirementIdsFulfilled: impactedRequirementIds,
+        },
+        {
+          env: options.debugEnv,
+          logger: options.debugLogger,
+          runtime: options.debugRuntime || "supabase-edge",
+        },
+      );
+    }
   }
 
   return totals;
 }
 
-function buildPublicCaulkRequirementEntries(caulkRequirements: any[], caulkAllocations: any[], options: { jobNumber?: unknown } = {}) {
+export function buildPublicCaulkRequirementEntries(
+  caulkRequirements: any[],
+  caulkAllocations: any[],
+  options: { jobNumber?: unknown; jobWarehouse?: unknown } = {},
+) {
   const coverageByRequirementId = buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, options);
   const response = (Array.isArray(caulkRequirements) ? caulkRequirements : []).map((entry) => {
     const requirementId = asTrimmedString(entry.requirementId);
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
-    const allocatedTubes = Math.max(0, integerOrZero(coverageByRequirementId[requirementId] || 0));
+    const allocatedTubes = Math.max(0, Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0)));
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     return {
       requirementId,
@@ -3362,7 +3648,8 @@ function deriveInStockReadinessStatus(params: {
   /**
    * PURPOSE:
    * Mirrors backend READY/FILM_ORDER derivation for Supabase Edge reads using
-   * strict stored allocation coverage bound to each requirement.
+   * canonical caulk coverage: requirement-linked allocations first, then
+   * deterministic same-product fallback for unbound caulk allocations.
    *
    * AFFECTS:
    * Supabase job list/detail APIs, allocation summaries, calendar/search reads,
@@ -3370,14 +3657,13 @@ function deriveInStockReadinessStatus(params: {
    *
    * WHEN CHANGING THIS, ALSO CHECK:
    * backend runtimeJobSummaries.mjs, frontend jobSummaryMath/jobCalendar, and
-   * strict film/caulk allocation coverage helpers.
+   * canonical film/caulk allocation coverage helpers.
    *
    * COMMON FAILURE MODES:
-   * Trusting stale remaining values, counting stale requirement IDs, allowing
-   * fallback allocation matching, or local backend and Edge status drift.
+   * Trusting stale remaining values, counting stale requirement IDs, double
+   * counting fallback caulk allocations, or local backend and Edge status drift.
    */
   void params.caulkStockEntries;
-  void params.jobWarehouse;
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(params.lifecycleStatus);
   if (normalizedLifecycleStatus === "CANCELLED") {
     return "CANCELLED";
@@ -3417,7 +3703,7 @@ function deriveInStockReadinessStatus(params: {
   const caulkCoverageByRequirementId = buildCaulkCoverageByRequirementId(
     caulkRequirements,
     params.caulkAllocations,
-    { jobNumber: params.jobNumber },
+    { jobNumber: params.jobNumber, jobWarehouse: params.jobWarehouse },
   );
   const filmReady = requirements.every((requirement) => {
     const requiredFeet = integerOrZero(requirement?.requiredFeet);
@@ -4727,7 +5013,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
     }
     groupedRequirements[requirement.jobNumber].push(requirement);
   }
-  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(jobNumbers));
+  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(jobNumbers), jobHeadersByNumber);
 
   const response = Object.keys(jobNumbers)
     .map((jobNumber) => {
@@ -4822,7 +5108,10 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
       boxes.map((box) => box.id).filter(Boolean),
     ),
   );
-  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+    jobNumber: normalizedJobNumber,
+    jobWarehouse: header?.warehouse || "",
+  });
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     header?.warehouse || "",
@@ -4882,7 +5171,12 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
   };
 }
 
-async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumbers: string[]) {
+async function loadCaulkPlanningByJobNumbers(
+  client: any,
+  orgId: string,
+  jobNumbers: string[],
+  jobHeadersByNumber: Record<string, any> = {},
+) {
   const requirementsByJob: Record<string, any[]> = {};
   const allocationsByJob: Record<string, any[]> = {};
   const normalizedJobNumbers = Array.from(new Set(jobNumbers.filter((entry) => asTrimmedString(entry))));
@@ -4893,7 +5187,10 @@ async function loadCaulkPlanningByJobNumbers(client: any, orgId: string, jobNumb
         listJobCaulkRequirementsByJob(client, orgId, jobNumber),
         listCaulkJobAllocationsByJob(client, orgId, jobNumber),
       ]);
-      requirementsByJob[jobNumber] = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+      requirementsByJob[jobNumber] = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+        jobNumber,
+        jobWarehouse: jobHeadersByNumber[jobNumber]?.warehouse || "",
+      });
       allocationsByJob[jobNumber] = caulkAllocations;
     }),
   );
@@ -4994,7 +5291,7 @@ async function buildJobsList(
     }
     groupedRequirements[requirement.jobNumber].push(requirement);
   }
-  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(byJobNumber));
+  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(byJobNumber), byJobNumber);
 
   const response = Object.keys(byJobNumber).reduce<any[]>((entries, jobNumber) => {
     const allocations = groupedAllocations[jobNumber] || [];
@@ -5111,6 +5408,7 @@ async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, or
     client,
     orgId,
     activeJobs.map((job) => asTrimmedString(job?.jobNumber)).filter(Boolean),
+    Object.fromEntries(activeJobs.map((job) => [asTrimmedString(job?.jobNumber), job])),
   );
 
   return Object.values(caulkPlanning.requirementsByJob).some((requirements) =>
@@ -5191,6 +5489,10 @@ async function buildJobsCalendarEntriesForHeaders(
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
       row.caulkRequirements,
       row.caulkAllocations,
+      {
+        jobNumber: row.header?.jobNumber || "",
+        jobWarehouse: row.header?.warehouse || "",
+      },
     );
     const entry = buildJobListEntry(
       row.header,
@@ -5328,7 +5630,10 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     ),
   );
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
-  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations);
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+    jobNumber: normalizedJobNumber,
+    jobWarehouse: header?.warehouse || "",
+  });
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     header?.warehouse || "",
     allocations,

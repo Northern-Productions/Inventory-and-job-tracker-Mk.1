@@ -351,8 +351,9 @@ function deriveInStockReadinessStatus({
 }) {
   /**
    * PURPOSE:
-   * Derives the active job material status from strict stored allocation
-   * coverage bound to each requirement.
+   * Derives the active job material status from canonical stored allocation
+   * coverage: requirement-linked caulk first, then deterministic same-product
+   * fallback for unbound caulk allocations.
    *
    * AFFECTS:
    * Job list/detail status pills, allocation job summaries, calendar colors,
@@ -364,11 +365,10 @@ function deriveInStockReadinessStatus({
    * rules.
    *
    * COMMON FAILURE MODES:
-   * Trusting stale remaining values, counting stale requirement IDs, allowing
-   * fallback allocation matching, or local/Supabase status drift.
+   * Trusting stale remaining values, counting stale requirement IDs, double
+   * counting fallback caulk allocations, or local/Supabase status drift.
    */
   void caulkStockEntries;
-  void jobWarehouse;
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
   if (normalizedLifecycleStatus === 'CANCELLED') {
     return 'CANCELLED';
@@ -405,7 +405,7 @@ function deriveInStockReadinessStatus({
   const caulkCoverageByRequirementId = buildCaulkCoverageByRequirementId(
     normalizedCaulkRequirements,
     Array.isArray(caulkAllocations) ? caulkAllocations : [],
-    { jobNumber }
+    { jobNumber, jobWarehouse }
   );
 
   const filmReady = normalizedRequirements.every((requirement) => {

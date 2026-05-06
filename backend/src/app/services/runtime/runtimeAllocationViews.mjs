@@ -319,11 +319,15 @@ async function buildAllocationJobList(client, orgId) {
       allocations,
       boxById
     );
+    const header = jobHeadersByNumber[jobNumber];
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
       groupedCaulkRequirements[jobNumber] || [],
-      groupedCaulkAllocations[jobNumber] || []
+      groupedCaulkAllocations[jobNumber] || [],
+      {
+        jobNumber,
+        jobWarehouse: header?.warehouse || ''
+      }
     );
-    const header = jobHeadersByNumber[jobNumber];
     if (!allocations.length && !filmOrders.length && !requirements.length && !publicCaulkRequirements.length) {
       continue;
     }

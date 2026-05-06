@@ -581,23 +581,225 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
   return response;
 }
 
+const PROD_PROJECT_REF = 'tiwpulgvxtwlmqdnyuzd';
+
+function getCaulkRequirementId(requirement) {
+  return asTrimmedString(requirement?.requirementId || requirement?.id);
+}
+
+function getCaulkAllocationId(allocation, index = 0) {
+  return asTrimmedString(allocation?.caulkAllocationId || allocation?.allocationId || allocation?.id || `allocation-${index}`);
+}
+
+function getCaulkAllocationOutstandingCheckoutTubes(allocation) {
+  const storedOutstanding = integerOrZero(allocation?.outstandingCheckoutTubes);
+  if (storedOutstanding > 0) {
+    return storedOutstanding;
+  }
+
+  return Math.max(
+    0,
+    integerOrZero(allocation?.checkedOutTubesTotal) -
+      integerOrZero(allocation?.returnedUnusedTubesTotal) -
+      integerOrZero(allocation?.usedTubesTotal)
+  );
+}
+
+function getCaulkAllocationCoverageTubes(allocation) {
+  const allocatedTubes = integerOrZero(allocation?.allocatedTubes);
+  if (
+    allocatedTubes <= 0 ||
+    asTrimmedString(allocation?.status).toUpperCase() === 'CANCELLED'
+  ) {
+    return 0;
+  }
+
+  const committedTubes =
+    integerOrZero(allocation?.reservedTubesRemaining) +
+    getCaulkAllocationOutstandingCheckoutTubes(allocation) +
+    integerOrZero(allocation?.usedTubesTotal);
+
+  return Math.min(allocatedTubes, Math.max(0, committedTubes));
+}
+
+function caulkFallbackProductLabel(entry) {
+  return [entry?.manufacturer, entry?.productName, entry?.productCode]
+    .map(asTrimmedString)
+    .filter(Boolean)
+    .join(' ');
+}
+
+function compareCaulkFallbackRequirements(left, right) {
+  const leftOrder = Number.isFinite(left?._coverageOrder) ? left._coverageOrder : 0;
+  const rightOrder = Number.isFinite(right?._coverageOrder) ? right._coverageOrder : 0;
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  return compareCatalogStrings(getCaulkRequirementId(left), getCaulkRequirementId(right));
+}
+
+function compareCaulkFallbackAllocations(left, right) {
+  const createdCompare = compareCatalogStrings(left?.createdAt, right?.createdAt);
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+
+  return compareCatalogStrings(getCaulkAllocationId(left), getCaulkAllocationId(right));
+}
+
+function buildCaulkFallbackRequirementGroupKey(productId, jobNumber) {
+  return `${asTrimmedString(productId)}|${normalizeJobNumberKey(jobNumber)}`;
+}
+
+function caulkAllocationMatchesJob(allocation, expectedJobNumber) {
+  const normalizedExpectedJobNumber = normalizeJobNumberKey(expectedJobNumber);
+  return (
+    !normalizedExpectedJobNumber ||
+    normalizeJobNumberKey(allocation?.jobNumber) === normalizedExpectedJobNumber
+  );
+}
+
+function caulkAllocationMatchesWarehouse(allocation, expectedWarehouse) {
+  const normalizedExpectedWarehouse = asTrimmedString(expectedWarehouse).toUpperCase();
+  const allocationWarehouse = asTrimmedString(allocation?.warehouse).toUpperCase();
+  return !normalizedExpectedWarehouse || !allocationWarehouse || allocationWarehouse === normalizedExpectedWarehouse;
+}
+
+function addCaulkCoverageTubes(coverageByRequirementId, requirementId, tubes) {
+  const normalizedRequirementId = asTrimmedString(requirementId);
+  if (!normalizedRequirementId) {
+    return;
+  }
+
+  coverageByRequirementId[normalizedRequirementId] =
+    integerOrZero(coverageByRequirementId[normalizedRequirementId]) + Math.max(0, integerOrZero(tubes));
+}
+
+function isTruthyEnvFlag(value) {
+  return ['1', 'true', 'yes', 'on'].includes(asTrimmedString(value).toLowerCase());
+}
+
+function extractSupabaseProjectRef(value) {
+  const rawValue = asTrimmedString(value);
+  if (!rawValue) {
+    return '';
+  }
+
+  try {
+    const url = new URL(rawValue);
+    const directMatch = url.hostname.match(/^([a-z0-9]{20})\.supabase\.co$/i);
+    if (directMatch) {
+      return directMatch[1];
+    }
+
+    const dbMatch = url.hostname.match(/^db\.([a-z0-9]{20})\.supabase\.co$/i);
+    if (dbMatch) {
+      return dbMatch[1];
+    }
+
+    return url.hostname.includes(PROD_PROJECT_REF) ? PROD_PROJECT_REF : '';
+  } catch (_error) {
+    return rawValue.includes(PROD_PROJECT_REF) ? PROD_PROJECT_REF : '';
+  }
+}
+
+function caulkFallbackDebugIsProd(env = process.env) {
+  const appEnvValues = [env?.APP_ENV, env?.NODE_ENV, env?.VERCEL_ENV]
+    .map((value) => asTrimmedString(value).toLowerCase())
+    .filter(Boolean);
+  if (appEnvValues.some((value) => value === 'prod' || value === 'production')) {
+    return true;
+  }
+
+  const projectRefs = [env?.SUPABASE_PROJECT_REF, env?.PROJECT_REF]
+    .map(asTrimmedString)
+    .filter(Boolean);
+  if (projectRefs.includes(PROD_PROJECT_REF)) {
+    return true;
+  }
+
+  return (
+    extractSupabaseProjectRef(env?.SUPABASE_URL) === PROD_PROJECT_REF ||
+    extractSupabaseProjectRef(env?.DATABASE_URL || env?.SUPABASE_DB_URL) === PROD_PROJECT_REF
+  );
+}
+
+function isCaulkFallbackDebugLoggingEnabled(env = process.env) {
+  return isTruthyEnvFlag(env?.DEV_CAULK_FALLBACK_DEBUG_LOGS) && !caulkFallbackDebugIsProd(env);
+}
+
+function buildCaulkFallbackDebugLogEntry(input, runtime = 'backend') {
+  return {
+    level: 'debug',
+    msg: 'caulk_fallback_coverage',
+    runtime,
+    allocationId: asTrimmedString(input?.allocationId),
+    jobNumber: asTrimmedString(input?.jobNumber),
+    productId: asTrimmedString(input?.productId),
+    product: asTrimmedString(input?.product),
+    tubesApplied: Math.max(0, integerOrZero(input?.tubesApplied)),
+    requirementIdsFulfilled: Array.isArray(input?.requirementIdsFulfilled)
+      ? input.requirementIdsFulfilled.map(asTrimmedString).filter(Boolean)
+      : []
+  };
+}
+
+function maybeLogCaulkFallbackCoverageDecision(input, options = {}) {
+  const env = options.env || process.env;
+  if (!isCaulkFallbackDebugLoggingEnabled(env)) {
+    return null;
+  }
+
+  const entry = buildCaulkFallbackDebugLogEntry(input, options.runtime || 'backend');
+  if (!entry.allocationId || !entry.jobNumber || entry.tubesApplied <= 0 || entry.requirementIdsFulfilled.length === 0) {
+    return null;
+  }
+
+  try {
+    const logger = options.logger || console.log;
+    logger(JSON.stringify(entry));
+  } catch (_error) {
+    // Diagnostics must never affect coverage or API behavior.
+  }
+
+  return entry;
+}
+
 function buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, options = {}) {
   const totals = {};
   const requirementById = {};
+  const requirementsByFallbackGroup = {};
   const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
   const requirements = Array.isArray(caulkRequirements) ? caulkRequirements : [];
 
   for (let index = 0; index < requirements.length; index += 1) {
-    const requirement = requirements[index];
-    const requirementId = asTrimmedString(requirement.requirementId || requirement.id);
+    const requirement = { ...requirements[index], _coverageOrder: index };
+    const requirementId = getCaulkRequirementId(requirement);
     if (!requirementId) {
       continue;
     }
 
+    const requirementJobNumber = normalizeJobNumberKey(requirement.jobNumber || options.jobNumber);
     requirementById[requirementId] = {
       requirement,
-      jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber)
+      jobNumber: requirementJobNumber
     };
+
+    const productId = asTrimmedString(requirement.productId);
+    if (!productId) {
+      continue;
+    }
+
+    const groupKey = buildCaulkFallbackRequirementGroupKey(productId, requirementJobNumber);
+    if (!requirementsByFallbackGroup[groupKey]) {
+      requirementsByFallbackGroup[groupKey] = [];
+    }
+    requirementsByFallbackGroup[groupKey].push(requirement);
+  }
+
+  for (const groupKey of Object.keys(requirementsByFallbackGroup)) {
+    requirementsByFallbackGroup[groupKey].sort(compareCaulkFallbackRequirements);
   }
 
   const allocations = Array.isArray(caulkAllocations) ? caulkAllocations : [];
@@ -605,10 +807,10 @@ function buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, 
     const allocation = allocations[index];
     const requirementId = asTrimmedString(allocation.requirementId);
     const requirementEntry = requirementId ? requirementById[requirementId] : null;
+    const coverageTubes = getCaulkAllocationCoverageTubes(allocation);
     if (
       !requirementEntry ||
-      asTrimmedString(allocation.status).toUpperCase() === 'CANCELLED' ||
-      integerOrZero(allocation.allocatedTubes) <= 0
+      coverageTubes <= 0
     ) {
       continue;
     }
@@ -625,8 +827,72 @@ function buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, 
       continue;
     }
 
-    totals[requirementId] =
-      integerOrZero(totals[requirementId]) + Math.max(0, integerOrZero(allocation.allocatedTubes));
+    addCaulkCoverageTubes(totals, requirementId, coverageTubes);
+  }
+
+  const fallbackAllocations = allocations
+    .filter((allocation) => {
+      if (asTrimmedString(allocation?.requirementId)) {
+        return false;
+      }
+      if (asTrimmedString(allocation?.status).toUpperCase() !== 'ACTIVE') {
+        return false;
+      }
+      if (!caulkAllocationMatchesJob(allocation, expectedJobNumber)) {
+        return false;
+      }
+      if (!caulkAllocationMatchesWarehouse(allocation, options.jobWarehouse)) {
+        return false;
+      }
+      return getCaulkAllocationCoverageTubes(allocation) > 0;
+    })
+    .sort(compareCaulkFallbackAllocations);
+
+  for (let index = 0; index < fallbackAllocations.length; index += 1) {
+    const allocation = fallbackAllocations[index];
+    const allocationJobNumber = normalizeJobNumberKey(allocation.jobNumber || options.jobNumber);
+    const productId = asTrimmedString(allocation.productId);
+    const matchingRequirements = requirementsByFallbackGroup[
+      buildCaulkFallbackRequirementGroupKey(productId, allocationJobNumber || expectedJobNumber)
+    ] || [];
+    let remainingAllocationTubes = getCaulkAllocationCoverageTubes(allocation);
+    const impactedRequirementIds = [];
+    let appliedByAllocation = 0;
+
+    for (let reqIndex = 0; reqIndex < matchingRequirements.length && remainingAllocationTubes > 0; reqIndex += 1) {
+      const requirement = matchingRequirements[reqIndex];
+      const requirementId = getCaulkRequirementId(requirement);
+      const requiredTubes = Math.max(0, integerOrZero(requirement.requiredTubes));
+      const coveredBefore = Math.min(requiredTubes, integerOrZero(totals[requirementId]));
+      const remainingRequirementTubes = Math.max(0, requiredTubes - coveredBefore);
+      if (remainingRequirementTubes <= 0) {
+        continue;
+      }
+
+      const appliedTubes = Math.min(remainingAllocationTubes, remainingRequirementTubes);
+      addCaulkCoverageTubes(totals, requirementId, appliedTubes);
+      remainingAllocationTubes -= appliedTubes;
+      appliedByAllocation += appliedTubes;
+      impactedRequirementIds.push(requirementId);
+    }
+
+    if (appliedByAllocation > 0) {
+      maybeLogCaulkFallbackCoverageDecision(
+        {
+          allocationId: getCaulkAllocationId(allocation, index),
+          jobNumber: allocation.jobNumber || options.jobNumber,
+          productId,
+          product: caulkFallbackProductLabel(allocation),
+          tubesApplied: appliedByAllocation,
+          requirementIdsFulfilled: impactedRequirementIds
+        },
+        {
+          env: options.debugEnv,
+          logger: options.debugLogger,
+          runtime: options.debugRuntime || 'backend'
+        }
+      );
+    }
   }
 
   return totals;
@@ -663,7 +929,7 @@ function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations,
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
     const allocatedTubes = Math.max(
       0,
-      integerOrZero(coverageByRequirementId[requirementId] || 0)
+      Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0))
     );
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     response.push({
@@ -954,9 +1220,13 @@ export {
   compareRequirementCoveragePoolsForRequirement,
   buildAllocationCoverageByRequirementId,
   buildPublicJobRequirementEntries,
+  buildCaulkFallbackDebugLogEntry,
   buildCaulkCoverageByRequirementId,
   buildCaulkCoverageByProductId,
   buildPublicCaulkRequirementEntries,
+  getCaulkAllocationCoverageTubes,
+  isCaulkFallbackDebugLoggingEnabled,
+  maybeLogCaulkFallbackCoverageDecision,
   summarizeCaulkRequirementCoverage,
   resolveAllocationJobMetadata,
   filmOrderMatchesRequirement,

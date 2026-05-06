@@ -363,11 +363,15 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
       allocations,
       boxById
     );
+    const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
       groupedCaulkRequirements[jobNumber] || [],
-      groupedCaulkAllocations[jobNumber] || []
+      groupedCaulkAllocations[jobNumber] || [],
+      {
+        jobNumber,
+        jobWarehouse: header?.warehouse || ''
+      }
     );
-    const header = byJobNumber[jobNumber] || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
 
     const entry = buildJobListEntry(
       header,

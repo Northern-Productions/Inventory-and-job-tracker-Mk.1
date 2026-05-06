@@ -11,6 +11,10 @@ import {
   buildJobListEntry,
   deriveInStockReadinessStatus
 } from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
+import {
+  buildPublicCaulkRequirementEntries,
+  maybeLogCaulkFallbackCoverageDecision
+} from '../../src/app/services/runtime/runtimeAllocationCoverage.mjs';
 import { buildPublicJobUsageTimelineEntries } from '../../src/app/services/runtime/runtimeTransferUsage.mjs';
 
 function createRecordingClient(rowsByQuery = []) {
@@ -396,7 +400,7 @@ test('deriveInStockReadinessStatus requires every material requirement to be cov
   );
 });
 
-test('deriveInStockReadinessStatus derives caulk readiness from strict stored allocation coverage', () => {
+test('deriveInStockReadinessStatus derives caulk readiness from canonical linked and fallback coverage', () => {
   const base = {
     jobNumber: '19413',
     lifecycleStatus: 'ACTIVE',
@@ -427,7 +431,27 @@ test('deriveInStockReadinessStatus derives caulk readiness from strict stored al
           jobNumber: '19413',
           productId: 'product-1',
           status: 'ACTIVE',
-          allocatedTubes: 6
+          allocatedTubes: 6,
+          reservedTubesRemaining: 6
+        }
+      ],
+      caulkStockEntries: []
+    }),
+    'READY'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      caulkAllocations: [
+        {
+          caulkAllocationId: 'caulk-alloc-unbound',
+          requirementId: '',
+          jobNumber: '19413',
+          productId: 'product-1',
+          warehouse: 'IL1',
+          status: 'ACTIVE',
+          allocatedTubes: 6,
+          reservedTubesRemaining: 6
         }
       ],
       caulkStockEntries: []
@@ -451,13 +475,216 @@ test('deriveInStockReadinessStatus derives caulk readiness from strict stored al
           jobNumber: '19413',
           productId: 'product-1',
           status: 'ACTIVE',
-          allocatedTubes: 6
+          allocatedTubes: 6,
+          reservedTubesRemaining: 6
         }
       ],
       caulkStockEntries: []
     }),
     'FILM_ORDER'
   );
+});
+
+test('buildPublicCaulkRequirementEntries applies unbound caulk coverage deterministically without double counting', () => {
+  const requirements = [
+    {
+      requirementId: 'caulk-req-1',
+      jobNumber: '19413',
+      productId: 'product-1',
+      manufacturer: '3M',
+      productName: 'IPA Black',
+      productCode: '',
+      requiredTubes: 10
+    },
+    {
+      requirementId: 'caulk-req-2',
+      jobNumber: '19413',
+      productId: 'product-1',
+      manufacturer: '3M',
+      productName: 'IPA Black',
+      productCode: '',
+      requiredTubes: 10
+    }
+  ];
+
+  const rows = buildPublicCaulkRequirementEntries(
+    requirements,
+    [
+      {
+        caulkAllocationId: 'bound-1',
+        requirementId: 'caulk-req-1',
+        jobNumber: '19413',
+        productId: 'product-1',
+        warehouse: 'IL1',
+        status: 'ACTIVE',
+        allocatedTubes: 6,
+        reservedTubesRemaining: 6
+      },
+      {
+        caulkAllocationId: 'fallback-1',
+        requirementId: '',
+        jobNumber: '19413',
+        productId: 'product-1',
+        warehouse: 'IL1',
+        status: 'ACTIVE',
+        allocatedTubes: 12,
+        reservedTubesRemaining: 12,
+        createdAt: '2026-05-06T12:00:00Z'
+      }
+    ],
+    { jobNumber: '19413', jobWarehouse: 'IL1' }
+  );
+
+  assert.deepEqual(
+    rows.map((entry) => ({
+      requirementId: entry.requirementId,
+      allocatedTubes: entry.allocatedTubes,
+      remainingTubes: entry.remainingTubes
+    })),
+    [
+      { requirementId: 'caulk-req-1', allocatedTubes: 10, remainingTubes: 0 },
+      { requirementId: 'caulk-req-2', allocatedTubes: 8, remainingTubes: 2 }
+    ]
+  );
+});
+
+test('caulk fallback coverage ignores warehouse mismatches and returned unused tubes', () => {
+  const requirements = [
+    {
+      requirementId: 'caulk-req-1',
+      jobNumber: '19413',
+      productId: 'product-1',
+      manufacturer: '3M',
+      productName: 'IPA Black',
+      productCode: '',
+      requiredTubes: 10
+    }
+  ];
+
+  assert.deepEqual(
+    buildPublicCaulkRequirementEntries(
+      requirements,
+      [
+        {
+          caulkAllocationId: 'wrong-warehouse',
+          requirementId: '',
+          jobNumber: '19413',
+          productId: 'product-1',
+          warehouse: 'MS1',
+          status: 'ACTIVE',
+          allocatedTubes: 10,
+          reservedTubesRemaining: 10
+        }
+      ],
+      { jobNumber: '19413', jobWarehouse: 'IL1' }
+    ).map((entry) => entry.remainingTubes),
+    [10]
+  );
+
+  assert.deepEqual(
+    buildPublicCaulkRequirementEntries(
+      requirements,
+      [
+        {
+          caulkAllocationId: 'returned-unused',
+          requirementId: '',
+          jobNumber: '19413',
+          productId: 'product-1',
+          warehouse: 'IL1',
+          status: 'ACTIVE',
+          allocatedTubes: 10,
+          reservedTubesRemaining: 0,
+          checkedOutTubesTotal: 10,
+          returnedUnusedTubesTotal: 10,
+          usedTubesTotal: 0
+        }
+      ],
+      { jobNumber: '19413', jobWarehouse: 'IL1' }
+    ).map((entry) => entry.remainingTubes),
+    [10]
+  );
+});
+
+test('DEV caulk fallback debug logging is opt-in and hard-blocked for PROD', () => {
+  const logs = [];
+  assert.equal(
+    maybeLogCaulkFallbackCoverageDecision(
+      {
+        allocationId: 'alloc-1',
+        jobNumber: '19413',
+        productId: 'product-1',
+        product: '3M IPA Black',
+        tubesApplied: 6,
+        requirementIdsFulfilled: ['caulk-req-1']
+      },
+      {
+        env: {
+          DEV_CAULK_FALLBACK_DEBUG_LOGS: 'true',
+          SUPABASE_URL: 'https://uxiltcpbhthhinonttrc.supabase.co'
+        },
+        logger: (entry) => logs.push(JSON.parse(entry))
+      }
+    )?.msg,
+    'caulk_fallback_coverage'
+  );
+  assert.deepEqual(logs, [
+    {
+      level: 'debug',
+      msg: 'caulk_fallback_coverage',
+      runtime: 'backend',
+      allocationId: 'alloc-1',
+      jobNumber: '19413',
+      productId: 'product-1',
+      product: '3M IPA Black',
+      tubesApplied: 6,
+      requirementIdsFulfilled: ['caulk-req-1']
+    }
+  ]);
+
+  assert.equal(
+    maybeLogCaulkFallbackCoverageDecision(
+      {
+        allocationId: 'alloc-prod',
+        jobNumber: '19413',
+        productId: 'product-1',
+        product: '3M IPA Black',
+        tubesApplied: 6,
+        requirementIdsFulfilled: ['caulk-req-1']
+      },
+      {
+        env: {
+          DEV_CAULK_FALLBACK_DEBUG_LOGS: 'true',
+          SUPABASE_URL: 'https://tiwpulgvxtwlmqdnyuzd.supabase.co'
+        },
+        logger: (entry) => logs.push(JSON.parse(entry))
+      }
+    ),
+    null
+  );
+  assert.equal(logs.length, 1);
+
+  assert.equal(
+    maybeLogCaulkFallbackCoverageDecision(
+      {
+        allocationId: 'alloc-prod-env',
+        jobNumber: '19413',
+        productId: 'product-1',
+        product: '3M IPA Black',
+        tubesApplied: 6,
+        requirementIdsFulfilled: ['caulk-req-1']
+      },
+      {
+        env: {
+          DEV_CAULK_FALLBACK_DEBUG_LOGS: 'true',
+          VERCEL_ENV: 'production',
+          SUPABASE_URL: 'https://uxiltcpbhthhinonttrc.supabase.co'
+        },
+        logger: (entry) => logs.push(JSON.parse(entry))
+      }
+    ),
+    null
+  );
+  assert.equal(logs.length, 1);
 });
 
 test('normalizeJobRequirementEntriesForWrite preserves explicit Prestige 40 Exterior labels', async () => {

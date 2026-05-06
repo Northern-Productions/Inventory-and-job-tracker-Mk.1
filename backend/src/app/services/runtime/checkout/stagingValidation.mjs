@@ -64,7 +64,11 @@ function buildJobStagingValidationState({
   const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
     caulkRequirements,
-    caulkAllocations
+    caulkAllocations,
+    {
+      jobNumber,
+      jobWarehouse: warehouse
+    }
   );
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     warehouse,

@@ -235,7 +235,11 @@ function buildDetailContext(
   const publicRequirements = buildPublicJobRequirementEntries(baseData.requirements, baseData.allocations, boxById);
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
     baseData.caulkRequirements,
-    baseData.caulkAllocations
+    baseData.caulkAllocations,
+    {
+      jobNumber: normalizedJobNumber,
+      jobWarehouse: resolvedBaseContext.header?.warehouse || ''
+    }
   );
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     resolvedBaseContext.header?.warehouse || '',

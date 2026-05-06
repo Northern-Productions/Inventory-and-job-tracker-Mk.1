@@ -560,18 +560,18 @@ describe('AllocationJobPage', () => {
     expectCaulkRequirementTableTotals(html, requirement);
   });
 
-  it('does not count unbound ad-hoc caulk allocations toward overview requirement totals', () => {
+  it('renders fallback caulk coverage from canonical requirement totals when allocation is unbound', () => {
     const requirement = buildCaulkRequirement({
-      allocatedTubes: 0,
-      remainingTubes: 20
+      allocatedTubes: 20,
+      remainingTubes: 0
     });
     const detail: JobDetail = {
       ...baseDetail,
       summary: buildSummary({
-        status: 'FILM_ORDER',
+        status: 'READY',
         requiredTubes: 20,
-        allocatedTubes: 0,
-        remainingTubes: 20
+        allocatedTubes: 20,
+        remainingTubes: 0
       }) as JobDetail['summary'],
       caulkRequirements: [requirement],
       caulkAllocations: [
@@ -594,8 +594,8 @@ describe('AllocationJobPage', () => {
 
     expectOverviewCaulkTotals(html, {
       requiredTubes: 20,
-      allocatedTubes: 0,
-      remainingTubes: 20
+      allocatedTubes: 20,
+      remainingTubes: 0
     });
     expectCaulkRequirementTableTotals(html, requirement);
   });
