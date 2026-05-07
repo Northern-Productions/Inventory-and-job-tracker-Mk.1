@@ -1,5 +1,6 @@
 import '../load-env.mjs';
 import { Client } from 'pg';
+import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-helpers.mjs';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
@@ -717,7 +718,10 @@ async function runSchemaCheck() {
     );
 
     const functionDefinitions = new Map(
-      semanticRows.rows.map((row) => [row.signature, String(row.definition || '')])
+      semanticRows.rows.map((row) => [
+        row.signature,
+        normalizeFunctionDefinitionForSemanticCheck(row.definition)
+      ])
     );
 
     const semanticIssues = [];
