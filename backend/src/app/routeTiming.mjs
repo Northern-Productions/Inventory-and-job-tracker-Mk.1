@@ -1,15 +1,25 @@
 import { randomUUID } from 'node:crypto';
 
 const ROUTE_TIMING_TARGETS = new Set([
+  'POST /film-orders/delete',
+  'POST /film-orders/cancel',
+  'GET /film-orders/list',
   'POST /jobs/create',
   'POST /jobs/update',
   'GET /jobs/get',
+  'POST /jobs/complete',
+  'POST /jobs/delete',
   'POST /jobs/checkout-all',
   'POST /jobs/set-staged-pickup',
+  'POST /audit/undo',
+  'POST /boxes/receive',
+  'POST /boxes/add',
+  'POST /boxes/delete',
   'POST /boxes/update',
   'POST /boxes/set-status',
   'POST /allocations/apply',
   'POST /allocations/remove-box',
+  'GET /reports/summary',
 ]);
 
 /**
@@ -18,7 +28,8 @@ const ROUTE_TIMING_TARGETS = new Set([
  * investigation without recording request bodies, query params, or auth data.
  *
  * AFFECTS:
- * Local backend fallback diagnostics for job, box, and allocation endpoints.
+ * Local backend fallback diagnostics for high-risk lifecycle mutation and read
+ * endpoints under timeout investigation.
  *
  * WHEN CHANGING THIS, ALSO CHECK:
  * Supabase Edge route-timing helper, affected route list, and timeout tracing

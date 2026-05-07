@@ -1,13 +1,23 @@
 const ROUTE_TIMING_TARGETS = new Set([
+  "POST /film-orders/delete",
+  "POST /film-orders/cancel",
+  "GET /film-orders/list",
   "POST /jobs/create",
   "POST /jobs/update",
   "GET /jobs/get",
+  "POST /jobs/complete",
+  "POST /jobs/delete",
   "POST /jobs/checkout-all",
   "POST /jobs/set-staged-pickup",
+  "POST /audit/undo",
+  "POST /boxes/receive",
+  "POST /boxes/add",
+  "POST /boxes/delete",
   "POST /boxes/update",
   "POST /boxes/set-status",
   "POST /allocations/apply",
   "POST /allocations/remove-box",
+  "GET /reports/summary",
 ]);
 
 type CacheState = "hit" | "miss" | "none";
@@ -51,7 +61,8 @@ type RouteTimingLogEntry = {
  * investigation without recording request bodies, query params, or auth data.
  *
  * AFFECTS:
- * Supabase Edge diagnostics for job, box, and allocation endpoints.
+ * Supabase Edge diagnostics for high-risk lifecycle mutation and read
+ * endpoints under timeout investigation.
  *
  * WHEN CHANGING THIS, ALSO CHECK:
  * Local backend routeTiming helper, affected route list, and timeout tracing

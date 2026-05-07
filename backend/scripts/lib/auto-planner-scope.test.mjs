@@ -57,6 +57,55 @@ test('buildAutoPlannerScope uses org-wide planning for lifecycle cleanup', () =>
   assert.deepEqual(buildAutoPlannerScope('/jobs/complete', { jobNumber: '18722' }, {}), {});
 });
 
+test('buildAutoPlannerScope scopes film order delete to the returned job only', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/film-orders/delete',
+      { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' },
+      { jobNumber: '18722' }
+    ),
+    { jobNumbers: ['18722'] }
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/film-orders/delete',
+      { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' },
+      { jobNumber: ' 18722 ' }
+    ),
+    { jobNumbers: ['18722'] }
+  );
+});
+
+test('buildAutoPlannerScope falls back org-wide for film order delete without returned job proof', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, {}),
+    {}
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: null }),
+    {}
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: '' }),
+    {}
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: ' ' }),
+    {}
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: 18722 }),
+    {}
+  );
+});
+
+test('buildAutoPlannerScope keeps film order cancel org-wide', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/cancel', { jobNumber: '18722' }, { jobNumber: '18722' }),
+    {}
+  );
+});
+
 test('buildAutoPlannerScope ignores routes that do not affect material planning', () => {
   assert.equal(buildAutoPlannerScope('/profile/username', {}, {}), null);
 });

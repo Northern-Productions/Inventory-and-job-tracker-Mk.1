@@ -40,7 +40,6 @@ const ORG_WIDE_MUTATION_ROUTES = new Set([
   '/jobs/complete',
   '/jobs/delete',
   '/film-orders/cancel',
-  '/film-orders/delete',
   '/audit/undo',
 ]);
 
@@ -81,6 +80,10 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
 
   if (SQL_PLANNER_HANDLED_ROUTES.has(logicalPath)) {
     return null;
+  }
+
+  if (logicalPath === '/film-orders/delete') {
+    return buildFilmOrderDeletePlannerScope(responseData);
   }
 
   if (ORG_WIDE_MUTATION_ROUTES.has(logicalPath)) {
@@ -141,6 +144,27 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   }
 
   return Object.keys(scope).length > 0 ? scope : ORG_WIDE_SCOPE;
+}
+
+/**
+ * PURPOSE:
+ * Scopes plain pending film-order deletion to the returned job only, while
+ * preserving org-wide fallback if the mutation response cannot prove that job.
+ *
+ * AFFECTS:
+ * Local /film-orders/delete post-write planner cost and timeout risk.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * Supabase Edge mutationHandlers parity, guarded plain-delete SQL, and Film
+ * Orders tab delete tests.
+ *
+ * COMMON FAILURE MODES:
+ * Trusting request payload job numbers, skipping planner on missing response
+ * data, or applying this scoped behavior to /film-orders/cancel.
+ */
+function buildFilmOrderDeletePlannerScope(responseData = {}) {
+  const jobNumber = typeof responseData?.jobNumber === 'string' ? asTrimmedString(responseData.jobNumber) : '';
+  return jobNumber ? { jobNumbers: [jobNumber] } : ORG_WIDE_SCOPE;
 }
 
 async function reconcileAutoPlannedAllocations(client, orgId, actor, scope = ORG_WIDE_SCOPE) {

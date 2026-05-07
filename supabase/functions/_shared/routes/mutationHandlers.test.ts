@@ -468,3 +468,323 @@ Deno.test("planner mutation routes still run Edge planner reconciliation when SQ
     "Expected Edge planner warnings to still append for non-SQL-owned planner routes.",
   );
 });
+
+Deno.test("/film-orders/delete scopes Edge planner to returned film order job and preserves response", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
+  let jobDetailReloadCount = 0;
+  let filmOrderDetailReloadCount = 0;
+  let filmOrderLinkedBoxesReloadCount = 0;
+  let filmOrdersListReloadCount = 0;
+  const deletedFilmOrder = {
+    filmOrderId: "FO-100",
+    jobNumber: "81234",
+    warehouse: "IL1",
+    status: "FILM_ORDER",
+    linkedBoxes: [],
+  };
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/film-orders/delete",
+    {
+      filmOrderId: "FO-100",
+      jobNumber: "PAYLOAD-SHOULD-NOT-BE-USED",
+      reason: "Deleted from Film Orders.",
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          filmOrder: deletedFilmOrder,
+          warnings: ["Delete RPC warning."],
+        };
+      },
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {
+          warnings: ["Planner warning."],
+        };
+      },
+      buildJobDetail: async () => {
+        jobDetailReloadCount += 1;
+        return {};
+      },
+      findFilmOrderById: async () => {
+        filmOrderDetailReloadCount += 1;
+        return null;
+      },
+      buildPublicFilmOrderLinkedBoxes: async () => {
+        filmOrderLinkedBoxesReloadCount += 1;
+        return [];
+      },
+      buildFilmOrdersList: async () => {
+        filmOrdersListReloadCount += 1;
+        return [];
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_film_orders_delete",
+        orgId: "org-1",
+        actor: "tester",
+        payload: {
+          filmOrderId: "FO-100",
+          jobNumber: "PAYLOAD-SHOULD-NOT-BE-USED",
+          reason: "Deleted from Film Orders.",
+        },
+      },
+    ],
+    "Expected /film-orders/delete to call the delete RPC once.",
+  );
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: { jobNumbers: ["81234"] },
+      },
+    ],
+    "Expected /film-orders/delete to scope planner to the returned film order job.",
+  );
+  assertEquals(jobDetailReloadCount, 0, "Expected no job detail reload after film order delete.");
+  assertEquals(filmOrderDetailReloadCount, 0, "Expected no film order detail reload after delete.");
+  assertEquals(filmOrderLinkedBoxesReloadCount, 0, "Expected no linked-box reload after delete.");
+  assertEquals(filmOrdersListReloadCount, 0, "Expected no film orders list reload after delete.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: deletedFilmOrder,
+      warnings: ["Delete RPC warning.", "Planner warning."],
+    },
+    "Expected delete response data shape to stay unchanged and warnings to be preserved.",
+  );
+});
+
+Deno.test("/film-orders/delete trims returned film order job number before scoping planner", async () => {
+  const plannerCalls: Array<Record<string, unknown>> = [];
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/film-orders/delete",
+    {
+      filmOrderId: "FO-TRIM",
+      jobNumber: "PAYLOAD-SHOULD-NOT-BE-USED",
+    },
+    buildDeps({
+      callMutationRpc: async () => ({
+        filmOrder: {
+          filmOrderId: "FO-TRIM",
+          jobNumber: " 81234 ",
+        },
+        warnings: [],
+      }),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: { jobNumbers: ["81234"] },
+      },
+    ],
+    "Expected returned film order job number to be trimmed before planner scoping.",
+  );
+});
+
+Deno.test("/film-orders/delete falls back to org-wide planner when returned job number is missing", async () => {
+  const cases = [
+    { label: "missing", filmOrder: { filmOrderId: "FO-MISSING" } },
+    { label: "null", filmOrder: { filmOrderId: "FO-NULL", jobNumber: null } },
+    { label: "empty string", filmOrder: { filmOrderId: "FO-EMPTY", jobNumber: "" } },
+    { label: "whitespace", filmOrder: { filmOrderId: "FO-WHITESPACE", jobNumber: " " } },
+    { label: "non-string", filmOrder: { filmOrderId: "FO-NONSTRING", jobNumber: 81234 } },
+    { label: "null film order", filmOrder: null },
+  ];
+
+  for (const testCase of cases) {
+    const plannerCalls: Array<Record<string, unknown>> = [];
+
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-1", actor: "tester", role: "owner" } as any,
+      "/film-orders/delete",
+      {
+        filmOrderId: `FO-${testCase.label}`,
+        jobNumber: "PAYLOAD-SHOULD-NOT-BE-USED",
+      },
+      buildDeps({
+        callMutationRpc: async () => ({
+          filmOrder: testCase.filmOrder,
+          warnings: [],
+        }),
+        reconcileAutoPlannedAllocations: async (
+          _client: unknown,
+          orgId: string,
+          actor: string,
+          scope: Record<string, unknown>,
+        ) => {
+          plannerCalls.push({ orgId, actor, scope });
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(
+      plannerCalls,
+      [
+        {
+          orgId: "org-1",
+          actor: "tester",
+          scope: {},
+        },
+      ],
+      `Expected ${testCase.label} returned job number to fall back to org-wide planning.`,
+    );
+  }
+});
+
+Deno.test("/film-orders/cancel remains org-wide planner scoped", async () => {
+  const plannerCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/film-orders/cancel",
+    {
+      jobNumber: "81234",
+      reason: "Cancel job film orders.",
+    },
+    buildDeps({
+      callMutationRpc: async () => ({
+        jobNumber: "81234",
+        warnings: ["Cancel RPC warning."],
+      }),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {
+          warnings: ["Planner warning."],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {},
+      },
+    ],
+    "Expected /film-orders/cancel to keep org-wide planner reconciliation.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: { jobNumber: "81234" },
+      warnings: ["Cancel RPC warning.", "Planner warning."],
+    },
+    "Expected /film-orders/cancel response shape and warnings to stay unchanged.",
+  );
+});
+
+Deno.test("/jobs/complete keeps existing org-wide planner and detail reload behavior", async () => {
+  const plannerCalls: Array<Record<string, unknown>> = [];
+  const detailCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/complete",
+    {
+      jobNumber: "81234",
+    },
+    buildDeps({
+      completeJob: async () => ({
+        ok: true,
+        data: { jobNumber: "81234", detailSource: "completeJob" },
+        warnings: ["Complete warning."],
+      }),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {
+          warnings: ["Planner warning."],
+        };
+      },
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+        detailCalls.push({ orgId, jobNumber });
+        return { jobNumber, detailSource: "postPlannerReload" };
+      },
+    }),
+  );
+
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {},
+      },
+    ],
+    "Expected /jobs/complete to remain org-wide planner scoped.",
+  );
+  assertEquals(
+    detailCalls,
+    [{ orgId: "org-1", jobNumber: "81234" }],
+    "Expected /jobs/complete to keep existing post-planner job detail reload behavior.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: { jobNumber: "81234", detailSource: "postPlannerReload" },
+      warnings: ["Complete warning.", "Planner warning."],
+    },
+    "Expected /jobs/complete response behavior to stay unchanged.",
+  );
+});

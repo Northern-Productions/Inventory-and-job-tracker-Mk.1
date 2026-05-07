@@ -26,6 +26,28 @@ function buildEnv(value: string | undefined) {
   };
 }
 
+const EXPECTED_TIMING_TARGETS = [
+  ["POST", "/film-orders/delete"],
+  ["POST", "/film-orders/cancel"],
+  ["GET", "/film-orders/list"],
+  ["POST", "/jobs/create"],
+  ["POST", "/jobs/update"],
+  ["GET", "/jobs/get"],
+  ["POST", "/jobs/complete"],
+  ["POST", "/jobs/delete"],
+  ["POST", "/jobs/checkout-all"],
+  ["POST", "/jobs/set-staged-pickup"],
+  ["POST", "/audit/undo"],
+  ["POST", "/boxes/receive"],
+  ["POST", "/boxes/add"],
+  ["POST", "/boxes/delete"],
+  ["POST", "/boxes/update"],
+  ["POST", "/boxes/set-status"],
+  ["POST", "/allocations/apply"],
+  ["POST", "/allocations/remove-box"],
+  ["GET", "/reports/summary"],
+];
+
 Deno.test("route timing logs affected routes when DEV_ROUTE_TIMING_LOGS is enabled", () => {
   const logs: string[] = [];
 
@@ -146,6 +168,39 @@ Deno.test("route timing strips query and payload-like values from logs", () => {
   assert(!serialized.includes("SECRET"), "Expected secret-like query value to be omitted from timing log.");
 });
 
+Deno.test("film order delete timing captures high-risk total route duration without sensitive values", () => {
+  const logs: string[] = [];
+
+  maybeLogRouteTiming(
+    {
+      runtime: "supabase-edge",
+      method: "POST",
+      route: "/film-orders/delete?filmOrderId=FO-SECRET&authToken=SECRET&jobNumber=12345",
+      statusCode: 504,
+      ok: false,
+      durationMs: 20001,
+      cache: "none",
+      requestId: "req-film-delete",
+      errorCategory: "PostWritePlannerTimeout: filmOrderId=FO-SECRET bodyToken=BODY-SECRET",
+    },
+    {
+      env: buildEnv("true"),
+      logger: (message) => logs.push(message),
+    },
+  );
+
+  assertEquals(logs.length, 1, "Expected one total route timing log for /film-orders/delete.");
+  const serialized = logs[0];
+  const parsed = JSON.parse(serialized);
+  assertEquals(parsed.method, "POST", "Expected POST method to be logged.");
+  assertEquals(parsed.route, "/film-orders/delete", "Expected route to omit query params.");
+  assertEquals(parsed.durationBucket, "timeout-risk", "Expected long total route duration to be timeout-risk.");
+  assert(!serialized.includes("FO-SECRET"), "Expected film order id to be omitted from timing log.");
+  assert(!serialized.includes("12345"), "Expected job number to be omitted from timing log.");
+  assert(!serialized.includes("SECRET"), "Expected auth-like query value to be omitted from timing log.");
+  assert(!serialized.includes("BODY-SECRET"), "Expected payload-like error detail to be omitted from timing log.");
+});
+
 Deno.test("duration buckets match threshold rules", () => {
   assertEquals(classifyDurationBucket(999), "fast", "Expected under 1000ms to be fast.");
   assertEquals(classifyDurationBucket(1000), "slow", "Expected 1000ms to be slow.");
@@ -154,22 +209,10 @@ Deno.test("duration buckets match threshold rules", () => {
 });
 
 Deno.test("route timing target list includes only requested affected endpoints", () => {
-  const expectedTargets = [
-    ["POST", "/jobs/create"],
-    ["POST", "/jobs/update"],
-    ["GET", "/jobs/get"],
-    ["POST", "/jobs/checkout-all"],
-    ["POST", "/jobs/set-staged-pickup"],
-    ["POST", "/boxes/update"],
-    ["POST", "/boxes/set-status"],
-    ["POST", "/allocations/apply"],
-    ["POST", "/allocations/remove-box"],
-  ];
-
-  for (const [method, route] of expectedTargets) {
+  for (const [method, route] of EXPECTED_TIMING_TARGETS) {
     assert(isRouteTimingTarget(method, route), `Expected ${method} ${route} to be timed.`);
   }
 
   assert(!isRouteTimingTarget("GET", "/jobs/list"), "Expected /jobs/list to stay untimed.");
-  assert(!isRouteTimingTarget("POST", "/boxes/add"), "Expected /boxes/add to stay untimed.");
+  assert(!isRouteTimingTarget("GET", "/boxes/list"), "Expected /boxes/list to stay untimed.");
 });
