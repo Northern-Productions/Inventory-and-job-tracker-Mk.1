@@ -48,6 +48,7 @@ import {
 import { useActionAccess } from '../../hooks/useActionAccess';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import { inventoryKeys } from '../../hooks/inventoryQueryKeys';
+import { reconcileJobDetailCaulkCoverage } from '../../cache/jobRequirementCoverage';
 import { useCaulkWorkflow } from './useCaulkWorkflow';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
@@ -104,7 +105,11 @@ export function useAllocationJobPageModel() {
     Set<string>
   >(() => new Set());
 
-  const detail = jobQuery.data;
+  const rawDetail = jobQuery.data;
+  const detail = useMemo(
+    () => (rawDetail ? reconcileJobDetailCaulkCoverage(rawDetail) : rawDetail),
+    [rawDetail]
+  );
   const summary = detail?.summary;
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
@@ -301,13 +306,14 @@ export function useAllocationJobPageModel() {
         return;
       }
 
-      const afterDetail =
+      const nextAfterDetail =
         afterDetailOverride ||
         (await jobQuery.refetch()).data ||
         queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
-      if (!afterDetail) {
+      if (!nextAfterDetail) {
         return;
       }
+      const afterDetail = reconcileJobDetailCaulkCoverage(nextAfterDetail);
 
       const staleOrders = findStaleManualFilmOrdersAfterCoverageTransition({
         before: previousSnapshot,

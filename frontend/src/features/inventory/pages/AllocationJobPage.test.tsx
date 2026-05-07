@@ -601,6 +601,196 @@ describe('AllocationJobPage', () => {
     expectCaulkRequirementTableTotals(html, requirement);
   });
 
+  it('repairs mixed job detail caulk coverage before rendering the overview', () => {
+    const staleRequirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    const detail: JobDetail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0,
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [staleRequirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: staleRequirement.requirementId,
+          allocatedTubes: 20,
+          reservedTubesRemaining: 20
+        })
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+    const repairedRequirement = {
+      ...staleRequirement,
+      allocatedTubes: 20,
+      remainingTubes: 0
+    };
+
+    expect(html).toContain('badge-READY');
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 20,
+      remainingTubes: 0
+    });
+    expectCaulkRequirementTableTotals(html, repairedRequirement);
+  });
+
+  it('repairs mixed job detail with unbound same-product caulk allocation fallback', () => {
+    const staleRequirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    const detail: JobDetail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0,
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [staleRequirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: '',
+          allocatedTubes: 20,
+          reservedTubesRemaining: 20
+        })
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+    const repairedRequirement = {
+      ...staleRequirement,
+      allocatedTubes: 20,
+      remainingTubes: 0
+    };
+
+    expect(html).toContain('badge-READY');
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 20,
+      remainingTubes: 0
+    });
+    expectCaulkRequirementTableTotals(html, repairedRequirement);
+  });
+
+  it('does not count cancelled caulk allocations during mixed detail repair', () => {
+    const staleRequirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    const detail: JobDetail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0,
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [staleRequirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: staleRequirement.requirementId,
+          allocatedTubes: 20,
+          reservedTubesRemaining: 20,
+          status: 'CANCELLED',
+          resolvedAt: '2026-03-20T00:10:00Z',
+          resolvedBy: 'tester'
+        })
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('badge-FILM_ORDER');
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    expectCaulkRequirementTableTotals(html, staleRequirement);
+  });
+
+  it('keeps mixed detail in FILM_ORDER when caulk coverage is partial', () => {
+    const staleRequirement = buildCaulkRequirement({
+      allocatedTubes: 0,
+      remainingTubes: 20
+    });
+    const detail: JobDetail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'FILM_ORDER',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0,
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 20
+      }) as JobDetail['summary'],
+      caulkRequirements: [staleRequirement],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          requirementId: staleRequirement.requirementId,
+          allocatedTubes: 10,
+          reservedTubesRemaining: 10
+        })
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+    const repairedRequirement = {
+      ...staleRequirement,
+      allocatedTubes: 10,
+      remainingTubes: 10
+    };
+
+    expect(html).toContain('badge-FILM_ORDER');
+    expectOverviewCaulkTotals(html, {
+      requiredTubes: 20,
+      allocatedTubes: 10,
+      remainingTubes: 10
+    });
+    expectCaulkRequirementTableTotals(html, repairedRequirement);
+  });
+
   it('renders paused caulk auto-planning resume affordance for suppressed unmet requirements', () => {
     const requirement = buildCaulkRequirement({
       allocatedTubes: 0,

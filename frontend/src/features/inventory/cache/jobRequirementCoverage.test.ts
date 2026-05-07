@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { JobDetail } from '../../../domain';
-import { createOptimisticJobDetailAfterJobUpdate } from './jobRequirementCoverage';
+import { reconcileJobDetailCaulkCoverage } from './jobRequirementCoverage';
 
 function buildSummary(overrides: Partial<JobDetail['summary']> = {}): JobDetail['summary'] {
   return {
@@ -111,14 +111,7 @@ function buildJobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
 }
 
 function rebuildCaulkRequirementCoverage(detail: JobDetail) {
-  return createOptimisticJobDetailAfterJobUpdate(detail, {
-    jobNumber: detail.summary.jobNumber,
-    caulkRequirements: detail.caulkRequirements.map((entry) => ({
-      requirementId: entry.requirementId,
-      productId: entry.productId,
-      requiredTubes: entry.requiredTubes
-    }))
-  });
+  return reconcileJobDetailCaulkCoverage(detail);
 }
 
 describe('jobRequirementCoverage caulk fallback coverage', () => {

@@ -234,7 +234,11 @@ type OrderedCaulkRequirementLine = JobCaulkRequirementLine & {
 
 function getCaulkAllocationCoverageTubes(allocation: JobDetail['caulkAllocations'][number]) {
   const allocatedTubes = Math.max(0, Number(allocation.allocatedTubes || 0));
-  if (allocatedTubes <= 0 || String(allocation.status || '').trim().toUpperCase() === 'CANCELLED') {
+  if (
+    allocatedTubes <= 0 ||
+    String(allocation.status || '').trim().toUpperCase() === 'CANCELLED' ||
+    String(allocation.resolvedAt || '').trim()
+  ) {
     return 0;
   }
 
@@ -668,6 +672,54 @@ export function createOptimisticJobDetailAfterJobUpdate(
     caulkRequirements: nextCaulkRequirements,
     filmOrders: detail.filmOrders.map(patchFilmOrder)
   });
+}
+
+export function reconcileJobDetailCaulkCoverage(detail: JobDetail): JobDetail {
+  const coverageByRequirementId = buildCaulkCoverageByRequirementId(detail);
+  const nextCaulkRequirements = detail.caulkRequirements.map((requirement) => {
+    const requiredTubes = Math.max(0, Number(requirement.requiredTubes || 0));
+    const allocatedTubes = Math.min(
+      requiredTubes,
+      Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
+    );
+
+    return {
+      ...requirement,
+      requiredTubes,
+      allocatedTubes,
+      remainingTubes: Math.max(0, requiredTubes - allocatedTubes)
+    };
+  });
+  const requiredTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.requiredTubes || 0)),
+    0
+  );
+  const allocatedTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.allocatedTubes || 0)),
+    0
+  );
+  const remainingTubes = nextCaulkRequirements.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.remainingTubes || 0)),
+    0
+  );
+
+  const detailWithReconciledCaulk = {
+    ...detail,
+    caulkRequirements: nextCaulkRequirements
+  };
+
+  // Purpose: defend page reads from mixed React Query state where allocation rows are fresh
+  // but derived caulk requirement totals/status came from an older payload.
+  return {
+    ...detailWithReconciledCaulk,
+    summary: {
+      ...detail.summary,
+      status: computeOptimisticExistingJobStatus(detailWithReconciledCaulk, detail.requirements),
+      requiredTubes,
+      allocatedTubes,
+      remainingTubes
+    }
+  };
 }
 
 export function createOptimisticJobDetailAfterFilmOrderReceipt(
