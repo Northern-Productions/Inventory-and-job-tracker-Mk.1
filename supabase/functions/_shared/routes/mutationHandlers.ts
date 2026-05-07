@@ -135,7 +135,6 @@ const ORG_WIDE_MUTATION_ROUTES = new Set([
   "/jobs/complete",
   "/jobs/delete",
   "/film-orders/cancel",
-  "/film-orders/delete",
   "/audit/undo",
 ]);
 
@@ -719,6 +718,10 @@ function buildAutoPlannerScope(
     return null;
   }
 
+  if (logicalPath === "/film-orders/delete") {
+    return buildFilmOrderDeletePlannerScope(responseData, deps);
+  }
+
   if (ORG_WIDE_MUTATION_ROUTES.has(logicalPath)) {
     return ORG_WIDE_SCOPE;
   }
@@ -782,6 +785,32 @@ function buildAutoPlannerScope(
     scope.caulkProductWarehousePairs = Array.from(caulkProductWarehousePairs.values());
   }
   return Object.keys(scope).length > 0 ? scope : ORG_WIDE_SCOPE;
+}
+
+/**
+ * PURPOSE:
+ * Scopes plain pending film-order deletion to the returned job only, while
+ * preserving org-wide fallback if the SQL response cannot prove that job.
+ *
+ * AFFECTS:
+ * /film-orders/delete post-write planner cost and timeout risk.
+ *
+ * WHEN CHANGING THIS, ALSO CHECK:
+ * public.api_acl_film_orders_delete return shape, guarded plain-delete SQL,
+ * local runtimeAutoAllocationPlanner parity, and Film Orders tab delete tests.
+ *
+ * COMMON FAILURE MODES:
+ * Trusting request payload job numbers, skipping planner on missing response
+ * data, or applying this scoped behavior to /film-orders/cancel.
+ */
+function buildFilmOrderDeletePlannerScope(
+  responseData: Record<string, unknown>,
+  deps: MutationHandlerDeps,
+) {
+  const jobNumber = typeof responseData.jobNumber === "string"
+    ? deps.asTrimmedString(responseData.jobNumber)
+    : "";
+  return jobNumber ? { jobNumbers: [jobNumber] } : ORG_WIDE_SCOPE;
 }
 
 function getJobNumberForPlannerDetailReload(
