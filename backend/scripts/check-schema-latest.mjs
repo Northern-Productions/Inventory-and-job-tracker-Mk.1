@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0109_revoke_authenticated_app_schema_usage.sql';
+const LATEST_MIGRATION = '0110_preserve_caulk_on_film_order_cancel.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -56,6 +56,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_create(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_film_orders_cancel(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_film_orders_cancel(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
@@ -270,6 +272,23 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Film orders with fulfillment allocations cannot be cancelled.'
     ],
     excludes: []
+  },
+  {
+    signature: 'public.api_film_orders_cancel(uuid, text, jsonb)',
+    includes: [
+      "v_entry.status := 'CANCELLED';",
+      'perform app_api.save_allocation(v_entry);',
+      'app_api.next_feet_available_after_allocation_release(',
+      'perform app_api.delete_film_order_links_by_film_order_id(p_org_id, v_order.film_order_id);',
+      'perform app_api.delete_film_order(p_org_id, v_order.film_order_id);',
+      "lifecycle_status = 'CANCELLED'",
+      'Released %s active film allocation%s across %s box%s and deleted %s film order%s.'
+    ],
+    excludes: [
+      'app_api.cancel_active_caulk_allocations_for_job(',
+      'JOB_ALLOCATION_CANCEL_RETURN',
+      'caulk_job_allocations'
+    ]
   },
   {
     signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)',
