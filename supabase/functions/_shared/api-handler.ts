@@ -896,14 +896,31 @@ async function sha1Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function shouldUseCache(method: string, logicalPath: string): boolean {
+const CACHEABLE_GET_ROUTES = new Set([
+  "/box-dealers/list",
+  "/caulk/manufacturers/list",
+  "/caulk/products/list",
+  "/film-data/catalog",
+  "/warehouses/list",
+]);
+
+export function shouldUseCache(method: string, logicalPath: string): boolean {
   if (!Number.isFinite(CACHE_TTL_MS) || CACHE_TTL_MS <= 0) {
     return false;
   }
-  if (logicalPath === "/auth/context" || logicalPath === "/boxes/transfer/plan") {
+
+  if (method !== "GET") {
     return false;
   }
-  return method === "GET";
+
+  /*
+   * Operational cache safety:
+   * job/allocation/readiness state changes immediately after mutations, while
+   * this Edge response cache is process-local and cannot be invalidated across
+   * isolates. Broad GET caching can therefore replay stale job truth over a
+   * fresh optimistic client update, so only stable reference reads are cached.
+   */
+  return CACHEABLE_GET_ROUTES.has(logicalPath);
 }
 
 function isMutation(method: string, logicalPath: string): boolean {

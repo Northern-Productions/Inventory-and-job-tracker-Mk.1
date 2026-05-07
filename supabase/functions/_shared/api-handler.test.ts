@@ -2,6 +2,7 @@ import {
   buildPublicCaulkRequirementEntries,
   fetchWarehouseBoxRowsForInventory,
   maybeLogCaulkFallbackCoverageDecision,
+  shouldUseCache,
 } from "./api-handler.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 
@@ -12,6 +13,47 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
     throw new Error(`${message}\nExpected: ${expectedJson}\nActual: ${actualJson}`);
   }
 }
+
+Deno.test("Edge response cache bypasses mutation-sensitive operational reads", () => {
+  const operationalRoutes = [
+    "/jobs/get",
+    "/jobs/list",
+    "/jobs/search",
+    "/jobs/calendar",
+    "/allocations/by-job",
+    "/allocations/jobs",
+    "/app/attention-summary",
+  ];
+
+  for (const route of operationalRoutes) {
+    assertEquals(
+      shouldUseCache("GET", route),
+      false,
+      `Expected ${route} to bypass isolate-local cache after inventory/job mutations.`,
+    );
+  }
+});
+
+Deno.test("Edge response cache remains allowlisted for stable reference reads only", () => {
+  const cacheableReferenceRoutes = [
+    "/warehouses/list",
+    "/box-dealers/list",
+    "/caulk/manufacturers/list",
+    "/caulk/products/list",
+    "/film-data/catalog",
+  ];
+
+  for (const route of cacheableReferenceRoutes) {
+    assertEquals(
+      shouldUseCache("GET", route),
+      true,
+      `Expected ${route} to remain cacheable as a stable reference read.`,
+    );
+  }
+
+  assertEquals(shouldUseCache("POST", "/allocations/caulk/add"), false, "Expected mutations to bypass cache.");
+  assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
+});
 
 Deno.test("fetchWarehouseBoxRowsForInventory pages warehouse box reads past the first capped page", async () => {
   const pages = [
