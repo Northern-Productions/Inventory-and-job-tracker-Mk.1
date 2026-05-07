@@ -63,7 +63,7 @@ test('box check-in reconciliation updates only existing FILM_ORDER rows', async 
 test('latest schema check requires box check-in reconciliation objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0108_restrict_user_session_rpc_service_role\.sql/);
+  assert.match(schemaCheck, /0109_revoke_authenticated_app_schema_usage\.sql/);
   assert.match(schemaCheck, /app\.film_orders\.requirement_id/);
   assert.match(schemaCheck, /app_api\.reconcile_box_checkin_allocations\(uuid, text, text, integer\)/);
 });
