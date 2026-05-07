@@ -9,39 +9,26 @@ const backendMigrationPath = path.join(
   repoRoot,
   'backend',
   'migrations',
-  '0106_grant_access_management_rpc_execute.sql'
+  '0108_restrict_user_session_rpc_service_role.sql'
 );
 const supabaseMigrationPath = path.join(
   repoRoot,
   'supabase',
   'migrations',
-  '20260506100000_grant_access_management_rpc_execute.sql'
+  '20260506140000_restrict_user_session_rpc_service_role.sql'
 );
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 
-const accessManagementRpcSignatures = [
-  'public.api_list_access_requests(uuid, text)',
-  'public.api_approve_access_request(uuid, text, jsonb)',
-  'public.api_deny_access_request(uuid, text, jsonb)',
-  'public.api_list_username_change_requests(uuid, text)',
-  'public.api_approve_username_change_request(uuid, text, jsonb)',
-  'public.api_deny_username_change_request(uuid, text, jsonb)',
-  'public.api_get_member_feature_permissions(uuid)',
-  'public.api_update_member_feature_permissions(uuid, text, jsonb)',
-  'public.api_get_user_feature_permissions(uuid, uuid)',
-  'public.api_update_user_feature_permissions(uuid, text, jsonb)',
-  'public.api_get_admin_feature_permissions(uuid)',
-  'public.api_update_admin_feature_permissions(uuid, text, jsonb)',
-  'public.api_promote_member_to_admin(uuid, text, jsonb)',
-  'public.api_demote_admin_to_member(uuid, text, jsonb)',
-  'public.api_promote_admin_to_owner(uuid, text, jsonb)',
+const userSessionRpcSignatures = [
+  'public.api_get_auth_context(uuid)',
+  'public.api_request_username_change(uuid, text, jsonb)',
 ];
 
 function escapedPattern(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-test('access-management RPC permission migration stays mirrored between backend and Supabase', async () => {
+test('user-session RPC service-role restriction migration stays mirrored between backend and Supabase', async () => {
   const [backendMigration, supabaseMigration] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
     readFile(supabaseMigrationPath, 'utf8'),
@@ -50,10 +37,10 @@ test('access-management RPC permission migration stays mirrored between backend 
   assert.equal(supabaseMigration, backendMigration);
 });
 
-test('access-management RPC permission migration grants only authenticated execute', async () => {
+test('user-session RPC service-role restriction keeps only authenticated execute', async () => {
   const migration = await readFile(backendMigrationPath, 'utf8');
 
-  for (const signature of accessManagementRpcSignatures) {
+  for (const signature of userSessionRpcSignatures) {
     const pattern = escapedPattern(signature);
     assert.match(migration, new RegExp(`revoke execute on function ${pattern} from public;`));
     assert.match(migration, new RegExp(`revoke execute on function ${pattern} from anon;`));
@@ -63,13 +50,12 @@ test('access-management RPC permission migration grants only authenticated execu
   }
 });
 
-test('latest schema check guards the access-management RPC permission surface', async () => {
+test('latest schema check points to the user-session RPC service-role restriction', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
   assert.match(schemaCheck, /0108_restrict_user_session_rpc_service_role\.sql/);
-  assert.match(schemaCheck, /REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);
-  for (const signature of accessManagementRpcSignatures) {
+  for (const signature of userSessionRpcSignatures) {
     assert.match(schemaCheck, new RegExp(escapedPattern(signature)));
   }
 });

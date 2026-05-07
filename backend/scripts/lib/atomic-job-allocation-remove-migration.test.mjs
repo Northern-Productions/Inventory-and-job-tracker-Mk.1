@@ -53,7 +53,7 @@ test('atomic allocation remove migration recalculates dependent allocation state
 test('latest schema check requires atomic allocation remove RPCs', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0107_caulk_auto_planner_suppression\.sql/);
+  assert.match(schemaCheck, /0108_restrict_user_session_rpc_service_role\.sql/);
   assert.match(schemaCheck, /public\.api_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /public\.api_acl_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /perform app_api\.recalculate_physical_box_allocatable_now\(p_org_id, v_box\.box_id\);/);
