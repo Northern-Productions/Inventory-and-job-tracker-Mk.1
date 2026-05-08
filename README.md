@@ -23,7 +23,7 @@ Architecture map: [docs/architecture/modular-map.md](docs/architecture/modular-m
   - serves inventory, jobs, allocations, film orders, audit history, roll history, and reports
 - Database: Supabase Postgres
   - canonical migration history lives in `backend/migrations/`
-  - apply migrations in numeric order through the current checkpoint: `backend/migrations/0087_allocation_reserved_availability.sql`
+  - verify the latest checked-in schema with `npm --prefix backend run check:schema:latest`
   - mirrored deploy copy lives in `supabase/migrations/`
 - Rollback/parity host: `backend/`
   - optional local or temporary rollback tooling
@@ -60,15 +60,18 @@ backend/
 
 ### 1. Run Supabase migrations
 
-Run all checked-in `backend/migrations/*.sql` files in numeric order through:
+Confirm the target project before any mutating Supabase command. This repo may
+be linked to the PROD project, so treat mutating `--linked` commands as PROD
+unless you have explicitly verified otherwise.
 
-1. `backend/migrations/0087_allocation_reserved_availability.sql`
+Use the checked-in migration history and the normal release path for the target
+environment:
 
-The mirrored Supabase deploy copies for this release are:
-
-- `supabase/migrations/20260425090000_create_append_roll_history_wrapper.sql`
-- `supabase/migrations/20260425093000_create_cancel_active_allocations_for_box_job_wrapper.sql`
-- `supabase/migrations/20260425130000_allocation_reserved_availability.sql`
+```bash
+npx supabase projects list --output json
+npx supabase migration list --linked
+npm --prefix backend run check:schema:latest
+```
 
 ### 2. Import legacy sheet data if needed
 
@@ -185,13 +188,14 @@ npm run dev
 
 ## Release Checklist
 
-1. Apply DB migrations before API/frontend deploy through `0077_restore_linked_receipt_post_save_recalc.sql`.
-2. Run `npm --prefix backend run check:schema:latest` against the target DB.
-3. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
-4. Deploy Supabase function `api`.
-5. Run `npm --prefix backend run verify:edge:live` with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
-6. Run `npm --prefix backend run verify:edge:caulk` with `SMOKE_FRONTEND_URL` pointing at the production frontend and the approved smoke admin credentials configured in `backend/.env`.
-7. Deploy frontend after API verification is live.
+1. Confirm the Supabase target project before any mutation; the linked project may be PROD.
+2. Apply pending DB migrations through the normal release path before API/frontend deploy.
+3. Run `npm --prefix backend run check:schema:latest` against the same target DB.
+4. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
+5. Deploy Supabase function `api`.
+6. Run `npm --prefix backend run verify:edge:live` with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
+7. Run `npm --prefix backend run verify:edge:caulk` with `SMOKE_FRONTEND_URL` pointing at the production frontend and the approved smoke admin credentials configured in `backend/.env`.
+8. Deploy frontend after API verification is live.
 
 Changes under `supabase/functions/api` or `supabase/functions/_shared` require a Supabase Edge deploy even if the frontend is already on the correct git commit.
 

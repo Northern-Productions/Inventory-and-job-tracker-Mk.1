@@ -18,11 +18,16 @@ The function keeps the existing frontend contract:
 
 From repo root:
 
-- Apply the mirrored Supabase migrations through `supabase/migrations/20260425093000_create_cancel_active_allocations_for_box_job_wrapper.sql` before deploying the Edge function.
-- That mirrored checkpoint corresponds to `backend/migrations/0082_create_cancel_active_allocations_for_box_job_wrapper.sql` in the canonical backend migration history.
+- Confirm the target project before any mutating Supabase command. This repo may
+  be linked to the PROD project, so treat mutating `--linked` commands as PROD
+  unless you have explicitly verified otherwise.
+- Apply the checked-in mirrored Supabase migrations for the target environment
+  before deploying the Edge function.
+- Run the latest schema guard against the same target DB before deploy.
 
 ```bash
 npx supabase login
+npx supabase migration list --linked
 npx supabase secrets set --project-ref tiwpulgvxtwlmqdnyuzd DEFAULT_ORG_ID="YOUR_ORG_UUID" CACHE_TTL_MS="30000" MAX_CACHE_ENTRIES="500" CORS_ALLOWED_ORIGINS="*" RESEND_API_KEY="YOUR_RESEND_API_KEY" RESEND_FROM_EMAIL="inventory@yourdomain.com" SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" API_BUILD_SHA="YOUR_GIT_SHA" API_BUILT_AT="YYYY-MM-DDTHH:MM:SSZ"
 # verify the latest required schema objects are present in the same DB before deploy
 npm --prefix backend run check:schema:latest
