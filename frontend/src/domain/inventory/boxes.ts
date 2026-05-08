@@ -114,6 +114,7 @@ export interface ReceiveOrderedBoxPayload {
   boxId: string;
   receivedWeightLbs?: number;
   lotRun?: string;
+  coreType?: BoxCoreType;
 }
 
 export interface BoxDealerEntry {

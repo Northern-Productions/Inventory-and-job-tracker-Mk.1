@@ -1,5 +1,6 @@
 import {
   buildPublicCaulkRequirementEntries,
+  canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
   maybeLogCaulkFallbackCoverageDecision,
   shouldUseCache,
@@ -53,6 +54,24 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
 
   assertEquals(shouldUseCache("POST", "/allocations/caulk/add"), false, "Expected mutations to bypass cache.");
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
+});
+
+Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
+  const payload = await canonicalizeMutationPayloadForRoute({} as any, "org-1", "/boxes/receive", {
+    boxId: "IL1-1234",
+    lotRun: "  LOT-42  ",
+    coreType: "  Red plastic  ",
+  });
+
+  assertEquals(
+    payload,
+    {
+      boxId: "IL1-1234",
+      lotRun: "LOT-42",
+      coreType: "Red plastic",
+    },
+    "Expected receive payload canonicalization to trim optional core type with lot run.",
+  );
 });
 
 Deno.test("fetchWarehouseBoxRowsForInventory pages warehouse box reads past the first capped page", async () => {

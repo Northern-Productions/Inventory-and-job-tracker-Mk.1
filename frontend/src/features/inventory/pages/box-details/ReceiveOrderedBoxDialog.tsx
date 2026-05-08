@@ -4,6 +4,7 @@ import { DialogSurface } from '../../../../components/DialogSurface';
 import { Input } from '../../../../components/Input';
 import type { Box } from '../../../../domain';
 import {
+  CORE_TYPE_OPTIONS,
   createOrderedBoxReceiveDraft,
   type OrderedBoxReceiveDraft,
   validateOrderedBoxReceiveDraft
@@ -26,7 +27,8 @@ export function ReceiveOrderedBoxDialog({
 }: ReceiveOrderedBoxDialogProps) {
   const [draft, setDraft] = useState<OrderedBoxReceiveDraft>({
     receivedWeightLbs: '',
-    lotRun: ''
+    lotRun: '',
+    coreType: ''
   });
   const [error, setError] = useState('');
 
@@ -36,7 +38,7 @@ export function ReceiveOrderedBoxDialog({
       return;
     }
 
-    setDraft(box ? createOrderedBoxReceiveDraft(box) : { receivedWeightLbs: '', lotRun: '' });
+    setDraft(box ? createOrderedBoxReceiveDraft(box) : { receivedWeightLbs: '', lotRun: '', coreType: '' });
     setError('');
   }, [box, open]);
 
@@ -91,8 +93,8 @@ export function ReceiveOrderedBoxDialog({
         </button>
       </div>
       <p id="receive-ordered-box-dialog-description" className="muted-text dialog-message">
-        Save this box as received and move it into active in-stock inventory. Weight and lot run are
-        optional so receipt is not blocked when the box cannot be weighed right away.
+        Save this box as received and move it into active in-stock inventory. Weight, lot run, and
+        core type are optional so receipt is not blocked when the box cannot be weighed right away.
       </p>
       <div className="form-grid">
         <Input
@@ -126,6 +128,26 @@ export function ReceiveOrderedBoxDialog({
           hint="Optional. Leave blank to keep the current lot run value."
           disabled={pending || !box}
         />
+        <label className="field">
+          <span className="field-label">Core Type</span>
+          <select
+            className="field-input"
+            value={draft.coreType}
+            onChange={(event) => {
+              setDraft((current) => ({ ...current, coreType: event.target.value }));
+              setError('');
+            }}
+            disabled={pending || !box}
+          >
+            <option value="">Select core type</option>
+            {CORE_TYPE_OPTIONS.map((coreType) => (
+              <option key={coreType} value={coreType}>
+                {coreType}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">Optional. Leave blank to keep the current core type.</span>
+        </label>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       <div className="dialog-actions dialog-actions-sticky-footer">
