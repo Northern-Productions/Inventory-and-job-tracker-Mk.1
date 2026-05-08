@@ -3,6 +3,8 @@ import {
   ok,
   asTrimmedString,
   cloneValue,
+  deriveCoreWeightLbs,
+  normalizeCoreType,
   roundToDecimals,
   todayDateString,
   toPublicBox,
@@ -90,6 +92,7 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
 
   const receivedWeightLbs = parseOptionalReceivedWeight(payload.receivedWeightLbs);
   const requestedLotRun = asTrimmedString(payload.lotRun);
+  const requestedCoreType = normalizeCoreType(payload.coreType, true);
   const existingAllocations = await listAllocationsByBox(client, orgId, existing.boxId);
   const lockedAllocatedFeet = sumLockedAllocatedFeet(existingAllocations);
   const receivedDate = todayDateString();
@@ -99,6 +102,11 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
   updatedBox.receivedDate = receivedDate;
   updatedBox.feetAvailable = Math.max(existing.initialFeet - lockedAllocatedFeet, 0);
   updatedBox.lotRun = requestedLotRun || existing.lotRun;
+
+  if (requestedCoreType) {
+    updatedBox.coreType = requestedCoreType;
+    updatedBox.coreWeightLbs = deriveCoreWeightLbs(requestedCoreType, updatedBox.widthIn);
+  }
 
   if (receivedWeightLbs !== null) {
     updatedBox.initialWeightLbs = receivedWeightLbs;

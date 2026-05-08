@@ -718,6 +718,8 @@ describe('BoxDetailsPage', () => {
         receivedDate: '',
         feetAvailable: 0,
         lotRun: '',
+        coreType: '',
+        coreWeightLbs: null,
         initialWeightLbs: null,
         lastRollWeightLbs: null,
         lastWeighedDate: '',
@@ -735,6 +737,7 @@ describe('BoxDetailsPage', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
     expect(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i })).toBeTruthy();
     expect(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i })).toBeTruthy();
+    expect(within(dialog).getByRole('combobox', { name: /Core Type/i })).toBeTruthy();
     expect(within(dialog).queryByText(/This receive will save/i)).toBeNull();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
@@ -771,6 +774,8 @@ describe('BoxDetailsPage', () => {
         receivedDate: '',
         feetAvailable: 0,
         lotRun: '',
+        coreType: '',
+        coreWeightLbs: null,
         initialWeightLbs: null,
         lastRollWeightLbs: null,
         lastWeighedDate: '',
@@ -803,6 +808,63 @@ describe('BoxDetailsPage', () => {
     );
   });
 
+  it('preselects and submits ordered receive core type through the dedicated mutation payload', async () => {
+    const receiveOrderedState = buildMutationState();
+    receiveOrderedState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        receivedDate: '2026-04-17',
+        feetAvailable: 500,
+        lotRun: '',
+        coreType: 'Red plastic',
+        coreWeightLbs: 0.7708,
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      })
+    );
+    useReceiveOrderedBoxMock.mockReturnValue(receiveOrderedState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        feetAvailable: 0,
+        lotRun: '',
+        coreType: 'Cardboard 3/8"',
+        coreWeightLbs: 2.5625,
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    const coreTypeSelect = within(dialog).getByRole('combobox', { name: /Core Type/i }) as HTMLSelectElement;
+    expect(coreTypeSelect.value).toBe('Cardboard 3/8"');
+
+    fireEvent.change(coreTypeSelect, {
+      target: { value: 'Red plastic' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
+
+    await waitFor(() =>
+      expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234',
+        coreType: 'Red plastic'
+      })
+    );
+  });
+
   it('summarizes planner warnings after receiving an ordered box without dumping raw diagnostics', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const receiveOrderedState = buildMutationState();
@@ -831,6 +893,8 @@ describe('BoxDetailsPage', () => {
         receivedDate: '',
         feetAvailable: 0,
         lotRun: '',
+        coreType: '',
+        coreWeightLbs: null,
         initialWeightLbs: null,
         lastRollWeightLbs: null,
         lastWeighedDate: '',

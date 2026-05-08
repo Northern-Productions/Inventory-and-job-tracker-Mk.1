@@ -48,6 +48,7 @@ import {
   removeOfflineInventoryBox,
   syncOfflineInventoryQueries
 } from '../useInventoryOfflineSync';
+import { deriveCoreWeightLbs } from '../../utils/boxHelpers';
 
 function getTouchedTransferBoxIds(result: {
   transfer: { sourceBoxId: string; destinationBoxId: string };
@@ -412,7 +413,11 @@ export function useReceiveOrderedBox() {
               payload.receivedWeightLbs !== undefined ? payload.receivedWeightLbs : box.initialWeightLbs,
             lastWeighedDate:
               payload.receivedWeightLbs !== undefined ? nextDate : box.lastWeighedDate,
-            lotRun: payload.lotRun !== undefined ? payload.lotRun : box.lotRun
+            lotRun: payload.lotRun !== undefined ? payload.lotRun : box.lotRun,
+            coreType: payload.coreType || box.coreType,
+            coreWeightLbs: payload.coreType
+              ? deriveCoreWeightLbs(payload.coreType, box.widthIn)
+              : box.coreWeightLbs
           }));
           applyOptimisticOrderedBoxReceiptToCaches(queryClient, payload.boxId);
         }

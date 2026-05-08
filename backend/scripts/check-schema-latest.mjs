@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0110_preserve_caulk_on_film_order_cancel.sql';
+const LATEST_MIGRATION = '0111_receive_ordered_core_type.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -184,6 +184,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'v_locked_allocated_feet := app_api.physical_film_commitment_feet_for_box(p_org_id, v_lookup_box_id);',
       'v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
+      "v_core_type := app_api.normalize_core_type(v_payload->>'coreType', true);",
+      'v_box.core_weight_lbs := app_api.derive_core_weight_lbs(v_core_type, v_box.width_in);',
       'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
       "v_log_id := app_api.append_audit_entry(",

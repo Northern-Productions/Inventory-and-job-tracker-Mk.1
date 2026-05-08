@@ -422,6 +422,7 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
       boxId: 'IL1-ORDERED-1',
       receivedWeightLbs: '12.5',
       lotRun: 'LOT-42',
+      coreType: 'Red plastic',
     },
     'warehouse-user'
   );
@@ -434,6 +435,8 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
   assert.equal(response.data.box.initialWeightLbs, 12.5);
   assert.equal(response.data.box.lastWeighedDate, response.data.box.receivedDate);
   assert.equal(response.data.box.lotRun, 'LOT-42');
+  assert.equal(response.data.box.coreType, 'Red plastic');
+  assert.equal(response.data.box.coreWeightLbs, 0.925);
   assert.match(
     response.warnings.join(' '),
     /automatically allocated to job 5555 for Film Order FO-RECEIVE-1/i
@@ -451,6 +454,45 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
 
   assert.equal(client.state.auditEntries.length, 1);
   assert.match(client.state.auditEntries[0].notes, /Received ordered box IL1-ORDERED-1 at 12.5 lbs with lot run LOT-42/);
+});
+
+test('receiveOrderedBox preserves existing core metrics when core type is omitted', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    core_type: 'White plastic',
+    core_weight_lbs: 1,
+  });
+
+  const response = await receiveOrderedBox(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-ORDERED-1',
+    },
+    'warehouse-user'
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(response.data.box.coreType, 'White plastic');
+  assert.equal(response.data.box.coreWeightLbs, 1);
+});
+
+test('receiveOrderedBox rejects invalid submitted core type', async () => {
+  const client = createRecordingClient();
+
+  await assert.rejects(
+    () =>
+      receiveOrderedBox(
+        client,
+        'org-1',
+        {
+          boxId: 'IL1-ORDERED-1',
+          coreType: 'Unsupported core',
+        },
+        'warehouse-user'
+      ),
+    /CoreType must be White plastic/
+  );
 });
 
 test('receiveOrderedBox resolves an existing ordered placeholder allocation instead of creating a duplicate row', async () => {

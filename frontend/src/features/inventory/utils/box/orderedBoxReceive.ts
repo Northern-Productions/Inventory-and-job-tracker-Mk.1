@@ -1,9 +1,14 @@
-import type { Box, ReceiveOrderedBoxPayload } from '../../../../domain';
+import type { Box, BoxCoreType, ReceiveOrderedBoxPayload } from '../../../../domain';
+import { normalizeCoreTypeValue } from './boxDrafts';
+import { CORE_TYPE_OPTIONS } from './boxRollTracking';
 
 export interface OrderedBoxReceiveDraft {
   receivedWeightLbs: string;
   lotRun: string;
+  coreType: string;
 }
+
+const CORE_TYPE_OPTION_SET = new Set<string>(CORE_TYPE_OPTIONS);
 
 function parseOptionalNonNegativeNumber(value: string, fieldLabel: string) {
   const trimmed = value.trim();
@@ -23,19 +28,39 @@ function parseOptionalNonNegativeNumber(value: string, fieldLabel: string) {
   return parsed;
 }
 
+function normalizeCoreTypeOption(value: string): BoxCoreType {
+  const normalized = normalizeCoreTypeValue(value);
+  return CORE_TYPE_OPTION_SET.has(normalized) ? (normalized as BoxCoreType) : '';
+}
+
+function parseOptionalCoreType(value: string): BoxCoreType {
+  const normalized = normalizeCoreTypeValue(value);
+  if (!normalized) {
+    return '';
+  }
+
+  if (!CORE_TYPE_OPTION_SET.has(normalized)) {
+    throw new Error('Select a core type.');
+  }
+
+  return normalized as BoxCoreType;
+}
+
 export function createOrderedBoxReceiveDraft(
-  box: Pick<Box, 'lotRun'>
+  box: Pick<Box, 'lotRun' | 'coreType'>
 ): OrderedBoxReceiveDraft {
   return {
     receivedWeightLbs: '',
-    lotRun: box.lotRun
+    lotRun: box.lotRun,
+    coreType: normalizeCoreTypeOption(box.coreType)
   };
 }
 
 export function validateOrderedBoxReceiveDraft(draft: OrderedBoxReceiveDraft) {
   return {
     receivedWeightLbs: parseOptionalNonNegativeNumber(draft.receivedWeightLbs, 'Weight'),
-    lotRun: draft.lotRun.trim()
+    lotRun: draft.lotRun.trim(),
+    coreType: parseOptionalCoreType(draft.coreType)
   };
 }
 
@@ -54,6 +79,10 @@ export function buildReceiveOrderedBoxPayload(
 
   if (validated.lotRun) {
     payload.lotRun = validated.lotRun;
+  }
+
+  if (validated.coreType) {
+    payload.coreType = validated.coreType;
   }
 
   return payload;

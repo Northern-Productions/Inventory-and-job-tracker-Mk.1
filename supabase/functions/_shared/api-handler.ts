@@ -7310,7 +7310,7 @@ async function canonicalizeRequirementPayloadEntries(
   return normalized;
 }
 
-async function canonicalizeMutationPayloadForRoute(
+export async function canonicalizeMutationPayloadForRoute(
   client: any,
   orgId: string,
   logicalPath: string,
@@ -7341,6 +7341,9 @@ async function canonicalizeMutationPayloadForRoute(
   if (logicalPath === "/boxes/receive") {
     if (typeof next.lotRun === "string") {
       next.lotRun = asTrimmedString(next.lotRun);
+    }
+    if (typeof next.coreType === "string") {
+      next.coreType = asTrimmedString(next.coreType);
     }
     return next;
   }
