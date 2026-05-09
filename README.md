@@ -193,11 +193,13 @@ npm run dev
 3. Run `npm --prefix backend run check:schema:latest` against the same target DB.
 4. Set Edge secrets for `API_BUILD_SHA` and `API_BUILT_AT`.
 5. Deploy Supabase function `api`.
-6. Run `npm --prefix backend run verify:edge:live` with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
-7. Run `npm --prefix backend run verify:edge:caulk` with `SMOKE_FRONTEND_URL` pointing at the production frontend and the approved smoke admin credentials configured in `backend/.env`.
+6. Run the preferred read-only live check, `npm --prefix backend run verify:edge:live`, with an authenticated smoke user configured via `SMOKE_AUTH_TOKEN` or `SMOKE_USER_EMAIL` / `SMOKE_USER_PASSWORD`.
+7. Run `npm --prefix backend run verify:edge:caulk` only after explicit smoke instruction. It is a mutating smoke workflow; in PROD it must use clearly labeled smoke/test records and approved smoke credentials. If safe smoke data does not exist, stop at read-only verification and report the mutating smoke as skipped.
 8. Deploy frontend after API verification is live.
 
 Changes under `supabase/functions/api` or `supabase/functions/_shared` require a Supabase Edge deploy even if the frontend is already on the correct git commit.
+
+See [docs/automation/codex-operating-manual.md](docs/automation/codex-operating-manual.md) for Codex automation, secret-handling, and smoke-test guardrails.
 
 ### Backend Smoke Auth Setup
 

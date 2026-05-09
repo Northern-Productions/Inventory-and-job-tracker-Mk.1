@@ -52,11 +52,10 @@ The health payload includes `apiBuildSha` and `apiBuiltAt` for deployment verifi
 
 ## Verify Live Edge Summary
 
-After deploy, run:
+After deploy, prefer the read-only live verification check:
 
 ```bash
 npm --prefix backend run verify:edge:live
-npm --prefix backend run verify:edge:caulk
 ```
 
 Set `SMOKE_AUTH_TOKEN` before running the command, or configure
@@ -65,8 +64,15 @@ script can mint a fresh token automatically. Override `VERIFY_EDGE_JOB_NUMBER`
 and the `VERIFY_EDGE_EXPECTED_*` env vars when you need to verify a different
 live job.
 
-`verify:edge:caulk` also expects `SMOKE_FRONTEND_URL` to point at the live
-frontend so the browser portion of the smoke can verify the inbound transfer UI.
+`verify:edge:caulk` is a mutating smoke workflow. Run it only after explicit
+DEV/PROD smoke instruction; in PROD it must use clearly labeled smoke/test
+records and approved smoke credentials. If safe smoke data does not exist, stop
+at read-only verification and report the mutating smoke as skipped. It also
+expects `SMOKE_FRONTEND_URL` to point at the live frontend so the browser
+portion of the smoke can verify the inbound transfer UI.
+
+See `docs/automation/codex-operating-manual.md` for Codex automation,
+secret-handling, and smoke-test guardrails.
 
 To provision a dedicated local smoke user and persist those credentials into
 `backend/.env`, run `npm --prefix backend run smoke:provision-user`.
