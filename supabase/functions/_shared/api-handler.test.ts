@@ -1,5 +1,6 @@
 import {
   buildPublicCaulkRequirementEntries,
+  buildPublicJobRequirementEntries,
   canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
   maybeLogCaulkFallbackCoverageDecision,
@@ -179,6 +180,110 @@ Deno.test("buildPublicCaulkRequirementEntries applies unbound caulk coverage in 
       { requirementId: "caulk-req-b", allocatedTubes: 5, remainingTubes: 5 },
     ],
     "Expected one unbound allocation to cover same-product requirements deterministically.",
+  );
+});
+
+Deno.test("buildPublicJobRequirementEntries credits only unambiguous stale same-job film allocations", () => {
+  const singleRequirementRows = buildPublicJobRequirementEntries(
+    [
+      {
+        requirementId: "req-current",
+        jobNumber: "19413",
+        manufacturer: "Security",
+        filmName: "Madico Safetyshield 800",
+        widthIn: 60,
+        requiredFeet: 40,
+      },
+    ],
+    [
+      {
+        allocationId: "alloc-stale",
+        boxId: "IL1-CHECKED-OUT",
+        jobNumber: "19413",
+        requirementId: "req-stale",
+        status: "ACTIVE",
+        allocationKind: "REQUIREMENT",
+        allocatedFeet: 40,
+        coveredFeet: 40,
+        resolvedAt: "2026-04-10T10:00:00Z",
+      },
+    ],
+    {
+      "IL1-CHECKED-OUT": {
+        boxId: "IL1-CHECKED-OUT",
+        status: "CHECKED_OUT",
+        lastCheckoutJob: "19413",
+        manufacturer: "Security",
+        filmName: "Madico Safetyshield 800",
+        widthIn: 60,
+      },
+    },
+  );
+
+  assertEquals(
+    singleRequirementRows.map((row) => ({
+      requirementId: row.requirementId,
+      allocatedFeet: row.allocatedFeet,
+      remainingFeet: row.remainingFeet,
+    })),
+    [{ requirementId: "req-current", allocatedFeet: 40, remainingFeet: 0 }],
+    "Expected one unambiguous stale requirement allocation to count.",
+  );
+
+  const ambiguousRows = buildPublicJobRequirementEntries(
+    [
+      {
+        requirementId: "req-48",
+        jobNumber: "19413",
+        manufacturer: "Security",
+        filmName: "Madico Safetyshield 800",
+        widthIn: 48,
+        requiredFeet: 20,
+      },
+      {
+        requirementId: "req-60",
+        jobNumber: "19413",
+        manufacturer: "Security",
+        filmName: "Madico Safetyshield 800",
+        widthIn: 60,
+        requiredFeet: 20,
+      },
+    ],
+    [
+      {
+        allocationId: "alloc-ambiguous",
+        boxId: "IL1-WIDE",
+        jobNumber: "19413",
+        requirementId: "req-stale",
+        status: "ACTIVE",
+        allocationKind: "REQUIREMENT",
+        allocatedFeet: 40,
+        coveredFeet: 40,
+      },
+    ],
+    {
+      "IL1-WIDE": {
+        boxId: "IL1-WIDE",
+        status: "CHECKED_OUT",
+        lastCheckoutJob: "19413",
+        manufacturer: "Security",
+        filmName: "Madico Safetyshield 800",
+        widthIn: 60,
+      },
+    },
+  );
+
+  assertEquals(
+    ambiguousRows.map((row) => ({
+      requirementId: row.requirementId,
+      allocatedFeet: row.allocatedFeet,
+      remainingFeet: row.remainingFeet,
+    })),
+    [
+      { requirementId: "req-48", allocatedFeet: 0, remainingFeet: 20 },
+      { requirementId: "req-60", allocatedFeet: 0, remainingFeet: 20 },
+    ],
+    "Expected ambiguous stale requirement coverage to stay uncredited.",
   );
 });
 

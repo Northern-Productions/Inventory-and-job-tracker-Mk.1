@@ -426,6 +426,27 @@ function findCoverageBoxById(boxById, boxId) {
   return boxById[normalizedBoxId] || boxById[normalizedBoxId.toUpperCase()] || null;
 }
 
+function requirementEntryMatchesAllocationJob(requirementEntry, allocation, expectedJobNumber) {
+  const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+  return !requirementJobNumber || normalizeJobNumberKey(allocation.jobNumber) === requirementJobNumber;
+}
+
+function findFallbackCoverageRequirementEntry(requirementEntries, allocation, box, expectedJobNumber) {
+  const matches = [];
+
+  for (let index = 0; index < requirementEntries.length; index += 1) {
+    const requirementEntry = requirementEntries[index];
+    if (
+      requirementEntryMatchesAllocationJob(requirementEntry, allocation, expectedJobNumber) &&
+      allocationMatchesRequirement(box, requirementEntry.requirement)
+    ) {
+      matches.push(requirementEntry);
+    }
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
 /**
  * PURPOSE:
  * Computes requirement coverage only from stored allocations bound directly
@@ -446,17 +467,20 @@ function findCoverageBoxById(boxById, boxId) {
 function buildAllocationCoverageByRequirementId(requirements, allocations, boxById, options = {}) {
   const coverage = {};
   const requirementById = {};
+  const requirementEntries = [];
   const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
     const requirementId = getRequirementCoverageId(requirement, index);
-    requirementById[requirementId] = {
+    const requirementEntry = {
       requirement,
       requirementId,
       jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0))
     };
+    requirementById[requirementId] = requirementEntry;
+    requirementEntries.push(requirementEntry);
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
@@ -471,16 +495,9 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
-    const boundRequirementId = asTrimmedString(allocation.requirementId);
-    const requirementEntry = boundRequirementId ? requirementById[boundRequirementId] : null;
-    if (!requirementEntry) {
-      continue;
-    }
-
-    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
     if (
-      requirementJobNumber &&
-      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+      expectedJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== expectedJobNumber
     ) {
       continue;
     }
@@ -494,13 +511,21 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
       continue;
     }
 
+    const boundRequirementId = asTrimmedString(allocation.requirementId);
+    const requirementEntry =
+      (boundRequirementId ? requirementById[boundRequirementId] : null) ||
+      findFallbackCoverageRequirementEntry(requirementEntries, allocation, box, expectedJobNumber);
+    if (!requirementEntry || !requirementEntryMatchesAllocationJob(requirementEntry, allocation, expectedJobNumber)) {
+      continue;
+    }
+
     if (!allocationMatchesRequirement(box, requirementEntry.requirement)) {
       continue;
     }
 
     addRequirementCoverageFeet(
       coverage,
-      boundRequirementId,
+      requirementEntry.requirementId,
       requirementEntry.requiredFeet,
       getAllocationReservationState(allocation),
       coveredFeet

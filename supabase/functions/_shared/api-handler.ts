@@ -3443,6 +3443,25 @@ function findCoverageBoxById(boxById: Record<string, any>, boxId: unknown) {
   return boxById[normalizedBoxId] || boxById[normalizedBoxId.toUpperCase()] || null;
 }
 
+function requirementEntryMatchesAllocationJob(requirementEntry: any, allocation: any, expectedJobNumber: string) {
+  const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
+  return !requirementJobNumber || normalizeJobNumberKey(allocation.jobNumber) === requirementJobNumber;
+}
+
+function findFallbackCoverageRequirementEntry(
+  requirementEntries: any[],
+  allocation: any,
+  box: any,
+  expectedJobNumber: string,
+) {
+  const matches = requirementEntries.filter((requirementEntry) =>
+    requirementEntryMatchesAllocationJob(requirementEntry, allocation, expectedJobNumber) &&
+    allocationMatchesRequirement(box, requirementEntry.requirement)
+  );
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function buildAllocationCoverageByRequirementId(
   requirements: any[],
   allocations: any[],
@@ -3456,17 +3475,20 @@ function buildAllocationCoverageByRequirementId(
     jobNumber: string;
     requiredFeet: number;
   }> = {};
+  const requirementEntries: any[] = [];
   const expectedJobNumber = normalizeJobNumberKey(options.jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
     const requirementId = getRequirementCoverageId(requirement, index);
-    requirementById[requirementId] = {
+    const requirementEntry = {
       requirement,
       requirementId,
       jobNumber: normalizeJobNumberKey(requirement.jobNumber || options.jobNumber),
       requiredFeet: Math.max(0, Number(requirement.requiredFeet || 0)),
     };
+    requirementById[requirementId] = requirementEntry;
+    requirementEntries.push(requirementEntry);
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
@@ -3481,16 +3503,9 @@ function buildAllocationCoverageByRequirementId(
       continue;
     }
 
-    const boundRequirementId = asTrimmedString(allocation.requirementId);
-    const requirementEntry = boundRequirementId ? requirementById[boundRequirementId] : null;
-    if (!requirementEntry) {
-      continue;
-    }
-
-    const requirementJobNumber = expectedJobNumber || requirementEntry.jobNumber;
     if (
-      requirementJobNumber &&
-      normalizeJobNumberKey(allocation.jobNumber) !== requirementJobNumber
+      expectedJobNumber &&
+      normalizeJobNumberKey(allocation.jobNumber) !== expectedJobNumber
     ) {
       continue;
     }
@@ -3500,13 +3515,21 @@ function buildAllocationCoverageByRequirementId(
       continue;
     }
 
+    const boundRequirementId = asTrimmedString(allocation.requirementId);
+    const requirementEntry =
+      (boundRequirementId ? requirementById[boundRequirementId] : null) ||
+      findFallbackCoverageRequirementEntry(requirementEntries, allocation, box, expectedJobNumber);
+    if (!requirementEntry || !requirementEntryMatchesAllocationJob(requirementEntry, allocation, expectedJobNumber)) {
+      continue;
+    }
+
     if (!allocationMatchesRequirement(box, requirementEntry.requirement)) {
       continue;
     }
 
     addRequirementCoverageFeet(
       coverageByRequirementId,
-      boundRequirementId,
+      requirementEntry.requirementId,
       requirementEntry.requiredFeet,
       getAllocationReservationState(allocation),
       coveredFeet,
@@ -3533,7 +3556,7 @@ function buildAllocationCoverageByRequirementId(
  * Stale remaining LF, backend/frontend status drift, or suppressed
  * requirements being hidden from the user.
  */
-function buildPublicJobRequirementEntries(requirements: any[], allocations: any[], boxById: Record<string, any>) {
+export function buildPublicJobRequirementEntries(requirements: any[], allocations: any[], boxById: Record<string, any>) {
   const coverage = buildAllocationCoverageByRequirementId(requirements, allocations, boxById);
   const response = requirements.map((requirement, index) => {
     const requirementId = getRequirementCoverageId(requirement, index);

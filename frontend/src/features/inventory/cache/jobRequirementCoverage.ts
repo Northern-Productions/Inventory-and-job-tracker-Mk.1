@@ -46,31 +46,50 @@ function normalizeJobNumberKey(value: string) {
   return String(value || '').trim().toUpperCase();
 }
 
+interface RequirementCoverageEntry {
+  requirement: JobRequirementLine;
+  requirementId: string;
+}
+
+function findFallbackCoverageRequirementEntry(
+  requirementEntries: RequirementCoverageEntry[],
+  allocation: AllocationJobDetailEntry
+) {
+  const matches = requirementEntries.filter((entry) =>
+    allocationMatchesRequirement(allocation, entry.requirement)
+  );
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function rebuildRequirementCoverage(
   requirements: JobRequirementLine[],
   allocations: AllocationJobDetailEntry[],
   jobNumber: string
 ) {
   const coverageByRequirementId: Record<string, number> = {};
-  const requirementById: Record<string, JobRequirementLine> = {};
+  const requirementById: Record<string, RequirementCoverageEntry> = {};
+  const requirementEntries: RequirementCoverageEntry[] = [];
   const expectedJobNumber = normalizeJobNumberKey(jobNumber);
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = requirements[index];
-    requirementById[requirement.requirementId] = requirement;
+    const requirementEntry = {
+      requirement,
+      requirementId: requirement.requirementId
+    };
+    requirementById[requirement.requirementId] = requirementEntry;
+    requirementEntries.push(requirementEntry);
   }
 
   for (let index = 0; index < allocations.length; index += 1) {
     const allocation = allocations[index];
-    const boundRequirementId = String(allocation.requirementId || '').trim();
-    const boundRequirement = boundRequirementId ? requirementById[boundRequirementId] : null;
     const coveredFeet = getAllocationCoveredFeet(allocation);
     if (
       allocation.status === 'CANCELLED' ||
       coveredFeet <= 0 ||
       allocation.allocationKind === 'EXTRA' ||
-      shouldIgnoreOptimisticAllocationCoverage(allocation) ||
-      !boundRequirement
+      shouldIgnoreOptimisticAllocationCoverage(allocation)
     ) {
       continue;
     }
@@ -82,12 +101,18 @@ function rebuildRequirementCoverage(
       continue;
     }
 
-    if (boundRequirement && allocationMatchesRequirement(allocation, boundRequirement)) {
+    const boundRequirementId = String(allocation.requirementId || '').trim();
+    const requirementEntry =
+      (boundRequirementId ? requirementById[boundRequirementId] : null) ||
+      findFallbackCoverageRequirementEntry(requirementEntries, allocation);
+
+    if (requirementEntry && allocationMatchesRequirement(allocation, requirementEntry.requirement)) {
       const nextCoveredFeet = Math.min(
-        Math.max(0, Number(boundRequirement.requiredFeet || 0)),
-        Math.max(0, Number(coverageByRequirementId[boundRequirementId] || 0)) + coveredFeet
+        Math.max(0, Number(requirementEntry.requirement.requiredFeet || 0)),
+        Math.max(0, Number(coverageByRequirementId[requirementEntry.requirementId] || 0)) +
+          coveredFeet
       );
-      coverageByRequirementId[boundRequirementId] = nextCoveredFeet;
+      coverageByRequirementId[requirementEntry.requirementId] = nextCoveredFeet;
     }
   }
 

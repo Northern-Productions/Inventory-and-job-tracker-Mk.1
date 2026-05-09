@@ -222,6 +222,7 @@ function groupEntriesByJobNumber(entries) {
 
 function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingByKey, user, nowIso) {
   const rows = [];
+  const existingRequirements = Object.values(existingByKey || {});
 
   for (let index = 0; index < requirementEntries.length; index += 1) {
     const requirement = requirementEntries[index];
@@ -230,7 +231,11 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
       requirement.filmName,
       requirement.widthIn
     );
-    const existing = existingByKey[key] || null;
+    const requirementId = asTrimmedString(requirement.requirementId);
+    const existingByRequirementId = requirementId
+      ? existingRequirements.find((entry) => asTrimmedString(entry.id || entry.requirementId) === requirementId)
+      : null;
+    const existing = existingByRequirementId || existingByKey[key] || null;
 
     rows.push({
       id: existing ? existing.id : '',
