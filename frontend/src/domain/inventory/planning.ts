@@ -235,13 +235,23 @@ export interface JobUsageTimelineEntry {
   actor: string;
   warehouse: Warehouse;
   referenceId: string;
+  jobNumber?: string;
   manufacturer: string;
   itemName: string;
   itemCode: string;
+  widthIn?: number;
   unit: 'LF' | 'TUBES';
   checkedOutQuantity: number;
   returnedQuantity: number;
   usedQuantity: number;
+  checkedOutAt?: string;
+  checkedInAt?: string;
+  checkedOutWeightLbs?: number | null;
+  checkedInWeightLbs?: number | null;
+  weightDeltaLbs?: number | null;
+  feetBefore?: number | null;
+  feetAfter?: number | null;
+  usedLinearFeet?: number | null;
   notes: string;
 }
 

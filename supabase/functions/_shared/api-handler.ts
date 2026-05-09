@@ -2584,6 +2584,58 @@ function toUsageTimestampSortValue(entry: any) {
   return getRollHistoryActivityTimestamp(entry);
 }
 
+function resolveTrustedRollHistoryFeet(entry: any) {
+  const feetBefore = integerOrZero(entry?.feetBefore);
+  const feetAfter = integerOrZero(entry?.feetAfter);
+  const hasTrustedFeet = feetBefore > 0 || feetAfter > 0;
+
+  if (!hasTrustedFeet) {
+    return {
+      feetBefore: null,
+      feetAfter: null,
+      usedFeet: null,
+    };
+  }
+
+  return {
+    feetBefore,
+    feetAfter,
+    usedFeet: Math.max(feetBefore - feetAfter, 0),
+  };
+}
+
+function deriveOpenFilmCheckoutFeet(box: any): number {
+  if (!box) {
+    return 0;
+  }
+
+  if (
+    box.directToJobSite === true &&
+    !asTrimmedString(box.receivedDate) &&
+    numericOrNull(box.lastRollWeightLbs) === null
+  ) {
+    return integerOrZero(box.initialFeet);
+  }
+
+  const lastRollWeightLbs = numericOrNull(box.lastRollWeightLbs);
+  const coreWeightLbs = numericOrNull(box.coreWeightLbs);
+  const lfWeightLbsPerFt = numericOrNull(box.lfWeightLbsPerFt);
+  if (
+    lastRollWeightLbs !== null &&
+    coreWeightLbs !== null &&
+    lfWeightLbsPerFt !== null &&
+    lfWeightLbsPerFt > 0
+  ) {
+    const rawFeet = roundToDecimals((lastRollWeightLbs - coreWeightLbs) / lfWeightLbsPerFt, 2);
+    if (rawFeet <= 0) {
+      return 0;
+    }
+    return Math.min(Math.floor(rawFeet), integerOrZero(box.initialFeet));
+  }
+
+  return integerOrZero(box.feetAvailable);
+}
+
 function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<string, any>) {
   const grouped: Record<string, any> = {};
   const entries = Array.isArray(rollHistoryEntries) ? rollHistoryEntries : [];
@@ -2593,7 +2645,8 @@ function buildPublicJobUsageEntries(rollHistoryEntries: any[], boxById: Record<s
       continue;
     }
 
-    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const usageFeet = resolveTrustedRollHistoryFeet(entry);
+    const usedFeet = usageFeet.usedFeet ?? 0;
     const timestampSortValue = toUsageTimestampSortValue(entry);
     const box = boxById[entry.boxId] || null;
 
@@ -3036,6 +3089,7 @@ function summarizeCaulkRequirementCoverage(caulkRequirements: any[]) {
 }
 
 function buildPublicJobUsageTimelineEntries(
+  jobNumber: string,
   rollHistoryEntries: any[],
   boxById: Record<string, any>,
   caulkCheckouts: any[],
@@ -3044,6 +3098,7 @@ function buildPublicJobUsageTimelineEntries(
 ) {
   const response: any[] = [];
   const filmOrderById: Record<string, any> = {};
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
   for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
     const filmOrderId = asTrimmedString(entry?.filmOrderId);
     if (filmOrderId) {
@@ -3055,7 +3110,8 @@ function buildPublicJobUsageTimelineEntries(
     if (!entry || !entry.boxId) {
       continue;
     }
-    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const usageFeet = resolveTrustedRollHistoryFeet(entry);
+    const usedFeet = usageFeet.usedFeet ?? 0;
     const occurredAt = asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt);
     if (!occurredAt) {
       continue;
@@ -3067,13 +3123,23 @@ function buildPublicJobUsageTimelineEntries(
       actor: asTrimmedString(entry.checkedInBy) || asTrimmedString(entry.checkedOutBy),
       warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(entry.warehouse),
       referenceId: asTrimmedString(entry.boxId),
+      jobNumber: asTrimmedString(entry.jobNumber),
       manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(entry.manufacturer),
       itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(entry.filmName),
       itemCode: "",
+      widthIn: box ? numericOrNull(box.widthIn) ?? 0 : numericOrNull(entry.widthIn) ?? 0,
       unit: "LF",
-      checkedOutQuantity: integerOrZero(entry.feetBefore),
-      returnedQuantity: integerOrZero(entry.feetAfter),
+      checkedOutQuantity: usageFeet.feetBefore ?? 0,
+      returnedQuantity: usageFeet.feetAfter ?? 0,
       usedQuantity: usedFeet,
+      checkedOutAt: asTrimmedString(entry.checkedOutAt),
+      checkedInAt: asTrimmedString(entry.checkedInAt),
+      checkedOutWeightLbs: numericOrNull(entry.checkedOutWeightLbs),
+      checkedInWeightLbs: numericOrNull(entry.checkedInWeightLbs),
+      weightDeltaLbs: numericOrNull(entry.weightDeltaLbs),
+      feetBefore: usageFeet.feetBefore,
+      feetAfter: usageFeet.feetAfter,
+      usedLinearFeet: usageFeet.usedFeet,
       notes: asTrimmedString(entry.notes),
     });
   }
@@ -3093,14 +3159,62 @@ function buildPublicJobUsageTimelineEntries(
       actor: asTrimmedString(link?.createdBy),
       warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(filmOrder?.warehouse),
       referenceId: boxId,
+      jobNumber: asTrimmedString(filmOrder?.jobNumber),
       manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(filmOrder?.manufacturer),
       itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(filmOrder?.filmName),
       itemCode: "",
+      widthIn: box ? numericOrNull(box.widthIn) ?? 0 : numericOrNull(filmOrder?.widthIn) ?? 0,
       unit: "LF",
       checkedOutQuantity: integerOrZero(link?.orderedFeet),
       returnedQuantity: 0,
       usedQuantity: 0,
       notes: "",
+    });
+  }
+
+  for (const box of Object.values(boxById || {})) {
+    if (!box || asTrimmedString((box as any).status).toUpperCase() !== "CHECKED_OUT") {
+      continue;
+    }
+
+    if (normalizeJobNumberKey((box as any).lastCheckoutJob) !== normalizedJobNumber) {
+      continue;
+    }
+
+    const boxId = asTrimmedString((box as any).boxId).toUpperCase();
+    const checkoutDate = asTrimmedString((box as any).lastCheckoutDate);
+    const occurredAt = checkoutDate ? `${checkoutDate}T00:00:00.000Z` : "";
+    if (!boxId || !occurredAt) {
+      continue;
+    }
+
+    const checkedOutQuantity = deriveOpenFilmCheckoutFeet(box);
+    response.push({
+      usageType: "FILM",
+      occurredAt,
+      actor: "",
+      warehouse: asTrimmedString((box as any).warehouse),
+      referenceId: boxId,
+      jobNumber: asTrimmedString((box as any).lastCheckoutJob),
+      manufacturer: asTrimmedString((box as any).manufacturer),
+      itemName: asTrimmedString((box as any).filmName),
+      itemCode: "",
+      widthIn: numericOrNull((box as any).widthIn) ?? 0,
+      unit: "LF",
+      checkedOutQuantity,
+      returnedQuantity: 0,
+      usedQuantity: 0,
+      checkedOutAt: occurredAt,
+      checkedInAt: "",
+      checkedOutWeightLbs: numericOrNull((box as any).lastRollWeightLbs),
+      checkedInWeightLbs: null,
+      weightDeltaLbs: null,
+      feetBefore: checkedOutQuantity > 0 ? checkedOutQuantity : null,
+      feetAfter: null,
+      usedLinearFeet: null,
+      notes: (box as any).directToJobSite === true && !asTrimmedString((box as any).receivedDate)
+        ? `DIRECT_TO_SITE_CHECKED_OUT: Box committed directly to job ${asTrimmedString((box as any).lastCheckoutJob)}.`
+        : `WAREHOUSE_CHECKOUT: Box checked out from warehouse inventory for job ${asTrimmedString((box as any).lastCheckoutJob)}.`,
     });
   }
 
@@ -5196,6 +5310,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
+      normalizedJobNumber,
       rollHistory,
       boxById,
       caulkCheckouts,
@@ -5712,6 +5827,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
+      normalizedJobNumber,
       rollHistory,
       boxById,
       caulkCheckouts,
