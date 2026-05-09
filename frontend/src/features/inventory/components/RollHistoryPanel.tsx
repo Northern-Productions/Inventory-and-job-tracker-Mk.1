@@ -10,8 +10,40 @@ import { formatDateTime } from '../../../lib/date';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useRollHistory } from '../hooks/useInventoryQueries';
 
-function renderWeight(value: number | null): string {
-  return value === null ? '--' : String(value);
+function isKnownNumber(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function renderWeight(value: number | null | undefined): string {
+  return isKnownNumber(value) ? `${value} lbs` : 'Unknown';
+}
+
+function hasTrustedFeet(feetBefore: number, feetAfter: number) {
+  return feetBefore > 0 || feetAfter > 0;
+}
+
+function renderFeet(value: number | null | undefined, trusted: boolean): string {
+  return trusted && isKnownNumber(value) ? `${value} LF` : 'Unknown';
+}
+
+function getWeightUsed(
+  checkedOutWeightLbs: number | null,
+  checkedInWeightLbs: number | null,
+  weightDeltaLbs: number | null
+) {
+  if (isKnownNumber(weightDeltaLbs)) {
+    return weightDeltaLbs;
+  }
+
+  if (isKnownNumber(checkedOutWeightLbs) && isKnownNumber(checkedInWeightLbs)) {
+    return Math.max(checkedOutWeightLbs - checkedInWeightLbs, 0);
+  }
+
+  return null;
+}
+
+function getLfUsed(feetBefore: number, feetAfter: number) {
+  return hasTrustedFeet(feetBefore, feetAfter) ? Math.max(feetBefore - feetAfter, 0) : null;
 }
 
 export function RollHistoryPanel({
@@ -65,13 +97,29 @@ export function RollHistoryPanel({
                     subtitle={formatDateTime(entry.checkedInAt)}
                   />
                   <MobileFieldList>
-                    <MobileField label="Date Out" value={formatDateTime(entry.checkedOutAt)} />
-                    <MobileField label="Date In" value={formatDateTime(entry.checkedInAt)} />
-                    <MobileField label="Out Wt" value={renderWeight(entry.checkedOutWeightLbs)} />
-                    <MobileField label="In Wt" value={renderWeight(entry.checkedInWeightLbs)} />
-                    <MobileField label="Delta" value={renderWeight(entry.weightDeltaLbs)} />
-                    <MobileField label="Feet Before" value={entry.feetBefore} />
-                    <MobileField label="Feet After" value={entry.feetAfter} />
+                    <MobileField label="Leaving Date" value={formatDateTime(entry.checkedOutAt)} />
+                    <MobileField label="Returning Date" value={formatDateTime(entry.checkedInAt)} />
+                    <MobileField label="Leaving Weight" value={renderWeight(entry.checkedOutWeightLbs)} />
+                    <MobileField label="Returning Weight" value={renderWeight(entry.checkedInWeightLbs)} />
+                    <MobileField
+                      label="Weight Used"
+                      value={renderWeight(
+                        getWeightUsed(
+                          entry.checkedOutWeightLbs,
+                          entry.checkedInWeightLbs,
+                          entry.weightDeltaLbs
+                        )
+                      )}
+                    />
+                    <MobileField
+                      label="Leaving LF"
+                      value={renderFeet(entry.feetBefore, hasTrustedFeet(entry.feetBefore, entry.feetAfter))}
+                    />
+                    <MobileField
+                      label="Returning LF"
+                      value={renderFeet(entry.feetAfter, hasTrustedFeet(entry.feetBefore, entry.feetAfter))}
+                    />
+                    <MobileField label="LF Used" value={renderFeet(getLfUsed(entry.feetBefore, entry.feetAfter), true)} />
                   </MobileFieldList>
                 </MobileRecordCard>
               ))}
@@ -81,14 +129,15 @@ export function RollHistoryPanel({
               <table>
                 <thead>
                   <tr>
-                    <th>Date Out</th>
-                    <th>Date In</th>
+                    <th>Leaving Date</th>
+                    <th>Returning Date</th>
                     <th>Job</th>
-                    <th>Out Wt</th>
-                    <th>In Wt</th>
-                    <th>Delta</th>
-                    <th>Feet Before</th>
-                    <th>Feet After</th>
+                    <th>Leaving Weight</th>
+                    <th>Returning Weight</th>
+                    <th>Weight Used</th>
+                    <th>Leaving LF</th>
+                    <th>Returning LF</th>
+                    <th>LF Used</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -99,9 +148,18 @@ export function RollHistoryPanel({
                       <td>{formatJobDisplayNumber(entry.jobNumber, entry.warehouse) || '--'}</td>
                       <td>{renderWeight(entry.checkedOutWeightLbs)}</td>
                       <td>{renderWeight(entry.checkedInWeightLbs)}</td>
-                      <td>{renderWeight(entry.weightDeltaLbs)}</td>
-                      <td>{entry.feetBefore}</td>
-                      <td>{entry.feetAfter}</td>
+                      <td>
+                        {renderWeight(
+                          getWeightUsed(
+                            entry.checkedOutWeightLbs,
+                            entry.checkedInWeightLbs,
+                            entry.weightDeltaLbs
+                          )
+                        )}
+                      </td>
+                      <td>{renderFeet(entry.feetBefore, hasTrustedFeet(entry.feetBefore, entry.feetAfter))}</td>
+                      <td>{renderFeet(entry.feetAfter, hasTrustedFeet(entry.feetBefore, entry.feetAfter))}</td>
+                      <td>{renderFeet(getLfUsed(entry.feetBefore, entry.feetAfter), true)}</td>
                     </tr>
                   ))}
                 </tbody>

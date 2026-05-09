@@ -648,6 +648,26 @@ function toUsageTimestampSortValue(entry) {
   return asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt) || '';
 }
 
+function resolveTrustedRollHistoryFeet(entry) {
+  const feetBefore = integerOrZero(entry?.feetBefore);
+  const feetAfter = integerOrZero(entry?.feetAfter);
+  const hasTrustedFeet = feetBefore > 0 || feetAfter > 0;
+
+  if (!hasTrustedFeet) {
+    return {
+      feetBefore: null,
+      feetAfter: null,
+      usedFeet: null
+    };
+  }
+
+  return {
+    feetBefore,
+    feetAfter,
+    usedFeet: Math.max(feetBefore - feetAfter, 0)
+  };
+}
+
 function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
   const grouped = {};
   const normalizedEntries = Array.isArray(rollHistoryEntries) ? rollHistoryEntries : [];
@@ -658,7 +678,8 @@ function buildPublicJobUsageEntries(rollHistoryEntries, boxById) {
       continue;
     }
 
-    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const usageFeet = resolveTrustedRollHistoryFeet(entry);
+    const usedFeet = usageFeet.usedFeet ?? 0;
     const timestampSortValue = toUsageTimestampSortValue(entry);
     const box = boxById[entry.boxId] || null;
     const rollEntryNormalized = normalizeCanonicalManufacturerAndFilm(entry.manufacturer, entry.filmName);
@@ -736,7 +757,8 @@ function buildPublicJobUsageTimelineEntries(
       continue;
     }
 
-    const usedFeet = Math.max(integerOrZero(entry.feetBefore) - integerOrZero(entry.feetAfter), 0);
+    const usageFeet = resolveTrustedRollHistoryFeet(entry);
+    const usedFeet = usageFeet.usedFeet ?? 0;
     const occurredAt = asTrimmedString(entry.checkedInAt) || asTrimmedString(entry.checkedOutAt);
     if (!occurredAt) {
       continue;
@@ -749,13 +771,23 @@ function buildPublicJobUsageTimelineEntries(
       actor: asTrimmedString(entry.checkedInBy) || asTrimmedString(entry.checkedOutBy),
       warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(entry.warehouse),
       referenceId: asTrimmedString(entry.boxId),
+      jobNumber: asTrimmedString(entry.jobNumber),
       manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(entry.manufacturer),
       itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(entry.filmName),
       itemCode: '',
+      widthIn: box ? numericOrNull(box.widthIn) ?? 0 : numericOrNull(entry.widthIn) ?? 0,
       unit: 'LF',
-      checkedOutQuantity: integerOrZero(entry.feetBefore),
-      returnedQuantity: integerOrZero(entry.feetAfter),
+      checkedOutQuantity: usageFeet.feetBefore ?? 0,
+      returnedQuantity: usageFeet.feetAfter ?? 0,
       usedQuantity: usedFeet,
+      checkedOutAt: asTrimmedString(entry.checkedOutAt),
+      checkedInAt: asTrimmedString(entry.checkedInAt),
+      checkedOutWeightLbs: numericOrNull(entry.checkedOutWeightLbs),
+      checkedInWeightLbs: numericOrNull(entry.checkedInWeightLbs),
+      weightDeltaLbs: numericOrNull(entry.weightDeltaLbs),
+      feetBefore: usageFeet.feetBefore,
+      feetAfter: usageFeet.feetAfter,
+      usedLinearFeet: usageFeet.usedFeet,
       notes: asTrimmedString(entry.notes)
     });
   }
@@ -783,9 +815,11 @@ function buildPublicJobUsageTimelineEntries(
       actor: asTrimmedString(link?.createdBy),
       warehouse: box ? asTrimmedString(box.warehouse) : asTrimmedString(filmOrder?.warehouse),
       referenceId: boxId,
+      jobNumber: asTrimmedString(filmOrder?.jobNumber),
       manufacturer: box ? asTrimmedString(box.manufacturer) : asTrimmedString(filmOrder?.manufacturer),
       itemName: box ? asTrimmedString(box.filmName) : asTrimmedString(filmOrder?.filmName),
       itemCode: '',
+      widthIn: box ? numericOrNull(box.widthIn) ?? 0 : numericOrNull(filmOrder?.widthIn) ?? 0,
       unit: 'LF',
       checkedOutQuantity: integerOrZero(link?.orderedFeet),
       returnedQuantity: 0,
@@ -866,13 +900,25 @@ function buildPublicJobUsageTimelineEntries(
       actor: asTrimmedString(matchingLinkedEntry?.link?.createdBy),
       warehouse: asTrimmedString(box.warehouse),
       referenceId: boxId,
+      jobNumber: asTrimmedString(box.lastCheckoutJob),
       manufacturer: asTrimmedString(box.manufacturer),
       itemName: asTrimmedString(box.filmName),
       itemCode: '',
+      widthIn: numericOrNull(box.widthIn) ?? 0,
       unit: 'LF',
       checkedOutQuantity,
       returnedQuantity: 0,
       usedQuantity: 0,
+      checkedOutAt: asTrimmedString(box.lastCheckoutDate)
+        ? `${asTrimmedString(box.lastCheckoutDate)}T00:00:00.000Z`
+        : occurredAt,
+      checkedInAt: '',
+      checkedOutWeightLbs: numericOrNull(box.lastRollWeightLbs),
+      checkedInWeightLbs: null,
+      weightDeltaLbs: null,
+      feetBefore: checkedOutQuantity > 0 ? checkedOutQuantity : null,
+      feetAfter: null,
+      usedLinearFeet: null,
       notes:
         isDirectToSiteOpenCheckout && linkedFilmOrder
           ? buildDirectToJobSiteCheckedOutAuditNote({

@@ -314,6 +314,15 @@ function buildDetailContext() {
         checkedOutQuantity: 50,
         returnedQuantity: 38,
         usedQuantity: 12,
+        checkedOutAt: '2026-04-15T09:00:00Z',
+        checkedInAt: '2026-04-15T15:00:00Z',
+        checkedOutWeightLbs: 20,
+        checkedInWeightLbs: 18,
+        weightDeltaLbs: 2,
+        feetBefore: 50,
+        feetAfter: 38,
+        usedLinearFeet: 12,
+        widthIn: 36,
         notes: 'returned after install',
       },
     ],
@@ -358,6 +367,15 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
   assert.equal(filmUsageEntry?.checkedOutQuantity, 50);
   assert.equal(filmUsageEntry?.returnedQuantity, 38);
   assert.equal(filmUsageEntry?.usedQuantity, 12);
+  assert.equal(filmUsageEntry?.checkedOutAt, '2026-04-15T09:00:00Z');
+  assert.equal(filmUsageEntry?.checkedInAt, '2026-04-15T15:00:00Z');
+  assert.equal(filmUsageEntry?.checkedOutWeightLbs, 20);
+  assert.equal(filmUsageEntry?.checkedInWeightLbs, 18);
+  assert.equal(filmUsageEntry?.weightDeltaLbs, 2);
+  assert.equal(filmUsageEntry?.feetBefore, 50);
+  assert.equal(filmUsageEntry?.feetAfter, 38);
+  assert.equal(filmUsageEntry?.usedLinearFeet, 12);
+  assert.equal(filmUsageEntry?.widthIn, 36);
   assert.deepEqual(
     payload.usageTimeline.map((entry) => entry.usageType),
     ['CAULK', 'FILM'],
