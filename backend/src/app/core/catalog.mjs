@@ -549,6 +549,9 @@ function dedupeNormalizedJobRequirements(requirements) {
       continue;
     }
     deduped[key].requiredFeet += entry.requiredFeet;
+    if (!deduped[key].requirementId && entry.requirementId) {
+      deduped[key].requirementId = entry.requirementId;
+    }
   }
 
   const values = Object.values(deduped);
@@ -634,6 +637,7 @@ function normalizeJobRequirementInput(entry, warnings, index) {
   }
 
   return {
+    requirementId: asTrimmedString(entry && entry.requirementId),
     manufacturer: canonicalizeManufacturerLabel(manufacturer),
     filmName: normalizeCollapsedCatalogLabel(filmName),
     widthIn,

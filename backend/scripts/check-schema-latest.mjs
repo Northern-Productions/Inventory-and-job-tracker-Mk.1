@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0111_receive_ordered_core_type.sql';
+const LATEST_MIGRATION = '0112_preserve_job_requirement_ids.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -104,6 +104,11 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
   { kind: 'function', signature: 'app_api.caulk_requirement_planner_signature(uuid, text, integer)' },
+  { kind: 'function', signature: 'app_api.requirement_rows_from_payload_with_ids(jsonb)' },
+  {
+    kind: 'function',
+    signature: 'app_api.replace_job_requirements(uuid, app.jobs, jsonb, text, timestamp with time zone)'
+  },
   { kind: 'function', signature: 'app_api.record_auto_planned_allocation_suppression(uuid, text, text, text)' },
   { kind: 'function', signature: 'app_api.record_auto_planned_caulk_allocation_suppression(uuid, text, text, text)' },
   { kind: 'function', signature: 'app_api.clear_allocation_planner_suppression_for_requirement(uuid, text, text, uuid, text)' },
@@ -390,6 +395,28 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.reconcile_auto_planned_allocations('
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
+  },
+  {
+    signature: 'app_api.requirement_rows_from_payload_with_ids(jsonb)',
+    includes: [
+      "v_requirement_id := nullif(app_api.trim_text(v_value->>'requirementId'), '')::uuid;",
+      "nullif(app_api.trim_text(value->>'requirementId'), '')::uuid as requirement_id",
+      '(array_agg(n.requirement_id order by n.ordinality) filter (where n.requirement_id is not null))[1] as requirement_id'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.replace_job_requirements(uuid, app.jobs, jsonb, text, timestamp with time zone)',
+    includes: [
+      'from app_api.requirement_rows_from_payload_with_ids(p_requirements)',
+      'and r.id = v_requirement.requirement_id',
+      'and not (r.id = any(v_retained_ids))',
+      'v_next_id := coalesce(v_existing.id, gen_random_uuid());',
+      'and not (id = any(v_retained_ids));'
+    ],
+    excludes: [
+      'DELETE FROM app.job_requirements\n  WHERE org_id = p_org_id\n    AND job_id = p_job.id;\n  FOR v_requirement IN'
+    ]
   },
   {
     signature: 'public.api_acl_boxes_update(uuid, text, jsonb)',

@@ -272,7 +272,7 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
-  it('does not let stale or mismatched allocations cover optimistic requirements', () => {
+  it('uses unambiguous same-film fallback coverage for stale optimistic requirement ids', () => {
     const detail = buildFilmRequirementCoverageDetail([
       {
         requirementId: 'req-1',
@@ -320,10 +320,71 @@ describe('inventoryMutationUtils', () => {
       }
     ]);
 
-    expect(staleDetail.summary.status).toBe('FILM_ORDER');
-    expect(staleDetail.summary.remainingFeet).toBe(40);
+    expect(staleDetail.summary.status).toBe('READY');
+    expect(staleDetail.summary.remainingFeet).toBe(0);
+    expect(staleDetail.requirements[0]).toMatchObject({
+      allocatedFeet: 40,
+      remainingFeet: 0
+    });
     expect(mismatchedFilmDetail.summary.status).toBe('FILM_ORDER');
     expect(mismatchedFilmDetail.summary.remainingFeet).toBe(40);
+  });
+
+  it('does not let ambiguous stale allocations cover optimistic requirements', () => {
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-48',
+        manufacturer: '3M',
+        filmName: 'Safety Shield',
+        widthIn: 48,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20
+      },
+      {
+        requirementId: 'req-60',
+        manufacturer: '3M',
+        filmName: 'Safety Shield',
+        widthIn: 60,
+        requiredFeet: 20,
+        allocatedFeet: 0,
+        remainingFeet: 20
+      }
+    ]);
+    const allocation: AllocationJobDetailEntry = {
+      allocationId: 'alloc-ambiguous',
+      boxId: 'IL1-6552',
+      warehouse: 'IL1',
+      jobNumber: '29050',
+      installDate: '2026-04-06',
+      crewLeader: 'Crew',
+      allocatedFeet: 40,
+      coveredFeet: 40,
+      requirementId: 'req-stale',
+      allocationKind: 'REQUIREMENT',
+      allocationSource: 'MANUAL',
+      status: 'ACTIVE',
+      createdAt: '2026-04-06T00:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '',
+      resolvedBy: '',
+      filmOrderId: '',
+      notes: '',
+      manufacturer: '3M',
+      filmName: 'Safety Shield',
+      widthIn: 60,
+      boxStatus: 'CHECKED_OUT',
+      checkedOutOnThisJob: true
+    };
+
+    const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [allocation]);
+
+    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.remainingFeet).toBe(40);
+    expect(nextDetail.requirements).toEqual([
+      expect.objectContaining({ requirementId: 'req-48', allocatedFeet: 0, remainingFeet: 20 }),
+      expect.objectContaining({ requirementId: 'req-60', allocatedFeet: 0, remainingFeet: 20 })
+    ]);
   });
 
   it('creates and stores optimistic film orders for immediate UI updates', () => {

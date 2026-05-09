@@ -109,6 +109,9 @@ function dedupeJobRequirements(requirements, warnings) {
     }
 
     deduped[key].requiredFeet += normalized.requiredFeet;
+    if (!deduped[key].requirementId && normalized.requirementId) {
+      deduped[key].requirementId = normalized.requirementId;
+    }
   }
 
   const values = Object.values(deduped);
