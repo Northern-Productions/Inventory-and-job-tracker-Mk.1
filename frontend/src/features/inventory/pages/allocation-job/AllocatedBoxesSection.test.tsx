@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AllocationJobDetailEntry } from '../../../../domain';
 import { AllocatedBoxesSection } from './AllocatedBoxesSection';
@@ -32,6 +33,32 @@ function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): Allocati
     checkedOutOnThisJob: false,
     ...overrides
   };
+}
+
+function renderSection(
+  entries: AllocationJobDetailEntry[],
+  overrides: Partial<ComponentProps<typeof AllocatedBoxesSection>> = {}
+) {
+  return render(
+    <AllocatedBoxesSection
+      entries={entries}
+      isPhoneLayout={false}
+      isReadOnlyJob={false}
+      canOpenAllocateDialog={true}
+      allocateButtonLabel="Allocate Film"
+      isAuthenticated={true}
+      clientIdConfigured={true}
+      isStatusMutationPending={() => false}
+      filmTransferAlertsByBoxId={{}}
+      onOpenAllocateDialog={vi.fn()}
+      onOpenBox={vi.fn()}
+      onOpenFilmCheckin={vi.fn()}
+      onCheckoutAllocation={vi.fn()}
+      onRemoveAllocation={vi.fn()}
+      isAllocationRemovalPending={() => false}
+      {...overrides}
+    />
+  );
 }
 
 describe('AllocatedBoxesSection', () => {
@@ -102,5 +129,171 @@ describe('AllocatedBoxesSection', () => {
         boxId: 'IL1-6868'
       })
     );
+  });
+
+  it('groups multiple allocations for the same physical box into one visible row', () => {
+    const entries = [
+      buildEntry({
+        allocationId: 'alloc-48',
+        boxId: 'IL1-6000',
+        requirementId: 'req-48',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        boxStatus: 'IN_STOCK'
+      }),
+      buildEntry({
+        allocationId: 'alloc-60',
+        boxId: 'IL1-6000',
+        requirementId: 'req-60',
+        allocatedFeet: 12,
+        coveredFeet: 12,
+        boxStatus: 'IN_STOCK'
+      })
+    ];
+
+    renderSection(entries);
+
+    expect(screen.getAllByRole('button', { name: 'IL1-6000' })).toHaveLength(1);
+    expect(screen.getByText('Covers 2 requirements')).toBeTruthy();
+    expect(screen.getByText('22')).toBeTruthy();
+    expect(screen.queryByText('alloc-48')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(screen.getByText('Expand to remove individual allocations')).toBeTruthy();
+  });
+
+  it('expands grouped boxes to show per-allocation rows and remove controls', () => {
+    const onRemoveAllocation = vi.fn();
+    const entries = [
+      buildEntry({
+        allocationId: 'alloc-48',
+        boxId: 'IL1-6000',
+        requirementId: 'req-48',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        boxStatus: 'IN_STOCK'
+      }),
+      buildEntry({
+        allocationId: 'alloc-60',
+        boxId: 'IL1-6000',
+        requirementId: 'req-60',
+        allocatedFeet: 12,
+        coveredFeet: 12,
+        boxStatus: 'IN_STOCK'
+      })
+    ];
+
+    renderSection(entries, { onRemoveAllocation });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+
+    expect(screen.getByText('alloc-48')).toBeTruthy();
+    expect(screen.getByText('alloc-60')).toBeTruthy();
+    expect(screen.getByText('req-48')).toBeTruthy();
+    expect(screen.getByText('req-60')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2);
+
+    const secondAllocationRow = screen.getByText('alloc-60').closest('tr');
+    expect(secondAllocationRow).toBeTruthy();
+    fireEvent.click(within(secondAllocationRow as HTMLTableRowElement).getByRole('button', { name: 'Remove' }));
+
+    expect(onRemoveAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-60',
+        boxId: 'IL1-6000'
+      })
+    );
+  });
+
+  it('shows one checkout action for duplicate same-box allocations', () => {
+    const onCheckoutAllocation = vi.fn();
+    const entries = [
+      buildEntry({
+        allocationId: 'alloc-1',
+        boxId: 'IL1-7000',
+        requirementId: 'req-a',
+        boxStatus: 'IN_STOCK'
+      }),
+      buildEntry({
+        allocationId: 'alloc-2',
+        boxId: 'IL1-7000',
+        requirementId: 'req-b',
+        boxStatus: 'IN_STOCK'
+      })
+    ];
+
+    renderSection(entries, { onCheckoutAllocation });
+
+    expect(screen.getAllByRole('button', { name: 'Check Out' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Check Out' }));
+
+    expect(onCheckoutAllocation).toHaveBeenCalledTimes(1);
+    expect(onCheckoutAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-1',
+        boxId: 'IL1-7000'
+      })
+    );
+  });
+
+  it('shows one check-in action for duplicate checked-out same-box allocations', () => {
+    const onOpenFilmCheckin = vi.fn();
+    const entries = [
+      buildEntry({
+        allocationId: 'alloc-checked-out-a',
+        boxId: 'IL1-8000',
+        status: 'FULFILLED',
+        resolvedAt: '2026-04-01T14:00:00Z',
+        boxStatus: 'CHECKED_OUT',
+        checkedOutOnThisJob: true
+      }),
+      buildEntry({
+        allocationId: 'alloc-checked-out-b',
+        boxId: 'IL1-8000',
+        status: 'FULFILLED',
+        resolvedAt: '2026-04-01T14:05:00Z',
+        boxStatus: 'CHECKED_OUT',
+        checkedOutOnThisJob: true
+      })
+    ];
+
+    renderSection(entries, { onOpenFilmCheckin });
+
+    expect(screen.getAllByRole('button', { name: 'Check In' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Check In' }));
+
+    expect(onOpenFilmCheckin).toHaveBeenCalledTimes(1);
+    expect(onOpenFilmCheckin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-checked-out-a',
+        boxId: 'IL1-8000'
+      })
+    );
+  });
+
+  it('preserves transfer-needed display and disables checkout for grouped box rows', () => {
+    renderSection(
+      [
+        buildEntry({
+          allocationId: 'alloc-transfer',
+          boxId: 'IL1-TRANSFER',
+          boxStatus: 'IN_STOCK'
+        })
+      ],
+      {
+        filmTransferAlertsByBoxId: {
+          'IL1-TRANSFER': {
+            boxId: 'IL1-TRANSFER',
+            sourceWarehouse: 'IL1',
+            destinationWarehouse: 'MS1',
+            state: 'NEEDS_TRANSFER'
+          }
+        }
+      }
+    );
+
+    expect(screen.getByText('Needs Transfer')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
   });
 });
