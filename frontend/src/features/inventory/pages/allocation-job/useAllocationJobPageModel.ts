@@ -313,7 +313,9 @@ export function useAllocationJobPageModel() {
       const nextAfterDetail =
         afterDetailOverride ||
         (await jobQuery.refetch()).data ||
-        queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
+        queryClient.getQueryData<JobDetail>(
+          routeJobId ? inventoryKeys.jobById(routeJobId) : inventoryKeys.job(normalizedJobNumber)
+        );
       if (!nextAfterDetail) {
         return;
       }
@@ -333,6 +335,7 @@ export function useAllocationJobPageModel() {
       jobNumber,
       jobQuery,
       queryClient,
+      routeJobId,
       summary?.jobNumber
     ]
   );

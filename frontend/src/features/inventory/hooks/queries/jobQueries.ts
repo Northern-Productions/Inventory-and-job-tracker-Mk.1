@@ -198,11 +198,7 @@ export function useJobById(jobId: string) {
     }
 
     lastSyncedKeyRef.current = syncKey;
-    syncJobSummaryCachesFromDetail(queryClient, query.data, { syncAllocationJobDetail: true });
-    const loadedJobNumber = String(query.data.summary?.jobNumber || '').trim();
-    if (loadedJobNumber) {
-      queryClient.setQueryData(inventoryKeys.job(loadedJobNumber), query.data);
-    }
+    syncJobSummaryCachesFromDetail(queryClient, query.data);
   }, [jobId, query.data, query.dataUpdatedAt, queryClient]);
 
   return query;

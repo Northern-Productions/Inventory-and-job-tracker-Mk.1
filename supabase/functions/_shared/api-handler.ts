@@ -1500,6 +1500,12 @@ const inventoryRepositories = createInventoryRepositories({
 });
 const {
   mapDbBoxRow,
+  mapDbAllocationRow,
+  mapDbFilmOrderRow,
+  mapDbRequirementRow,
+  mapDbCaulkJobRequirementRow,
+  mapDbCaulkJobAllocationRow,
+  mapDbCaulkJobCheckoutRow,
   mapDbRollHistoryRow,
   toPublicBox,
   toPublicAllocation,
@@ -1564,6 +1570,93 @@ async function listRollHistoryByJob(client: any, orgId: string, jobNumber: strin
     listRollHistoryByBox,
     mapDbRollHistoryRow,
   });
+}
+
+function toTimestampMs(value: unknown): number | null {
+  const timestamp = asTrimmedString(value);
+  if (!timestamp) {
+    return null;
+  }
+
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildRollHistoryAllocationWindowsByBox(allocations: any[]) {
+  const grouped: Record<string, Array<{ startMs: number | null; endMs: number | null }>> = {};
+  for (const allocation of Array.isArray(allocations) ? allocations : []) {
+    const boxId = asTrimmedString(allocation?.boxId).toUpperCase();
+    if (!boxId) {
+      continue;
+    }
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+    grouped[boxId].push({
+      startMs: toTimestampMs(allocation?.createdAt),
+      endMs: toTimestampMs(allocation?.resolvedAt),
+    });
+  }
+  return grouped;
+}
+
+function isTimestampInAllocationWindow(
+  timestampMs: number | null,
+  window: { startMs: number | null; endMs: number | null },
+) {
+  if (timestampMs === null) {
+    return false;
+  }
+  if (window.startMs !== null && timestampMs < window.startMs) {
+    return false;
+  }
+  if (window.endMs !== null && timestampMs > window.endMs) {
+    return false;
+  }
+  return true;
+}
+
+function filterRollHistoryForJobAllocations(entries: any[], allocations: any[]) {
+  const windowsByBox = buildRollHistoryAllocationWindowsByBox(allocations);
+  const deduped: Record<string, any> = {};
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const boxId = asTrimmedString(entry?.boxId).toUpperCase();
+    const windows = windowsByBox[boxId] || [];
+    const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
+    if (!boxId || !windows.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window))) {
+      continue;
+    }
+    const dedupeKey = `${asTrimmedString(entry?.logId)}|${boxId}`;
+    if (!deduped[dedupeKey]) {
+      deduped[dedupeKey] = entry;
+    }
+  }
+
+  return Object.values(deduped).sort((left, right) => {
+    const leftDate = getRollHistoryActivityTimestamp(left);
+    const rightDate = getRollHistoryActivityTimestamp(right);
+    if (leftDate !== rightDate) {
+      return leftDate > rightDate ? -1 : 1;
+    }
+    const leftLogId = asTrimmedString(left?.logId);
+    const rightLogId = asTrimmedString(right?.logId);
+    return leftLogId < rightLogId ? 1 : leftLogId > rightLogId ? -1 : 0;
+  });
+}
+
+async function listRollHistoryForJobAllocations(client: any, orgId: string, allocations: any[]) {
+  // roll_weight_log does not store job_id yet, so by-id detail scopes usage through
+  // selected allocation box windows instead of trusting matching job_number alone.
+  const boxIds = Object.keys(buildRollHistoryAllocationWindowsByBox(allocations));
+  if (!boxIds.length) {
+    return [];
+  }
+
+  const entries: any[] = [];
+  for (const boxId of boxIds) {
+    entries.push(...(await listRollHistoryByBox(client, orgId, boxId)));
+  }
+  return filterRollHistoryForJobAllocations(entries, allocations);
 }
 
 function collectJobBoxIds(allocations: any[], rollHistory: any[], filmOrderLinks: any[] = []) {
@@ -1693,6 +1786,346 @@ async function listFilmOrderLinksByBoxIdDirect(orgId: string, boxId: string) {
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
   }));
+}
+
+async function listAllocationsByJobIdDirect(orgId: string, jobId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("allocations")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false })
+    .order("allocation_id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load job allocations by id");
+  return (Array.isArray(data) ? data : []).map((row) => mapDbAllocationRow(row)).filter(isPresent);
+}
+
+async function listFilmOrdersByJobIdDirect(orgId: string, jobId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("film_orders")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false })
+    .order("film_order_id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load job film orders by id");
+  return (Array.isArray(data) ? data : []).map((row) => mapDbFilmOrderRow(row)).filter(isPresent);
+}
+
+async function listPlannerSuppressionSignatures(orgId: string, jobId: string, materialType: "FILM" | "CAULK") {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("allocation_planner_suppressions")
+    .select("requirement_signature")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .eq("material_type", materialType)
+    .is("cleared_at", null);
+  throwOnSupabaseError(error, `Unable to load ${materialType.toLowerCase()} planner suppressions`);
+  return new Set(
+    (Array.isArray(data) ? data : [])
+      .map((entry: any) => asTrimmedString(entry?.requirement_signature))
+      .filter(Boolean),
+  );
+}
+
+function buildFilmRequirementPlannerSignature(row: any) {
+  return `${normalizeJobRequirementLookupKey(
+    row?.manufacturer,
+    row?.film_name,
+    row?.width_in,
+  )}|${Math.max(integerOrZero(row?.required_feet), 0)}`;
+}
+
+function buildCaulkRequirementPlannerSignature(productId: unknown, warehouse: unknown, requiredTubes: unknown) {
+  return [
+    asTrimmedString(productId),
+    asTrimmedString(warehouse).toUpperCase(),
+    String(Math.max(integerOrZero(requiredTubes), 0)),
+  ].join("|");
+}
+
+async function listJobRequirementsByJobIdDirect(orgId: string, header: any) {
+  const jobId = requireString(header?.id, "jobId");
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("job_requirements")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("manufacturer", { ascending: true })
+    .order("film_name", { ascending: true })
+    .order("width_in", { ascending: true });
+  throwOnSupabaseError(error, "Unable to load job requirements by id");
+  const suppressedSignatures = await listPlannerSuppressionSignatures(orgId, jobId, "FILM");
+  return (Array.isArray(data) ? data : [])
+    .map((row: any) => ({
+      ...row,
+      job_number: header.jobNumber,
+      auto_planning_suppressed: suppressedSignatures.has(buildFilmRequirementPlannerSignature(row)),
+    }))
+    .map((row: any) => mapDbRequirementRow(row))
+    .filter(isPresent);
+}
+
+async function loadCaulkProductsById(orgId: string, productIds: string[]) {
+  const normalizedProductIds = Array.from(new Set(productIds.map((entry) => asTrimmedString(entry)).filter(Boolean)));
+  if (!normalizedProductIds.length) {
+    return {};
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data: productsRaw, error: productsError } = await serviceClient
+    .schema("app")
+    .from("caulk_products")
+    .select("id, manufacturer_id, name, code, tubes_per_case")
+    .eq("org_id", orgId)
+    .in("id", normalizedProductIds);
+  throwOnSupabaseError(productsError, "Unable to load caulk products for job detail");
+
+  const products = Array.isArray(productsRaw) ? productsRaw : [];
+  const manufacturerIds = Array.from(
+    new Set(products.map((entry: any) => asTrimmedString(entry?.manufacturer_id)).filter(Boolean)),
+  );
+  const manufacturersById: Record<string, any> = {};
+  if (manufacturerIds.length) {
+    const { data: manufacturersRaw, error: manufacturersError } = await serviceClient
+      .schema("app")
+      .from("caulk_manufacturers")
+      .select("id, name")
+      .eq("org_id", orgId)
+      .in("id", manufacturerIds);
+    throwOnSupabaseError(manufacturersError, "Unable to load caulk manufacturers for job detail");
+    for (const manufacturer of Array.isArray(manufacturersRaw) ? manufacturersRaw : []) {
+      manufacturersById[asTrimmedString(manufacturer?.id)] = manufacturer;
+    }
+  }
+
+  const productsById: Record<string, any> = {};
+  for (const product of products) {
+    productsById[asTrimmedString(product?.id)] = {
+      ...product,
+      manufacturer: manufacturersById[asTrimmedString(product?.manufacturer_id)]?.name || "",
+    };
+  }
+  return productsById;
+}
+
+async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any) {
+  const jobId = requireString(header?.id, "jobId");
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("job_caulk_requirements")
+    .select("id, product_id, required_tubes, notes, updated_at")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("updated_at", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load job caulk requirements by id");
+
+  const rows = Array.isArray(data) ? data : [];
+  const productsById = await loadCaulkProductsById(
+    orgId,
+    rows.map((row: any) => asTrimmedString(row?.product_id)),
+  );
+  const suppressedSignatures = await listPlannerSuppressionSignatures(orgId, jobId, "CAULK");
+
+  return rows
+    .map((row: any) => {
+      const product = productsById[asTrimmedString(row?.product_id)] || {};
+      return {
+        requirement_id: row.id,
+        job_number: header.jobNumber,
+        product_id: row.product_id,
+        manufacturer_id: product.manufacturer_id,
+        manufacturer: product.manufacturer || "",
+        product_name: product.name,
+        product_code: product.code,
+        tubes_per_case: product.tubes_per_case,
+        required_tubes: row.required_tubes,
+        notes: row.notes,
+        updated_at: row.updated_at,
+        auto_planning_suppressed: suppressedSignatures.has(
+          buildCaulkRequirementPlannerSignature(row.product_id, header.warehouse, row.required_tubes),
+        ),
+      };
+    })
+    .map((row: any) => mapDbCaulkJobRequirementRow(row))
+    .filter(isPresent);
+}
+
+async function listCaulkJobAllocationsByJobIdDirect(orgId: string, jobId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("caulk_job_allocations")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false })
+    .order("caulk_allocation_id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load caulk job allocations by id");
+
+  const allocations = Array.isArray(data) ? data : [];
+  const internalIds = allocations.map((entry: any) => asTrimmedString(entry?.id)).filter(Boolean);
+  const productsById = await loadCaulkProductsById(
+    orgId,
+    allocations.map((entry: any) => asTrimmedString(entry?.product_id)),
+  );
+
+  const openCountsByAllocationId: Record<string, number> = {};
+  const pendingTransfersByAllocationId: Record<string, any> = {};
+  if (internalIds.length) {
+    const { data: checkoutsRaw, error: checkoutsError } = await serviceClient
+      .schema("app")
+      .from("caulk_job_checkouts")
+      .select("caulk_allocation_id")
+      .eq("org_id", orgId)
+      .eq("status", "OPEN")
+      .in("caulk_allocation_id", internalIds);
+    throwOnSupabaseError(checkoutsError, "Unable to load open caulk checkout counts");
+    for (const checkout of Array.isArray(checkoutsRaw) ? checkoutsRaw : []) {
+      const allocationId = asTrimmedString(checkout?.caulk_allocation_id);
+      openCountsByAllocationId[allocationId] = (openCountsByAllocationId[allocationId] || 0) + 1;
+    }
+
+    const { data: transfersRaw, error: transfersError } = await serviceClient
+      .schema("app")
+      .from("caulk_transfers")
+      .select("caulk_allocation_id, transfer_id, source_warehouse, destination_warehouse, pending_tubes, created_at, created_by, notes")
+      .eq("org_id", orgId)
+      .eq("status", "PENDING")
+      .in("caulk_allocation_id", internalIds)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    throwOnSupabaseError(transfersError, "Unable to load pending caulk transfers for job detail");
+    for (const transfer of Array.isArray(transfersRaw) ? transfersRaw : []) {
+      const allocationId = asTrimmedString(transfer?.caulk_allocation_id);
+      if (allocationId && !pendingTransfersByAllocationId[allocationId]) {
+        pendingTransfersByAllocationId[allocationId] = transfer;
+      }
+    }
+  }
+
+  return allocations
+    .map((allocation: any) => {
+      const product = productsById[asTrimmedString(allocation?.product_id)] || {};
+      const pendingTransfer = pendingTransfersByAllocationId[asTrimmedString(allocation?.id)] || {};
+      return {
+        caulk_allocation_id: allocation.caulk_allocation_id,
+        requirement_id: allocation.requirement_id,
+        product_id: allocation.product_id,
+        manufacturer_id: product.manufacturer_id,
+        manufacturer: product.manufacturer || "",
+        product_name: product.name,
+        product_code: product.code,
+        tubes_per_case: product.tubes_per_case,
+        job_number: allocation.job_number,
+        warehouse: allocation.warehouse,
+        allocated_tubes: allocation.allocated_tubes,
+        reserved_tubes_remaining: allocation.reserved_tubes_remaining,
+        checked_out_tubes_total: allocation.checked_out_tubes_total,
+        returned_unused_tubes_total: allocation.returned_unused_tubes_total,
+        used_tubes_total: allocation.used_tubes_total,
+        overage_tubes_total: allocation.overage_tubes_total,
+        outstanding_checkout_tubes: Math.max(
+          integerOrZero(allocation.checked_out_tubes_total) -
+            integerOrZero(allocation.returned_unused_tubes_total) -
+            integerOrZero(allocation.used_tubes_total),
+          0,
+        ),
+        open_checkout_count: openCountsByAllocationId[asTrimmedString(allocation.id)] || 0,
+        pending_transfer_id: pendingTransfer.transfer_id,
+        pending_transfer_source_warehouse: pendingTransfer.source_warehouse,
+        pending_transfer_destination_warehouse: pendingTransfer.destination_warehouse,
+        pending_transfer_tubes: pendingTransfer.pending_tubes,
+        pending_transfer_started_at: pendingTransfer.created_at,
+        pending_transfer_started_by: pendingTransfer.created_by,
+        pending_transfer_notes: pendingTransfer.notes,
+        status: allocation.status,
+        allocation_source: allocation.allocation_source,
+        created_at: allocation.created_at,
+        created_by: allocation.created_by,
+        updated_at: allocation.updated_at,
+        updated_by: allocation.updated_by,
+        resolved_at: allocation.resolved_at,
+        resolved_by: allocation.resolved_by,
+        notes: allocation.notes,
+      };
+    })
+    .map((row: any) => mapDbCaulkJobAllocationRow(row))
+    .filter(isPresent);
+}
+
+async function listCaulkJobCheckoutsByJobIdDirect(orgId: string, jobId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data: allocationRowsRaw, error: allocationRowsError } = await serviceClient
+    .schema("app")
+    .from("caulk_job_allocations")
+    .select("id, caulk_allocation_id")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId);
+  throwOnSupabaseError(allocationRowsError, "Unable to resolve caulk allocation ids for checkouts");
+
+  const publicByInternalAllocationId: Record<string, string> = {};
+  for (const allocation of Array.isArray(allocationRowsRaw) ? allocationRowsRaw : []) {
+    publicByInternalAllocationId[asTrimmedString(allocation?.id)] = asTrimmedString(allocation?.caulk_allocation_id);
+  }
+
+  const internalIds = Object.keys(publicByInternalAllocationId).filter(Boolean);
+  if (!internalIds.length) {
+    return [];
+  }
+
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("caulk_job_checkouts")
+    .select("*")
+    .eq("org_id", orgId)
+    .in("caulk_allocation_id", internalIds)
+    .order("checked_out_at", { ascending: false })
+    .order("caulk_checkout_id", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load caulk job checkouts by id");
+
+  const checkouts = Array.isArray(data) ? data : [];
+  const productsById = await loadCaulkProductsById(
+    orgId,
+    checkouts.map((entry: any) => asTrimmedString(entry?.product_id)),
+  );
+
+  return checkouts
+    .map((checkout: any) => {
+      const product = productsById[asTrimmedString(checkout?.product_id)] || {};
+      return {
+        caulk_checkout_id: checkout.caulk_checkout_id,
+        caulk_allocation_id: publicByInternalAllocationId[asTrimmedString(checkout.caulk_allocation_id)] || "",
+        product_id: checkout.product_id,
+        manufacturer_id: product.manufacturer_id,
+        manufacturer: product.manufacturer || "",
+        product_name: product.name,
+        product_code: product.code,
+        tubes_per_case: product.tubes_per_case,
+        warehouse: checkout.warehouse,
+        checkout_tubes: checkout.checkout_tubes,
+        overage_tubes: checkout.overage_tubes,
+        status: checkout.status,
+        checked_out_at: checkout.checked_out_at,
+        checked_out_by: checkout.checked_out_by,
+        checked_in_at: checkout.checked_in_at,
+        checked_in_by: checkout.checked_in_by,
+        unused_tubes: checkout.unused_tubes,
+        used_tubes: checkout.used_tubes,
+        notes: checkout.notes,
+      };
+    })
+    .map((row: any) => mapDbCaulkJobCheckoutRow(row))
+    .filter(isPresent);
 }
 
 function buildJobStagingValidationState(params: {
@@ -5886,13 +6319,85 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   };
 }
 
-async function buildJobDetailById(client: any, orgId: string, jobId: unknown) {
+export async function buildJobDetailById(client: any, orgId: string, jobId: unknown) {
   const header = await findJobById(client, orgId, requireString(jobId, "jobId"));
   if (!header) {
     throw new HttpError(404, "Job not found.");
   }
 
-  return buildJobDetail(client, orgId, header.jobNumber);
+  const normalizedJobNumber = requireString(header.jobNumber, "jobNumber");
+  const [
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+  ] = await Promise.all([
+    listAllocationsByJobIdDirect(orgId, header.id),
+    listFilmOrdersByJobIdDirect(orgId, header.id),
+    listJobRequirementsByJobIdDirect(orgId, header),
+    listJobCaulkRequirementsByJobIdDirect(orgId, header),
+    listCaulkJobAllocationsByJobIdDirect(orgId, header.id),
+  ]);
+  const [caulkCheckouts, rollHistory] = await Promise.all([
+    listCaulkJobCheckoutsByJobIdDirect(orgId, header.id),
+    listRollHistoryForJobAllocations(client, orgId, allocations),
+  ]);
+
+  const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
+    orgId,
+    filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId)),
+  );
+  const boxes = await listBoxesByIds(orgId, collectJobBoxIds(allocations, rollHistory, filmOrderLinks));
+  const boxById = indexBoxesById(boxes);
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id).filter(Boolean),
+    ),
+  );
+  const publicRequirements = buildPublicJobRequirementEntries(requirements, allocations, boxById);
+  const publicCaulkRequirements = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+    jobNumber: normalizedJobNumber,
+    jobWarehouse: header?.warehouse || "",
+  });
+  const filmTransferAlerts = buildJobFilmTransferAlerts(
+    header?.warehouse || "",
+    allocations,
+    boxById,
+    pendingTransfersByBoxRecordId,
+  );
+  const caulkTransferAlerts = buildJobCaulkTransferAlerts(
+    header?.warehouse || "",
+    caulkAllocations,
+  );
+
+  return {
+    summary: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      allBoxes: boxes,
+      caulkAllocations,
+      caulkStockEntries: [],
+      jobWarehouse: header?.warehouse || "",
+    }),
+    requirements: publicRequirements,
+    allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    usage: buildPublicJobUsageEntries(rollHistory, boxById),
+    usageTimeline: buildPublicJobUsageTimelineEntries(
+      normalizedJobNumber,
+      rollHistory,
+      boxById,
+      caulkCheckouts,
+      filmOrderLinks,
+      filmOrders,
+    ),
+    caulkRequirements: publicCaulkRequirements,
+    caulkAllocations: caulkAllocations,
+    caulkCheckouts: caulkCheckouts,
+    filmOrders: await buildPublicFilmOrdersForJob(client, orgId, filmOrders, { boxById }),
+    filmTransferAlerts,
+    caulkTransferAlerts,
+  };
 }
 
 async function buildReportsSummary(client: any, orgId: string, params: Record<string, unknown>) {

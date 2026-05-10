@@ -126,6 +126,18 @@ function extractLifecycleFilterFromQueryKey(queryKey: readonly unknown[]) {
   return String(queryParams?.lifecycleStatus || '').toUpperCase();
 }
 
+function isSameJobIdentity(left: Pick<JobListEntry, 'jobId' | 'jobNumber'>, right: Pick<JobListEntry, 'jobId' | 'jobNumber'>) {
+  const leftJobId = String(left.jobId || '').trim();
+  const rightJobId = String(right.jobId || '').trim();
+  if (leftJobId && rightJobId) {
+    return leftJobId === rightJobId;
+  }
+
+  const leftJobNumber = String(left.jobNumber || '').trim();
+  const rightJobNumber = String(right.jobNumber || '').trim();
+  return Boolean(leftJobNumber && rightJobNumber && leftJobNumber === rightJobNumber);
+}
+
 export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntry) {
   const jobQueries = queryClient.getQueriesData<JobListEntry[]>({
     queryKey: inventoryKeys.jobsListRoot
@@ -140,14 +152,14 @@ export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntr
     if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
       queryClient.setQueryData<JobListEntry[]>(
         queryKey,
-        current.filter((job) => job.jobNumber !== entry.jobNumber)
+        current.filter((job) => !isSameJobIdentity(job, entry))
       );
       continue;
     }
 
-    const existingIndex = current.findIndex((job) => job.jobNumber === entry.jobNumber);
+    const existingIndex = current.findIndex((job) => isSameJobIdentity(job, entry));
     const next =
-      existingIndex === -1 ? [entry, ...current] : current.map((job) => (job.jobNumber === entry.jobNumber ? entry : job));
+      existingIndex === -1 ? [entry, ...current] : current.map((job) => (isSameJobIdentity(job, entry) ? entry : job));
     queryClient.setQueryData<JobListEntry[]>(queryKey, next);
   }
 }
@@ -167,19 +179,19 @@ export function upsertJobsCalendarCaches(queryClient: QueryClient, entry: JobLis
     if (lifecycleFilter && lifecycleFilter !== entry.lifecycleStatus) {
       queryClient.setQueryData<JobListEntry[]>(
         queryKey,
-        current.filter((job) => job.jobNumber !== entry.jobNumber)
+        current.filter((job) => !isSameJobIdentity(job, entry))
       );
       continue;
     }
 
-    const hasExistingEntry = current.some((job) => job.jobNumber === entry.jobNumber);
+    const hasExistingEntry = current.some((job) => isSameJobIdentity(job, entry));
     if (!hasExistingEntry) {
       continue;
     }
 
     queryClient.setQueryData<JobListEntry[]>(
       queryKey,
-      current.map((job) => (job.jobNumber === entry.jobNumber ? entry : job))
+      current.map((job) => (isSameJobIdentity(job, entry) ? entry : job))
     );
   }
 }
@@ -259,12 +271,12 @@ export function upsertAllocationJobSummaryCaches(queryClient: QueryClient, entry
       return current;
     }
 
-    const existingIndex = current.findIndex((job) => job.jobNumber === entry.jobNumber);
+    const existingIndex = current.findIndex((job) => isSameJobIdentity(job, entry));
     if (existingIndex === -1) {
       return [entry, ...current];
     }
 
-    return current.map((job) => (job.jobNumber === entry.jobNumber ? entry : job));
+    return current.map((job) => (isSameJobIdentity(job, entry) ? entry : job));
   });
 }
 
