@@ -138,6 +138,7 @@ export function buildJobEditorSubmitPayload({
     payload: {
       jobNumber: mode === 'edit' ? initialJobNumber : normalizedJobNumber,
       warehouse,
+      workScope: sections,
       sections,
       installDate,
       crewLeader: crewLeader.trim(),

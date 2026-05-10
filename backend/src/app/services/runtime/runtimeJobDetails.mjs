@@ -425,7 +425,8 @@ function buildAllocationJobDetailPayload(detailContext) {
     detailContext.header?.installDate || '',
     detailContext.header?.crewLeader || '',
     detailContext.boxById,
-    detailContext.header?.id || ''
+    detailContext.header?.id || '',
+    detailContext.header?.workScope ?? detailContext.header?.sections ?? null
   );
   summary.status = deriveInStockReadinessStatus({
     lifecycleStatus: detailContext.header?.lifecycleStatus || 'ACTIVE',

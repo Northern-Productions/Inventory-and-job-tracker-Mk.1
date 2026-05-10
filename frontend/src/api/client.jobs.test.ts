@@ -117,6 +117,25 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('normalizes first-class and legacy work scope fields from job reads', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          buildJobListEntry({ jobNumber: '000123', workScope: 'Sections 4, 5', sections: null }),
+          buildJobListEntry({ jobNumber: '000124', sections: 'Section 1' })
+        ]
+      },
+      warnings: []
+    });
+
+    const entries = await getJobs(25);
+
+    expect(entries[0].workScope).toBe('Sections 4, 5');
+    expect(entries[0].sections).toBe('Sections 4, 5');
+    expect(entries[1].workScope).toBe('Section 1');
+    expect(entries[1].sections).toBe('Section 1');
+  });
+
   it('loads jobs search through GET /jobs/search', async () => {
     requestMock.mockResolvedValueOnce({
       data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
@@ -283,6 +302,7 @@ describe('jobs API client canonical routes', () => {
     const result = await createJob({
       jobNumber: '000123',
       warehouse: 'IL1',
+      workScope: 'Lobby Phase 2',
       requirements: []
     });
 
@@ -291,6 +311,7 @@ describe('jobs API client canonical routes', () => {
       body: {
         jobNumber: '000123',
         warehouse: 'IL1',
+        workScope: 'Lobby Phase 2',
         requirements: []
       }
     });

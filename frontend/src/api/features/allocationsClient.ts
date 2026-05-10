@@ -43,9 +43,12 @@ function normalizeAllocationSource(value: unknown): AllocationSource {
 }
 
 function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
+  const workScope = String(summary.workScope ?? summary.sections ?? '').trim() || null;
   return {
     ...summary,
     jobId: String(summary.jobId || '').trim() || undefined,
+    workScope,
+    sections: String(summary.sections ?? workScope ?? '').trim() || null,
     activeAllocatedFeet: Math.max(0, Number(summary.activeAllocatedFeet || 0)),
     allocatedWithInstallDateFeet: Math.max(0, Number(summary.allocatedWithInstallDateFeet || 0)),
     allocatedWithoutInstallDateFeet: Math.max(0, Number(summary.allocatedWithoutInstallDateFeet || 0)),
@@ -77,9 +80,12 @@ function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
 }
 
 function normalizeJobDetailSummary(summary: JobDetail['summary']): JobDetail['summary'] {
+  const workScope = String(summary.workScope ?? summary.sections ?? '').trim() || null;
   return {
     ...summary,
     jobId: String(summary.jobId || '').trim() || undefined,
+    workScope,
+    sections: String(summary.sections ?? workScope ?? '').trim() || null,
     isLaborOnly: Boolean(summary.isLaborOnly),
     isStagedForPickup: Boolean(summary.isStagedForPickup),
     hasOrderedAllocations: Boolean(summary.hasOrderedAllocations),

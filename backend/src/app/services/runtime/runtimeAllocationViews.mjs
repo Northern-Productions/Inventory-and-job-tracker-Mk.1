@@ -344,7 +344,8 @@ async function buildAllocationJobList(client, orgId) {
       header?.installDate || '',
       header?.crewLeader || '',
       boxById,
-      header?.id || ''
+      header?.id || '',
+      header?.workScope ?? header?.sections ?? null
     );
     summary.status = deriveInStockReadinessStatus({
       lifecycleStatus: header?.lifecycleStatus || 'ACTIVE',

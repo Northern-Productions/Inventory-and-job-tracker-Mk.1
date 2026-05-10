@@ -25,32 +25,17 @@ function normalizeJobWarehouse(value) {
   return requireString(value, 'Warehouse').toUpperCase();
 }
 
-function normalizeJobSections(value) {
+function normalizeJobWorkScope(value) {
   const trimmed = asTrimmedString(value);
   if (!trimmed) {
     return null;
   }
 
-  const rawParts = trimmed.split(',');
-  const normalizedParts = [];
-  for (let index = 0; index < rawParts.length; index += 1) {
-    const token = asTrimmedString(rawParts[index]);
-    if (!token) {
-      continue;
-    }
+  return trimmed.replace(/\s+/g, ' ');
+}
 
-    if (!/^\d+$/.test(token)) {
-      throw new HttpError(400, 'Sections must contain numbers separated by commas.');
-    }
-
-    normalizedParts.push(token);
-  }
-
-  if (!normalizedParts.length) {
-    return null;
-  }
-
-  return normalizedParts.join(', ');
+function normalizeJobSections(value) {
+  return normalizeJobWorkScope(value);
 }
 
 function normalizeJobLifecycleStatus(value) {
@@ -222,6 +207,7 @@ function absoluteBigInt(value) {
 export {
   normalizeJobNumberDigits,
   normalizeJobWarehouse,
+  normalizeJobWorkScope,
   normalizeJobSections,
   normalizeJobLifecycleStatus,
   normalizeJobLifecycleFilter,

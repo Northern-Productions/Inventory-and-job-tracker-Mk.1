@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PropsWithChildren } from 'react';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import AllocationsPage from './AllocationsPage';
 import type { JobSortOption } from '../utils/jobSorts';
 
@@ -133,7 +133,7 @@ function renderPage(props: {
 }
 
 function findRenderedJobButtonIndex(html: string, jobNumber: string) {
-  return html.indexOf(`>${formatJobDisplayNumber(jobNumber, 'IL1')}</button>`);
+  return html.indexOf(`>${formatJobDisplayLabel({ jobNumber, warehouse: 'IL1', sections: '260' })}</button>`);
 }
 
 describe('AllocationsPage', () => {

@@ -18,7 +18,7 @@ import {
   normalizeJobRequirementEntriesForWrite,
   normalizeJobNumberDigits,
   normalizeJobWarehouse,
-  normalizeJobSections,
+  normalizeJobWorkScope,
   normalizeJobLifecycleStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
@@ -75,6 +75,19 @@ import {
   recalculateReservationBoxesByIds,
 } from './runtimeAllocationReservationReconciliation.mjs';
 
+function getWorkScopeInput(payload) {
+  return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
+    ? payload.workScope
+    : payload?.sections;
+}
+
+function hasWorkScopeInput(payload) {
+  return (
+    Object.prototype.hasOwnProperty.call(payload || {}, 'workScope') ||
+    Object.prototype.hasOwnProperty.call(payload || {}, 'sections')
+  );
+}
+
 function getRestoredAllocatableFeet(entry) {
   return getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0;
 }
@@ -83,7 +96,7 @@ async function createJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
   const warehouse = normalizeJobWarehouse(payload.warehouse);
-  const sections = normalizeJobSections(payload.sections);
+  const sections = normalizeJobWorkScope(getWorkScopeInput(payload));
   const installDate = normalizeDateString(
     payload.installDate !== undefined ? payload.installDate : payload.dueDate,
     'Install Date',
@@ -313,8 +326,8 @@ async function updateJob(client, orgId, payload, actor) {
     nextHeader.warehouse = normalizeJobWarehouse(payload.warehouse);
   }
 
-  if (payload.sections !== undefined) {
-    nextHeader.sections = normalizeJobSections(payload.sections);
+  if (hasWorkScopeInput(payload)) {
+    nextHeader.sections = normalizeJobWorkScope(getWorkScopeInput(payload));
   }
 
   if (payload.installDate !== undefined || payload.dueDate !== undefined) {

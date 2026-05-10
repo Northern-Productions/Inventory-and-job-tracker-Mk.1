@@ -264,6 +264,7 @@ function buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders) {
     orgId: '',
     jobNumber,
     warehouse: warehouse || '',
+    workScope: null,
     sections: null,
     installDate: metadata.installDate,
     crewLeader: metadata.crewLeader,
@@ -657,11 +658,14 @@ function buildJobListEntry(
       ? 'FILM_ORDER'
       : baseStatus;
 
+  const workScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+
   return {
     jobId: jobHeader.id || '',
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || '',
-    sections: jobHeader.sections,
+    workScope,
+    sections: workScope,
     installDate,
     crewLeader,
     status,

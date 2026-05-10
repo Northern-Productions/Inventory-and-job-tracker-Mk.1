@@ -81,7 +81,7 @@ import {
   normalizeJobRequirementInput,
   normalizeJobNumberDigits,
   normalizeJobWarehouse,
-  normalizeJobSections,
+  normalizeJobWorkScope,
   normalizeJobLifecycleStatus,
   normalizeJobLifecycleFilter,
   normalizeJobRequirementLookupKey,
@@ -206,6 +206,12 @@ import {
 } from './runtimeJobDetails.mjs';
 
 const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
+
+function getWorkScopeInput(payload) {
+  return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
+    ? payload.workScope
+    : payload?.sections;
+}
 
 function normalizeSummarySnapshotConcurrency(value) {
   const numericValue = Number(value);
@@ -683,7 +689,7 @@ async function ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, user,
   const derived = buildLegacyJobHeaderFromData(jobNumber, legacyAllocations, legacyFilmOrders);
 
   derived.warehouse = payload.warehouse ? normalizeJobWarehouse(payload.warehouse) : derived.warehouse;
-  derived.sections = normalizeJobSections(payload.sections);
+  derived.sections = normalizeJobWorkScope(getWorkScopeInput(payload));
   derived.installDate = normalizeDateString(
     payload.installDate !== undefined ? payload.installDate : payload.dueDate,
     'Install Date',

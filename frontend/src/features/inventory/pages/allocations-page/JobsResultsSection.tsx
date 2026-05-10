@@ -7,7 +7,7 @@ import {
 } from '../../../../components/MobileRecordCard';
 import type { JobListEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
-import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 import { JobsCalendarView } from '../../components/JobsCalendarView';
 import { getJobListDisplayStatus } from '../../utils/jobSorts';
 
@@ -131,11 +131,11 @@ export function JobsResultsSection({
         isPhoneLayout ? (
           <div className="mobile-record-list">
             {listJobs.map((entry) => {
-              const displayJobNumber = formatJobDisplayNumber(entry.jobNumber, entry.warehouse);
+              const displayJobLabel = formatJobDisplayLabel(entry);
               return (
                 <MobileRecordCard key={entry.jobNumber}>
                   <MobileRecordHeader
-                    title={displayJobNumber}
+                    title={displayJobLabel}
                     subtitle={`${entry.warehouse} warehouse`}
                     badge={renderStatusBadges(entry)}
                     onTitleClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
@@ -144,7 +144,7 @@ export function JobsResultsSection({
                   />
                   <MobileFieldList>
                     <MobileField label="Install Date" value={formatDate(entry.installDate)} />
-                    <MobileField label="Sections" value={entry.sections ?? '--'} />
+                    <MobileField label="Work Scope" value={entry.workScope ?? entry.sections ?? '--'} />
                     <MobileField label="Required LF" value={entry.requiredFeet} />
                     <MobileField label="Allocated LF" value={entry.allocatedFeet} />
                     <MobileField label="Remaining LF" value={entry.remainingFeet} />
@@ -160,7 +160,7 @@ export function JobsResultsSection({
                 <tr>
                   <th>Job ID</th>
                   <th>Install Date</th>
-                  <th>Sections</th>
+                  <th>Work Scope</th>
                   <th>Warehouse</th>
                   <th>Status</th>
                   <th>Required LF</th>
@@ -170,7 +170,7 @@ export function JobsResultsSection({
               </thead>
               <tbody>
                 {listJobs.map((entry) => {
-                  const displayJobNumber = formatJobDisplayNumber(entry.jobNumber, entry.warehouse);
+                  const displayJobLabel = formatJobDisplayLabel(entry);
                   return (
                     <tr key={entry.jobNumber}>
                       <td>
@@ -181,11 +181,11 @@ export function JobsResultsSection({
                           onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                           onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                         >
-                          {displayJobNumber}
+                          {displayJobLabel}
                         </button>
                       </td>
                       <td>{formatDate(entry.installDate)}</td>
-                      <td>{entry.sections ?? '--'}</td>
+                      <td>{entry.workScope ?? entry.sections ?? '--'}</td>
                       <td>{entry.warehouse}</td>
                       <td>{renderStatusBadges(entry)}</td>
                       <td>{entry.requiredFeet}</td>
