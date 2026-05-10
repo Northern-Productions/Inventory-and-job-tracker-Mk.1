@@ -16,6 +16,7 @@ export {
   useAddBox,
   useCancelBoxTransfer,
   useDeleteBox,
+  useMarkLabelsPrinted,
   useReceiveOrderedBox,
   useReceiveBoxTransfer,
   useSetBoxStatus,

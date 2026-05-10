@@ -4,11 +4,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '../../../components/Toast';
 import type { Box } from '../../../domain';
 import LabelMakerPage from './LabelMakerPage';
 
 const useOfflineInventorySearchMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
+const useMarkLabelsPrintedMock = vi.fn();
 const useAuthMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
 const createBoxQrCodeDataUrlMock = vi.fn();
@@ -18,7 +20,8 @@ vi.mock('../hooks/useOfflineInventorySearch', () => ({
 }));
 
 vi.mock('../hooks/useInventoryQueries', () => ({
-  useFilmCatalog: () => useFilmCatalogMock()
+  useFilmCatalog: () => useFilmCatalogMock(),
+  useMarkLabelsPrinted: () => useMarkLabelsPrintedMock()
 }));
 
 vi.mock('../../auth/AuthContext', () => ({
@@ -70,6 +73,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
     pricePerLf: null,
     purchaseCost: null,
     notes: '',
+    hasLabel: true,
     hasEverBeenCheckedOut: false,
     lastCheckoutJob: '',
     lastCheckoutDate: '',
@@ -84,7 +88,9 @@ function renderPage(initialPath = '/labels?q=MO1') {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[initialPath]}>
-        <LabelMakerPage />
+        <ToastProvider>
+          <LabelMakerPage />
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -177,6 +183,10 @@ describe('LabelMakerPage', () => {
       refetch: vi.fn()
     });
     createBoxQrCodeDataUrlMock.mockResolvedValue('data:image/png;base64,label');
+    useMarkLabelsPrintedMock.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ result: { boxes: [], logIds: [] }, warnings: [] }),
+      isPending: false
+    });
     vi.spyOn(window, 'print').mockImplementation(() => undefined);
   });
 
@@ -313,6 +323,43 @@ describe('LabelMakerPage', () => {
 
     await waitFor(() => expect(screen.getByText('MO1-0028')).toBeTruthy());
     expect(getMatchingBoxesTable()).toBeTruthy();
+  });
+
+  it('shows unlabeled in-stock boxes without requiring search text', () => {
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [
+        buildBox({ boxId: 'MO1-0100', hasLabel: false, status: 'IN_STOCK' }),
+        buildBox({ boxId: 'MO1-0101', hasLabel: true, status: 'IN_STOCK' }),
+        buildBox({ boxId: 'MO1-0102', hasLabel: false, status: 'ORDERED', receivedDate: '' }),
+        buildBox({ boxId: 'MO1-0103', hasLabel: false, status: 'ZEROED' }),
+        buildBox({ boxId: 'MO1-0104', hasLabel: false, status: 'RETIRED' }),
+        buildBox({ boxId: 'MO1-0105', hasLabel: false, status: 'CHECKED_OUT' }),
+        buildBox({ boxId: 'MO1-0106', hasLabel: false, status: 'TRANSFER' })
+      ],
+      isError: false,
+      error: null,
+      isLoading: false,
+      isOffline: false,
+      isSyncing: false,
+      syncError: null,
+      hasSnapshot: true,
+      lastSyncedAt: new Date().toISOString(),
+      refetch: vi.fn()
+    });
+
+    renderPage('/labels');
+    fireEvent.change(screen.getByRole('combobox', { name: /Label Status/ }), {
+      target: { value: 'unlabeled' }
+    });
+
+    const table = getMatchingBoxesTable();
+    expect(within(table).getByText('MO1-0100')).toBeTruthy();
+    expect(within(table).queryByText('MO1-0101')).toBeNull();
+    expect(within(table).queryByText('MO1-0102')).toBeNull();
+    expect(within(table).queryByText('MO1-0103')).toBeNull();
+    expect(within(table).queryByText('MO1-0104')).toBeNull();
+    expect(within(table).queryByText('MO1-0105')).toBeNull();
+    expect(within(table).queryByText('MO1-0106')).toBeNull();
   });
 
   it('keeps warehouse visible in selected label summaries after removing it from Matching Boxes', () => {
@@ -593,6 +640,61 @@ describe('LabelMakerPage', () => {
 
     expect(window.print).toHaveBeenCalledTimes(1);
     expect(createBoxQrCodeDataUrlMock).toHaveBeenCalledWith('MO1-0028');
+  });
+
+  it('asks before marking printed labels as labeled and sends unique selected box IDs', async () => {
+    const markLabelsPrinted = vi.fn().mockResolvedValue({
+      result: {
+        boxes: [buildBox({ boxId: 'MO1-0028', hasLabel: true })],
+        logIds: ['LOG-1']
+      },
+      warnings: []
+    });
+    useMarkLabelsPrintedMock.mockReturnValue({
+      mutateAsync: markLabelsPrinted,
+      isPending: false
+    });
+
+    renderPage();
+    const row = getRowForBox('MO1-0028');
+    fireEvent.click(within(row).getByRole('button', { name: 'Label A' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Label B' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Print Labels' }) as HTMLButtonElement).disabled).toBe(false)
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Print Labels' }));
+
+    expect(window.print).toHaveBeenCalledTimes(1);
+    expect(markLabelsPrinted).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Mark selected boxes as labeled?' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Labeled' }));
+
+    await waitFor(() =>
+      expect(markLabelsPrinted).toHaveBeenCalledWith({ boxIds: ['MO1-0028'] })
+    );
+    expect(await screen.findByText('Labels marked printed')).toBeTruthy();
+  });
+
+  it('does not mark selected boxes labeled when the print confirmation is cancelled', async () => {
+    const markLabelsPrinted = vi.fn();
+    useMarkLabelsPrintedMock.mockReturnValue({
+      mutateAsync: markLabelsPrinted,
+      isPending: false
+    });
+
+    renderPage();
+    fireEvent.click(within(getRowForBox('MO1-0028')).getByRole('button', { name: 'Label A' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Print Labels' }) as HTMLButtonElement).disabled).toBe(false)
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Print Labels' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Unlabeled' }));
+
+    expect(markLabelsPrinted).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Mark selected boxes as labeled?' })).toBeNull();
   });
 
   it('shows stale inventory and QR failure states', async () => {

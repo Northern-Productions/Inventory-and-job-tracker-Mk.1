@@ -387,6 +387,77 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
   }
 });
 
+Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloads public boxes", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const reloadedBoxIds: string[] = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/boxes/labels/mark-printed",
+    { boxIds: ["IL1-100", "IL1-101"] },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          boxIds: ["IL1-100", "IL1-101"],
+          logIds: ["LOG-100", "LOG-101"],
+        };
+      },
+      findBoxById: async (_client: unknown, _orgId: string, boxId: string) => {
+        reloadedBoxIds.push(boxId);
+        return {
+          id: `record-${boxId}`,
+          boxId,
+          status: "IN_STOCK",
+          hasLabel: true,
+          feetAvailable: 50,
+          initialFeet: 50,
+        };
+      },
+      toPublicBox: (box: Record<string, unknown>) => ({
+        boxId: box.boxId,
+        hasLabel: box.hasLabel,
+      }),
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_boxes_mark_labels_printed",
+        orgId: "org-1",
+        actor: "tester",
+        payload: { boxIds: ["IL1-100", "IL1-101"] },
+      },
+    ],
+    "Expected the label-print route to delegate to the SQL ACL RPC.",
+  );
+  assertEquals(reloadedBoxIds, ["IL1-100", "IL1-101"], "Expected updated boxes to be reloaded.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        boxes: [
+          { boxId: "IL1-100", hasLabel: true },
+          { boxId: "IL1-101", hasLabel: true },
+        ],
+        logIds: ["LOG-100", "LOG-101"],
+      },
+      warnings: [],
+    },
+    "Expected updated public boxes and label audit IDs.",
+  );
+});
+
 Deno.test("planner mutation routes still run Edge planner reconciliation when SQL does not own it", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const plannerCalls: Array<Record<string, unknown>> = [];

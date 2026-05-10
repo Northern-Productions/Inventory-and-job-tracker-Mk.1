@@ -16,6 +16,7 @@ test('uses local fallback for localhost inventory, job, film-order, and caulk wr
   assert.equal(shouldUseLocalFallbackRoute('POST', '/allocations/planner-suppression/clear'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/delete'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/receive'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/labels/mark-printed'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/transfer/start'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/transfer/receive'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/transfer/cancel'), true);

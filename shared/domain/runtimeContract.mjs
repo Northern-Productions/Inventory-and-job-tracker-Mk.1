@@ -35,6 +35,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/boxes/update': 'inventory',
   '/boxes/delete': 'inventory',
   '/boxes/set-status': 'inventory',
+  '/boxes/labels/mark-printed': 'inventory',
   '/boxes/transfer/by-box': 'inventory',
   '/boxes/transfer/plan': 'inventory',
   '/boxes/transfer/start': 'inventory',

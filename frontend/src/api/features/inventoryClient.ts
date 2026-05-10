@@ -13,6 +13,8 @@ import type {
   BoxMutationResult,
   DeleteBoxPayload,
   DeleteBoxResult,
+  MarkLabelsPrintedPayload,
+  MarkLabelsPrintedResult,
   ReceiveOrderedBoxPayload,
   SearchBoxesParams,
   ReceiveBoxTransferPayload,
@@ -88,6 +90,10 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
   return orderedForJobs;
 }
 
+export function normalizeHasLabel(value: unknown): boolean {
+  return value !== false;
+}
+
 function normalizeBox(box: Box): Box {
   const availableFeet = Math.max(0, Number(box.feetAvailable || 0));
   const initialFeet = Math.max(0, Number(box.initialFeet || 0));
@@ -125,6 +131,7 @@ function normalizeBox(box: Box): Box {
     allocatedWithInstallDateFeet,
     allocatedWithoutInstallDateFeet,
     allocationPlanningFeet: activePlanningFeet,
+    hasLabel: normalizeHasLabel((box as Box & { hasLabel?: unknown }).hasLabel),
     orderedForJobs: normalizeOrderedForJobs((box as Box & { orderedForJobs?: unknown }).orderedForJobs),
     pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };
@@ -301,6 +308,20 @@ export async function receiveOrderedBox(
     result: {
       ...response.data,
       box: normalizeBox(response.data.box)
+    },
+    warnings: response.warnings
+  };
+}
+
+export async function markLabelsPrinted(
+  payload: MarkLabelsPrintedPayload
+): Promise<{ result: MarkLabelsPrintedResult; warnings: string[] }> {
+  assertFeatureAccess('inventory', 'write');
+  const response = await request<MarkLabelsPrintedResult>('POST', '/boxes/labels/mark-printed', { body: payload });
+  return {
+    result: {
+      boxes: (response.data.boxes || []).map(normalizeBox),
+      logIds: response.data.logIds || []
     },
     warnings: response.warnings
   };

@@ -3,6 +3,7 @@ export {
   addBox,
   updateBox,
   receiveOrderedBox,
+  markLabelsPrinted,
   setBoxStatus,
   getBoxTransferByBox,
   getBoxTransferPlan,

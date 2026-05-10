@@ -333,6 +333,7 @@ async function saveBoxRecord(client, orgId, box) {
           purchase_cost,
           notes,
           direct_to_job_site,
+          has_label,
           has_ever_been_checked_out,
           last_checkout_job,
           last_checkout_date,
@@ -346,10 +347,10 @@ async function saveBoxRecord(client, orgId, box) {
           $14,$15,
           nullif($16, '')::date,
           $17,$18,$19,$20,$21,$22,$23,$24,$25,
-          $26,
-          nullif($27, '')::date,
+          $26,$27,
           nullif($28, '')::date,
-          $29,$30
+          nullif($29, '')::date,
+          $30,$31
         )
         on conflict (org_id, box_id) do update set
           warehouse = excluded.warehouse,
@@ -374,6 +375,7 @@ async function saveBoxRecord(client, orgId, box) {
           purchase_cost = excluded.purchase_cost,
           notes = excluded.notes,
           direct_to_job_site = excluded.direct_to_job_site,
+          has_label = excluded.has_label,
           has_ever_been_checked_out = excluded.has_ever_been_checked_out,
           last_checkout_job = excluded.last_checkout_job,
           last_checkout_date = excluded.last_checkout_date,
@@ -411,6 +413,7 @@ async function saveBoxRecord(client, orgId, box) {
       box.purchaseCost,
       box.notes,
       box.directToJobSite === true,
+      box.hasLabel !== false,
       box.hasEverBeenCheckedOut,
       box.lastCheckoutJob,
       box.lastCheckoutDate,

@@ -2,6 +2,9 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
+import { Select } from '../../../components/Select';
+import { useToast } from '../../../components/Toast';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
 import { filterOfflineBoxes } from '../../../lib/offlineInventory';
 import type { Box } from '../../../domain';
@@ -13,7 +16,7 @@ import {
   type PrintableLabel
 } from '../components/labels/PrintableLabelSheet';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
-import { useFilmCatalog } from '../hooks/useInventoryQueries';
+import { useFilmCatalog, useMarkLabelsPrinted } from '../hooks/useInventoryQueries';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
 import {
   canonicalizeManufacturerLabel,
@@ -48,6 +51,7 @@ type SlotQrState = Record<LabelSlot, {
   pending: boolean;
   error: string;
 }>;
+type LabelStatusFilter = 'all' | 'unlabeled';
 
 const EMPTY_SLOT_BOXES: SlotBoxState = {
   A: null,
@@ -89,6 +93,20 @@ function isSnapshotStale(lastSyncedAt: string): boolean {
   return Date.now() - parsed > 24 * 60 * 60 * 1000;
 }
 
+function isUnlabeledLabelCandidate(box: Box): boolean {
+  return box.status === 'IN_STOCK' && box.hasLabel === false;
+}
+
+function getUniqueSelectedBoxIds(selectedBoxesBySlot: SlotBoxState): string[] {
+  return Array.from(
+    new Set(
+      LABEL_SLOTS.map((slot) => selectedBoxesBySlot[slot]?.boxId || '')
+        .map((boxId) => boxId.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 export default function LabelMakerPage() {
   const [searchParams] = useSearchParams();
   const hasMountedRef = useRef(false);
@@ -97,11 +115,15 @@ export default function LabelMakerPage() {
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)
   );
+  const [labelStatusFilter, setLabelStatusFilter] = useState<LabelStatusFilter>('all');
   const [selectedBoxesBySlot, setSelectedBoxesBySlot] = useState<SlotBoxState>(EMPTY_SLOT_BOXES);
   const [draftsBySlot, setDraftsBySlot] = useState<SlotDraftState>(EMPTY_SLOT_DRAFTS);
   const [qrStateBySlot, setQrStateBySlot] = useState<SlotQrState>(EMPTY_SLOT_QR);
+  const [pendingPrintedBoxIds, setPendingPrintedBoxIds] = useState<string[]>([]);
   const boxesQuery = useOfflineInventorySearch(filters.warehouse);
   const filmCatalogQuery = useFilmCatalog();
+  const markLabelsPrintedMutation = useMarkLabelsPrinted();
+  const toast = useToast();
 
   useEffect(() => {
     hasMountedRef.current = true;
@@ -119,18 +141,26 @@ export default function LabelMakerPage() {
     () => ({
       ...filters,
       q: debouncedQuery,
+      status: labelStatusFilter === 'unlabeled' ? 'IN_STOCK' : filters.status,
       film: '',
       widths: normalizeSelectedWidths(filters.widths),
       showRetired: false
     }),
-    [debouncedQuery, filters]
+    [debouncedQuery, filters, labelStatusFilter]
   );
   const hasSearchTerm = debouncedQuery.trim().length > 0;
+  const shouldShowMatchingBoxes = hasSearchTerm || labelStatusFilter === 'unlabeled';
   const deferredFilters = useDeferredValue(searchFilters);
-  const filteredBoxes = useMemo(
-    () => (hasSearchTerm ? filterOfflineBoxes(boxesQuery.snapshotBoxes, deferredFilters) : []),
-    [boxesQuery.snapshotBoxes, deferredFilters, hasSearchTerm]
-  );
+  const filteredBoxes = useMemo(() => {
+    if (!shouldShowMatchingBoxes) {
+      return [];
+    }
+
+    const boxes = filterOfflineBoxes(boxesQuery.snapshotBoxes, deferredFilters);
+    return labelStatusFilter === 'unlabeled'
+      ? boxes.filter(isUnlabeledLabelCandidate)
+      : boxes;
+  }, [boxesQuery.snapshotBoxes, deferredFilters, labelStatusFilter, shouldShowMatchingBoxes]);
   const visibleBoxes = useMemo(
     () => filteredBoxes.slice(0, LABEL_RESULT_LIMIT),
     [filteredBoxes]
@@ -324,6 +354,41 @@ export default function LabelMakerPage() {
     }
 
     window.print();
+    setPendingPrintedBoxIds(getUniqueSelectedBoxIds(selectedBoxesBySlot));
+  }
+
+  async function confirmLabelsPrinted() {
+    const boxIds = pendingPrintedBoxIds;
+    if (boxIds.length === 0) {
+      setPendingPrintedBoxIds([]);
+      return;
+    }
+
+    try {
+      const response = await markLabelsPrintedMutation.mutateAsync({ boxIds });
+      const updatedBoxes = new Map(response.result.boxes.map((box) => [box.boxId, box]));
+      setSelectedBoxesBySlot((current) => {
+        const next = { ...current };
+        for (const slot of LABEL_SLOTS) {
+          const selectedBox = next[slot];
+          if (selectedBox && updatedBoxes.has(selectedBox.boxId)) {
+            next[slot] = updatedBoxes.get(selectedBox.boxId) || selectedBox;
+          }
+        }
+        return next;
+      });
+      toast.push({
+        title: 'Labels marked printed',
+        description: `${boxIds.length} selected box${boxIds.length === 1 ? '' : 'es'} marked labeled.`
+      });
+      setPendingPrintedBoxIds([]);
+    } catch (error) {
+      toast.push({
+        title: 'Unable to mark labels printed',
+        description: error instanceof Error ? error.message : 'Try again after confirming inventory access.',
+        variant: 'error'
+      });
+    }
   }
 
   const printOnlySheet =
@@ -347,6 +412,18 @@ export default function LabelMakerPage() {
             </div>
           </div>
           {staleWarning ? <p className="label-warning">{staleWarning}</p> : null}
+          <div className="label-mode-row">
+            <Select
+              label="Label Status"
+              value={labelStatusFilter}
+              onChange={(event) => setLabelStatusFilter(event.target.value as LabelStatusFilter)}
+              options={[
+                { label: 'All boxes', value: 'all' },
+                { label: 'Unlabeled boxes', value: 'unlabeled' }
+              ]}
+              hint="Unlabeled shows received in-stock boxes whose labels have not been printed."
+            />
+          </div>
           <InventoryFilters
             values={filters}
             manufacturerOptions={manufacturerOptions}
@@ -360,7 +437,7 @@ export default function LabelMakerPage() {
         <LabelBoxPicker
           boxes={visibleBoxes}
           totalCount={filteredBoxes.length}
-          hasSearchTerm={hasSearchTerm}
+          hasSearchTerm={shouldShowMatchingBoxes}
           loading={boxesQuery.isLoading}
           error={boxesQuery.isError ? (boxesQuery.error as Error) : null}
           selectedBoxesBySlot={selectedBoxesBySlot}
@@ -410,6 +487,23 @@ export default function LabelMakerPage() {
           </div>
         </section>
       </div>
+      <ConfirmDialog
+        open={pendingPrintedBoxIds.length > 0}
+        title="Mark selected boxes as labeled?"
+        message="Only confirm after the selected labels were printed successfully. Cancel keeps them in the unlabeled list."
+        confirmLabel={markLabelsPrintedMutation.isPending ? 'Marking...' : 'Mark Labeled'}
+        cancelLabel="Keep Unlabeled"
+        onCancel={() => {
+          if (!markLabelsPrintedMutation.isPending) {
+            setPendingPrintedBoxIds([]);
+          }
+        }}
+        onConfirm={() => {
+          if (!markLabelsPrintedMutation.isPending) {
+            void confirmLabelsPrinted();
+          }
+        }}
+      />
       {printOnlySheet}
     </>
   );

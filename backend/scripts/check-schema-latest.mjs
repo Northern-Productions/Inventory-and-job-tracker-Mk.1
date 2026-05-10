@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0112_preserve_job_requirement_ids.sql';
+const LATEST_MIGRATION = '0113_box_has_label.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -20,6 +20,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'type', signature: 'app.allocation_source' },
   { kind: 'type', signature: 'app.caulk_transfer_status' },
   { kind: 'column', signature: 'app.boxes.dealer' },
+  { kind: 'column', signature: 'app.boxes.has_label' },
   { kind: 'column', signature: 'app.allocations.allocation_source' },
   { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
   { kind: 'column', signature: 'app.roll_weight_log.created_at' },
@@ -51,6 +52,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_mark_labels_printed(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
@@ -191,6 +193,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
       "v_core_type := app_api.normalize_core_type(v_payload->>'coreType', true);",
       'v_box.core_weight_lbs := app_api.derive_core_weight_lbs(v_core_type, v_box.width_in);',
+      'v_box.has_label := false;',
       'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
       "v_log_id := app_api.append_audit_entry(",
@@ -201,6 +204,16 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'public.api_boxes_update(p_org_id, p_actor, v_payload)',
       'v_locked_allocated_feet := app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id);'
     ]
+  },
+  {
+    signature: 'public.api_acl_boxes_mark_labels_printed(uuid, text, jsonb)',
+    includes: [
+      "jsonb_typeof(p_payload->'boxIds')",
+      'set has_label = true',
+      "'UPDATE_BOX'",
+      'Label printed for box %s.'
+    ],
+    excludes: ['label_applied_at', 'label_required_at']
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
@@ -622,17 +635,25 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'app_api.save_box(app.boxes)',
-    includes: ['perform app_api.upsert_box_dealer(p_box.org_id, p_box.dealer);', 'dealer = excluded.dealer'],
+    includes: [
+      'perform app_api.upsert_box_dealer(p_box.org_id, p_box.dealer);',
+      'dealer = excluded.dealer',
+      'coalesce(p_box.has_label, true)',
+      'has_label = excluded.has_label'
+    ],
     excludes: []
   },
   {
     signature: 'app_api.public_box_json(app.boxes)',
-    includes: ["'dealer', coalesce(p_box.dealer, '')"],
+    includes: ["'dealer', coalesce(p_box.dealer, '')", "'hasLabel', coalesce(p_box.has_label, true)"],
     excludes: []
   },
   {
     signature: 'app_api.public_box_state_to_box_row(uuid, jsonb, uuid)',
-    includes: ["v_box.dealer := coalesce(p_state->>'dealer', '');"],
+    includes: [
+      "v_box.dealer := coalesce(p_state->>'dealer', '');",
+      "v_box.has_label := coalesce((p_state->>'hasLabel')::boolean, true);"
+    ],
     excludes: []
   },
   {
