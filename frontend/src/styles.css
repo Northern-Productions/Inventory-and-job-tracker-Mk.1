@@ -943,6 +943,7 @@ textarea {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 0.5rem;
   flex: 0 0 auto;
   min-height: 2.35rem;
   position: relative;
