@@ -66,7 +66,7 @@ interface BoxDetailHeroSectionProps {
   qrCodeError: string;
   onOpenTransferDialog: () => void;
   onStartEdit: () => void;
-  onOpenLastCheckoutJob: (jobNumber: string) => void;
+  onOpenJob: (jobNumber: string) => void;
   onSetTransferActionState: (state: 'receive' | 'cancel') => void;
   onToggleQrSection: () => void;
   onCopyQrImage: () => void;
@@ -100,7 +100,7 @@ export function BoxDetailHeroSection({
   qrCodeError,
   onOpenTransferDialog,
   onStartEdit,
-  onOpenLastCheckoutJob,
+  onOpenJob,
   onSetTransferActionState,
   onToggleQrSection,
   onCopyQrImage,
@@ -172,6 +172,9 @@ export function BoxDetailHeroSection({
   const physicalFeetOnHand = currentFeetOnRoll ?? box.physicalFeetAvailable ?? box.feetAvailable;
   const lockedFeet = box.allocatedWithInstallDateFeet ?? 0;
   const placeholderFeet = box.allocatedWithoutInstallDateFeet ?? Math.max(displayedAllocatedFeet - lockedFeet, 0);
+  const orderedForJobs = Array.isArray(box.orderedForJobs)
+    ? box.orderedForJobs.filter((entry) => entry.jobNumber)
+    : [];
 
   return (
     <section className="panel detail-hero">
@@ -249,6 +252,25 @@ export function BoxDetailHeroSection({
         <DetailField label="Lot Run" value={box.lotRun} />
         <DetailField label="Order Date" value={formatDate(box.orderDate)} />
         <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
+        {orderedForJobs.length ? (
+          <DetailField
+            label="Ordered For Job"
+            value={
+              <span className="detail-link-list">
+                {orderedForJobs.map((entry) => (
+                  <button
+                    type="button"
+                    className="row-button detail-link-button"
+                    key={`${entry.filmOrderId || 'film-order'}-${entry.jobNumber}`}
+                    onClick={() => onOpenJob(entry.jobNumber)}
+                  >
+                    {formatJobDisplayNumber(entry.jobNumber, box.warehouse)}
+                  </button>
+                ))}
+              </span>
+            }
+          />
+        ) : null}
         <DetailField label="Initial Weight" value={box.initialWeightLbs} />
         <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
         <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
@@ -264,7 +286,7 @@ export function BoxDetailHeroSection({
               <button
                 type="button"
                 className="row-button"
-                onClick={() => onOpenLastCheckoutJob(box.lastCheckoutJob)}
+                onClick={() => onOpenJob(box.lastCheckoutJob)}
               >
                 {formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)}
               </button>

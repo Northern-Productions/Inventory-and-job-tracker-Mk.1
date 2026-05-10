@@ -171,7 +171,27 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
   }
 
   function toPublicBox(box: any) {
-    return {
+    const orderedForJobs = Array.isArray(box.orderedForJobs)
+      ? box.orderedForJobs
+          .map((entry: any) => {
+            const jobNumber = deps.asTrimmedString(entry?.jobNumber);
+            if (!jobNumber) {
+              return null;
+            }
+
+            const orderedFeet =
+              entry?.orderedFeet === null || entry?.orderedFeet === undefined || entry?.orderedFeet === ""
+                ? NaN
+                : Number(entry.orderedFeet);
+            return {
+              jobNumber,
+              filmOrderId: deps.asTrimmedString(entry?.filmOrderId),
+              orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+            };
+          })
+          .filter(Boolean)
+      : undefined;
+    const publicBox = {
       boxId: box.boxId,
       warehouse: box.warehouse,
       dealer: deps.asTrimmedString(box.dealer),
@@ -226,6 +246,15 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       zeroedReason: box.zeroedReason,
       zeroedBy: box.zeroedBy,
     };
+
+    if (orderedForJobs) {
+      return {
+        ...publicBox,
+        orderedForJobs,
+      };
+    }
+
+    return publicBox;
   }
 
   function mapDbFilmCatalogRow(row: any) {

@@ -2213,6 +2213,16 @@ td.col-available-linear-ft {
   color: #0f4aa3;
 }
 
+.detail-link-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+}
+
+.detail-link-button {
+  width: auto;
+}
+
 .stock-cell {
   display: grid;
   gap: 0.25rem;

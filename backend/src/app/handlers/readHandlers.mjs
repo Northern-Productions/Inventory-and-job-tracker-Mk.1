@@ -1,7 +1,14 @@
 // Purpose: Read-route dispatch map for the modular backend handler.
 import { HttpError, ok } from '../../lib/http.mjs';
 import { requireString } from '../core/helpers.mjs';
-import { findBoxById, listAllocationsByBox, toPublicAllocation, toPublicBox } from '../repositories/inventoryRepositories.mjs';
+import {
+  findBoxById,
+  findFilmOrderById,
+  listAllocationsByBox,
+  listFilmOrderLinksByBoxId,
+  toPublicAllocation,
+  toPublicBox,
+} from '../repositories/inventoryRepositories.mjs';
 import {
   buildAllocationJobList,
   buildAllocationJobDetail,
@@ -44,6 +51,45 @@ import {
 } from '../services/access.mjs';
 import { withReadClient } from '../../db/client.mjs';
 
+export async function buildOrderedForJobsForBox(client, orgId, boxId, deps = {}) {
+  const listLinks = deps.listFilmOrderLinksByBoxId || listFilmOrderLinksByBoxId;
+  const findOrder = deps.findFilmOrderById || findFilmOrderById;
+  const links = await listLinks(client, orgId, boxId);
+  const orderedForJobs = [];
+  const seen = new Set();
+
+  for (const link of Array.isArray(links) ? links : []) {
+    const filmOrderId = String(link?.filmOrderId || '').trim();
+    if (!filmOrderId) {
+      continue;
+    }
+
+    const filmOrder = await findOrder(client, orgId, filmOrderId);
+    const jobNumber = String(filmOrder?.jobNumber || '').trim();
+    if (!jobNumber) {
+      continue;
+    }
+
+    const key = `${filmOrderId}\u0000${jobNumber}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const orderedFeet =
+      link?.orderedFeet === null || link?.orderedFeet === undefined || link?.orderedFeet === ''
+        ? NaN
+        : Number(link.orderedFeet);
+    orderedForJobs.push({
+      jobNumber,
+      filmOrderId,
+      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+    });
+  }
+
+  return orderedForJobs;
+}
+
 const readHandlers = {
   '/app/attention-summary': async ({ client, orgId, authContext }) =>
     ok(await buildAppAttentionSummary(client, orgId, authContext)),
@@ -67,7 +113,9 @@ const readHandlers = {
     if (!found) {
       throw new HttpError(404, 'Box not found.');
     }
-    return ok(toPublicBox(applyReservationMetricsToBox(found, await listAllocationsByBox(client, orgId, found.boxId))));
+    const allocations = await listAllocationsByBox(client, orgId, found.boxId);
+    const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId);
+    return ok(toPublicBox(applyReservationMetricsToBox({ ...found, orderedForJobs }, allocations)));
   },
   '/boxes/transfer/by-box': async ({ client, orgId, params }) =>
     ok(await getBoxTransferByBox(client, orgId, params.boxId)),

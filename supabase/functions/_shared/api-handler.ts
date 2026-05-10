@@ -1666,6 +1666,34 @@ async function listFilmOrderLinksByFilmOrderIds(orgId: string, filmOrderIds: str
   return rows.map((row) => mapDbFilmOrderLinkRow(row)).filter(isPresent);
 }
 
+async function listFilmOrderLinksByBoxIdDirect(orgId: string, boxId: string) {
+  const normalizedBoxId = asTrimmedString(boxId).toUpperCase();
+  if (!normalizedBoxId) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("film_order_box_links")
+    .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, created_at, created_by")
+    .eq("org_id", orgId)
+    .eq("box_id", normalizedBoxId)
+    .order("created_at", { ascending: false })
+    .order("link_id", { ascending: false });
+  throwOnSupabaseError(error, `Unable to load film-order links for box ${normalizedBoxId}`);
+
+  return (Array.isArray(data) ? data : []).map((row) => ({
+    linkId: asTrimmedString(row.link_id),
+    filmOrderId: asTrimmedString(row.film_order_id),
+    boxId: asTrimmedString(row.box_id),
+    orderedFeet: integerOrZero(row.ordered_feet),
+    autoAllocatedFeet: integerOrZero(row.auto_allocated_feet),
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+  }));
+}
+
 function buildJobStagingValidationState(params: {
   jobNumber: string;
   warehouse: string;
@@ -7544,6 +7572,9 @@ async function dispatchRead(
     enrichAdminPermissionEntries,
     buildSearchBoxes,
     findBoxById,
+    findFilmOrderById,
+    listFilmOrderLinksByBoxId: (_readClient: any, readOrgId: string, boxId: string) =>
+      listFilmOrderLinksByBoxIdDirect(readOrgId, boxId),
     getBoxTransferByBox,
     getBoxTransferPlan,
     toPublicBox,
