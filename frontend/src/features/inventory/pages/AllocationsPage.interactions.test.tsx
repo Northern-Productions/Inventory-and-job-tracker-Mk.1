@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { forwardRef, type PropsWithChildren } from 'react';
 import AllocationsPage from './AllocationsPage';
@@ -14,6 +14,7 @@ const useJobsCalendarEntriesMock = vi.fn();
 const useCreateJobMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useCaulkProductsMock = vi.fn();
+const checkJobDuplicateMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   Link: forwardRef<HTMLAnchorElement, PropsWithChildren<{ to: string }>>(
@@ -45,6 +46,10 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useCreateJob: (...args: unknown[]) => useCreateJobMock(...args),
   useFilmCatalog: (...args: unknown[]) => useFilmCatalogMock(...args),
   useCaulkProducts: (...args: unknown[]) => useCaulkProductsMock(...args)
+}));
+
+vi.mock('../../../api/features/jobsClient', () => ({
+  checkJobDuplicate: (...args: unknown[]) => checkJobDuplicateMock(...args)
 }));
 
 function buildMutationState() {
@@ -127,6 +132,26 @@ function renderPage(props: {
   };
 }
 
+async function openNewJobAndSaveDraft({
+  jobNumber = '81234',
+  workScope = ''
+}: {
+  jobNumber?: string;
+  workScope?: string;
+} = {}) {
+  fireEvent.click(screen.getByRole('button', { name: 'New Job +' }));
+  await screen.findByRole('heading', { name: 'New Job' });
+  fireEvent.change(screen.getByLabelText(/Job ID number/), {
+    target: { value: jobNumber }
+  });
+  if (workScope) {
+    fireEvent.change(screen.getByLabelText(/Work Scope/), {
+      target: { value: workScope }
+    });
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Save Job' }));
+}
+
 describe('AllocationsPage interactions', () => {
   afterEach(() => {
     cleanup();
@@ -135,6 +160,8 @@ describe('AllocationsPage interactions', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
+    checkJobDuplicateMock.mockReset();
+    checkJobDuplicateMock.mockResolvedValue({ exists: false, job: null });
     const activeListEntries = [
       buildJob({
         jobId: '11111111-1111-4111-8111-111111111111',
@@ -247,5 +274,135 @@ describe('AllocationsPage interactions', () => {
     expect(Boolean(screen.getByText('Loading film catalog...'))).toBe(true);
     expect((screen.getByRole('button', { name: 'Add Caulk Requirement' }) as HTMLButtonElement).disabled).toBe(true);
     expect(Boolean(screen.getByRole('combobox', { name: 'Manufacturer' }))).toBe(true);
+  });
+
+  it('creates a unique labor-only job after duplicate preflight succeeds', async () => {
+    const createMutation = buildMutationState();
+    createMutation.mutateAsync.mockResolvedValue({
+      result: {
+        summary: {
+          jobId: '33333333-3333-4333-8333-333333333333',
+          jobNumber: '81234'
+        }
+      }
+    });
+    useCreateJobMock.mockReturnValue(createMutation);
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Lobby' });
+
+    await waitFor(() => expect(checkJobDuplicateMock).toHaveBeenCalledWith('81234'));
+    expect(screen.getByRole('heading', { name: 'Labor-Only Job 81234?' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, Labor Only' }));
+
+    await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobNumber: '81234',
+        workScope: 'Lobby',
+        isLaborOnly: true
+      })
+    ));
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/81234');
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/33333333-3333-4333-8333-333333333333',
+      { replace: true }
+    );
+  });
+
+  it('blocks active duplicate job creation before mutation and keeps the draft editable', async () => {
+    const createMutation = buildMutationState();
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: true,
+      job: buildJob({
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobNumber: '81234',
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5',
+        lifecycleStatus: 'ACTIVE',
+        status: 'READY'
+      })
+    });
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Different Scope' });
+
+    expect(await screen.findByRole('heading', { name: 'This job already exists and is active.' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Labor-Only Job/ })).toBeNull();
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByText(/Existing job: IL1-81234/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit New Job' }));
+
+    expect(screen.getByRole('heading', { name: 'New Job' })).toBeTruthy();
+    expect((screen.getByLabelText(/Job ID number/) as HTMLInputElement).value).toBe('81234');
+    expect((screen.getByLabelText(/Work Scope/) as HTMLInputElement).value).toBe('Different Scope');
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('routes active duplicates to the canonical jobId route when requested', async () => {
+    const createMutation = buildMutationState();
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: true,
+      job: buildJob({
+        jobId: '55555555-5555-4555-8555-555555555555',
+        jobNumber: '81234',
+        lifecycleStatus: 'ACTIVE',
+        status: 'READY'
+      })
+    });
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234' });
+
+    expect(await screen.findByRole('button', { name: 'Go to Existing Job' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Existing Job' }));
+
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/jobs/55555555-5555-4555-8555-555555555555');
+  });
+
+  it('routes duplicate jobs by job number when jobId is missing', async () => {
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: true,
+      job: buildJob({
+        jobId: undefined,
+        jobNumber: '81234',
+        lifecycleStatus: 'ACTIVE',
+        status: 'READY'
+      })
+    });
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234' });
+
+    expect(await screen.findByRole('button', { name: 'Go to Existing Job' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Existing Job' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/81234');
+  });
+
+  it('blocks completed duplicate job creation with completed-job guidance', async () => {
+    const createMutation = buildMutationState();
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: true,
+      job: buildJob({
+        jobId: '66666666-6666-4666-8666-666666666666',
+        jobNumber: '81234',
+        lifecycleStatus: 'COMPLETED',
+        status: 'COMPLETED'
+      })
+    });
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234' });
+
+    expect(await screen.findByRole('heading', {
+      name: 'This job was already completed. What would you like to do?'
+    })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Go to Completed Job' })).toBeTruthy();
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
   });
 });

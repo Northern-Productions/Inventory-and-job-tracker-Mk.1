@@ -68,6 +68,7 @@ export {
   updateCaulkJobAllocation
 } from './features/allocationsClient';
 export {
+  checkJobDuplicate,
   checkoutAllJobMaterials,
   completeJob,
   createJob,

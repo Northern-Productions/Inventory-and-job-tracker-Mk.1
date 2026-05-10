@@ -429,6 +429,59 @@ async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStat
   });
 }
 
+function buildDuplicateJobFallbackSummary(header) {
+  const lifecycleStatus = normalizeJobLifecycleStatus(header?.lifecycleStatus);
+  const workScope = header?.workScope ?? header?.sections ?? null;
+  return {
+    jobId: header?.id || '',
+    jobNumber: header?.jobNumber || '',
+    warehouse: header?.warehouse || '',
+    workScope,
+    sections: workScope,
+    installDate: header?.installDate || '',
+    crewLeader: header?.crewLeader || '',
+    status: lifecycleStatus === 'COMPLETED' || lifecycleStatus === 'CANCELLED'
+      ? lifecycleStatus
+      : 'FILM_ORDER',
+    lifecycleStatus,
+    isLaborOnly: Boolean(header?.isLaborOnly),
+    isStagedForPickup: Boolean(header?.isStagedForPickup),
+    requiredFeet: 0,
+    allocatedFeet: 0,
+    allocatedWithInstallDateFeet: 0,
+    allocatedWithoutInstallDateFeet: 0,
+    remainingFeet: 0,
+    requiredTubes: 0,
+    allocatedTubes: 0,
+    remainingTubes: 0,
+    requirementCount: 0,
+    allocationCount: 0,
+    filmOrderCount: 0,
+    hasOrderedAllocations: false,
+    createdAt: header?.createdAt || '',
+    updatedAt: header?.updatedAt || '',
+    notes: header?.notes || ''
+  };
+}
+
+async function checkJobDuplicate(client, orgId, rawJobNumber, deps = {}) {
+  const normalizeJobNumber = deps.normalizeJobNumberDigits || normalizeJobNumberDigits;
+  const findJob = deps.findJobByNumber || findJobByNumber;
+  const buildList = deps.buildJobsList || buildJobsList;
+  const jobNumber = normalizeJobNumber(rawJobNumber, 'JobNumber');
+  const existing = await findJob(client, orgId, jobNumber);
+  if (!existing) {
+    return { exists: false, job: null };
+  }
+
+  const entries = await buildList(client, orgId, 0, undefined, [jobNumber]);
+  const summary = entries.find((entry) => asTrimmedString(entry?.jobNumber) === jobNumber);
+  return {
+    exists: true,
+    job: summary || buildDuplicateJobFallbackSummary(existing)
+  };
+}
+
 function normalizeCalendarMonth(value) {
   const month = asTrimmedString(value);
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -756,6 +809,7 @@ async function resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor,
 export {
   buildJobsList,
   buildJobsSearchResults,
+  checkJobDuplicate,
   normalizeCalendarMonth,
   normalizeCalendarView,
   parseCalendarDate,

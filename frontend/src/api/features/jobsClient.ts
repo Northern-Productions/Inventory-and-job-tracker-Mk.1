@@ -23,6 +23,11 @@ export interface JobsCalendarEntriesOptions {
   lifecycleStatus?: JobLifecycleFilter;
 }
 
+export interface JobDuplicateCheckResult {
+  exists: boolean;
+  job: JobListEntry | null;
+}
+
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
@@ -178,6 +183,24 @@ export async function getJobById(jobId: string): Promise<JobDetail> {
     { jobId }
   );
   return normalizeJobDetail(result);
+}
+
+export async function checkJobDuplicate(jobNumber: string): Promise<JobDuplicateCheckResult> {
+  assertFeatureAccess('jobs', 'read');
+  const normalizedJobNumber = String(jobNumber || '').trim();
+  const result = await requestReadWithFallback<{
+    exists?: boolean;
+    job?: JobListEntry | null;
+  }>(
+    '/jobs/check-duplicate',
+    { jobNumber: normalizedJobNumber },
+    { jobNumber: normalizedJobNumber }
+  );
+  const job = result.job ? normalizeJobListEntry(result.job) : null;
+  return {
+    exists: Boolean(result.exists && job),
+    job
+  };
 }
 
 export async function createJob(

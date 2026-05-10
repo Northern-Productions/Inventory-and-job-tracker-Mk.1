@@ -7,6 +7,7 @@ export {
   buildJobDetailById,
   buildReadJobDetail,
   buildReadJobDetailById,
+  checkJobDuplicate,
   setJobStagedPickup,
 } from './runtime/runtimeJobsRead.mjs';
 export { buildReportsSummary, buildOwnerAssetTotalCost } from './runtime/runtimeReports.mjs';

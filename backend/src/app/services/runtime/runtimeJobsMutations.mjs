@@ -95,6 +95,11 @@ function getRestoredAllocatableFeet(entry) {
 async function createJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const existingHeader = await findJobByNumber(client, orgId, jobNumber);
+  if (existingHeader) {
+    throw new HttpError(409, `Job ${jobNumber} already exists.`);
+  }
+
   const warehouse = normalizeJobWarehouse(payload.warehouse);
   const sections = normalizeJobWorkScope(getWorkScopeInput(payload));
   const installDate = normalizeDateString(
@@ -117,42 +122,23 @@ async function createJob(client, orgId, payload, actor) {
     payload.caulkRequirements
   );
   const nowIso = new Date().toISOString();
-  const existingHeader = await findJobByNumber(client, orgId, jobNumber);
-  let nextHeader =
-    existingHeader ||
-    {
-      id: '',
-      orgId,
-      jobNumber,
-      warehouse,
-      sections,
-      installDate,
-      crewLeader,
-      lifecycleStatus,
-      isLaborOnly: false,
-      isStagedForPickup: false,
-      notes,
-      createdAt: nowIso,
-      createdBy: actor,
-      updatedAt: nowIso,
-      updatedBy: actor
-    };
-
-  if (existingHeader) {
-    nextHeader = {
-      ...cloneValue(existingHeader),
-      warehouse,
-      sections,
-      installDate,
-      crewLeader,
-      lifecycleStatus,
-      isLaborOnly: existingHeader.isLaborOnly,
-      isStagedForPickup: existingHeader.isStagedForPickup,
-      updatedAt: nowIso,
-      updatedBy: actor,
-      notes
-    };
-  }
+  let nextHeader = {
+    id: '',
+    orgId,
+    jobNumber,
+    warehouse,
+    sections,
+    installDate,
+    crewLeader,
+    lifecycleStatus,
+    isLaborOnly: false,
+    isStagedForPickup: false,
+    notes,
+    createdAt: nowIso,
+    createdBy: actor,
+    updatedAt: nowIso,
+    updatedBy: actor
+  };
 
   const materialFlags = derivePersistedJobMaterialFlags(
     nextHeader,

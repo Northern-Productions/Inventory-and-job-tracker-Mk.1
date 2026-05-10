@@ -40,6 +40,7 @@ test('uses local fallback for localhost film, allocation, audit, and caulk reads
   assert.equal(shouldUseLocalFallbackRoute('GET', '/film-orders/list'), true);
   assert.equal(shouldUseLocalFallbackRoute('GET', '/film-data/catalog'), true);
   assert.equal(shouldUseLocalFallbackRoute('GET', '/reports/summary'), true);
+  assert.equal(shouldUseLocalFallbackRoute('GET', '/jobs/check-duplicate'), true);
   assert.equal(shouldUseLocalFallbackRoute('GET', '/jobs/get-by-id'), true);
   assert.equal(shouldUseLocalFallbackRoute('GET', '/roll-history/by-box'), true);
 });

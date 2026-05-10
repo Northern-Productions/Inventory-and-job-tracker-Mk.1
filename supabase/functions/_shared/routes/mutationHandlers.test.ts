@@ -56,6 +56,7 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     cancelBoxTransfer: async () => ({}),
     ensureBoxCheckoutCrewCompatibility: async () => undefined,
     findJobByNumber: async () => null,
+    normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
     normalizeJobLifecycleStatus: () => "ACTIVE",
     listAllocationsByIds: async () => [],
     toPublicAllocation: () => ({}),
@@ -268,6 +269,50 @@ Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and relo
     },
     "Expected /jobs/create response to return reloaded job detail and SQL warnings.",
   );
+});
+
+Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC", async () => {
+  let rpcCallCount = 0;
+  let detailCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-1", actor: "tester", role: "owner" } as any,
+      "/jobs/create",
+      {
+        jobNumber: "81234",
+        warehouse: "IL1",
+        workScope: "Sections 4, 5",
+        requirements: [],
+      },
+      buildDeps({
+        findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
+          orgId,
+          jobNumber,
+          lifecycleStatus: "COMPLETED",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+        buildJobDetail: async () => {
+          detailCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message === "Job 81234 already exists.",
+      `Expected duplicate create to fail clearly, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected duplicate create to stop before the SQL create RPC.");
+    assertEquals(detailCallCount, 0, "Expected duplicate create to skip job detail reload.");
+    return;
+  }
+
+  throw new Error("Expected duplicate /jobs/create to fail.");
 });
 
 Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation", async () => {

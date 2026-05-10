@@ -102,6 +102,9 @@ export type ReadHandlerDeps = {
     limit: number,
     lifecycleStatus?: unknown
   ) => Promise<unknown[]>;
+  findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
+  normalizeJobNumberDigits: (value: unknown, fieldName?: string) => string;
+  normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
@@ -128,6 +131,39 @@ function requireUuid(value: unknown, fieldName: string) {
     throw new HttpError(400, `${fieldName} must be a valid UUID.`);
   }
   return normalized;
+}
+
+function buildDuplicateJobFallbackSummary(header: any, deps: ReadHandlerDeps) {
+  const lifecycleStatus = deps.normalizeJobLifecycleStatus(header?.lifecycleStatus);
+  const workScope = deps.asTrimmedString(header?.workScope ?? header?.sections) || null;
+  return {
+    jobId: deps.asTrimmedString(header?.id),
+    jobNumber: deps.asTrimmedString(header?.jobNumber),
+    warehouse: deps.asTrimmedString(header?.warehouse),
+    workScope,
+    sections: workScope,
+    installDate: deps.asTrimmedString(header?.installDate),
+    crewLeader: deps.asTrimmedString(header?.crewLeader),
+    status: lifecycleStatus === "COMPLETED" || lifecycleStatus === "CANCELLED" ? lifecycleStatus : "FILM_ORDER",
+    lifecycleStatus,
+    isLaborOnly: header?.isLaborOnly === true,
+    isStagedForPickup: header?.isStagedForPickup === true,
+    requiredFeet: 0,
+    allocatedFeet: 0,
+    allocatedWithInstallDateFeet: 0,
+    allocatedWithoutInstallDateFeet: 0,
+    remainingFeet: 0,
+    requiredTubes: 0,
+    allocatedTubes: 0,
+    remainingTubes: 0,
+    requirementCount: 0,
+    allocationCount: 0,
+    filmOrderCount: 0,
+    hasOrderedAllocations: false,
+    createdAt: deps.asTrimmedString(header?.createdAt),
+    updatedAt: deps.asTrimmedString(header?.updatedAt),
+    notes: deps.asTrimmedString(header?.notes),
+  };
 }
 
 async function buildOrderedForJobsForBox(
@@ -543,6 +579,21 @@ const readHandlers: Record<string, ReadHandler> = {
         params.lifecycleStatus
       )
     });
+  },
+  "/jobs/check-duplicate": async ({ client, orgId, params }, deps) => {
+    const jobNumber = deps.requireString(
+      deps.normalizeJobNumberDigits(params.jobNumber, "JobNumber"),
+      "JobNumber"
+    );
+    const existing = await deps.findJobByNumber(client, orgId, jobNumber);
+    if (!existing) {
+      return ok({ exists: false, job: null });
+    }
+
+    const entries = await deps.buildJobsList(client, orgId, 0, undefined, [jobNumber]);
+    const job = entries.find((entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber)
+      || buildDuplicateJobFallbackSummary(existing, deps);
+    return ok({ exists: true, job });
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildJobDetail(client, orgId, params.jobNumber));
