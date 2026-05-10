@@ -4,6 +4,22 @@ import { inventoryKeys } from './inventoryQueryKeys';
 
 const CAULK_QUERY_KEY = ['caulk'] as const;
 
+export interface JobCacheIdentity {
+  jobId?: string | null;
+  jobNumber?: string | null;
+}
+
+function normalizeJobCacheIdentity(identity: string | JobCacheIdentity): Required<JobCacheIdentity> {
+  if (typeof identity === 'string') {
+    return { jobId: '', jobNumber: identity.trim() };
+  }
+
+  return {
+    jobId: String(identity.jobId || '').trim(),
+    jobNumber: String(identity.jobNumber || '').trim()
+  };
+}
+
 export async function invalidateQueryKeys(
   queryClient: QueryClient,
   queryKeys: readonly (readonly unknown[])[]
@@ -13,23 +29,33 @@ export async function invalidateQueryKeys(
   );
 }
 
-export async function invalidateJobAndFilmOrderQueries(queryClient: QueryClient, jobNumber: string) {
+export async function invalidateJobAndFilmOrderQueries(
+  queryClient: QueryClient,
+  identity: string | JobCacheIdentity
+) {
+  const { jobId, jobNumber } = normalizeJobCacheIdentity(identity);
   await invalidateQueryKeys(queryClient, [
     inventoryKeys.jobs,
-    inventoryKeys.job(jobNumber),
+    ...(jobId ? [inventoryKeys.jobById(jobId)] : []),
+    ...(jobNumber ? [inventoryKeys.job(jobNumber)] : []),
     inventoryKeys.jobsCalendarRoot,
     inventoryKeys.allocationJobs,
     inventoryKeys.filmOrders
   ]);
 }
 
-export async function invalidateJobLifecycleQueries(queryClient: QueryClient, jobNumber: string) {
+export async function invalidateJobLifecycleQueries(
+  queryClient: QueryClient,
+  identity: string | JobCacheIdentity
+) {
+  const { jobId, jobNumber } = normalizeJobCacheIdentity(identity);
   await invalidateQueryKeys(queryClient, [
     inventoryKeys.jobs,
-    inventoryKeys.job(jobNumber),
+    ...(jobId ? [inventoryKeys.jobById(jobId)] : []),
+    ...(jobNumber ? [inventoryKeys.job(jobNumber)] : []),
     inventoryKeys.jobsCalendarRoot,
     inventoryKeys.allocationJobs,
-    inventoryKeys.allocationJob(jobNumber),
+    ...(jobNumber ? [inventoryKeys.allocationJob(jobNumber)] : []),
     inventoryKeys.filmOrders,
     inventoryKeys.reportsRoot
   ]);

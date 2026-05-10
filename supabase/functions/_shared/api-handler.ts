@@ -40,6 +40,7 @@ import {
 import { routeParams as routeParamsFromModule } from "./routes/params.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 import { dispatchMutationWithHandlers } from "./routes/mutationHandlers.ts";
+import { resolveEdgeJobMutationTargetById } from "./jobMutationIdentity.ts";
 import { buildAppAttentionSummary as buildAppAttentionSummaryFromService } from "./services/appAttention.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
 import {
@@ -7937,22 +7938,36 @@ async function reopenJob(client: any, identity: AuthIdentity, payload: Record<st
   const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
-  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, payload, {
+    findJobById,
+    normalizeJobNumberDigits,
+  });
+  const jobNumber = target.usedJobId ? target.jobNumber : requireString(payload.jobNumber, "JobNumber");
   const serviceClient = requireServiceRoleClientForJobs();
 
-  const { data: jobRow, error: jobError } = await serviceClient
-    .schema("app")
-    .from("jobs")
-    .select("id, lifecycle_status")
-    .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .maybeSingle();
-  throwOnSupabaseError(jobError, "Unable to load job");
+  let jobRow: Record<string, unknown> | null = null;
+  if (target.usedJobId) {
+    jobRow = target.job;
+  } else {
+    const { data, error: jobError } = await serviceClient
+      .schema("app")
+      .from("jobs")
+      .select("id, lifecycle_status")
+      .eq("org_id", orgId)
+      .eq("job_number", jobNumber)
+      .maybeSingle();
+    throwOnSupabaseError(jobError, "Unable to load job");
+    jobRow = data as Record<string, unknown> | null;
+    if (!jobRow) {
+      throw new HttpError(404, `Job ${jobNumber} was not found.`);
+    }
+  }
+
   if (!jobRow) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  const lifecycleStatus = normalizeJobLifecycleStatus(jobRow.lifecycleStatus || jobRow.lifecycle_status);
   if (lifecycleStatus !== "COMPLETED" && lifecycleStatus !== "CANCELLED") {
     throw new HttpError(400, `Job ${jobNumber} is already active.`);
   }
@@ -7966,11 +7981,14 @@ async function reopenJob(client: any, identity: AuthIdentity, payload: Record<st
       updated_by: actor,
     })
     .eq("org_id", orgId)
-    .eq("id", (jobRow as Record<string, unknown>).id);
+    .eq("id", jobRow.id || jobRow.jobId || jobRow.job_id);
   throwOnSupabaseError(reopenError, "Unable to reopen job");
 
   warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+  return ok(
+    target.usedJobId ? await buildJobDetailById(client, orgId, target.jobId) : await buildJobDetail(client, orgId, jobNumber),
+    warnings,
+  );
 }
 
 async function canonicalizeRequirementPayloadEntries(
@@ -8163,6 +8181,7 @@ async function dispatchMutation(
     cancelBoxTransfer,
     ensureBoxCheckoutCrewCompatibility,
     findJobByNumber,
+    findJobById,
     normalizeJobNumberDigits,
     normalizeJobLifecycleStatus,
     listAllocationsByIds,
@@ -8172,6 +8191,7 @@ async function dispatchMutation(
     buildPublicFilmOrderLinkedBoxes,
     removeJobBoxAllocation,
     buildJobDetail,
+    buildJobDetailById,
     setJobStagedPickup,
     checkoutAllJobMaterials,
     completeJob,

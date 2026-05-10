@@ -325,11 +325,17 @@ export function syncJobSummaryCachesFromDetail(
 export function syncJobDetailCaches(
   queryClient: QueryClient,
   detail: JobDetail,
-  options: { syncAllocationJobDetail?: boolean } = {}
+  options: { syncAllocationJobDetail?: boolean; syncLegacyJobDetail?: boolean } = {}
 ) {
-  queryClient.setQueryData<JobDetail>(inventoryKeys.job(detail.summary.jobNumber), detail);
+  const syncLegacyJobDetail = options.syncLegacyJobDetail !== false;
+  if (syncLegacyJobDetail) {
+    queryClient.setQueryData<JobDetail>(inventoryKeys.job(detail.summary.jobNumber), detail);
+  }
   if (detail.summary.jobId) {
     queryClient.setQueryData<JobDetail>(inventoryKeys.jobById(detail.summary.jobId), detail);
   }
-  syncJobSummaryCachesFromDetail(queryClient, detail, options);
+  syncJobSummaryCachesFromDetail(queryClient, detail, {
+    ...options,
+    syncAllocationJobDetail: syncLegacyJobDetail && options.syncAllocationJobDetail
+  });
 }

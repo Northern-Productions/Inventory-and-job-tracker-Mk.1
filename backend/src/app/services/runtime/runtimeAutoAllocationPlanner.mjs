@@ -188,15 +188,28 @@ async function reconcileAutoPlannedAllocations(client, orgId, actor, scope = ORG
   };
 }
 
-function getJobNumberForPlannerDetailReload(logicalPath, params = {}, responseData = {}) {
+function getJobIdentityForPlannerDetailReload(logicalPath, params = {}, responseData = {}) {
   if (!JOB_DETAIL_RELOAD_ROUTES.has(logicalPath)) {
-    return '';
+    return { jobId: '', jobNumber: '' };
   }
-  return (
-    asTrimmedString(responseData?.jobNumber) ||
-    asTrimmedString(responseData?.job?.jobNumber) ||
-    asTrimmedString(params?.jobNumber)
-  );
+  const summary = asRecord(responseData?.summary);
+  const job = asRecord(responseData?.job);
+  return {
+    jobId:
+      asTrimmedString(responseData?.jobId) ||
+      asTrimmedString(summary.jobId) ||
+      asTrimmedString(job.jobId) ||
+      asTrimmedString(params?.jobId),
+    jobNumber:
+      asTrimmedString(responseData?.jobNumber) ||
+      asTrimmedString(summary.jobNumber) ||
+      asTrimmedString(job.jobNumber) ||
+      asTrimmedString(params?.jobNumber),
+  };
+}
+
+function getJobNumberForPlannerDetailReload(logicalPath, params = {}, responseData = {}) {
+  return getJobIdentityForPlannerDetailReload(logicalPath, params, responseData).jobNumber;
 }
 
 function normalizePlannerWarnings(result) {
@@ -258,8 +271,13 @@ function addCaulkProductWarehousePair(target, productIdValue, warehouseValue) {
   target.set(`${productId}:${warehouse}`, { productId, warehouse });
 }
 
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
 export {
   buildAutoPlannerScope,
+  getJobIdentityForPlannerDetailReload,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
   reconcileAutoPlannedAllocations,

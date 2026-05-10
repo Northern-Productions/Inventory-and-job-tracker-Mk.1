@@ -50,6 +50,7 @@ import {
 } from '../runtimeDeps.mjs';
 import {
   buildJobDetail,
+  buildJobDetailById,
   ensureJobHeaderForUpdate,
   resolveExistingOrLegacyJobHeader,
 } from './runtimeJobsRead.mjs';
@@ -78,6 +79,7 @@ import {
   capturePhysicalFeetAvailableByBoxId,
   recalculateReservationBoxesByIds,
 } from './runtimeAllocationReservationReconciliation.mjs';
+import { resolveJobMutationTargetById } from './jobMutationIdentity.mjs';
 
 function getWorkScopeInput(payload) {
   return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
@@ -516,9 +518,14 @@ async function completeJob(client, orgId, payload, actor) {
 
 async function reopenJob(client, orgId, payload, actor) {
   const warnings = [];
-  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
   const nowIso = new Date().toISOString();
-  const resolvedContext = await resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor, nowIso);
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? target.jobNumber
+    : normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const resolvedContext = target.usedJobId
+    ? { header: target.job }
+    : await resolveExistingOrLegacyJobHeader(client, orgId, jobNumber, actor, nowIso);
   const existingJob = resolvedContext.header;
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
@@ -535,7 +542,10 @@ async function reopenJob(client, orgId, payload, actor) {
   await saveJobRecord(client, orgId, existingJob);
   warnings.push(`Reopened job ${jobNumber}. Previously cancelled allocations and film orders remain cancelled.`);
 
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+  return ok(
+    target.usedJobId ? await buildJobDetailById(client, orgId, target.jobId) : await buildJobDetail(client, orgId, jobNumber),
+    warnings
+  );
 }
 
 async function deleteJob(client, orgId, payload, actor, role) {

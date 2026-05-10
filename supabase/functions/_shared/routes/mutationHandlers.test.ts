@@ -1,4 +1,5 @@
 import { dispatchMutationWithHandlers } from "./mutationHandlers.ts";
+import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
   const actualJson = JSON.stringify(actual);
@@ -56,6 +57,7 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     cancelBoxTransfer: async () => ({}),
     ensureBoxCheckoutCrewCompatibility: async () => undefined,
     findJobByNumber: async () => null,
+    findJobById: async () => null,
     normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
     normalizeJobLifecycleStatus: () => "ACTIVE",
     listAllocationsByIds: async () => [],
@@ -67,6 +69,7 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
       throw new Error("removeJobBoxAllocation should not be used by /allocations/remove-box.");
     },
     buildJobDetail: async () => ({}),
+    buildJobDetailById: async () => ({}),
     setJobStagedPickup: async () => ({}),
     checkoutAllJobMaterials: async () => ({}),
     completeJob: async () => ({}),
@@ -78,6 +81,74 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
 
   return deps as any;
 }
+
+Deno.test("job mutation identity resolves jobId using auth-derived org and validates jobNumber", async () => {
+  const findJobCalls: Array<Record<string, unknown>> = [];
+  const target = await resolveEdgeJobMutationTargetById(
+    {},
+    "org-from-auth",
+    {
+      orgId: "request-org-should-be-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+    },
+    {
+      normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        findJobCalls.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+        };
+      },
+    },
+  );
+
+  assertEquals(
+    findJobCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected jobId lookup to use the authenticated org id.",
+  );
+  assertEquals(
+    { usedJobId: target.usedJobId, jobId: target.jobId, jobNumber: target.jobNumber },
+    {
+      usedJobId: true,
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+    },
+    "Expected matching jobId/jobNumber identity to resolve.",
+  );
+});
+
+Deno.test("job mutation identity rejects mismatched jobId and jobNumber", async () => {
+  try {
+    await resolveEdgeJobMutationTargetById(
+      {},
+      "org-from-auth",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+      },
+      {
+        normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+      },
+    );
+  } catch (error) {
+    assert(error instanceof Error, "Expected mismatch to throw an Error.");
+    const message = error instanceof Error ? error.message : String(error);
+    assert(
+      message.includes("Job identity mismatch"),
+      `Expected mismatch error, received ${message}.`,
+    );
+    return;
+  }
+
+  throw new Error("Expected mismatched jobId/jobNumber to fail.");
+});
 
 Deno.test("/allocations/remove-box delegates to the atomic SQL RPC", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
@@ -330,6 +401,71 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
   }
 
   throw new Error("Expected duplicate /jobs/create to fail.");
+});
+
+Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is present", async () => {
+  const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
+  let legacyDetailCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/reopen",
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      reason: "Reopen selected job.",
+    },
+    buildDeps({
+      reopenJob: async () => ({
+        ok: true,
+        data: {
+          summary: {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "81234",
+          },
+        },
+        warnings: ["Reopened job 81234."],
+      }),
+      buildJobDetail: async () => {
+        legacyDetailCallCount += 1;
+        return {};
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => {
+        jobDetailByIdCalls.push({ orgId, jobId });
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+          },
+          source: "by-id",
+        };
+      },
+      reconcileAutoPlannedAllocations: async () => ({ warnings: ["Planner warning."] }),
+    }),
+  );
+
+  assertEquals(
+    jobDetailByIdCalls,
+    [{ orgId: "org-1", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical reopen to reload detail by jobId.",
+  );
+  assertEquals(legacyDetailCallCount, 0, "Expected canonical reopen not to reload detail by jobNumber.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        },
+        source: "by-id",
+      },
+      warnings: ["Reopened job 81234.", "Planner warning."],
+    },
+    "Expected canonical reopen response to keep warnings and return jobId-scoped detail.",
+  );
 });
 
 Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation", async () => {

@@ -23,6 +23,7 @@ import {
 import { createFilmOrder, deleteFilmOrder } from '../services/filmOrders.mjs';
 import {
   buildJobDetail,
+  buildJobDetailById,
   cancelJob,
   completeJob,
   createJob,
@@ -63,6 +64,7 @@ import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
 import {
   buildAutoPlannerScope,
+  getJobIdentityForPlannerDetailReload,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
   reconcileAutoPlannedAllocations,
@@ -250,9 +252,16 @@ export async function dispatchMutationWithHandlers(logicalPath, params, authCont
         scope
       );
       const plannerWarnings = normalizePlannerWarnings(plannerResult);
-      const detailJobNumber = getJobNumberForPlannerDetailReload(logicalPath, normalizedParams, responseData);
+      const detailIdentity = getJobIdentityForPlannerDetailReload(logicalPath, normalizedParams, responseData);
+      const detailJobNumber =
+        detailIdentity.jobNumber || getJobNumberForPlannerDetailReload(logicalPath, normalizedParams, responseData);
 
-      if (detailJobNumber) {
+      if (detailIdentity.jobId) {
+        response = {
+          ...response,
+          data: await buildJobDetailById(client, authContext.orgId, detailIdentity.jobId),
+        };
+      } else if (detailJobNumber) {
         response = {
           ...response,
           data: await buildJobDetail(client, authContext.orgId, detailJobNumber),
