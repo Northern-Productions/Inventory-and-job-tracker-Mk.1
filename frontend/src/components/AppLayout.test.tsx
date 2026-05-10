@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLayout } from './AppLayout';
+import { ToastProvider } from './Toast';
 
 const useAuthMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
@@ -58,14 +59,16 @@ function buildQueryState<T>(data: T) {
 
 function buildLayoutTree(pathname: string) {
   return (
-    <MemoryRouter initialEntries={[pathname]}>
-      <Routes>
-        <Route path="/" element={<AppLayout />}>
-          <Route index element={<div>Inventory page</div>} />
-          <Route path="*" element={<div>Nested page</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>
+    <ToastProvider>
+      <MemoryRouter initialEntries={[pathname]}>
+        <Routes>
+          <Route path="/" element={<AppLayout />}>
+            <Route index element={<div>Inventory page</div>} />
+            <Route path="*" element={<div>Nested page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>
   );
 }
 
@@ -261,6 +264,7 @@ describe('AppLayout', () => {
     expect(header.classList.contains('app-header-desktop')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(false);
     expect(within(topline).getByRole('heading', { name: 'Window Film Inventory' })).toBeTruthy();
+    expect(within(topline).getByRole('button', { name: 'Share' })).toBeTruthy();
     expect(within(navWrap).getByRole('navigation', { name: 'Primary' })).toBeTruthy();
   });
 
