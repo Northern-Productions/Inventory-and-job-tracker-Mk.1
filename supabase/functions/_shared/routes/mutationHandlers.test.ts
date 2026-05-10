@@ -218,7 +218,6 @@ Deno.test("/jobs/update validates jobId identity before calling the existing job
         orgId: "org-from-auth",
         actor: "tester",
         payload: {
-          orgId: "request-org-ignored",
           jobId: "11111111-1111-4111-8111-111111111111",
           jobNumber: "81234",
           requirements: [],

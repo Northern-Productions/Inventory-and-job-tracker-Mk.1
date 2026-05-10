@@ -666,7 +666,8 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const jobNumber = target.usedJobId
       ? deps.requireString(target.jobNumber, "JobNumber")
       : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
-    const rpcPayload = target.usedJobId ? { ...normalizedPayload, jobNumber } : normalizedPayload;
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const rpcPayload = target.usedJobId ? { ...payloadWithoutRequestOrg, jobNumber } : payloadWithoutRequestOrg;
     if (
       rpcPayload.lifecycleStatus !== undefined &&
       deps.normalizeJobLifecycleStatus(rpcPayload.lifecycleStatus) !== "ACTIVE"
