@@ -150,6 +150,216 @@ Deno.test("job mutation identity rejects mismatched jobId and jobNumber", async 
   throw new Error("Expected mismatched jobId/jobNumber to fail.");
 });
 
+Deno.test("/jobs/update validates jobId identity before calling the existing jobNumber RPC", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const jobIdLookups: Array<Record<string, unknown>> = [];
+  const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
+  let legacyDetailCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/jobs/update",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      requirements: [],
+      caulkRequirements: [],
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobIdLookups.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "81234",
+          warnings: ["SQL update completed."],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => {
+        jobDetailByIdCalls.push({ orgId, jobId });
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+          },
+        };
+      },
+      buildJobDetail: async () => {
+        legacyDetailCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    jobIdLookups,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected update identity lookup to use the authenticated org id.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_jobs_update",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          orgId: "request-org-ignored",
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          requirements: [],
+          caulkRequirements: [],
+        },
+      },
+    ],
+    "Expected guarded update to call the existing RPC only after identity validation.",
+  );
+  assertEquals(
+    jobDetailByIdCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical update to reload jobId-scoped detail.",
+  );
+  assertEquals(legacyDetailCallCount, 0, "Expected canonical update not to reload legacy jobNumber detail.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        },
+      },
+      warnings: ["SQL update completed."],
+    },
+    "Expected canonical update response to preserve the job detail envelope.",
+  );
+});
+
+Deno.test("/jobs/update rejects mismatched jobId and jobNumber before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/jobs/update",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("Job identity mismatch"),
+      `Expected mismatch error, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected mismatched update identity to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected /jobs/update identity mismatch to fail.");
+});
+
+Deno.test("/jobs/update preserves legacy jobNumber-only behavior", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const jobDetailCalls: Array<Record<string, unknown>> = [];
+  let jobIdLookupCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/update",
+    {
+      jobNumber: "81234",
+      requirements: [],
+    },
+    buildDeps({
+      findJobById: async () => {
+        jobIdLookupCount += 1;
+        return null;
+      },
+      findJobByNumber: async () => ({
+        jobNumber: "81234",
+        lifecycleStatus: "ACTIVE",
+      }),
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "81234",
+          warnings: [],
+        };
+      },
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+        jobDetailCalls.push({ orgId, jobNumber });
+        return {
+          summary: {
+            jobNumber,
+          },
+        };
+      },
+    }),
+  );
+
+  assertEquals(jobIdLookupCount, 0, "Expected legacy update not to perform jobId lookup.");
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_jobs_update",
+        orgId: "org-1",
+        actor: "tester",
+        payload: {
+          jobNumber: "81234",
+          requirements: [],
+        },
+      },
+    ],
+    "Expected legacy update to preserve its RPC payload.",
+  );
+  assertEquals(jobDetailCalls, [{ orgId: "org-1", jobNumber: "81234" }], "Expected legacy reload by jobNumber.");
+  assertEquals(
+    response.data,
+    {
+      summary: {
+        jobNumber: "81234",
+      },
+    },
+    "Expected legacy update response to remain jobNumber-scoped.",
+  );
+});
+
 Deno.test("/allocations/remove-box delegates to the atomic SQL RPC", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   let plannerCallCount = 0;

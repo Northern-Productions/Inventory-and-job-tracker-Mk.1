@@ -126,6 +126,7 @@ export function useJobLifecycleWorkflow({
     isLaborOnly: boolean
   ): UpdateJobPayload {
     return {
+      ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
       jobNumber: summary?.jobNumber || submitPayload.jobNumber,
       warehouse: submitPayload.warehouse,
       workScope: submitPayload.workScope,

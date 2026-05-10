@@ -101,11 +101,16 @@ export function useUpdateJob() {
     mutationKey: inventoryKeys.updateJobMutation,
     mutationFn: (payload: UpdateJobPayload) => updateJob(payload),
     onMutate: async (payload) => {
+      const isCanonicalJobIdMutation = Boolean(payload.jobId);
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(isCanonicalJobIdMutation
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(payload.jobId!) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        ...(isCanonicalJobIdMutation
+          ? []
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
       ]);
 
@@ -113,9 +118,9 @@ export function useUpdateJob() {
         queryClient,
         [
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(isCanonicalJobIdMutation ? [inventoryKeys.jobById(payload.jobId!)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber),
+          ...(isCanonicalJobIdMutation ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
           inventoryKeys.filmOrders
         ],
         () => {
@@ -126,9 +131,16 @@ export function useUpdateJob() {
     onError: (_error, _variables, context) => {
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }) => {
-      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
-      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
+    onSuccess: async ({ result }, variables) => {
+      const isCanonicalJobIdMutation = Boolean(variables.jobId);
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !isCanonicalJobIdMutation,
+        syncLegacyJobDetail: !isCanonicalJobIdMutation
+      });
+      await invalidateJobAndFilmOrderQueries(queryClient, {
+        jobId: variables.jobId,
+        jobNumber: isCanonicalJobIdMutation ? '' : result.summary.jobNumber
+      });
     }
   });
 }

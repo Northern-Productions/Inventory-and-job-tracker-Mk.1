@@ -515,6 +515,42 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('passes optional jobId through update job requests', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123'
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    await updateJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      requirements: [],
+      caulkRequirements: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/update', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        requirements: [],
+        caulkRequirements: []
+      }
+    });
+  });
+
   it('deletes a job through POST /jobs/delete', async () => {
     requestMock.mockResolvedValueOnce({
       data: {

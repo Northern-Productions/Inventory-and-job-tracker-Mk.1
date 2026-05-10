@@ -354,6 +354,7 @@ export interface CreateJobPayload {
 }
 
 export interface UpdateJobPayload {
+  jobId?: string;
   jobNumber: string;
   warehouse?: Warehouse;
   workScope?: string | number | null;

@@ -6,6 +6,7 @@ import {
   buildJobDuplicateCheckResult,
   getJobDuplicateWorkScopeInput,
 } from "../../../../shared/domain/jobDuplicateContract.mjs";
+import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 type MutationContext = {
   client: any;
@@ -658,20 +659,34 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
   },
   "/jobs/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const jobNumber = target.usedJobId
+      ? deps.requireString(target.jobNumber, "JobNumber")
+      : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const rpcPayload = target.usedJobId ? { ...normalizedPayload, jobNumber } : normalizedPayload;
     if (
-      normalizedPayload.lifecycleStatus !== undefined &&
-      deps.normalizeJobLifecycleStatus(normalizedPayload.lifecycleStatus) !== "ACTIVE"
+      rpcPayload.lifecycleStatus !== undefined &&
+      deps.normalizeJobLifecycleStatus(rpcPayload.lifecycleStatus) !== "ACTIVE"
     ) {
       throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
     }
-    const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
+    const existingJob = target.usedJobId ? target.job : await deps.findJobByNumber(client, orgId, jobNumber);
     if (existingJob && deps.normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
       throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
     }
 
-    const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, normalizedPayload);
-    return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
+    // Guarded transition only: api_acl_jobs_update is still jobNumber-targeted
+    // until a later RPC migration adds true jobId update semantics.
+    const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, rpcPayload);
+    return ok(
+      target.usedJobId
+        ? await deps.buildJobDetailById(client, orgId, target.jobId)
+        : await deps.buildJobDetail(client, orgId, result.jobNumber),
+      result.warnings || []
+    );
   },
   "/jobs/set-staged-pickup": async ({ client, identity, normalizedPayload }, deps) => {
     const result = await deps.setJobStagedPickup(client, identity, normalizedPayload);

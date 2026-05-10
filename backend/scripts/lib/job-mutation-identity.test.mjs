@@ -110,3 +110,20 @@ test('backend reopenJob accepts jobId and reloads jobId detail without changing 
   assert.match(reopenBody, /target\.usedJobId \? await buildJobDetailById/);
   assert.match(runtimeMutations, /`Job \$\{jobNumber\} already exists\.`/);
 });
+
+test('backend updateJob guards jobId identity while preserving legacy jobNumber behavior', () => {
+  const runtimeMutations = readFileSync(
+    new URL('../../src/app/services/runtime/runtimeJobsMutations.mjs', import.meta.url),
+    'utf8'
+  );
+  const updateStart = runtimeMutations.indexOf('async function updateJob');
+  const updateEnd = runtimeMutations.indexOf('async function completeJob', updateStart);
+  const updateBody = runtimeMutations.slice(updateStart, updateEnd);
+
+  assert.match(updateBody, /resolveJobMutationTargetById\(client, orgId, payload\)/);
+  assert.match(updateBody, /target\.usedJobId[\s\S]*saveJobRecordById/);
+  assert.match(updateBody, /target\.usedJobId[\s\S]*listJobRequirementsByJobId/);
+  assert.match(updateBody, /target\.usedJobId[\s\S]*buildJobDetailById/);
+  assert.match(updateBody, /ensureJobHeaderForUpdate\(client, orgId, jobNumber, updatePayload/);
+  assert.match(runtimeMutations, /`Job \$\{jobNumber\} already exists\.`/);
+});

@@ -37,7 +37,9 @@ import {
   saveFilmOrderRecord,
   findJobByNumber,
   saveJobRecord,
+  saveJobRecordById,
   listJobRequirementsByJob,
+  listJobRequirementsByJobId,
   listJobCaulkRequirementsByJob,
   listCaulkJobCheckoutsByJob,
   replaceJobRequirementsForJob,
@@ -303,58 +305,64 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
 
 async function updateJob(client, orgId, payload, actor) {
   const warnings = [];
-  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? target.jobNumber
+    : normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const updatePayload = target.usedJobId ? { ...payload, jobNumber } : payload;
   if (
-    payload.lifecycleStatus !== undefined &&
-    normalizeJobLifecycleStatus(payload.lifecycleStatus) !== 'ACTIVE'
+    updatePayload.lifecycleStatus !== undefined &&
+    normalizeJobLifecycleStatus(updatePayload.lifecycleStatus) !== 'ACTIVE'
   ) {
     throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
   }
-  const requirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
+  const requirementsRaw = dedupeJobRequirements(updatePayload.requirements, warnings);
   const requirements = await normalizeJobRequirementEntriesForWrite(client, orgId, requirementsRaw);
   const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
     client,
     orgId,
-    payload.caulkRequirements
+    updatePayload.caulkRequirements
   );
   const nowIso = new Date().toISOString();
-  const header = await ensureJobHeaderForUpdate(client, orgId, jobNumber, payload, actor, nowIso);
+  const header = target.usedJobId
+    ? target.job
+    : await ensureJobHeaderForUpdate(client, orgId, jobNumber, updatePayload, actor, nowIso);
   if (normalizeJobLifecycleStatus(header.lifecycleStatus) !== 'ACTIVE') {
     throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
   }
   const nextHeader = cloneValue(header);
 
-  if (payload.warehouse !== undefined) {
-    nextHeader.warehouse = normalizeJobWarehouse(payload.warehouse);
+  if (updatePayload.warehouse !== undefined) {
+    nextHeader.warehouse = normalizeJobWarehouse(updatePayload.warehouse);
   }
 
-  if (hasWorkScopeInput(payload)) {
-    nextHeader.sections = normalizeJobWorkScope(getWorkScopeInput(payload));
+  if (hasWorkScopeInput(updatePayload)) {
+    nextHeader.sections = normalizeJobWorkScope(getWorkScopeInput(updatePayload));
   }
 
-  if (payload.installDate !== undefined || payload.dueDate !== undefined) {
+  if (updatePayload.installDate !== undefined || updatePayload.dueDate !== undefined) {
     nextHeader.installDate = normalizeDateString(
-      payload.installDate !== undefined ? payload.installDate : payload.dueDate,
+      updatePayload.installDate !== undefined ? updatePayload.installDate : updatePayload.dueDate,
       'Install Date',
       true
     );
   }
 
-  if (payload.crewLeader !== undefined) {
-    nextHeader.crewLeader = asTrimmedString(payload.crewLeader);
+  if (updatePayload.crewLeader !== undefined) {
+    nextHeader.crewLeader = asTrimmedString(updatePayload.crewLeader);
   }
 
-  if (payload.lifecycleStatus !== undefined) {
-    nextHeader.lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
+  if (updatePayload.lifecycleStatus !== undefined) {
+    nextHeader.lifecycleStatus = normalizeJobLifecycleStatus(updatePayload.lifecycleStatus);
   }
 
-  if (payload.notes !== undefined) {
-    nextHeader.notes = asTrimmedString(payload.notes);
+  if (updatePayload.notes !== undefined) {
+    nextHeader.notes = asTrimmedString(updatePayload.notes);
   }
 
   const materialFlags = derivePersistedJobMaterialFlags(
     nextHeader,
-    payload,
+    updatePayload,
     requirements,
     normalizedCaulkRequirements
   );
@@ -364,8 +372,12 @@ async function updateJob(client, orgId, payload, actor) {
   nextHeader.updatedAt = nowIso;
   nextHeader.updatedBy = actor;
 
-  const savedHeader = await saveJobRecord(client, orgId, nextHeader);
-  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const savedHeader = target.usedJobId
+    ? await saveJobRecordById(client, orgId, nextHeader)
+    : await saveJobRecord(client, orgId, nextHeader);
+  const existingRequirements = target.usedJobId
+    ? await listJobRequirementsByJobId(client, orgId, target.jobId)
+    : await listJobRequirementsByJob(client, orgId, jobNumber);
   const existingByKey = buildJobRequirementsByLookupKey(existingRequirements);
   await replaceJobRequirementsForJob(
     client,
@@ -402,7 +414,12 @@ async function updateJob(client, orgId, payload, actor) {
     }
   }
 
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+  return ok(
+    target.usedJobId
+      ? await buildJobDetailById(client, orgId, target.jobId)
+      : await buildJobDetail(client, orgId, jobNumber),
+    warnings
+  );
 }
 
 async function completeJob(client, orgId, payload, actor) {

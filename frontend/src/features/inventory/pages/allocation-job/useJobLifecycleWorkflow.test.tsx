@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { JobListEntry } from '../../../../domain';
+import type { JobDetail, JobListEntry } from '../../../../domain';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
 
 function createWrapper() {
@@ -50,14 +50,33 @@ function buildSummary(overrides: Partial<JobListEntry> = {}): JobListEntry {
   };
 }
 
+function buildDetail(summary = buildSummary()): JobDetail {
+  return {
+    summary,
+    requirements: [],
+    allocations: [],
+    usage: [],
+    usageTimeline: [],
+    caulkRequirements: [],
+    caulkAllocations: [],
+    caulkCheckouts: [],
+    filmOrders: [],
+    filmTransferAlerts: [],
+    caulkTransferAlerts: []
+  };
+}
+
 function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const reopenJob = vi.fn().mockResolvedValue({ warnings: [] });
+  const summary = buildSummary(overrides.summary as Partial<JobListEntry> | undefined);
+  const detail = overrides.detail === undefined ? buildDetail(summary) : (overrides.detail as JobDetail | undefined);
+  const updateJob = vi.fn().mockResolvedValue({ result: detail || buildDetail(summary), warnings: [] });
   const pushToast = vi.fn();
   const result = renderHook(
     () =>
       useJobLifecycleWorkflow({
-        detail: undefined,
-        summary: buildSummary(overrides.summary as Partial<JobListEntry> | undefined),
+        detail,
+        summary,
         isReadOnlyJob: false,
         stagingBlockingMessage: '',
         filmTransferAlerts: [],
@@ -68,7 +87,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         pushToast,
         navigateToAllocations: vi.fn(),
         navigateToJobDetail: vi.fn(),
-        updateJob: vi.fn(),
+        updateJob,
         completeJob: vi.fn(),
         deleteJob: vi.fn(),
         reopenJob,
@@ -83,10 +102,70 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
 
   return {
     ...result,
+    updateJob,
     reopenJob,
     pushToast
   };
 }
+
+const editPayload = {
+  jobNumber: '000123',
+  warehouse: 'IL1' as const,
+  workScope: 'Section 2',
+  sections: 'Section 2',
+  installDate: '2026-05-02',
+  crewLeader: 'Crew B',
+  requirements: [],
+  caulkRequirements: []
+};
+
+describe('useJobLifecycleWorkflow update identity', () => {
+  it('sends jobId and jobNumber from canonical job route context', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      workflow.result.current.submitUpdateJob(editPayload, false);
+    });
+
+    expect(workflow.updateJob).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      warehouse: 'IL1',
+      workScope: 'Section 2',
+      sections: 'Section 2',
+      installDate: '2026-05-02',
+      crewLeader: 'Crew B',
+      requirements: [],
+      caulkRequirements: [],
+      isLaborOnly: false
+    });
+  });
+
+  it('preserves legacy jobNumber-only update payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      workflow.result.current.submitUpdateJob(editPayload, false);
+    });
+
+    expect(workflow.updateJob).toHaveBeenCalledWith({
+      jobNumber: '000123',
+      warehouse: 'IL1',
+      workScope: 'Section 2',
+      sections: 'Section 2',
+      installDate: '2026-05-02',
+      crewLeader: 'Crew B',
+      requirements: [],
+      caulkRequirements: [],
+      isLaborOnly: false
+    });
+  });
+});
 
 describe('useJobLifecycleWorkflow reopen identity', () => {
   it('sends jobId and jobNumber from canonical job route context', async () => {

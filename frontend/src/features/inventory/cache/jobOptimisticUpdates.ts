@@ -34,8 +34,14 @@ function patchUnresolvedFilmOrderSchedules(
 }
 
 export function applyOptimisticJobUpdateToCaches(queryClient: QueryClient, payload: UpdateJobPayload) {
-  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
+  const jobId = String(payload.jobId || '').trim();
+  const currentJob = queryClient.getQueryData<JobDetail>(
+    jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber)
+  );
   if (!currentJob) {
+    // Phase 3A-4a-2 guardrail: film orders still carry jobNumber schedule
+    // identity, so this optimistic patch is not duplicate-ready until that
+    // workflow moves to jobId in a later slice.
     queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
       patchUnresolvedFilmOrderSchedules(current, payload)
     );
@@ -46,7 +52,13 @@ export function applyOptimisticJobUpdateToCaches(queryClient: QueryClient, paylo
     queryClient.getQueryData<CaulkProductEntry[]>(inventoryKeys.caulkProducts) || [];
   const nextJob = createOptimisticJobDetailAfterJobUpdate(currentJob, payload, caulkProducts);
 
-  syncJobDetailCaches(queryClient, nextJob, { syncAllocationJobDetail: true });
+  syncJobDetailCaches(queryClient, nextJob, {
+    syncAllocationJobDetail: !jobId,
+    syncLegacyJobDetail: !jobId
+  });
+  // Phase 3A-4a-2 guardrail: film orders still carry jobNumber schedule
+  // identity, so this optimistic patch is not duplicate-ready until that
+  // workflow moves to jobId in a later slice.
   queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
     patchUnresolvedFilmOrderSchedules(current, payload)
   );
