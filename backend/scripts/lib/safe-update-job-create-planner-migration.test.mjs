@@ -56,7 +56,7 @@ test('safe-update job create migration adds scoped WHERE clauses', async () => {
 test('latest schema check tracks the safe-update job create hotfix', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0113_box_has_label\.sql/);
+  assert.match(schemaCheck, /0115_job_id_read_route_permissions\.sql/);
   assert.match(schemaCheck, /app_api\.save_job\(app\.jobs\)/);
   assert.match(schemaCheck, /where app\.jobs\.org_id = excluded\.org_id\\n    and app\.jobs\.job_number = excluded\.job_number/);
   assert.match(schemaCheck, /where bx\.box_id is not null/);
