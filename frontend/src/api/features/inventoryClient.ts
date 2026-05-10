@@ -55,6 +55,39 @@ function normalizePendingTransfer(
   };
 }
 
+export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const orderedForJobs: NonNullable<Box['orderedForJobs']> = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const jobNumber = String(record.jobNumber || '').trim();
+    if (!jobNumber) {
+      continue;
+    }
+
+    const filmOrderId = String(record.filmOrderId || '').trim();
+    const orderedFeet =
+      record.orderedFeet === null || record.orderedFeet === undefined || record.orderedFeet === ''
+        ? NaN
+        : Number(record.orderedFeet);
+    orderedForJobs.push({
+      jobNumber,
+      filmOrderId: filmOrderId || undefined,
+      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null
+    });
+  }
+
+  return orderedForJobs;
+}
+
 function normalizeBox(box: Box): Box {
   const availableFeet = Math.max(0, Number(box.feetAvailable || 0));
   const initialFeet = Math.max(0, Number(box.initialFeet || 0));
@@ -92,6 +125,7 @@ function normalizeBox(box: Box): Box {
     allocatedWithInstallDateFeet,
     allocatedWithoutInstallDateFeet,
     allocationPlanningFeet: activePlanningFeet,
+    orderedForJobs: normalizeOrderedForJobs((box as Box & { orderedForJobs?: unknown }).orderedForJobs),
     pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };
 }

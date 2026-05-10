@@ -956,6 +956,60 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('>IL1-000123</button>');
   });
 
+  it('renders structured ordered-for jobs as clickable box metadata', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        orderedForJobs: [
+          { jobNumber: '4953', filmOrderId: 'FO-1', orderedFeet: 120 },
+          { jobNumber: '16242', filmOrderId: 'FO-2', orderedFeet: 48 }
+        ]
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Ordered For Job');
+    expect(html).toContain('>IL1-4953</button>');
+    expect(html).toContain('>IL1-16242</button>');
+  });
+
+  it('opens the ordered-for job detail page when the job number is clicked', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        orderedForJobs: [{ jobNumber: '4953', filmOrderId: 'FO-1', orderedFeet: 120 }]
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/4953');
+  });
+
+  it('does not parse ordered-for job details from legacy notes', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        notes: 'Ordered for job 4953 via FO-1',
+        orderedForJobs: []
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).not.toContain('Ordered For Job');
+    expect(html).toContain('Ordered for job 4953 via FO-1');
+  });
+
   it('allows zeroed boxes to enter edit mode from the details page', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,

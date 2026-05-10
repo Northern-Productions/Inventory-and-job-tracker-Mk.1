@@ -424,6 +424,45 @@ Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse 
   );
 });
 
+Deno.test("/boxes/get includes ordered-for job data from linked film orders", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/boxes/get",
+    { boxId: "IL1-1234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      findBoxById: async () => ({
+        boxId: "IL1-1234",
+        warehouse: "IL1",
+        status: "IN_STOCK",
+        initialFeet: 500,
+        feetAvailable: 420,
+      }),
+      listAllocationsByBox: async () => [],
+      listFilmOrderLinksByBoxId: async () => [
+        { filmOrderId: "FO-1", orderedFeet: 120 },
+      ],
+      findFilmOrderById: async () => ({ filmOrderId: "FO-1", jobNumber: "4953" }),
+      toPublicBox: (box: Record<string, unknown>) => ({
+        boxId: box.boxId,
+        orderedForJobs: box.orderedForJobs,
+      }),
+    } as any,
+  );
+
+  assertEquals(response.data, {
+    boxId: "IL1-1234",
+    orderedForJobs: [{ jobNumber: "4953", filmOrderId: "FO-1", orderedFeet: 120 }],
+  }, "Expected /boxes/get to include structured ordered-for job data.");
+});
+
 Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true", async () => {
   const calls: string[] = [];
   const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };

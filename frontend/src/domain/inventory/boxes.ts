@@ -8,6 +8,12 @@ export interface BoxPendingTransferSummary {
   destinationWarehouse: Warehouse;
 }
 
+export interface BoxOrderedForJob {
+  jobNumber: string;
+  filmOrderId?: string;
+  orderedFeet?: number | null;
+}
+
 export interface Box {
   boxId: string;
   warehouse: Warehouse;
@@ -44,6 +50,7 @@ export interface Box {
   zeroedReason: string;
   zeroedBy: string;
   pendingTransfer?: BoxPendingTransferSummary | null;
+  orderedForJobs?: BoxOrderedForJob[];
 }
 
 export interface SearchBoxesParams {

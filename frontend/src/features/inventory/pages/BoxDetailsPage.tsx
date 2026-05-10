@@ -127,7 +127,7 @@ export default function BoxDetailsPage() {
         qrCodeError={qrCodeError}
         onOpenTransferDialog={transferWorkflow.openTransferDialog}
         onStartEdit={() => setIsEditing(true)}
-        onOpenLastCheckoutJob={openAllocationJob}
+        onOpenJob={openAllocationJob}
         onSetTransferActionState={transferWorkflow.setTransferActionState}
         onToggleQrSection={() => setIsQrSectionOpen((current) => !current)}
         onCopyQrImage={() => void handleCopyQrImage()}

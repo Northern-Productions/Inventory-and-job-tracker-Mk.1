@@ -108,7 +108,27 @@ function mapDbBoxRow(row) {
 }
 
 function toPublicBox(box) {
-  return {
+  const orderedForJobs = Array.isArray(box.orderedForJobs)
+    ? box.orderedForJobs
+        .map((entry) => {
+          const jobNumber = asTrimmedString(entry?.jobNumber);
+          if (!jobNumber) {
+            return null;
+          }
+
+          const orderedFeet =
+            entry?.orderedFeet === null || entry?.orderedFeet === undefined || entry?.orderedFeet === ''
+              ? NaN
+              : Number(entry.orderedFeet);
+          return {
+            jobNumber,
+            filmOrderId: asTrimmedString(entry?.filmOrderId),
+            orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+          };
+        })
+        .filter(Boolean)
+    : undefined;
+  const publicBox = {
     boxId: box.boxId,
     warehouse: box.warehouse,
     dealer: asTrimmedString(box.dealer),
@@ -153,6 +173,12 @@ function toPublicBox(box) {
     zeroedReason: box.zeroedReason,
     zeroedBy: box.zeroedBy,
   };
+
+  if (orderedForJobs) {
+    publicBox.orderedForJobs = orderedForJobs;
+  }
+
+  return publicBox;
 }
 
 function mapDbBoxTransferRow(row) {

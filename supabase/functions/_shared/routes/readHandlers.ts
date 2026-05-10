@@ -30,6 +30,8 @@ export type ReadHandlerDeps = {
   enrichAdminPermissionEntries: (entriesRaw: unknown[]) => Promise<Record<string, unknown>[]>;
   buildSearchBoxes: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
+  findFilmOrderById: (client: any, orgId: string, filmOrderId: string) => Promise<any>;
+  listFilmOrderLinksByBoxId: (client: any, orgId: string, boxId: string) => Promise<any[]>;
   getBoxTransferByBox: (client: any, orgId: string, boxId: string) => Promise<Record<string, unknown>>;
   getBoxTransferPlan: (client: any, orgId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
   toPublicBox: (box: any) => Record<string, unknown>;
@@ -116,6 +118,48 @@ type ReadHandler = (
   context: ReadContext,
   deps: ReadHandlerDeps,
 ) => Promise<Record<string, unknown>>;
+
+async function buildOrderedForJobsForBox(
+  client: any,
+  orgId: string,
+  boxId: string,
+  deps: ReadHandlerDeps,
+) {
+  const links = await deps.listFilmOrderLinksByBoxId(client, orgId, boxId);
+  const orderedForJobs = [];
+  const seen = new Set<string>();
+
+  for (const link of Array.isArray(links) ? links : []) {
+    const filmOrderId = deps.asTrimmedString(link?.filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    const filmOrder = await deps.findFilmOrderById(client, orgId, filmOrderId);
+    const jobNumber = deps.asTrimmedString(filmOrder?.jobNumber);
+    if (!jobNumber) {
+      continue;
+    }
+
+    const key = `${filmOrderId}\u0000${jobNumber}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    const orderedFeet =
+      link?.orderedFeet === null || link?.orderedFeet === undefined || link?.orderedFeet === ""
+        ? NaN
+        : Number(link.orderedFeet);
+    orderedForJobs.push({
+      jobNumber,
+      filmOrderId,
+      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+    });
+  }
+
+  return orderedForJobs;
+}
 
 const readHandlers: Record<string, ReadHandler> = {
   "/app/attention-summary": async ({ client, orgId, identity }, deps) => {
@@ -336,9 +380,11 @@ const readHandlers: Record<string, ReadHandler> = {
     }
     const allocations = await deps.listAllocationsByBox(client, orgId, found.boxId);
     const reservationSnapshot = buildBoxReservationSnapshot(found, allocations);
+    const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId, deps);
     return ok(
       deps.toPublicBox({
         ...found,
+        orderedForJobs,
         physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
         allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
         allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
