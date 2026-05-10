@@ -25,7 +25,23 @@ export interface JobsCalendarEntriesOptions {
 
 export interface JobDuplicateCheckResult {
   exists: boolean;
+  allowed?: boolean;
+  reason?:
+    | 'NO_MATCH'
+    | 'SAME_JOB_SCOPE_ACTIVE'
+    | 'SAME_JOB_SCOPE_COMPLETED'
+    | 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED';
+  jobNumber?: string;
+  workScope?: string | null;
+  workScopeKey?: string;
   job: JobListEntry | null;
+  existingJob?: JobListEntry | null;
+  sameJobNumberJobs?: JobListEntry[];
+}
+
+export interface CheckJobDuplicateOptions {
+  workScope?: string | number | null;
+  sections?: string | number | null;
 }
 
 function normalizeOptionalText(value: unknown): string | null {
@@ -33,12 +49,14 @@ function normalizeOptionalText(value: unknown): string | null {
   return normalized || null;
 }
 
-function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
+function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
   const workScope = normalizeOptionalText(entry.workScope ?? entry.sections);
   return {
     ...entry,
     jobId: String(entry.jobId || '').trim() || undefined,
     workScope,
+    workScopeKey: normalizeOptionalText(entry.workScopeKey) || undefined,
+    routeTarget: normalizeOptionalText(entry.routeTarget) || undefined,
     sections: normalizeOptionalText(entry.sections ?? workScope),
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
@@ -51,7 +69,7 @@ function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0))
-  };
+  } as T;
 }
 
 function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
@@ -185,20 +203,56 @@ export async function getJobById(jobId: string): Promise<JobDetail> {
   return normalizeJobDetail(result);
 }
 
-export async function checkJobDuplicate(jobNumber: string): Promise<JobDuplicateCheckResult> {
+function normalizeOptionalQueryText(value: unknown): string | undefined {
+  const normalized = String(value ?? '').trim();
+  return normalized || undefined;
+}
+
+export async function checkJobDuplicate(
+  jobNumber: string,
+  options: CheckJobDuplicateOptions = {}
+): Promise<JobDuplicateCheckResult> {
   assertFeatureAccess('jobs', 'read');
   const normalizedJobNumber = String(jobNumber || '').trim();
+  const query: {
+    jobNumber: string;
+    workScope?: string;
+    sections?: string;
+  } = { jobNumber: normalizedJobNumber };
+  const workScope = normalizeOptionalQueryText(options.workScope);
+  const sections = normalizeOptionalQueryText(options.sections);
+  if (workScope !== undefined) {
+    query.workScope = workScope;
+  }
+  if (sections !== undefined) {
+    query.sections = sections;
+  }
   const result = await requestReadWithFallback<{
     exists?: boolean;
+    allowed?: boolean;
+    reason?: JobDuplicateCheckResult['reason'];
+    jobNumber?: string;
+    workScope?: string | null;
+    workScopeKey?: string;
     job?: JobListEntry | null;
+    existingJob?: JobListEntry | null;
+    sameJobNumberJobs?: JobListEntry[];
   }>(
     '/jobs/check-duplicate',
-    { jobNumber: normalizedJobNumber },
-    { jobNumber: normalizedJobNumber }
+    query,
+    query
   );
   const job = result.job ? normalizeJobListEntry(result.job) : null;
+  const existingJob = result.existingJob ? normalizeJobListEntry(result.existingJob) : job;
   return {
     exists: Boolean(result.exists && job),
+    allowed: result.allowed,
+    reason: result.reason,
+    jobNumber: normalizeOptionalText(result.jobNumber) || undefined,
+    workScope: normalizeOptionalText(result.workScope),
+    workScopeKey: normalizeOptionalText(result.workScopeKey) || undefined,
+    existingJob,
+    sameJobNumberJobs: (result.sameJobNumberJobs || []).map(normalizeJobListEntry),
     job
   };
 }

@@ -7804,6 +7804,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
         ok: false,
         error: error.message,
         warnings: error.warnings || [],
+        ...(error.details || {}),
       });
     }
     timingStatusCode = 500;

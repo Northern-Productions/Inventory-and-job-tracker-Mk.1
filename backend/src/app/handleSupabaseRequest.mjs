@@ -86,6 +86,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           ok: false,
           error: error.message,
           warnings: error.warnings || [],
+          ...(error.details || {}),
         },
       };
       return response;

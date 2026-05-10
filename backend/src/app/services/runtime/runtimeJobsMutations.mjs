@@ -71,6 +71,10 @@ import {
 } from './runtimeAllocationPlanning.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 import {
+  buildJobDuplicateCheckResult,
+  getJobDuplicateWorkScopeInput,
+} from '../../../../../shared/domain/jobDuplicateContract.mjs';
+import {
   capturePhysicalFeetAvailableByBoxId,
   recalculateReservationBoxesByIds,
 } from './runtimeAllocationReservationReconciliation.mjs';
@@ -97,7 +101,17 @@ async function createJob(client, orgId, payload, actor) {
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
   const existingHeader = await findJobByNumber(client, orgId, jobNumber);
   if (existingHeader) {
-    throw new HttpError(409, `Job ${jobNumber} already exists.`);
+    throw new HttpError(
+      409,
+      `Job ${jobNumber} already exists.`,
+      [],
+      buildJobDuplicateCheckResult({
+        jobNumber,
+        workScopeInput: getJobDuplicateWorkScopeInput(payload),
+        existingJob: existingHeader,
+        sameJobNumberJobs: [existingHeader],
+      })
+    );
   }
 
   const warehouse = normalizeJobWarehouse(payload.warehouse);

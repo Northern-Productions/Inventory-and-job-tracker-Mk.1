@@ -91,7 +91,10 @@ export function useJobCreationWorkflow({
   async function preflightDuplicateJob(submitPayload: JobEditorSubmitPayload) {
     setIsCheckingDuplicate(true);
     try {
-      const duplicate = await checkJobDuplicate(submitPayload.jobNumber);
+      const duplicate = await checkJobDuplicate(submitPayload.jobNumber, {
+        workScope: submitPayload.workScope,
+        sections: submitPayload.sections
+      });
       if (duplicate.exists && duplicate.job) {
         setPendingLaborOnlyCreate(null);
         setDuplicateJobPrompt({ job: duplicate.job });

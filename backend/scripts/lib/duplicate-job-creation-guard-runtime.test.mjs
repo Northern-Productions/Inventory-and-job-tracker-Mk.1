@@ -18,10 +18,12 @@ const readHandlers = readFileSync(
 test('backend createJob rejects duplicate job numbers before saving', () => {
   const createJobStart = runtimeMutations.indexOf('async function createJob');
   const saveIndex = runtimeMutations.indexOf('nextHeader = await saveJobRecord', createJobStart);
-  const duplicateGuardIndex = runtimeMutations.indexOf('throw new HttpError(409, `Job ${jobNumber} already exists.`);', createJobStart);
+  const duplicateGuardIndex = runtimeMutations.indexOf('`Job ${jobNumber} already exists.`', createJobStart);
+  const conflictPayloadIndex = runtimeMutations.indexOf('buildJobDuplicateCheckResult({', duplicateGuardIndex);
 
   assert.ok(createJobStart >= 0, 'Expected createJob function to exist.');
   assert.ok(duplicateGuardIndex > createJobStart, 'Expected createJob to contain duplicate guard.');
+  assert.ok(conflictPayloadIndex > duplicateGuardIndex, 'Expected createJob conflict to include duplicate diagnostics.');
   assert.ok(saveIndex > duplicateGuardIndex, 'Expected duplicate guard to run before saveJobRecord.');
   assert.doesNotMatch(
     runtimeMutations.slice(createJobStart, saveIndex),
@@ -32,8 +34,8 @@ test('backend createJob rejects duplicate job numbers before saving', () => {
 
 test('backend exposes a read-only duplicate check route', () => {
   assert.match(runtimeRead, /async function checkJobDuplicate/);
-  assert.match(runtimeRead, /return \{ exists: false, job: null \};/);
-  assert.match(runtimeRead, /return \{\s+exists: true,\s+job: summary \|\| buildDuplicateJobFallbackSummary\(existing\)\s+\};/);
+  assert.match(runtimeRead, /buildJobDuplicateCheckResult/);
+  assert.match(runtimeRead, /getJobDuplicateWorkScopeInput/);
   assert.match(readHandlers, /'\/jobs\/check-duplicate': async/);
-  assert.match(readHandlers, /ok\(await checkJobDuplicate\(client, orgId, params && params\.jobNumber\)\)/);
+  assert.match(readHandlers, /ok\(await checkJobDuplicate\(client, orgId, params \|\| \{\}\)\)/);
 });

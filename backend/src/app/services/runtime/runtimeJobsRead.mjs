@@ -198,6 +198,10 @@ import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLeg
 import { checkoutAllJobMaterials, loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
 import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
 import {
+  buildJobDuplicateCheckResult,
+  getJobDuplicateWorkScopeInput,
+} from '../../../../../shared/domain/jobDuplicateContract.mjs';
+import {
   buildJobDetailPayload,
   loadJobDetailContext,
   loadJobDetailContextById,
@@ -464,22 +468,34 @@ function buildDuplicateJobFallbackSummary(header) {
   };
 }
 
-async function checkJobDuplicate(client, orgId, rawJobNumber, deps = {}) {
+async function checkJobDuplicate(client, orgId, params, deps = {}) {
   const normalizeJobNumber = deps.normalizeJobNumberDigits || normalizeJobNumberDigits;
   const findJob = deps.findJobByNumber || findJobByNumber;
   const buildList = deps.buildJobsList || buildJobsList;
+  const rawJobNumber = params && typeof params === 'object' ? params.jobNumber : params;
+  const workScopeInput = params && typeof params === 'object'
+    ? getJobDuplicateWorkScopeInput(params)
+    : undefined;
   const jobNumber = normalizeJobNumber(rawJobNumber, 'JobNumber');
   const existing = await findJob(client, orgId, jobNumber);
   if (!existing) {
-    return { exists: false, job: null };
+    return buildJobDuplicateCheckResult({
+      jobNumber,
+      workScopeInput,
+      existingJob: null,
+      sameJobNumberJobs: [],
+    });
   }
 
   const entries = await buildList(client, orgId, 0, undefined, [jobNumber]);
   const summary = entries.find((entry) => asTrimmedString(entry?.jobNumber) === jobNumber);
-  return {
-    exists: true,
-    job: summary || buildDuplicateJobFallbackSummary(existing)
-  };
+  const duplicateJob = summary || buildDuplicateJobFallbackSummary(existing);
+  return buildJobDuplicateCheckResult({
+    jobNumber,
+    workScopeInput,
+    existingJob: duplicateJob,
+    sameJobNumberJobs: [duplicateJob],
+  });
 }
 
 function normalizeCalendarMonth(value) {
