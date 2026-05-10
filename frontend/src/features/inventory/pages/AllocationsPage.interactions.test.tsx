@@ -291,7 +291,10 @@ describe('AllocationsPage interactions', () => {
 
     await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Lobby' });
 
-    await waitFor(() => expect(checkJobDuplicateMock).toHaveBeenCalledWith('81234'));
+    await waitFor(() => expect(checkJobDuplicateMock).toHaveBeenCalledWith('81234', {
+      workScope: 'Lobby',
+      sections: 'Lobby'
+    }));
     expect(screen.getByRole('heading', { name: 'Labor-Only Job 81234?' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Yes, Labor Only' }));
 

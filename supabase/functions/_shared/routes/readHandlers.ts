@@ -2,6 +2,10 @@
 import { HttpError, ok } from "../http.ts";
 import type { AuthIdentity } from "../types.ts";
 import { buildBoxReservationSnapshot } from "../../../../shared/domain/filmAllocationReservations.mjs";
+import {
+  buildJobDuplicateCheckResult,
+  getJobDuplicateWorkScopeInput,
+} from "../../../../shared/domain/jobDuplicateContract.mjs";
 
 type ReadContext = {
   client: any;
@@ -585,15 +589,26 @@ const readHandlers: Record<string, ReadHandler> = {
       deps.normalizeJobNumberDigits(params.jobNumber, "JobNumber"),
       "JobNumber"
     );
+    const workScopeInput = getJobDuplicateWorkScopeInput(params);
     const existing = await deps.findJobByNumber(client, orgId, jobNumber);
     if (!existing) {
-      return ok({ exists: false, job: null });
+      return ok(buildJobDuplicateCheckResult({
+        jobNumber,
+        workScopeInput,
+        existingJob: null,
+        sameJobNumberJobs: [],
+      }));
     }
 
     const entries = await deps.buildJobsList(client, orgId, 0, undefined, [jobNumber]);
     const job = entries.find((entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber)
       || buildDuplicateJobFallbackSummary(existing, deps);
-    return ok({ exists: true, job });
+    return ok(buildJobDuplicateCheckResult({
+      jobNumber,
+      workScopeInput,
+      existingJob: job,
+      sameJobNumberJobs: [job],
+    }));
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildJobDetail(client, orgId, params.jobNumber));

@@ -274,8 +274,10 @@ export interface JobRequirementLine {
 export interface JobListEntry {
   jobId?: string;
   jobNumber: string;
+  routeTarget?: string;
   warehouse: Warehouse;
   workScope?: string | null;
+  workScopeKey?: string;
   sections: string | null;
   installDate: string;
   crewLeader: string;

@@ -290,6 +290,8 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
         findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
           orgId,
           jobNumber,
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
           lifecycleStatus: "COMPLETED",
         }),
         callMutationRpc: async () => {
@@ -306,6 +308,21 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
     assert(
       error instanceof Error && error.message === "Job 81234 already exists.",
       `Expected duplicate create to fail clearly, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(
+      {
+        exists: (error as any).details?.exists,
+        allowed: (error as any).details?.allowed,
+        reason: (error as any).details?.reason,
+        workScopeKey: (error as any).details?.workScopeKey,
+      },
+      {
+        exists: true,
+        allowed: false,
+        reason: "SAME_JOB_SCOPE_COMPLETED",
+        workScopeKey: "section:4,5",
+      },
+      "Expected duplicate create conflict to include work-scope diagnostics.",
     );
     assertEquals(rpcCallCount, 0, "Expected duplicate create to stop before the SQL create RPC.");
     assertEquals(detailCallCount, 0, "Expected duplicate create to skip job detail reload.");

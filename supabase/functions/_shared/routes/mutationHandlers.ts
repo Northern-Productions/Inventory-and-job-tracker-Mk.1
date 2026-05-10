@@ -2,6 +2,10 @@
 import { HttpError, ok } from "../http.ts";
 import type { AuthIdentity } from "../types.ts";
 import { buildBoxReservationSnapshot } from "../../../../shared/domain/filmAllocationReservations.mjs";
+import {
+  buildJobDuplicateCheckResult,
+  getJobDuplicateWorkScopeInput,
+} from "../../../../shared/domain/jobDuplicateContract.mjs";
 
 type MutationContext = {
   client: any;
@@ -635,7 +639,17 @@ const mutationHandlers: Record<string, MutationHandler> = {
     );
     const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
     if (existingJob) {
-      throw new HttpError(409, `Job ${jobNumber} already exists.`);
+      throw new HttpError(
+        409,
+        `Job ${jobNumber} already exists.`,
+        [],
+        buildJobDuplicateCheckResult({
+          jobNumber,
+          workScopeInput: getJobDuplicateWorkScopeInput(normalizedPayload),
+          existingJob,
+          sameJobNumberJobs: [existingJob],
+        }),
+      );
     }
 
     const result = await deps.callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);

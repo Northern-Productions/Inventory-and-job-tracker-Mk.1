@@ -182,7 +182,7 @@ const readHandlers = {
     });
   },
   '/jobs/check-duplicate': async ({ client, orgId, params }) =>
-    ok(await checkJobDuplicate(client, orgId, params && params.jobNumber)),
+    ok(await checkJobDuplicate(client, orgId, params || {})),
   '/jobs/get': async ({ orgId, params }) => ok(await buildReadJobDetail(orgId, params.jobNumber)),
   '/jobs/get-by-id': async ({ orgId, params }) => ok(await buildReadJobDetailById(orgId, params.jobId)),
   '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),

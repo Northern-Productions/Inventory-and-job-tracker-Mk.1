@@ -280,36 +280,94 @@ describe('jobs API client canonical routes', () => {
     requestMock.mockResolvedValueOnce({
       data: {
         exists: true,
+        allowed: false,
+        reason: 'SAME_JOB_SCOPE_ACTIVE',
+        jobNumber: '000123',
+        workScope: 'Sections 4, 5',
+        workScopeKey: 'section:4,5',
         job: buildJobListEntry({
           jobId: '33333333-3333-4333-8333-333333333333',
           jobNumber: '000123',
           workScope: 'Sections 4, 5',
-          sections: null
-        })
+          sections: null,
+          workScopeKey: 'section:4,5',
+          routeTarget: '/allocations/jobs/33333333-3333-4333-8333-333333333333'
+        }),
+        existingJob: buildJobListEntry({
+          jobId: '33333333-3333-4333-8333-333333333333',
+          jobNumber: '000123',
+          workScope: 'Sections 4, 5',
+          sections: null,
+          workScopeKey: 'section:4,5',
+          routeTarget: '/allocations/jobs/33333333-3333-4333-8333-333333333333'
+        }),
+        sameJobNumberJobs: [
+          buildJobListEntry({
+            jobId: '33333333-3333-4333-8333-333333333333',
+            jobNumber: '000123',
+            workScope: 'Sections 4, 5',
+            sections: null,
+            workScopeKey: 'section:4,5',
+            routeTarget: '/allocations/jobs/33333333-3333-4333-8333-333333333333'
+          })
+        ]
       },
       warnings: []
     });
 
-    const result = await checkJobDuplicate(' 000123 ');
+    const result = await checkJobDuplicate(' 000123 ', {
+      workScope: ' Sections 4, 5 ',
+      sections: 'Legacy Sections'
+    });
 
     expect(result.exists).toBe(true);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toBe('SAME_JOB_SCOPE_ACTIVE');
+    expect(result.workScopeKey).toBe('section:4,5');
     expect(result.job?.jobId).toBe('33333333-3333-4333-8333-333333333333');
     expect(result.job?.workScope).toBe('Sections 4, 5');
     expect(result.job?.sections).toBe('Sections 4, 5');
+    expect(result.job?.routeTarget).toBe('/allocations/jobs/33333333-3333-4333-8333-333333333333');
+    expect(result.existingJob?.workScopeKey).toBe('section:4,5');
+    expect(result.sameJobNumberJobs).toHaveLength(1);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
-      query: { jobNumber: '000123' }
+      query: {
+        jobNumber: '000123',
+        workScope: 'Sections 4, 5',
+        sections: 'Legacy Sections'
+      }
     });
   });
 
   it('returns exists false for unique job numbers', async () => {
     requestMock.mockResolvedValueOnce({
-      data: { exists: false },
+      data: {
+        exists: false,
+        allowed: true,
+        reason: 'NO_MATCH',
+        jobNumber: '000124',
+        workScope: null,
+        workScopeKey: 'blank:',
+        job: null,
+        existingJob: null,
+        sameJobNumberJobs: []
+      },
       warnings: []
     });
 
     const result = await checkJobDuplicate('000124');
 
-    expect(result).toEqual({ exists: false, job: null });
+    expect(result).toEqual({
+      exists: false,
+      allowed: true,
+      reason: 'NO_MATCH',
+      jobNumber: '000124',
+      workScope: null,
+      workScopeKey: 'blank:',
+      existingJob: null,
+      sameJobNumberJobs: [],
+      job: null
+    });
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
       query: { jobNumber: '000124' }
     });
