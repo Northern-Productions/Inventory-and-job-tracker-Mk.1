@@ -59,6 +59,7 @@ export {
   findJobByNumber,
   findJobById,
   saveJobRecord,
+  saveJobRecordById,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,

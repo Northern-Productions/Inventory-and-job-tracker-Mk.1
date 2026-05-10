@@ -126,6 +126,45 @@ async function saveJobRecord(client, orgId, job) {
   return mapDbJobRow(row);
 }
 
+async function saveJobRecordById(client, orgId, job) {
+  const row = await queryRow(
+    client,
+    `
+      update app.jobs
+      set
+        warehouse = $3,
+        sections = $4,
+        due_date = nullif($5, '')::date,
+        crew_leader = $6,
+        lifecycle_status = $7,
+        is_labor_only = $8,
+        is_staged_for_pickup = $9,
+        notes = $10,
+        updated_at = coalesce($11::timestamptz, now()),
+        updated_by = $12
+      where org_id = $1
+        and id = $2
+      returning *
+    `,
+    [
+      orgId,
+      requireUuid(job.id || job.jobId || job.job_id, 'JobId'),
+      job.warehouse,
+      job.sections,
+      job.installDate,
+      job.crewLeader,
+      job.lifecycleStatus,
+      Boolean(job.isLaborOnly),
+      Boolean(job.isStagedForPickup),
+      job.notes,
+      job.updatedAt,
+      job.updatedBy,
+    ]
+  );
+
+  return mapDbJobRow(row);
+}
+
 async function listJobRequirements(client, orgId) {
   const rows = await queryRows(
     client,
@@ -1058,6 +1097,7 @@ export {
   findJobByNumber,
   findJobById,
   saveJobRecord,
+  saveJobRecordById,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
