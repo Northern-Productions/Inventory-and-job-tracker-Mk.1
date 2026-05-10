@@ -13,6 +13,7 @@ const EXPECTED_TIMING_TARGETS = [
   ["POST", "/jobs/create"],
   ["POST", "/jobs/update"],
   ["GET", "/jobs/get"],
+  ["GET", "/jobs/get-by-id"],
   ["POST", "/jobs/complete"],
   ["POST", "/jobs/delete"],
   ["POST", "/jobs/checkout-all"],

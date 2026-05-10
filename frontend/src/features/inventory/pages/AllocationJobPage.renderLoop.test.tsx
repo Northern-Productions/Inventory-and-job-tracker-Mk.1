@@ -10,6 +10,7 @@ const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
+const useJobByIdMock = vi.fn();
 const useUpdateJobMock = vi.fn();
 const useAddCaulkJobAllocationMock = vi.fn();
 const useUpdateCaulkJobAllocationMock = vi.fn();
@@ -67,6 +68,7 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
 
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJob: () => useJobMock(),
+  useJobById: () => useJobByIdMock(),
   useUpdateJob: () => useUpdateJobMock(),
   useAddCaulkJobAllocation: () => useAddCaulkJobAllocationMock(),
   useUpdateCaulkJobAllocation: () => useUpdateCaulkJobAllocationMock(),
@@ -244,6 +246,13 @@ describe('AllocationJobPage render loop regressions', () => {
       data: buildJobDetail(),
       error: null,
       refetch: vi.fn().mockResolvedValue({ data: buildJobDetail() })
+    });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: undefined,
+      error: null,
+      refetch: vi.fn()
     });
     useUpdateJobMock.mockReturnValue(buildMutationState());
     useAddCaulkJobAllocationMock.mockReturnValue(buildMutationState());

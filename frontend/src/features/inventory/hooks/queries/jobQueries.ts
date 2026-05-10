@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getJob,
+  getJobById,
   getJobs,
   getJobsCalendarEntries,
   getJobsCalendarMonth,
@@ -170,6 +171,39 @@ export function useJob(jobNumber: string) {
     lastSyncedKeyRef.current = syncKey;
     syncJobSummaryCachesFromDetail(queryClient, query.data, { syncAllocationJobDetail: true });
   }, [jobNumber, query.data, query.dataUpdatedAt, queryClient]);
+
+  return query;
+}
+
+export function useJobById(jobId: string) {
+  const queryClient = useQueryClient();
+  const lastSyncedKeyRef = useRef('');
+  const query = useCachedInventoryReadQuery<JobDetail>({
+    queryKey: inventoryKeys.jobById(jobId),
+    queryFn: () => getJobById(jobId),
+    enabled: Boolean(jobId),
+    staleTime: 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false
+  });
+
+  useEffect(() => {
+    if (!jobId || !query.data || query.dataUpdatedAt <= 0) {
+      return;
+    }
+
+    const syncKey = `${jobId}:${query.dataUpdatedAt}`;
+    if (lastSyncedKeyRef.current === syncKey) {
+      return;
+    }
+
+    lastSyncedKeyRef.current = syncKey;
+    syncJobSummaryCachesFromDetail(queryClient, query.data, { syncAllocationJobDetail: true });
+    const loadedJobNumber = String(query.data.summary?.jobNumber || '').trim();
+    if (loadedJobNumber) {
+      queryClient.setQueryData(inventoryKeys.job(loadedJobNumber), query.data);
+    }
+  }, [jobId, query.data, query.dataUpdatedAt, queryClient]);
 
   return query;
 }

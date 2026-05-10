@@ -159,6 +159,7 @@ export function createOptimisticAllocationJobSummaryFromJobDetail(detail: JobDet
   const openFilmOrderCount = countUnresolvedFilmOrders(detail.filmOrders);
 
   return {
+    jobId: detail.summary.jobId,
     jobNumber: detail.summary.jobNumber,
     installDate: detail.summary.installDate,
     crewLeader: detail.summary.crewLeader,

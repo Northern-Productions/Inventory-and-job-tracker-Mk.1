@@ -11,6 +11,17 @@ describe('app routes', () => {
     expect(labelsRoute).toBeDefined();
   });
 
+  it('registers canonical jobId allocation route before legacy jobNumber route', () => {
+    const rootRoute = appRoutes.find((route) => route.path === '/');
+    const children = rootRoute?.children || [];
+    const jobIdRouteIndex = children.findIndex((route) => route.path === '/allocations/jobs/:jobId');
+    const jobNumberRouteIndex = children.findIndex((route) => route.path === '/allocations/:jobNumber');
+
+    expect(jobIdRouteIndex).toBeGreaterThanOrEqual(0);
+    expect(jobNumberRouteIndex).toBeGreaterThanOrEqual(0);
+    expect(jobIdRouteIndex).toBeLessThan(jobNumberRouteIndex);
+  });
+
   it('redirects the retired owner admin permissions page to the access page', () => {
     const rootRoute = appRoutes.find((route) => route.path === '/');
     const ownerAdminPermissionsRoute = rootRoute?.children?.find(

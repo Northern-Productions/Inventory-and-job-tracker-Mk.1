@@ -73,6 +73,7 @@ export {
   createJob,
   deleteJob,
   getJob,
+  getJobById,
   getJobsCalendarEntries,
   getJobsCalendarMonth,
   getJobs,

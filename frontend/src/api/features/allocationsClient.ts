@@ -45,6 +45,7 @@ function normalizeAllocationSource(value: unknown): AllocationSource {
 function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
   return {
     ...summary,
+    jobId: String(summary.jobId || '').trim() || undefined,
     activeAllocatedFeet: Math.max(0, Number(summary.activeAllocatedFeet || 0)),
     allocatedWithInstallDateFeet: Math.max(0, Number(summary.allocatedWithInstallDateFeet || 0)),
     allocatedWithoutInstallDateFeet: Math.max(0, Number(summary.allocatedWithoutInstallDateFeet || 0)),
@@ -78,6 +79,7 @@ function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
 function normalizeJobDetailSummary(summary: JobDetail['summary']): JobDetail['summary'] {
   return {
     ...summary,
+    jobId: String(summary.jobId || '').trim() || undefined,
     isLaborOnly: Boolean(summary.isLaborOnly),
     isStagedForPickup: Boolean(summary.isStagedForPickup),
     hasOrderedAllocations: Boolean(summary.hasOrderedAllocations),

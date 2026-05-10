@@ -19,6 +19,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
 Deno.test("Edge response cache bypasses mutation-sensitive operational reads", () => {
   const operationalRoutes = [
     "/jobs/get",
+    "/jobs/get-by-id",
     "/jobs/list",
     "/jobs/search",
     "/jobs/calendar",
@@ -461,6 +462,33 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
     boxId: "IL1-1234",
     orderedForJobs: [{ jobNumber: "4953", filmOrderId: "FO-1", orderedFeet: 120 }],
   }, "Expected /boxes/get to include structured ordered-for job data.");
+});
+
+Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/get-by-id",
+    { jobId: "11111111-1111-4111-8111-111111111111" },
+    {} as any,
+    {
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => ({
+        summary: {
+          jobId,
+          jobNumber: "4953",
+          orgId,
+        },
+      }),
+    } as any,
+  );
+
+  assertEquals(response.data, {
+    summary: {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "4953",
+      orgId: "org-1",
+    },
+  }, "Expected /jobs/get-by-id to return the same detail envelope shape.");
 });
 
 Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true", async () => {

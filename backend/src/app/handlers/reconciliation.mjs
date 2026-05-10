@@ -1,12 +1,18 @@
 // Purpose: Keep read-time checked-out allocation linking isolated from the transport entrypoint.
 import { withReadClient } from '../../db/client.mjs';
+import { findJobById } from '../repositories/jobsRepository.mjs';
 import {
   reconcileCheckedOutBoxAllocationLinkByBoxId,
   reconcileCheckedOutBoxAllocationLinksForJob,
 } from '../services/allocations.mjs';
 
 export async function runAutomaticAllocationReconciliationForRead(logicalPath, params, authContext) {
-  if (logicalPath !== '/boxes/get' && logicalPath !== '/allocations/by-job' && logicalPath !== '/jobs/get') {
+  if (
+    logicalPath !== '/boxes/get' &&
+    logicalPath !== '/allocations/by-job' &&
+    logicalPath !== '/jobs/get' &&
+    logicalPath !== '/jobs/get-by-id'
+  ) {
     return;
   }
 
@@ -17,7 +23,14 @@ export async function runAutomaticAllocationReconciliationForRead(logicalPath, p
       return;
     }
 
-    const jobNumber = params && params.jobNumber;
+    let jobNumber = params && params.jobNumber;
+    if (logicalPath === '/jobs/get-by-id') {
+      const header = await findJobById(client, authContext.orgId, params && params.jobId);
+      if (!header) {
+        return;
+      }
+      jobNumber = header?.jobNumber || '';
+    }
     await reconcileCheckedOutBoxAllocationLinksForJob(
       client,
       authContext.orgId,

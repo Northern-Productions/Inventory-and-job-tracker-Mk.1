@@ -42,7 +42,12 @@ describe('JobsCalendarView', () => {
           view="week"
           anchorDate="2026-03-24"
           jobs={[
-            buildJob({ jobNumber: '10001', installDate: '2026-03-24', isStagedForPickup: true }),
+            buildJob({
+              jobId: '11111111-1111-4111-8111-111111111111',
+              jobNumber: '10001',
+              installDate: '2026-03-24',
+              isStagedForPickup: true
+            }),
             buildJob({
               jobNumber: '10002',
               installDate: '2026-03-24',
@@ -72,7 +77,7 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('option value="week" selected=""');
     expect(html).toContain('job-calendar-nav-status-loading');
     expect(html).toContain('Loading Mar 29 - Apr 4, 2026...');
-    expect(html).toContain('href="/allocations/10001"');
+    expect(html).toContain('href="/allocations/jobs/11111111-1111-4111-8111-111111111111"');
     expect(html).toContain('IL1-10001');
     expect(html).toContain('job-calendar-job-link-highlight');
     expect(html).toContain('job-calendar-job-link-status-ready');

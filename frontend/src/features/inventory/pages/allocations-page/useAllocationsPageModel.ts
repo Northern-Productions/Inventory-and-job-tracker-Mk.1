@@ -14,12 +14,13 @@ import {
   useJobsList,
   useJobsSearch
 } from '../../hooks/useInventoryQueries';
-import { prefetchJobDetail } from '../jobDetailPrefetch';
+import { prefetchJobDetail, prefetchJobDetailById } from '../jobDetailPrefetch';
 import {
   formatCalendarPeriodLabel,
   getCurrentCalendarAnchorDate
 } from '../../utils/jobCalendar';
 import { sortSearchedJobs, sortJobs, type JobSortOption } from '../../utils/jobSorts';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 import { useJobCreationWorkflow } from './useJobCreationWorkflow';
 import { useJobsCalendarWorkflow } from './useJobsCalendarWorkflow';
 
@@ -183,13 +184,17 @@ export function useAllocationsPageModel({
     calendarWorkflow.submitCalendarSearch(normalizedQuery);
   }
 
-  function handlePrefetchJob(jobNumber: string) {
-    void prefetchJobDetail(queryClient, jobNumber).catch(() => undefined);
+  function handlePrefetchJob(jobNumber: string, jobId?: string) {
+    const normalizedJobId = String(jobId || '').trim();
+    void (normalizedJobId
+      ? prefetchJobDetailById(queryClient, normalizedJobId)
+      : prefetchJobDetail(queryClient, jobNumber)
+    ).catch(() => undefined);
   }
 
-  function handleOpenJob(nextJobNumber: string) {
-    handlePrefetchJob(nextJobNumber);
-    navigate(`/allocations/${encodeURIComponent(nextJobNumber)}`);
+  function handleOpenJob(nextJobNumber: string, jobId?: string) {
+    handlePrefetchJob(nextJobNumber, jobId);
+    navigate(buildAllocationJobRoute({ jobNumber: nextJobNumber, jobId }));
   }
 
   return {

@@ -137,6 +137,7 @@ describe('AllocationsPage interactions', () => {
     toastPushMock.mockReset();
     const activeListEntries = [
       buildJob({
+        jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '16961',
         lifecycleStatus: 'ACTIVE',
         status: 'READY'
@@ -151,6 +152,7 @@ describe('AllocationsPage interactions', () => {
     ];
     const activeCalendarEntries = [
       buildJob({
+        jobId: '22222222-2222-4222-8222-222222222222',
         jobNumber: '12345',
         lifecycleStatus: 'ACTIVE',
         status: 'READY'
@@ -219,6 +221,16 @@ describe('AllocationsPage interactions', () => {
     });
     expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true');
     expect(Boolean(screen.getByRole('button', { name: 'IL1-16961' }))).toBe(true);
+  });
+
+  it('opens list jobs with the canonical jobId route when available', () => {
+    renderPage({ initialJobsViewMode: 'list' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-16961' }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
+    );
   });
 
   it('defers film catalog and caulk products until the New Job dialog opens and shows safe loading states', () => {

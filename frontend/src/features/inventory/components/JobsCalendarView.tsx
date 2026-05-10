@@ -6,6 +6,7 @@ import type { JobListEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { buildAllocationJobRoute } from '../utils/jobRoutes';
 import {
   buildCalendarPeriod,
   getCalendarJobStatusClass,
@@ -33,17 +34,13 @@ interface JobsCalendarViewProps {
   transitionToken?: number;
   onViewChange: (view: JobCalendarView) => void;
   onAnchorDateChange: (anchorDate: string) => void;
-  onPrefetchJob?: (jobNumber: string) => void;
+  onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
   maxVisibleJobsPerDay?: number;
   isPhoneLayoutOverride?: boolean;
   initialSelectedDayDate?: string;
 }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function buildJobHref(jobNumber: string) {
-  return `/allocations/${encodeURIComponent(jobNumber)}`;
-}
 
 function formatWeekdayLabel(dateKey: string) {
   return new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(`${dateKey}T00:00:00`));
@@ -85,13 +82,13 @@ function renderJobLink(
     highlightJobNumbers: Set<string>;
     compact?: boolean;
     onNavigate?: () => void;
-    onPrefetchJob?: (jobNumber: string) => void;
+    onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
     registerRef?: (jobNumber: string, node: HTMLAnchorElement | null) => void;
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
   const displayJobNumber = formatJobDisplayNumber(job.jobNumber, job.warehouse);
-  const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber);
+  const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber, job.jobId);
   const handleClick = () => {
     handlePrefetch();
     options.onNavigate?.();
@@ -101,7 +98,7 @@ function renderJobLink(
     <Link
       key={job.jobNumber}
       ref={(node) => options.registerRef?.(job.jobNumber, node)}
-      to={buildJobHref(job.jobNumber)}
+      to={buildAllocationJobRoute(job)}
       className={[
         'job-calendar-job-link',
         options.compact ? 'job-calendar-job-link-compact' : '',

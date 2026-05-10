@@ -4,7 +4,9 @@ export {
   buildJobsSearchResults,
   buildJobsCalendar,
   buildJobDetail,
+  buildJobDetailById,
   buildReadJobDetail,
+  buildReadJobDetailById,
   setJobStagedPickup,
 } from './runtime/runtimeJobsRead.mjs';
 export { buildReportsSummary, buildOwnerAssetTotalCost } from './runtime/runtimeReports.mjs';

@@ -658,6 +658,7 @@ function buildJobListEntry(
       : baseStatus;
 
   return {
+    jobId: jobHeader.id || '',
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || '',
     sections: jobHeader.sections,

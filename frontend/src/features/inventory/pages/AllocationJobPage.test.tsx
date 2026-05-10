@@ -7,8 +7,10 @@ import AllocationJobPage from './AllocationJobPage';
 
 const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
+const useParamsMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
+const useJobByIdMock = vi.fn();
 const useUpdateJobMock = vi.fn();
 const useAddCaulkJobAllocationMock = vi.fn();
 const useUpdateCaulkJobAllocationMock = vi.fn();
@@ -35,7 +37,7 @@ const useAllocationPreviewMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => ({ jobNumber: '000123' })
+  useParams: () => useParamsMock()
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({
@@ -64,7 +66,8 @@ vi.mock('../hooks/useInventoryQueries', async (importOriginal) => {
 
   return {
     ...actual,
-    useJob: () => useJobMock(),
+    useJob: (...args: unknown[]) => useJobMock(...args),
+    useJobById: (...args: unknown[]) => useJobByIdMock(...args),
     useAllocationPreview: () => useAllocationPreviewMock(),
     useSearchBoxesWithOptions: () => ({
       data: [],
@@ -293,7 +296,7 @@ function expectCaulkRequirementTableTotals(
   );
 }
 
-function renderPage(detail: JobDetail) {
+function renderPage(detail?: JobDetail) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -317,6 +320,10 @@ describe('AllocationJobPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
+    useParamsMock.mockReset();
+    useJobMock.mockReset();
+    useJobByIdMock.mockReset();
+    useParamsMock.mockReturnValue({ jobNumber: '000123' });
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -328,6 +335,12 @@ describe('AllocationJobPage', () => {
       isLoading: false,
       isError: false,
       data: baseDetail,
+      error: null
+    });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: undefined,
       error: null
     });
     useUpdateJobMock.mockReturnValue(buildMutationState());
@@ -373,6 +386,28 @@ describe('AllocationJobPage', () => {
       isError: false,
       error: null
     });
+  });
+
+  it('loads the canonical jobId route without using the jobNumber route parameter', () => {
+    useParamsMock.mockReturnValue({ jobId: '11111111-1111-4111-8111-111111111111' });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        ...baseDetail,
+        summary: buildSummary({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123'
+        }) as JobDetail['summary']
+      },
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(useJobMock).toHaveBeenCalledWith('');
+    expect(useJobByIdMock).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
+    expect(html).toContain('IL1-000123');
   });
 
   it('renders caulk requirement/allocation sections and unified film+caulk usage timeline', () => {

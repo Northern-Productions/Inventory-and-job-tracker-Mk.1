@@ -324,6 +324,12 @@
       "ownerOnly": false
     },
     {
+      "route": "/jobs/get-by-id",
+      "feature": "jobs",
+      "mode": "read",
+      "ownerOnly": false
+    },
+    {
       "route": "/jobs/list",
       "feature": "jobs",
       "mode": "read",
