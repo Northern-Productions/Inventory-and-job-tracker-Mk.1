@@ -167,15 +167,32 @@ begin
     replace($old$
   v_box.status := 'IN_STOCK';
   v_box.received_date := current_date;
-  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - v_locked_allocated_feet, 0);
+  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);
 $old$, E'\r\n', E'\n'),
     replace($new$
   v_box.status := 'IN_STOCK';
   v_box.received_date := current_date;
   v_box.has_label := false;
-  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - v_locked_allocated_feet, 0);
+  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);
 $new$, E'\r\n', E'\n')
   );
+
+  if v_next = v_base then
+    v_next := replace(
+      v_next,
+      replace($old$
+  v_box.status := 'IN_STOCK';
+  v_box.received_date := current_date;
+  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - v_locked_allocated_feet, 0);
+$old$, E'\r\n', E'\n'),
+      replace($new$
+  v_box.status := 'IN_STOCK';
+  v_box.received_date := current_date;
+  v_box.has_label := false;
+  v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - v_locked_allocated_feet, 0);
+$new$, E'\r\n', E'\n')
+    );
+  end if;
 
   if v_next = v_base
      or position('v_box.has_label := false;' in v_next) = 0 then

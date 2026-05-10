@@ -28,6 +28,14 @@ test('box label tracking migration exposes hasLabel in public box JSON and undo 
 test('box label tracking migration marks ordered receipts as unlabeled', () => {
   assert.match(backendMigration, /v_box\.has_label := false;/);
   assert.match(backendMigration, /api_acl_boxes_receive_ordered/);
+  assert.match(
+    backendMigration,
+    /v_box\.feet_available := greatest\(coalesce\(v_existing\.initial_feet, 0\) - coalesce\(v_locked_allocated_feet, 0\), 0\);/
+  );
+  assert.match(
+    backendMigration,
+    /if v_next = v_base then\s+v_next := replace\(/m
+  );
 });
 
 test('box label tracking migration adds a mark-printed RPC with audit entries', () => {
