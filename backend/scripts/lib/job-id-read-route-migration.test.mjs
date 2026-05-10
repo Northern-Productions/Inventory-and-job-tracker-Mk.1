@@ -10,9 +10,22 @@ const supabaseMigration = readFileSync(
   new URL('../../../supabase/migrations/20260510160000_job_id_read_route.sql', import.meta.url),
   'utf8'
 );
+const backendPermissionMigration = readFileSync(
+  new URL('../../migrations/0115_job_id_read_route_permissions.sql', import.meta.url),
+  'utf8'
+);
+const supabasePermissionMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260510170000_job_id_read_route_permissions.sql', import.meta.url),
+  'utf8'
+);
+const schemaCheck = readFileSync(new URL('../check-schema-latest.mjs', import.meta.url), 'utf8');
 
 test('job id read-route migration copies stay aligned', () => {
   assert.equal(backendMigration, supabaseMigration);
+});
+
+test('job id read-route permission migration copies stay aligned', () => {
+  assert.equal(backendPermissionMigration, supabasePermissionMigration);
 });
 
 test('job id read-route migration adds read-only ACL lookup without changing job uniqueness', () => {
@@ -25,4 +38,33 @@ test('job id read-route migration adds read-only ACL lookup without changing job
   assert.match(migration, /grant_execute_if_exists\('public\.api_acl_find_job_by_id\(uuid, uuid\)', 'authenticated'\)/);
   assert.doesNotMatch(migration, /alter table app\.jobs/i);
   assert.doesNotMatch(migration, /unique\s*\(\s*org_id\s*,\s*job_number/i);
+});
+
+test('job id read-route permission migration restricts direct helper execution', () => {
+  const migration = backendPermissionMigration;
+
+  assert.match(migration, /revoke execute on function %s from public/);
+  assert.match(migration, /revoke execute on function %s from anon/);
+  assert.match(migration, /revoke execute on function %s from authenticated/);
+  assert.match(migration, /revoke execute on function %s from service_role/);
+  assert.match(migration, /grant execute on function %s to authenticated/);
+  assert.match(migration, /grant execute on function %s to service_role/);
+  assert.match(migration, /public\.api_find_job_by_id\(uuid, uuid\)/);
+  assert.match(migration, /public\.api_acl_find_job_by_id\(uuid, uuid\)/);
+  assert.doesNotMatch(migration, /alter table app\.jobs/i);
+  assert.doesNotMatch(migration, /unique\s*\(\s*org_id\s*,\s*job_number/i);
+});
+
+test('schema guard expects the job id read-route permission migration and RPC permissions', () => {
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0115_job_id_read_route_permissions\.sql';/);
+  assert.match(schemaCheck, /signature: 'public\.api_find_job_by_id\(uuid, uuid\)'/);
+  assert.match(schemaCheck, /signature: 'public\.api_acl_find_job_by_id\(uuid, uuid\)'/);
+  assert.match(schemaCheck, /public_find_job_by_id_execute/);
+  assert.match(schemaCheck, /anon_find_job_by_id_execute/);
+  assert.match(schemaCheck, /authenticated_find_job_by_id_execute/);
+  assert.match(schemaCheck, /service_role_find_job_by_id_execute/);
+  assert.match(schemaCheck, /public_acl_find_job_by_id_execute/);
+  assert.match(schemaCheck, /anon_acl_find_job_by_id_execute/);
+  assert.match(schemaCheck, /authenticated_acl_find_job_by_id_execute/);
+  assert.match(schemaCheck, /service_role_acl_find_job_by_id_execute/);
 });

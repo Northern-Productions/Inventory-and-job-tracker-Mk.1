@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0113_box_has_label.sql';
+const LATEST_MIGRATION = '0115_job_id_read_route_permissions.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -43,6 +43,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_promote_member_to_admin(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_demote_admin_to_member(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_promote_admin_to_owner(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_find_job_by_id(uuid, uuid)' },
+  { kind: 'function', signature: 'public.api_acl_find_job_by_id(uuid, uuid)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_key(uuid, text, text)' },
@@ -912,7 +914,71 @@ async function runSchemaCheck() {
           coalesce(
             (select string_agg(signature, ', ' order by signature) from service_role_executable_required_public_api),
             ''
-          ) as service_role_executable_required_public_api_signatures;
+          ) as service_role_executable_required_public_api_signatures,
+          case
+            when to_regprocedure('public.api_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'public',
+              'public.api_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as public_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'anon',
+              'public.api_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as anon_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'authenticated',
+              'public.api_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as authenticated_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'service_role',
+              'public.api_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as service_role_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_acl_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'public',
+              'public.api_acl_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as public_acl_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_acl_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'anon',
+              'public.api_acl_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as anon_acl_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_acl_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'authenticated',
+              'public.api_acl_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as authenticated_acl_find_job_by_id_execute,
+          case
+            when to_regprocedure('public.api_acl_find_job_by_id(uuid, uuid)') is null then false
+            else has_function_privilege(
+              'service_role',
+              'public.api_acl_find_job_by_id(uuid, uuid)'::regprocedure,
+              'EXECUTE'
+            )
+          end as service_role_acl_find_job_by_id_execute;
       `
     );
 
@@ -958,6 +1024,30 @@ async function runSchemaCheck() {
         '- privilege mismatch: service_role can execute user-session public api_* RPCs: ' +
           permissionState.service_role_executable_required_public_api_signatures
       );
+    }
+    if (permissionState.public_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: public can execute public.api_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.anon_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: anon can execute public.api_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.authenticated_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: authenticated can execute public.api_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.service_role_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: service_role can execute public.api_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.public_acl_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: public can execute public.api_acl_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.anon_acl_find_job_by_id_execute === true) {
+      permissionIssues.push('- privilege mismatch: anon can execute public.api_acl_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.authenticated_acl_find_job_by_id_execute !== true) {
+      permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_acl_find_job_by_id(uuid, uuid)');
+    }
+    if (permissionState.service_role_acl_find_job_by_id_execute !== true) {
+      permissionIssues.push('- privilege mismatch: service_role cannot execute public.api_acl_find_job_by_id(uuid, uuid)');
     }
 
     if (permissionIssues.length > 0) {
