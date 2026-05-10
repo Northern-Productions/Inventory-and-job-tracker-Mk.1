@@ -4,6 +4,7 @@ import {
   addBox,
   cancelBoxTransfer,
   deleteBox,
+  markLabelsPrinted,
   receiveOrderedBox,
   receiveBoxTransfer,
   setBoxStatus,
@@ -17,6 +18,7 @@ import type {
   BoxDealerEntry,
   CancelBoxTransferPayload,
   DeleteBoxPayload,
+  MarkLabelsPrintedPayload,
   ReceiveOrderedBoxPayload,
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
@@ -414,6 +416,7 @@ export function useReceiveOrderedBox() {
             lastWeighedDate:
               payload.receivedWeightLbs !== undefined ? nextDate : box.lastWeighedDate,
             lotRun: payload.lotRun !== undefined ? payload.lotRun : box.lotRun,
+            hasLabel: false,
             coreType: payload.coreType || box.coreType,
             coreWeightLbs: payload.coreType
               ? deriveCoreWeightLbs(payload.coreType, box.widthIn)
@@ -447,6 +450,27 @@ export function useReceiveOrderedBox() {
     },
     onSettled: (_data, _error, _variables, context) => {
       context?.operation?.finish();
+    }
+  });
+}
+
+export function useMarkLabelsPrinted() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.markLabelsPrintedMutation,
+    mutationFn: (payload: MarkLabelsPrintedPayload) => markLabelsPrinted(payload),
+    onSuccess: async ({ result }) => {
+      for (const box of result.boxes) {
+        queryClient.setQueryData(inventoryKeys.box(box.boxId), box);
+        upsertBoxInSearchCaches(queryClient, box);
+        void persistOfflineInventoryBox(queryClient, box);
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot })
+      ]);
     }
   });
 }

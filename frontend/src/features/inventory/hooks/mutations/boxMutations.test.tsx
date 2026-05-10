@@ -7,10 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OptimisticQueueProvider } from '../../../../components/OptimisticQueue';
 import type { Box } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
-import { useReceiveOrderedBox, useUpsertBoxDealer } from './boxMutations';
+import { useMarkLabelsPrinted, useReceiveOrderedBox, useUpsertBoxDealer } from './boxMutations';
 
 const upsertBoxDealerMock = vi.fn();
 const receiveOrderedBoxMock = vi.fn();
+const markLabelsPrintedMock = vi.fn();
 
 vi.mock('../../../../api/features/inventoryClient', async () => {
   const actual = await vi.importActual<typeof import('../../../../api/features/inventoryClient')>(
@@ -19,6 +20,7 @@ vi.mock('../../../../api/features/inventoryClient', async () => {
 
   return {
     ...actual,
+    markLabelsPrinted: (...args: unknown[]) => markLabelsPrintedMock(...args),
     receiveOrderedBox: (...args: unknown[]) => receiveOrderedBoxMock(...args),
     upsertBoxDealer: (...args: unknown[]) => upsertBoxDealerMock(...args)
   };
@@ -82,6 +84,7 @@ function buildBox(overrides: Partial<Box> = {}): Box {
     pricePerLf: null,
     purchaseCost: null,
     notes: '',
+    hasLabel: true,
     hasEverBeenCheckedOut: false,
     lastCheckoutJob: '',
     lastCheckoutDate: '',
@@ -96,6 +99,7 @@ describe('useUpsertBoxDealer', () => {
   afterEach(() => {
     upsertBoxDealerMock.mockReset();
     receiveOrderedBoxMock.mockReset();
+    markLabelsPrintedMock.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -142,6 +146,7 @@ describe('useReceiveOrderedBox', () => {
   afterEach(() => {
     upsertBoxDealerMock.mockReset();
     receiveOrderedBoxMock.mockReset();
+    markLabelsPrintedMock.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -165,6 +170,7 @@ describe('useReceiveOrderedBox', () => {
     await waitFor(() => {
       expect(queryClient.getQueryData<Box>(inventoryKeys.box(box.boxId))).toMatchObject({
         status: 'IN_STOCK',
+        hasLabel: false,
         coreType: 'Red plastic',
         coreWeightLbs: 1.2333
       });
@@ -176,6 +182,7 @@ describe('useReceiveOrderedBox', () => {
           ...box,
           status: 'IN_STOCK',
           receivedDate: '2026-04-21',
+          hasLabel: false,
           coreType: 'Red plastic',
           coreWeightLbs: 1.2333
         },
@@ -185,5 +192,33 @@ describe('useReceiveOrderedBox', () => {
     });
 
     await mutationResult;
+  });
+});
+
+describe('useMarkLabelsPrinted', () => {
+  afterEach(() => {
+    markLabelsPrintedMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('updates cached boxes after labels are marked printed', async () => {
+    const queryClient = createQueryClient();
+    const box = buildBox({ status: 'IN_STOCK', feetAvailable: 100, hasLabel: false });
+    const labeledBox = { ...box, hasLabel: true };
+    queryClient.setQueryData(inventoryKeys.box(box.boxId), box);
+    queryClient.setQueryData(inventoryKeys.list({ warehouse: 'IL1', showRetired: false }), [box]);
+    markLabelsPrintedMock.mockResolvedValue({
+      result: { boxes: [labeledBox], logIds: ['LOG-LABEL'] },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useMarkLabelsPrinted(), { wrapper: createWrapper(queryClient) });
+
+    await act(async () => {
+      await result.current.mutateAsync({ boxIds: [box.boxId] });
+    });
+
+    expect(markLabelsPrintedMock).toHaveBeenCalledWith({ boxIds: [box.boxId] });
+    expect(queryClient.getQueryData<Box>(inventoryKeys.box(box.boxId))).toMatchObject({ hasLabel: true });
   });
 });

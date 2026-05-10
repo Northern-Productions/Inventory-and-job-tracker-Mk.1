@@ -44,6 +44,7 @@ export {
   getBox,
   getBoxTransferPlan,
   listBoxDealers,
+  markLabelsPrinted,
   receiveOrderedBox,
   searchBoxes,
   setBoxStatus,

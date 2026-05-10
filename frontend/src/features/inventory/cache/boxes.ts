@@ -160,6 +160,7 @@ export function createOptimisticBoxFromAddPayload(payload: AddBoxPayload): Box {
     pricePerLf: payload.pricePerLf ?? null,
     purchaseCost: payload.purchaseCost ?? null,
     notes: payload.notes || '',
+    hasLabel: true,
     hasEverBeenCheckedOut: false,
     lastCheckoutJob: '',
     lastCheckoutDate: '',

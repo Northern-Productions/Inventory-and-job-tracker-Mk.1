@@ -54,6 +54,7 @@ export {
   useDeleteJob,
   useDeleteBox,
   useDeleteFilmOrder,
+  useMarkLabelsPrinted,
   useReceiveCaulkTransfer,
   useClearAllocationPlannerSuppression,
   useReceiveOrderedBox,

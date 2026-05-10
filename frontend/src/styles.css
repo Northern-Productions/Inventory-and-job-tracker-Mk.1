@@ -3792,6 +3792,11 @@ td.col-available-linear-ft {
   margin-top: 1rem;
 }
 
+.label-mode-row {
+  max-width: 18rem;
+  margin-bottom: 1rem;
+}
+
 .label-box-picker,
 .label-slot-grid,
 .label-preview-panel {

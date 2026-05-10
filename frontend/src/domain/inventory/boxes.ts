@@ -43,6 +43,7 @@ export interface Box {
   purchaseCost: number | null;
   notes: string;
   directToJobSite?: boolean;
+  hasLabel?: boolean;
   hasEverBeenCheckedOut: boolean;
   lastCheckoutJob: string;
   lastCheckoutDate: string;
@@ -122,6 +123,15 @@ export interface ReceiveOrderedBoxPayload {
   receivedWeightLbs?: number;
   lotRun?: string;
   coreType?: BoxCoreType;
+}
+
+export interface MarkLabelsPrintedPayload {
+  boxIds: string[];
+}
+
+export interface MarkLabelsPrintedResult {
+  boxes: Box[];
+  logIds?: string[];
 }
 
 export interface BoxDealerEntry {

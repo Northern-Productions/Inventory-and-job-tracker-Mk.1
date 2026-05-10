@@ -102,6 +102,7 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
   updatedBox.receivedDate = receivedDate;
   updatedBox.feetAvailable = Math.max(existing.initialFeet - lockedAllocatedFeet, 0);
   updatedBox.lotRun = requestedLotRun || existing.lotRun;
+  updatedBox.hasLabel = false;
 
   if (requestedCoreType) {
     updatedBox.coreType = requestedCoreType;

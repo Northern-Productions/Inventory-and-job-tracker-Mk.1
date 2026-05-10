@@ -37,6 +37,7 @@ import {
   addBox,
   cancelBoxTransfer,
   deleteBox,
+  markLabelsPrinted,
   receiveOrderedBox,
   receiveBoxTransfer,
   setBoxStatus,
@@ -211,6 +212,8 @@ const mutationHandlers = {
     deleteBox(client, orgId, params, authContext.actor),
   '/boxes/receive': async ({ client, orgId, authContext, params }) =>
     receiveOrderedBox(client, orgId, params, authContext.actor),
+  '/boxes/labels/mark-printed': async ({ client, orgId, authContext, params }) =>
+    markLabelsPrinted(client, orgId, params, authContext.actor),
   '/boxes/set-status': async ({ client, orgId, authContext, params }) =>
     setBoxStatus(client, orgId, params, authContext.actor),
   '/audit/undo': async ({ client, orgId, authContext, params }) =>

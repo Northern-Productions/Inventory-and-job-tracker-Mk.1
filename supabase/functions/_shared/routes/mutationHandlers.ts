@@ -405,6 +405,30 @@ const mutationHandlers: Record<string, MutationHandler> = {
       result.warnings || []
     );
   },
+  "/boxes/labels/mark-printed": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_acl_boxes_mark_labels_printed", orgId, actor, normalizedPayload);
+    const boxIds = Array.isArray(result.boxIds)
+      ? result.boxIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
+      : [];
+    const boxes = [];
+    for (const boxId of boxIds) {
+      const box = await deps.findBoxById(client, orgId, boxId);
+      if (!box) {
+        throw new HttpError(500, "Label print update completed but an updated box could not be reloaded.");
+      }
+      boxes.push(await buildPublicBoxWithReservationMetrics(client, orgId, box, deps));
+    }
+
+    return ok(
+      {
+        boxes,
+        logIds: Array.isArray(result.logIds)
+          ? result.logIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
+          : [],
+      },
+      result.warnings || []
+    );
+  },
   "/boxes/set-status": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     await deps.ensureBoxCheckoutCrewCompatibility(client, orgId, normalizedPayload);
     const result = await deps.callMutationRpc(client, "api_acl_boxes_set_status", orgId, actor, normalizedPayload);
