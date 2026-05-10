@@ -45,6 +45,7 @@ export type MutationHandlerDeps = {
   cancelBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   ensureBoxCheckoutCrewCompatibility: (client: any, orgId: string, payload: Record<string, unknown>) => Promise<void>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
+  normalizeJobNumberDigits: (value: unknown, fieldName?: string) => string;
   normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
   listAllocationsByIds: (client: any, orgId: string, allocationIds: string[]) => Promise<any[]>;
   toPublicAllocation: (entry: any) => Record<string, unknown>;
@@ -628,6 +629,15 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(result, result.warnings || []);
   },
   "/jobs/create": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const jobNumber = deps.requireString(
+      deps.normalizeJobNumberDigits(normalizedPayload.jobNumber, "Job ID number"),
+      "Job ID number"
+    );
+    const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
+    if (existingJob) {
+      throw new HttpError(409, `Job ${jobNumber} already exists.`);
+    }
+
     const result = await deps.callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
     return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
   },

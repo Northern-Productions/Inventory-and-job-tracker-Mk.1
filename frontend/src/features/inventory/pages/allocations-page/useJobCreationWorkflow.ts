@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
-import type { CreateJobPayload } from '../../../../domain';
+import { checkJobDuplicate } from '../../../../api/features/jobsClient';
+import type { CreateJobPayload, JobListEntry } from '../../../../domain';
 import type { JobEditorSubmitPayload } from '../../components/JobEditorDialog';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
 import { buildAllocationJobRoute } from '../../utils/jobRoutes';
@@ -23,6 +24,10 @@ interface ToastLike {
 interface AuthLike {
   clientIdConfigured: boolean;
   isAuthenticated: boolean;
+}
+
+export interface DuplicateJobPrompt {
+  job: JobListEntry;
 }
 
 interface UseJobCreationWorkflowOptions {
@@ -58,15 +63,17 @@ export function useJobCreationWorkflow({
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
   const [pendingLaborOnlyCreate, setPendingLaborOnlyCreate] =
     useState<JobEditorSubmitPayload | null>(null);
+  const [duplicateJobPrompt, setDuplicateJobPrompt] = useState<DuplicateJobPrompt | null>(null);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
-  async function submitCreateJob(submitPayload: JobEditorSubmitPayload, isLaborOnly: boolean) {
+  function ensureCreateAuthorized() {
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
         description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before creating jobs.',
         variant: 'error'
       });
-      return;
+      return false;
     }
 
     if (!auth.isAuthenticated) {
@@ -75,6 +82,36 @@ export function useJobCreationWorkflow({
         description: 'Sign in with email/password before creating a job.',
         variant: 'error'
       });
+      return false;
+    }
+
+    return true;
+  }
+
+  async function preflightDuplicateJob(submitPayload: JobEditorSubmitPayload) {
+    setIsCheckingDuplicate(true);
+    try {
+      const duplicate = await checkJobDuplicate(submitPayload.jobNumber);
+      if (duplicate.exists && duplicate.job) {
+        setPendingLaborOnlyCreate(null);
+        setDuplicateJobPrompt({ job: duplicate.job });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      toast.push({
+        title: 'Unable to check job number',
+        description: error instanceof Error ? error.message : 'The job number could not be checked.',
+        variant: 'error'
+      });
+      return false;
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+  }
+
+  async function submitCreateJob(submitPayload: JobEditorSubmitPayload, isLaborOnly: boolean) {
+    if (!ensureCreateAuthorized()) {
       return;
     }
 
@@ -101,6 +138,14 @@ export function useJobCreationWorkflow({
   }
 
   async function handleCreateJob(submitPayload: JobEditorSubmitPayload) {
+    if (!ensureCreateAuthorized()) {
+      return;
+    }
+
+    if (!(await preflightDuplicateJob(submitPayload))) {
+      return;
+    }
+
     if (shouldPromptForLaborOnlyConfirmation(submitPayload)) {
       setPendingLaborOnlyCreate(submitPayload);
       return;
@@ -117,12 +162,33 @@ export function useJobCreationWorkflow({
     void submitCreateJob(pendingLaborOnlyCreate, true);
   }
 
+  function dismissDuplicateJobPrompt() {
+    setDuplicateJobPrompt(null);
+    setIsNewJobOpen(true);
+  }
+
+  function goToDuplicateJob() {
+    const job = duplicateJobPrompt?.job;
+    if (!job) {
+      return;
+    }
+
+    setDuplicateJobPrompt(null);
+    setPendingLaborOnlyCreate(null);
+    setIsNewJobOpen(false);
+    navigate(buildAllocationJobRoute(job));
+  }
+
   return {
     isNewJobOpen,
     setIsNewJobOpen,
     pendingLaborOnlyCreate,
     setPendingLaborOnlyCreate,
+    duplicateJobPrompt,
+    isCreateSubmitting: createJobMutation.isPending || isCheckingDuplicate,
     handleCreateJob,
-    confirmLaborOnlyCreate
+    confirmLaborOnlyCreate,
+    dismissDuplicateJobPrompt,
+    goToDuplicateJob
   };
 }

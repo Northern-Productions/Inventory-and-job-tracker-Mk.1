@@ -65,6 +65,7 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/owner/reports/asset-total-cost",
   "/reports/summary",
   "/jobs/calendar",
+  "/jobs/check-duplicate",
   "/jobs/get",
   "/jobs/get-by-id",
   "/jobs/list",

@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0116_job_work_scope.sql';
+const LATEST_MIGRATION = '0117_duplicate_job_creation_guard.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -226,10 +226,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',
     includes: [
+      "v_job_number text := app_api.require_job_number_digits(p_payload->>'jobNumber', 'Job ID number');",
+      "perform app_api.raise_http(409, format('Job %s already exists.', v_job_number));",
       "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
       'app_api.normalize_job_work_scope('
     ],
-    excludes: ["app_api.normalize_job_sections(p_payload->>'sections')"]
+    excludes: [
+      "app_api.normalize_job_sections(p_payload->>'sections')",
+      'if not found then'
+    ]
   },
   {
     signature: 'public.api_jobs_update(uuid, text, jsonb)',

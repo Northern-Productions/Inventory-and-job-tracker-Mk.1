@@ -1,5 +1,6 @@
 import { JobEditorDialog } from '../components/JobEditorDialog';
 import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDialog';
+import { DuplicateJobCreationDialog } from '../components/DuplicateJobCreationDialog';
 import { JobsHeroSection } from './allocations-page/JobsHeroSection';
 import { JobsResultsSection } from './allocations-page/JobsResultsSection';
 import { useAllocationsPageModel } from './allocations-page/useAllocationsPageModel';
@@ -16,7 +17,6 @@ type AllocationsPageProps = {
 
 export default function AllocationsPage(props: AllocationsPageProps = {}) {
   const {
-    createJobMutation,
     filmCatalogQuery,
     caulkProductsQuery,
     jobCreationWorkflow,
@@ -112,7 +112,7 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         mode="create"
         title="New Job"
         submitLabel="Save Job"
-        submitting={createJobMutation.isPending}
+        submitting={jobCreationWorkflow.isCreateSubmitting}
         filmCatalogEntries={filmCatalogQuery.data}
         filmCatalogLoading={filmCatalogQuery.isLoading}
         filmCatalogError={filmCatalogQuery.error}
@@ -126,9 +126,16 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
       <LaborOnlyJobConfirmDialog
         open={Boolean(jobCreationWorkflow.pendingLaborOnlyCreate)}
         jobNumber={jobCreationWorkflow.pendingLaborOnlyCreate?.jobNumber || ''}
-        pending={createJobMutation.isPending}
+        pending={jobCreationWorkflow.isCreateSubmitting}
         onCancel={() => jobCreationWorkflow.setPendingLaborOnlyCreate(null)}
         onConfirmLaborOnly={jobCreationWorkflow.confirmLaborOnlyCreate}
+      />
+
+      <DuplicateJobCreationDialog
+        open={Boolean(jobCreationWorkflow.duplicateJobPrompt)}
+        job={jobCreationWorkflow.duplicateJobPrompt?.job || null}
+        onEditNewJob={jobCreationWorkflow.dismissDuplicateJobPrompt}
+        onGoToJob={jobCreationWorkflow.goToDuplicateJob}
       />
     </>
   );

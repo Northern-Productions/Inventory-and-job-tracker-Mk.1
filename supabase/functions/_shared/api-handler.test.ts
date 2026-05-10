@@ -23,6 +23,7 @@ Deno.test("Edge response cache bypasses mutation-sensitive operational reads", (
     "/jobs/list",
     "/jobs/search",
     "/jobs/calendar",
+    "/jobs/check-duplicate",
     "/allocations/by-job",
     "/allocations/jobs",
     "/app/attention-summary",
@@ -489,6 +490,88 @@ Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", asy
       orgId: "org-1",
     },
   }, "Expected /jobs/get-by-id to return the same detail envelope shape.");
+});
+
+Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job exists", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/check-duplicate",
+    { jobNumber: " 81234 " },
+    {} as any,
+    {
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      requireString: (value: unknown, fieldName: string) => {
+        const trimmed = String(value || "").trim();
+        if (!trimmed) {
+          throw new Error(`${fieldName} is required.`);
+        }
+        return trimmed;
+      },
+      normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
+      normalizeJobLifecycleStatus: () => "ACTIVE",
+      findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
+        id: "11111111-1111-4111-8111-111111111111",
+        orgId,
+        jobNumber,
+        warehouse: "IL1",
+        workScope: "Sections 4, 5",
+        lifecycleStatus: "ACTIVE",
+      }),
+      buildJobsList: async (_client: unknown, orgId: string, _limit: number, _status: unknown, jobNumbers: unknown) => [
+        {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          orgId,
+          jobNumber: Array.isArray(jobNumbers) ? jobNumbers[0] : "",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+          lifecycleStatus: "ACTIVE",
+          status: "READY",
+        },
+      ],
+    } as any,
+  );
+
+  assertEquals(response.data, {
+    exists: true,
+    job: {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      orgId: "org-1",
+      jobNumber: "81234",
+      workScope: "Sections 4, 5",
+      sections: "Sections 4, 5",
+      lifecycleStatus: "ACTIVE",
+      status: "READY",
+    },
+  }, "Expected duplicate check to return the existing job summary.");
+});
+
+Deno.test("/jobs/check-duplicate returns exists false when no job exists", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/check-duplicate",
+    { jobNumber: "81235" },
+    {} as any,
+    {
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      requireString: (value: unknown, fieldName: string) => {
+        const trimmed = String(value || "").trim();
+        if (!trimmed) {
+          throw new Error(`${fieldName} is required.`);
+        }
+        return trimmed;
+      },
+      normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
+      normalizeJobLifecycleStatus: () => "ACTIVE",
+      findJobByNumber: async () => null,
+      buildJobsList: async () => {
+        throw new Error("Duplicate check should not load summaries when no job exists.");
+      },
+    } as any,
+  );
+
+  assertEquals(response.data, { exists: false, job: null }, "Expected unique job number to return exists false.");
 });
 
 Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true", async () => {

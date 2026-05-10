@@ -25,6 +25,7 @@ vi.mock('../lib/offlineInventory', () => ({
 
 import {
   __resetJobsApiAvailabilityForTests,
+  checkJobDuplicate,
   checkoutAllJobMaterials,
   createJob,
   deleteJob,
@@ -273,6 +274,45 @@ describe('jobs API client canonical routes', () => {
     const detail = await getJob('000123');
 
     expect(detail.summary.jobId).toBeUndefined();
+  });
+
+  it('checks duplicate jobs through GET /jobs/check-duplicate', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        exists: true,
+        job: buildJobListEntry({
+          jobId: '33333333-3333-4333-8333-333333333333',
+          jobNumber: '000123',
+          workScope: 'Sections 4, 5',
+          sections: null
+        })
+      },
+      warnings: []
+    });
+
+    const result = await checkJobDuplicate(' 000123 ');
+
+    expect(result.exists).toBe(true);
+    expect(result.job?.jobId).toBe('33333333-3333-4333-8333-333333333333');
+    expect(result.job?.workScope).toBe('Sections 4, 5');
+    expect(result.job?.sections).toBe('Sections 4, 5');
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
+      query: { jobNumber: '000123' }
+    });
+  });
+
+  it('returns exists false for unique job numbers', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { exists: false },
+      warnings: []
+    });
+
+    const result = await checkJobDuplicate('000124');
+
+    expect(result).toEqual({ exists: false, job: null });
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
+      query: { jobNumber: '000124' }
+    });
   });
 
   it('surfaces backend route errors for create job', async () => {
