@@ -195,11 +195,7 @@ function getJobIdentityForPlannerDetailReload(logicalPath, params = {}, response
   const summary = asRecord(responseData?.summary);
   const job = asRecord(responseData?.job);
   return {
-    jobId:
-      asTrimmedString(responseData?.jobId) ||
-      asTrimmedString(summary.jobId) ||
-      asTrimmedString(job.jobId) ||
-      asTrimmedString(params?.jobId),
+    jobId: asTrimmedString(params?.jobId),
     jobNumber:
       asTrimmedString(responseData?.jobNumber) ||
       asTrimmedString(summary.jobNumber) ||

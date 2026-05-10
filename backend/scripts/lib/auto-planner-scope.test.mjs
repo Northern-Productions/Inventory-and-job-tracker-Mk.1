@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildAutoPlannerScope,
+  getJobIdentityForPlannerDetailReload,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
 } from '../../src/app/services/runtime/runtimeAutoAllocationPlanner.mjs';
@@ -143,6 +144,25 @@ test('getJobNumberForPlannerDetailReload reloads only job detail mutation respon
   assert.equal(
     getJobNumberForPlannerDetailReload('/boxes/update', { jobNumber: '18722' }, {}),
     ''
+  );
+});
+
+test('getJobIdentityForPlannerDetailReload uses explicit payload jobId only', () => {
+  assert.deepEqual(
+    getJobIdentityForPlannerDetailReload(
+      '/jobs/update',
+      { jobNumber: '18722' },
+      { summary: { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' } }
+    ),
+    { jobId: '', jobNumber: '18722' }
+  );
+  assert.deepEqual(
+    getJobIdentityForPlannerDetailReload(
+      '/jobs/reopen',
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' },
+      { summary: { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' } }
+    ),
+    { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' }
   );
 });
 

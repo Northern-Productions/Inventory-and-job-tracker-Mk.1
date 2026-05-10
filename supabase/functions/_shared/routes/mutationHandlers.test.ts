@@ -468,6 +468,63 @@ Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is p
   );
 });
 
+Deno.test("/jobs/reopen keeps legacy detail reload when payload has no jobId", async () => {
+  const legacyDetailCalls: Array<Record<string, unknown>> = [];
+  let jobDetailByIdCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/reopen",
+    {
+      jobNumber: "81234",
+      reason: "Legacy reopen.",
+    },
+    buildDeps({
+      reopenJob: async () => ({
+        ok: true,
+        data: {
+          summary: {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "81234",
+          },
+        },
+      }),
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+        legacyDetailCalls.push({ orgId, jobNumber });
+        return {
+          summary: {
+            jobNumber,
+          },
+          source: "legacy",
+        };
+      },
+      buildJobDetailById: async () => {
+        jobDetailByIdCallCount += 1;
+        return {};
+      },
+      reconcileAutoPlannedAllocations: async () => ({}),
+    }),
+  );
+
+  assertEquals(
+    legacyDetailCalls,
+    [{ orgId: "org-1", jobNumber: "81234" }],
+    "Expected legacy reopen to continue reloading detail by jobNumber.",
+  );
+  assertEquals(jobDetailByIdCallCount, 0, "Expected legacy reopen not to infer jobId from response detail.");
+  assertEquals(
+    response.data,
+    {
+      summary: {
+        jobNumber: "81234",
+      },
+      source: "legacy",
+    },
+    "Expected legacy reopen response to remain jobNumber-scoped.",
+  );
+});
+
 Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation", async () => {
   const cases = [
     {

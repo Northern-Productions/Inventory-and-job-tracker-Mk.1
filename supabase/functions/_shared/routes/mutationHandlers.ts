@@ -891,11 +891,7 @@ function getJobIdentityForPlannerDetailReload(
   const summary = asRecord(responseData.summary);
   const job = asRecord(responseData.job);
   return {
-    jobId:
-      deps.asTrimmedString(responseData.jobId) ||
-      deps.asTrimmedString(summary.jobId) ||
-      deps.asTrimmedString(job.jobId) ||
-      deps.asTrimmedString(payload.jobId),
+    jobId: deps.asTrimmedString(payload.jobId),
     jobNumber:
       deps.asTrimmedString(responseData.jobNumber) ||
       deps.asTrimmedString(summary.jobNumber) ||
