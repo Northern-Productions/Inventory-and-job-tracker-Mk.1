@@ -11,6 +11,9 @@ import {
   normalizeCatalogManufacturerLookupKey,
   normalizeCatalogLookupKey,
 } from './catalog.mjs';
+import {
+  normalizeJobWorkScopeDisplay as normalizeSharedJobWorkScopeDisplay,
+} from '../../../../shared/domain/jobWorkScopeNormalization.mjs';
 
 function normalizeJobNumberDigits(value, fieldName) {
   const normalized = requireString(value, fieldName || 'JobNumber');
@@ -26,12 +29,7 @@ function normalizeJobWarehouse(value) {
 }
 
 function normalizeJobWorkScope(value) {
-  const trimmed = asTrimmedString(value);
-  if (!trimmed) {
-    return null;
-  }
-
-  return trimmed.replace(/\s+/g, ' ');
+  return normalizeSharedJobWorkScopeDisplay(value);
 }
 
 function normalizeJobSections(value) {
