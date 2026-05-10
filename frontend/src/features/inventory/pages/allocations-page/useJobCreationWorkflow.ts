@@ -3,12 +3,13 @@ import type { NavigateFunction } from 'react-router-dom';
 import type { CreateJobPayload } from '../../../../domain';
 import type { JobEditorSubmitPayload } from '../../components/JobEditorDialog';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 
 interface CreateJobMutationLike {
   isPending: boolean;
   mutateAsync: (
     payload: CreateJobPayload
-  ) => Promise<{ result: { summary: { jobNumber: string } } }>;
+  ) => Promise<{ result: { summary: { jobNumber: string; jobId?: string } } }>;
 }
 
 interface ToastLike {
@@ -85,7 +86,7 @@ export function useJobCreationWorkflow({
       const savePromise = createJobMutation.mutateAsync(payload);
       navigate(destination);
       const { result } = await savePromise;
-      navigate(`/allocations/${encodeURIComponent(result.summary.jobNumber)}`, {
+      navigate(buildAllocationJobRoute(result.summary), {
         replace: true
       });
     } catch (error) {

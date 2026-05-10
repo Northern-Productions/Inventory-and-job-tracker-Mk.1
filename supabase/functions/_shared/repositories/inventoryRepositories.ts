@@ -703,6 +703,14 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapDbJobRow(row);
   }
 
+  async function findJobById(client: any, orgId: string, jobId: string) {
+    const row = await deps.rpcOrThrow<any | null>(client, "api_acl_find_job_by_id", {
+      p_org_id: orgId,
+      p_job_id: jobId,
+    });
+    return mapDbJobRow(row);
+  }
+
   async function listJobRequirements(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_requirements", { p_org_id: orgId });
     return mapRows(rows, mapDbRequirementRow);
@@ -792,6 +800,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listJobs,
     listJobsCalendar,
     findJobByNumber,
+    findJobById,
     listJobRequirements,
     listJobRequirementsByJob,
     listJobCaulkRequirementsByJob,

@@ -8,6 +8,7 @@ const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
+const useJobByIdMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useCaulkProductsMock = vi.fn();
 const useJobLifecycleWorkflowMock = vi.fn();
@@ -140,6 +141,7 @@ const baseDetail: JobDetail = {
 
 vi.mock('../hooks/useInventoryQueries', () => ({
   useJob: () => useJobMock(),
+  useJobById: () => useJobByIdMock(),
   useAllocationPreview: () => ({
     data: null,
     isLoading: false,
@@ -202,6 +204,12 @@ describe('AllocationJobPage loading', () => {
       isLoading: false,
       isError: false,
       data: baseDetail,
+      error: null
+    });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: undefined,
       error: null
     });
     useFilmCatalogMock.mockReset();

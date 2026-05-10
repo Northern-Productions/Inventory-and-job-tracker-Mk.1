@@ -48,6 +48,21 @@ async function findJobByNumber(client, orgId, jobNumber) {
   return mapDbJobRow(row);
 }
 
+async function findJobById(client, orgId, jobId) {
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.jobs
+      where org_id = $1
+        and id = $2
+    `,
+    [orgId, requireUuid(jobId, 'JobId')]
+  );
+
+  return mapDbJobRow(row);
+}
+
 async function saveJobRecord(client, orgId, job) {
   const row = await queryRow(
     client,
@@ -823,6 +838,7 @@ async function deleteJobRecord(client, orgId, jobNumber) {
 export {
   listJobs,
   findJobByNumber,
+  findJobById,
   saveJobRecord,
   listJobRequirements,
   listJobRequirementsByJob,

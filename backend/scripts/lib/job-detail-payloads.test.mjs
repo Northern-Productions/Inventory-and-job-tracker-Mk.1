@@ -357,6 +357,7 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
     'usage',
     'usageTimeline',
   ]);
+  assert.equal(payload.summary.jobId, 'job-1');
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.status, 'FILM_ORDER');
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
@@ -385,6 +386,7 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
 test('buildAllocationJobDetailPayload keeps the allocation-detail summary aligned with the shared context', () => {
   const payload = buildAllocationJobDetailPayload(buildDetailContext());
 
+  assert.equal(payload.summary.jobId, 'job-1');
   assert.equal(payload.summary.jobNumber, '000123');
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.crewLeader, 'Crew A');

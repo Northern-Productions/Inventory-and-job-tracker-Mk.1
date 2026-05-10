@@ -13,6 +13,7 @@ export {
 } from './queries/boxQueries';
 export {
   useJob,
+  useJobById,
   useJobsCalendarEntries,
   useJobsCalendarMonth,
   useJobsList,

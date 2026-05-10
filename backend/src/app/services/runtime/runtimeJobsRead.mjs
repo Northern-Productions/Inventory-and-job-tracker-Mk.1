@@ -200,7 +200,9 @@ import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
 import {
   buildJobDetailPayload,
   loadJobDetailContext,
+  loadJobDetailContextById,
   loadJobDetailContextWithPooledReads,
+  loadJobDetailContextByIdWithPooledReads,
 } from './runtimeJobDetails.mjs';
 
 const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
@@ -534,8 +536,16 @@ async function buildJobDetail(client, orgId, jobNumber) {
   return buildJobDetailPayload(await loadJobDetailContext(client, orgId, jobNumber));
 }
 
+async function buildJobDetailById(client, orgId, jobId) {
+  return buildJobDetailPayload(await loadJobDetailContextById(client, orgId, jobId));
+}
+
 async function buildReadJobDetail(orgId, jobNumber) {
   return buildJobDetailPayload(await loadJobDetailContextWithPooledReads(orgId, jobNumber));
+}
+
+async function buildReadJobDetailById(orgId, jobId) {
+  return buildJobDetailPayload(await loadJobDetailContextByIdWithPooledReads(orgId, jobId));
 }
 
 async function executeSetJobStagedPickup(
@@ -749,7 +759,9 @@ export {
   getCalendarWeekStart,
   buildJobsCalendar,
   buildJobDetail,
+  buildJobDetailById,
   buildReadJobDetail,
+  buildReadJobDetailById,
   executeSetJobStagedPickup,
   setJobStagedPickup,
   ensureJobHeaderForUpdate,

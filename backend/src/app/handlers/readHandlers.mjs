@@ -30,10 +30,10 @@ import {
 } from '../services/caulk.mjs';
 import { buildFilmOrdersList, buildFilmCatalog } from '../services/filmOrders.mjs';
 import {
-  buildJobDetail,
   buildJobsCalendar,
   buildJobsList,
   buildReadJobDetail,
+  buildReadJobDetailById,
   buildJobsSearchResults,
   buildOwnerAssetTotalCost,
   buildReportsSummary,
@@ -181,6 +181,7 @@ const readHandlers = {
     });
   },
   '/jobs/get': async ({ orgId, params }) => ok(await buildReadJobDetail(orgId, params.jobNumber)),
+  '/jobs/get-by-id': async ({ orgId, params }) => ok(await buildReadJobDetailById(orgId, params.jobId)),
   '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),
   '/roll-history/by-box': async ({ client, orgId, params }) =>
@@ -207,6 +208,7 @@ const POOLED_READ_HANDLERS = new Set([
   '/allocations/jobs',
   '/jobs/calendar',
   '/jobs/get',
+  '/jobs/get-by-id',
   '/jobs/list',
   '/jobs/search',
   '/reports/summary',

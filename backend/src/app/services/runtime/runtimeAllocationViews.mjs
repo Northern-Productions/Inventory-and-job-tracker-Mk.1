@@ -343,7 +343,8 @@ async function buildAllocationJobList(client, orgId) {
       Boolean(header?.isStagedForPickup),
       header?.installDate || '',
       header?.crewLeader || '',
-      boxById
+      boxById,
+      header?.id || ''
     );
     summary.status = deriveInStockReadinessStatus({
       lifecycleStatus: header?.lifecycleStatus || 'ACTIVE',

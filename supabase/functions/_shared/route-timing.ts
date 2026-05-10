@@ -5,6 +5,7 @@ const ROUTE_TIMING_TARGETS = new Set([
   "POST /jobs/create",
   "POST /jobs/update",
   "GET /jobs/get",
+  "GET /jobs/get-by-id",
   "POST /jobs/complete",
   "POST /jobs/delete",
   "POST /jobs/checkout-all",

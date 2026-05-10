@@ -48,6 +48,8 @@ export const inventoryKeys = {
   }) => ['inventory', 'jobs', 'search', params] as const,
   jobRoot: ['inventory', 'job'] as const,
   job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
+  jobByIdRoot: ['inventory', 'job-by-id'] as const,
+  jobById: (jobId: string) => ['inventory', 'job-by-id', jobId] as const,
   allocationJobs: ['inventory', 'allocation-jobs'] as const,
   allocationJobRoot: ['inventory', 'allocation-job'] as const,
   allocationJob: (jobNumber: string) => ['inventory', 'allocation-job', jobNumber] as const,

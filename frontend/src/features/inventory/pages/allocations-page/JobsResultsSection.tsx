@@ -58,8 +58,8 @@ interface JobsResultsSectionProps {
     label: string;
   } | null;
   calendarTransitionToken: number;
-  onOpenJob: (jobNumber: string) => void;
-  onPrefetchJob?: (jobNumber: string) => void;
+  onOpenJob: (jobNumber: string, jobId?: string) => void;
+  onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
   onViewChange: (view: 'week' | 'month') => void;
   onAnchorDateChange: (anchorDate: string) => void;
 }
@@ -138,9 +138,9 @@ export function JobsResultsSection({
                     title={displayJobNumber}
                     subtitle={`${entry.warehouse} warehouse`}
                     badge={renderStatusBadges(entry)}
-                    onTitleClick={() => onOpenJob(entry.jobNumber)}
-                    onTitleMouseEnter={() => onPrefetchJob?.(entry.jobNumber)}
-                    onTitleFocus={() => onPrefetchJob?.(entry.jobNumber)}
+                    onTitleClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
+                    onTitleMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                    onTitleFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                   />
                   <MobileFieldList>
                     <MobileField label="Install Date" value={formatDate(entry.installDate)} />
@@ -177,9 +177,9 @@ export function JobsResultsSection({
                         <button
                           type="button"
                           className="row-button"
-                          onClick={() => onOpenJob(entry.jobNumber)}
-                          onMouseEnter={() => onPrefetchJob?.(entry.jobNumber)}
-                          onFocus={() => onPrefetchJob?.(entry.jobNumber)}
+                          onClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
+                          onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                          onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                         >
                           {displayJobNumber}
                         </button>

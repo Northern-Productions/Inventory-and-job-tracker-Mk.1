@@ -168,6 +168,7 @@ export interface CreateFilmOrderPayload {
 }
 
 export interface AllocationJobSummary {
+  jobId?: string;
   jobNumber: string;
   installDate: string;
   crewLeader: string;
@@ -269,6 +270,7 @@ export interface JobRequirementLine {
 }
 
 export interface JobListEntry {
+  jobId?: string;
   jobNumber: string;
   warehouse: Warehouse;
   sections: string | null;

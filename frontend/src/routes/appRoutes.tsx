@@ -55,6 +55,10 @@ export const appRoutes: RouteObject[] = [
         element: withFeatureRoute(<AllocationsPage />, 'allocations', 'read')
       },
       {
+        path: '/allocations/jobs/:jobId',
+        element: withFeatureRoute(<AllocationJobPage />, 'allocations', 'read')
+      },
+      {
         path: '/allocations/:jobNumber',
         element: withFeatureRoute(<AllocationJobPage />, 'allocations', 'read')
       },

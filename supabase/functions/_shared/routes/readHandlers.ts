@@ -103,6 +103,7 @@ export type ReadHandlerDeps = {
     lifecycleStatus?: unknown
   ) => Promise<unknown[]>;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
+  buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
   listRollHistoryByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
@@ -118,6 +119,16 @@ type ReadHandler = (
   context: ReadContext,
   deps: ReadHandlerDeps,
 ) => Promise<Record<string, unknown>>;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function requireUuid(value: unknown, fieldName: string) {
+  const normalized = String(value || "").trim();
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new HttpError(400, `${fieldName} must be a valid UUID.`);
+  }
+  return normalized;
+}
 
 async function buildOrderedForJobsForBox(
   client: any,
@@ -535,6 +546,9 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildJobDetail(client, orgId, params.jobNumber));
+  },
+  "/jobs/get-by-id": async ({ client, orgId, params }, deps) => {
+    return ok(await deps.buildJobDetailById(client, orgId, requireUuid(params.jobId, "jobId")));
   },
   "/film-orders/list": async ({ client, orgId }, deps) => {
     return ok({ entries: await deps.buildFilmOrdersList(client, orgId) });

@@ -1520,6 +1520,7 @@ const {
   listJobs,
   listJobsCalendar,
   findJobByNumber,
+  findJobById,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobCaulkRequirementsByJob,
@@ -3969,6 +3970,7 @@ function buildAllocationJobSummary(
   fallbackInstallDate = "",
   fallbackCrewLeader = "",
   boxById: Record<string, any> = {},
+  jobId = "",
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
@@ -4053,6 +4055,7 @@ function buildAllocationJobSummary(
   }
 
   return {
+    jobId,
     jobNumber,
     installDate: metadata.installDate || fallbackInstallDate,
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
@@ -4287,6 +4290,7 @@ function buildJobListEntry(
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
   return {
+    jobId: jobHeader.id || "",
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || "",
     sections: jobHeader.sections,
@@ -5225,6 +5229,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         header?.installDate || "",
         header?.crewLeader || "",
         boxById,
+        header?.id || "",
       );
       summary.status = deriveInStockReadinessStatus({
         lifecycleStatus: header?.lifecycleStatus || "ACTIVE",
@@ -5317,6 +5322,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     header?.installDate || "",
     header?.crewLeader || "",
     boxById,
+    header?.id || "",
   );
   summary.status = deriveInStockReadinessStatus({
     lifecycleStatus: header?.lifecycleStatus || "ACTIVE",
@@ -5869,6 +5875,15 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
     filmTransferAlerts,
     caulkTransferAlerts,
   };
+}
+
+async function buildJobDetailById(client: any, orgId: string, jobId: unknown) {
+  const header = await findJobById(client, orgId, requireString(jobId, "jobId"));
+  if (!header) {
+    throw new HttpError(404, "Job not found.");
+  }
+
+  return buildJobDetail(client, orgId, header.jobNumber);
 }
 
 async function buildReportsSummary(client: any, orgId: string, params: Record<string, unknown>) {
@@ -7599,6 +7614,7 @@ async function dispatchRead(
     buildJobsCalendar,
     buildJobsSearchResults,
     buildJobDetail,
+    buildJobDetailById,
     buildFilmOrdersList,
     buildFilmCatalog,
     listRollHistoryByBox,

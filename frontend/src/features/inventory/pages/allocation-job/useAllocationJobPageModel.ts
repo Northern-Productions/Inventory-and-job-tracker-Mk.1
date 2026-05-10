@@ -30,6 +30,7 @@ import {
   usePendingRemoveJobBoxAllocationIds,
   usePendingReceiveCaulkTransferIds,
   useJob,
+  useJobById,
   useReceiveCaulkTransfer,
   useRemoveCaulkJobAllocation,
   useReopenJob,
@@ -74,8 +75,11 @@ export function useAllocationJobPageModel() {
   const ensureActionAccess = useActionAccess();
   const warehouseRegistry = useWarehouseRegistry();
   const params = useParams();
+  const routeJobId = safeDecodePathParam(params.jobId);
   const jobNumber = safeDecodePathParam(params.jobNumber);
-  const jobQuery = useJob(jobNumber);
+  const jobByNumberQuery = useJob(routeJobId ? '' : jobNumber);
+  const jobByIdQuery = useJobById(routeJobId);
+  const jobQuery = routeJobId ? jobByIdQuery : jobByNumberQuery;
   const updateJobMutation = useUpdateJob();
   const createFilmOrderMutation = useCreateFilmOrder();
   const addCaulkAllocationMutation = useAddCaulkJobAllocation();

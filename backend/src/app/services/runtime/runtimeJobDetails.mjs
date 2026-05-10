@@ -5,6 +5,7 @@ import {
   asTrimmedString,
   requireString,
   findJobByNumber,
+  findJobById,
   listAllocationsByJob,
   listFilmOrdersByJob,
   listJobRequirementsByJob,
@@ -320,6 +321,15 @@ async function loadJobDetailContext(client, orgId, jobNumber) {
   );
 }
 
+async function loadJobDetailContextById(client, orgId, jobId) {
+  const header = await findJobById(client, orgId, jobId);
+  if (!header) {
+    throw new HttpError(404, 'Job not found.');
+  }
+
+  return loadJobDetailContext(client, orgId, header.jobNumber);
+}
+
 async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const baseData = await loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber);
@@ -360,6 +370,17 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
     boxes,
     []
   );
+}
+
+async function loadJobDetailContextByIdWithPooledReads(orgId, jobId) {
+  const [header] = await runParallelReadTasks([
+    (client) => findJobById(client, orgId, jobId),
+  ]);
+  if (!header) {
+    throw new HttpError(404, 'Job not found.');
+  }
+
+  return loadJobDetailContextWithPooledReads(orgId, header.jobNumber);
 }
 
 function buildJobDetailPayload(detailContext) {
@@ -403,7 +424,8 @@ function buildAllocationJobDetailPayload(detailContext) {
     Boolean(detailContext.header?.isStagedForPickup),
     detailContext.header?.installDate || '',
     detailContext.header?.crewLeader || '',
-    detailContext.boxById
+    detailContext.boxById,
+    detailContext.header?.id || ''
   );
   summary.status = deriveInStockReadinessStatus({
     lifecycleStatus: detailContext.header?.lifecycleStatus || 'ACTIVE',
@@ -439,7 +461,9 @@ export {
   collectActiveAllocationBoxIds,
   indexBoxesById,
   loadJobDetailContext,
+  loadJobDetailContextById,
   loadJobDetailContextWithPooledReads,
+  loadJobDetailContextByIdWithPooledReads,
   buildJobDetailPayload,
   buildAllocationJobDetailPayload,
 };

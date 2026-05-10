@@ -17,6 +17,7 @@ export {
   useFilmOrders,
   useIsAddBoxPending,
   useJob,
+  useJobById,
   useJobSummariesByNumbers,
   useJobsCalendarEntries,
   useJobsCalendarMonth,

@@ -225,6 +225,7 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
     ['10001', '20002', '30003']
   );
   assert.deepEqual(Object.keys(entries.find((entry) => entry.jobNumber === '30003')), [
+    'jobId',
     'jobNumber',
     'warehouse',
     'sections',

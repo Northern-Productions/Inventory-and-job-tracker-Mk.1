@@ -75,7 +75,7 @@ describe('JobsCalendarView interactions', () => {
 
     fireEvent.focus(screen.getByRole('link', { name: /IL1-12345/i }));
 
-    expect(onPrefetchJob).toHaveBeenCalledWith('12345');
+    expect(onPrefetchJob).toHaveBeenCalledWith('12345', undefined);
   });
 
   it('still prefetches on click as a fallback when hover never happened', () => {
@@ -94,6 +94,6 @@ describe('JobsCalendarView interactions', () => {
 
     fireEvent.click(screen.getByRole('link', { name: /IL1-12345/i }));
 
-    expect(onPrefetchJob).toHaveBeenCalledWith('12345');
+    expect(onPrefetchJob).toHaveBeenCalledWith('12345', undefined);
   });
 });

@@ -26,6 +26,7 @@ export interface JobsCalendarEntriesOptions {
 function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
   return {
     ...entry,
+    jobId: String(entry.jobId || '').trim() || undefined,
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
     hasOrderedAllocations: Boolean(entry.hasOrderedAllocations),
@@ -157,6 +158,16 @@ export async function getJob(jobNumber: string): Promise<JobDetail> {
     '/jobs/get',
     { jobNumber },
     { jobNumber }
+  );
+  return normalizeJobDetail(result);
+}
+
+export async function getJobById(jobId: string): Promise<JobDetail> {
+  assertFeatureAccess('jobs', 'read');
+  const result = await requestReadWithFallback<JobDetailResponse>(
+    '/jobs/get-by-id',
+    { jobId },
+    { jobId }
   );
   return normalizeJobDetail(result);
 }

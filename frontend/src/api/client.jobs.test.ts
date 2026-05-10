@@ -29,6 +29,7 @@ import {
   createJob,
   deleteJob,
   getJob,
+  getJobById,
   getJobsCalendarEntries,
   getJobsCalendarMonth,
   getJobs,
@@ -43,6 +44,7 @@ const requestMock = vi.mocked(request);
 
 function buildJobListEntry(overrides: Record<string, unknown> = {}) {
   return {
+    jobId: '11111111-1111-4111-8111-111111111111',
     jobNumber: '000123',
     warehouse: 'IL1',
     sections: null,
@@ -192,6 +194,7 @@ describe('jobs API client canonical routes', () => {
 
     const detail = await getJob('000123');
 
+    expect(detail.summary.jobId).toBe('11111111-1111-4111-8111-111111111111');
     expect(detail.summary.jobNumber).toBe('000123');
     expect(detail.usage).toEqual([]);
     expect(detail.usageTimeline).toEqual([]);
@@ -201,6 +204,56 @@ describe('jobs API client canonical routes', () => {
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/get', {
       query: { jobNumber: '000123' }
     });
+  });
+
+  it('loads one job through GET /jobs/get-by-id and preserves hash-route identity fields', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobId: '22222222-2222-4222-8222-222222222222',
+          jobNumber: '4953'
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const detail = await getJobById('22222222-2222-4222-8222-222222222222');
+
+    expect(detail.summary.jobId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(detail.summary.jobNumber).toBe('4953');
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/get-by-id', {
+      query: { jobId: '22222222-2222-4222-8222-222222222222' }
+    });
+  });
+
+  it('defaults missing jobId to undefined for legacy job payloads', async () => {
+    const { jobId: _jobId, ...legacySummary } = buildJobListEntry();
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: legacySummary,
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const detail = await getJob('000123');
+
+    expect(detail.summary.jobId).toBeUndefined();
   });
 
   it('surfaces backend route errors for create job', async () => {

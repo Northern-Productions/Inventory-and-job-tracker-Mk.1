@@ -238,11 +238,15 @@ export function removeJobsSearchCaches(queryClient: QueryClient, jobNumber: stri
 }
 
 export function removeJobPlanningCaches(queryClient: QueryClient, jobNumber: string) {
+  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(jobNumber));
   removeJobListCaches(queryClient, jobNumber);
   removeJobsCalendarCaches(queryClient, jobNumber);
   removeJobsSearchCaches(queryClient, jobNumber);
   removeAllocationJobSummaryCaches(queryClient, jobNumber);
   queryClient.removeQueries({ queryKey: inventoryKeys.job(jobNumber), exact: true });
+  if (currentJob?.summary.jobId) {
+    queryClient.removeQueries({ queryKey: inventoryKeys.jobById(currentJob.summary.jobId), exact: true });
+  }
   queryClient.removeQueries({ queryKey: inventoryKeys.allocationJob(jobNumber), exact: true });
   queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
     current ? current.filter((entry) => entry.jobNumber !== jobNumber) : current
@@ -312,5 +316,8 @@ export function syncJobDetailCaches(
   options: { syncAllocationJobDetail?: boolean } = {}
 ) {
   queryClient.setQueryData<JobDetail>(inventoryKeys.job(detail.summary.jobNumber), detail);
+  if (detail.summary.jobId) {
+    queryClient.setQueryData<JobDetail>(inventoryKeys.jobById(detail.summary.jobId), detail);
+  }
   syncJobSummaryCachesFromDetail(queryClient, detail, options);
 }
