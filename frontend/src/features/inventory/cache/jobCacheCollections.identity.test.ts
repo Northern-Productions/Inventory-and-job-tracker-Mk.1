@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AllocationJobSummary, JobDetail, JobListEntry } from '../../../domain';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 import {
+  syncJobDetailCaches,
   syncJobSummaryCachesFromDetail,
   upsertAllocationJobSummaryCaches,
   upsertJobListCaches,
@@ -172,5 +173,20 @@ describe('job cache identity', () => {
         status: summary.status
       })
     ]);
+  });
+
+  it('can sync canonical jobId detail without seeding legacy jobNumber detail caches', () => {
+    const queryClient = createQueryClient();
+    const summary = buildJobSummary('11111111-1111-4111-8111-111111111111', 'Section 1', 'Crew A');
+    const detail = buildJobDetail(summary);
+
+    syncJobDetailCaches(queryClient, detail, {
+      syncLegacyJobDetail: false,
+      syncAllocationJobDetail: true
+    });
+
+    expect(queryClient.getQueryData(inventoryKeys.jobById(summary.jobId!))).toEqual(detail);
+    expect(queryClient.getQueryData(inventoryKeys.job(summary.jobNumber))).toBeUndefined();
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob(summary.jobNumber))).toBeUndefined();
   });
 });

@@ -8,6 +8,7 @@ import {
   reopenJob,
   updateJob
 } from '../../../../../api/features/jobsClient';
+import type { ReopenJobPayload } from '../../../../../api/features/jobsClient';
 import type {
   AllocationJobDetail,
   CaulkProductEntry,
@@ -225,9 +226,16 @@ export function useReopenJob() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: { jobNumber: string; reason?: string }) => reopenJob(payload),
-    onSuccess: async (_data, variables) => {
-      await invalidateJobLifecycleQueries(queryClient, variables.jobNumber);
+    mutationFn: (payload: ReopenJobPayload) => reopenJob(payload),
+    onSuccess: async ({ result }, variables) => {
+      const isCanonicalJobIdMutation = Boolean(variables.jobId);
+      if (isCanonicalJobIdMutation) {
+        syncJobDetailCaches(queryClient, result, { syncLegacyJobDetail: false });
+      }
+      await invalidateJobLifecycleQueries(queryClient, {
+        jobId: variables.jobId,
+        jobNumber: isCanonicalJobIdMutation ? '' : variables.jobNumber || result.summary.jobNumber
+      });
     }
   });
 }

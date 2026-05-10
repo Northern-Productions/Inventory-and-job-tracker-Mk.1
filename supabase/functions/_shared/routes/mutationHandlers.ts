@@ -49,6 +49,7 @@ export type MutationHandlerDeps = {
   cancelBoxTransfer: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   ensureBoxCheckoutCrewCompatibility: (client: any, orgId: string, payload: Record<string, unknown>) => Promise<void>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
+  findJobById: (client: any, orgId: string, jobId: string) => Promise<any>;
   normalizeJobNumberDigits: (value: unknown, fieldName?: string) => string;
   normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
   listAllocationsByIds: (client: any, orgId: string, allocationIds: string[]) => Promise<any[]>;
@@ -58,6 +59,7 @@ export type MutationHandlerDeps = {
   buildPublicFilmOrderLinkedBoxes: (client: any, orgId: string, filmOrderId: string) => Promise<any[]>;
   removeJobBoxAllocation: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
+  buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   setJobStagedPickup: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   checkoutAllJobMaterials: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -877,6 +879,27 @@ function getJobNumberForPlannerDetailReload(
   );
 }
 
+function getJobIdentityForPlannerDetailReload(
+  logicalPath: string,
+  payload: Record<string, unknown>,
+  responseData: Record<string, unknown>,
+  deps: MutationHandlerDeps,
+) {
+  if (!JOB_DETAIL_RELOAD_ROUTES.has(logicalPath)) {
+    return { jobId: "", jobNumber: "" };
+  }
+  const summary = asRecord(responseData.summary);
+  const job = asRecord(responseData.job);
+  return {
+    jobId: deps.asTrimmedString(payload.jobId),
+    jobNumber:
+      deps.asTrimmedString(responseData.jobNumber) ||
+      deps.asTrimmedString(summary.jobNumber) ||
+      deps.asTrimmedString(job.jobNumber) ||
+      deps.asTrimmedString(payload.jobNumber),
+  };
+}
+
 function appendPlannerWarnings(response: Record<string, unknown>, plannerResult: Record<string, unknown>, deps: MutationHandlerDeps) {
   const warnings = Array.isArray(plannerResult.warnings)
     ? plannerResult.warnings.map((value) => deps.asTrimmedString(value)).filter(Boolean)
@@ -943,9 +966,17 @@ export async function dispatchMutationWithHandlers(
 
   if (scope) {
     const plannerResult = await deps.reconcileAutoPlannedAllocations(client, orgId, actor, scope);
-    const detailJobNumber = getJobNumberForPlannerDetailReload(logicalPath, normalizedPayload, responseData, deps);
+    const detailIdentity = getJobIdentityForPlannerDetailReload(logicalPath, normalizedPayload, responseData, deps);
+    const detailJobNumber =
+      detailIdentity.jobNumber ||
+      getJobNumberForPlannerDetailReload(logicalPath, normalizedPayload, responseData, deps);
 
-    if (detailJobNumber) {
+    if (detailIdentity.jobId) {
+      response = {
+        ...response,
+        data: await deps.buildJobDetailById(client, orgId, detailIdentity.jobId),
+      };
+    } else if (detailJobNumber) {
       response = {
         ...response,
         data: await deps.buildJobDetail(client, orgId, detailJobNumber),

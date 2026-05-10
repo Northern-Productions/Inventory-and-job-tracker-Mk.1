@@ -370,6 +370,7 @@ export function useAllocationJobPageModel() {
     completeJob: completeJobMutation.mutateAsync,
     deleteJob: deleteJobMutation.mutateAsync,
     reopenJob: reopenJobMutation.mutateAsync,
+    canonicalJobId: routeJobId || undefined,
     deleteFilmOrder: deleteFilmOrderMutation.mutateAsync,
     checkoutAllJobMaterials: checkoutAllJobMaterialsMutation.mutateAsync,
     setJobStagedForPickup: setJobStagedForPickupMutation.mutateAsync,

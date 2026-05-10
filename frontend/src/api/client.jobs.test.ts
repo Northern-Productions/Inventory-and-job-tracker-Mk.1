@@ -556,6 +556,7 @@ describe('jobs API client canonical routes', () => {
     });
 
     const result = await reopenJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
       jobNumber: '000123',
       reason: 'Reopened after staging correction.'
     });
@@ -563,6 +564,7 @@ describe('jobs API client canonical routes', () => {
     expect(result.result.summary.lifecycleStatus).toBe('ACTIVE');
     expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/reopen', {
       body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '000123',
         reason: 'Reopened after staging correction.'
       }

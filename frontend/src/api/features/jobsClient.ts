@@ -290,8 +290,14 @@ export async function completeJob(
   };
 }
 
+export interface ReopenJobPayload {
+  jobId?: string;
+  jobNumber?: string;
+  reason?: string;
+}
+
 export async function reopenJob(
-  payload: { jobNumber: string; reason?: string }
+  payload: ReopenJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
   const response = await request<JobDetail>('POST', '/jobs/reopen', { body: payload });
