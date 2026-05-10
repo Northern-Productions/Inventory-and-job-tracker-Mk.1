@@ -11,6 +11,7 @@ export interface JobRequirementEditorLine {
 export interface JobEditorSubmitPayload {
   jobNumber: string;
   warehouse: Warehouse;
+  workScope: string;
   sections: string;
   installDate: string;
   crewLeader: string;

@@ -15,6 +15,7 @@ function buildDetailContext() {
       orgId: 'org-1',
       jobNumber: '000123',
       warehouse: 'MS1',
+      workScope: 'Sections 4, 5',
       sections: '260',
       installDate: '2026-04-15',
       crewLeader: 'Crew A',
@@ -358,6 +359,8 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
     'usageTimeline',
   ]);
   assert.equal(payload.summary.jobId, 'job-1');
+  assert.equal(payload.summary.workScope, 'Sections 4, 5');
+  assert.equal(payload.summary.sections, 'Sections 4, 5');
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.status, 'FILM_ORDER');
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
@@ -388,6 +391,8 @@ test('buildAllocationJobDetailPayload keeps the allocation-detail summary aligne
 
   assert.equal(payload.summary.jobId, 'job-1');
   assert.equal(payload.summary.jobNumber, '000123');
+  assert.equal(payload.summary.workScope, 'Sections 4, 5');
+  assert.equal(payload.summary.sections, 'Sections 4, 5');
   assert.equal(payload.summary.installDate, '2026-04-15');
   assert.equal(payload.summary.crewLeader, 'Crew A');
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);

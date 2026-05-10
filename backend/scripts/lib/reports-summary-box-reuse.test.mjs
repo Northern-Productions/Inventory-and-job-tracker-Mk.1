@@ -228,6 +228,7 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
     'jobId',
     'jobNumber',
     'warehouse',
+    'workScope',
     'sections',
     'installDate',
     'crewLeader',

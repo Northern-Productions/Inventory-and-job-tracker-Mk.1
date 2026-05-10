@@ -82,19 +82,19 @@ describe('JobEditorDialog', () => {
     const view = render(buildDialogTree(queryClient, initialProps));
 
     const jobNumberInput = screen.getByPlaceholderText('000123') as HTMLInputElement;
-    const sectionsInput = screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement;
+    const sectionsInput = screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement;
     const installDateInput = screen.getByLabelText(/Install Date/i) as HTMLInputElement;
     const crewLeaderInput = screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement;
     const filmNameInput = screen.getByRole('combobox', { name: /Film Name/i }) as HTMLInputElement;
 
     fireEvent.change(jobNumberInput, { target: { value: '123' } });
-    fireEvent.change(sectionsInput, { target: { value: '2, 4' } });
+    fireEvent.change(sectionsInput, { target: { value: 'Sections 4, 5' } });
     fireEvent.change(installDateInput, { target: { value: '2026-04-09' } });
     fireEvent.change(crewLeaderInput, { target: { value: 'Rob' } });
     fireEvent.change(filmNameInput, { target: { value: 'Prestige' } });
 
     expect(jobNumberInput.value).toBe('123');
-    expect(sectionsInput.value).toBe('2, 4');
+    expect(sectionsInput.value).toBe('Sections 4, 5');
     expect(installDateInput.value).toBe('2026-04-09');
     expect(crewLeaderInput.value).toBe('Rob');
     expect(filmNameInput.value).toBe('Prestige');
@@ -108,8 +108,8 @@ describe('JobEditorDialog', () => {
     );
 
     expect((screen.getByPlaceholderText('000123') as HTMLInputElement).value).toBe('123');
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe(
-      '2, 4'
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
+      'Sections 4, 5'
     );
     expect((screen.getByLabelText(/Install Date/i) as HTMLInputElement).value).toBe('2026-04-09');
     expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
@@ -131,7 +131,7 @@ describe('JobEditorDialog', () => {
     view.rerender(buildDialogTree(queryClient, initialProps));
 
     expect((screen.getByPlaceholderText('000123') as HTMLInputElement).value).toBe('');
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe(
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
       ''
     );
     expect((screen.getByLabelText(/Install Date/i) as HTMLInputElement).value).toBe('');
@@ -169,17 +169,17 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    const sectionsInput = screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement;
+    const sectionsInput = screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement;
     const crewLeaderInput = screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement;
     const installDateInput = screen.getByLabelText(/Install Date/i) as HTMLInputElement;
     const requirementFilmInput = screen.getByDisplayValue('Starter Film') as HTMLInputElement;
 
-    fireEvent.change(sectionsInput, { target: { value: '77' } });
+    fireEvent.change(sectionsInput, { target: { value: 'Lobby Phase 2' } });
     fireEvent.change(crewLeaderInput, { target: { value: 'Edited Leader' } });
     fireEvent.change(installDateInput, { target: { value: '2026-05-01' } });
     fireEvent.change(requirementFilmInput, { target: { value: 'Edited Film' } });
 
-    expect(sectionsInput.value).toBe('77');
+    expect(sectionsInput.value).toBe('Lobby Phase 2');
     expect(crewLeaderInput.value).toBe('Edited Leader');
     expect(installDateInput.value).toBe('2026-05-01');
     expect(requirementFilmInput.value).toBe('Edited Film');
@@ -206,7 +206,7 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe('77');
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe('Lobby Phase 2');
     expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
       'Edited Leader'
     );
@@ -260,7 +260,7 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe('5');
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe('5');
     expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
       'Rob'
     );
@@ -289,7 +289,7 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe('9');
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe('9');
     expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
       'Jamie'
     );
@@ -325,6 +325,7 @@ describe('JobEditorDialog', () => {
         restoreDraft: {
           jobNumber: '000123',
           warehouse: 'IL1',
+          workScope: '77',
           sections: '77',
           installDate: '2026-05-01',
           crewLeader: 'Edited Leader',
@@ -342,7 +343,7 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    expect((screen.getByRole('textbox', { name: /Sections/i }) as HTMLInputElement).value).toBe(
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
       '77'
     );
     expect(

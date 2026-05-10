@@ -1110,7 +1110,8 @@ function buildAllocationJobSummary(
   fallbackInstallDate = '',
   fallbackCrewLeader = '',
   boxById = {},
-  jobId = ''
+  jobId = '',
+  workScope = null
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
@@ -1212,6 +1213,8 @@ function buildAllocationJobSummary(
   return {
     jobId,
     jobNumber,
+    workScope: asTrimmedString(workScope) || null,
+    sections: asTrimmedString(workScope) || null,
     installDate: metadata.installDate || fallbackInstallDate,
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,

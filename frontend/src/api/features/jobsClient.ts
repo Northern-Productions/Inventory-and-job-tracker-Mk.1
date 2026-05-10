@@ -23,10 +23,18 @@ export interface JobsCalendarEntriesOptions {
   lifecycleStatus?: JobLifecycleFilter;
 }
 
+function normalizeOptionalText(value: unknown): string | null {
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
+}
+
 function normalizeJobListEntry(entry: JobListEntry): JobListEntry {
+  const workScope = normalizeOptionalText(entry.workScope ?? entry.sections);
   return {
     ...entry,
     jobId: String(entry.jobId || '').trim() || undefined,
+    workScope,
+    sections: normalizeOptionalText(entry.sections ?? workScope),
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
     hasOrderedAllocations: Boolean(entry.hasOrderedAllocations),

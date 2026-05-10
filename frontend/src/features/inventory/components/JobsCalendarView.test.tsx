@@ -45,6 +45,7 @@ describe('JobsCalendarView', () => {
             buildJob({
               jobId: '11111111-1111-4111-8111-111111111111',
               jobNumber: '10001',
+              workScope: 'Phase 2',
               installDate: '2026-03-24',
               isStagedForPickup: true
             }),
@@ -78,7 +79,7 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('job-calendar-nav-status-loading');
     expect(html).toContain('Loading Mar 29 - Apr 4, 2026...');
     expect(html).toContain('href="/allocations/jobs/11111111-1111-4111-8111-111111111111"');
-    expect(html).toContain('IL1-10001');
+    expect(html).toContain('IL1-10001 · Phase 2');
     expect(html).toContain('job-calendar-job-link-highlight');
     expect(html).toContain('job-calendar-job-link-status-ready');
     expect(html).toContain('job-calendar-stage-mark');

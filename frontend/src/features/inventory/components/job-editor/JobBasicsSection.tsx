@@ -60,13 +60,12 @@ export function JobBasicsSection({
             disabled={disableJobNumber}
           />
           <Input
-            label="Sections"
+            label="Work Scope"
             value={sections}
-            hint='Optional. Comma-separated section numbers (example: "2, 4, 5").'
+            hint="Optional. Examples: Section 1, Sections 4, 5, Lobby, Phase 2."
             inputMode="text"
-            pattern="[0-9, ]*"
             onChange={(event) => {
-              onSectionsChange(event.target.value.replace(/[^0-9,\s]/g, ''));
+              onSectionsChange(event.target.value);
               onClearError();
             }}
           />

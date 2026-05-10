@@ -95,10 +95,18 @@ export function createOptimisticJobDetailFromCreatePayload(
     summary: {
       jobNumber: payload.jobNumber,
       warehouse: payload.warehouse || WAREHOUSE_CODES[0],
+      workScope:
+        payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
+          ? payload.sections === null || payload.sections === undefined || payload.sections === ''
+            ? null
+            : String(payload.sections)
+          : String(payload.workScope),
       sections:
-        payload.sections === null || payload.sections === undefined || payload.sections === ''
-          ? null
-          : String(payload.sections),
+        payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
+          ? payload.sections === null || payload.sections === undefined || payload.sections === ''
+            ? null
+            : String(payload.sections)
+          : String(payload.workScope),
       installDate: payload.installDate || '',
       crewLeader: payload.crewLeader || '',
       status: computeOptimisticJobStatus(requiredFeet, requiredTubes, 0, Boolean(payload.isLaborOnly)),

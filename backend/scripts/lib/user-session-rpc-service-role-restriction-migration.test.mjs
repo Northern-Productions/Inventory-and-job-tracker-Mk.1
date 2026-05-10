@@ -53,7 +53,7 @@ test('user-session RPC service-role restriction keeps only authenticated execute
 test('latest schema check points to the user-session RPC service-role restriction', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0115_job_id_read_route_permissions\.sql/);
+  assert.match(schemaCheck, /0116_job_work_scope\.sql/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);
   for (const signature of userSessionRpcSignatures) {
     assert.match(schemaCheck, new RegExp(escapedPattern(signature)));

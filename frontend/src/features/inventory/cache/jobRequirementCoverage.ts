@@ -675,12 +675,20 @@ export function createOptimisticJobDetailAfterJobUpdate(
     summary: {
       ...detail.summary,
       ...(payload.warehouse !== undefined ? { warehouse: payload.warehouse } : {}),
-      ...(payload.sections !== undefined
+      ...(payload.workScope !== undefined || payload.sections !== undefined
         ? {
+            workScope:
+              payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
+                ? payload.sections === null || payload.sections === undefined || payload.sections === ''
+                  ? null
+                  : String(payload.sections)
+                : String(payload.workScope),
             sections:
-              payload.sections === null || payload.sections === undefined || payload.sections === ''
-                ? null
-                : String(payload.sections)
+              payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
+                ? payload.sections === null || payload.sections === undefined || payload.sections === ''
+                  ? null
+                  : String(payload.sections)
+                : String(payload.workScope)
           }
         : {}),
       ...(payload.installDate !== undefined ? { installDate: nextInstallDate } : {}),

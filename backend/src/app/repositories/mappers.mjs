@@ -413,6 +413,7 @@ function mapDbJobRow(row) {
     orgId: row.org_id,
     jobNumber: asTrimmedString(row.job_number),
     warehouse: asTrimmedString(row.warehouse),
+    workScope: asTrimmedString(row.sections) || null,
     sections: asTrimmedString(row.sections) || null,
     installDate: formatDateValue(row.due_date),
     crewLeader: asTrimmedString(row.crew_leader),

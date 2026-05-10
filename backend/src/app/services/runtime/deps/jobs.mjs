@@ -1,6 +1,7 @@
 export {
   normalizeJobNumberDigits,
   normalizeJobWarehouse,
+  normalizeJobWorkScope,
   normalizeJobSections,
   normalizeJobLifecycleStatus,
   normalizeJobLifecycleFilter,

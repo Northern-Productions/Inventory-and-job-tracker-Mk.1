@@ -9,6 +9,7 @@ function buildSummary(overrides: Partial<JobDetail['summary']> = {}): JobDetail[
   return {
     jobNumber: '000123',
     warehouse: 'IL1',
+    workScope: null,
     sections: null,
     installDate: '2026-04-01',
     crewLeader: 'Crew',
@@ -70,9 +71,11 @@ describe('JobOverviewHeroSection', () => {
   });
 
   it('renders a secondary ON ORDER pill when the summary reports ordered allocations', () => {
-    renderHero({ hasOrderedAllocations: true });
+    renderHero({ hasOrderedAllocations: true, workScope: 'Sections 4, 5' });
 
-    expect(screen.getByRole('heading', { name: 'JOB ID IL1-000123' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'JOB ID IL1-000123 · Sections 4, 5' })).toBeTruthy();
+    expect(screen.getByText('Work Scope')).toBeTruthy();
+    expect(screen.getByText('Sections 4, 5')).toBeTruthy();
     expect(screen.getByText('READY')).toBeTruthy();
     expect(screen.getByText('ON ORDER')).toBeTruthy();
   });

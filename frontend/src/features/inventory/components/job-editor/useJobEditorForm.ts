@@ -123,7 +123,7 @@ export function useJobEditorForm({
   const initializeFormState = useCallback(() => {
     const sourceJobNumber = restoreDraft?.jobNumber ?? initialJobNumber;
     const sourceWarehouse = restoreDraft?.warehouse ?? initialWarehouse ?? defaultWarehouse;
-    const sourceSections = restoreDraft?.sections ?? initialSections;
+    const sourceSections = restoreDraft?.workScope ?? restoreDraft?.sections ?? initialSections;
     const sourceInstallDate = restoreDraft?.installDate ?? initialInstallDate;
     const sourceCrewLeader = restoreDraft?.crewLeader ?? initialCrewLeader;
     const sourceRequirements = restoreDraft?.requirements ?? initialRequirements;

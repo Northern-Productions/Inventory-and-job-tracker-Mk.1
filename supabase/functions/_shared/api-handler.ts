@@ -3971,6 +3971,7 @@ function buildAllocationJobSummary(
   fallbackCrewLeader = "",
   boxById: Record<string, any> = {},
   jobId = "",
+  workScope: string | null = null,
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
   let hasFilmOrder = false;
@@ -4057,6 +4058,8 @@ function buildAllocationJobSummary(
   return {
     jobId,
     jobNumber,
+    workScope: asTrimmedString(workScope) || null,
+    sections: asTrimmedString(workScope) || null,
     installDate: metadata.installDate || fallbackInstallDate,
     crewLeader: metadata.crewLeader || fallbackCrewLeader,
     status,
@@ -4109,6 +4112,7 @@ function buildLegacyJobHeaderFromData(jobNumber: string, allocations: any[], fil
     orgId: "",
     jobNumber,
     warehouse: warehouse || "",
+    workScope: null,
     sections: null,
     installDate: metadata.installDate,
     crewLeader: metadata.crewLeader,
@@ -4289,11 +4293,14 @@ function buildJobListEntry(
     jobHeader && jobHeader.id
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
+  const workScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+
   return {
     jobId: jobHeader.id || "",
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || "",
-    sections: jobHeader.sections,
+    workScope,
+    sections: workScope,
     installDate,
     crewLeader,
     isLaborOnly: Boolean(jobHeader.isLaborOnly),
@@ -5230,6 +5237,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         header?.crewLeader || "",
         boxById,
         header?.id || "",
+        header?.workScope ?? header?.sections ?? null,
       );
       summary.status = deriveInStockReadinessStatus({
         lifecycleStatus: header?.lifecycleStatus || "ACTIVE",
@@ -5323,6 +5331,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
     header?.crewLeader || "",
     boxById,
     header?.id || "",
+    header?.workScope ?? header?.sections ?? null,
   );
   summary.status = deriveInStockReadinessStatus({
     lifecycleStatus: header?.lifecycleStatus || "ACTIVE",

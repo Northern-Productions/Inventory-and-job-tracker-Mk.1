@@ -1,6 +1,6 @@
 import { Button } from '../../../../components/Button';
 import type { JobCaulkTransferAlert, JobDetail, JobFilmTransferAlert } from '../../../../domain';
-import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 import { CaulkTransferAlertsPanel } from './CaulkTransferAlertsPanel';
 import { FilmTransferAlertsPanel } from './FilmTransferAlertsPanel';
 import { formatBadgeLabel, renderDate } from './helpers';
@@ -60,7 +60,7 @@ export function JobOverviewHeroSection({
   onToggleStagedPickup,
   onOpenTransferBox
 }: JobOverviewHeroSectionProps) {
-  const displayJobNumber = formatJobDisplayNumber(summary.jobNumber, summary.warehouse);
+  const displayJobLabel = formatJobDisplayLabel(summary);
 
   return (
     <section className="panel job-detail-hero">
@@ -70,7 +70,7 @@ export function JobOverviewHeroSection({
       </div>
       <div className="panel-title-row">
         <div>
-          <h2>JOB ID {displayJobNumber}</h2>
+          <h2>JOB ID {displayJobLabel}</h2>
           <p className="muted-text">Job detail</p>
         </div>
         <div className="detail-actions">
@@ -112,8 +112,8 @@ export function JobOverviewHeroSection({
           <dd>{summary.warehouse}</dd>
         </div>
         <div className="key-value">
-          <dt>Sections</dt>
-          <dd>{summary.sections ?? '--'}</dd>
+          <dt>Work Scope</dt>
+          <dd>{summary.workScope ?? summary.sections ?? '--'}</dd>
         </div>
         <div className="key-value">
           <dt>Crew Leader</dt>

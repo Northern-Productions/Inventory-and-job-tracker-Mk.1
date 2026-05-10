@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0115_job_id_read_route_permissions.sql';
+const LATEST_MIGRATION = '0116_job_work_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -45,6 +45,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_promote_admin_to_owner(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_find_job_by_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_find_job_by_id(uuid, uuid)' },
+  { kind: 'function', signature: 'app_api.normalize_job_work_scope(text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_key(uuid, text, text)' },
@@ -216,6 +217,28 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Label printed for box %s.'
     ],
     excludes: ['label_applied_at', 'label_required_at']
+  },
+  {
+    signature: 'app_api.normalize_job_sections(text)',
+    includes: ['app_api.normalize_job_work_scope(p_value)'],
+    excludes: ['Sections must contain numbers separated by commas.']
+  },
+  {
+    signature: 'public.api_jobs_create(uuid, text, jsonb)',
+    includes: [
+      "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
+      'app_api.normalize_job_work_scope('
+    ],
+    excludes: ["app_api.normalize_job_sections(p_payload->>'sections')"]
+  },
+  {
+    signature: 'public.api_jobs_update(uuid, text, jsonb)',
+    includes: [
+      "if p_payload ? 'workScope' or p_payload ? 'sections' then",
+      "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
+      'app_api.normalize_job_work_scope('
+    ],
+    excludes: ["if p_payload ? 'sections' then\n    v_job.sections := app_api.normalize_job_sections"]
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',

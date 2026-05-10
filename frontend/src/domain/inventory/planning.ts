@@ -170,6 +170,8 @@ export interface CreateFilmOrderPayload {
 export interface AllocationJobSummary {
   jobId?: string;
   jobNumber: string;
+  workScope?: string | null;
+  sections?: string | null;
   installDate: string;
   crewLeader: string;
   status: AllocationJobStatus;
@@ -273,6 +275,7 @@ export interface JobListEntry {
   jobId?: string;
   jobNumber: string;
   warehouse: Warehouse;
+  workScope?: string | null;
   sections: string | null;
   installDate: string;
   crewLeader: string;
@@ -328,6 +331,7 @@ export interface AllocationJobDetail {
 export interface CreateJobPayload {
   jobNumber: string;
   warehouse: Warehouse;
+  workScope?: string | number | null;
   sections?: string | number | null;
   installDate?: string;
   crewLeader?: string;
@@ -350,6 +354,7 @@ export interface CreateJobPayload {
 export interface UpdateJobPayload {
   jobNumber: string;
   warehouse?: Warehouse;
+  workScope?: string | number | null;
   sections?: string | number | null;
   installDate?: string;
   crewLeader?: string;

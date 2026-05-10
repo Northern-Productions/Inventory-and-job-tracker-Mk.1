@@ -126,6 +126,7 @@ export function useJobLifecycleWorkflow({
     return {
       jobNumber: summary?.jobNumber || submitPayload.jobNumber,
       warehouse: submitPayload.warehouse,
+      workScope: submitPayload.workScope,
       sections: submitPayload.sections,
       installDate: submitPayload.installDate,
       crewLeader: submitPayload.crewLeader,
