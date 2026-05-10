@@ -7,17 +7,25 @@ import {
   findJobByNumber,
   findJobById,
   listAllocationsByJob,
+  listAllocationsByJobId,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   listJobRequirementsByJob,
+  listJobRequirementsByJobId,
   listJobCaulkRequirementsByJob,
+  listJobCaulkRequirementsByJobId,
   listCaulkJobAllocationsByJob,
+  listCaulkJobAllocationsByJobId,
   listCaulkJobCheckoutsByJob,
+  listCaulkJobCheckoutsByJobId,
   listRollHistoryByJob,
+  listRollHistoryByBox,
   listBoxesByIds,
   listFilmOrderLinksByFilmOrderIds,
   listPendingBoxTransfersByBoxRecordIds,
   indexPendingBoxTransfersByBoxRecordId,
   listActiveAllocationsForJobConflictCheck,
+  listActiveAllocationsForJobIdConflictCheck,
 } from '../runtimeDeps.mjs';
 import {
   buildAllocationJobSummary,
@@ -103,6 +111,129 @@ function indexBoxesById(boxes) {
   return indexed;
 }
 
+function getRollHistoryActivityTimestamp(entry) {
+  return asTrimmedString(entry?.checkedInAt) || asTrimmedString(entry?.checkedOutAt) || '';
+}
+
+function toTimestampMs(value) {
+  const timestamp = asTrimmedString(value);
+  if (!timestamp) {
+    return null;
+  }
+
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildRollHistoryAllocationWindowsByBox(allocations) {
+  const grouped = {};
+  const entries = Array.isArray(allocations) ? allocations : [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const allocation = entries[index];
+    const boxId = asTrimmedString(allocation?.boxId).toUpperCase();
+    if (!boxId) {
+      continue;
+    }
+
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+
+    grouped[boxId].push({
+      startMs: toTimestampMs(allocation?.createdAt),
+      endMs: toTimestampMs(allocation?.resolvedAt),
+    });
+  }
+
+  return grouped;
+}
+
+function isTimestampInAllocationWindow(timestampMs, window) {
+  if (timestampMs === null) {
+    return false;
+  }
+  if (window.startMs !== null && timestampMs < window.startMs) {
+    return false;
+  }
+  if (window.endMs !== null && timestampMs > window.endMs) {
+    return false;
+  }
+  return true;
+}
+
+function isRollHistoryEntryInAllocationWindow(entry, windows) {
+  const source = Array.isArray(windows) ? windows : [];
+  if (!source.length) {
+    return false;
+  }
+
+  const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
+  return source.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window));
+}
+
+function buildRollHistoryEntryDedupeKey(entry) {
+  return `${asTrimmedString(entry?.logId)}|${asTrimmedString(entry?.boxId).toUpperCase()}`;
+}
+
+function filterRollHistoryForJobAllocations(entries, allocations) {
+  const windowsByBox = buildRollHistoryAllocationWindowsByBox(allocations);
+  const deduped = {};
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const boxId = asTrimmedString(entry?.boxId).toUpperCase();
+    if (!boxId || !isRollHistoryEntryInAllocationWindow(entry, windowsByBox[boxId])) {
+      continue;
+    }
+
+    const dedupeKey = buildRollHistoryEntryDedupeKey(entry);
+    if (!deduped[dedupeKey]) {
+      deduped[dedupeKey] = entry;
+    }
+  }
+
+  return Object.values(deduped).sort((left, right) => {
+    const leftDate = getRollHistoryActivityTimestamp(left);
+    const rightDate = getRollHistoryActivityTimestamp(right);
+    if (leftDate !== rightDate) {
+      return leftDate > rightDate ? -1 : 1;
+    }
+
+    const leftLogId = asTrimmedString(left?.logId);
+    const rightLogId = asTrimmedString(right?.logId);
+    return leftLogId < rightLogId ? 1 : leftLogId > rightLogId ? -1 : 0;
+  });
+}
+
+async function listRollHistoryForJobAllocations(client, orgId, allocations) {
+  // roll_weight_log does not store job_id yet, so by-id detail scopes usage through
+  // selected allocation box windows instead of trusting matching job_number alone.
+  const boxIds = Object.keys(buildRollHistoryAllocationWindowsByBox(allocations));
+  if (!boxIds.length) {
+    return [];
+  }
+
+  const entries = [];
+  for (let index = 0; index < boxIds.length; index += 1) {
+    entries.push(...(await listRollHistoryByBox(client, orgId, boxIds[index])));
+  }
+
+  return filterRollHistoryForJobAllocations(entries, allocations);
+}
+
+async function listRollHistoryForJobAllocationsWithPooledReads(orgId, allocations) {
+  // roll_weight_log does not store job_id yet, so by-id detail scopes usage through
+  // selected allocation box windows instead of trusting matching job_number alone.
+  const boxIds = Object.keys(buildRollHistoryAllocationWindowsByBox(allocations));
+  if (!boxIds.length) {
+    return [];
+  }
+
+  const entryGroups = await runParallelReadTasks(
+    boxIds.map((boxId) => (client) => listRollHistoryByBox(client, orgId, boxId))
+  );
+
+  return filterRollHistoryForJobAllocations(entryGroups.flat(), allocations);
+}
+
 async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
   const storedHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
   const allocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
@@ -120,6 +251,43 @@ async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
 
   return {
     storedHeader,
+    allocations,
+    filmOrders,
+    filmOrderLinks,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+    rollHistory,
+  };
+}
+
+async function loadBaseJobDetailDataById(client, orgId, header) {
+  const jobId = requireString(header?.id, 'jobId');
+  const [
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+  ] = await Promise.all([
+    listAllocationsByJobId(client, orgId, jobId),
+    listFilmOrdersByJobId(client, orgId, jobId),
+    listJobRequirementsByJobId(client, orgId, jobId),
+    listJobCaulkRequirementsByJobId(client, orgId, jobId),
+    listCaulkJobAllocationsByJobId(client, orgId, jobId),
+    listCaulkJobCheckoutsByJobId(client, orgId, jobId),
+  ]);
+  const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
+    client,
+    orgId,
+    filmOrders.map((entry) => entry.filmOrderId)
+  );
+  const rollHistory = await listRollHistoryForJobAllocations(client, orgId, allocations);
+
+  return {
+    storedHeader: header,
     allocations,
     filmOrders,
     filmOrderLinks,
@@ -173,6 +341,48 @@ async function loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber) 
   };
 }
 
+async function loadBaseJobDetailDataByIdWithPooledReads(orgId, header) {
+  const jobId = requireString(header?.id, 'jobId');
+  const [
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+  ] = await runParallelReadTasks([
+    (client) => listAllocationsByJobId(client, orgId, jobId),
+    (client) => listFilmOrdersByJobId(client, orgId, jobId),
+    (client) => listJobRequirementsByJobId(client, orgId, jobId),
+    (client) => listJobCaulkRequirementsByJobId(client, orgId, jobId),
+    (client) => listCaulkJobAllocationsByJobId(client, orgId, jobId),
+    (client) => listCaulkJobCheckoutsByJobId(client, orgId, jobId),
+  ]);
+  const [filmOrderLinks, rollHistory] = await Promise.all([
+    runParallelReadTasks([
+      (client) =>
+        listFilmOrderLinksByFilmOrderIds(
+          client,
+          orgId,
+          filmOrders.map((entry) => entry.filmOrderId)
+        ),
+    ]).then((results) => results[0]),
+    listRollHistoryForJobAllocationsWithPooledReads(orgId, allocations),
+  ]);
+
+  return {
+    storedHeader: header,
+    allocations,
+    filmOrders,
+    filmOrderLinks,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+    caulkCheckouts,
+    rollHistory,
+  };
+}
+
 function resolveJobDetailBaseContext(normalizedJobNumber, baseData) {
   const {
     storedHeader,
@@ -203,6 +413,109 @@ function resolveJobDetailBaseContext(normalizedJobNumber, baseData) {
     installDate: asTrimmedString(header.installDate) || metadata.installDate,
     crewLeader: asTrimmedString(header.crewLeader) || metadata.crewLeader,
   };
+}
+
+async function hydrateDetailContext(
+  client,
+  orgId,
+  normalizedJobNumber,
+  baseData,
+  currentJobId = ''
+) {
+  const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
+  const boxes = await listBoxesByIds(client, orgId, resolvedBaseContext.boxIds);
+  const conflictAllocations = currentJobId
+    ? await listActiveAllocationsForJobIdConflictCheck(
+        client,
+        orgId,
+        resolvedBaseContext.activeAllocationBoxIds,
+        resolvedBaseContext.installDate,
+        currentJobId,
+        resolvedBaseContext.crewLeader
+      )
+    : await listActiveAllocationsForJobConflictCheck(
+        client,
+        orgId,
+        resolvedBaseContext.activeAllocationBoxIds,
+        resolvedBaseContext.installDate,
+        normalizedJobNumber,
+        resolvedBaseContext.crewLeader
+      );
+  const boxById = indexBoxesById(boxes);
+  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
+    await listPendingBoxTransfersByBoxRecordIds(
+      client,
+      orgId,
+      boxes.map((box) => box.id).filter(Boolean)
+    )
+  );
+  const publicFilmOrders = await buildPublicFilmOrdersForJob(client, orgId, baseData.filmOrders, { boxById });
+
+  return buildDetailContext(
+    normalizedJobNumber,
+    baseData,
+    resolvedBaseContext,
+    boxes,
+    conflictAllocations,
+    pendingTransfersByBoxRecordId,
+    publicFilmOrders,
+    boxes,
+    []
+  );
+}
+
+async function hydrateDetailContextWithPooledReads(
+  orgId,
+  normalizedJobNumber,
+  baseData,
+  currentJobId = ''
+) {
+  const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
+  const [boxes, conflictAllocations] = await runParallelReadTasks([
+    (client) => listBoxesByIds(client, orgId, resolvedBaseContext.boxIds),
+    (client) =>
+      currentJobId
+        ? listActiveAllocationsForJobIdConflictCheck(
+            client,
+            orgId,
+            resolvedBaseContext.activeAllocationBoxIds,
+            resolvedBaseContext.installDate,
+            currentJobId,
+            resolvedBaseContext.crewLeader
+          )
+        : listActiveAllocationsForJobConflictCheck(
+            client,
+            orgId,
+            resolvedBaseContext.activeAllocationBoxIds,
+            resolvedBaseContext.installDate,
+            normalizedJobNumber,
+            resolvedBaseContext.crewLeader
+          ),
+  ]);
+  const boxById = indexBoxesById(boxes);
+  const [pendingTransfersByBoxRecordId, publicFilmOrders] = await runParallelReadTasks([
+    async (client) =>
+      indexPendingBoxTransfersByBoxRecordId(
+        await listPendingBoxTransfersByBoxRecordIds(
+          client,
+          orgId,
+          boxes.map((box) => box.id).filter(Boolean)
+        )
+      ),
+    (client) => buildPublicFilmOrdersForJob(client, orgId, baseData.filmOrders, { boxById }),
+  ]);
+
+  return buildDetailContext(
+    normalizedJobNumber,
+    baseData,
+    resolvedBaseContext,
+    boxes,
+    conflictAllocations,
+    pendingTransfersByBoxRecordId,
+    publicFilmOrders,
+    boxes,
+    []
+  );
 }
 
 function buildDetailContext(
@@ -288,37 +601,7 @@ function buildDetailContext(
 async function loadJobDetailContext(client, orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const baseData = await loadBaseJobDetailData(client, orgId, normalizedJobNumber);
-  const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
-  const boxes = await listBoxesByIds(client, orgId, resolvedBaseContext.boxIds);
-  const conflictAllocations = await listActiveAllocationsForJobConflictCheck(
-    client,
-    orgId,
-    resolvedBaseContext.activeAllocationBoxIds,
-    resolvedBaseContext.installDate,
-    normalizedJobNumber,
-    resolvedBaseContext.crewLeader
-  );
-  const boxById = indexBoxesById(boxes);
-  const pendingTransfersByBoxRecordId = indexPendingBoxTransfersByBoxRecordId(
-    await listPendingBoxTransfersByBoxRecordIds(
-      client,
-      orgId,
-      boxes.map((box) => box.id).filter(Boolean)
-    )
-  );
-  const publicFilmOrders = await buildPublicFilmOrdersForJob(client, orgId, baseData.filmOrders, { boxById });
-
-  return buildDetailContext(
-    normalizedJobNumber,
-    baseData,
-    resolvedBaseContext,
-    boxes,
-    conflictAllocations,
-    pendingTransfersByBoxRecordId,
-    publicFilmOrders,
-    boxes,
-    []
-  );
+  return hydrateDetailContext(client, orgId, normalizedJobNumber, baseData);
 }
 
 async function loadJobDetailContextById(client, orgId, jobId) {
@@ -327,49 +610,15 @@ async function loadJobDetailContextById(client, orgId, jobId) {
     throw new HttpError(404, 'Job not found.');
   }
 
-  return loadJobDetailContext(client, orgId, header.jobNumber);
+  const normalizedJobNumber = requireString(header.jobNumber, 'jobNumber');
+  const baseData = await loadBaseJobDetailDataById(client, orgId, header);
+  return hydrateDetailContext(client, orgId, normalizedJobNumber, baseData, header.id);
 }
 
 async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
   const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
   const baseData = await loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber);
-  const resolvedBaseContext = resolveJobDetailBaseContext(normalizedJobNumber, baseData);
-  const [boxes, conflictAllocations] = await runParallelReadTasks([
-    (client) => listBoxesByIds(client, orgId, resolvedBaseContext.boxIds),
-    (client) =>
-      listActiveAllocationsForJobConflictCheck(
-        client,
-        orgId,
-        resolvedBaseContext.activeAllocationBoxIds,
-        resolvedBaseContext.installDate,
-        normalizedJobNumber,
-        resolvedBaseContext.crewLeader
-      ),
-  ]);
-  const boxById = indexBoxesById(boxes);
-  const [pendingTransfersByBoxRecordId, publicFilmOrders] = await runParallelReadTasks([
-    async (client) =>
-      indexPendingBoxTransfersByBoxRecordId(
-        await listPendingBoxTransfersByBoxRecordIds(
-          client,
-          orgId,
-          boxes.map((box) => box.id).filter(Boolean)
-        )
-      ),
-    (client) => buildPublicFilmOrdersForJob(client, orgId, baseData.filmOrders, { boxById }),
-  ]);
-
-  return buildDetailContext(
-    normalizedJobNumber,
-    baseData,
-    resolvedBaseContext,
-    boxes,
-    conflictAllocations,
-    pendingTransfersByBoxRecordId,
-    publicFilmOrders,
-    boxes,
-    []
-  );
+  return hydrateDetailContextWithPooledReads(orgId, normalizedJobNumber, baseData);
 }
 
 async function loadJobDetailContextByIdWithPooledReads(orgId, jobId) {
@@ -380,7 +629,9 @@ async function loadJobDetailContextByIdWithPooledReads(orgId, jobId) {
     throw new HttpError(404, 'Job not found.');
   }
 
-  return loadJobDetailContextWithPooledReads(orgId, header.jobNumber);
+  const normalizedJobNumber = requireString(header.jobNumber, 'jobNumber');
+  const baseData = await loadBaseJobDetailDataByIdWithPooledReads(orgId, header);
+  return hydrateDetailContextWithPooledReads(orgId, normalizedJobNumber, baseData, header.id);
 }
 
 function buildJobDetailPayload(detailContext) {
@@ -461,6 +712,7 @@ export {
   collectJobBoxIds,
   collectActiveAllocationBoxIds,
   indexBoxesById,
+  filterRollHistoryForJobAllocations,
   loadJobDetailContext,
   loadJobDetailContextById,
   loadJobDetailContextWithPooledReads,

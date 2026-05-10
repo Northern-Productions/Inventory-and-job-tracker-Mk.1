@@ -168,6 +168,22 @@ async function listAllocationsByJob(client, orgId, jobNumber) {
   return rows.map(mapDbAllocationRow);
 }
 
+async function listAllocationsByJobId(client, orgId, jobId) {
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.allocations
+      where org_id = $1
+        and job_id = $2
+      order by created_at desc, allocation_id desc
+    `,
+    [orgId, jobId]
+  );
+
+  return rows.map(mapDbAllocationRow);
+}
+
 async function listAllocationsByFilmOrderId(client, orgId, filmOrderId) {
   const rows = await queryRows(
     client,
@@ -281,6 +297,45 @@ async function listActiveAllocationsForJobConflictCheck(
       order by created_at desc, allocation_id desc
     `,
     [orgId, normalizedBoxIds, normalizedInstallDate, asTrimmedString(jobNumber), asTrimmedString(crewLeader)]
+  );
+
+  return rows.map(mapDbAllocationRow);
+}
+
+async function listActiveAllocationsForJobIdConflictCheck(
+  client,
+  orgId,
+  boxIds,
+  installDate,
+  jobId,
+  crewLeader
+) {
+  const normalizedBoxIds = Array.from(
+    new Set(
+      (Array.isArray(boxIds) ? boxIds : [])
+        .map((entry) => asTrimmedString(entry).toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  const normalizedInstallDate = asTrimmedString(installDate);
+  if (!normalizedBoxIds.length || !normalizedInstallDate) {
+    return [];
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.allocations
+      where org_id = $1
+        and status = 'ACTIVE'
+        and box_id = any($2::text[])
+        and job_date = $3::date
+        and (job_id is null or job_id <> $4::uuid)
+        and upper(trim(coalesce(crew_leader, ''))) <> upper(trim($5))
+      order by created_at desc, allocation_id desc
+    `,
+    [orgId, normalizedBoxIds, normalizedInstallDate, jobId, asTrimmedString(crewLeader)]
   );
 
   return rows.map(mapDbAllocationRow);
@@ -407,6 +462,22 @@ async function listFilmOrdersByJob(client, orgId, jobNumber) {
       order by created_at desc, film_order_id desc
     `,
     [orgId, jobNumber]
+  );
+
+  return rows.map(mapDbFilmOrderRow);
+}
+
+async function listFilmOrdersByJobId(client, orgId, jobId) {
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.film_orders
+      where org_id = $1
+        and job_id = $2
+      order by created_at desc, film_order_id desc
+    `,
+    [orgId, jobId]
   );
 
   return rows.map(mapDbFilmOrderRow);
@@ -692,13 +763,16 @@ export {
   upsertFilmCatalogRecord,
   listAllocations,
   listAllocationsByJob,
+  listAllocationsByJobId,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   listManualRequirementAllocationMergeCandidates,
   listActiveAllocationsForJobConflictCheck,
+  listActiveAllocationsForJobIdConflictCheck,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
   reconcileBoxCheckinAllocations,

@@ -1,6 +1,7 @@
 import {
   buildPublicCaulkRequirementEntries,
   buildPublicJobRequirementEntries,
+  buildJobDetailById,
   canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
   maybeLogCaulkFallbackCoverageDecision,
@@ -490,6 +491,28 @@ Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", asy
       orgId: "org-1",
     },
   }, "Expected /jobs/get-by-id to return the same detail envelope shape.");
+});
+
+Deno.test("/jobs/get-by-id implementation does not delegate to job-number detail aggregation", async () => {
+  const byIdImplementation = buildJobDetailById.toString();
+
+  if (byIdImplementation.includes("buildJobDetail(client, orgId, header.jobNumber)")) {
+    throw new Error("Expected buildJobDetailById to aggregate by jobId instead of delegating through jobNumber.");
+  }
+
+  for (const expectedCall of [
+    "listAllocationsByJobIdDirect",
+    "listFilmOrdersByJobIdDirect",
+    "listJobRequirementsByJobIdDirect",
+    "listJobCaulkRequirementsByJobIdDirect",
+    "listCaulkJobAllocationsByJobIdDirect",
+    "listCaulkJobCheckoutsByJobIdDirect",
+    "listRollHistoryForJobAllocations",
+  ]) {
+    if (!byIdImplementation.includes(expectedCall)) {
+      throw new Error(`Expected buildJobDetailById to use ${expectedCall}.`);
+    }
+  }
 });
 
 Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job exists", async () => {
