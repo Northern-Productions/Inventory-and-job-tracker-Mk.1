@@ -118,21 +118,30 @@ export function useRemoveJobBoxAllocations() {
     mutationKey: inventoryKeys.removeJobBoxAllocationMutation,
     mutationFn: (payload: RemoveJobBoxAllocationsPayload) => removeJobBoxAllocations(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
+      const legacyJobNumber = String(payload.jobNumber || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })] : []),
+        ...(!jobId && legacyJobNumber
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.job(legacyJobNumber) })]
+          : []),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        ...(!jobId && legacyJobNumber
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(legacyJobNumber) })]
+          : []),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot })
       ]);
 
-      const { rollback } = applyOptimisticAllocationRemovalToCaches(
-        queryClient,
-        payload.jobNumber,
-        payload.allocationId
-      );
+      const { rollback } = jobId
+        ? { rollback: null }
+        : applyOptimisticAllocationRemovalToCaches(
+            queryClient,
+            legacyJobNumber,
+            payload.allocationId
+          );
 
       return {
         rollback: rollback as OptimisticAllocationRemovalRollback | null
@@ -142,11 +151,16 @@ export function useRemoveJobBoxAllocations() {
       rollbackOptimisticAllocationRemovalInCaches(queryClient, context?.rollback);
     },
     onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || result.jobId || '').trim();
+      const legacyJobNumber = String(variables.jobNumber || result.jobNumber || '').trim();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.box(result.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.boxId) }),
-        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
+        invalidateJobLifecycleQueries(
+          queryClient,
+          jobId ? { jobId } : legacyJobNumber
+        )
       ]);
 
       void syncOfflineInventoryQueries(queryClient);

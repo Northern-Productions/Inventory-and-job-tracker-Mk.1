@@ -384,6 +384,7 @@ export function useAllocationJobPageModel() {
     previousHasOutstandingMaterials: hasOutstandingReturnedMaterials,
     filmTransferAlertsByBoxId,
     pendingRemoveJobBoxAllocationIds,
+    canonicalJobId: routeJobId || undefined,
     filmCoverageSnapshot: createFilmOrderCoverageSnapshot(detail),
     ensureSignedIn,
     maybeOpenReturnCompletionPrompt: lifecycleWorkflow.maybeOpenReturnCompletionPrompt,

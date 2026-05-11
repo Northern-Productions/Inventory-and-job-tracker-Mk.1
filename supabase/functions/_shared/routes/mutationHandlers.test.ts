@@ -473,6 +473,186 @@ Deno.test("/allocations/remove-box validates allocation id before calling RPC", 
   throw new Error("Expected remove-box without allocationId to fail.");
 });
 
+Deno.test("/allocations/remove-box validates jobId allocation ownership before RPC", async () => {
+  const jobIdLookups: Array<Record<string, unknown>> = [];
+  const allocationLookups: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/remove-box",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "4953",
+      allocationId: "alloc-6868",
+      reason: "Remove selected allocation.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobIdLookups.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "4953",
+        };
+      },
+      listAllocationsByIds: async (_client: unknown, orgId: string, allocationIds: string[]) => {
+        allocationLookups.push({ orgId, allocationIds });
+        return [
+          {
+            allocationId: "alloc-6868",
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "4953",
+          },
+        ];
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "4953",
+          allocationId: "alloc-6868",
+          boxId: "IL1-6868",
+          removedAllocationCount: 1,
+          releasedFeet: 60,
+          warnings: ["Removed allocation alloc-6868 for box IL1-6868."],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    jobIdLookups,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected remove-box jobId validation to use auth-derived org.",
+  );
+  assertEquals(
+    allocationLookups,
+    [{ orgId: "org-from-auth", allocationIds: ["alloc-6868"] }],
+    "Expected remove-box to load the selected allocation before RPC.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_allocations_remove_box",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "4953",
+          allocationId: "alloc-6868",
+          reason: "Remove selected allocation.",
+        },
+      },
+    ],
+    "Expected remove-box to strip request orgId and call the existing RPC only after validation.",
+  );
+  assertEquals(
+    response.data,
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "4953",
+      allocationId: "alloc-6868",
+      boxId: "IL1-6868",
+      removedAllocationCount: 1,
+      releasedFeet: 60,
+    },
+    "Expected canonical remove-box response to preserve result fields and include jobId identity.",
+  );
+});
+
+Deno.test("/allocations/remove-box rejects mismatched jobId and jobNumber before RPC", async () => {
+  let allocationLookupCount = 0;
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/allocations/remove-box",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "9999",
+        allocationId: "alloc-6868",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "4953",
+        }),
+        listAllocationsByIds: async () => {
+          allocationLookupCount += 1;
+          return [];
+        },
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("Job identity mismatch"),
+      `Expected job identity mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(allocationLookupCount, 0, "Expected job mismatch to fail before allocation lookup.");
+    assertEquals(rpcCallCount, 0, "Expected job mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected remove-box mismatched job identity to fail.");
+});
+
+Deno.test("/allocations/remove-box rejects allocation ownership mismatch before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/allocations/remove-box",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "4953",
+        allocationId: "alloc-other",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "4953",
+        }),
+        listAllocationsByIds: async () => [
+          {
+            allocationId: "alloc-other",
+            jobId: "22222222-2222-4222-8222-222222222222",
+            jobNumber: "4953",
+          },
+        ],
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("belongs to a different job"),
+      `Expected allocation ownership mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected allocation mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected remove-box allocation ownership mismatch to fail.");
+});
+
 Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and reloads job detail", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const jobDetailCalls: Array<Record<string, unknown>> = [];

@@ -34,6 +34,7 @@ export {
   listAllocations,
   listAllocationsByJob,
   listAllocationsByJobId,
+  findAllocationById,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   listManualRequirementAllocationMergeCandidates,

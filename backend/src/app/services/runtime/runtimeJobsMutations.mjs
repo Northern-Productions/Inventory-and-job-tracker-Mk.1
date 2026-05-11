@@ -32,6 +32,7 @@ import {
   saveBoxRecord,
   deleteBoxRecord,
   listAllocationsByJob,
+  findAllocationById,
   saveAllocationRecord,
   listFilmOrdersByJob,
   saveFilmOrderRecord,
@@ -82,6 +83,9 @@ import {
   recalculateReservationBoxesByIds,
 } from './runtimeAllocationReservationReconciliation.mjs';
 import { resolveJobMutationTargetById } from './jobMutationIdentity.mjs';
+import {
+  validateAllocationJobMutationOwnership,
+} from '../../../../../shared/domain/allocationMutationIdentity.mjs';
 
 function getWorkScopeInput(payload) {
   return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
@@ -755,8 +759,25 @@ async function cancelJob(client, orgId, payload, actor) {
 
 async function removeJobBoxAllocation(client, orgId, payload, actor) {
   const warnings = [];
-  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
   const allocationId = requireString(payload.allocationId, 'AllocationID');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, 'JobNumber')
+    : requireString(payload.jobNumber, 'JobNumber');
+
+  if (target.usedJobId) {
+    const allocation = await findAllocationById(client, orgId, allocationId);
+    const ownership = validateAllocationJobMutationOwnership({
+      allocation,
+      allocationId,
+      target,
+      normalizeJobNumberDigits,
+    });
+    if (!ownership.ok) {
+      throw new HttpError(ownership.status || 409, ownership.message);
+    }
+  }
+
   const result = await removeAllocationFromJob(
     client,
     orgId,
@@ -776,6 +797,7 @@ async function removeJobBoxAllocation(client, orgId, payload, actor) {
 
   return ok(
     {
+      ...(target.usedJobId ? { jobId: target.jobId } : {}),
       jobNumber,
       allocationId: result.allocationId,
       boxId: result.boxId,
