@@ -50,6 +50,16 @@ test('atomic allocation remove migration recalculates dependent allocation state
   assert.match(migration, /'boxIds', jsonb_build_array\(v_box\.box_id\)/);
 });
 
+test('allocation remove RPC remains jobNumber and planner-scope limited for guarded transition slice', async () => {
+  const migration = await readFile(backendMigrationPath, 'utf8');
+
+  assert.match(migration, /v_job_number text := app_api\.require_job_number_digits\(v_payload->>'jobNumber', 'JobNumber'\)/);
+  assert.doesNotMatch(migration, /v_payload->>'jobId'/);
+  assert.doesNotMatch(migration, /p_payload->>'jobId'/);
+  assert.match(migration, /'jobNumbers', jsonb_build_array\(v_job\.job_number\)/);
+  assert.match(migration, /'boxIds', jsonb_build_array\(v_box\.box_id\)/);
+});
+
 test('latest schema check requires atomic allocation remove RPCs', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 

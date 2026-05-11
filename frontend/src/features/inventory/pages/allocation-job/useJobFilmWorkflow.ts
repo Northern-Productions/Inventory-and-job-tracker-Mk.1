@@ -38,6 +38,7 @@ interface UseJobFilmWorkflowArgs {
   previousHasOutstandingMaterials: boolean;
   filmTransferAlertsByBoxId: Record<string, JobFilmTransferAlert>;
   pendingRemoveJobBoxAllocationIds: Set<string>;
+  canonicalJobId?: string;
   filmCoverageSnapshot?: FilmOrderCoverageSnapshot | null;
   ensureSignedIn: (actionLabel: string) => boolean;
   maybeOpenReturnCompletionPrompt: (previousHasOutstandingMaterials: boolean) => void;
@@ -58,6 +59,7 @@ export function useJobFilmWorkflow({
   previousHasOutstandingMaterials,
   filmTransferAlertsByBoxId,
   pendingRemoveJobBoxAllocationIds,
+  canonicalJobId,
   filmCoverageSnapshot,
   ensureSignedIn,
   maybeOpenReturnCompletionPrompt,
@@ -142,6 +144,7 @@ export function useJobFilmWorkflow({
     try {
       const previousFilmOrderCoverageSnapshot = createFilmOrderCoverageSnapshot(filmCoverageSnapshot);
       const { result, warnings } = await removeJobBoxAllocations({
+        ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary?.jobNumber || entry.jobNumber,
         allocationId: entry.allocationId,
         reason:

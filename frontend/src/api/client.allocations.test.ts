@@ -211,6 +211,34 @@ describe('allocations API client caulk routes', () => {
     });
   });
 
+  it('passes canonical jobId through remove-box payloads when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4953',
+        allocationId: 'alloc-6868',
+        boxId: 'IL1-6868',
+        removedAllocationCount: 1,
+        releasedFeet: 60
+      },
+      warnings: []
+    });
+
+    await removeJobBoxAllocations({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '4953',
+      allocationId: 'alloc-6868'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/remove-box', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4953',
+        allocationId: 'alloc-6868'
+      }
+    });
+  });
+
   it('posts update caulk allocation to /allocations/caulk/update', async () => {
     requestMock.mockResolvedValueOnce({
       data: { jobNumber: '000123', caulkAllocationId: 'alloc-1' },

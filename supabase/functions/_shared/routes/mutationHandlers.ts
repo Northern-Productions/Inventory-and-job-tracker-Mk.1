@@ -6,6 +6,7 @@ import {
   buildJobDuplicateCheckResult,
   getJobDuplicateWorkScopeInput,
 } from "../../../../shared/domain/jobDuplicateContract.mjs";
+import { validateAllocationJobMutationOwnership } from "../../../../shared/domain/allocationMutationIdentity.mjs";
 import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 type MutationContext = {
@@ -535,17 +536,46 @@ const mutationHandlers: Record<string, MutationHandler> = {
     }, result.warnings || []);
   },
   "/allocations/remove-box": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    deps.requireString(normalizedPayload.jobNumber, "JobNumber");
-    deps.requireString(normalizedPayload.allocationId, "AllocationID");
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const jobNumber = target.usedJobId
+      ? deps.requireString(target.jobNumber, "JobNumber")
+      : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const allocationId = deps.requireString(normalizedPayload.allocationId, "AllocationID");
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
 
+    if (target.usedJobId) {
+      const allocations = await deps.listAllocationsByIds(client, orgId, [allocationId]);
+      const allocation =
+        allocations.find((entry) => deps.asTrimmedString(entry?.allocationId) === allocationId) || null;
+      const ownership = validateAllocationJobMutationOwnership({
+        allocation,
+        allocationId,
+        target,
+        normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+      });
+      if (!ownership.ok) {
+        throw new HttpError(ownership.status || 409, ownership.message || "Allocation ownership mismatch.");
+      }
+    }
+
+    // Guarded transition only: api_acl_allocations_remove_box still targets by
+    // jobNumber and SQL planner scope remains jobNumber/box-driven until a
+    // later allocation/planner RPC migration adds true jobId semantics.
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobNumber }
+      : payloadWithoutRequestOrg;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_allocations_remove_box",
       orgId,
       actor,
-      normalizedPayload,
+      rpcPayload,
     );
     return ok({
+      ...(target.usedJobId ? { jobId: target.jobId } : {}),
       jobNumber: deps.asTrimmedString(result.jobNumber),
       allocationId: deps.asTrimmedString(result.allocationId),
       boxId: deps.asTrimmedString(result.boxId),

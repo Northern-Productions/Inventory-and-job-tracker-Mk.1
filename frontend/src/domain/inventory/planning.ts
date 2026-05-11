@@ -30,12 +30,14 @@ export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
 }
 
 export interface RemoveJobBoxAllocationsPayload {
+  jobId?: string;
   jobNumber: string;
   allocationId: string;
   reason?: string;
 }
 
 export interface RemoveJobBoxAllocationsResult {
+  jobId?: string;
   jobNumber: string;
   allocationId: string;
   boxId: string;

@@ -184,6 +184,21 @@ async function listAllocationsByJobId(client, orgId, jobId) {
   return rows.map(mapDbAllocationRow);
 }
 
+async function findAllocationById(client, orgId, allocationId) {
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.allocations
+      where org_id = $1
+        and allocation_id = $2
+    `,
+    [orgId, allocationId]
+  );
+
+  return mapDbAllocationRow(row);
+}
+
 async function listAllocationsByFilmOrderId(client, orgId, filmOrderId) {
   const rows = await queryRows(
     client,
@@ -764,6 +779,7 @@ export {
   listAllocations,
   listAllocationsByJob,
   listAllocationsByJobId,
+  findAllocationById,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   listManualRequirementAllocationMergeCandidates,

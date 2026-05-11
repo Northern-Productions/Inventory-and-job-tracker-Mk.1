@@ -6,6 +6,9 @@ import { resolveJobMutationTargetById } from '../../src/app/services/runtime/job
 import {
   validateResolvedJobMutationIdentity,
 } from '../../../shared/domain/jobMutationIdentity.mjs';
+import {
+  validateAllocationJobMutationOwnership,
+} from '../../../shared/domain/allocationMutationIdentity.mjs';
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -126,4 +129,60 @@ test('backend updateJob guards jobId identity while preserving legacy jobNumber 
   assert.match(updateBody, /target\.usedJobId[\s\S]*buildJobDetailById/);
   assert.match(updateBody, /ensureJobHeaderForUpdate\(client, orgId, jobNumber, updatePayload/);
   assert.match(runtimeMutations, /`Job \$\{jobNumber\} already exists\.`/);
+});
+
+test('shared allocation mutation ownership accepts selected jobId allocation rows', () => {
+  const result = validateAllocationJobMutationOwnership({
+    allocation: {
+      allocationId: 'alloc-1',
+      jobId: JOB_ID,
+      jobNumber: '000123',
+    },
+    allocationId: 'alloc-1',
+    target: {
+      jobId: JOB_ID,
+      jobNumber: '000123',
+    },
+    normalizeJobNumberDigits: (value) => String(value || '').trim(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.jobId, JOB_ID);
+  assert.equal(result.jobNumber, '000123');
+});
+
+test('shared allocation mutation ownership rejects rows from another job before remove', () => {
+  const result = validateAllocationJobMutationOwnership({
+    allocation: {
+      allocationId: 'alloc-other',
+      jobId: '22222222-2222-4222-8222-222222222222',
+      jobNumber: '000123',
+    },
+    allocationId: 'alloc-other',
+    target: {
+      jobId: JOB_ID,
+      jobNumber: '000123',
+    },
+    normalizeJobNumberDigits: (value) => String(value || '').trim(),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'ALLOCATION_JOB_ID_MISMATCH');
+  assert.match(result.message, /different job/);
+});
+
+test('backend remove-box guards canonical jobId allocation ownership while preserving legacy remove path', () => {
+  const runtimeMutations = readFileSync(
+    new URL('../../src/app/services/runtime/runtimeJobsMutations.mjs', import.meta.url),
+    'utf8'
+  );
+  const removeStart = runtimeMutations.indexOf('async function removeJobBoxAllocation');
+  const removeEnd = runtimeMutations.indexOf('async function clearAllocationPlannerSuppression', removeStart);
+  const removeBody = runtimeMutations.slice(removeStart, removeEnd);
+
+  assert.match(removeBody, /resolveJobMutationTargetById\(client, orgId, payload\)/);
+  assert.match(removeBody, /findAllocationById\(client, orgId, allocationId\)/);
+  assert.match(removeBody, /validateAllocationJobMutationOwnership/);
+  assert.match(removeBody, /target\.usedJobId\s+\?\s+requireString\(target\.jobNumber/);
+  assert.match(removeBody, /target\.usedJobId \? \{ jobId: target\.jobId \} : \{\}/);
 });
