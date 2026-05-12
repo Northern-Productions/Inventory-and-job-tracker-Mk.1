@@ -169,6 +169,13 @@ export interface CreateFilmOrderPayload {
   requestedFeet: number;
 }
 
+export interface DeleteFilmOrderPayload {
+  jobId?: string;
+  jobNumber?: string;
+  filmOrderId: string;
+  reason?: string;
+}
+
 export interface AllocationJobSummary {
   jobId?: string;
   jobNumber: string;

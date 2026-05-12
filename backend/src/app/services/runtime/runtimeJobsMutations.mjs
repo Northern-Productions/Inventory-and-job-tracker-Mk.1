@@ -35,6 +35,7 @@ import {
   findAllocationById,
   saveAllocationRecord,
   listFilmOrdersByJob,
+  findFilmOrderById,
   saveFilmOrderRecord,
   findJobByNumber,
   saveJobRecord,
@@ -86,6 +87,9 @@ import { resolveJobMutationTargetById } from './jobMutationIdentity.mjs';
 import {
   validateAllocationJobMutationOwnership,
 } from '../../../../../shared/domain/allocationMutationIdentity.mjs';
+import {
+  validateFilmOrderJobMutationOwnership,
+} from '../../../../../shared/domain/filmOrderMutationIdentity.mjs';
 
 function getWorkScopeInput(payload) {
   return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
@@ -846,6 +850,23 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
 async function deleteFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
   const filmOrderId = requireString(payload.filmOrderId, 'FilmOrderID');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  if (target.usedJobId) {
+    const filmOrder = await findFilmOrderById(client, orgId, filmOrderId);
+    const ownership = validateFilmOrderJobMutationOwnership({
+      filmOrder,
+      filmOrderId,
+      target,
+      normalizeJobNumberDigits,
+    });
+    if (!ownership.ok) {
+      throw new HttpError(ownership.status || 409, ownership.message);
+    }
+  }
+
+  // Guarded transition only: delete is filmOrderId-targeted, while create,
+  // cancel, and planner scope remain jobNumber-based until a later RPC/schema
+  // slice adds true duplicate-ready film-order semantics.
   const result = await cancelFilmOrderAndReleaseAllocations(
     client,
     orgId,
