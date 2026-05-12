@@ -24,7 +24,7 @@ const runtimePaths = [
 
 function extractFunctionBody(sql) {
   const match = sql.match(
-    /create or replace function app_api\.auto_planner_scope_job_ids[\s\S]*?as \$\$\n(?<body>[\s\S]*?)\n\$\$;/
+    /create or replace function app_api\.auto_planner_scope_job_ids[\s\S]*?as \$\$\r?\n(?<body>[\s\S]*?)\r?\n\$\$;/
   );
   assert.ok(match?.groups?.body, 'Expected auto_planner_scope_job_ids function body.');
   return match.groups.body;
