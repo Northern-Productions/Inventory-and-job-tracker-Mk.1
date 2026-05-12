@@ -525,8 +525,10 @@ export function useAllocationJobPageModel() {
 
     try {
       await clearAutoPlanningSuppressionMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
         jobNumber: summary.jobNumber,
         requirementId: requirement.requirementId,
+        materialType: 'FILM',
         reason: 'User resumed auto-planning from job detail page.'
       });
       toast.push({
@@ -558,6 +560,7 @@ export function useAllocationJobPageModel() {
 
     try {
       await clearAutoPlanningSuppressionMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
         jobNumber: summary.jobNumber,
         requirementId: requirement.requirementId,
         materialType: 'CAULK',

@@ -1961,6 +1961,46 @@ async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any)
     .filter(isPresent);
 }
 
+async function findPlannerSuppressionRequirementById(
+  _client: any,
+  orgId: string,
+  requirementId: string,
+  materialType: string,
+) {
+  const normalizedMaterialType = asTrimmedString(materialType || "FILM").toUpperCase();
+  const serviceClient = requireServiceRoleClient();
+  const tableName =
+    normalizedMaterialType === "CAULK" ? "job_caulk_requirements" : "job_requirements";
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from(tableName)
+    .select("id, job_id")
+    .eq("org_id", orgId)
+    .eq("id", requirementId)
+    .maybeSingle();
+  throwOnSupabaseError(error, `Unable to load ${normalizedMaterialType.toLowerCase()} requirement`);
+  if (!data) {
+    return null;
+  }
+
+  const jobId = asTrimmedString((data as Record<string, unknown>).job_id);
+  const { data: jobData, error: jobError } = jobId
+    ? await serviceClient
+      .schema("app")
+      .from("jobs")
+      .select("job_number")
+      .eq("org_id", orgId)
+      .eq("id", jobId)
+      .maybeSingle()
+    : { data: null, error: null };
+  throwOnSupabaseError(jobError, "Unable to load requirement job");
+  return {
+    requirementId: asTrimmedString((data as Record<string, unknown>).id),
+    jobId,
+    jobNumber: asTrimmedString((jobData as Record<string, unknown> | null)?.job_number),
+  };
+}
+
 async function listCaulkJobAllocationsByJobIdDirect(orgId: string, jobId: string) {
   const serviceClient = requireServiceRoleClient();
   const { data, error } = await serviceClient
@@ -8187,6 +8227,7 @@ async function dispatchMutation(
     listAllocationsByIds,
     toPublicAllocation,
     findFilmOrderById,
+    findPlannerSuppressionRequirementById,
     toPublicFilmOrder,
     buildPublicFilmOrderLinkedBoxes,
     removeJobBoxAllocation,

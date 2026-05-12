@@ -377,4 +377,58 @@ describe('allocations API client caulk routes', () => {
       body: payload
     });
   });
+
+  it('passes canonical jobId through planner suppression clear payloads when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: {
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123',
+          warehouse: 'IL1',
+          sections: null,
+          installDate: '',
+          crewLeader: '',
+          status: 'READY',
+          lifecycleStatus: 'ACTIVE',
+          isLaborOnly: false,
+          isStagedForPickup: false,
+          requiredFeet: 100,
+          allocatedFeet: 100,
+          remainingFeet: 0,
+          requiredTubes: 0,
+          allocatedTubes: 0,
+          remainingTubes: 0,
+          requirementCount: 1,
+          allocationCount: 1,
+          filmOrderCount: 0,
+          hasOrderedAllocations: false,
+          createdAt: '',
+          updatedAt: '',
+          notes: ''
+        },
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const payload = {
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      requirementId: 'req-1',
+      materialType: 'FILM' as const,
+      reason: 'resume'
+    };
+    await clearAllocationPlannerSuppression(payload);
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/planner-suppression/clear', {
+      body: payload
+    });
+  });
 });

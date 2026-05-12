@@ -43,6 +43,7 @@ import {
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
   listJobCaulkRequirementsByJob,
+  listJobCaulkRequirementsByJobId,
   listCaulkJobCheckoutsByJob,
   replaceJobRequirementsForJob,
   normalizeJobCaulkRequirementEntries,
@@ -90,6 +91,10 @@ import {
 import {
   validateFilmOrderJobMutationOwnership,
 } from '../../../../../shared/domain/filmOrderMutationIdentity.mjs';
+import {
+  normalizePlannerSuppressionMaterialType,
+  validatePlannerSuppressionRequirementOwnership,
+} from '../../../../../shared/domain/plannerSuppressionMutationIdentity.mjs';
 
 function getWorkScopeInput(payload) {
   return Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')
@@ -813,11 +818,43 @@ async function removeJobBoxAllocation(client, orgId, payload, actor) {
 }
 
 async function clearAllocationPlannerSuppression(client, orgId, payload, actor) {
-  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, 'JobNumber')
+    : requireString(payload.jobNumber, 'JobNumber');
   const requirementId = requireString(payload.requirementId, 'RequirementID');
+  const materialType = normalizePlannerSuppressionMaterialType(
+    payload.materialType !== undefined
+      ? payload.materialType
+      : payload.material_type
+  );
   const reason =
     asTrimmedString(payload.reason) ||
     'User resumed auto-planning for requirement from job detail page.';
+
+  if (target.usedJobId) {
+    const requirements =
+      materialType === 'CAULK'
+        ? await listJobCaulkRequirementsByJobId(client, orgId, target.jobId)
+        : await listJobRequirementsByJobId(client, orgId, target.jobId);
+    const requirement =
+      requirements.find((entry) =>
+        asTrimmedString(entry?.requirementId || entry?.id) === requirementId
+      ) || null;
+    const ownership = validatePlannerSuppressionRequirementOwnership({
+      requirement: requirement ? { ...requirement, jobId: target.jobId } : null,
+      requirementId,
+      materialType,
+      target,
+      normalizeJobNumberDigits,
+    });
+    if (!ownership.ok) {
+      throw new HttpError(ownership.status || 409, ownership.message);
+    }
+  }
+
+  // Guarded transition only: the clear-suppression RPC and planner reconcile
+  // still scope by jobNumber until later planner/RPC work adds true jobId semantics.
   const row = await queryRow(
     client,
     `
@@ -833,8 +870,7 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
       JSON.stringify({
         jobNumber,
         requirementId,
-        materialType: payload.materialType,
-        material_type: payload.material_type,
+        materialType,
         reason
       })
     ]
@@ -842,7 +878,11 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
   const result = row?.result || {};
   const detailJobNumber = asTrimmedString(result.jobNumber) || jobNumber;
 
-  return ok(await buildJobDetail(client, orgId, detailJobNumber), [
+  const detail = target.usedJobId
+    ? await buildJobDetailById(client, orgId, target.jobId)
+    : await buildJobDetail(client, orgId, detailJobNumber);
+
+  return ok(detail, [
     `Auto planning resumed for requirement ${requirementId} on job ${detailJobNumber}.`
   ]);
 }

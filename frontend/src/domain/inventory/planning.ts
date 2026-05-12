@@ -46,6 +46,7 @@ export interface RemoveJobBoxAllocationsResult {
 }
 
 export interface ClearAllocationPlannerSuppressionPayload {
+  jobId?: string;
   jobNumber: string;
   requirementId: string;
   materialType?: 'FILM' | 'CAULK';

@@ -63,6 +63,7 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     listAllocationsByIds: async () => [],
     toPublicAllocation: () => ({}),
     findFilmOrderById: async () => null,
+    findPlannerSuppressionRequirementById: async () => null,
     toPublicFilmOrder: () => ({}),
     buildPublicFilmOrderLinkedBoxes: async () => [],
     removeJobBoxAllocation: async () => {
@@ -1465,6 +1466,395 @@ Deno.test("/film-orders/delete rejects film order ownership mismatch before RPC"
   }
 
   throw new Error("Expected film order ownership mismatch to fail.");
+});
+
+Deno.test("/allocations/planner-suppression/clear validates jobId film requirement before RPC", async () => {
+  const jobIdLookups: Array<Record<string, unknown>> = [];
+  const requirementLookups: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const detailByIdCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/planner-suppression/clear",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      requirementId: "req-film-1",
+      materialType: "FILM",
+      reason: "Resume film planning.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobIdLookups.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+        };
+      },
+      findPlannerSuppressionRequirementById: async (
+        _client: unknown,
+        orgId: string,
+        requirementId: string,
+        materialType: string,
+      ) => {
+        requirementLookups.push({ orgId, requirementId, materialType });
+        return {
+          requirementId,
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "81234",
+          warnings: ["Clear warning."],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: string) => {
+        detailByIdCalls.push({ orgId, jobId });
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+          },
+          source: "by-id",
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    jobIdLookups,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected planner suppression clear jobId lookup to use auth-derived org.",
+  );
+  assertEquals(
+    requirementLookups,
+    [{ orgId: "org-from-auth", requirementId: "req-film-1", materialType: "FILM" }],
+    "Expected planner suppression clear to load the selected film requirement before RPC.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_clear_allocation_planner_suppression",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          requirementId: "req-film-1",
+          materialType: "FILM",
+          reason: "Resume film planning.",
+        },
+      },
+    ],
+    "Expected planner suppression clear to strip request orgId and call the existing RPC after validation.",
+  );
+  assertEquals(
+    detailByIdCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical planner suppression clear to reload job detail by jobId.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        },
+        source: "by-id",
+      },
+      warnings: ["Auto planning resumed for requirement req-film-1 on job 81234."],
+    },
+    "Expected canonical planner suppression clear to return jobId-scoped detail.",
+  );
+});
+
+Deno.test("/allocations/planner-suppression/clear validates jobId caulk requirement before RPC", async () => {
+  const requirementLookups: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/planner-suppression/clear",
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      requirementId: "req-caulk-1",
+      materialType: "CAULK",
+      reason: "Resume caulk planning.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+        id: jobId,
+        jobNumber: "81234",
+      }),
+      findPlannerSuppressionRequirementById: async (
+        _client: unknown,
+        orgId: string,
+        requirementId: string,
+        materialType: string,
+      ) => {
+        requirementLookups.push({ orgId, requirementId, materialType });
+        return {
+          requirementId,
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return { jobNumber: "81234" };
+      },
+      buildJobDetailById: async () => ({ summary: { jobNumber: "81234" } }),
+    }),
+  );
+
+  assertEquals(
+    requirementLookups,
+    [{ orgId: "org-from-auth", requirementId: "req-caulk-1", materialType: "CAULK" }],
+    "Expected planner suppression clear to load the selected caulk requirement before RPC.",
+  );
+  assertEquals(
+    rpcCalls.map((entry) => entry.payload),
+    [
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "81234",
+        requirementId: "req-caulk-1",
+        materialType: "CAULK",
+        reason: "Resume caulk planning.",
+      },
+    ],
+    "Expected caulk suppression clear to preserve canonical jobId payload after validation.",
+  );
+});
+
+Deno.test("/allocations/planner-suppression/clear rejects mismatched jobId and jobNumber before RPC", async () => {
+  let requirementLookupCount = 0;
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/allocations/planner-suppression/clear",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+        requirementId: "req-film-1",
+        materialType: "FILM",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        findPlannerSuppressionRequirementById: async () => {
+          requirementLookupCount += 1;
+          return null;
+        },
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("Job identity mismatch"),
+      `Expected job identity mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(requirementLookupCount, 0, "Expected job mismatch to fail before requirement lookup.");
+    assertEquals(rpcCallCount, 0, "Expected job mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected planner suppression clear mismatched job identity to fail.");
+});
+
+Deno.test("/allocations/planner-suppression/clear rejects film requirement ownership mismatch before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/allocations/planner-suppression/clear",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "81234",
+        requirementId: "req-film-other",
+        materialType: "FILM",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        findPlannerSuppressionRequirementById: async (
+          _client: unknown,
+          _orgId: string,
+          requirementId: string,
+        ) => ({
+          requirementId,
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "81234",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("belongs to a different job"),
+      `Expected film requirement ownership mismatch, received ${
+        error instanceof Error ? error.message : error
+      }.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected film requirement mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected planner suppression clear film ownership mismatch to fail.");
+});
+
+Deno.test("/allocations/planner-suppression/clear rejects caulk requirement ownership mismatch before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/allocations/planner-suppression/clear",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "81234",
+        requirementId: "req-caulk-other",
+        materialType: "CAULK",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        findPlannerSuppressionRequirementById: async (
+          _client: unknown,
+          _orgId: string,
+          requirementId: string,
+        ) => ({
+          requirementId,
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "81234",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("belongs to a different job"),
+      `Expected caulk requirement ownership mismatch, received ${
+        error instanceof Error ? error.message : error
+      }.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected caulk requirement mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected planner suppression clear caulk ownership mismatch to fail.");
+});
+
+Deno.test("/allocations/planner-suppression/clear preserves legacy jobNumber behavior", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const legacyDetailCalls: Array<Record<string, unknown>> = [];
+  let jobIdLookupCount = 0;
+  let requirementLookupCount = 0;
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/allocations/planner-suppression/clear",
+    {
+      jobNumber: "81234",
+      requirementId: "req-film-1",
+      materialType: "FILM",
+      reason: "Legacy resume.",
+    },
+    buildDeps({
+      findJobById: async () => {
+        jobIdLookupCount += 1;
+        return null;
+      },
+      findPlannerSuppressionRequirementById: async () => {
+        requirementLookupCount += 1;
+        return null;
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return { jobNumber: "81234" };
+      },
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: string) => {
+        legacyDetailCalls.push({ orgId, jobNumber });
+        return { summary: { jobNumber }, source: "legacy" };
+      },
+    }),
+  );
+
+  assertEquals(jobIdLookupCount, 0, "Expected legacy suppression clear not to resolve jobId.");
+  assertEquals(requirementLookupCount, 0, "Expected legacy suppression clear not to prevalidate ownership.");
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_clear_allocation_planner_suppression",
+        orgId: "org-1",
+        actor: "tester",
+        payload: {
+          jobNumber: "81234",
+          requirementId: "req-film-1",
+          materialType: "FILM",
+          reason: "Legacy resume.",
+        },
+      },
+    ],
+    "Expected legacy suppression clear to keep the jobNumber RPC payload.",
+  );
+  assertEquals(
+    legacyDetailCalls,
+    [{ orgId: "org-1", jobNumber: "81234" }],
+    "Expected legacy suppression clear to reload detail by jobNumber.",
+  );
 });
 
 Deno.test("/film-orders/delete trims returned film order job number before scoping planner", async () => {

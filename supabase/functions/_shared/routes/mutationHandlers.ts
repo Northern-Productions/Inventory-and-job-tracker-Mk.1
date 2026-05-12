@@ -8,6 +8,10 @@ import {
 } from "../../../../shared/domain/jobDuplicateContract.mjs";
 import { validateAllocationJobMutationOwnership } from "../../../../shared/domain/allocationMutationIdentity.mjs";
 import { validateFilmOrderJobMutationOwnership } from "../../../../shared/domain/filmOrderMutationIdentity.mjs";
+import {
+  normalizePlannerSuppressionMaterialType,
+  validatePlannerSuppressionRequirementOwnership,
+} from "../../../../shared/domain/plannerSuppressionMutationIdentity.mjs";
 import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 type MutationContext = {
@@ -58,6 +62,12 @@ export type MutationHandlerDeps = {
   listAllocationsByIds: (client: any, orgId: string, allocationIds: string[]) => Promise<any[]>;
   toPublicAllocation: (entry: any) => Record<string, unknown>;
   findFilmOrderById: (client: any, orgId: string, filmOrderId: string) => Promise<any>;
+  findPlannerSuppressionRequirementById: (
+    client: any,
+    orgId: string,
+    requirementId: string,
+    materialType: string,
+  ) => Promise<any>;
   toPublicFilmOrder: (entry: any, linkedBoxes: any[]) => Record<string, unknown>;
   buildPublicFilmOrderLinkedBoxes: (client: any, orgId: string, filmOrderId: string) => Promise<any[]>;
   removeJobBoxAllocation: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -585,15 +595,59 @@ const mutationHandlers: Record<string, MutationHandler> = {
     }, Array.isArray(result.warnings) ? result.warnings : []);
   },
   "/allocations/planner-suppression/clear": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const jobNumber = target.usedJobId
+      ? deps.requireString(target.jobNumber, "JobNumber")
+      : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const requirementId = deps.requireString(normalizedPayload.requirementId, "RequirementID");
+    const materialType = normalizePlannerSuppressionMaterialType(
+      normalizedPayload.materialType !== undefined
+        ? normalizedPayload.materialType
+        : normalizedPayload.material_type,
+    );
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+
+    if (target.usedJobId) {
+      const requirement = await deps.findPlannerSuppressionRequirementById(
+        client,
+        orgId,
+        requirementId,
+        materialType,
+      );
+      const ownership = validatePlannerSuppressionRequirementOwnership({
+        requirement,
+        requirementId,
+        materialType,
+        target,
+        normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+      });
+      if (!ownership.ok) {
+        throw new HttpError(ownership.status || 409, ownership.message || "Planner suppression ownership mismatch.");
+      }
+    }
+
+    // Guarded transition only: the clear-suppression RPC and planner reconcile
+    // scope remain jobNumber-based until a later planner/RPC migration adds true
+    // duplicate-ready jobId semantics.
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobNumber, materialType }
+      : payloadWithoutRequestOrg;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_clear_allocation_planner_suppression",
       orgId,
       actor,
-      normalizedPayload,
+      rpcPayload,
     );
-    return ok(await deps.buildJobDetail(client, orgId, result.jobNumber || normalizedPayload.jobNumber), [
-      `Auto planning resumed for requirement ${deps.asTrimmedString(normalizedPayload.requirementId)} on job ${deps.asTrimmedString(result.jobNumber || normalizedPayload.jobNumber)}.`,
+    const detailJobNumber = deps.asTrimmedString(result.jobNumber || jobNumber);
+    const detail = target.usedJobId
+      ? await deps.buildJobDetailById(client, orgId, target.jobId)
+      : await deps.buildJobDetail(client, orgId, detailJobNumber);
+    return ok(detail, [
+      `Auto planning resumed for requirement ${requirementId} on job ${detailJobNumber}.`,
     ]);
   },
   "/allocations/caulk/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
