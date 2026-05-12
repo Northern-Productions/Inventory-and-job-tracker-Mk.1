@@ -176,21 +176,43 @@ export function useClearAllocationPlannerSuppression() {
     mutationFn: (payload: ClearAllocationPlannerSuppressionPayload) =>
       clearAllocationPlannerSuppression(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
+      const legacyJobNumber = String(payload.jobNumber || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })] : []),
+        ...(!jobId && legacyJobNumber
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.job(legacyJobNumber) })]
+          : []),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+        ...(!jobId && legacyJobNumber
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(legacyJobNumber) })]
+          : [])
       ]);
     },
     onSuccess: async ({ result }, variables) => {
-      syncJobDetailCaches(queryClient, result, {
-        syncAllocationJobDetail: true
-      });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
-        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
-      ]);
+      const jobId = String(variables.jobId || result.summary.jobId || '').trim();
+      const legacyJobNumber = String(variables.jobNumber || result.summary.jobNumber || '').trim();
+      if (jobId) {
+        syncJobDetailCaches(queryClient, result, {
+          syncAllocationJobDetail: false,
+          syncLegacyJobDetail: false
+        });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+          invalidateJobLifecycleQueries(queryClient, { jobId })
+        ]);
+      } else {
+        syncJobDetailCaches(queryClient, result, {
+          syncAllocationJobDetail: true
+        });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          invalidateJobLifecycleQueries(queryClient, legacyJobNumber)
+        ]);
+      }
 
       void syncOfflineInventoryQueries(queryClient);
     }

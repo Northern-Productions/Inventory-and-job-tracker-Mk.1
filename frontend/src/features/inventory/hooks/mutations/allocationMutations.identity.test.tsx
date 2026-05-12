@@ -5,15 +5,20 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AllocationJobDetail, JobDetail, JobListEntry } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
-import { useRemoveJobBoxAllocations } from './allocationMutations';
+import {
+  useClearAllocationPlannerSuppression,
+  useRemoveJobBoxAllocations
+} from './allocationMutations';
 
 const removeJobBoxAllocationsMock = vi.fn();
+const clearAllocationPlannerSuppressionMock = vi.fn();
 
 vi.mock('../../../../api/features/allocationsClient', () => ({
   addCaulkJobAllocation: vi.fn(),
   applyAllocationPlan: vi.fn(),
   checkinCaulkJobAllocation: vi.fn(),
-  clearAllocationPlannerSuppression: vi.fn(),
+  clearAllocationPlannerSuppression: (...args: unknown[]) =>
+    clearAllocationPlannerSuppressionMock(...args),
   checkoutCaulkJobAllocation: vi.fn(),
   removeCaulkJobAllocation: vi.fn(),
   removeJobBoxAllocations: (...args: unknown[]) => removeJobBoxAllocationsMock(...args),
@@ -149,6 +154,7 @@ function buildAllocationJobDetail(detail = buildDetail()): AllocationJobDetail {
 describe('useRemoveJobBoxAllocations identity caches', () => {
   beforeEach(() => {
     removeJobBoxAllocationsMock.mockReset();
+    clearAllocationPlannerSuppressionMock.mockReset();
   });
 
   it('canonical remove invalidates jobById and avoids same-number legacy detail caches', async () => {
@@ -231,5 +237,122 @@ describe('useRemoveJobBoxAllocations identity caches', () => {
 
     expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
+  });
+});
+
+describe('useClearAllocationPlannerSuppression identity caches', () => {
+  beforeEach(() => {
+    removeJobBoxAllocationsMock.mockReset();
+    clearAllocationPlannerSuppressionMock.mockReset();
+  });
+
+  it('canonical clear sends jobId, invalidates jobById, and avoids legacy detail caches', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), detail);
+    queryClient.setQueryData(inventoryKeys.job('1234'), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), {
+      source: 'legacy-allocation-job'
+    });
+    clearAllocationPlannerSuppressionMock.mockResolvedValueOnce({
+      result: detail,
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useClearAllocationPlannerSuppression(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        requirementId: 'req-1',
+        materialType: 'FILM',
+        reason: 'resume'
+      });
+    });
+
+    expect(clearAllocationPlannerSuppressionMock).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      jobNumber: '1234',
+      requirementId: 'req-1',
+      materialType: 'FILM',
+      reason: 'resume'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual({ source: 'legacy-job' });
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+  });
+
+  it('canonical caulk clear sends jobId and materialType', async () => {
+    const queryClient = createQueryClient();
+    clearAllocationPlannerSuppressionMock.mockResolvedValueOnce({
+      result: buildDetail(),
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useClearAllocationPlannerSuppression(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        requirementId: 'caulk-req-1',
+        materialType: 'CAULK',
+        reason: 'resume caulk'
+      });
+    });
+
+    expect(clearAllocationPlannerSuppressionMock).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      jobNumber: '1234',
+      requirementId: 'caulk-req-1',
+      materialType: 'CAULK',
+      reason: 'resume caulk'
+    });
+  });
+
+  it('legacy clear keeps jobNumber detail cache behavior', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.job('1234'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), buildAllocationJobDetail(detail));
+    clearAllocationPlannerSuppressionMock.mockResolvedValueOnce({
+      result: detail,
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useClearAllocationPlannerSuppression(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobNumber: '1234',
+        requirementId: 'req-1',
+        materialType: 'FILM',
+        reason: 'resume legacy'
+      });
+    });
+
+    expect(clearAllocationPlannerSuppressionMock).toHaveBeenCalledWith({
+      jobNumber: '1234',
+      requirementId: 'req-1',
+      materialType: 'FILM',
+      reason: 'resume legacy'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual(detail);
+    expect(
+      queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob('1234'))?.allocations
+    ).toEqual(detail.allocations);
   });
 });
