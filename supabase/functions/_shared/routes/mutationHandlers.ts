@@ -7,6 +7,7 @@ import {
   getJobDuplicateWorkScopeInput,
 } from "../../../../shared/domain/jobDuplicateContract.mjs";
 import { validateAllocationJobMutationOwnership } from "../../../../shared/domain/allocationMutationIdentity.mjs";
+import { validateFilmOrderJobMutationOwnership } from "../../../../shared/domain/filmOrderMutationIdentity.mjs";
 import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 type MutationContext = {
@@ -766,7 +767,33 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok({ jobNumber: deps.asTrimmedString(result.jobNumber) }, result.warnings || []);
   },
   "/film-orders/delete": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const result = await deps.callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, normalizedPayload);
+    const filmOrderId = deps.requireString(normalizedPayload.filmOrderId, "FilmOrderID");
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+
+    if (target.usedJobId) {
+      const filmOrder = await deps.findFilmOrderById(client, orgId, filmOrderId);
+      const ownership = validateFilmOrderJobMutationOwnership({
+        filmOrder,
+        filmOrderId,
+        target,
+        normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+      });
+      if (!ownership.ok) {
+        throw new HttpError(ownership.status || 409, ownership.message || "Film order ownership mismatch.");
+      }
+    }
+
+    // Guarded transition only: delete is filmOrderId-targeted, while create,
+    // cancel, and post-delete planner scope remain jobNumber-based until a
+    // later film-order/planner migration adds true duplicate-ready semantics.
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobNumber: target.jobNumber }
+      : payloadWithoutRequestOrg;
+    const result = await deps.callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, rpcPayload);
     return ok(result.filmOrder || null, result.warnings || []);
   },
   "/audit/undo": async ({ client, orgId, actor, normalizedPayload }, deps) => {

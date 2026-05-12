@@ -1294,6 +1294,179 @@ Deno.test("/film-orders/delete scopes Edge planner to returned film order job an
   );
 });
 
+Deno.test("/film-orders/delete validates jobId film order ownership before RPC", async () => {
+  const jobIdLookups: Array<Record<string, unknown>> = [];
+  const filmOrderLookups: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/delete",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      filmOrderId: "FO-100",
+      reason: "Delete selected film order.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobIdLookups.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+        };
+      },
+      findFilmOrderById: async (_client: unknown, orgId: string, filmOrderId: string) => {
+        filmOrderLookups.push({ orgId, filmOrderId });
+        return {
+          filmOrderId,
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          filmOrder: {
+            filmOrderId: "FO-100",
+            jobNumber: "81234",
+            linkedBoxes: [],
+          },
+          warnings: [],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    jobIdLookups,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected film order delete jobId validation to use auth-derived org.",
+  );
+  assertEquals(
+    filmOrderLookups,
+    [{ orgId: "org-from-auth", filmOrderId: "FO-100" }],
+    "Expected film order delete to load the selected film order before RPC.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_film_orders_delete",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          filmOrderId: "FO-100",
+          reason: "Delete selected film order.",
+        },
+      },
+    ],
+    "Expected film order delete to strip request orgId and call the existing RPC only after validation.",
+  );
+  assertEquals(
+    response.data,
+    {
+      filmOrderId: "FO-100",
+      jobNumber: "81234",
+      linkedBoxes: [],
+    },
+    "Expected canonical film order delete response shape to stay unchanged.",
+  );
+});
+
+Deno.test("/film-orders/delete rejects mismatched jobId and jobNumber before RPC", async () => {
+  let filmOrderLookupCount = 0;
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/film-orders/delete",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+        filmOrderId: "FO-100",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        findFilmOrderById: async () => {
+          filmOrderLookupCount += 1;
+          return null;
+        },
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("Job identity mismatch"),
+      `Expected job identity mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(filmOrderLookupCount, 0, "Expected job mismatch to fail before film order lookup.");
+    assertEquals(rpcCallCount, 0, "Expected job mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected film order delete mismatched job identity to fail.");
+});
+
+Deno.test("/film-orders/delete rejects film order ownership mismatch before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/film-orders/delete",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "81234",
+        filmOrderId: "FO-other",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        findFilmOrderById: async (_client: unknown, _orgId: string, filmOrderId: string) => ({
+          filmOrderId,
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "81234",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("belongs to a different job"),
+      `Expected film order ownership mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected film order mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected film order ownership mismatch to fail.");
+});
+
 Deno.test("/film-orders/delete trims returned film order job number before scoping planner", async () => {
   const plannerCalls: Array<Record<string, unknown>> = [];
 

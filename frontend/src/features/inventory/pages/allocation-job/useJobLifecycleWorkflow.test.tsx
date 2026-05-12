@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { JobDetail, JobListEntry } from '../../../../domain';
+import type { FilmOrderEntry, JobDetail, JobListEntry } from '../../../../domain';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
 
 function createWrapper() {
@@ -68,6 +68,7 @@ function buildDetail(summary = buildSummary()): JobDetail {
 
 function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const reopenJob = vi.fn().mockResolvedValue({ warnings: [] });
+  const deleteFilmOrder = vi.fn().mockResolvedValue({ warnings: [] });
   const summary = buildSummary(overrides.summary as Partial<JobListEntry> | undefined);
   const detail = overrides.detail === undefined ? buildDetail(summary) : (overrides.detail as JobDetail | undefined);
   const updateJob = vi.fn().mockResolvedValue({ result: detail || buildDetail(summary), warnings: [] });
@@ -92,7 +93,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         deleteJob: vi.fn(),
         reopenJob,
         canonicalJobId: overrides.canonicalJobId as string | undefined,
-        deleteFilmOrder: vi.fn(),
+        deleteFilmOrder,
         checkoutAllJobMaterials: vi.fn(),
         setJobStagedForPickup: vi.fn(),
         onUserDrivenFilmCoverageChange: vi.fn()
@@ -104,7 +105,36 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
     ...result,
     updateJob,
     reopenJob,
+    deleteFilmOrder,
     pushToast
+  };
+}
+
+function buildFilmOrder(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
+  return {
+    filmOrderId: 'FO-1',
+    requirementId: 'req-1',
+    jobNumber: '000123',
+    warehouse: 'IL1',
+    manufacturer: '3M',
+    filmName: 'Night Vision 35',
+    widthIn: 60,
+    requestedFeet: 100,
+    coveredFeet: 0,
+    orderedFeet: 0,
+    remainingToOrderFeet: 100,
+    installDate: '2026-05-01',
+    crewLeader: 'Crew A',
+    status: 'FILM_ORDER',
+    sourceBoxId: '',
+    origin: 'MANUAL',
+    createdAt: '',
+    createdBy: 'tester',
+    resolvedAt: '',
+    resolvedBy: '',
+    notes: '',
+    linkedBoxes: [],
+    ...overrides
   };
 }
 
@@ -194,6 +224,42 @@ describe('useJobLifecycleWorkflow reopen identity', () => {
     expect(workflow.reopenJob).toHaveBeenCalledWith({
       jobNumber: '000123',
       reason: 'Legacy reopen.'
+    });
+  });
+});
+
+describe('useJobLifecycleWorkflow film order delete identity', () => {
+  it('sends jobId and jobNumber from canonical job route context', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleDeleteFilmOrder(buildFilmOrder(), 'Delete selected order.');
+    });
+
+    expect(workflow.deleteFilmOrder).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      filmOrderId: 'FO-1',
+      jobNumber: '000123',
+      reason: 'Delete selected order.'
+    });
+  });
+
+  it('preserves legacy jobNumber-only film order delete payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleDeleteFilmOrder(buildFilmOrder(), 'Legacy delete.');
+    });
+
+    expect(workflow.deleteFilmOrder).toHaveBeenCalledWith({
+      filmOrderId: 'FO-1',
+      jobNumber: '000123',
+      reason: 'Legacy delete.'
     });
   });
 });

@@ -6,6 +6,7 @@ import {
 import type {
   AllocationJobDetail,
   CreateFilmOrderPayload,
+  DeleteFilmOrderPayload,
   JobDetail
 } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
@@ -199,34 +200,44 @@ export function useDeleteFilmOrder() {
 
   return useMutation({
     mutationKey: inventoryKeys.deleteFilmOrderMutation,
-    mutationFn: (payload: { filmOrderId: string; reason?: string; jobNumber?: string }) =>
-      deleteFilmOrder(payload),
+    mutationFn: (payload: DeleteFilmOrderPayload) => deleteFilmOrder(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot })
+        queryClient.cancelQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot })
       ]);
 
       return beginImmediateOptimisticMutation(
         queryClient,
         [
           inventoryKeys.jobs,
-          inventoryKeys.jobRoot,
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.jobRoot]),
           inventoryKeys.filmOrders,
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJobRoot,
+          ...(jobId ? [] : [inventoryKeys.allocationJobRoot]),
           inventoryKeys.listRoot,
           inventoryKeys.boxRoot,
-          inventoryKeys.allocationsRoot
+          inventoryKeys.boxTransferRoot,
+          inventoryKeys.allocationsRoot,
+          inventoryKeys.reportsRoot
         ],
         () => {
-          applyOptimisticFilmOrderDeletionToCaches(queryClient, payload);
+          // Canonical jobId deletes avoid jobNumber detail patching until film orders
+          // are fully duplicate-ready; refetch jobById and planning roots instead.
+          if (!jobId) {
+            applyOptimisticFilmOrderDeletionToCaches(queryClient, payload);
+          }
         }
       );
     },
@@ -235,9 +246,25 @@ export function useDeleteFilmOrder() {
     },
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
-      await Promise.all([invalidateGlobalPlanningQueries(queryClient)]);
+      const jobId = String(variables.jobId || '').trim();
+      if (jobId) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.boxTransferRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationsRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        ]);
+      } else {
+        await Promise.all([invalidateGlobalPlanningQueries(queryClient)]);
+      }
 
-      if (variables.jobNumber) {
+      if (!jobId && variables.jobNumber) {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
           queryClient.invalidateQueries({
