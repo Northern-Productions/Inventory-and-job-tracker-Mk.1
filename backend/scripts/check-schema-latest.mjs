@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0117_duplicate_job_creation_guard.sql';
+const LATEST_MIGRATION = '0118_planner_jobid_scope_groundwork.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -105,6 +105,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.create_or_merge_manual_requirement_allocation_with_coverage(uuid, app.boxes, jsonb, integer, integer, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.auto_planner_scope_job_numbers(uuid, jsonb)' },
+  { kind: 'function', signature: 'app_api.auto_planner_scope_job_ids(uuid, jsonb)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
@@ -585,6 +586,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: [
       'auto_planner_scope_warehouses',
       'upper(j.warehouse::text) in (select warehouse from auto_planner_scope_warehouses)'
+    ]
+  },
+  {
+    signature: 'app_api.auto_planner_scope_job_ids(uuid, jsonb)',
+    includes: [
+      "coalesce(p_scope, '{}'::jsonb)->'jobIds'",
+      'btrim(value)::uuid',
+      'group by btrim(value)::uuid',
+      'j.org_id = p_org_id',
+      'j.id = r.job_id',
+      'order by\n    r.first_position'
+    ],
+    excludes: [
+      'upper(trim(j.job_number))',
+      'auto_planner_scope_job_numbers('
     ]
   },
   {
