@@ -40,7 +40,7 @@ test('authenticated app schema usage revoke migration only closes authenticated 
 test('latest schema check points to the authenticated app schema usage revoke', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0120_remove_box_jobid_planner_scope\.sql/);
+  assert.match(schemaCheck, /0121_planner_suppression_jobid_scope\.sql/);
   assert.match(schemaCheck, /authenticated_app_schema_usage/);
   assert.match(schemaCheck, /service_role_app_schema_usage/);
 });

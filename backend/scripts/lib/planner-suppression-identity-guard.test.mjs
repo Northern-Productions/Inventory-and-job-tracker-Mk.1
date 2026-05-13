@@ -232,6 +232,7 @@ test('backend clearAllocationPlannerSuppression allows selected FILM requirement
   assert.equal(response.data.summary.jobId, JOB_ID);
   assert.deepEqual(client.state.rpcPayloads, [
     {
+      jobId: JOB_ID,
       jobNumber: '19413',
       requirementId: FILM_REQUIREMENT_ID,
       materialType: 'FILM',
@@ -260,6 +261,7 @@ test('backend clearAllocationPlannerSuppression allows selected CAULK requiremen
   assert.equal(response.data.summary.jobId, JOB_ID);
   assert.deepEqual(client.state.rpcPayloads, [
     {
+      jobId: JOB_ID,
       jobNumber: '19413',
       requirementId: CAULK_REQUIREMENT_ID,
       materialType: 'CAULK',
@@ -361,9 +363,9 @@ test('backend clear suppression guards canonical jobId requirement ownership whi
   assert.match(clearBody, /target\.usedJobId[\s\S]*requireString\(payload\.jobNumber, 'JobNumber'\)/);
 });
 
-test('planner suppression clear guard stays transition-only while planner/apply remain jobNumber-based', () => {
+test('planner suppression clear passes canonical jobId while apply remains jobNumber-based', () => {
   const suppressionMigration = readFileSync(
-    new URL('../../migrations/0107_caulk_auto_planner_suppression.sql', import.meta.url),
+    new URL('../../migrations/0121_planner_suppression_jobid_scope.sql', import.meta.url),
     'utf8'
   );
   const runtimePlanner = readFileSync(
@@ -379,13 +381,12 @@ test('planner suppression clear guard stays transition-only while planner/apply 
     'utf8'
   );
 
-  assert.match(
-    suppressionMigration,
-    /v_job_number text := app_api\.require_job_number_digits\(p_payload->>'jobNumber'/,
-  );
+  assert.match(suppressionMigration, /v_job_id_text text := app_api\.trim_text\(v_payload->>'jobId'\);/);
+  assert.match(suppressionMigration, /where j\.org_id = p_org_id\s+and j\.id = v_job_id/s);
+  assert.match(suppressionMigration, /'jobIds', jsonb_build_array\(v_job\.id\)/);
   assert.match(suppressionMigration, /app_api\.reconcile_auto_planned_allocations/);
-  assert.doesNotMatch(suppressionMigration, /p_payload->>'jobId'/);
+  assert.doesNotMatch(suppressionMigration, /auto_planner_scope_job_numbers\(/);
   assert.match(runtimePlanner, /buildAutoPlannerScope/);
   assert.match(runtimeApply, /payload\.jobNumber/);
-  assert.match(runtimeMutations, /Guarded transition only: the clear-suppression RPC/);
+  assert.match(runtimeMutations, /\.\.\.\(target\.usedJobId \? \{ jobId: target\.jobId \} : \{\}\)/);
 });

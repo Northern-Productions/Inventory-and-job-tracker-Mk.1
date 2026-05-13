@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0120_remove_box_jobid_planner_scope.sql';
+const LATEST_MIGRATION = '0121_planner_suppression_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -688,12 +688,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_acl_clear_allocation_planner_suppression(uuid, text, jsonb)',
     includes: [
       "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'write')",
+      "v_job_id_text text := app_api.trim_text(v_payload->>'jobId')",
+      'where j.org_id = p_org_id\n      and j.id = v_job_id',
+      'Job identity mismatch: selected job does not match jobNumber.',
+      'from app.job_requirements r\n      where r.org_id = p_org_id\n        and r.job_id = v_job.id',
+      'from app.job_caulk_requirements r\n      where r.org_id = p_org_id\n        and r.job_id = v_job.id',
       'app_api.clear_allocation_planner_suppression_for_requirement(',
       'app_api.clear_caulk_allocation_planner_suppression_for_requirement(',
       "v_material_type text := upper(coalesce",
+      "'jobIds', jsonb_build_array(v_job.id)",
+      "'caulkProductWarehousePairs'",
       'perform app_api.reconcile_auto_planned_allocations('
     ],
-    excludes: []
+    excludes: [
+      'auto_planner_scope_job_numbers('
+    ]
   },
   {
     signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)',

@@ -635,9 +635,8 @@ const mutationHandlers: Record<string, MutationHandler> = {
       }
     }
 
-    // Guarded transition only: the clear-suppression RPC and planner reconcile
-    // scope remain jobNumber-based until a later planner/RPC migration adds true
-    // duplicate-ready jobId semantics.
+    // Guarded transition only: canonical identity is validated in Edge before
+    // passing jobId through for SQL planner scope; legacy jobNumber remains valid.
     const rpcPayload = target.usedJobId
       ? { ...payloadWithoutRequestOrg, jobNumber, materialType }
       : payloadWithoutRequestOrg;
