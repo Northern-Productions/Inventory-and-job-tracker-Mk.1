@@ -312,6 +312,16 @@ begin
     raise exception 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb) was not found';
   end if;
 
+  v_definition := replace(v_definition, E'\r\n', E'\n');
+  v_old_jobs_join := replace(v_old_jobs_join, E'\r\n', E'\n');
+  v_new_jobs_join := replace(v_new_jobs_join, E'\r\n', E'\n');
+  v_old_explicit_scope_anchor := replace(v_old_explicit_scope_anchor, E'\r\n', E'\n');
+  v_new_explicit_scope_anchor := replace(v_new_explicit_scope_anchor, E'\r\n', E'\n');
+  v_old_explicit_insert_anchor := replace(v_old_explicit_insert_anchor, E'\r\n', E'\n');
+  v_new_explicit_insert_anchor := replace(v_new_explicit_insert_anchor, E'\r\n', E'\n');
+  v_old_org_wide_guard := replace(v_old_org_wide_guard, E'\r\n', E'\n');
+  v_new_org_wide_guard := replace(v_new_org_wide_guard, E'\r\n', E'\n');
+
   v_next_definition := v_definition;
 
   if position(v_new_explicit_scope_anchor in v_next_definition) = 0 then
