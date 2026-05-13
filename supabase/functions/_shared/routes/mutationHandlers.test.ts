@@ -151,7 +151,7 @@ Deno.test("job mutation identity rejects mismatched jobId and jobNumber", async 
   throw new Error("Expected mismatched jobId/jobNumber to fail.");
 });
 
-Deno.test("/jobs/update validates jobId identity before calling the existing jobNumber RPC", async () => {
+Deno.test("/jobs/update validates jobId identity before calling the guarded job update RPC", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const jobIdLookups: Array<Record<string, unknown>> = [];
   const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
