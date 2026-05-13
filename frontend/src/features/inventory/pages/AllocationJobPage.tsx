@@ -16,6 +16,7 @@ import { useAllocationJobPageModel } from './allocation-job/useAllocationJobPage
 export default function AllocationJobPage() {
   const {
     auth,
+    canonicalJobId,
     isPhoneLayout,
     jobQuery,
     detail,
@@ -341,6 +342,7 @@ export default function AllocationJobPage() {
       />
 
       <JobWorkflowDialogs
+        canonicalJobId={canonicalJobId}
         caulkAllocationEditor={caulkAllocationEditor}
         setCaulkAllocationEditor={setCaulkAllocationEditor}
         caulkAllocationEditorError={caulkAllocationEditorError}

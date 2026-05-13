@@ -137,6 +137,7 @@ describe('allocations API client caulk routes', () => {
 
     expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/preview', {
       query: {
+        jobId: undefined,
         boxId: 'IL1-6502',
         jobNumber: '000123',
         installDate: undefined,
@@ -147,6 +148,42 @@ describe('allocations API client caulk routes', () => {
         crossWarehouse: undefined,
         jobWarehouse: 'IL1'
       }
+    });
+  });
+
+  it('passes canonical jobId through allocation preview requests when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobNumber: '000123',
+        installDate: '',
+        crewLeader: '',
+        requestedFeet: 12,
+        sourceBoxId: 'IL1-6502',
+        sourceWarehouse: 'IL1',
+        sourceBoxFeetAvailable: 12,
+        sourceSuggestedFeet: 12,
+        sourceConflicts: [],
+        suggestions: [],
+        defaultCoveredFeet: 12,
+        defaultRemainingFeet: 0
+      },
+      warnings: []
+    });
+
+    await previewAllocationPlan({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      boxId: 'IL1-6502',
+      jobNumber: '000123',
+      requestedFeet: 12,
+      requirementId: 'req-72'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/preview', {
+      query: expect.objectContaining({
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        requirementId: 'req-72'
+      })
     });
   });
 

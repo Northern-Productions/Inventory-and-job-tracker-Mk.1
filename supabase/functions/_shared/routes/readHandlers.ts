@@ -65,6 +65,7 @@ export type ReadHandlerDeps = {
     orgId: string,
     jobNumber: unknown,
     explicitJobWarehouse: unknown,
+    selectedJob?: any,
   ) => Promise<string>;
   resolveJobContext: (
     client: any,
@@ -82,6 +83,12 @@ export type ReadHandlerDeps = {
     boxes: any[],
   ) => Promise<Record<string, any>>;
   listJobRequirementsByJob: (client: any, orgId: string, jobNumber: string) => Promise<any[]>;
+  listJobRequirementsByJobId: (
+    client: any,
+    orgId: string,
+    jobId: string,
+    selectedJob?: any,
+  ) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
   buildJobsList: (
@@ -107,8 +114,11 @@ export type ReadHandlerDeps = {
     lifecycleStatus?: unknown
   ) => Promise<unknown[]>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
+  findJobById: (client: any, orgId: string, jobId: string) => Promise<any>;
   normalizeJobNumberDigits: (value: unknown, fieldName?: string) => string;
   normalizeJobLifecycleStatus: (value: unknown) => "ACTIVE" | "COMPLETED" | "CANCELLED";
+  normalizeDateString: (value: unknown, fieldName: string, allowEmpty: boolean) => string;
+  normalizeCrewLeaderKey: (value: unknown) => string;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
@@ -135,6 +145,81 @@ function requireUuid(value: unknown, fieldName: string) {
     throw new HttpError(400, `${fieldName} must be a valid UUID.`);
   }
   return normalized;
+}
+
+async function resolveAllocationPreviewJobContext(
+  client: any,
+  orgId: string,
+  params: Record<string, unknown>,
+  deps: ReadHandlerDeps,
+): Promise<{ job: any; jobId: string; jobContext: JobContext }> {
+  const jobIdText = deps.asTrimmedString(params.jobId);
+  if (!jobIdText) {
+    return {
+      job: null,
+      jobId: "",
+      jobContext: await deps.resolveJobContext(
+        client,
+        orgId,
+        params.jobNumber,
+        params.installDate ?? params.jobDate,
+        params.crewLeader,
+      ),
+    };
+  }
+
+  const jobId = requireUuid(jobIdText, "jobId");
+  const job = await deps.findJobById(client, orgId, jobId);
+  if (!job) {
+    throw new HttpError(404, "Job was not found.");
+  }
+
+  const selectedJobNumber = deps.requireString(job.jobNumber, "JobNumber");
+  const suppliedJobNumber = deps.requireString(params.jobNumber, "JobNumber");
+  if (deps.asTrimmedString(selectedJobNumber).toUpperCase() !== deps.asTrimmedString(suppliedJobNumber).toUpperCase()) {
+    throw new HttpError(400, "Job identity mismatch: selected job does not match jobNumber.");
+  }
+
+  if (deps.normalizeJobLifecycleStatus(job.lifecycleStatus) !== "ACTIVE") {
+    throw new HttpError(400, `Job ${selectedJobNumber} is closed and cannot receive allocations.`);
+  }
+
+  const normalizedInstallDate = deps.normalizeDateString(
+    params.installDate ?? params.jobDate,
+    "Install Date",
+    true,
+  );
+  const normalizedCrewLeader = deps.asTrimmedString(params.crewLeader);
+  const existingInstallDate = deps.asTrimmedString(job.installDate);
+  const existingCrewLeader = deps.asTrimmedString(job.crewLeader);
+
+  if (existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
+    throw new HttpError(400, "Install Date must stay the same for an existing Job Number.");
+  }
+
+  if (
+    existingCrewLeader &&
+    normalizedCrewLeader &&
+    deps.normalizeCrewLeaderKey(existingCrewLeader) !== deps.normalizeCrewLeaderKey(normalizedCrewLeader)
+  ) {
+    throw new HttpError(400, "Crew Leader must stay the same for an existing Job Number.");
+  }
+
+  const resolvedInstallDate = normalizedInstallDate || existingInstallDate;
+  const resolvedCrewLeader = normalizedCrewLeader || existingCrewLeader;
+  if (resolvedInstallDate && !resolvedCrewLeader) {
+    throw new HttpError(400, "Crew Leader is required when Install Date is set.");
+  }
+
+  return {
+    job,
+    jobId,
+    jobContext: {
+      jobNumber: selectedJobNumber,
+      installDate: resolvedInstallDate,
+      crewLeader: resolvedCrewLeader,
+    },
+  };
 }
 
 function buildDuplicateJobFallbackSummary(header: any, deps: ReadHandlerDeps) {
@@ -489,13 +574,8 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!source) {
       throw new HttpError(404, "Box not found.");
     }
-    const jobContext = await deps.resolveJobContext(
-      client,
-      orgId,
-      params.jobNumber,
-      params.installDate ?? params.jobDate,
-      params.crewLeader,
-    );
+    const previewTarget = await resolveAllocationPreviewJobContext(client, orgId, params, deps);
+    const jobContext = previewTarget.jobContext;
     const crossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
     const sourceWarehouse = deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase();
     const allBoxes = crossWarehouse || !sourceWarehouse
@@ -506,16 +586,20 @@ const readHandlers: Record<string, ReadHandler> = {
       orgId,
       (jobContext as Record<string, unknown>).jobNumber,
       params.jobWarehouse,
+      previewTarget.job,
     );
     const requirementId = deps.asTrimmedString(params.requirementId);
-    const selectedRequirement = requirementId
-      ? (
-          await deps.listJobRequirementsByJob(
+    const requirements = requirementId
+      ? previewTarget.jobId
+        ? await deps.listJobRequirementsByJobId(client, orgId, previewTarget.jobId, previewTarget.job)
+        : await deps.listJobRequirementsByJob(
             client,
             orgId,
             deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber),
           )
-        ).find((entry) => deps.asTrimmedString((entry as Record<string, unknown>).id) === requirementId) || null
+      : [];
+    const selectedRequirement = requirementId
+      ? requirements.find((entry) => deps.asTrimmedString((entry as Record<string, unknown>).id) === requirementId) || null
       : null;
     if (requirementId && !selectedRequirement) {
       throw new HttpError(

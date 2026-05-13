@@ -9,7 +9,7 @@ import type {
 } from './statuses';
 import type { Warehouse } from './warehouses';
 
-export interface AllocateBoxPayload {
+interface AllocationPlanBasePayload {
   boxId: string;
   jobNumber: string;
   installDate?: string;
@@ -21,7 +21,11 @@ export interface AllocateBoxPayload {
   jobWarehouse?: Warehouse;
 }
 
-export interface ApplyAllocationPlanPayload extends AllocateBoxPayload {
+export interface AllocateBoxPayload extends AllocationPlanBasePayload {
+  jobId?: string;
+}
+
+export interface ApplyAllocationPlanPayload extends AllocationPlanBasePayload {
   selectedSuggestionBoxIds?: string[];
   extraAllocations?: Array<{
     boxId: string;

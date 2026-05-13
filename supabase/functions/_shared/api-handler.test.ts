@@ -17,6 +17,24 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
   }
 }
 
+async function assertRejectsWithMessage(
+  fn: () => Promise<unknown>,
+  expectedMessage: string,
+  message: string,
+) {
+  try {
+    await fn();
+  } catch (error) {
+    const actualMessage = error instanceof Error ? error.message : String(error);
+    if (!actualMessage.includes(expectedMessage)) {
+      throw new Error(`${message}\nExpected message containing: ${expectedMessage}\nActual: ${actualMessage}`);
+    }
+    return;
+  }
+
+  throw new Error(`${message}\nExpected function to reject.`);
+}
+
 Deno.test("Edge response cache bypasses mutation-sensitive operational reads", () => {
   const operationalRoutes = [
     "/jobs/get",
@@ -424,6 +442,161 @@ Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse 
     response.data,
     { allBoxIds: ["IL1-SOURCE", "IL1-CANDIDATE"], crossWarehouse: false },
     "Expected route to pass warehouse-scoped boxes into the planner.",
+  );
+});
+
+Deno.test("/allocations/preview canonical jobId path validates identity and loads requirements by job_id", async () => {
+  const calls: string[] = [];
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/preview",
+    {
+      orgId: "request-org",
+      jobId,
+      boxId: source.boxId,
+      jobNumber: "4803",
+      requestedFeet: 1,
+      requirementId: "req-1",
+      crossWarehouse: false,
+    },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findBoxById: async () => source,
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+        return {
+          id: selectedJobId,
+          jobNumber: "4803",
+          warehouse: "IL1",
+          installDate: "",
+          crewLeader: "",
+          lifecycleStatus: "ACTIVE",
+        };
+      },
+      resolveJobContext: async () => {
+        throw new Error("legacy jobNumber context should not be used for canonical preview");
+      },
+      normalizeDateString: (value: unknown) => String(value || "").trim(),
+      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
+      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
+      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
+      listBoxes: async () => [],
+      listBoxesByWarehouses: async () => [source],
+      resolveAllocationJobWarehouse: async (_client: unknown, orgId: string, jobNumber: unknown, _warehouse: unknown, selectedJob: any) => {
+        calls.push(`resolveWarehouse:${orgId}:${jobNumber}:${selectedJob?.id}`);
+        return "IL1";
+      },
+      listJobRequirementsByJobId: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`listRequirementsByJobId:${orgId}:${selectedJobId}`);
+        return [{ id: "req-1", jobId: selectedJobId, jobNumber: "4803", manufacturer: "Llumar", filmName: "RN 07", widthIn: 48 }];
+      },
+      listJobRequirementsByJob: async () => {
+        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
+      },
+      buildPendingTransfersByBoxRecordId: async () => ({}),
+      listActiveAllocations: async () => [],
+      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
+        jobContext,
+        selectedRequirementId: options.selectedRequirement?.id,
+      }),
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    [
+      `findJobById:org-1:${jobId}`,
+      `resolveWarehouse:org-1:4803:${jobId}`,
+      `listRequirementsByJobId:org-1:${jobId}`,
+    ],
+    "Expected canonical preview to use auth org and job_id-owned requirement loading.",
+  );
+  assertEquals(
+    response.data,
+    {
+      jobContext: { jobNumber: "4803", installDate: "", crewLeader: "" },
+      selectedRequirementId: "req-1",
+    },
+    "Expected canonical preview to pass the selected job context into preview planning.",
+  );
+});
+
+Deno.test("/allocations/preview rejects invalid, missing, and mismatched canonical jobId", async () => {
+  const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
+  const baseDeps = {
+    requireString: (value: unknown) => String(value || ""),
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    findBoxById: async () => source,
+    normalizeDateString: (value: unknown) => String(value || "").trim(),
+    normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
+    normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
+  };
+
+  await assertRejectsWithMessage(
+    () => dispatchReadWithHandlers(
+      {},
+      "org-1",
+      "/allocations/preview",
+      { jobId: "not-a-uuid", boxId: source.boxId, jobNumber: "4803", requestedFeet: 1 },
+      {} as any,
+      baseDeps as any,
+    ),
+    "jobId must be a valid UUID.",
+    "Expected invalid canonical preview jobId to reject.",
+  );
+
+  await assertRejectsWithMessage(
+    () => dispatchReadWithHandlers(
+      {},
+      "org-1",
+      "/allocations/preview",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        boxId: source.boxId,
+        jobNumber: "4803",
+        requestedFeet: 1,
+      },
+      {} as any,
+      {
+        ...baseDeps,
+        findJobById: async () => null,
+      } as any,
+    ),
+    "Job was not found.",
+    "Expected missing canonical preview job target to reject.",
+  );
+
+  await assertRejectsWithMessage(
+    () => dispatchReadWithHandlers(
+      {},
+      "org-1",
+      "/allocations/preview",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        boxId: source.boxId,
+        jobNumber: "4803",
+        requestedFeet: 1,
+      },
+      {} as any,
+      {
+        ...baseDeps,
+        findJobById: async () => ({
+          id: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "9999",
+          warehouse: "IL1",
+          lifecycleStatus: "ACTIVE",
+        }),
+      } as any,
+    ),
+    "Job identity mismatch: selected job does not match jobNumber.",
+    "Expected mismatched canonical preview job identity to reject.",
   );
 });
 

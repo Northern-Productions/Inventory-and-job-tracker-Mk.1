@@ -103,6 +103,7 @@ function buildPreviewState(
 function renderDialog(
   overrides: Partial<{
     open: boolean;
+    jobId: string;
     jobNumber: string;
     warehouse: Warehouse;
     installDate: string;
@@ -120,6 +121,7 @@ function renderDialog(
     <QueryClientProvider client={queryClient}>
       <JobAllocateDialog
         open={overrides.open ?? true}
+        jobId={overrides.jobId}
         jobNumber={overrides.jobNumber || '55555'}
         warehouse={overrides.warehouse || 'IL1'}
         installDate={overrides.installDate || ''}
@@ -672,6 +674,122 @@ describe('JobAllocateDialog', () => {
     await waitFor(() =>
       expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*13/i)
     );
+
+    queryClient.clear();
+  });
+
+  it('includes canonical jobId only in allocation preview payloads', async () => {
+    const canonicalJobId = '11111111-1111-4111-8111-111111111111';
+    useAllocationPreviewMock.mockReturnValue(buildPreviewState());
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobId: canonicalJobId,
+      jobNumber: '4803'
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jobId: canonicalJobId,
+          jobNumber: '4803',
+          boxId: 'IL1-BOX',
+          requirementId: 'req-1'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps legacy allocation preview payloads jobNumber-only', async () => {
+    useAllocationPreviewMock.mockReturnValue(buildPreviewState());
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '4803'
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() => {
+      const payload = useAllocationPreviewMock.mock.calls[
+        useAllocationPreviewMock.mock.calls.length - 1
+      ]?.[0] as Record<string, unknown>;
+      expect(payload).toEqual(
+        expect.objectContaining({
+          jobNumber: '4803',
+          boxId: 'IL1-BOX',
+          requirementId: 'req-1'
+        })
+      );
+      expect(payload).not.toHaveProperty('jobId');
+    });
+
+    queryClient.clear();
+  });
+
+  it('does not add canonical jobId to allocation apply payloads', async () => {
+    const canonicalJobId = '11111111-1111-4111-8111-111111111111';
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-BOX',
+            allocatedFeet: 15,
+            coveredFeet: 15
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'IL1-BOX'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '4803',
+              installDate: '',
+              crewLeader: '',
+              requestedFeet: 15,
+              requestedWidthIn: 48,
+              sourceBoxId: 'IL1-BOX',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 48,
+              sourceBoxFeetAvailable: 50,
+              sourceSuggestedFeet: 15,
+              sourceSuggestedCoveredFeet: 15,
+              sourceConflicts: [],
+              suggestions: [],
+              defaultCoveredFeet: 15,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobId: canonicalJobId,
+      jobNumber: '4803'
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('jobId');
 
     queryClient.clear();
   });

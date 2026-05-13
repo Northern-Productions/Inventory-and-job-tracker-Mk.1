@@ -25,6 +25,7 @@ import {
 
 interface JobAllocateDialogProps {
   open: boolean;
+  jobId?: string;
   jobNumber: string;
   warehouse: Warehouse;
   installDate: string;
@@ -56,6 +57,7 @@ function cloneFilmOrderPromptSnapshot(
 
 export function JobAllocateDialog({
   open,
+  jobId,
   jobNumber,
   warehouse,
   installDate,
@@ -151,6 +153,7 @@ export function JobAllocateDialog({
     () =>
       open && !isExtraFilmMode && selectedRequirement && requestedFeetValue > 0 && selectedSourceBox
         ? {
+            ...(jobId ? { jobId } : {}),
             boxId: selectedSourceBox.boxId,
             jobNumber,
             installDate: installDate || '',
@@ -166,6 +169,7 @@ export function JobAllocateDialog({
       crewLeader,
       installDate,
       isExtraFilmMode,
+      jobId,
       jobNumber,
       open,
       requestedFeetValue,
