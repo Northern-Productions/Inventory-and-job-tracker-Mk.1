@@ -87,6 +87,7 @@ export type MutationHandlerDeps = {
 };
 
 const ORG_WIDE_SCOPE: Record<string, unknown> = {};
+const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PLANNER_MUTATION_ROUTES = new Set([
   "/caulk/mutate",
@@ -164,6 +165,11 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
   "/jobs/set-staged-pickup",
   "/jobs/checkout-all",
   "/jobs/complete",
+  "/jobs/reopen",
+]);
+
+const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
+  "/jobs/update",
   "/jobs/reopen",
 ]);
 
@@ -896,16 +902,21 @@ function buildAutoPlannerScope(
   }
 
   if (logicalPath === "/film-orders/delete") {
-    return buildFilmOrderDeletePlannerScope(responseData, deps);
+    return buildFilmOrderDeletePlannerScope(payload, responseData, deps);
   }
 
   if (ORG_WIDE_MUTATION_ROUTES.has(logicalPath)) {
     return ORG_WIDE_SCOPE;
   }
 
+  const jobIds = new Set<string>();
   const jobNumbers = new Set<string>();
   const boxIds = new Set<string>();
   const caulkProductWarehousePairs = new Map<string, Record<string, string>>();
+
+  if (JOB_ID_SHADOW_SCOPE_ROUTES.has(logicalPath)) {
+    addJobId(jobIds, payload.jobId, deps);
+  }
 
   addJobNumber(jobNumbers, payload.jobNumber, deps);
   addJobNumber(jobNumbers, responseData.jobNumber, deps);
@@ -955,6 +966,9 @@ function buildAutoPlannerScope(
   if (jobNumbers.size > 0) {
     scope.jobNumbers = Array.from(jobNumbers);
   }
+  if (jobIds.size > 0) {
+    scope.jobIds = Array.from(jobIds);
+  }
   if (boxIds.size > 0) {
     scope.boxIds = Array.from(boxIds);
   }
@@ -981,13 +995,21 @@ function buildAutoPlannerScope(
  * data, or applying this scoped behavior to /film-orders/cancel.
  */
 function buildFilmOrderDeletePlannerScope(
+  payload: Record<string, unknown>,
   responseData: Record<string, unknown>,
   deps: MutationHandlerDeps,
 ) {
   const jobNumber = typeof responseData.jobNumber === "string"
     ? deps.asTrimmedString(responseData.jobNumber)
     : "";
-  return jobNumber ? { jobNumbers: [jobNumber] } : ORG_WIDE_SCOPE;
+  if (!jobNumber) {
+    return ORG_WIDE_SCOPE;
+  }
+  const jobIds = normalizeJobIds([payload.jobId], deps);
+  return {
+    jobNumbers: [jobNumber],
+    ...(jobIds.length ? { jobIds } : {}),
+  };
 }
 
 function getJobNumberForPlannerDetailReload(
@@ -1047,6 +1069,23 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function addJobNumber(target: Set<string>, value: unknown, deps: MutationHandlerDeps) {
   const normalized = deps.asTrimmedString(value);
+  if (normalized) {
+    target.add(normalized);
+  }
+}
+
+function normalizeJobIds(values: unknown[], deps: MutationHandlerDeps) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => deps.asTrimmedString(value).toLowerCase())
+        .filter((value) => JOB_ID_PATTERN.test(value)),
+    ),
+  );
+}
+
+function addJobId(target: Set<string>, value: unknown, deps: MutationHandlerDeps) {
+  const [normalized] = normalizeJobIds([value], deps);
   if (normalized) {
     target.add(normalized);
   }

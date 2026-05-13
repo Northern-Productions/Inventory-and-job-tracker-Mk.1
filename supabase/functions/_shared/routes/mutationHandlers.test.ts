@@ -795,6 +795,7 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
 
 Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is present", async () => {
   const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
   let legacyDetailCallCount = 0;
 
   const response = await dispatchMutationWithHandlers(
@@ -831,7 +832,15 @@ Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is p
           source: "by-id",
         };
       },
-      reconcileAutoPlannedAllocations: async () => ({ warnings: ["Planner warning."] }),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return { warnings: ["Planner warning."] };
+      },
     }),
   );
 
@@ -841,6 +850,20 @@ Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is p
     "Expected canonical reopen to reload detail by jobId.",
   );
   assertEquals(legacyDetailCallCount, 0, "Expected canonical reopen not to reload detail by jobNumber.");
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {
+          jobNumbers: ["81234"],
+          jobIds: ["11111111-1111-4111-8111-111111111111"],
+        },
+      },
+    ],
+    "Expected canonical reopen to preserve jobId as shadow planner metadata while keeping jobNumber scope.",
+  );
   assertEquals(
     response,
     {
@@ -860,6 +883,7 @@ Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is p
 
 Deno.test("/jobs/reopen keeps legacy detail reload when payload has no jobId", async () => {
   const legacyDetailCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
   let jobDetailByIdCallCount = 0;
 
   const response = await dispatchMutationWithHandlers(
@@ -893,7 +917,15 @@ Deno.test("/jobs/reopen keeps legacy detail reload when payload has no jobId", a
         jobDetailByIdCallCount += 1;
         return {};
       },
-      reconcileAutoPlannedAllocations: async () => ({}),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {};
+      },
     }),
   );
 
@@ -903,6 +935,19 @@ Deno.test("/jobs/reopen keeps legacy detail reload when payload has no jobId", a
     "Expected legacy reopen to continue reloading detail by jobNumber.",
   );
   assertEquals(jobDetailByIdCallCount, 0, "Expected legacy reopen not to infer jobId from response detail.");
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {
+          jobNumbers: ["81234"],
+        },
+      },
+    ],
+    "Expected legacy reopen to remain jobNumber-only in planner scope.",
+  );
   assertEquals(
     response.data,
     {
@@ -1299,6 +1344,7 @@ Deno.test("/film-orders/delete validates jobId film order ownership before RPC",
   const jobIdLookups: Array<Record<string, unknown>> = [];
   const filmOrderLookups: Array<Record<string, unknown>> = [];
   const rpcCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
 
   const response = await dispatchMutationWithHandlers(
     {},
@@ -1344,6 +1390,15 @@ Deno.test("/film-orders/delete validates jobId film order ownership before RPC",
           warnings: [],
         };
       },
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {};
+      },
     }),
   );
 
@@ -1373,6 +1428,20 @@ Deno.test("/film-orders/delete validates jobId film order ownership before RPC",
       },
     ],
     "Expected film order delete to strip request orgId and call the existing RPC only after validation.",
+  );
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-from-auth",
+        actor: "tester",
+        scope: {
+          jobNumbers: ["81234"],
+          jobIds: ["11111111-1111-4111-8111-111111111111"],
+        },
+      },
+    ],
+    "Expected canonical film order delete to preserve jobId as shadow planner metadata while keeping jobNumber scope.",
   );
   assertEquals(
     response.data,

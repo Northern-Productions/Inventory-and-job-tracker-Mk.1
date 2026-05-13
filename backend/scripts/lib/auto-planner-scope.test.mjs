@@ -9,6 +9,7 @@ import {
   getJobIdentityForPlannerDetailReload,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
+  normalizeScope,
 } from '../../src/app/services/runtime/runtimeAutoAllocationPlanner.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -26,6 +27,34 @@ test('buildAutoPlannerScope narrows job edits to the changed job', () => {
   assert.deepEqual(
     buildAutoPlannerScope('/jobs/update', { jobNumber: '18722' }, { jobNumber: '18722' }),
     { jobNumbers: ['18722'] }
+  );
+});
+
+test('buildAutoPlannerScope preserves canonical jobId shadow metadata for job edits', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/jobs/update',
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' },
+      { jobNumber: '18722' }
+    ),
+    {
+      jobNumbers: ['18722'],
+      jobIds: ['11111111-1111-4111-8111-111111111111'],
+    }
+  );
+});
+
+test('buildAutoPlannerScope preserves canonical jobId shadow metadata for reopen', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/jobs/reopen',
+      { jobId: '22222222-2222-4222-8222-222222222222', jobNumber: '18722' },
+      { summary: { jobNumber: '18722' } }
+    ),
+    {
+      jobNumbers: ['18722'],
+      jobIds: ['22222222-2222-4222-8222-222222222222'],
+    }
   );
 });
 
@@ -77,6 +106,20 @@ test('buildAutoPlannerScope scopes film order delete to the returned job only', 
   );
 });
 
+test('buildAutoPlannerScope preserves canonical jobId shadow metadata for film order delete', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/film-orders/delete',
+      { jobId: '33333333-3333-4333-8333-333333333333', jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' },
+      { jobNumber: '18722' }
+    ),
+    {
+      jobNumbers: ['18722'],
+      jobIds: ['33333333-3333-4333-8333-333333333333'],
+    }
+  );
+});
+
 test('buildAutoPlannerScope falls back org-wide for film order delete without returned job proof', () => {
   assert.deepEqual(
     buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, {}),
@@ -97,6 +140,25 @@ test('buildAutoPlannerScope falls back org-wide for film order delete without re
   assert.deepEqual(
     buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: 18722 }),
     {}
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/film-orders/delete',
+      { jobId: '33333333-3333-4333-8333-333333333333', jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' },
+      {}
+    ),
+    {}
+  );
+});
+
+test('buildAutoPlannerScope keeps legacy jobNumber-only paths without jobIds', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope('/jobs/reopen', { jobNumber: '18722' }, { summary: { jobNumber: '18722' } }),
+    { jobNumbers: ['18722'] }
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: '18722' }),
+    { jobNumbers: ['18722'] }
   );
 });
 
@@ -166,6 +228,51 @@ test('getJobIdentityForPlannerDetailReload uses explicit payload jobId only', ()
       { summary: { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' } }
     ),
     { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '18722' }
+  );
+});
+
+test('normalizeScope preserves and dedupes valid jobIds as shadow metadata', () => {
+  assert.deepEqual(
+    normalizeScope({
+      jobNumbers: ['18722', ' 18722 ', '18888'],
+      jobIds: [
+        '11111111-1111-4111-8111-111111111111',
+        ' 11111111-1111-4111-8111-111111111111 ',
+        '22222222-2222-4222-8222-222222222222',
+        '',
+        'not-a-job-id',
+        null,
+      ],
+      boxIds: ['IL1-100', ' IL1-100 ', 'IL1-200'],
+      caulkProductWarehousePairs: [
+        { productId: 'product-1', warehouse: 'il1' },
+        { productId: 'product-1', warehouse: 'IL1' },
+        { productId: '', warehouse: 'IL1' },
+      ],
+    }),
+    {
+      jobNumbers: ['18722', '18888'],
+      jobIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      boxIds: ['IL1-100', 'IL1-200'],
+      caulkProductWarehousePairs: [{ productId: 'product-1', warehouse: 'IL1' }],
+    }
+  );
+});
+
+test('normalizeScope ignores blank and invalid jobIds without affecting existing scope fields', () => {
+  assert.deepEqual(
+    normalizeScope({
+      jobNumbers: ['18722'],
+      jobIds: ['', ' ', 'not-a-job-id'],
+      boxIds: ['IL1-100'],
+    }),
+    {
+      jobNumbers: ['18722'],
+      boxIds: ['IL1-100'],
+    }
   );
 });
 

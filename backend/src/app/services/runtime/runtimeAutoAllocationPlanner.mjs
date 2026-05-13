@@ -2,6 +2,7 @@ import { queryRow } from '../../../db/client.mjs';
 import { asTrimmedString } from '../runtimeDeps.mjs';
 
 const ORG_WIDE_SCOPE = Object.freeze({});
+const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PLANNER_MUTATION_ROUTES = new Set([
   '/caulk/mutate',
@@ -56,6 +57,11 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
   '/jobs/reopen',
 ]);
 
+const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
+  '/jobs/update',
+  '/jobs/reopen',
+]);
+
 /**
  * PURPOSE:
  * Builds the narrowest safe planner scope available from a mutation request and
@@ -83,16 +89,21 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   }
 
   if (logicalPath === '/film-orders/delete') {
-    return buildFilmOrderDeletePlannerScope(responseData);
+    return buildFilmOrderDeletePlannerScope(params, responseData);
   }
 
   if (ORG_WIDE_MUTATION_ROUTES.has(logicalPath)) {
     return ORG_WIDE_SCOPE;
   }
 
+  const jobIds = new Set();
   const jobNumbers = new Set();
   const boxIds = new Set();
   const caulkProductWarehousePairs = new Map();
+
+  if (JOB_ID_SHADOW_SCOPE_ROUTES.has(logicalPath)) {
+    addJobId(jobIds, params.jobId);
+  }
 
   addJobNumber(jobNumbers, params.jobNumber);
   addJobNumber(jobNumbers, responseData.jobNumber);
@@ -136,6 +147,9 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   if (jobNumbers.size > 0) {
     scope.jobNumbers = Array.from(jobNumbers);
   }
+  if (jobIds.size > 0) {
+    scope.jobIds = Array.from(jobIds);
+  }
   if (boxIds.size > 0) {
     scope.boxIds = Array.from(boxIds);
   }
@@ -162,9 +176,16 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
  * Trusting request payload job numbers, skipping planner on missing response
  * data, or applying this scoped behavior to /film-orders/cancel.
  */
-function buildFilmOrderDeletePlannerScope(responseData = {}) {
+function buildFilmOrderDeletePlannerScope(params = {}, responseData = {}) {
   const jobNumber = typeof responseData?.jobNumber === 'string' ? asTrimmedString(responseData.jobNumber) : '';
-  return jobNumber ? { jobNumbers: [jobNumber] } : ORG_WIDE_SCOPE;
+  if (!jobNumber) {
+    return ORG_WIDE_SCOPE;
+  }
+  const jobIds = normalizeJobIdArray([params?.jobId]);
+  return {
+    jobNumbers: [jobNumber],
+    ...(jobIds.length ? { jobIds } : {}),
+  };
 }
 
 async function reconcileAutoPlannedAllocations(client, orgId, actor, scope = ORG_WIDE_SCOPE) {
@@ -218,8 +239,11 @@ function normalizeScope(scope) {
     return {};
   }
 
+  const jobIds = Array.isArray(scope.jobIds) ? normalizeJobIdArray(scope.jobIds) : [];
+
   return {
     ...(Array.isArray(scope.jobNumbers) ? { jobNumbers: normalizeStringArray(scope.jobNumbers) } : {}),
+    ...(jobIds.length ? { jobIds } : {}),
     ...(Array.isArray(scope.boxIds) ? { boxIds: normalizeStringArray(scope.boxIds) } : {}),
     ...(Array.isArray(scope.caulkProductWarehousePairs)
       ? { caulkProductWarehousePairs: normalizeCaulkPairs(scope.caulkProductWarehousePairs) }
@@ -229,6 +253,15 @@ function normalizeScope(scope) {
 
 function normalizeStringArray(values) {
   return Array.from(new Set(values.map((value) => asTrimmedString(value)).filter(Boolean)));
+}
+
+function normalizeJobIdArray(values) {
+  return Array.from(new Set(values.map((value) => normalizeJobId(value)).filter(Boolean)));
+}
+
+function normalizeJobId(value) {
+  const normalized = asTrimmedString(value).toLowerCase();
+  return JOB_ID_PATTERN.test(normalized) ? normalized : '';
 }
 
 function normalizeCaulkPairs(values) {
@@ -246,6 +279,13 @@ function normalizeCaulkPairs(values) {
 
 function addJobNumber(target, value) {
   const normalized = asTrimmedString(value);
+  if (normalized) {
+    target.add(normalized);
+  }
+}
+
+function addJobId(target, value) {
+  const normalized = normalizeJobId(value);
   if (normalized) {
     target.add(normalized);
   }
@@ -276,5 +316,6 @@ export {
   getJobIdentityForPlannerDetailReload,
   getJobNumberForPlannerDetailReload,
   normalizePlannerWarnings,
+  normalizeScope,
   reconcileAutoPlannedAllocations,
 };
