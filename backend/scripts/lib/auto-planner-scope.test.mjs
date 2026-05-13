@@ -76,6 +76,50 @@ test('buildAutoPlannerScope expands manual allocation responses to job and box s
   );
 });
 
+test('buildAutoPlannerScope preserves canonical jobId metadata for remove-box', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/allocations/remove-box',
+      {
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobNumber: '18722',
+        allocationId: 'alloc-1',
+      },
+      { jobNumber: '18722', boxId: 'IL1-100' }
+    ),
+    {
+      jobNumbers: ['18722'],
+      jobIds: ['44444444-4444-4444-8444-444444444444'],
+      boxIds: ['IL1-100'],
+    }
+  );
+});
+
+test('buildAutoPlannerScope keeps legacy remove-box jobNumber and box scope without jobIds', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/allocations/remove-box',
+      { jobNumber: '18722', allocationId: 'alloc-1' },
+      { jobNumber: '18722', boxId: 'IL1-100' }
+    ),
+    {
+      jobNumbers: ['18722'],
+      boxIds: ['IL1-100'],
+    }
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/allocations/remove-box',
+      { jobId: 'not-a-job-id', jobNumber: '18722', allocationId: 'alloc-1' },
+      { boxId: 'IL1-100' }
+    ),
+    {
+      jobNumbers: ['18722'],
+      boxIds: ['IL1-100'],
+    }
+  );
+});
+
 test('buildAutoPlannerScope captures caulk product warehouse pairs', () => {
   assert.deepEqual(
     buildAutoPlannerScope('/caulk/mutate', { productId: 'product-1', warehouse: 'il1' }, {}),
@@ -159,6 +203,10 @@ test('buildAutoPlannerScope keeps legacy jobNumber-only paths without jobIds', (
   assert.deepEqual(
     buildAutoPlannerScope('/film-orders/delete', { jobNumber: 'PAYLOAD-SHOULD-NOT-BE-USED' }, { jobNumber: '18722' }),
     { jobNumbers: ['18722'] }
+  );
+  assert.deepEqual(
+    buildAutoPlannerScope('/allocations/remove-box', { jobNumber: '18722' }, { boxId: 'IL1-100' }),
+    { jobNumbers: ['18722'], boxIds: ['IL1-100'] }
   );
 });
 

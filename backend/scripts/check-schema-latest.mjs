@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0119_planner_jobid_preferred_scope.sql';
+const LATEST_MIGRATION = '0120_remove_box_jobid_planner_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -278,6 +278,11 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_allocations_remove_box(uuid, text, jsonb)',
     includes: [
       "v_allocation_id text := app_api.require_text(v_payload->>'allocationId', 'AllocationID');",
+      "v_job_id_text text := app_api.trim_text(v_payload->>'jobId');",
+      'v_has_valid_job_id boolean := v_job_id_text ~*',
+      'j.id = v_job_id',
+      'Job identity mismatch: selected job does not match jobNumber.',
+      'v_allocation.job_id is distinct from v_job.id',
       'from app.allocations a',
       'and a.allocation_id = v_allocation_id',
       'for update;',
@@ -288,9 +293,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box.box_id);',
       'perform app_api.recalculate_film_order(p_org_id, v_film_order_id, v_actor);',
       'perform app_api.reconcile_auto_planned_allocations(',
+      "'jobIds', jsonb_build_array(v_job.id)",
       "'warnings', to_jsonb(v_warnings)"
     ],
-    excludes: []
+    excludes: ['auto_planner_scope_job_numbers(']
   },
   {
     signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)',
