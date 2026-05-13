@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0118_planner_jobid_scope_groundwork.sql';
+const LATEST_MIGRATION = '0119_planner_jobid_preferred_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -106,6 +106,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.create_or_merge_manual_requirement_allocation_with_coverage(uuid, app.boxes, jsonb, integer, integer, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.auto_planner_scope_job_numbers(uuid, jsonb)' },
   { kind: 'function', signature: 'app_api.auto_planner_scope_job_ids(uuid, jsonb)' },
+  { kind: 'function', signature: 'app_api.auto_planner_scope_jobs(uuid, jsonb)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_reconcile_auto_planned_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
@@ -604,9 +605,33 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ]
   },
   {
+    signature: 'app_api.auto_planner_scope_jobs(uuid, jsonb)',
+    includes: [
+      "v_scope->'jobIds'",
+      "v_scope->'jobNumbers'",
+      "v_scope->'boxIds'",
+      "v_scope->'caulkProductWarehousePairs'",
+      'auto_planner_scope_job_id_candidates',
+      'auto_planner_scope_job_number_candidates',
+      'auto_planner_scope_box_candidates',
+      'auto_planner_scope_caulk_pair_candidates',
+      'v_has_valid_job_ids',
+      'j.id = s.candidate_job_id',
+      'upper(btrim(j.job_number)) = s.job_number_key',
+      'a.job_id is not null and j.id = a.job_id',
+      'a.job_id is null',
+      'app_api.requirement_film_is_compatible(',
+      'r.product_id = sc.product_id'
+    ],
+    excludes: [
+      'auto_planner_scope_job_numbers('
+    ]
+  },
+  {
     signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)',
     includes: [
       'perform pg_advisory_xact_lock',
+      'create temporary table if not exists auto_planner_explicit_job_id_scope',
       'create temporary table if not exists auto_planner_explicit_job_scope',
       'create temporary table if not exists auto_planner_explicit_box_scope',
       'create temporary table if not exists auto_planner_explicit_caulk_scope',
@@ -628,6 +653,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'create temporary table if not exists auto_planner_fixed_box_commitments',
       'left join auto_planner_jobs scoped_job',
       "scoped_job.job_id is not null\n      and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'\n      and upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
+      'join app_api.auto_planner_scope_jobs(p_org_id, coalesce(p_scope, \'{}\'::jsonb)) s\n    on s.job_id = j.id',
+      'not exists (select 1 from auto_planner_explicit_job_id_scope)',
       'fixed_reserved_feet > bx.capacity',
       'AUTO planner capacity invariant failed',
       'select j.*\n    from auto_planner_jobs j',
@@ -645,6 +672,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0)\n  where bx.box_id is not null;',
       'set remaining = bx.capacity - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, bx.status)\n      and coalesce(a.allocation_source::text, \'MANUAL\') <> \'AUTO_PLANNED\'\n  ), 0);',
       'set remaining = bx.remaining - coalesce((\n    select sum(a.allocated_feet)::integer\n    from app.allocations a\n    join app.boxes b\n      on b.org_id = a.org_id\n     and b.box_id = a.box_id\n    where a.org_id = p_org_id\n      and a.box_id = bx.box_id\n      and app_api.film_allocation_reserves_capacity(a, b.status::text)\n      and coalesce(a.allocation_source::text, \'MANUAL\') = \'AUTO_PLANNED\'\n      and upper(coalesce(b.status::text, \'\')) = \'CHECKED_OUT\'\n  ), 0);',
+      'auto_planner_scope_job_numbers(',
       'select *\n    from auto_planner_jobs\n    order by\n      case when install_date is null then 1 else 0 end,\n      install_date nulls last,\n      created_at,\n      job_number,\n      job_id',
       'covered_feet = auto_planner_desired_film.covered_feet + excluded.covered_feet;',
       'allocated_tubes = auto_planner_desired_caulk.allocated_tubes + excluded.allocated_tubes;'

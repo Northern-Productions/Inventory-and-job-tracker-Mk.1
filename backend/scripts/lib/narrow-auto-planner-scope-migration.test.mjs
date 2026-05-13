@@ -43,7 +43,7 @@ test('narrow auto planner scope migration avoids warehouse-wide scoped planning'
 test('schema check keeps narrow planner semantics after later hotfix migrations', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0118_planner_jobid_scope_groundwork\.sql/);
+  assert.match(schemaCheck, /0119_planner_jobid_preferred_scope\.sql/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /auto_planner_explicit_box_scope/);
 });
