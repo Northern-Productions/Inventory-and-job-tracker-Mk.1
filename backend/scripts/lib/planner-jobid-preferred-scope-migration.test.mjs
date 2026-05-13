@@ -105,6 +105,29 @@ test('reconcile uses jobId-preferred scope helper and blocks jobId-only warehous
   assert.match(migration, /position\(v_old_jobs_join in v_next_definition\) > 0/);
 });
 
+test('reconcile patch normalizes CRLF snippets before anchor matching', async () => {
+  const migration = await readFile(backendMigrationPath, 'utf8');
+  const normalizationLines = [
+    "v_definition := replace(v_definition, E'\\r\\n', E'\\n');",
+    "v_old_jobs_join := replace(v_old_jobs_join, E'\\r\\n', E'\\n');",
+    "v_new_jobs_join := replace(v_new_jobs_join, E'\\r\\n', E'\\n');",
+    "v_old_explicit_scope_anchor := replace(v_old_explicit_scope_anchor, E'\\r\\n', E'\\n');",
+    "v_new_explicit_scope_anchor := replace(v_new_explicit_scope_anchor, E'\\r\\n', E'\\n');",
+    "v_old_explicit_insert_anchor := replace(v_old_explicit_insert_anchor, E'\\r\\n', E'\\n');",
+    "v_new_explicit_insert_anchor := replace(v_new_explicit_insert_anchor, E'\\r\\n', E'\\n');",
+    "v_old_org_wide_guard := replace(v_old_org_wide_guard, E'\\r\\n', E'\\n');",
+    "v_new_org_wide_guard := replace(v_new_org_wide_guard, E'\\r\\n', E'\\n');",
+  ];
+
+  for (const line of normalizationLines) {
+    assert.ok(migration.includes(line), `Expected migration to normalize line endings with: ${line}`);
+  }
+  assert.ok(
+    migration.indexOf(normalizationLines[0]) < migration.indexOf('v_next_definition := v_definition;'),
+    'Expected line-ending normalization before anchor matching starts.'
+  );
+});
+
 test('legacy helpers remain defined and duplicate job numbers stay disabled', async () => {
   const [migration, baseSchemaMigration, duplicateGuardMigration, schemaCheck] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
