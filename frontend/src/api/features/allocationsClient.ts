@@ -226,6 +226,7 @@ export async function clearAllocationPlannerSuppression(
 export async function previewAllocationPlan(payload: AllocateBoxPayload): Promise<AllocationPreview> {
   assertFeatureAccess('allocations', 'read');
   const params = {
+    jobId: payload.jobId,
     boxId: payload.boxId,
     jobNumber: payload.jobNumber,
     installDate: payload.installDate,

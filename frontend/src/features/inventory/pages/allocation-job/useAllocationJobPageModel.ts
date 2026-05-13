@@ -624,6 +624,7 @@ export function useAllocationJobPageModel() {
 
   return {
     auth,
+    canonicalJobId: routeJobId || undefined,
     isPhoneLayout,
     jobQuery,
     detail,

@@ -2614,10 +2614,15 @@ async function resolveAllocationJobWarehouse(
   orgId: string,
   jobNumber: unknown,
   explicitJobWarehouse: unknown,
+  selectedJob: any = null,
 ) {
   const explicitWarehouse = normalizeOptionalWarehouse(explicitJobWarehouse, "JobWarehouse");
   if (explicitWarehouse) {
     return explicitWarehouse;
+  }
+
+  if (selectedJob?.warehouse) {
+    return asTrimmedString(selectedJob.warehouse).toUpperCase();
   }
 
   const normalizedJobNumber = asTrimmedString(jobNumber);
@@ -8180,14 +8185,23 @@ async function dispatchRead(
     listBoxesByWarehouses,
     buildPendingTransfersByBoxRecordId,
     listJobRequirementsByJob,
+    listJobRequirementsByJobId: async (
+      _readClient: any,
+      readOrgId: string,
+      _jobId: string,
+      selectedJob: any,
+    ) => listJobRequirementsByJobIdDirect(readOrgId, selectedJob),
     buildActiveAllocationsByBoxIndex,
     listActiveAllocations,
     buildJobsList,
     buildJobsCalendar,
     buildJobsSearchResults,
     findJobByNumber,
+    findJobById,
     normalizeJobNumberDigits,
     normalizeJobLifecycleStatus,
+    normalizeDateString,
+    normalizeCrewLeaderKey,
     buildJobDetail,
     buildJobDetailById,
     buildFilmOrdersList,

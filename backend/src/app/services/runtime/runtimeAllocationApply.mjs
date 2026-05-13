@@ -159,9 +159,11 @@ import {
   deleteFilmOrderLinksByFilmOrderId,
   listJobs,
   findJobByNumber,
+  findJobById,
   saveJobRecord,
   listJobRequirements,
   listJobRequirementsByJob,
+  listJobRequirementsByJobId,
   listJobCaulkRequirements,
   listJobCaulkRequirementsByJob,
   listCaulkJobAllocations,
@@ -255,14 +257,85 @@ async function loadAllocationPreviewBoxes(client, orgId, sourceBox, crossWarehou
   return loadWarehouseBoxes(client, orgId, [sourceWarehouse]);
 }
 
-async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber) {
+async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber, selectedJob = null) {
   const explicitWarehouse = normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse');
   if (explicitWarehouse) {
     return explicitWarehouse;
   }
 
+  if (selectedJob) {
+    return asTrimmedString(selectedJob.warehouse).toUpperCase();
+  }
+
   const existingJob = await findJobByNumber(client, orgId, jobNumber);
   return asTrimmedString(existingJob?.warehouse).toUpperCase();
+}
+
+async function resolvePreviewJobContext(client, orgId, payload, installDate) {
+  const jobIdText = asTrimmedString(payload.jobId);
+  if (!jobIdText) {
+    return {
+      job: null,
+      jobId: '',
+      jobContext: await resolveJobContext(
+        client,
+        orgId,
+        payload.jobNumber,
+        installDate,
+        payload.crewLeader
+      )
+    };
+  }
+
+  const jobId = requireUuid(jobIdText, 'jobId');
+  const job = await findJobById(client, orgId, jobId);
+  if (!job) {
+    throw new HttpError(404, 'Job was not found.');
+  }
+
+  const selectedJobNumber = requireString(job.jobNumber, 'JobNumber');
+  const suppliedJobNumber = requireString(payload.jobNumber, 'JobNumber');
+  if (normalizeJobNumberKey(selectedJobNumber) !== normalizeJobNumberKey(suppliedJobNumber)) {
+    throw new HttpError(400, 'Job identity mismatch: selected job does not match jobNumber.');
+  }
+
+  if (normalizeJobLifecycleStatus(job.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${selectedJobNumber} is closed and cannot receive allocations.`);
+  }
+
+  const normalizedInstallDate = normalizeDateString(installDate, 'Install Date', true);
+  const normalizedCrewLeader = asTrimmedString(payload.crewLeader);
+  const existingInstallDate = asTrimmedString(job.installDate);
+  const existingCrewLeader = asTrimmedString(job.crewLeader);
+
+  if (existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
+    throw new HttpError(400, 'Install Date must stay the same for an existing Job Number.');
+  }
+
+  if (
+    existingCrewLeader &&
+    normalizedCrewLeader &&
+    normalizeCrewLeaderKey(existingCrewLeader) !== normalizeCrewLeaderKey(normalizedCrewLeader)
+  ) {
+    throw new HttpError(400, 'Crew Leader must stay the same for an existing Job Number.');
+  }
+
+  const resolvedInstallDate = normalizedInstallDate || existingInstallDate;
+  const resolvedCrewLeader = normalizedCrewLeader || existingCrewLeader;
+
+  if (resolvedInstallDate && !resolvedCrewLeader) {
+    throw new HttpError(400, 'Crew Leader is required when Install Date is set.');
+  }
+
+  return {
+    job,
+    jobId,
+    jobContext: {
+      jobNumber: selectedJobNumber,
+      installDate: resolvedInstallDate,
+      crewLeader: resolvedCrewLeader
+    }
+  };
 }
 
 function ensureBoxEligibleForJobAllocation(box, pendingTransfersByBoxRecordId, jobWarehouse, fallbackMessage) {
@@ -303,14 +376,15 @@ async function previewAllocationPlan(client, orgId, payload) {
   const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
   const allBoxes = await loadAllocationPreviewBoxes(client, orgId, source, crossWarehouse);
   const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
-  const jobContext = await resolveJobContext(
+  const previewTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
+  const jobContext = previewTarget.jobContext;
+  const jobWarehouse = await resolveAllocationJobWarehouse(
     client,
     orgId,
-    payload.jobNumber,
-    installDate,
-    payload.crewLeader
+    payload,
+    jobContext.jobNumber,
+    previewTarget.job
   );
-  const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
     source,
     ...allBoxes
@@ -322,9 +396,14 @@ async function previewAllocationPlan(client, orgId, payload) {
     'Only in-stock, ordered, or transfer boxes can be allocated.'
   );
   const requirementId = asTrimmedString(payload.requirementId);
+  const jobRequirements = requirementId
+    ? previewTarget.jobId
+      ? await listJobRequirementsByJobId(client, orgId, previewTarget.jobId)
+      : await listJobRequirementsByJob(client, orgId, jobContext.jobNumber)
+    : [];
   const selectedRequirement = requirementId
     ? resolveSelectedRequirement(
-        await listJobRequirementsByJob(client, orgId, jobContext.jobNumber),
+        jobRequirements,
         requirementId,
         source,
         jobContext.jobNumber

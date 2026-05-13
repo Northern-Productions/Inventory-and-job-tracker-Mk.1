@@ -48,6 +48,7 @@ type JobWorkflowDialogsProps = {
   onSubmitCaulkCheckin: () => void;
   isEditOpen: boolean;
   editDraftOverride?: JobEditorSubmitPayload | null;
+  canonicalJobId?: string;
   jobNumber: string;
   warehouse: Warehouse;
   sections: string | null;
@@ -101,6 +102,7 @@ export function JobWorkflowDialogs({
   onSubmitCaulkCheckin,
   isEditOpen,
   editDraftOverride = null,
+  canonicalJobId,
   jobNumber,
   warehouse,
   sections,
@@ -194,6 +196,7 @@ export function JobWorkflowDialogs({
 
       <JobAllocateDialog
         open={isAllocateOpen}
+        jobId={canonicalJobId}
         jobNumber={jobNumber}
         warehouse={warehouse}
         installDate={installDate}
