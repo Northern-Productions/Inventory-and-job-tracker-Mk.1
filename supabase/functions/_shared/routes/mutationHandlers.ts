@@ -769,8 +769,8 @@ const mutationHandlers: Record<string, MutationHandler> = {
       throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
     }
 
-    // Guarded transition only: api_acl_jobs_update is still jobNumber-targeted
-    // until a later RPC migration adds true jobId update semantics.
+    // Guarded transition only: api_acl_jobs_update targets exact jobId only
+    // after this Edge guard has validated canonical identity.
     const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, rpcPayload);
     return ok(
       target.usedJobId

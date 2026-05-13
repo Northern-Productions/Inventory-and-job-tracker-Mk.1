@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0121_planner_suppression_jobid_scope.sql';
+const LATEST_MIGRATION = '0122_jobs_update_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -131,6 +131,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
+  { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
 ];
@@ -241,6 +242,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_jobs_update(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      'where j.org_id = p_org_id\n      and j.id = v_job_id\n    for update;',
+      'Job identity mismatch: selected job does not match jobNumber.',
       "if p_payload ? 'workScope' or p_payload ? 'sections' then",
       "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
       'app_api.normalize_job_work_scope('
@@ -442,10 +446,26 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      'perform app_api.sync_active_job_schedule_allocations_by_job_id(',
       'perform app_api.sync_active_job_schedule_allocations(',
-      'perform app_api.reconcile_auto_planned_allocations('
+      'perform app_api.reconcile_auto_planned_allocations(',
+      "'jobIds', jsonb_build_array(v_updated_job.id)",
+      "'jobNumbers', jsonb_build_array(v_updated_job.job_number)"
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
+  },
+  {
+    signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)',
+    includes: [
+      'a.job_id = p_job_id',
+      'f.job_id = p_job_id',
+      'perform app_api.recalculate_physical_box_allocatable_now('
+    ],
+    excludes: [
+      'upper(trim(a.job_number)) = upper(trim(app_api.trim_text(p_job_number)))',
+      'upper(trim(f.job_number)) = upper(trim(app_api.trim_text(p_job_number)))'
+    ]
   },
   {
     signature: 'app_api.requirement_rows_from_payload_with_ids(jsonb)',
