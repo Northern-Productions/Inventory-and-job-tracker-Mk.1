@@ -58,6 +58,7 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
 ]);
 
 const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
+  '/allocations/remove-box',
   '/jobs/update',
   '/jobs/reopen',
 ]);

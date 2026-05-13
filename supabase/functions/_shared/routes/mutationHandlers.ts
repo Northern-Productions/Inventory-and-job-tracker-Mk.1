@@ -578,9 +578,9 @@ const mutationHandlers: Record<string, MutationHandler> = {
       }
     }
 
-    // Guarded transition only: api_acl_allocations_remove_box still targets by
-    // jobNumber and SQL planner scope remains jobNumber/box-driven until a
-    // later allocation/planner RPC migration adds true jobId semantics.
+    // Guarded transition only: remove-box remains SQL-owned so Edge does not
+    // run redundant post-planner work; the RPC scopes planner work by jobId
+    // only when canonical identity has already been validated.
     const rpcPayload = target.usedJobId
       ? { ...payloadWithoutRequestOrg, jobNumber }
       : payloadWithoutRequestOrg;
