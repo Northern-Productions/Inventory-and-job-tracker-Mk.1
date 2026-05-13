@@ -239,14 +239,17 @@ test('buildAutoPlannerScope leaves caulk removal to its SQL mutation wrapper', (
   );
 });
 
-test('local suppression resume forwards caulk material type to SQL owner', async () => {
+test('local suppression resume forwards canonical jobId and caulk material type to SQL owner', async () => {
   const source = await readFile(runtimeJobsMutationsPath, 'utf8');
 
   assert.match(
     source,
     /const materialType = normalizePlannerSuppressionMaterialType\(\s*payload\.materialType !== undefined\s*\?\s*payload\.materialType\s*:\s*payload\.material_type\s*\);/s
   );
-  assert.match(source, /JSON\.stringify\(\{\s*jobNumber,\s*requirementId,\s*materialType,\s*reason\s*\}\)/s);
+  assert.match(
+    source,
+    /JSON\.stringify\(\{\s*\.\.\.\(target\.usedJobId \? \{ jobId: target\.jobId \} : \{\}\),\s*jobNumber,\s*requirementId,\s*materialType,\s*reason\s*\}\)/s
+  );
 });
 
 test('getJobNumberForPlannerDetailReload reloads only job detail mutation responses', () => {

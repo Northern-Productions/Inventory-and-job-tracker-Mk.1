@@ -853,8 +853,8 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
     }
   }
 
-  // Guarded transition only: the clear-suppression RPC and planner reconcile
-  // still scope by jobNumber until later planner/RPC work adds true jobId semantics.
+  // Guarded transition only: canonical identity is validated locally before
+  // passing jobId through for SQL planner scope; legacy jobNumber remains valid.
   const row = await queryRow(
     client,
     `
@@ -868,6 +868,7 @@ async function clearAllocationPlannerSuppression(client, orgId, payload, actor) 
       orgId,
       asTrimmedString(actor),
       JSON.stringify({
+        ...(target.usedJobId ? { jobId: target.jobId } : {}),
         jobNumber,
         requirementId,
         materialType,
