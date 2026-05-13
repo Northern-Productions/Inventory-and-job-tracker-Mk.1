@@ -409,4 +409,3 @@ is 'Updates jobs by exact jobId when canonical identity is supplied, preserving 
 
 comment on function public.api_acl_jobs_update(uuid, text, jsonb)
 is 'Updates jobs and reconciles planner scope by exact jobId when canonical identity is supplied.';
-

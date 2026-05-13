@@ -132,4 +132,3 @@ test('jobs update jobId scope migration does not alter deferred workflows or dup
   assert.match(schemaCheck, /sync_active_job_schedule_allocations_by_job_id/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_updated_job\.id\)/);
 });
-
