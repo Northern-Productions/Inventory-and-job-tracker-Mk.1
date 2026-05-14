@@ -45,6 +45,7 @@ const ORG_WIDE_MUTATION_ROUTES = new Set([
 ]);
 
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  '/allocations/caulk/update',
   '/allocations/caulk/checkin',
   '/allocations/caulk/remove',
 ]);

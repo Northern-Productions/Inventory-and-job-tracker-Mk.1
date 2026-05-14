@@ -289,6 +289,7 @@ export function useUpdateCaulkJobAllocation() {
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobByIdRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
       ]);
@@ -298,6 +299,7 @@ export function useUpdateCaulkJobAllocation() {
         [
           inventoryKeys.jobs,
           inventoryKeys.jobRoot,
+          inventoryKeys.jobByIdRoot,
           inventoryKeys.allocationJobs,
           inventoryKeys.allocationJobRoot
         ],
@@ -310,7 +312,10 @@ export function useUpdateCaulkJobAllocation() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+      await invalidateCaulkJobQueries(queryClient, {
+        jobId: result.jobId,
+        jobNumber: result.jobNumber
+      });
     }
   });
 }

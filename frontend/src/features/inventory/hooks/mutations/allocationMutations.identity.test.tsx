@@ -8,12 +8,14 @@ import { inventoryKeys } from '../inventoryQueryKeys';
 import {
   useClearAllocationPlannerSuppression,
   useAllocateBox,
-  useRemoveJobBoxAllocations
+  useRemoveJobBoxAllocations,
+  useUpdateCaulkJobAllocation
 } from './allocationMutations';
 
 const applyAllocationPlanMock = vi.fn();
 const removeJobBoxAllocationsMock = vi.fn();
 const clearAllocationPlannerSuppressionMock = vi.fn();
+const updateCaulkJobAllocationMock = vi.fn();
 
 vi.mock('../../../../api/features/allocationsClient', () => ({
   addCaulkJobAllocation: vi.fn(),
@@ -24,7 +26,7 @@ vi.mock('../../../../api/features/allocationsClient', () => ({
   checkoutCaulkJobAllocation: vi.fn(),
   removeCaulkJobAllocation: vi.fn(),
   removeJobBoxAllocations: (...args: unknown[]) => removeJobBoxAllocationsMock(...args),
-  updateCaulkJobAllocation: vi.fn()
+  updateCaulkJobAllocation: (...args: unknown[]) => updateCaulkJobAllocationMock(...args)
 }));
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
@@ -343,6 +345,90 @@ describe('useRemoveJobBoxAllocations identity caches', () => {
 
     expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
+  });
+});
+
+describe('useUpdateCaulkJobAllocation identity caches', () => {
+  beforeEach(() => {
+    updateCaulkJobAllocationMock.mockReset();
+  });
+
+  it('row-derived update invalidates jobById and avoids same-number legacy detail caches when jobId returns', async () => {
+    const queryClient = createQueryClient();
+    const detail: JobDetail = {
+      ...buildDetail(),
+      caulkAllocations: [
+        {
+          caulkAllocationId: 'caulk-1',
+          requirementId: 'caulk-req-1',
+          productId: 'caulk-product-1',
+          manufacturerId: 'caulk-manufacturer-1',
+          manufacturer: 'Caulk Co',
+          productName: 'Clear Sealant',
+          productCode: 'CS-1',
+          tubesPerCase: 12,
+          warehouse: 'IL1',
+          allocatedTubes: 6,
+          reservedTubesRemaining: 6,
+          checkedOutTubesTotal: 0,
+          returnedUnusedTubesTotal: 0,
+          usedTubesTotal: 0,
+          overageTubesTotal: 0,
+          outstandingCheckoutTubes: 0,
+          openCheckoutCount: 0,
+          status: 'ACTIVE',
+          allocationSource: 'MANUAL',
+          createdAt: '',
+          createdBy: 'tester',
+          updatedAt: '',
+          updatedBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          pendingTransfer: null
+        }
+      ]
+    };
+
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), detail);
+    queryClient.setQueryData(inventoryKeys.job('1234'), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), {
+      source: 'legacy-allocation-job'
+    });
+    updateCaulkJobAllocationMock.mockResolvedValueOnce({
+      result: {
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        caulkAllocationId: 'caulk-1',
+        warnings: []
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useUpdateCaulkJobAllocation(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        caulkAllocationId: 'caulk-1',
+        allocatedTubes: 8,
+        notes: 'Need two more tubes.'
+      });
+    });
+
+    expect(updateCaulkJobAllocationMock).toHaveBeenCalledWith({
+      caulkAllocationId: 'caulk-1',
+      allocatedTubes: 8,
+      notes: 'Need two more tubes.'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual({ source: 'legacy-job' });
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual({
+      source: 'legacy-allocation-job'
+    });
   });
 });
 

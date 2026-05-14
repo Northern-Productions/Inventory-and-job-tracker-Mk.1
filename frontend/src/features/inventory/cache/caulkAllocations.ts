@@ -29,6 +29,27 @@ function findJobDetailByCaulkAllocationId(queryClient: QueryClient, caulkAllocat
   return null;
 }
 
+function findJobDetailByCaulkAllocationIdForUpdate(
+  queryClient: QueryClient,
+  caulkAllocationId: string
+) {
+  const exactJobQueries = queryClient.getQueriesData<JobDetail>({
+    queryKey: inventoryKeys.jobByIdRoot
+  });
+
+  for (let index = 0; index < exactJobQueries.length; index += 1) {
+    const [, current] = exactJobQueries[index];
+    if (
+      current?.caulkAllocations.some((entry) => entry.caulkAllocationId === caulkAllocationId)
+    ) {
+      return { detail: current, exactJobId: true };
+    }
+  }
+
+  const detail = findJobDetailByCaulkAllocationId(queryClient, caulkAllocationId);
+  return detail ? { detail, exactJobId: false } : null;
+}
+
 function buildCaulkProductLookup(detail: JobDetail, caulkProducts: CaulkProductEntry[]) {
   const productLookup: Record<string, CaulkProductEntry | CaulkJobAllocationEntry | JobDetail['caulkRequirements'][number]> =
     {};
@@ -152,11 +173,15 @@ export function applyOptimisticUpdateCaulkAllocationToCaches(
   queryClient: QueryClient,
   payload: UpdateCaulkJobAllocationPayload
 ) {
-  const currentJob = findJobDetailByCaulkAllocationId(queryClient, payload.caulkAllocationId);
-  if (!currentJob) {
+  const currentMatch = findJobDetailByCaulkAllocationIdForUpdate(
+    queryClient,
+    payload.caulkAllocationId
+  );
+  if (!currentMatch) {
     return;
   }
 
+  const currentJob = currentMatch.detail;
   const caulkProducts =
     queryClient.getQueryData<CaulkProductEntry[]>(inventoryKeys.caulkProducts) || [];
   const productLookup = buildCaulkProductLookup(currentJob, caulkProducts);
@@ -225,7 +250,13 @@ export function applyOptimisticUpdateCaulkAllocationToCaches(
     currentJob,
     nextCaulkAllocations
   );
-  syncJobDetailCaches(queryClient, nextDetail, { syncAllocationJobDetail: true });
+  syncJobDetailCaches(
+    queryClient,
+    nextDetail,
+    currentMatch.exactJobId
+      ? { syncLegacyJobDetail: false }
+      : { syncAllocationJobDetail: true }
+  );
 }
 
 export function applyOptimisticRemoveCaulkAllocationToCaches(
