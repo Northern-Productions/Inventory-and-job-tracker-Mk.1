@@ -8,6 +8,7 @@ import {
   normalizeDateString,
   coerceNonNegativeNumber,
   coerceFeetValue,
+  requireUuid,
   releaseAllocationFeetFromBox,
   integerOrZero,
   cloneValue,
@@ -35,6 +36,7 @@ import {
   findAllocationById,
   saveAllocationRecord,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
   findJobByNumber,
@@ -653,7 +655,14 @@ async function deleteJob(client, orgId, payload, actor, role) {
 async function createFilmOrder(client, orgId, payload, actor) {
   const warnings = [];
   const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
-  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId) {
+    requireUuid(suppliedJobId, 'jobId');
+  }
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, 'JobNumber')
+    : requireString(payload.jobNumber, 'JobNumber');
   const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
   const sourceFilmName = requireString(payload.filmName, 'FilmName');
   assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
@@ -673,14 +682,22 @@ async function createFilmOrder(client, orgId, payload, actor) {
     throw new HttpError(400, 'RequestedFeet must be greater than zero.');
   }
 
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const existingJob = target.usedJobId
+    ? target.job
+    : await findJobByNumber(client, orgId, jobNumber);
   if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
     throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
   }
 
   const duplicateKey = normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn);
+  if (target.usedJobId && !requirementId) {
+    throw new HttpError(400, 'RequirementID is required when jobId is supplied.');
+  }
+
   if (requirementId) {
-    const requirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+    const requirements = target.usedJobId
+      ? await listJobRequirementsByJobId(client, orgId, target.jobId)
+      : await listJobRequirementsByJob(client, orgId, jobNumber);
     selectedRequirement = requirements.find((entry) => asTrimmedString(entry.id || entry.requirementId) === requirementId) || null;
     if (!selectedRequirement) {
       throw new HttpError(404, 'Job requirement was not found.');
@@ -696,7 +713,9 @@ async function createFilmOrder(client, orgId, payload, actor) {
     }
   }
 
-  const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const existingFilmOrders = target.usedJobId
+    ? await listFilmOrdersByJobId(client, orgId, target.jobId)
+    : await listFilmOrdersByJob(client, orgId, jobNumber);
   const duplicateOrder = existingFilmOrders.find((entry) => {
     const status = asTrimmedString(entry?.status).toUpperCase();
     if (status !== 'FILM_ORDER' && status !== 'FILM_ON_THE_WAY') {
@@ -718,7 +737,9 @@ async function createFilmOrder(client, orgId, payload, actor) {
     );
   }
 
-  const jobId = await getOrResolveJobId(client, orgId, jobNumber);
+  const jobId = target.usedJobId
+    ? target.jobId
+    : await getOrResolveJobId(client, orgId, jobNumber);
   const entry = await saveFilmOrderRecord(client, orgId, {
     filmOrderId: createLogId(),
     requirementId,

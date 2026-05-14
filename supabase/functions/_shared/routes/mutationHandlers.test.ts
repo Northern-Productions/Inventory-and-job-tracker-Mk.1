@@ -1306,6 +1306,231 @@ Deno.test("planner mutation routes still run Edge planner reconciliation when SQ
   );
 });
 
+Deno.test("/film-orders/create canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+  const findJobCalls: Array<Record<string, unknown>> = [];
+  const jobId = "11111111-1111-4111-8111-111111111111";
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/create",
+    {
+      orgId: "request-org-ignored",
+      jobId,
+      jobNumber: "81234",
+      requirementId: "req-1",
+      warehouse: "IL1",
+      manufacturer: "3M",
+      filmName: "Night Vision 35",
+      widthIn: 60,
+      requestedFeet: 40,
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        findJobCalls.push({ orgId, jobId: selectedJobId });
+        return {
+          id: selectedJobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          filmOrderId: "FO-100",
+          warnings: [],
+        };
+      },
+      findFilmOrderById: async (_client: unknown, orgId: string, filmOrderId: string) => ({
+        orgId,
+        filmOrderId,
+        jobNumber: "81234",
+        status: "FILM_ORDER",
+      }),
+      toPublicFilmOrder: (entry: any) => ({
+        filmOrderId: entry.filmOrderId,
+        jobNumber: entry.jobNumber,
+      }),
+    }),
+  );
+
+  assertEquals(
+    findJobCalls,
+    [{ orgId: "org-from-auth", jobId }],
+    "Expected canonical film order create job lookup to use auth-derived org.",
+  );
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_film_orders_create",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId,
+          jobNumber: "81234",
+          requirementId: "req-1",
+          warehouse: "IL1",
+          manufacturer: "3M",
+          filmName: "Night Vision 35",
+          widthIn: 60,
+          requestedFeet: 40,
+        },
+      },
+    ],
+    "Expected canonical film order create to strip request orgId and pass jobId only after validation.",
+  );
+  assertEquals(
+    response.data,
+    {
+      filmOrderId: "FO-100",
+      jobNumber: "81234",
+    },
+    "Expected film order create response shape to stay stable.",
+  );
+});
+
+Deno.test("/film-orders/create rejects invalid or mismatched jobId before SQL RPC", async () => {
+  let rpcCallCount = 0;
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/film-orders/create",
+      {
+        jobId: "not-a-uuid",
+        jobNumber: "81234",
+        requirementId: "req-1",
+      },
+      buildDeps({
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(error instanceof Error, "Expected invalid jobId to throw.");
+    const message = error instanceof Error ? error.message : String(error);
+    assert(
+      message.includes("jobId must be a valid UUID"),
+      `Expected invalid jobId error, received ${message}.`,
+    );
+  }
+
+  assertEquals(rpcCallCount, 0, "Expected invalid jobId to fail before RPC.");
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/film-orders/create",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+        requirementId: "req-1",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(error instanceof Error, "Expected mismatched job identity to throw.");
+    const message = error instanceof Error ? error.message : String(error);
+    assert(
+      message.includes("Job identity mismatch"),
+      `Expected mismatch error, received ${message}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected mismatched jobId to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected film order create mismatched job identity to fail.");
+});
+
+Deno.test("/film-orders/create preserves legacy jobNumber-only RPC payload", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+  let findJobByIdCount = 0;
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/create",
+    {
+      orgId: "request-org-ignored",
+      jobNumber: "81234",
+      warehouse: "IL1",
+      manufacturer: "3M",
+      filmName: "Night Vision 35",
+      widthIn: 60,
+      requestedFeet: 40,
+    },
+    buildDeps({
+      findJobById: async () => {
+        findJobByIdCount += 1;
+        return null;
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          filmOrderId: "FO-LEGACY",
+          warnings: [],
+        };
+      },
+      findFilmOrderById: async (_client: unknown, _orgId: string, filmOrderId: string) => ({
+        filmOrderId,
+        jobNumber: "81234",
+      }),
+      toPublicFilmOrder: (entry: any) => ({
+        filmOrderId: entry.filmOrderId,
+        jobNumber: entry.jobNumber,
+      }),
+    }),
+  );
+
+  assertEquals(findJobByIdCount, 0, "Expected legacy create not to resolve jobId.");
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_film_orders_create",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobNumber: "81234",
+          warehouse: "IL1",
+          manufacturer: "3M",
+          filmName: "Night Vision 35",
+          widthIn: 60,
+          requestedFeet: 40,
+        },
+      },
+    ],
+    "Expected legacy film order create to remain jobNumber-only.",
+  );
+});
+
 Deno.test("/film-orders/delete scopes Edge planner to returned film order job and preserves response", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const plannerCalls: Array<Record<string, unknown>> = [];
