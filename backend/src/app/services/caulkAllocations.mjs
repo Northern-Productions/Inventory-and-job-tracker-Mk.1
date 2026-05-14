@@ -75,6 +75,37 @@ async function requireActiveJobForCaulk(client, orgId, jobNumber) {
   return row;
 }
 
+async function requireCaulkAllocationJobById(client, orgId, jobId, missingMessage) {
+  const normalizedJobId = asTrimmedString(jobId);
+  if (!normalizedJobId) {
+    throw new HttpError(404, missingMessage);
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.jobs j
+      where j.org_id = $1::uuid
+        and j.id = $2::uuid
+      for update
+    `,
+    [orgId, requireUuid(normalizedJobId, 'jobId')]
+  );
+
+  if (!row) {
+    throw new HttpError(404, missingMessage);
+  }
+
+  return row;
+}
+
+function assertActiveCaulkJob(job) {
+  if (asTrimmedString(job?.lifecycle_status).toUpperCase() !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${asTrimmedString(job?.job_number)} is closed and cannot receive caulk allocations.`);
+  }
+}
+
 async function requireCaulkWarehouse(client, orgId, warehouse) {
   const row = await queryRow(
     client,
@@ -1107,7 +1138,13 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
     throw new HttpError(400, `Caulk allocation ${caulkAllocationId} is not active.`);
   }
 
-  await requireActiveJobForCaulk(client, orgId, allocation.job_number);
+  const selectedJob = await requireCaulkAllocationJobById(
+    client,
+    orgId,
+    allocation.job_id,
+    `Job for caulk allocation ${caulkAllocationId} was not found.`
+  );
+  assertActiveCaulkJob(selectedJob);
 
   const pendingTransfer = await findLockedPendingTransferByAllocationRowId(client, orgId, allocation.id);
   assertNoPendingTransferForEditOrCheckout(pendingTransfer, 'checking out');
@@ -1189,7 +1226,7 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
       orgId,
       checkoutId,
       allocation.id,
-      asTrimmedString(allocation.job_number),
+      asTrimmedString(selectedJob.job_number),
       allocation.product_id,
       currentWarehouse,
       checkoutTubes,
@@ -1216,9 +1253,12 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
 
   return {
     result: {
-      jobNumber: asTrimmedString(allocation.job_number),
+      jobId: asTrimmedString(selectedJob.id),
+      jobNumber: asTrimmedString(selectedJob.job_number),
       caulkAllocationId,
       caulkCheckoutId: checkoutId,
+      productId: asTrimmedString(allocation.product_id),
+      warehouse: currentWarehouse,
       warnings: [],
     },
     warnings: [],

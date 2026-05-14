@@ -140,6 +140,8 @@ const PLANNER_MUTATION_ROUTES = new Set([
  * or hidden planner skips for routes that still depend on Edge reconciliation.
  */
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  "/allocations/caulk/checkout",
+  "/allocations/caulk/checkin",
   "/allocations/caulk/remove",
   "/allocations/add",
   "/allocations/apply",
@@ -686,22 +688,24 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(result, result.warnings || []);
   },
   "/allocations/caulk/checkout": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_allocations_caulk_checkout",
       orgId,
       actor,
-      normalizedPayload,
+      payloadWithoutRequestOrg,
     );
     return ok(result, result.warnings || []);
   },
   "/allocations/caulk/checkin": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_allocations_caulk_checkin",
       orgId,
       actor,
-      normalizedPayload,
+      payloadWithoutRequestOrg,
     );
     return ok(result, result.warnings || []);
   },

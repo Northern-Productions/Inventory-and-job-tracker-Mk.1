@@ -63,17 +63,26 @@ export async function invalidateJobLifecycleQueries(
 
 export async function invalidateCaulkJobQueries(
   queryClient: QueryClient,
-  jobNumber: string,
+  identity: string | JobCacheIdentity,
   options: { includeJobCollections?: boolean } = {}
 ) {
+  const { jobId, jobNumber } = normalizeJobCacheIdentity(identity);
+  const includeLegacyJobDetail = !jobId && jobNumber;
   const queryKeys: (readonly unknown[])[] = [
-    inventoryKeys.job(jobNumber),
-    inventoryKeys.allocationJob(jobNumber),
-    CAULK_QUERY_KEY
+    ...(jobId ? [inventoryKeys.jobById(jobId)] : []),
+    ...(includeLegacyJobDetail ? [inventoryKeys.job(jobNumber), inventoryKeys.allocationJob(jobNumber)] : []),
+    CAULK_QUERY_KEY,
+    ['caulk', 'stock'],
+    ['caulk', 'transactions']
   ];
 
-  if (options.includeJobCollections) {
-    queryKeys.splice(2, 0, inventoryKeys.jobs, inventoryKeys.allocationJobs);
+  if (options.includeJobCollections || jobId) {
+    queryKeys.unshift(
+      inventoryKeys.jobs,
+      inventoryKeys.jobsCalendarRoot,
+      inventoryKeys.allocationJobs,
+      inventoryKeys.reportsRoot
+    );
   }
 
   await invalidateQueryKeys(queryClient, queryKeys);

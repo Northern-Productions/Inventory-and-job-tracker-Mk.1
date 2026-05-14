@@ -49,7 +49,7 @@ test('roll history overload hotfix uses explicit insert columns for both overloa
 test('latest schema check still validates the roll history overload hotfix semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0124_film_order_create_jobid_scope\.sql/);
+  assert.match(schemaCheck, /0125_caulk_checkout_checkin_jobid_scope\.sql/);
   assert.match(schemaCheck, /insert into app\.roll_weight_log \(/);
   assert.match(schemaCheck, /created_at\\n  \)/);
   assert.match(schemaCheck, /timestamp with time zone/);

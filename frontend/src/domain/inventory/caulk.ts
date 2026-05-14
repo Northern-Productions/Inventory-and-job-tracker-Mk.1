@@ -289,8 +289,11 @@ export interface CancelCaulkTransferPayload {
 }
 
 export interface CaulkJobAllocationMutationResult {
+  jobId?: string;
   jobNumber: string;
   caulkAllocationId: string;
+  productId?: string;
+  warehouse?: string;
 }
 
 export interface CaulkTransferMutationResult extends CaulkJobAllocationMutationResult {
