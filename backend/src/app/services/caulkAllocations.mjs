@@ -3,6 +3,10 @@ import crypto from 'node:crypto';
 import { queryRow } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
 import { asTrimmedString, integerOrZero, parseIntegerInput, requireUuid } from '../core/helpers.mjs';
+import {
+  normalizePlannerWarnings,
+  reconcileAutoPlannedAllocations,
+} from './runtime/runtimeAutoAllocationPlanner.mjs';
 
 async function callCaulkAllocationMutation(client, functionName, orgId, actor, payload) {
   const row = await queryRow(
@@ -361,10 +365,11 @@ function normalizeWarnings(value) {
   return Array.isArray(value) ? value.map((entry) => asTrimmedString(entry)).filter(Boolean) : [];
 }
 
-function buildMutationResponse(jobNumber, caulkAllocationId, warnings = []) {
+function buildMutationResponse(jobNumber, caulkAllocationId, warnings = [], extraResult = {}) {
   const normalizedWarnings = normalizeWarnings(warnings);
   return {
     result: {
+      ...extraResult,
       jobNumber: asTrimmedString(jobNumber),
       caulkAllocationId: asTrimmedString(caulkAllocationId),
       warnings: normalizedWarnings,
@@ -923,7 +928,14 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
     throw new HttpError(400, `Caulk allocation ${caulkAllocationId} is not active.`);
   }
 
-  await requireActiveJobForCaulk(client, orgId, allocation.job_number);
+  const selectedJob = await requireCaulkAllocationJobById(
+    client,
+    orgId,
+    allocation.job_id,
+    `Job for caulk allocation ${caulkAllocationId} was not found.`
+  );
+  assertActiveCaulkJob(selectedJob);
+
   const pendingTransfer = await findLockedPendingTransferByAllocationRowId(client, orgId, allocation.id);
 
   const hasProductId = Object.prototype.hasOwnProperty.call(payload || {}, 'productId');
@@ -1011,8 +1023,8 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
     const transferStart = await startPendingCaulkTransfer(client, orgId, normalizedActor, {
       allocationRowId: allocation.id,
       allocationPublicId: caulkAllocationId,
-      jobId: allocation.job_id,
-      jobNumber: asTrimmedString(allocation.job_number),
+      jobId: selectedJob.id,
+      jobNumber: asTrimmedString(selectedJob.job_number),
       productId: nextProductId,
       fromWarehouse: payload?.transferFromWarehouse,
       toWarehouse: nextWarehouse,
@@ -1072,8 +1084,8 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
       const transferStart = await startPendingCaulkTransfer(client, orgId, normalizedActor, {
         allocationRowId: allocation.id,
         allocationPublicId: caulkAllocationId,
-        jobId: allocation.job_id,
-        jobNumber: asTrimmedString(allocation.job_number),
+        jobId: selectedJob.id,
+        jobNumber: asTrimmedString(selectedJob.job_number),
         productId: allocation.product_id,
         fromWarehouse: payload?.transferFromWarehouse,
         toWarehouse: currentWarehouse,
@@ -1117,7 +1129,19 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
     );
   }
 
-  return buildMutationResponse(allocation.job_number, caulkAllocationId, warnings);
+  const plannerResult = await reconcileAutoPlannedAllocations(client, orgId, normalizedActor, {
+    jobIds: [asTrimmedString(selectedJob.id)],
+    jobNumbers: [asTrimmedString(selectedJob.job_number)],
+    caulkProductWarehousePairs: [
+      { productId: allocation.product_id, warehouse: currentWarehouse },
+      { productId: nextProductId, warehouse: nextWarehouse },
+    ],
+  });
+  warnings = [...warnings, ...normalizePlannerWarnings(plannerResult)];
+
+  return buildMutationResponse(selectedJob.job_number, caulkAllocationId, warnings, {
+    jobId: asTrimmedString(selectedJob.id),
+  });
 }
 
 export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
