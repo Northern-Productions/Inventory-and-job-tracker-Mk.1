@@ -1313,6 +1313,61 @@ Deno.test("legacy caulk add keeps payload compatible while stripping request org
   );
 });
 
+Deno.test("caulk remove preserves row-id payload while stripping request orgId", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+  let plannerCallCount = 0;
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/caulk/remove",
+    {
+      orgId: "request-org-ignored",
+      caulkAllocationId: "CAULK-100",
+      reason: "Remove selected row.",
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          caulkAllocationId: "CAULK-100",
+          releasedReservedTubes: 3,
+          warnings: [],
+        };
+      },
+      reconcileAutoPlannedAllocations: async () => {
+        plannerCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_allocations_caulk_remove",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          caulkAllocationId: "CAULK-100",
+          reason: "Remove selected row.",
+        },
+      },
+    ],
+    "Expected caulk remove to preserve its row payload while dropping request orgId.",
+  );
+  assertEquals(plannerCallCount, 0, "Expected caulk remove to leave planner ownership with SQL.");
+});
+
 Deno.test("caulk checkout/check-in preserve row-id payloads while stripping request orgId", async () => {
   const cases = [
     {

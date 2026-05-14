@@ -263,17 +263,23 @@ export function applyOptimisticRemoveCaulkAllocationToCaches(
   queryClient: QueryClient,
   caulkAllocationId: string
 ) {
-  const currentJob = findJobDetailByCaulkAllocationId(queryClient, caulkAllocationId);
-  if (!currentJob) {
+  const currentMatch = findJobDetailByCaulkAllocationIdForUpdate(queryClient, caulkAllocationId);
+  if (!currentMatch) {
     return;
   }
 
   const nextDetail = buildNextJobDetailForCaulkAllocations(
     queryClient,
-    currentJob,
-    currentJob.caulkAllocations.filter((entry) => entry.caulkAllocationId !== caulkAllocationId)
+    currentMatch.detail,
+    currentMatch.detail.caulkAllocations.filter((entry) => entry.caulkAllocationId !== caulkAllocationId)
   );
-  syncJobDetailCaches(queryClient, nextDetail, { syncAllocationJobDetail: true });
+  syncJobDetailCaches(
+    queryClient,
+    nextDetail,
+    currentMatch.exactJobId
+      ? { syncLegacyJobDetail: false }
+      : { syncAllocationJobDetail: true }
+  );
 }
 
 export function replacePendingCaulkAllocationIdInCaches(

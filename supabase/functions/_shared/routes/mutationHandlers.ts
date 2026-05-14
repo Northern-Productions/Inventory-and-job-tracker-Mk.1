@@ -728,12 +728,13 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(result, result.warnings || []);
   },
   "/allocations/caulk/remove": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_allocations_caulk_remove",
       orgId,
       actor,
-      normalizedPayload,
+      payloadWithoutRequestOrg,
     );
     return ok(result, result.warnings || []);
   },
