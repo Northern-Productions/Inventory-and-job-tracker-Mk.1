@@ -1079,6 +1079,16 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       expectedRpc: "api_acl_allocations_caulk_checkin",
     },
     {
+      route: "/caulk/transfers/receive",
+      payload: { transferId: "TR-100" },
+      expectedRpc: "api_acl_caulk_transfer_receive",
+    },
+    {
+      route: "/caulk/transfers/cancel",
+      payload: { transferId: "TR-100", reason: "No longer needed." },
+      expectedRpc: "api_acl_caulk_transfer_cancel",
+    },
+    {
       route: "/boxes/update",
       payload: { boxId: "IL1-100" },
       expectedRpc: "api_acl_boxes_update",
@@ -1502,6 +1512,74 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
     },
     "Expected updated public boxes and label audit IDs.",
   );
+});
+
+Deno.test("caulk transfer receive/cancel preserve transferId payloads while stripping request orgId", async () => {
+  const cases = [
+    {
+      route: "/caulk/transfers/receive",
+      payload: { orgId: "request-org-ignored", transferId: "TR-100" },
+      expectedRpc: "api_acl_caulk_transfer_receive",
+      expectedPayload: { transferId: "TR-100" },
+    },
+    {
+      route: "/caulk/transfers/cancel",
+      payload: { orgId: "request-org-ignored", transferId: "TR-100", reason: "No longer needed." },
+      expectedRpc: "api_acl_caulk_transfer_cancel",
+      expectedPayload: { transferId: "TR-100", reason: "No longer needed." },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    let plannerCallCount = 0;
+
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      testCase.route,
+      testCase.payload,
+      buildDeps({
+        callMutationRpc: async (
+          _client: unknown,
+          fn: string,
+          orgId: string,
+          actor: string,
+          payload: Record<string, unknown>,
+        ) => {
+          rpcPayloads.push({ fn, orgId, actor, payload });
+          return {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "81234",
+            caulkAllocationId: "CAULK-100",
+            transferId: "TR-100",
+            productId: "product-1",
+            sourceWarehouse: "IL2",
+            destinationWarehouse: "IL1",
+            warnings: [],
+          };
+        },
+        reconcileAutoPlannedAllocations: async () => {
+          plannerCallCount += 1;
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(
+      rpcPayloads,
+      [
+        {
+          fn: testCase.expectedRpc,
+          orgId: "org-from-auth",
+          actor: "tester",
+          payload: testCase.expectedPayload,
+        },
+      ],
+      `Expected ${testCase.route} to strip request orgId before SQL RPC.`,
+    );
+    assertEquals(plannerCallCount, 0, `Expected ${testCase.route} to leave planner ownership with SQL.`);
+  }
 });
 
 Deno.test("planner mutation routes still run Edge planner reconciliation when SQL does not own it", async () => {
