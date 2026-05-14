@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0126_caulk_update_jobid_scope.sql';
+const LATEST_MIGRATION = '0127_caulk_add_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },

@@ -242,6 +242,7 @@ export interface CaulkTransferResult {
 }
 
 export interface AddCaulkJobAllocationPayload {
+  jobId?: string;
   jobNumber: string;
   requirementId?: string;
   productId: string;

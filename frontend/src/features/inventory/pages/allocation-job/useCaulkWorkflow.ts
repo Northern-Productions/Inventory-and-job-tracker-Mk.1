@@ -43,6 +43,7 @@ type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
 
 interface UseCaulkWorkflowArgs {
+  canonicalJobId?: string;
   jobNumber?: string;
   warehouse?: Warehouse;
   isReadOnlyJob: boolean;
@@ -94,6 +95,7 @@ interface UseCaulkWorkflowArgs {
 }
 
 export function useCaulkWorkflow({
+  canonicalJobId,
   jobNumber,
   warehouse,
   isReadOnlyJob,
@@ -306,6 +308,7 @@ export function useCaulkWorkflow({
 
       if (caulkAllocationEditor.mode === 'add') {
         const savePromise = addCaulkAllocation({
+          jobId: canonicalJobId || undefined,
           jobNumber,
           requirementId: selectedRequirement?.requirementId || undefined,
           productId: selectedProductId,

@@ -395,6 +395,7 @@ export function useAllocationJobPageModel() {
   });
 
   const caulkWorkflow = useCaulkWorkflow({
+    canonicalJobId: routeJobId || undefined,
     jobNumber: summary?.jobNumber,
     warehouse: summary?.warehouse,
     isReadOnlyJob,

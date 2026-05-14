@@ -232,6 +232,27 @@ export function useAddCaulkJobAllocation() {
     mutationKey: inventoryKeys.addCaulkAllocationMutation,
     mutationFn: (payload: AddCaulkJobAllocationPayload) => addCaulkJobAllocation(payload),
     onMutate: async (payload) => {
+      const canonicalJobId = String(payload.jobId || '').trim();
+      if (canonicalJobId) {
+        await Promise.all([
+          queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+          queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(canonicalJobId) }),
+          queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
+        ]);
+
+        return beginImmediateOptimisticMutation(
+          queryClient,
+          [
+            inventoryKeys.jobs,
+            inventoryKeys.jobById(canonicalJobId),
+            inventoryKeys.allocationJobs,
+            inventoryKeys.allocationJobRoot
+          ],
+          () => {}
+        );
+      }
+
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
@@ -264,7 +285,7 @@ export function useAddCaulkJobAllocation() {
     onError: (_error, _variables, context) => {
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }, _variables, context) => {
+    onSuccess: async ({ result }, variables, context) => {
       if (context?.pendingCaulkAllocationId) {
         replacePendingCaulkAllocationIdInCaches(
           queryClient,
@@ -274,7 +295,12 @@ export function useAddCaulkJobAllocation() {
         );
       }
 
-      await invalidateCaulkJobQueries(queryClient, result.jobNumber, { includeJobCollections: true });
+      const resultJobId = String(result.jobId || variables.jobId || '').trim();
+      await invalidateCaulkJobQueries(
+        queryClient,
+        resultJobId ? { jobId: resultJobId, jobNumber: result.jobNumber } : result.jobNumber,
+        { includeJobCollections: true }
+      );
     }
   });
 }

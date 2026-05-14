@@ -92,6 +92,7 @@ describe('allocations API client caulk routes', () => {
     });
 
     const payload = {
+      jobId: '11111111-1111-4111-8111-111111111111',
       jobNumber: '000123',
       productId: 'product-1',
       warehouse: 'IL1' as const,

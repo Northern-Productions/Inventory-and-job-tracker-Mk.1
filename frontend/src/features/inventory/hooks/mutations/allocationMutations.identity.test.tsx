@@ -8,17 +8,19 @@ import { inventoryKeys } from '../inventoryQueryKeys';
 import {
   useClearAllocationPlannerSuppression,
   useAllocateBox,
+  useAddCaulkJobAllocation,
   useRemoveJobBoxAllocations,
   useUpdateCaulkJobAllocation
 } from './allocationMutations';
 
 const applyAllocationPlanMock = vi.fn();
+const addCaulkJobAllocationMock = vi.fn();
 const removeJobBoxAllocationsMock = vi.fn();
 const clearAllocationPlannerSuppressionMock = vi.fn();
 const updateCaulkJobAllocationMock = vi.fn();
 
 vi.mock('../../../../api/features/allocationsClient', () => ({
-  addCaulkJobAllocation: vi.fn(),
+  addCaulkJobAllocation: (...args: unknown[]) => addCaulkJobAllocationMock(...args),
   applyAllocationPlan: (...args: unknown[]) => applyAllocationPlanMock(...args),
   checkinCaulkJobAllocation: vi.fn(),
   clearAllocationPlannerSuppression: (...args: unknown[]) =>
@@ -340,6 +342,95 @@ describe('useRemoveJobBoxAllocations identity caches', () => {
         jobNumber: '1234',
         allocationId: 'alloc-1',
         reason: 'Remove legacy row.'
+      });
+    });
+
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
+  });
+});
+
+describe('useAddCaulkJobAllocation identity caches', () => {
+  beforeEach(() => {
+    addCaulkJobAllocationMock.mockReset();
+  });
+
+  it('canonical add sends jobId, invalidates jobById, and avoids same-number legacy detail caches', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), detail);
+    queryClient.setQueryData(inventoryKeys.job('1234'), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), {
+      source: 'legacy-allocation-job'
+    });
+    addCaulkJobAllocationMock.mockResolvedValueOnce({
+      result: {
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        caulkAllocationId: 'caulk-1',
+        warnings: []
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useAddCaulkJobAllocation(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        requirementId: 'caulk-req-1',
+        productId: 'caulk-product-1',
+        warehouse: 'IL1',
+        allocatedTubes: 6
+      });
+    });
+
+    expect(addCaulkJobAllocationMock).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      jobNumber: '1234',
+      requirementId: 'caulk-req-1',
+      productId: 'caulk-product-1',
+      warehouse: 'IL1',
+      allocatedTubes: 6
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual({ source: 'legacy-job' });
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+  });
+
+  it('legacy add keeps jobNumber optimistic detail behavior', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.job('1234'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), buildAllocationJobDetail(detail));
+    addCaulkJobAllocationMock.mockResolvedValueOnce({
+      result: {
+        jobNumber: '1234',
+        caulkAllocationId: 'caulk-1',
+        warnings: []
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useAddCaulkJobAllocation(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobNumber: '1234',
+        productId: 'caulk-product-1',
+        warehouse: 'IL1',
+        allocatedTubes: 6
       });
     });
 
