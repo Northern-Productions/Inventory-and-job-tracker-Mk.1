@@ -127,6 +127,26 @@ test('buildAutoPlannerScope captures caulk product warehouse pairs', () => {
   );
 });
 
+test('buildAutoPlannerScope uses row-derived jobId metadata for caulk checkout', () => {
+  assert.deepEqual(
+    buildAutoPlannerScope(
+      '/allocations/caulk/checkout',
+      { caulkAllocationId: 'caulk-1', checkoutTubes: 2 },
+      {
+        jobId: '55555555-5555-4555-8555-555555555555',
+        jobNumber: '18722',
+        productId: 'product-1',
+        warehouse: 'il1',
+      }
+    ),
+    {
+      jobNumbers: ['18722'],
+      jobIds: ['55555555-5555-4555-8555-555555555555'],
+      caulkProductWarehousePairs: [{ productId: 'product-1', warehouse: 'IL1' }],
+    }
+  );
+});
+
 test('buildAutoPlannerScope uses org-wide planning for lifecycle cleanup', () => {
   assert.deepEqual(buildAutoPlannerScope('/jobs/complete', { jobNumber: '18722' }, {}), {});
 });
@@ -234,6 +254,22 @@ test('buildAutoPlannerScope leaves caulk removal to its SQL mutation wrapper', (
       '/allocations/caulk/remove',
       { caulkAllocationId: 'caulk-1' },
       { jobNumber: '18722', productId: 'product-1', warehouse: 'IL1' }
+    ),
+    null
+  );
+});
+
+test('buildAutoPlannerScope leaves caulk check-in to its SQL mutation wrapper', () => {
+  assert.equal(
+    buildAutoPlannerScope(
+      '/allocations/caulk/checkin',
+      { caulkCheckoutId: 'checkout-1' },
+      {
+        jobId: '55555555-5555-4555-8555-555555555555',
+        jobNumber: '18722',
+        productId: 'product-1',
+        warehouse: 'IL1',
+      }
     ),
     null
   );

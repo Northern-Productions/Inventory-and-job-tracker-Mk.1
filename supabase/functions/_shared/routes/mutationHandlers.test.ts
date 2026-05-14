@@ -1059,6 +1059,16 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       expectedRpc: "api_acl_allocations_caulk_remove",
     },
     {
+      route: "/allocations/caulk/checkout",
+      payload: { caulkAllocationId: "CAULK-100", checkoutTubes: 3 },
+      expectedRpc: "api_acl_allocations_caulk_checkout",
+    },
+    {
+      route: "/allocations/caulk/checkin",
+      payload: { caulkCheckoutId: "CHK-100", unusedLooseTubes: 1, unusedCases: 0 },
+      expectedRpc: "api_acl_allocations_caulk_checkin",
+    },
+    {
       route: "/boxes/update",
       payload: { boxId: "IL1-100" },
       expectedRpc: "api_acl_boxes_update",
@@ -1099,6 +1109,15 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
               caulkAllocationId: "CAULK-100",
               releasedReservedTubes: 20,
               autoPlanningSuppressed: true,
+              warnings: ["SQL planner completed."],
+            };
+          }
+          if (fn === "api_acl_allocations_caulk_checkout" || fn === "api_acl_allocations_caulk_checkin") {
+            return {
+              jobId: "11111111-1111-4111-8111-111111111111",
+              jobNumber: "81234",
+              caulkAllocationId: "CAULK-100",
+              caulkCheckoutId: "CHK-100",
               warnings: ["SQL planner completed."],
             };
           }
@@ -1150,6 +1169,71 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
     if (testCase.route.startsWith("/jobs/")) {
       assertEquals(detailCallCount, 1, `Expected ${testCase.route} to reload job detail once.`);
     }
+  }
+});
+
+Deno.test("caulk checkout/check-in preserve row-id payloads while stripping request orgId", async () => {
+  const cases = [
+    {
+      route: "/allocations/caulk/checkout",
+      payload: { orgId: "request-org-ignored", caulkAllocationId: "CAULK-100", checkoutTubes: 3 },
+      expectedRpc: "api_acl_allocations_caulk_checkout",
+      expectedPayload: { caulkAllocationId: "CAULK-100", checkoutTubes: 3 },
+    },
+    {
+      route: "/allocations/caulk/checkin",
+      payload: { orgId: "request-org-ignored", caulkCheckoutId: "CHK-100", unusedLooseTubes: 1, unusedCases: 0 },
+      expectedRpc: "api_acl_allocations_caulk_checkin",
+      expectedPayload: { caulkCheckoutId: "CHK-100", unusedLooseTubes: 1, unusedCases: 0 },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const rpcPayloads: Array<Record<string, unknown>> = [];
+    let plannerCallCount = 0;
+
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      testCase.route,
+      testCase.payload,
+      buildDeps({
+        callMutationRpc: async (
+          _client: unknown,
+          fn: string,
+          orgId: string,
+          actor: string,
+          payload: Record<string, unknown>,
+        ) => {
+          rpcPayloads.push({ fn, orgId, actor, payload });
+          return {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "81234",
+            caulkAllocationId: "CAULK-100",
+            caulkCheckoutId: "CHK-100",
+            warnings: [],
+          };
+        },
+        reconcileAutoPlannedAllocations: async () => {
+          plannerCallCount += 1;
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(
+      rpcPayloads,
+      [
+        {
+          fn: testCase.expectedRpc,
+          orgId: "org-from-auth",
+          actor: "tester",
+          payload: testCase.expectedPayload,
+        },
+      ],
+      `Expected ${testCase.route} to strip request orgId before SQL RPC.`,
+    );
+    assertEquals(plannerCallCount, 0, `Expected ${testCase.route} to leave planner ownership with SQL.`);
   }
 });
 

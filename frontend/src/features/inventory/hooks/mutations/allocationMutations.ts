@@ -365,7 +365,7 @@ export function useCheckoutCaulkJobAllocation() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+      await invalidateCaulkJobQueries(queryClient, { jobId: result.jobId, jobNumber: result.jobNumber });
     }
   });
 }
@@ -427,7 +427,7 @@ export function useCheckinCaulkJobAllocation() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }) => {
-      await invalidateCaulkJobQueries(queryClient, result.jobNumber);
+      await invalidateCaulkJobQueries(queryClient, { jobId: result.jobId, jobNumber: result.jobNumber });
     }
   });
 }

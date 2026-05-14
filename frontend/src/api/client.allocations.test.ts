@@ -331,7 +331,12 @@ describe('allocations API client caulk routes', () => {
 
   it('posts checkout caulk allocation to /allocations/caulk/checkout', async () => {
     requestMock.mockResolvedValueOnce({
-      data: { jobNumber: '000123', caulkAllocationId: 'alloc-1', caulkCheckoutId: 'checkout-1' },
+      data: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        caulkAllocationId: 'alloc-1',
+        caulkCheckoutId: 'checkout-1'
+      },
       warnings: []
     });
 
@@ -342,6 +347,7 @@ describe('allocations API client caulk routes', () => {
     const result = await checkoutCaulkJobAllocation(payload);
 
     expect(result.result.caulkCheckoutId).toBe('checkout-1');
+    expect(result.result.jobId).toBe('11111111-1111-4111-8111-111111111111');
     expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/caulk/checkout', {
       body: payload
     });
@@ -349,7 +355,12 @@ describe('allocations API client caulk routes', () => {
 
   it('posts checkin caulk allocation to /allocations/caulk/checkin', async () => {
     requestMock.mockResolvedValueOnce({
-      data: { jobNumber: '000123', caulkAllocationId: 'alloc-1', caulkCheckoutId: 'checkout-1' },
+      data: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        caulkAllocationId: 'alloc-1',
+        caulkCheckoutId: 'checkout-1'
+      },
       warnings: []
     });
 
@@ -361,6 +372,7 @@ describe('allocations API client caulk routes', () => {
     const result = await checkinCaulkJobAllocation(payload);
 
     expect(result.result.caulkCheckoutId).toBe('checkout-1');
+    expect(result.result.jobId).toBe('11111111-1111-4111-8111-111111111111');
     expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/caulk/checkin', {
       body: payload
     });

@@ -45,6 +45,7 @@ const ORG_WIDE_MUTATION_ROUTES = new Set([
 ]);
 
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  '/allocations/caulk/checkin',
   '/allocations/caulk/remove',
 ]);
 
@@ -106,6 +107,9 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   if (JOB_ID_SHADOW_SCOPE_ROUTES.has(logicalPath)) {
     addJobId(jobIds, params.jobId);
   }
+
+  addJobId(jobIds, responseData.jobId);
+  addJobId(jobIds, responseData?.job?.jobId);
 
   addJobNumber(jobNumbers, params.jobNumber);
   addJobNumber(jobNumbers, responseData.jobNumber);
