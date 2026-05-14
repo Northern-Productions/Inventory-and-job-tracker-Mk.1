@@ -678,7 +678,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('includes canonical jobId only in allocation preview payloads', async () => {
+  it('includes canonical jobId in allocation preview payloads', async () => {
     const canonicalJobId = '11111111-1111-4111-8111-111111111111';
     useAllocationPreviewMock.mockReturnValue(buildPreviewState());
     searchBoxesMock.mockResolvedValue([buildSearchBox()]);
@@ -733,7 +733,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('does not add canonical jobId to allocation apply payloads', async () => {
+  it('includes canonical jobId in allocation apply payloads', async () => {
     const canonicalJobId = '11111111-1111-4111-8111-111111111111';
     const mutateAsync = vi.fn().mockResolvedValue({
       result: {
@@ -789,7 +789,16 @@ describe('JobAllocateDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
-    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('jobId');
+    expect(mutateAsync.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        jobId: canonicalJobId,
+        jobNumber: '4803',
+        boxId: 'IL1-BOX',
+        requirementId: 'req-1',
+        selectedSuggestionBoxIds: [],
+        extraAllocations: []
+      })
+    );
 
     queryClient.clear();
   });

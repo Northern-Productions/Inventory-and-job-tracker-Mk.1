@@ -693,7 +693,7 @@ async function createAllocationRecord(
   requirementId = '',
   options = {}
 ) {
-  const jobId = await getOrResolveJobId(client, orgId, jobContext.jobNumber);
+  const jobId = asTrimmedString(jobContext.jobId) || await getOrResolveJobId(client, orgId, jobContext.jobNumber);
   const allocationSource = normalizeAllocationSource(options.allocationSource);
   const entry = {
     allocationId: createLogId(),

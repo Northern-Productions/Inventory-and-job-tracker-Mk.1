@@ -555,6 +555,14 @@ export function applyOptimisticAllocationAdditionToCaches(
   queryClient: QueryClient,
   payload: ApplyAllocationPlanPayload
 ) {
+  if (String(payload.jobId || '').trim()) {
+    return {
+      allocations: [],
+      jobAllocations: [],
+      allocatedFeetByBoxId: {}
+    };
+  }
+
   const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
   const optimisticRows = removeRowsHandledByManualMerge(
     queryClient,

@@ -220,6 +220,39 @@ describe('allocations API client caulk routes', () => {
     });
   });
 
+  it('passes canonical jobId through allocation apply when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        allocations: [],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await applyAllocationPlan({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      boxId: 'IL1-6502',
+      jobNumber: '000123',
+      requestedFeet: 12,
+      requestedWidthIn: 72,
+      requirementId: 'req-72',
+      selectedSuggestionBoxIds: ['IL1-6503'],
+      extraAllocations: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/apply', {
+      body: expect.objectContaining({
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        boxId: 'IL1-6502',
+        requirementId: 'req-72',
+        selectedSuggestionBoxIds: ['IL1-6503'],
+        extraAllocations: []
+      })
+    });
+  });
+
   it('posts remove-box with the allocation row id, not the box id', async () => {
     requestMock.mockResolvedValueOnce({
       data: {

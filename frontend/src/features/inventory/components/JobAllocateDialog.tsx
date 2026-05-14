@@ -448,6 +448,7 @@ export function JobAllocateDialog({
     }
 
     const payload = {
+      ...(jobId ? { jobId } : {}),
       boxId: sourceBox.boxId,
       jobNumber,
       installDate: installDate || '',

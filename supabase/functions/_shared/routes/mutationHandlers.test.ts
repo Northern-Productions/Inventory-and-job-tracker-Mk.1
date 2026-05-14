@@ -121,6 +121,82 @@ Deno.test("job mutation identity resolves jobId using auth-derived org and valid
   );
 });
 
+Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+  const findJobCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/apply",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      boxId: "IL1-100",
+      requestedFeet: 10,
+      requirementId: "req-1",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        findJobCalls.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          allocationIds: [],
+          remainingUncoveredFeet: 0,
+          warnings: [],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    findJobCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical allocation apply job lookup to use auth-derived org.",
+  );
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_allocations_apply",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          boxId: "IL1-100",
+          requestedFeet: 10,
+          requirementId: "req-1",
+        },
+      },
+    ],
+    "Expected canonical jobId to be passed to SQL RPC only after validation.",
+  );
+  assertEquals(
+    response.data,
+    {
+      allocations: [],
+      filmOrder: null,
+      remainingUncoveredFeet: 0,
+    },
+    "Expected allocation apply response shape to stay stable.",
+  );
+});
+
 Deno.test("job mutation identity rejects mismatched jobId and jobNumber", async () => {
   try {
     await resolveEdgeJobMutationTargetById(
