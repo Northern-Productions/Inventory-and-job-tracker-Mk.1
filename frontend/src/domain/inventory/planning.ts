@@ -166,6 +166,7 @@ export interface FilmCatalogEntry {
 }
 
 export interface CreateFilmOrderPayload {
+  jobId?: string;
   jobNumber: string;
   requirementId?: string;
   warehouse: Warehouse;

@@ -10,6 +10,7 @@ const useParamsMock = vi.fn();
 const useJobMock = vi.fn();
 const useJobByIdMock = vi.fn();
 const clearSuppressionMutateAsyncMock = vi.fn();
+const createFilmOrderMutateAsyncMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
@@ -61,7 +62,8 @@ vi.mock('../../hooks/useInventoryQueries', () => ({
   useCheckoutCaulkJobAllocation: () => buildMutationState(),
   useCaulkProducts: () => ({ data: [], isLoading: false, isError: false, error: null }),
   useCompleteJob: () => buildMutationState(),
-  useCreateFilmOrder: () => buildMutationState(),
+  useCreateFilmOrder: () =>
+    buildMutationState({ mutateAsync: createFilmOrderMutateAsyncMock }),
   useDeleteJob: () => buildMutationState(),
   useDeleteFilmOrder: () => buildMutationState(),
   useFilmCatalog: () => ({ data: [], isLoading: false, error: null }),
@@ -213,6 +215,8 @@ describe('useAllocationJobPageModel planner suppression identity', () => {
     useJobByIdMock.mockReset();
     clearSuppressionMutateAsyncMock.mockReset();
     clearSuppressionMutateAsyncMock.mockResolvedValue({ warnings: [] });
+    createFilmOrderMutateAsyncMock.mockReset();
+    createFilmOrderMutateAsyncMock.mockResolvedValue({ warnings: [] });
   });
 
   it('canonical film resume sends jobId, jobNumber, requirementId, and materialType', async () => {
@@ -260,5 +264,43 @@ describe('useAllocationJobPageModel planner suppression identity', () => {
       materialType: 'FILM',
       reason: 'User resumed auto-planning from job detail page.'
     });
+  });
+
+  it('canonical film order create sends jobId, jobNumber, and requirementId', async () => {
+    const { result } = renderModel({ canonical: true });
+
+    await act(async () => {
+      await result.current.handleOrderFilmRequirement(buildFilmRequirement());
+    });
+
+    expect(createFilmOrderMutateAsyncMock).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      jobNumber: '000123',
+      requirementId: 'req-film-1',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 100
+    });
+  });
+
+  it('legacy film order create keeps jobNumber-only payload', async () => {
+    const { result } = renderModel({ canonical: false });
+
+    await act(async () => {
+      await result.current.handleOrderFilmRequirement(buildFilmRequirement());
+    });
+
+    expect(createFilmOrderMutateAsyncMock).toHaveBeenCalledWith({
+      jobNumber: '000123',
+      requirementId: 'req-film-1',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 100
+    });
+    expect(createFilmOrderMutateAsyncMock.mock.calls[0][0]).not.toHaveProperty('jobId');
   });
 });

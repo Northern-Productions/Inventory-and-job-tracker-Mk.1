@@ -815,13 +815,34 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return await deps.deleteJob(client, identity, payload);
   },
   "/film-orders/create": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
-    const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
+    const suppliedJobId = deps.asTrimmedString(normalizedPayload.jobId);
+    if (suppliedJobId && !JOB_ID_PATTERN.test(suppliedJobId)) {
+      throw new HttpError(400, "jobId must be a valid UUID.");
+    }
+
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const jobNumber = target.usedJobId
+      ? deps.requireString(target.jobNumber, "JobNumber")
+      : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const existingJob = target.usedJobId
+      ? target.job
+      : await deps.findJobByNumber(client, orgId, jobNumber);
     if (existingJob && deps.normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
       throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive film orders.`);
     }
 
-    const result = await deps.callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, normalizedPayload);
+    if (target.usedJobId && !deps.asTrimmedString(normalizedPayload.requirementId)) {
+      throw new HttpError(400, "RequirementID is required when jobId is supplied.");
+    }
+
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber }
+      : payloadWithoutRequestOrg;
+    const result = await deps.callMutationRpc(client, "api_acl_film_orders_create", orgId, actor, rpcPayload);
     const filmOrder = await deps.findFilmOrderById(client, orgId, result.filmOrderId);
     if (!filmOrder) {
       throw new HttpError(500, "Film order was created but could not be reloaded.");

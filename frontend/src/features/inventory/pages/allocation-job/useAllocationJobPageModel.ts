@@ -469,6 +469,7 @@ export function useAllocationJobPageModel() {
     }
 
     await createFilmOrderMutation.mutateAsync({
+      ...(routeJobId ? { jobId: routeJobId } : {}),
       jobNumber: summary.jobNumber,
       requirementId: requirement.requirementId,
       warehouse: summary.warehouse,

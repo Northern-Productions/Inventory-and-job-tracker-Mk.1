@@ -34,12 +34,15 @@ export function useCreateFilmOrder() {
   return useMutation({
     mutationFn: (payload: CreateFilmOrderPayload) => createFilmOrder(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })])
       ]);
 
       const optimisticFilmOrder = createOptimisticFilmOrderFromPayload(
@@ -51,12 +54,16 @@ export function useCreateFilmOrder() {
         [
           inventoryKeys.filmOrders,
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber)
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)])
         ],
         () => {
           upsertFilmOrdersCache(queryClient, optimisticFilmOrder);
+
+          if (jobId) {
+            return;
+          }
 
           upsertJobListCaches(queryClient, {
             ...(queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber))?.summary || {
@@ -160,21 +167,12 @@ export function useCreateFilmOrder() {
       restoreSnapshots(queryClient, context?.snapshots);
     },
     onSuccess: async ({ result }, variables, context) => {
+      const jobId = String(variables.jobId || '').trim();
       if (context?.pendingFilmOrderId) {
         replaceFilmOrderInCaches(queryClient, context.pendingFilmOrderId, result);
-        queryClient.setQueryData<JobDetail | undefined>(inventoryKeys.job(variables.jobNumber), (current) =>
-          current
-            ? {
-                ...current,
-                filmOrders: current.filmOrders.map((entry) =>
-                  entry.filmOrderId === context.pendingFilmOrderId ? result : entry
-                )
-              }
-            : current
-        );
-        queryClient.setQueryData<AllocationJobDetail | undefined>(
-          inventoryKeys.allocationJob(variables.jobNumber),
-          (current) =>
+
+        if (!jobId) {
+          queryClient.setQueryData<JobDetail | undefined>(inventoryKeys.job(variables.jobNumber), (current) =>
             current
               ? {
                   ...current,
@@ -183,14 +181,39 @@ export function useCreateFilmOrder() {
                   )
                 }
               : current
-        );
+          );
+          queryClient.setQueryData<AllocationJobDetail | undefined>(
+            inventoryKeys.allocationJob(variables.jobNumber),
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    filmOrders: current.filmOrders.map((entry) =>
+                      entry.filmOrderId === context.pendingFilmOrderId ? result : entry
+                    )
+                  }
+                : current
+          );
+        }
       }
 
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
-      ]);
+      if (jobId) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
+        ]);
+      } else {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+        ]);
+      }
     }
   });
 }

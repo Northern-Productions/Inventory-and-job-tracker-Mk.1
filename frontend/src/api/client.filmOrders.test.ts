@@ -17,7 +17,7 @@ vi.mock('./http', () => {
   };
 });
 
-import { deleteFilmOrder } from './client';
+import { createFilmOrder, deleteFilmOrder } from './client';
 import { request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -25,6 +25,72 @@ const requestMock = vi.mocked(request);
 describe('film orders API client identity payloads', () => {
   beforeEach(() => {
     requestMock.mockReset();
+  });
+
+  it('posts canonical create payloads with jobId, jobNumber, and requirementId', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        filmOrderId: 'FO-1',
+        jobNumber: '1234',
+        linkedBoxes: []
+      },
+      warnings: []
+    });
+
+    await createFilmOrder({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '1234',
+      requirementId: 'req-1',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 40
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/create', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234',
+        requirementId: 'req-1',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 60,
+        requestedFeet: 40
+      }
+    });
+  });
+
+  it('preserves legacy/global create payloads without requiring jobId', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        filmOrderId: 'FO-1',
+        jobNumber: '1234',
+        linkedBoxes: []
+      },
+      warnings: []
+    });
+
+    await createFilmOrder({
+      jobNumber: '1234',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 40
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/create', {
+      body: {
+        jobNumber: '1234',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 60,
+        requestedFeet: 40
+      }
+    });
   });
 
   it('posts canonical delete payloads with jobId, jobNumber, and filmOrderId', async () => {

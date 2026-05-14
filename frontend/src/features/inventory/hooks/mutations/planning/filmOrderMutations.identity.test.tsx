@@ -5,17 +5,19 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AllocationJobDetail,
+  CreateFilmOrderPayload,
   FilmOrderEntry,
   JobDetail,
   JobListEntry
 } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useDeleteFilmOrder } from './filmOrderMutations';
+import { useCreateFilmOrder, useDeleteFilmOrder } from './filmOrderMutations';
 
+const createFilmOrderMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
 
 vi.mock('../../../../../api/features/filmOrdersClient', () => ({
-  createFilmOrder: vi.fn(),
+  createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
   deleteFilmOrder: (...args: unknown[]) => deleteFilmOrderMock(...args)
 }));
 
@@ -148,9 +150,85 @@ function buildAllocationJobDetail(filmOrders: FilmOrderEntry[] = [buildFilmOrder
   };
 }
 
-describe('useDeleteFilmOrder identity caches', () => {
+describe('film order mutation identity caches', () => {
   beforeEach(() => {
+    createFilmOrderMock.mockReset();
     deleteFilmOrderMock.mockReset();
+  });
+
+  it('canonical create sends jobId and avoids same-number legacy detail cache patching', async () => {
+    const queryClient = createQueryClient();
+    const createdFilmOrder = buildFilmOrder({ filmOrderId: 'FO-2' });
+    const legacyJobCache = { source: 'legacy-job' };
+    const legacyAllocationJobCache = { source: 'legacy-allocation-job' };
+    const payload: CreateFilmOrderPayload = {
+      jobId: JOB_ID,
+      jobNumber: '1234',
+      requirementId: 'req-1',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 50
+    };
+
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), buildDetail([]));
+    queryClient.setQueryData(inventoryKeys.job('1234'), legacyJobCache);
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), legacyAllocationJobCache);
+    queryClient.setQueryData(inventoryKeys.filmOrders, []);
+    createFilmOrderMock.mockResolvedValueOnce({
+      result: createdFilmOrder,
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCreateFilmOrder(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync(payload);
+    });
+
+    expect(createFilmOrderMock).toHaveBeenCalledWith(payload);
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual(legacyJobCache);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual(legacyAllocationJobCache);
+    expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([createdFilmOrder]);
+  });
+
+  it('legacy create remains jobNumber-only and keeps legacy detail cache patching', async () => {
+    const queryClient = createQueryClient();
+    const createdFilmOrder = buildFilmOrder({ filmOrderId: 'FO-2' });
+    const payload: CreateFilmOrderPayload = {
+      jobNumber: '1234',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 50
+    };
+
+    queryClient.setQueryData(inventoryKeys.job('1234'), buildDetail([]));
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), buildAllocationJobDetail([]));
+    createFilmOrderMock.mockResolvedValueOnce({
+      result: createdFilmOrder,
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCreateFilmOrder(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync(payload);
+    });
+
+    expect(createFilmOrderMock).toHaveBeenCalledWith(payload);
+    expect(createFilmOrderMock.mock.calls[0][0]).not.toHaveProperty('jobId');
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job('1234'))?.filmOrders).toEqual([createdFilmOrder]);
+    expect(queryClient.getQueryData<AllocationJobDetail>(inventoryKeys.allocationJob('1234'))?.filmOrders).toEqual([
+      createdFilmOrder
+    ]);
   });
 
   it('canonical delete invalidates jobById and avoids same-number legacy detail cache patching', async () => {

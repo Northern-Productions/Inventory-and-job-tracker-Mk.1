@@ -2261,4 +2261,87 @@ describe('JobAllocateDialog', () => {
 
     queryClient.clear();
   });
+
+  it('sends jobId and requirementId when canonical order-film action is submitted', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({ result: {}, warnings: [] });
+    useCreateFilmOrderMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    searchBoxesMock.mockResolvedValue([]);
+
+    const { queryClient } = renderDialog({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '4803',
+      requirements: [
+        {
+          requirementId: 'req-order',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Order Film' }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4803',
+        requirementId: 'req-order',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requestedFeet: 15
+      })
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps legacy order-film action jobNumber-only', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({ result: {}, warnings: [] });
+    useCreateFilmOrderMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    searchBoxesMock.mockResolvedValue([]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '4803',
+      requirements: [
+        {
+          requirementId: 'req-order',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Order Film' }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        jobNumber: '4803',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07',
+        widthIn: 48,
+        requestedFeet: 15
+      })
+    );
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('jobId');
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('requirementId');
+
+    queryClient.clear();
+  });
 });

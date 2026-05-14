@@ -546,6 +546,7 @@ export function JobAllocateDialog({
     setSubmitAction('order');
     try {
       await submitFilmOrder({
+        ...(jobId ? { jobId, requirementId: selectedRequirement.requirementId } : {}),
         jobNumber,
         warehouse,
         manufacturer: selectedRequirement.manufacturer,

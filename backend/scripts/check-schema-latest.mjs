@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0123_allocation_apply_jobid_scope.sql';
+const LATEST_MIGRATION = '0124_film_order_create_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -323,6 +323,19 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_film_orders_create(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      'v_has_job_id boolean := v_job_id_text <> \'\';',
+      'jobId must be a valid UUID.',
+      'and j.id = v_job_id',
+      'Job was not found.',
+      'Job identity mismatch: selected job does not match jobNumber.',
+      'Job %s is closed and cannot receive film orders.',
+      'RequirementID is required when jobId is supplied.',
+      'RequirementID must belong to the selected job.',
+      'v_requirement.job_id is distinct from v_order.job_id',
+      'when v_has_job_id then fo.job_id = v_order.job_id',
+      'when v_has_job_id then v_job.id',
+      'when v_has_job_id then v_job.job_number',
       "coalesce(fo.status::text, '') in ('FILM_ORDER', 'FILM_ON_THE_WAY')",
       'app_api.film_order_matches_requirement(',
       'Film order product and width must match the selected requirement.',
