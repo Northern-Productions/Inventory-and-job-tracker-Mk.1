@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0127_caulk_add_jobid_scope.sql';
+const LATEST_MIGRATION = '0128_caulk_remove_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -756,6 +756,29 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app_api.caulk_requirement_planner_signature('
     ],
     excludes: []
+  },
+  {
+    signature: 'public.api_acl_allocations_caulk_remove(uuid, text, jsonb)',
+    includes: [
+      'and a.caulk_allocation_id = v_caulk_allocation_id',
+      'and j.id = v_allocation.job_id',
+      'Job for caulk allocation %s was not found.',
+      'Caulk allocation %s is not active.',
+      'Caulk allocation %s has %s open checkout%s. Check in first.',
+      'app_api.record_auto_planned_caulk_allocation_suppression(',
+      'app_api.caulk_cancel_pending_transfer_internal(',
+      'JOB_ALLOCATION_CANCEL_RETURN',
+      'app_api.reconcile_auto_planned_allocations(',
+      "'jobIds', jsonb_build_array(v_job.id)",
+      "'jobNumbers', jsonb_build_array(v_job.job_number)",
+      "'caulkProductWarehousePairs'",
+      "'jobId', v_job.id::text",
+      "'jobNumber', v_job.job_number"
+    ],
+    excludes: [
+      'app_api.require_active_job_for_caulk(p_org_id, v_allocation.job_number)',
+      'Job %s is closed and cannot receive caulk allocations.'
+    ]
   },
   {
     signature: 'public.api_acl_allocations_caulk_update(uuid, text, jsonb)',
