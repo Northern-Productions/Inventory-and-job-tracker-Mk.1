@@ -1054,6 +1054,16 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       expectedRpc: "api_acl_allocations_apply",
     },
     {
+      route: "/allocations/caulk/add",
+      payload: {
+        jobNumber: "81234",
+        productId: "product-1",
+        warehouse: "IL1",
+        allocatedTubes: 3,
+      },
+      expectedRpc: "api_acl_allocations_caulk_add",
+    },
+    {
       route: "/allocations/caulk/remove",
       payload: { caulkAllocationId: "CAULK-100" },
       expectedRpc: "api_acl_allocations_caulk_remove",
@@ -1170,6 +1180,137 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
       assertEquals(detailCallCount, 1, `Expected ${testCase.route} to reload job detail once.`);
     }
   }
+});
+
+Deno.test("caulk add canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+  const findJobCalls: Array<Record<string, unknown>> = [];
+  let plannerCallCount = 0;
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/caulk/add",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      requirementId: "req-caulk-1",
+      productId: "product-1",
+      warehouse: "IL1",
+      transferFromWarehouse: "MS1",
+      allocatedTubes: 3,
+      notes: "Canonical add.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        findJobCalls.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+          lifecycleStatus: "ACTIVE",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          caulkAllocationId: "CAULK-100",
+          warnings: [],
+        };
+      },
+      reconcileAutoPlannedAllocations: async () => {
+        plannerCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    findJobCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical caulk add job lookup to use auth-derived org.",
+  );
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_allocations_caulk_add",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          requirementId: "req-caulk-1",
+          productId: "product-1",
+          warehouse: "IL1",
+          transferFromWarehouse: "MS1",
+          allocatedTubes: 3,
+          notes: "Canonical add.",
+        },
+      },
+    ],
+    "Expected canonical caulk add payload to be stripped and validated before SQL RPC.",
+  );
+  assertEquals(plannerCallCount, 0, "Expected caulk add to leave planner ownership with SQL.");
+});
+
+Deno.test("legacy caulk add keeps payload compatible while stripping request orgId", async () => {
+  const rpcPayloads: Array<Record<string, unknown>> = [];
+
+  await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/allocations/caulk/add",
+    {
+      orgId: "request-org-ignored",
+      jobNumber: "81234",
+      productId: "product-1",
+      warehouse: "IL1",
+      allocatedTubes: 3,
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcPayloads.push({ fn, orgId, actor, payload });
+        return {
+          jobNumber: "81234",
+          caulkAllocationId: "CAULK-100",
+          warnings: [],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcPayloads,
+    [
+      {
+        fn: "api_acl_allocations_caulk_add",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobNumber: "81234",
+          productId: "product-1",
+          warehouse: "IL1",
+          allocatedTubes: 3,
+        },
+      },
+    ],
+    "Expected legacy caulk add to preserve its row payload while dropping request orgId.",
+  );
 });
 
 Deno.test("caulk checkout/check-in preserve row-id payloads while stripping request orgId", async () => {

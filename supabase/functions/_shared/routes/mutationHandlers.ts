@@ -140,6 +140,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
  * or hidden planner skips for routes that still depend on Edge reconciliation.
  */
 const SQL_PLANNER_HANDLED_ROUTES = new Set([
+  "/allocations/caulk/add",
   "/allocations/caulk/update",
   "/allocations/caulk/checkout",
   "/allocations/caulk/checkin",
@@ -669,12 +670,27 @@ const mutationHandlers: Record<string, MutationHandler> = {
     ]);
   },
   "/allocations/caulk/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const jobId = deps.asTrimmedString(payloadWithoutRequestOrg.jobId);
+    let rpcPayload = payloadWithoutRequestOrg;
+    if (jobId) {
+      if (!JOB_ID_PATTERN.test(jobId)) {
+        throw new HttpError(400, "jobId must be a valid UUID.");
+      }
+      const target = await resolveEdgeJobMutationTargetById(
+        client,
+        orgId,
+        payloadWithoutRequestOrg,
+        deps,
+      );
+      rpcPayload = { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber };
+    }
     const result = await deps.callMutationRpc(
       client,
       "api_acl_allocations_caulk_add",
       orgId,
       actor,
-      normalizedPayload,
+      rpcPayload,
     );
     return ok(result, result.warnings || []);
   },

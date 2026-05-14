@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 
 import { queryRow } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
-import { asTrimmedString, integerOrZero, parseIntegerInput, requireUuid } from '../core/helpers.mjs';
+import {
+  asTrimmedString,
+  integerOrZero,
+  parseIntegerInput,
+  requireString,
+  requireUuid,
+} from '../core/helpers.mjs';
 import {
   normalizePlannerWarnings,
   reconcileAutoPlannedAllocations,
@@ -811,7 +817,18 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     throw new HttpError(400, 'allocatedTubes must be greater than zero.');
   }
 
-  const job = await requireActiveJobForCaulk(client, orgId, payload?.jobNumber);
+  const jobIdRaw = asTrimmedString(payload?.jobId);
+  const payloadJobNumber = requireString(payload?.jobNumber, 'Job ID number');
+  let job;
+  if (jobIdRaw) {
+    job = await requireCaulkAllocationJobById(client, orgId, requireUuid(jobIdRaw, 'jobId'), 'Job was not found.');
+    if (asTrimmedString(job.job_number) !== payloadJobNumber) {
+      throw new HttpError(400, 'Job identity mismatch: selected job does not match jobNumber.');
+    }
+    assertActiveCaulkJob(job);
+  } else {
+    job = await requireActiveJobForCaulk(client, orgId, payloadJobNumber);
+  }
   await requireCaulkProduct(client, orgId, productId);
 
   const requirementIdRaw = asTrimmedString(payload?.requirementId);
@@ -822,10 +839,11 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
   const allocationId = await createLogId(client);
   const allocationRowId = crypto.randomUUID();
   const warehouse = await requireCaulkWarehouse(client, orgId, payload?.warehouse);
+  const normalizedActor = asTrimmedString(actor);
   const localReservation = await reserveLocalCaulkTubes(
     client,
     orgId,
-    actor,
+    normalizedActor,
     productId,
     warehouse,
     allocatedTubes,
@@ -894,13 +912,13 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
       warehouse,
       allocatedTubes,
       localReservation.reservedTubes,
-      asTrimmedString(actor),
+      normalizedActor,
       allocationRowId,
       asTrimmedString(payload?.notes),
     ]
   );
 
-  const transferStart = await startPendingCaulkTransfer(client, orgId, actor, {
+  const transferStart = await startPendingCaulkTransfer(client, orgId, normalizedActor, {
     allocationRowId,
     allocationPublicId: allocationId,
     jobId: job.id,
@@ -912,7 +930,16 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     notes: payload?.notes,
   });
 
-  return buildMutationResponse(job.job_number, allocationId, transferStart.warnings);
+  const plannerResult = await reconcileAutoPlannedAllocations(client, orgId, normalizedActor, {
+    jobIds: [asTrimmedString(job.id)],
+    jobNumbers: [asTrimmedString(job.job_number)],
+    caulkProductWarehousePairs: [{ productId, warehouse }],
+  });
+  const warnings = [...transferStart.warnings, ...normalizePlannerWarnings(plannerResult)];
+
+  return buildMutationResponse(job.job_number, allocationId, warnings, {
+    jobId: asTrimmedString(job.id),
+  });
 }
 
 export async function updateCaulkAllocation(client, orgId, actor, payload) {

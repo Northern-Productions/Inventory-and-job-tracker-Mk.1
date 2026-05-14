@@ -6,9 +6,10 @@ import { addCaulkAllocation } from '../../src/app/services/caulkAllocations.mjs'
 
 class FakeCaulkClient {
   constructor() {
+    this.jobId = '33333333-3333-4333-8333-333333333333';
     this.warehouses = new Set(['IL1', 'MS1']);
     this.jobs = new Map([
-      ['4761', { id: 'job-4761', job_number: '4761', lifecycle_status: 'ACTIVE' }],
+      ['4761', { id: this.jobId, job_number: '4761', lifecycle_status: 'ACTIVE' }],
     ]);
     this.products = new Map([
       ['11111111-1111-4111-8111-111111111111', { id: '11111111-1111-4111-8111-111111111111' }],
@@ -18,7 +19,7 @@ class FakeCaulkClient {
         '22222222-2222-4222-8222-222222222222',
         {
           id: '22222222-2222-4222-8222-222222222222',
-          job_id: 'job-4761',
+          job_id: this.jobId,
         },
       ],
     ]);
@@ -29,6 +30,7 @@ class FakeCaulkClient {
     this.allocations = [];
     this.transfers = [];
     this.deltaLog = [];
+    this.plannerScopes = [];
     this.logIdCounter = 0;
     this.transferIdCounter = 0;
   }
@@ -61,6 +63,11 @@ class FakeCaulkClient {
         throw new HttpError(400, `Job ${job.job_number} is closed and cannot receive caulk allocations.`);
       }
       return { rows: [job] };
+    }
+
+    if (sql.includes('select * from app.jobs j where j.org_id = $1::uuid and j.id = $2::uuid for update')) {
+      const job = Array.from(this.jobs.values()).find((entry) => entry.id === params[1]) || null;
+      return { rows: job ? [job] : [] };
     }
 
     if (sql.includes('select * from app.caulk_products p where p.org_id = $1::uuid and p.id = $2::uuid')) {
@@ -205,9 +212,82 @@ class FakeCaulkClient {
       return { rows: [nextTransfer] };
     }
 
+    if (sql.includes('select app_api.reconcile_auto_planned_allocations($1::uuid, $2::text, $3::jsonb) as result')) {
+      this.plannerScopes.push(JSON.parse(params[2]));
+      return {
+        rows: [
+          {
+            result: {
+              filmInserted: 0,
+              filmUpdated: 0,
+              filmCancelled: 0,
+              caulkInserted: 0,
+              caulkUpdated: 0,
+              caulkCancelled: 0,
+              warnings: [],
+              warningCount: 0,
+            },
+          },
+        ],
+      };
+    }
+
     throw new Error(`Unhandled SQL in fake caulk client: ${sql}`);
   }
 }
+
+test('addCaulkAllocation canonical path uses jobId and scopes planner by jobId', async () => {
+  const client = new FakeCaulkClient();
+  const result = await addCaulkAllocation(client, 'org-1', 'tester', {
+    jobId: client.jobId,
+    jobNumber: '4761',
+    requirementId: '22222222-2222-4222-8222-222222222222',
+    productId: '11111111-1111-4111-8111-111111111111',
+    warehouse: 'IL1',
+    allocatedTubes: 2,
+    notes: 'Canonical add.',
+  });
+
+  assert.equal(result.result.jobId, client.jobId);
+  assert.equal(result.result.jobNumber, '4761');
+  assert.equal(client.allocations.length, 1);
+  assert.equal(client.allocations[0].job_id, client.jobId);
+  assert.equal(client.allocations[0].job_number, '4761');
+  assert.deepEqual(client.plannerScopes, [
+    {
+      jobIds: [client.jobId],
+      jobNumbers: ['4761'],
+      caulkProductWarehousePairs: [
+        {
+          productId: '11111111-1111-4111-8111-111111111111',
+          warehouse: 'IL1',
+        },
+      ],
+    },
+  ]);
+});
+
+test('addCaulkAllocation rejects canonical jobId and jobNumber mismatch', async () => {
+  const client = new FakeCaulkClient();
+
+  await assert.rejects(
+    () =>
+      addCaulkAllocation(client, 'org-1', 'tester', {
+        jobId: client.jobId,
+        jobNumber: '9999',
+        productId: '11111111-1111-4111-8111-111111111111',
+        warehouse: 'IL1',
+        allocatedTubes: 2,
+      }),
+    (error) => {
+      assert(error instanceof HttpError);
+      assert.equal(error.message, 'Job identity mismatch: selected job does not match jobNumber.');
+      return true;
+    }
+  );
+  assert.equal(client.allocations.length, 0);
+  assert.deepEqual(client.plannerScopes, []);
+});
 
 test('addCaulkAllocation starts a pending transfer for the shortage and leaves destination stock unchanged', async () => {
   const client = new FakeCaulkClient();
