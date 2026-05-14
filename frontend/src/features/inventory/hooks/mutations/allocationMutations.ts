@@ -515,16 +515,15 @@ export function useReceiveCaulkTransfer() {
       ]);
     },
     onSuccess: async ({ result }) => {
+      const resultJobId = String(result.jobId || '').trim();
+      const resultJobNumber = String(result.jobNumber || '').trim();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
-        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
-        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
+        invalidateCaulkJobQueries(
+          queryClient,
+          resultJobId ? { jobId: resultJobId, jobNumber: resultJobNumber } : resultJobNumber
+        )
       ]);
-      if (result.jobNumber) {
-        await invalidateCaulkJobQueries(queryClient, result.jobNumber);
-      }
     }
   });
 }
@@ -543,16 +542,15 @@ export function useCancelCaulkTransfer() {
       ]);
     },
     onSuccess: async ({ result }) => {
+      const resultJobId = String(result.jobId || '').trim();
+      const resultJobNumber = String(result.jobNumber || '').trim();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
-        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
-        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
+        invalidateCaulkJobQueries(
+          queryClient,
+          resultJobId ? { jobId: resultJobId, jobNumber: resultJobNumber } : resultJobNumber
+        )
       ]);
-      if (result.jobNumber) {
-        await invalidateCaulkJobQueries(queryClient, result.jobNumber);
-      }
     }
   });
 }

@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0128_caulk_remove_jobid_scope.sql';
+const LATEST_MIGRATION = '0129_caulk_transfer_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -779,6 +779,34 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app_api.require_active_job_for_caulk(p_org_id, v_allocation.job_number)',
       'Job %s is closed and cannot receive caulk allocations.'
     ]
+  },
+  {
+    signature: 'public.api_acl_caulk_transfer_receive(uuid, text, jsonb)',
+    includes: [
+      'app_api.caulk_receive_pending_transfer_internal(',
+      'app_api.reconcile_auto_planned_allocations(',
+      "'jobIds', jsonb_build_array(v_result->>'jobId')",
+      "'jobNumbers', jsonb_build_array(v_result->>'jobNumber')",
+      "'caulkProductWarehousePairs'",
+      "'warehouse', v_result->>'sourceWarehouse'",
+      "'warehouse', v_result->>'destinationWarehouse'",
+      "return jsonb_set(v_result, '{warnings}', v_warnings, true)"
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_caulk_transfer_cancel(uuid, text, jsonb)',
+    includes: [
+      'app_api.caulk_cancel_pending_transfer_internal(',
+      'app_api.reconcile_auto_planned_allocations(',
+      "'jobIds', jsonb_build_array(v_result->>'jobId')",
+      "'jobNumbers', jsonb_build_array(v_result->>'jobNumber')",
+      "'caulkProductWarehousePairs'",
+      "'warehouse', v_result->>'sourceWarehouse'",
+      "'warehouse', v_result->>'destinationWarehouse'",
+      "return jsonb_set(v_result, '{warnings}', v_warnings, true)"
+    ],
+    excludes: []
   },
   {
     signature: 'public.api_acl_allocations_caulk_update(uuid, text, jsonb)',

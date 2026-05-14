@@ -299,6 +299,8 @@ export interface CaulkJobAllocationMutationResult {
 
 export interface CaulkTransferMutationResult extends CaulkJobAllocationMutationResult {
   transferId: string;
+  sourceWarehouse?: Warehouse;
+  destinationWarehouse?: Warehouse;
 }
 
 export interface CaulkJobCheckoutMutationResult extends CaulkJobAllocationMutationResult {

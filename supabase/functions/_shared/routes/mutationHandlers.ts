@@ -145,6 +145,8 @@ const SQL_PLANNER_HANDLED_ROUTES = new Set([
   "/allocations/caulk/checkout",
   "/allocations/caulk/checkin",
   "/allocations/caulk/remove",
+  "/caulk/transfers/receive",
+  "/caulk/transfers/cancel",
   "/allocations/add",
   "/allocations/apply",
   "/allocations/remove-box",
@@ -739,22 +741,24 @@ const mutationHandlers: Record<string, MutationHandler> = {
     return ok(result, result.warnings || []);
   },
   "/caulk/transfers/receive": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_caulk_transfer_receive",
       orgId,
       actor,
-      normalizedPayload,
+      payloadWithoutRequestOrg,
     );
     return ok(result, result.warnings || []);
   },
   "/caulk/transfers/cancel": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
     const result = await deps.callMutationRpc(
       client,
       "api_acl_caulk_transfer_cancel",
       orgId,
       actor,
-      normalizedPayload,
+      payloadWithoutRequestOrg,
     );
     return ok(result, result.warnings || []);
   },

@@ -384,10 +384,11 @@ function buildMutationResponse(jobNumber, caulkAllocationId, warnings = [], extr
   };
 }
 
-function buildTransferMutationResponse(jobNumber, caulkAllocationId, transferId, warnings = []) {
+function buildTransferMutationResponse(jobNumber, caulkAllocationId, transferId, warnings = [], extraResult = {}) {
   const normalizedWarnings = normalizeWarnings(warnings);
   return {
     result: {
+      ...extraResult,
       jobNumber: asTrimmedString(jobNumber),
       caulkAllocationId: asTrimmedString(caulkAllocationId),
       transferId: asTrimmedString(transferId),
@@ -649,7 +650,7 @@ async function startPendingCaulkTransfer(
   };
 }
 
-async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer, reason = '') {
+async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer, allocation, selectedJob, reason = '') {
   if (!transfer) {
     return {
       transferId: '',
@@ -665,7 +666,7 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
   const pendingTubes = integerOrZero(transfer.pending_tubes);
   const normalizedReason =
     asTrimmedString(reason) ||
-    `Cancelled caulk transfer from ${asTrimmedString(transfer.source_warehouse).toUpperCase()} to ${asTrimmedString(transfer.destination_warehouse).toUpperCase()} for job ${asTrimmedString(transfer.job_number)}.`;
+    `Cancelled caulk transfer from ${asTrimmedString(transfer.source_warehouse).toUpperCase()} to ${asTrimmedString(transfer.destination_warehouse).toUpperCase()} for job ${asTrimmedString(selectedJob?.job_number || transfer.job_number)}.`;
 
   if (pendingTubes > 0) {
     await applyCaulkDelta(
@@ -686,8 +687,8 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
   await saveCaulkTransferRecord(client, orgId, {
     transferId: transfer.transfer_id,
     caulkAllocationId: transfer.caulk_allocation_id,
-    jobId: transfer.job_id,
-    jobNumber: transfer.job_number,
+    jobId: selectedJob?.id || transfer.job_id,
+    jobNumber: selectedJob?.job_number || transfer.job_number,
     productId: transfer.product_id,
     sourceWarehouse: transfer.source_warehouse,
     destinationWarehouse: transfer.destination_warehouse,
@@ -706,6 +707,12 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
 
   return {
     transferId: asTrimmedString(transfer.transfer_id),
+    jobId: asTrimmedString(selectedJob?.id || allocation?.job_id || transfer.job_id),
+    jobNumber: asTrimmedString(selectedJob?.job_number || allocation?.job_number || transfer.job_number),
+    caulkAllocationId: asTrimmedString(allocation?.caulk_allocation_id),
+    productId: asTrimmedString(transfer.product_id),
+    sourceWarehouse: asTrimmedString(transfer.source_warehouse).toUpperCase(),
+    destinationWarehouse: asTrimmedString(transfer.destination_warehouse).toUpperCase(),
     warnings: pendingTubes
       ? [
           `Cancelled transfer ${asTrimmedString(transfer.transfer_id)} and returned ${formatTubeCount(pendingTubes)} to ${asTrimmedString(transfer.source_warehouse).toUpperCase()}.`,
@@ -714,7 +721,7 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
   };
 }
 
-async function receivePendingCaulkTransferInternal(client, orgId, actor, transfer, allocation) {
+async function receivePendingCaulkTransferInternal(client, orgId, actor, transfer, allocation, selectedJob) {
   if (asTrimmedString(transfer.status).toUpperCase() !== 'PENDING') {
     throw new HttpError(400, `Caulk transfer ${transfer.transfer_id} is already ${transfer.status}.`);
   }
@@ -741,7 +748,7 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
       destinationWarehouse,
       'TRANSFER_IN',
       pendingTubes,
-      `Received caulk transfer into ${destinationWarehouse} for job ${asTrimmedString(allocation.job_number)}.`,
+      `Received caulk transfer into ${destinationWarehouse} for job ${asTrimmedString(selectedJob?.job_number || allocation.job_number)}.`,
       asTrimmedString(transfer.transfer_id),
       asTrimmedString(allocation.caulk_allocation_id),
       asTrimmedString(transfer.notes)
@@ -777,8 +784,8 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
   await saveCaulkTransferRecord(client, orgId, {
     transferId: transfer.transfer_id,
     caulkAllocationId: transfer.caulk_allocation_id,
-    jobId: transfer.job_id,
-    jobNumber: transfer.job_number,
+    jobId: selectedJob?.id || transfer.job_id,
+    jobNumber: selectedJob?.job_number || transfer.job_number,
     productId: transfer.product_id,
     sourceWarehouse: transfer.source_warehouse,
     destinationWarehouse: transfer.destination_warehouse,
@@ -797,6 +804,12 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
 
   return {
     transferId: asTrimmedString(transfer.transfer_id),
+    jobId: asTrimmedString(selectedJob?.id || allocation?.job_id || transfer.job_id),
+    jobNumber: asTrimmedString(selectedJob?.job_number || allocation?.job_number || transfer.job_number),
+    caulkAllocationId: asTrimmedString(allocation?.caulk_allocation_id),
+    productId: asTrimmedString(transfer.product_id),
+    sourceWarehouse: asTrimmedString(transfer.source_warehouse).toUpperCase(),
+    destinationWarehouse,
     warnings: [
       `Received ${formatTubeCount(pendingTubes)} into ${destinationWarehouse} and reserved it for allocation ${asTrimmedString(allocation.caulk_allocation_id)}.`,
     ],
@@ -1334,8 +1347,25 @@ export async function receiveCaulkTransfer(client, orgId, actor, payload) {
 
   const transfer = await requireLockedTransfer(client, orgId, transferId);
   const allocation = await requireLockedAllocationByRowId(client, orgId, transfer.caulk_allocation_id);
-  const result = await receivePendingCaulkTransferInternal(client, orgId, actor, transfer, allocation);
-  return buildTransferMutationResponse(allocation.job_number, allocation.caulk_allocation_id, result.transferId, result.warnings);
+  const selectedJob = await requireCaulkAllocationJobById(
+    client,
+    orgId,
+    allocation.job_id,
+    `Job for caulk transfer ${transfer.transfer_id} was not found.`
+  );
+  const result = await receivePendingCaulkTransferInternal(client, orgId, actor, transfer, allocation, selectedJob);
+  return buildTransferMutationResponse(
+    result.jobNumber || allocation.job_number,
+    result.caulkAllocationId || allocation.caulk_allocation_id,
+    result.transferId,
+    result.warnings,
+    {
+      jobId: result.jobId,
+      productId: result.productId,
+      sourceWarehouse: result.sourceWarehouse,
+      destinationWarehouse: result.destinationWarehouse,
+    }
+  );
 }
 
 export async function cancelCaulkTransfer(client, orgId, actor, payload) {
@@ -1348,12 +1378,31 @@ export async function cancelCaulkTransfer(client, orgId, actor, payload) {
 
   const transfer = await requireLockedTransfer(client, orgId, transferId);
   const allocation = await requireLockedAllocationByRowId(client, orgId, transfer.caulk_allocation_id);
+  const selectedJob = await requireCaulkAllocationJobById(
+    client,
+    orgId,
+    allocation.job_id,
+    `Job for caulk transfer ${transfer.transfer_id} was not found.`
+  );
   const result = await cancelPendingCaulkTransferInternal(
     client,
     orgId,
     actor,
     transfer,
+    allocation,
+    selectedJob,
     asTrimmedString(payload?.reason)
   );
-  return buildTransferMutationResponse(allocation.job_number, allocation.caulk_allocation_id, result.transferId, result.warnings);
+  return buildTransferMutationResponse(
+    result.jobNumber || allocation.job_number,
+    result.caulkAllocationId || allocation.caulk_allocation_id,
+    result.transferId,
+    result.warnings,
+    {
+      jobId: result.jobId,
+      productId: result.productId,
+      sourceWarehouse: result.sourceWarehouse,
+      destinationWarehouse: result.destinationWarehouse,
+    }
+  );
 }

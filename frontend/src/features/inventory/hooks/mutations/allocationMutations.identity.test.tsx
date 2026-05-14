@@ -9,8 +9,10 @@ import {
   useClearAllocationPlannerSuppression,
   useAllocateBox,
   useAddCaulkJobAllocation,
+  useCancelCaulkTransfer,
   useRemoveCaulkJobAllocation,
   useRemoveJobBoxAllocations,
+  useReceiveCaulkTransfer,
   useUpdateCaulkJobAllocation
 } from './allocationMutations';
 
@@ -20,6 +22,8 @@ const removeCaulkJobAllocationMock = vi.fn();
 const removeJobBoxAllocationsMock = vi.fn();
 const clearAllocationPlannerSuppressionMock = vi.fn();
 const updateCaulkJobAllocationMock = vi.fn();
+const receiveCaulkTransferMock = vi.fn();
+const cancelCaulkTransferMock = vi.fn();
 
 vi.mock('../../../../api/features/allocationsClient', () => ({
   addCaulkJobAllocation: (...args: unknown[]) => addCaulkJobAllocationMock(...args),
@@ -31,6 +35,11 @@ vi.mock('../../../../api/features/allocationsClient', () => ({
   removeCaulkJobAllocation: (...args: unknown[]) => removeCaulkJobAllocationMock(...args),
   removeJobBoxAllocations: (...args: unknown[]) => removeJobBoxAllocationsMock(...args),
   updateCaulkJobAllocation: (...args: unknown[]) => updateCaulkJobAllocationMock(...args)
+}));
+
+vi.mock('../../../../api/features/caulkClient', () => ({
+  cancelCaulkTransfer: (...args: unknown[]) => cancelCaulkTransferMock(...args),
+  receiveCaulkTransfer: (...args: unknown[]) => receiveCaulkTransferMock(...args)
 }));
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
@@ -640,6 +649,100 @@ describe('useUpdateCaulkJobAllocation identity caches', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual({
       source: 'legacy-allocation-job'
     });
+  });
+});
+
+describe('useCaulkTransfer identity caches', () => {
+  beforeEach(() => {
+    receiveCaulkTransferMock.mockReset();
+    cancelCaulkTransferMock.mockReset();
+  });
+
+  it('row-derived receive invalidates jobById and avoids same-number legacy detail caches when jobId returns', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+    const transferKey = inventoryKeys.caulkTransfers({ warehouse: 'IL1' });
+
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), detail);
+    queryClient.setQueryData(inventoryKeys.job('1234'), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), {
+      source: 'legacy-allocation-job'
+    });
+    queryClient.setQueryData(transferKey, [{ transferId: 'TR-100' }]);
+    queryClient.setQueryData(['caulk', 'stock'], { source: 'stock' });
+    queryClient.setQueryData(['caulk', 'transactions'], { source: 'transactions' });
+    receiveCaulkTransferMock.mockResolvedValueOnce({
+      result: {
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        caulkAllocationId: 'caulk-1',
+        transferId: 'TR-100',
+        productId: 'caulk-product-1',
+        sourceWarehouse: 'IL2',
+        destinationWarehouse: 'IL1',
+        warnings: []
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useReceiveCaulkTransfer(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        transferId: 'TR-100'
+      });
+    });
+
+    expect(receiveCaulkTransferMock).toHaveBeenCalledWith({
+      transferId: 'TR-100'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual({ source: 'legacy-job' });
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+    expect(queryClient.getQueryState(transferKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(['caulk', 'stock'])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(['caulk', 'transactions'])?.isInvalidated).toBe(true);
+  });
+
+  it('legacy transfer cancel keeps jobNumber detail cache behavior when no jobId returns', async () => {
+    const queryClient = createQueryClient();
+    const detail = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.job('1234'), detail);
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), buildAllocationJobDetail(detail));
+    cancelCaulkTransferMock.mockResolvedValueOnce({
+      result: {
+        jobNumber: '1234',
+        caulkAllocationId: 'caulk-1',
+        transferId: 'TR-100',
+        warnings: []
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCancelCaulkTransfer(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        transferId: 'TR-100',
+        reason: 'No longer needed.'
+      });
+    });
+
+    expect(cancelCaulkTransferMock).toHaveBeenCalledWith({
+      transferId: 'TR-100',
+      reason: 'No longer needed.'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
   });
 });
 
