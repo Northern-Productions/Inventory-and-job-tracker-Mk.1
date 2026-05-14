@@ -520,13 +520,23 @@ const mutationHandlers: Record<string, MutationHandler> = {
     }, result.warnings || []);
   },
   "/allocations/apply": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
-    const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const jobNumber = target.usedJobId
+      ? deps.requireString(target.jobNumber, "JobNumber")
+      : deps.requireString(normalizedPayload.jobNumber, "JobNumber");
+    const existingJob = target.usedJobId ? target.job : await deps.findJobByNumber(client, orgId, jobNumber);
     if (existingJob && deps.normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== "ACTIVE") {
       throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive allocations.`);
     }
 
-    const result = await deps.callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, normalizedPayload);
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber }
+      : payloadWithoutRequestOrg;
+    const result = await deps.callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, rpcPayload);
     const allocationIds = Array.isArray(result.allocationIds)
       ? result.allocationIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
       : [];

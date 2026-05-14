@@ -42,17 +42,15 @@ test('local allocation preview supports explicit jobId without changing legacy p
   assert.match(previewBody, /listJobRequirementsByJob\(client, orgId, jobContext\.jobNumber\)/);
 });
 
-test('allocation apply remains jobNumber-only in this preview slice', () => {
+test('allocation apply now reuses canonical jobId preview identity resolution', () => {
   const applyBody = extractBetween(
     runtimeAllocationApply,
     'async function applyAllocationPlan',
     'export {'
   );
 
-  assert.doesNotMatch(applyBody, /payload\.jobId/);
-  assert.doesNotMatch(applyBody, /findJobById/);
-  assert.doesNotMatch(applyBody, /listJobRequirementsByJobId/);
-  assert.match(applyBody, /resolveJobContext\(\s*client,\s*orgId,\s*payload\.jobNumber/s);
+  assert.match(applyBody, /resolvePreviewJobContext\(client, orgId, payload, installDate\)/);
+  assert.match(applyBody, /listJobRequirementsByJobId\(client, orgId, applyTarget\.jobId\)/);
   assert.match(applyBody, /listJobRequirementsByJob\(client, orgId, jobContext\.jobNumber\)/);
 });
 

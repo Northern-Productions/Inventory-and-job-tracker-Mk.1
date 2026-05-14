@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0122_jobs_update_jobid_scope.sql';
+const LATEST_MIGRATION = '0123_allocation_apply_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -254,15 +254,25 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      'Job identity mismatch: selected job does not match jobNumber.',
       'v_result := public.api_allocations_apply(p_org_id, p_actor, p_payload);',
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box_id);',
-      'perform app_api.reconcile_auto_planned_allocations('
+      'perform app_api.reconcile_auto_planned_allocations(',
+      "'jobIds',",
+      'jsonb_build_array(v_job.id)',
+      "'boxIds',"
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
   },
   {
     signature: 'public.api_allocations_apply(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      'jobId must be a valid UUID.',
+      'and j.id = v_job_id',
+      'Job identity mismatch: selected job does not match jobNumber.',
+      'and r.job_id = v_job_id',
       'app_api.create_or_merge_manual_requirement_allocation_with_coverage(',
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',

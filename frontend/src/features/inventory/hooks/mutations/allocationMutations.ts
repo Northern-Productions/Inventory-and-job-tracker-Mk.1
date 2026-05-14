@@ -61,18 +61,23 @@ export function useAllocateBox() {
   return useMutation({
     mutationFn: (payload: ApplyAllocationPlanPayload) => applyAllocationPlan(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationsRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.searchRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })])
       ]);
 
-      const optimisticResult = applyOptimisticAllocationAdditionToCaches(queryClient, payload);
+      const optimisticResult = jobId
+        ? { allocations: [], jobAllocations: [], allocatedFeetByBoxId: {} }
+        : applyOptimisticAllocationAdditionToCaches(queryClient, payload);
 
       return {
         snapshots: [],
@@ -90,10 +95,11 @@ export function useAllocateBox() {
       }
     },
     onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || '').trim();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.searchRoot }),
-        invalidateJobLifecycleQueries(queryClient, variables.jobNumber)
+        invalidateJobLifecycleQueries(queryClient, jobId ? { jobId } : variables.jobNumber)
       ]);
 
       const touchedBoxIds = Array.from(

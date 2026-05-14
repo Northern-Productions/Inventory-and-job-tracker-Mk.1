@@ -331,6 +331,7 @@ async function resolvePreviewJobContext(client, orgId, payload, installDate) {
     job,
     jobId,
     jobContext: {
+      jobId,
       jobNumber: selectedJobNumber,
       installDate: resolvedInstallDate,
       crewLeader: resolvedCrewLeader
@@ -496,14 +497,15 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   }
 
   const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
-  const jobContext = await resolveJobContext(
+  const applyTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
+  const jobContext = applyTarget.jobContext;
+  const jobWarehouse = await resolveAllocationJobWarehouse(
     client,
     orgId,
-    payload.jobNumber,
-    installDate,
-    payload.crewLeader
+    payload,
+    jobContext.jobNumber,
+    applyTarget.job
   );
-  const jobWarehouse = await resolveAllocationJobWarehouse(client, orgId, payload, jobContext.jobNumber);
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
     source,
     ...allBoxes
@@ -519,7 +521,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(400, 'RequirementId is required for film allocations.');
   }
   const jobRequirements =
-    requirementId ? await listJobRequirementsByJob(client, orgId, jobContext.jobNumber) : [];
+    requirementId
+      ? applyTarget.jobId
+        ? await listJobRequirementsByJobId(client, orgId, applyTarget.jobId)
+        : await listJobRequirementsByJob(client, orgId, jobContext.jobNumber)
+      : [];
   const selectedRequirement =
     requirementId
       ? resolveSelectedRequirement(jobRequirements, requirementId, source, jobContext.jobNumber)
