@@ -2,21 +2,28 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OptimisticQueueProvider } from '../../../../../components/OptimisticQueue';
 import type { JobDetail, JobListEntry } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useUpdateJob } from './jobLifecycleMutations';
+import { useCompleteJob, useUpdateJob } from './jobLifecycleMutations';
 
 const updateJobMock = vi.fn();
+const completeJobMock = vi.fn();
 
 vi.mock('../../../../../api/features/jobsClient', () => ({
   cancelJob: vi.fn(),
-  completeJob: vi.fn(),
+  completeJob: (...args: unknown[]) => completeJobMock(...args),
   createJob: vi.fn(),
   deleteJob: vi.fn(),
   reopenJob: vi.fn(),
   updateJob: (...args: unknown[]) => updateJobMock(...args)
 }));
+
+beforeEach(() => {
+  updateJobMock.mockReset();
+  completeJobMock.mockReset();
+});
 
 function createQueryClient() {
   return new QueryClient({
@@ -29,7 +36,11 @@ function createQueryClient() {
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <OptimisticQueueProvider>{children}</OptimisticQueueProvider>
+      </QueryClientProvider>
+    );
   };
 }
 
@@ -126,5 +137,85 @@ describe('useUpdateJob identity caches', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
       source: 'legacy-allocation-job'
     });
+  });
+});
+
+describe('useCompleteJob identity caches', () => {
+  it('canonical complete syncs jobById and leaves same-number legacy detail caches alone', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail();
+    const after = buildDetail(
+      buildSummary({
+        lifecycleStatus: 'COMPLETED',
+        status: 'COMPLETED'
+      })
+    );
+
+    queryClient.setQueryData(inventoryKeys.jobById(before.summary.jobId!), before);
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob(before.summary.jobNumber), {
+      source: 'legacy-allocation-job'
+    });
+    completeJobMock.mockResolvedValueOnce({ result: after, warnings: [] });
+
+    const { result } = renderHook(() => useCompleteJob(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        reason: 'Done.'
+      });
+    });
+
+    expect(completeJobMock).toHaveBeenCalledWith({
+      jobId: before.summary.jobId,
+      jobNumber: before.summary.jobNumber,
+      reason: 'Done.'
+    });
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.jobById(before.summary.jobId!))?.summary).toEqual(
+      expect.objectContaining({ lifecycleStatus: 'COMPLETED', status: 'COMPLETED' })
+    );
+    expect(queryClient.getQueryData(inventoryKeys.job(before.summary.jobNumber))).toEqual({
+      source: 'legacy-job'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+  });
+
+  it('legacy complete keeps jobNumber cache behavior', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail();
+    const after = buildDetail(
+      buildSummary({
+        lifecycleStatus: 'COMPLETED',
+        status: 'COMPLETED'
+      })
+    );
+
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), before);
+    completeJobMock.mockResolvedValueOnce({ result: after, warnings: [] });
+
+    const { result } = renderHook(() => useCompleteJob(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobNumber: before.summary.jobNumber,
+        reason: 'Done.'
+      });
+    });
+
+    expect(completeJobMock).toHaveBeenCalledWith({
+      jobNumber: before.summary.jobNumber,
+      reason: 'Done.'
+    });
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job(before.summary.jobNumber))?.summary).toEqual(
+      expect.objectContaining({ lifecycleStatus: 'COMPLETED', status: 'COMPLETED' })
+    );
   });
 });

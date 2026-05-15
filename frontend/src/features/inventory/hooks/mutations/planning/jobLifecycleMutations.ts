@@ -8,7 +8,7 @@ import {
   reopenJob,
   updateJob
 } from '../../../../../api/features/jobsClient';
-import type { ReopenJobPayload } from '../../../../../api/features/jobsClient';
+import type { CompleteJobPayload, ReopenJobPayload } from '../../../../../api/features/jobsClient';
 import type {
   AllocationJobDetail,
   CaulkProductEntry,
@@ -32,6 +32,7 @@ import {
   restoreSnapshots
 } from '../../../cache/shared';
 import {
+  invalidateCaulkJobQueries,
   invalidateGlobalPlanningQueries,
   invalidateJobAndFilmOrderQueries,
   invalidateJobLifecycleQueries
@@ -190,12 +191,20 @@ export function useCompleteJob() {
   const optimisticQueue = useOptimisticQueue();
 
   return useMutation({
-    mutationFn: (payload: { jobNumber: string; reason?: string }) => completeJob(payload),
+    mutationFn: (payload: CompleteJobPayload) => completeJob(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.caulkProducts }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.ownerReportsRoot })
       ]);
@@ -206,8 +215,13 @@ export function useCompleteJob() {
         `Completing ${payload.jobNumber}`,
         [
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
+          inventoryKeys.allocationJobs,
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
           inventoryKeys.filmOrders,
+          inventoryKeys.boxRoot,
+          inventoryKeys.caulkProducts,
+          inventoryKeys.caulkTransfersRoot,
           inventoryKeys.reportsRoot,
           inventoryKeys.ownerReportsRoot
         ],
@@ -220,11 +234,32 @@ export function useCompleteJob() {
     },
     onSuccess: async ({ result }, variables, context) => {
       await context?.operation?.waitForApply();
-      syncJobDetailCaches(queryClient, result);
+      const jobId = String(variables.jobId || '').trim();
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !jobId,
+        syncLegacyJobDetail: !jobId
+      });
       await Promise.all([
         invalidateGlobalPlanningQueries(queryClient),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+        queryClient.invalidateQueries({
+          queryKey: jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(variables.jobNumber)
+        }),
+        ...(jobId ? [] : [queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })]),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkProducts }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.caulkTransfersRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot }),
+        ...(jobId
+          ? [
+              invalidateCaulkJobQueries(queryClient, { jobId }, { includeJobCollections: true })
+            ]
+          : []),
+        invalidateJobLifecycleQueries(queryClient, {
+          jobId,
+          jobNumber: jobId ? '' : variables.jobNumber
+        })
       ]);
       void syncOfflineInventoryQueries(queryClient);
     },

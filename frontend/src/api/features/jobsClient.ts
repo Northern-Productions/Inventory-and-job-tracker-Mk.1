@@ -279,8 +279,14 @@ export async function updateJob(
   };
 }
 
+export interface CompleteJobPayload {
+  jobId?: string;
+  jobNumber: string;
+  reason?: string;
+}
+
 export async function completeJob(
-  payload: { jobNumber: string; reason?: string }
+  payload: CompleteJobPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
   const response = await request<JobDetail>('POST', '/jobs/complete', { body: payload });

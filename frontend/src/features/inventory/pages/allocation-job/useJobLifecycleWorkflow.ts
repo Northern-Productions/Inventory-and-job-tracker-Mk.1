@@ -52,7 +52,7 @@ interface UseJobLifecycleWorkflowArgs {
   navigateToAllocations: () => void;
   navigateToJobDetail: (jobNumber: string) => void;
   updateJob: MutationFn<UpdateJobPayload, { result: JobDetail; warnings: string[] }>;
-  completeJob: MutationFn<{ jobNumber: string; reason: string }, { warnings: string[] }>;
+  completeJob: MutationFn<{ jobId?: string; jobNumber: string; reason: string }, { warnings: string[] }>;
   deleteJob: MutationFn<{ jobNumber: string }, unknown>;
   reopenJob: MutationFn<{ jobId?: string; jobNumber?: string; reason: string }, { warnings: string[] }>;
   canonicalJobId?: string;
@@ -209,6 +209,7 @@ export function useJobLifecycleWorkflow({
 
     try {
       const { warnings } = await completeJob({
+        ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary.jobNumber,
         reason: reason || `Marked job ${summary.jobNumber} as completed.`
       });

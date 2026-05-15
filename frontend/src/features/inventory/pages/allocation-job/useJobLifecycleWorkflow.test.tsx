@@ -71,6 +71,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const deleteFilmOrder = vi.fn().mockResolvedValue({ warnings: [] });
   const checkoutAllJobMaterials = vi.fn().mockResolvedValue({ warnings: [] });
   const setJobStagedForPickup = vi.fn().mockResolvedValue({ warnings: [] });
+  const completeJob = vi.fn().mockResolvedValue({ warnings: [] });
   const summary = buildSummary(overrides.summary as Partial<JobListEntry> | undefined);
   const detail = overrides.detail === undefined ? buildDetail(summary) : (overrides.detail as JobDetail | undefined);
   const updateJob = vi.fn().mockResolvedValue({ result: detail || buildDetail(summary), warnings: [] });
@@ -91,7 +92,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         navigateToAllocations: vi.fn(),
         navigateToJobDetail: vi.fn(),
         updateJob,
-        completeJob: vi.fn(),
+        completeJob,
         deleteJob: vi.fn(),
         reopenJob,
         canonicalJobId: overrides.canonicalJobId as string | undefined,
@@ -106,6 +107,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
   return {
     ...result,
     updateJob,
+    completeJob,
     reopenJob,
     deleteFilmOrder,
     checkoutAllJobMaterials,
@@ -296,6 +298,40 @@ describe('useJobLifecycleWorkflow checkout-all identity', () => {
 
     expect(workflow.checkoutAllJobMaterials).toHaveBeenCalledWith({
       jobNumber: '000123'
+    });
+  });
+});
+
+describe('useJobLifecycleWorkflow complete job identity', () => {
+  it('sends jobId and jobNumber from canonical job route context', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleCompleteJob('Finished.');
+    });
+
+    expect(workflow.completeJob).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      reason: 'Finished.'
+    });
+  });
+
+  it('preserves legacy jobNumber-only complete payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleCompleteJob('Finished.');
+    });
+
+    expect(workflow.completeJob).toHaveBeenCalledWith({
+      jobNumber: '000123',
+      reason: 'Finished.'
     });
   });
 });
