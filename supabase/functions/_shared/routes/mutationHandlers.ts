@@ -833,9 +833,12 @@ const mutationHandlers: Record<string, MutationHandler> = {
   },
   "/jobs/checkout-all": async ({ client, identity, normalizedPayload }, deps) => {
     const result = await deps.checkoutAllJobMaterials(client, identity, normalizedPayload);
+    const jobId = deps.asTrimmedString(result.jobId);
     const jobNumber = deps.requireString(result.jobNumber, "JobNumber");
     return ok(
-      await deps.buildJobDetail(client, identity.orgId, jobNumber),
+      jobId
+        ? await deps.buildJobDetailById(client, identity.orgId, jobId)
+        : await deps.buildJobDetail(client, identity.orgId, jobNumber),
       Array.isArray(result.warnings) ? result.warnings : []
     );
   },

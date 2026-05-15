@@ -69,6 +69,7 @@ function buildDetail(summary = buildSummary()): JobDetail {
 function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const reopenJob = vi.fn().mockResolvedValue({ warnings: [] });
   const deleteFilmOrder = vi.fn().mockResolvedValue({ warnings: [] });
+  const checkoutAllJobMaterials = vi.fn().mockResolvedValue({ warnings: [] });
   const summary = buildSummary(overrides.summary as Partial<JobListEntry> | undefined);
   const detail = overrides.detail === undefined ? buildDetail(summary) : (overrides.detail as JobDetail | undefined);
   const updateJob = vi.fn().mockResolvedValue({ result: detail || buildDetail(summary), warnings: [] });
@@ -94,7 +95,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         reopenJob,
         canonicalJobId: overrides.canonicalJobId as string | undefined,
         deleteFilmOrder,
-        checkoutAllJobMaterials: vi.fn(),
+        checkoutAllJobMaterials,
         setJobStagedForPickup: vi.fn(),
         onUserDrivenFilmCoverageChange: vi.fn()
       }),
@@ -106,6 +107,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
     updateJob,
     reopenJob,
     deleteFilmOrder,
+    checkoutAllJobMaterials,
     pushToast
   };
 }
@@ -260,6 +262,38 @@ describe('useJobLifecycleWorkflow film order delete identity', () => {
       filmOrderId: 'FO-1',
       jobNumber: '000123',
       reason: 'Legacy delete.'
+    });
+  });
+});
+
+describe('useJobLifecycleWorkflow checkout-all identity', () => {
+  it('sends jobId and jobNumber from canonical job route context', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleCheckoutAllMaterials();
+    });
+
+    expect(workflow.checkoutAllJobMaterials).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123'
+    });
+  });
+
+  it('preserves legacy jobNumber-only checkout-all payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleCheckoutAllMaterials();
+    });
+
+    expect(workflow.checkoutAllJobMaterials).toHaveBeenCalledWith({
+      jobNumber: '000123'
     });
   });
 });

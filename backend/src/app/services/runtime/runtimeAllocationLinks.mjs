@@ -141,11 +141,13 @@ import {
   upsertFilmCatalogRecord,
   listAllocations,
   listAllocationsByJob,
+  listAllocationsByJobId,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
   deleteFilmOrderRecord,
@@ -156,9 +158,11 @@ import {
   deleteFilmOrderLinksByFilmOrderId,
   listJobs,
   findJobByNumber,
+  findJobById,
   saveJobRecord,
   listJobRequirements,
   listJobRequirementsByJob,
+  listJobRequirementsByJobId,
   listJobCaulkRequirements,
   listJobCaulkRequirementsByJob,
   listCaulkJobAllocations,
@@ -199,15 +203,19 @@ import { buildPublicAllocationEntriesForJob } from './runtimeJobSummaries.mjs';
 import { createAllocationRecord } from './runtimeAllocationPlanning.mjs';
 import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 
-function hasNonCancelledAllocationForBoxJob(allocations, boxId, jobNumber) {
+function hasNonCancelledAllocationForBoxJob(allocations, boxId, jobNumber, jobId = '') {
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const normalizedJobId = asTrimmedString(jobId).toLowerCase();
 
   for (let index = 0; index < allocations.length; index += 1) {
     const entry = allocations[index];
+    const entryJobId = asTrimmedString(entry.jobId).toLowerCase();
     if (
       entry.status !== 'CANCELLED' &&
       entry.boxId === boxId &&
-      normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber
+      (normalizedJobId
+        ? entryJobId === normalizedJobId
+        : normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber)
     ) {
       return true;
     }
@@ -274,13 +282,18 @@ function sumRemainingMatchingRequirementFeetForBox(requirements, box) {
   return total;
 }
 
-async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, allocations) {
+async function buildJobContextForAutoLinkedAllocation(client, orgId, jobNumber, allocations, options = {}) {
   const normalizedJobNumber = requireString(jobNumber, 'JobNumber');
-  const header = await findJobByNumber(client, orgId, normalizedJobNumber);
-  const filmOrders = await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
+  const jobId = asTrimmedString(options.jobId);
+  const header = options.selectedJob ||
+    (jobId ? await findJobById(client, orgId, jobId) : await findJobByNumber(client, orgId, normalizedJobNumber));
+  const filmOrders = jobId
+    ? await listFilmOrdersByJobId(client, orgId, jobId)
+    : await listFilmOrdersByJob(client, orgId, normalizedJobNumber);
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
 
   return {
+    jobId: asTrimmedString(header?.id || jobId),
     jobNumber: normalizedJobNumber,
     installDate: asTrimmedString(header?.installDate) || metadata.installDate || '',
     crewLeader: asTrimmedString(header?.crewLeader) || metadata.crewLeader || ''
@@ -291,25 +304,30 @@ function getCheckoutCrewConflictJobs(targetJobContext, allocations) {
   return getSameDayCrewConflictJobs(targetJobContext, allocations);
 }
 
-async function listCheckoutCrewConflictJobsForBox(client, orgId, boxId, jobNumber) {
+async function listCheckoutCrewConflictJobsForBox(client, orgId, boxId, jobNumber, options = {}) {
   const boxAllocations = await listAllocationsByBox(client, orgId, boxId);
   if (!boxAllocations.length) {
     return [];
   }
 
-  const targetJobAllocations = await listAllocationsByJob(client, orgId, jobNumber);
+  const jobId = asTrimmedString(options.jobId);
+  const targetJobAllocations = jobId
+    ? await listAllocationsByJobId(client, orgId, jobId)
+    : await listAllocationsByJob(client, orgId, jobNumber);
   const targetJobContext = await buildJobContextForAutoLinkedAllocation(
     client,
     orgId,
     jobNumber,
-    targetJobAllocations
+    targetJobAllocations,
+    options
   );
 
   return getCheckoutCrewConflictJobs(targetJobContext, boxAllocations);
 }
 
-async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNumber, user, mode = 'checkout') {
+async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNumber, user, mode = 'checkout', options = {}) {
   const normalizedJobNumber = requireString(jobNumber, 'JobNumber');
+  const jobId = asTrimmedString(options.jobId);
   const availableFeet = Math.max(0, integerOrZero(box.feetAvailable));
 
   if (availableFeet <= 0) {
@@ -320,7 +338,9 @@ async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNu
     };
   }
 
-  const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const requirements = jobId
+    ? await listJobRequirementsByJobId(client, orgId, jobId)
+    : await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
   if (!requirements.length) {
     return {
       created: false,
@@ -329,8 +349,10 @@ async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNu
     };
   }
 
-  const jobAllocations = await listAllocationsByJob(client, orgId, normalizedJobNumber);
-  if (hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, normalizedJobNumber)) {
+  const jobAllocations = jobId
+    ? await listAllocationsByJobId(client, orgId, jobId)
+    : await listAllocationsByJob(client, orgId, normalizedJobNumber);
+  if (hasNonCancelledAllocationForBoxJob(jobAllocations, box.boxId, normalizedJobNumber, jobId)) {
     return {
       created: false,
       allocatedFeet: 0,
@@ -367,7 +389,8 @@ async function autoLinkRemainingJobFeetToCheckedOutBox(client, orgId, box, jobNu
     client,
     orgId,
     normalizedJobNumber,
-    jobAllocations
+    jobAllocations,
+    options
   );
   const allocation = await createAllocationRecord(
     client,
