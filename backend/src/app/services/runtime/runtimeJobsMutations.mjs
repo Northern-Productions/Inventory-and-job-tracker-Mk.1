@@ -55,6 +55,7 @@ import {
   derivePersistedJobMaterialFlags,
   deleteJobRequirementsByJobId,
   deleteJobRecord,
+  deleteJobRecordById,
   appendAuditEntry,
 } from '../runtimeDeps.mjs';
 import {
@@ -69,6 +70,7 @@ import {
 import {
   formatDeletedJobCleanupWarning,
   prepareDeletedJobCleanup,
+  prepareDeletedJobCleanupByJobId,
   removeAllocationFromJob,
   cancelJobAndReleaseAllocations,
   cancelJobAndReleaseAllocationsByJobId,
@@ -643,17 +645,37 @@ async function deleteJob(client, orgId, payload, actor, role) {
     throw new HttpError(403, 'Admin or owner access is required.');
   }
 
-  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId) {
+    requireUuid(suppliedJobId, 'jobId');
+  }
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? target.jobNumber
+    : normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const existingJob = target.usedJobId
+    ? target.job
+    : await findJobByNumber(client, orgId, jobNumber);
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
-    (box) =>
-      box.status === 'CHECKED_OUT' &&
-      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber)
-  );
+  const normalizedTargetJobId = target.usedJobId ? asTrimmedString(target.jobId).toLowerCase() : '';
+  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
+    if (box.status !== 'CHECKED_OUT') {
+      return false;
+    }
+    if (!target.usedJobId) {
+      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
+    }
+
+    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
+    return (
+      boxJobId === normalizedTargetJobId ||
+      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
+    );
+  });
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
@@ -666,9 +688,10 @@ async function deleteJob(client, orgId, payload, actor, role) {
     );
   }
 
-  const openCaulkCheckoutCount = (await listCaulkJobCheckoutsByJob(client, orgId, jobNumber)).filter(
-    (entry) => entry.status === 'OPEN'
-  ).length;
+  const caulkCheckouts = target.usedJobId
+    ? await listCaulkJobCheckoutsByJobId(client, orgId, target.jobId)
+    : await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
+  const openCaulkCheckoutCount = caulkCheckouts.filter((entry) => entry.status === 'OPEN').length;
   if (openCaulkCheckoutCount > 0) {
     throw new HttpError(
       400,
@@ -676,18 +699,34 @@ async function deleteJob(client, orgId, payload, actor, role) {
     );
   }
 
-  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
-  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
-  const deleteResult = await prepareDeletedJobCleanup(
-    client,
-    orgId,
-    jobNumber,
-    actor,
-    asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`
-  );
+  const existingRequirements = target.usedJobId
+    ? await listJobRequirementsByJobId(client, orgId, target.jobId)
+    : await listJobRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkRequirements = target.usedJobId
+    ? await listJobCaulkRequirementsByJobId(client, orgId, target.jobId)
+    : await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const deleteReason = asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`;
+  const deleteResult = target.usedJobId
+    ? await prepareDeletedJobCleanupByJobId(
+        client,
+        orgId,
+        target.jobId,
+        jobNumber,
+        actor,
+        deleteReason
+      )
+    : await prepareDeletedJobCleanup(
+        client,
+        orgId,
+        jobNumber,
+        actor,
+        deleteReason
+      );
 
-  await deleteJobRequirementsByJobId(client, orgId, existingJob.id);
-  await deleteJobRecord(client, orgId, jobNumber);
+  await deleteJobRequirementsByJobId(client, orgId, target.usedJobId ? target.jobId : existingJob.id);
+  await (target.usedJobId
+    ? deleteJobRecordById(client, orgId, target.jobId)
+    : deleteJobRecord(client, orgId, jobNumber));
 
   warnings.push(
     formatDeletedJobCleanupWarning({
@@ -706,7 +745,7 @@ async function deleteJob(client, orgId, payload, actor, role) {
     })
   );
 
-  return ok({ jobNumber }, warnings);
+  return ok(target.usedJobId ? { jobId: target.jobId, jobNumber } : { jobNumber }, warnings);
 }
 
 async function createFilmOrder(client, orgId, payload, actor) {

@@ -326,11 +326,16 @@ export function useDeleteJob() {
   return useMutation({
     mutationFn: (payload: DeleteJobPayload) => deleteJob(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       const cancelPromise = Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        ...(jobId
+          ? []
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
       ]);
 
@@ -338,12 +343,18 @@ export function useDeleteJob() {
         queryClient,
         [
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber),
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
           inventoryKeys.filmOrders
         ],
-        () => removeJobPlanningCaches(queryClient, payload.jobNumber)
+        () => {
+          if (jobId) {
+            queryClient.removeQueries({ queryKey: inventoryKeys.jobById(jobId), exact: true });
+            return;
+          }
+          removeJobPlanningCaches(queryClient, payload.jobNumber);
+        }
       );
 
       await cancelPromise;
@@ -352,17 +363,40 @@ export function useDeleteJob() {
     onError: (_error, _variables, context) => {
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }) => {
+    onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || result.jobId || '').trim();
       await Promise.all([
         invalidateGlobalPlanningQueries(queryClient),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot }),
+        ...(jobId
+          ? [
+              invalidateCaulkJobQueries(queryClient, { jobId }, { includeJobCollections: true }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) })
+            ]
+          : [
+              invalidateCaulkJobQueries(
+                queryClient,
+                result.jobNumber || variables.jobNumber,
+                { includeJobCollections: true }
+              ),
+              queryClient.invalidateQueries({
+                queryKey: inventoryKeys.job(result.jobNumber || variables.jobNumber)
+              }),
+              queryClient.invalidateQueries({
+                queryKey: inventoryKeys.allocationJob(result.jobNumber || variables.jobNumber)
+              })
+            ])
       ]);
 
-      queryClient.removeQueries({ queryKey: inventoryKeys.job(result.jobNumber), exact: true });
-      queryClient.removeQueries({
-        queryKey: inventoryKeys.allocationJob(result.jobNumber),
-        exact: true
-      });
+      if (jobId) {
+        queryClient.removeQueries({ queryKey: inventoryKeys.jobById(jobId), exact: true });
+      } else {
+        queryClient.removeQueries({ queryKey: inventoryKeys.job(result.jobNumber), exact: true });
+        queryClient.removeQueries({
+          queryKey: inventoryKeys.allocationJob(result.jobNumber),
+          exact: true
+        });
+      }
 
       void syncOfflineInventoryQueries(queryClient);
     }

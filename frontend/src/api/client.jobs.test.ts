@@ -572,6 +572,30 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('deletes a canonical job through POST /jobs/delete with jobId and jobNumber', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123'
+      },
+      warnings: []
+    });
+
+    const result = await deleteJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123'
+    });
+
+    expect(result.result.jobId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.result.jobNumber).toBe('000123');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/delete', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123'
+      }
+    });
+  });
+
   it('reopens a job through POST /jobs/reopen', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
