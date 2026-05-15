@@ -7,6 +7,7 @@ import {
   maybeLogCaulkFallbackCoverageDecision,
   shouldUseCache,
 } from "./api-handler.ts";
+import { createInventoryRepositories } from "./repositories/inventoryRepositories.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
@@ -76,6 +77,80 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
 
   assertEquals(shouldUseCache("POST", "/allocations/caulk/add"), false, "Expected mutations to bypass cache.");
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
+});
+
+Deno.test("Edge public film order mapper exposes additive jobId only when present", () => {
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async () => {
+      throw new Error("Unexpected RPC call.");
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+
+  const canonicalEntry = repositories.mapDbFilmOrderRow({
+    id: "row-job-id",
+    org_id: "org-1",
+    film_order_id: "FO-JOB-ID",
+    job_id: "11111111-1111-4111-8111-111111111111",
+    job_number: "4447",
+    warehouse: "IL1",
+    manufacturer: "Security",
+    film_name: "3M Ultra S800",
+    width_in: 60,
+    requested_feet: 100,
+    covered_feet: 0,
+    ordered_feet: 0,
+    remaining_to_order_feet: 100,
+    status: "FILM_ORDER",
+    source_box_id: "",
+    created_at: "2026-04-16T15:47:48.884Z",
+    created_by: "tester",
+  });
+  const legacyEntry = repositories.mapDbFilmOrderRow({
+    id: "row-legacy",
+    org_id: "org-1",
+    film_order_id: "FO-LEGACY",
+    job_id: null,
+    job_number: "4447",
+    warehouse: "IL1",
+    manufacturer: "Security",
+    film_name: "3M Ultra S800",
+    width_in: 60,
+    requested_feet: 100,
+    covered_feet: 0,
+    ordered_feet: 0,
+    remaining_to_order_feet: 100,
+    status: "FILM_ORDER",
+    source_box_id: "",
+    created_at: "2026-04-16T15:47:48.884Z",
+    created_by: "tester",
+  });
+
+  assertEquals(
+    repositories.toPublicFilmOrder(canonicalEntry, []).jobId,
+    "11111111-1111-4111-8111-111111111111",
+    "Expected Edge public film order mapper to expose jobId when present.",
+  );
+  assertEquals(
+    Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "jobId"),
+    false,
+    "Expected Edge public film order mapper to omit jobId for legacy rows.",
+  );
 });
 
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
