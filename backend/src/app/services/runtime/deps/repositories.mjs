@@ -83,6 +83,7 @@ export {
   derivePersistedJobMaterialFlags,
   deleteJobRequirementsByJobId,
   deleteJobRecord,
+  deleteJobRecordById,
 } from '../../../repositories/jobs/index.mjs';
 export {
   listAuditEntries,

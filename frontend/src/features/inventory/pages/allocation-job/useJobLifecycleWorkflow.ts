@@ -53,7 +53,7 @@ interface UseJobLifecycleWorkflowArgs {
   navigateToJobDetail: (jobNumber: string) => void;
   updateJob: MutationFn<UpdateJobPayload, { result: JobDetail; warnings: string[] }>;
   completeJob: MutationFn<{ jobId?: string; jobNumber: string; reason: string }, { warnings: string[] }>;
-  deleteJob: MutationFn<{ jobNumber: string }, unknown>;
+  deleteJob: MutationFn<{ jobId?: string; jobNumber: string; reason?: string }, unknown>;
   reopenJob: MutationFn<{ jobId?: string; jobNumber?: string; reason: string }, { warnings: string[] }>;
   canonicalJobId?: string;
   deleteFilmOrder: MutationFn<
@@ -261,6 +261,7 @@ export function useJobLifecycleWorkflow({
 
     try {
       const deletePromise = deleteJob({
+        ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary.jobNumber
       });
       navigateToAllocations();

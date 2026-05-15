@@ -412,10 +412,12 @@ export interface SetJobStagedForPickupPayload {
 }
 
 export interface DeleteJobPayload {
+  jobId?: string;
   jobNumber: string;
   reason?: string;
 }
 
 export interface DeleteJobResult {
+  jobId?: string;
   jobNumber: string;
 }

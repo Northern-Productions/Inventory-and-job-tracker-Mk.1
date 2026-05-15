@@ -1092,6 +1092,17 @@ async function deleteJobRecord(client, orgId, jobNumber) {
   );
 }
 
+async function deleteJobRecordById(client, orgId, jobId) {
+  await client.query(
+    `
+      delete from app.jobs
+      where org_id = $1
+        and id = $2
+    `,
+    [orgId, jobId]
+  );
+}
+
 export {
   listJobs,
   findJobByNumber,
@@ -1120,4 +1131,5 @@ export {
   derivePersistedJobMaterialFlags,
   deleteJobRequirementsByJobId,
   deleteJobRecord,
+  deleteJobRecordById,
 };

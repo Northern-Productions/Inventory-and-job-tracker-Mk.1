@@ -75,6 +75,8 @@ import {
 } from "../../../shared/domain/filmAllocationReservations.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 
+const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type CacheEntry = {
   expiresAt: number;
   status: number;
@@ -7760,27 +7762,70 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     throw new HttpError(403, "Admin or owner access is required.");
   }
 
-  const jobNumber = normalizeJobNumberDigits(requireString(payload.jobNumber, "Job ID number"));
-  if (!jobNumber) {
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId && !JOB_ID_PATTERN.test(suppliedJobId)) {
+    throw new HttpError(400, "jobId must be a valid UUID.");
+  }
+  const suppliedJobNumber = normalizeJobNumberDigits(requireString(payload.jobNumber, "Job ID number"));
+  if (!suppliedJobNumber) {
     throw new HttpError(400, "Job ID number must include at least one digit.");
   }
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, {
+    ...payload,
+    jobNumber: suppliedJobNumber,
+  }, {
+    findJobById,
+    normalizeJobNumberDigits,
+  });
+  const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, "JobNumber")
+    : suppliedJobNumber;
+  const existingJob = target.usedJobId ? target.job : await findJobByNumber(client, orgId, jobNumber);
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const existingAllocations = await listAllocationsByJob(client, orgId, jobNumber);
-  const existingFilmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
-  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
-  const existingCaulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
-  const existingCaulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
-  const existingCaulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
-  const existingRollHistory = await listRollHistoryByJob(client, orgId, jobNumber, existingAllocations);
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
-    (box) =>
-      box.status === "CHECKED_OUT" &&
-      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber),
-  );
+  const canonicalHeader = target.usedJobId
+    ? { ...(existingJob as Record<string, unknown>), id: targetJobId, jobNumber }
+    : null;
+  const existingAllocations = target.usedJobId
+    ? await listAllocationsByJobIdDirect(orgId, targetJobId)
+    : await listAllocationsByJob(client, orgId, jobNumber);
+  const existingFilmOrders = target.usedJobId
+    ? await listFilmOrdersByJobIdDirect(orgId, targetJobId)
+    : await listFilmOrdersByJob(client, orgId, jobNumber);
+  const existingRequirements = target.usedJobId
+    ? await listJobRequirementsByJobIdDirect(orgId, canonicalHeader)
+    : await listJobRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkRequirements = target.usedJobId
+    ? await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader)
+    : await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const existingCaulkAllocations = target.usedJobId
+    ? await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId)
+    : await listCaulkJobAllocationsByJob(client, orgId, jobNumber);
+  const existingCaulkCheckouts = target.usedJobId
+    ? await listCaulkJobCheckoutsByJobIdDirect(orgId, targetJobId)
+    : await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
+  const existingRollHistory = target.usedJobId
+    ? await listRollHistoryForJobAllocations(client, orgId, existingAllocations)
+    : await listRollHistoryByJob(client, orgId, jobNumber, existingAllocations);
+  const normalizedTargetJobId = targetJobId.toLowerCase();
+  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
+    if (box.status !== "CHECKED_OUT") {
+      return false;
+    }
+    if (!target.usedJobId) {
+      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
+    }
+
+    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
+    return (
+      boxJobId === normalizedTargetJobId ||
+      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
+    );
+  });
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
@@ -7810,7 +7855,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .from("allocations")
     .select("id, box_id, allocated_feet")
     .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
+    .eq(target.usedJobId ? "job_id" : "job_number", target.usedJobId ? targetJobId : jobNumber)
     .eq("status", "ACTIVE");
   throwOnSupabaseError(activeAllocationsError, "Unable to load active allocations");
 
@@ -7904,6 +7949,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     p_org_id: orgId,
     p_actor: actor,
     p_payload: {
+      ...(target.usedJobId ? { jobId: targetJobId } : {}),
       jobNumber,
       reason: cancelReason,
     },
@@ -7916,7 +7962,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .from("allocations")
     .delete()
     .eq("org_id", orgId)
-    .eq("job_number", jobNumber);
+    .eq(target.usedJobId ? "job_id" : "job_number", target.usedJobId ? targetJobId : jobNumber);
   throwOnSupabaseError(deleteAllocationsError, `Unable to delete film allocations for job ${jobNumber}`);
 
   const { error: deleteCaulkAllocationsError } = await serviceClient
@@ -7924,23 +7970,42 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .from("caulk_job_allocations")
     .delete()
     .eq("org_id", orgId)
-    .eq("job_number", jobNumber);
+    .eq(target.usedJobId ? "job_id" : "job_number", target.usedJobId ? targetJobId : jobNumber);
   throwOnSupabaseError(deleteCaulkAllocationsError, `Unable to delete caulk allocations for job ${jobNumber}`);
 
-  const { error: deleteRollHistoryError } = await serviceClient
-    .schema("app")
-    .from("roll_weight_log")
-    .delete()
-    .eq("org_id", orgId)
-    .eq("job_number", jobNumber);
-  throwOnSupabaseError(deleteRollHistoryError, `Unable to delete roll history for job ${jobNumber}`);
+  if (target.usedJobId) {
+    const { error: deleteSelectedRollHistoryError } = await serviceClient
+      .schema("app")
+      .from("roll_weight_log")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("job_id", targetJobId);
+    throwOnSupabaseError(deleteSelectedRollHistoryError, `Unable to delete selected roll history for job ${jobNumber}`);
+
+    const { error: deleteLegacyRollHistoryError } = await serviceClient
+      .schema("app")
+      .from("roll_weight_log")
+      .delete()
+      .eq("org_id", orgId)
+      .is("job_id", null)
+      .eq("job_number", jobNumber);
+    throwOnSupabaseError(deleteLegacyRollHistoryError, `Unable to delete legacy roll history for job ${jobNumber}`);
+  } else {
+    const { error: deleteRollHistoryError } = await serviceClient
+      .schema("app")
+      .from("roll_weight_log")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("job_number", jobNumber);
+    throwOnSupabaseError(deleteRollHistoryError, `Unable to delete roll history for job ${jobNumber}`);
+  }
 
   const { error: deleteRequirementsError } = await serviceClient
     .schema("app")
     .from("job_requirements")
     .delete()
     .eq("org_id", orgId)
-    .eq("job_id", existingJob.id);
+    .eq("job_id", target.usedJobId ? targetJobId : existingJob.id);
   throwOnSupabaseError(deleteRequirementsError, `Unable to delete job requirements for job ${jobNumber}`);
 
   const { error: deleteCaulkRequirementsError } = await serviceClient
@@ -7948,7 +8013,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .from("job_caulk_requirements")
     .delete()
     .eq("org_id", orgId)
-    .eq("job_id", existingJob.id);
+    .eq("job_id", target.usedJobId ? targetJobId : existingJob.id);
   throwOnSupabaseError(deleteCaulkRequirementsError, `Unable to delete caulk requirements for job ${jobNumber}`);
 
   const { error: deleteJobError } = await serviceClient
@@ -7956,7 +8021,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     .from("jobs")
     .delete()
     .eq("org_id", orgId)
-    .eq("id", existingJob.id);
+    .eq("id", target.usedJobId ? targetJobId : existingJob.id);
   throwOnSupabaseError(deleteJobError, `Unable to delete job ${jobNumber}`);
 
   warnings.push(
@@ -7976,7 +8041,7 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     }),
   );
 
-  return ok({ jobNumber }, warnings);
+  return ok(target.usedJobId ? { jobId: targetJobId, jobNumber } : { jobNumber }, warnings);
 }
 
 async function recalculateFilmOrderAfterAllocationMutation(

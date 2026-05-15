@@ -68,6 +68,7 @@ function buildDetail(summary = buildSummary()): JobDetail {
 
 function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const reopenJob = vi.fn().mockResolvedValue({ warnings: [] });
+  const deleteJob = vi.fn().mockResolvedValue({ warnings: [] });
   const deleteFilmOrder = vi.fn().mockResolvedValue({ warnings: [] });
   const checkoutAllJobMaterials = vi.fn().mockResolvedValue({ warnings: [] });
   const setJobStagedForPickup = vi.fn().mockResolvedValue({ warnings: [] });
@@ -93,7 +94,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         navigateToJobDetail: vi.fn(),
         updateJob,
         completeJob,
-        deleteJob: vi.fn(),
+        deleteJob,
         reopenJob,
         canonicalJobId: overrides.canonicalJobId as string | undefined,
         deleteFilmOrder,
@@ -108,6 +109,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
     ...result,
     updateJob,
     completeJob,
+    deleteJob,
     reopenJob,
     deleteFilmOrder,
     checkoutAllJobMaterials,
@@ -230,6 +232,38 @@ describe('useJobLifecycleWorkflow reopen identity', () => {
     expect(workflow.reopenJob).toHaveBeenCalledWith({
       jobNumber: '000123',
       reason: 'Legacy reopen.'
+    });
+  });
+});
+
+describe('useJobLifecycleWorkflow job delete identity', () => {
+  it('sends jobId and jobNumber from canonical job route context', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleDeleteJob();
+    });
+
+    expect(workflow.deleteJob).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123'
+    });
+  });
+
+  it('preserves legacy jobNumber-only delete payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'FILM_ORDER' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleDeleteJob();
+    });
+
+    expect(workflow.deleteJob).toHaveBeenCalledWith({
+      jobNumber: '000123'
     });
   });
 });

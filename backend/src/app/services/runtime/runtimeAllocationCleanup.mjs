@@ -167,6 +167,7 @@ import {
   listCaulkJobAllocations,
   listCaulkJobAllocationsByJob,
   listCaulkJobCheckoutsByJob,
+  listCaulkJobCheckoutsByJobId,
   replaceJobRequirementsForJob,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,
@@ -491,6 +492,116 @@ async function prepareDeletedJobCleanup(client, orgId, jobNumber, user, reason) 
   };
 }
 
+async function prepareDeletedJobCleanupByJobId(client, orgId, jobId, jobNumber, user, reason) {
+  const allocations = await listAllocationsByJobId(client, orgId, jobId);
+  const filmOrders = await listFilmOrdersByJobId(client, orgId, jobId);
+  const caulkCheckouts = await listCaulkJobCheckoutsByJobId(client, orgId, jobId);
+  const note = asTrimmedString(reason) || `Deleted job ${jobNumber}.`;
+  const releasedFeetByBox = {};
+  let releasedFilmAllocationCount = 0;
+  let affectedBoxCount = 0;
+  let deletedFilmOrderCount = 0;
+
+  for (let index = 0; index < allocations.length; index += 1) {
+    const entry = cloneValue(allocations[index]);
+    if (entry.status !== 'ACTIVE') {
+      continue;
+    }
+
+    releasedFeetByBox[entry.boxId] =
+      integerOrZero(releasedFeetByBox[entry.boxId]) + getRestoredAllocatableFeet(entry);
+    entry.status = 'CANCELLED';
+    entry.resolvedAt = new Date().toISOString();
+    entry.resolvedBy = asTrimmedString(user);
+    entry.notes = note;
+    await saveAllocationRecord(client, orgId, entry);
+    releasedFilmAllocationCount += 1;
+  }
+
+  for (const boxId of Object.keys(releasedFeetByBox)) {
+    const box = await findBoxById(client, orgId, boxId);
+    if (!box || asTrimmedString(box.status).toUpperCase() === 'ZEROED' || asTrimmedString(box.status).toUpperCase() === 'RETIRED') {
+      continue;
+    }
+
+    await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, releasedFeetByBox[boxId]));
+    affectedBoxCount += 1;
+  }
+
+  for (let index = 0; index < filmOrders.length; index += 1) {
+    const order = filmOrders[index];
+    const filmOrderId = asTrimmedString(order.filmOrderId);
+    if (!filmOrderId) {
+      continue;
+    }
+
+    await deleteFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
+    await deleteFilmOrderRecord(client, orgId, filmOrderId);
+    deletedFilmOrderCount += 1;
+  }
+
+  const caulkCancelResponse = await queryRow(
+    client,
+    `select public.api_acl_jobs_cancel_caulk_allocations($1::uuid, $2::text, $3::jsonb) as payload`,
+    [
+      orgId,
+      asTrimmedString(user),
+      JSON.stringify({
+        jobId,
+        jobNumber,
+        reason: note
+      })
+    ]
+  );
+  const caulkCancelPayload =
+    caulkCancelResponse && typeof caulkCancelResponse.payload === 'object'
+      ? cloneValue(caulkCancelResponse.payload)
+      : {};
+
+  const purgedFilmAllocationsResult = await client.query(
+    `
+      delete from app.allocations
+      where org_id = $1
+        and job_id = $2
+    `,
+    [orgId, jobId]
+  );
+  const purgedCaulkAllocationsResult = await client.query(
+    `
+      delete from app.caulk_job_allocations
+      where org_id = $1
+        and job_id = $2
+    `,
+    [orgId, jobId]
+  );
+  const purgedRollHistoryResult = await client.query(
+    `
+      delete from app.roll_weight_log
+      where org_id = $1
+        and (
+          job_id = $2
+          or (
+            job_id is null
+            and upper(trim(job_number)) = upper(trim($3))
+          )
+        )
+    `,
+    [orgId, jobId, jobNumber]
+  );
+
+  return {
+    releasedFilmAllocationCount,
+    affectedBoxCount,
+    cancelledCaulkAllocationCount: integerOrZero(caulkCancelPayload.cancelledAllocationCount),
+    releasedReservedCaulkTubes: integerOrZero(caulkCancelPayload.releasedReservedTubes),
+    purgedFilmAllocationCount: integerOrZero(purgedFilmAllocationsResult.rowCount),
+    purgedCaulkAllocationCount: integerOrZero(purgedCaulkAllocationsResult.rowCount),
+    purgedCaulkCheckoutCount: caulkCheckouts.length,
+    purgedRollHistoryCount: integerOrZero(purgedRollHistoryResult.rowCount),
+    deletedFilmOrderCount
+  };
+}
+
 async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, user, reason) {
   const jobHeader = await findJobByNumber(client, orgId, jobNumber);
   if (jobHeader && normalizeJobLifecycleStatus(jobHeader.lifecycleStatus) !== 'ACTIVE') {
@@ -679,6 +790,7 @@ export {
   cancelJobAndReleaseAllocationsByJobId,
   formatDeletedJobCleanupWarning,
   prepareDeletedJobCleanup,
+  prepareDeletedJobCleanupByJobId,
   removeAllocationFromJob,
   cancelFilmOrderAndReleaseAllocations,
   cancelActiveFilmOrderAllocationsForBox,
