@@ -131,6 +131,7 @@ export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';
 
 export interface FilmOrderEntry {
   filmOrderId: string;
+  jobId?: string;
   requirementId?: string;
   jobNumber: string;
   warehouse: Warehouse;
