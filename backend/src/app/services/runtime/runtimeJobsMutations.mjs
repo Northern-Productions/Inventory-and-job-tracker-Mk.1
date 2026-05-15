@@ -71,6 +71,7 @@ import {
   prepareDeletedJobCleanup,
   removeAllocationFromJob,
   cancelJobAndReleaseAllocations,
+  cancelJobAndReleaseAllocationsByJobId,
   cancelFilmOrderAndReleaseAllocations,
 } from './runtimeAllocationCleanup.mjs';
 import {
@@ -825,22 +826,36 @@ async function createFilmOrder(client, orgId, payload, actor) {
 
 async function cancelJob(client, orgId, payload, actor) {
   const warnings = [];
-  const jobNumber = requireString(payload.jobNumber, 'JobNumber');
-  const result = await cancelJobAndReleaseAllocations(client, orgId, jobNumber, actor, payload.reason);
-  const existingJob = await findJobByNumber(client, orgId, jobNumber);
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId) {
+    requireUuid(suppliedJobId, 'jobId');
+  }
+  requireString(payload.jobNumber, 'JobNumber');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, 'JobNumber')
+    : requireString(payload.jobNumber, 'JobNumber');
+  const result = target.usedJobId
+    ? await cancelJobAndReleaseAllocationsByJobId(client, orgId, target.jobId, jobNumber, actor, payload.reason)
+    : await cancelJobAndReleaseAllocations(client, orgId, jobNumber, actor, payload.reason);
+  const existingJob = target.usedJobId ? target.job : await findJobByNumber(client, orgId, jobNumber);
 
   if (existingJob) {
     existingJob.lifecycleStatus = 'CANCELLED';
     existingJob.updatedAt = new Date().toISOString();
     existingJob.updatedBy = actor;
-    await saveJobRecord(client, orgId, existingJob);
+    if (target.usedJobId) {
+      await saveJobRecordById(client, orgId, existingJob);
+    } else {
+      await saveJobRecord(client, orgId, existingJob);
+    }
   }
 
   warnings.push(
     `Cancelled job ${jobNumber}. Released ${result.releasedAllocationCount} active allocation${result.releasedAllocationCount === 1 ? '' : 's'} across ${result.affectedBoxCount} box${result.affectedBoxCount === 1 ? '' : 'es'} and deleted ${result.deletedFilmOrderCount} film order${result.deletedFilmOrderCount === 1 ? '' : 's'}.`
   );
 
-  return ok({ jobNumber }, warnings);
+  return ok(target.usedJobId ? { jobId: target.jobId, jobNumber } : { jobNumber }, warnings);
 }
 
 async function removeJobBoxAllocation(client, orgId, payload, actor) {

@@ -183,6 +183,17 @@ export interface DeleteFilmOrderPayload {
   reason?: string;
 }
 
+export interface CancelJobPayload {
+  jobId?: string;
+  jobNumber: string;
+  reason?: string;
+}
+
+export interface CancelJobResult {
+  jobId?: string;
+  jobNumber: string;
+}
+
 export interface AllocationJobSummary {
   jobId?: string;
   jobNumber: string;

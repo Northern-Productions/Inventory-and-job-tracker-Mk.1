@@ -2889,6 +2889,127 @@ Deno.test("/film-orders/cancel remains org-wide planner scoped", async () => {
   );
 });
 
+Deno.test("/film-orders/cancel validates canonical jobId before RPC and keeps org-wide planner", async () => {
+  const findJobCalls: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const plannerCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/cancel",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      reason: "Cancel selected job.",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        findJobCalls.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          warnings: ["Cancel RPC warning."],
+        };
+      },
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    findJobCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical cancel job lookup to use the authenticated org.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_film_orders_cancel",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          reason: "Cancel selected job.",
+        },
+      },
+    ],
+    "Expected canonical cancel to pass validated jobId/jobNumber to SQL without request orgId.",
+  );
+  assertEquals(
+    plannerCalls,
+    [{ orgId: "org-from-auth", actor: "tester", scope: {} }],
+    "Expected canonical cancel to preserve org-wide route-owned planner reconciliation.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: { jobId: "11111111-1111-4111-8111-111111111111", jobNumber: "81234" },
+      warnings: ["Cancel RPC warning."],
+    },
+    "Expected canonical cancel to return additive jobId without changing warnings.",
+  );
+});
+
+Deno.test("/film-orders/cancel rejects mismatched jobId and jobNumber before RPC", async () => {
+  let rpcCallCount = 0;
+
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/film-orders/cancel",
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "99999",
+      },
+      buildDeps({
+        findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+          id: jobId,
+          jobNumber: "81234",
+        }),
+        callMutationRpc: async () => {
+          rpcCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    assert(
+      error instanceof Error && error.message.includes("Job identity mismatch"),
+      `Expected job identity mismatch, received ${error instanceof Error ? error.message : error}.`,
+    );
+    assertEquals(rpcCallCount, 0, "Expected job mismatch to fail before RPC.");
+    return;
+  }
+
+  throw new Error("Expected film order cancel mismatched job identity to fail.");
+});
+
 Deno.test("/jobs/complete keeps existing org-wide planner and detail reload behavior", async () => {
   const plannerCalls: Array<Record<string, unknown>> = [];
   const detailCalls: Array<Record<string, unknown>> = [];
