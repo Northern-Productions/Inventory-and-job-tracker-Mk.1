@@ -17,9 +17,16 @@ import {
   findBoxById,
   saveBoxRecord,
   listAllocationsByBox,
+  listAllocationsByJobId,
+  listFilmOrdersByJobId,
+  listJobRequirementsByJobId,
+  listJobCaulkRequirementsByJobId,
+  listCaulkJobAllocationsByJobId,
   saveAllocationRecord,
   findJobByNumber,
+  findJobById,
   applyCheckoutWarnings,
+  requireUuid,
 } from '../../runtimeDeps.mjs';
 import { autoLinkRemainingJobFeetToCheckedOutBox } from '../runtimeAllocationLinks.mjs';
 import { buildCaulkTransferAlertMessage, buildFilmTransferAlertMessage } from '../runtimeTransferUsage.mjs';
@@ -28,9 +35,10 @@ import {
   resolveExistingOrLegacyJobHeader,
 } from './stagingValidation.mjs';
 
-async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, user) {
+async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, user, jobId = '') {
   const active = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === 'ACTIVE');
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  const normalizedJobId = asTrimmedString(jobId).toLowerCase();
   const resolvedAt = new Date().toISOString();
   const resolvedBy = asTrimmedString(user);
   const checkoutMarkerNote = `Checked out for job ${jobNumber}.`;
@@ -43,7 +51,10 @@ async function resolveAllocationsForCheckout(client, orgId, boxId, jobNumber, us
 
   for (let index = 0; index < active.length; index += 1) {
     const entry = cloneValue(active[index]);
-    if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
+    const isSelectedJob = normalizedJobId
+      ? asTrimmedString(entry.jobId).toLowerCase() === normalizedJobId
+      : normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber;
+    if (isSelectedJob) {
       let shouldSave = false;
 
       if (!entry.resolvedAt) {
@@ -107,16 +118,18 @@ function hasPositiveReactivationSignal(box) {
   );
 }
 
-async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
+async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user, options = {}) {
   const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
   const normalizedJobKey = normalizeJobNumberKey(normalizedJobNumber);
+  const selectedJobId = asTrimmedString(options.jobId);
   const box = await findBoxById(client, orgId, boxId);
   if (!box) {
     throw new HttpError(404, `Box ${boxId} was not found.`);
   }
 
   const warnings = [];
-  const jobHeader = await findJobByNumber(client, orgId, normalizedJobNumber);
+  const jobHeader = options.selectedJob ||
+    (selectedJobId ? await findJobById(client, orgId, selectedJobId) : await findJobByNumber(client, orgId, normalizedJobNumber));
   const jobWarehouse = asTrimmedString(jobHeader?.warehouse).toUpperCase();
   if (box.status === 'TRANSFER') {
     throw new HttpError(
@@ -133,7 +146,12 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
   }
 
   const isCheckedOutOnThisJob =
-    box.status === 'CHECKED_OUT' && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobKey;
+    box.status === 'CHECKED_OUT' &&
+    (
+      (selectedJobId && asTrimmedString(box.lastCheckoutJobId).toLowerCase() === selectedJobId.toLowerCase()) ||
+      (!asTrimmedString(box.lastCheckoutJobId) && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobKey) ||
+      (!selectedJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedJobKey)
+    );
 
   if (box.status !== 'IN_STOCK' && !isCheckedOutOnThisJob) {
     throw new HttpError(
@@ -147,6 +165,7 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
     assertCanCheckoutBoxFromWarehouse(workingBox);
     workingBox.status = 'CHECKED_OUT';
     workingBox.hasEverBeenCheckedOut = true;
+    workingBox.lastCheckoutJobId = selectedJobId;
     workingBox.lastCheckoutJob = normalizedJobNumber;
     workingBox.lastCheckoutDate = todayDateString();
     workingBox.zeroedDate = '';
@@ -161,7 +180,11 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
       workingBox,
       normalizedJobNumber,
       user,
-      'checkout'
+      'checkout',
+      {
+        jobId: selectedJobId,
+        selectedJob: jobHeader
+      }
     );
     if (autoLinkResult.created) {
       warnings.push(
@@ -176,7 +199,8 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
       orgId,
       workingBox.boxId,
       normalizedJobNumber,
-      user
+      user,
+      selectedJobId
     );
     if (allocationResolution.fulfilledCount > 0) {
       warnings.push(
@@ -201,7 +225,8 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user) {
     orgId,
     workingBox.boxId,
     normalizedJobNumber,
-    user
+    user,
+    selectedJobId
   );
   if (allocationResolution.fulfilledCount > 0) {
     warnings.push(
@@ -270,8 +295,39 @@ async function checkoutCaulkAllocationForJob(client, orgId, jobNumber, caulkAllo
   };
 }
 
-async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
-  const normalizedJobNumber = normalizeJobNumberDigits(jobNumber, 'JobNumber');
+async function resolveCheckoutAllTarget(client, orgId, payloadOrJobNumber, user) {
+  const payload = payloadOrJobNumber && typeof payloadOrJobNumber === 'object'
+    ? payloadOrJobNumber
+    : { jobNumber: payloadOrJobNumber };
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  const suppliedJobNumber = asTrimmedString(payload.jobNumber)
+    ? normalizeJobNumberDigits(payload.jobNumber, 'JobNumber')
+    : '';
+
+  if (suppliedJobId) {
+    const jobId = requireUuid(suppliedJobId, 'jobId');
+    const selectedJob = await findJobById(client, orgId, jobId);
+    if (!selectedJob) {
+      throw new HttpError(404, `Job ${jobId} was not found.`);
+    }
+    const selectedJobNumber = normalizeJobNumberDigits(selectedJob.jobNumber, 'JobNumber');
+    if (suppliedJobNumber && normalizeJobNumberKey(suppliedJobNumber) !== normalizeJobNumberKey(selectedJobNumber)) {
+      throw new HttpError(409, `Job identity mismatch: jobId ${jobId} belongs to job ${selectedJobNumber}, not ${suppliedJobNumber}.`);
+    }
+    return {
+      usedJobId: true,
+      jobId,
+      jobNumber: selectedJobNumber,
+      existingJob: selectedJob,
+      resolvedContext: {
+        header: selectedJob,
+        allocations: null,
+        filmOrders: null,
+      },
+    };
+  }
+
+  const normalizedJobNumber = normalizeJobNumberDigits(payload.jobNumber, 'JobNumber');
   const resolvedContext = await resolveExistingOrLegacyJobHeader(
     client,
     orgId,
@@ -279,7 +335,62 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     user,
     new Date().toISOString()
   );
-  const existingJob = resolvedContext.header;
+  return {
+    usedJobId: false,
+    jobId: '',
+    jobNumber: normalizedJobNumber,
+    existingJob: resolvedContext.header,
+    resolvedContext,
+  };
+}
+
+async function loadCheckoutAllStagingState(client, orgId, target) {
+  if (!target.usedJobId) {
+    return loadJobStagingValidationState(
+      client,
+      orgId,
+      target.jobNumber,
+      target.existingJob.warehouse,
+      {
+        allocations: target.resolvedContext.allocations || undefined,
+        filmOrders: target.resolvedContext.filmOrders || undefined
+      }
+    );
+  }
+
+  const [
+    allocations,
+    filmOrders,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+  ] = await Promise.all([
+    listAllocationsByJobId(client, orgId, target.jobId),
+    listFilmOrdersByJobId(client, orgId, target.jobId),
+    listJobRequirementsByJobId(client, orgId, target.jobId),
+    listJobCaulkRequirementsByJobId(client, orgId, target.jobId),
+    listCaulkJobAllocationsByJobId(client, orgId, target.jobId),
+  ]);
+
+  return loadJobStagingValidationState(
+    client,
+    orgId,
+    target.jobNumber,
+    target.existingJob.warehouse,
+    {
+      allocations,
+      filmOrders,
+      requirements,
+      caulkRequirements,
+      caulkAllocations,
+    }
+  );
+}
+
+async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) {
+  const target = await resolveCheckoutAllTarget(client, orgId, payloadOrJobNumber, user);
+  const normalizedJobNumber = target.jobNumber;
+  const existingJob = target.existingJob;
   if (!existingJob) {
     throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
   }
@@ -288,16 +399,7 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     throw new HttpError(400, `Job ${normalizedJobNumber} is closed and checkout-all cannot be changed.`);
   }
 
-  const preCheckoutState = await loadJobStagingValidationState(
-    client,
-    orgId,
-    normalizedJobNumber,
-    existingJob.warehouse,
-    {
-      allocations: resolvedContext.allocations || undefined,
-      filmOrders: resolvedContext.filmOrders || undefined
-    }
-  );
+  const preCheckoutState = await loadCheckoutAllStagingState(client, orgId, target);
   const boxById = preCheckoutState.boxById;
   const warnings = [];
   let checkedOutBoxCount = 0;
@@ -345,7 +447,11 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
       orgId,
       step.boxId,
       normalizedJobNumber,
-      user
+      user,
+      {
+        jobId: target.jobId,
+        selectedJob: target.existingJob
+      }
     );
     warnings.push(...checkoutResult.warnings);
     if (checkoutResult.checkedOut) {
@@ -385,12 +491,7 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
     }
   }
 
-  const refreshedState = await loadJobStagingValidationState(
-    client,
-    orgId,
-    normalizedJobNumber,
-    existingJob.warehouse
-  );
+  const refreshedState = await loadCheckoutAllStagingState(client, orgId, target);
   if (refreshedState.blockingReason) {
     throw new HttpError(400, refreshedState.blockingReason);
   }
@@ -402,6 +503,7 @@ async function checkoutAllJobMaterials(client, orgId, jobNumber, user) {
   }
 
   return {
+    ...(target.jobId ? { jobId: target.jobId } : {}),
     jobNumber: normalizedJobNumber,
     warnings,
     stagingState: refreshedState

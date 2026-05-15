@@ -60,7 +60,7 @@ interface UseJobLifecycleWorkflowArgs {
     { jobId?: string; filmOrderId: string; jobNumber: string; reason: string },
     { warnings: string[] }
   >;
-  checkoutAllJobMaterials: MutationFn<{ jobNumber: string }, { warnings: string[] }>;
+  checkoutAllJobMaterials: MutationFn<{ jobId?: string; jobNumber: string }, { warnings: string[] }>;
   setJobStagedForPickup: MutationFn<
     { jobNumber: string; isStagedForPickup: boolean; autoCheckoutRemaining?: boolean },
     { warnings: string[] }
@@ -339,6 +339,7 @@ export function useJobLifecycleWorkflow({
 
     try {
       const { warnings } = await checkoutAllJobMaterials({
+        ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary.jobNumber
       });
       pushToast({

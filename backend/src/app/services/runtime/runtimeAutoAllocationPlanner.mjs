@@ -63,6 +63,7 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
 const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
   '/allocations/apply',
   '/allocations/remove-box',
+  '/jobs/checkout-all',
   '/jobs/update',
   '/jobs/reopen',
 ]);
@@ -131,6 +132,13 @@ function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
     for (const allocation of responseData.allocations) {
       addJobNumber(jobNumbers, allocation?.jobNumber);
       addBoxId(boxIds, allocation?.boxId);
+    }
+  }
+
+  if (Array.isArray(responseData?.caulkAllocations)) {
+    for (const allocation of responseData.caulkAllocations) {
+      addJobNumber(jobNumbers, allocation?.jobNumber);
+      addCaulkProductWarehousePair(caulkProductWarehousePairs, allocation?.productId, allocation?.warehouse);
     }
   }
 

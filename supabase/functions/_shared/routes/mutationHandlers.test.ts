@@ -1192,6 +1192,81 @@ Deno.test("SQL-owned mutation routes skip redundant Edge planner reconciliation"
   }
 });
 
+Deno.test("/jobs/checkout-all reloads canonical job detail by jobId and keeps SQL planner ownership", async () => {
+  const checkoutPayloads: Array<Record<string, unknown>> = [];
+  const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
+  let legacyDetailCallCount = 0;
+  let plannerCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/jobs/checkout-all",
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+    },
+    buildDeps({
+      checkoutAllJobMaterials: async (_client: unknown, identity: Record<string, unknown>, payload: Record<string, unknown>) => {
+        checkoutPayloads.push({ orgId: identity.orgId, ...payload });
+        return {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          warnings: ["Checkout SQL planner completed."],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobDetailByIdCalls.push({ orgId, jobId });
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+          },
+        };
+      },
+      buildJobDetail: async () => {
+        legacyDetailCallCount += 1;
+        return {};
+      },
+      reconcileAutoPlannedAllocations: async () => {
+        plannerCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    checkoutPayloads,
+    [{
+      orgId: "org-from-auth",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+    }],
+    "Expected checkout-all to receive canonical payload with auth-derived org context.",
+  );
+  assertEquals(
+    jobDetailByIdCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical checkout-all to reload detail by jobId.",
+  );
+  assertEquals(legacyDetailCallCount, 0, "Expected canonical checkout-all to avoid legacy jobNumber reload.");
+  assertEquals(plannerCallCount, 0, "Expected checkout-all to keep planner ownership in SQL subflows.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+        },
+      },
+      warnings: ["Checkout SQL planner completed."],
+    },
+    "Expected canonical checkout-all response to preserve job detail and warnings.",
+  );
+});
+
 Deno.test("caulk add canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
   const rpcPayloads: Array<Record<string, unknown>> = [];
   const findJobCalls: Array<Record<string, unknown>> = [];

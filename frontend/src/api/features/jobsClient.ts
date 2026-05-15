@@ -329,8 +329,13 @@ export async function setJobStagedForPickup(
   };
 }
 
+export interface CheckoutAllJobMaterialsPayload {
+  jobId?: string;
+  jobNumber: string;
+}
+
 export async function checkoutAllJobMaterials(
-  payload: { jobNumber: string }
+  payload: CheckoutAllJobMaterialsPayload
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
   const response = await request<JobDetail>('POST', '/jobs/checkout-all', { body: payload });

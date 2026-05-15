@@ -190,11 +190,16 @@ const mutationHandlers = {
   },
   '/jobs/checkout-all': async ({ client, orgId, authContext, params }) => {
     const jobNumber = requireString(params.jobNumber, 'JobNumber');
-    const result = await applyCheckoutAllJobMaterials(client, orgId, jobNumber, authContext.actor);
+    const result = await applyCheckoutAllJobMaterials(client, orgId, params, authContext.actor);
     if (!result) {
       throw new HttpError(500, 'Job checkout-all update failed.');
     }
-    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+    return ok(
+      result.jobId
+        ? await buildJobDetailById(client, orgId, result.jobId)
+        : await buildJobDetail(client, orgId, jobNumber),
+      result.warnings || []
+    );
   },
   '/jobs/complete': async ({ client, orgId, authContext, params }) =>
     completeJob(client, orgId, params, authContext.actor),
@@ -226,8 +231,8 @@ function normalizeLegacySchedulePayload(logicalPath, params) {
   return normalizeSchedulePayloadAliases(logicalPath, params);
 }
 
-async function applyCheckoutAllJobMaterials(client, orgId, jobNumber, actor) {
-  return checkoutAllJobMaterials(client, orgId, jobNumber, actor);
+async function applyCheckoutAllJobMaterials(client, orgId, payload, actor) {
+  return checkoutAllJobMaterials(client, orgId, payload, actor);
 }
 
 export async function dispatchMutationWithHandlers(logicalPath, params, authContext) {

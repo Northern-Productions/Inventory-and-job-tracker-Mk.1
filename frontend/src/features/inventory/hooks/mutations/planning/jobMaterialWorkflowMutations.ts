@@ -3,6 +3,7 @@ import {
   checkoutAllJobMaterials,
   setJobStagedForPickup
 } from '../../../../../api/features/jobsClient';
+import type { CheckoutAllJobMaterialsPayload } from '../../../../../api/features/jobsClient';
 import type {
   JobDetail,
   SetJobStagedForPickupPayload
@@ -14,7 +15,10 @@ import {
   beginImmediateOptimisticMutation,
   restoreSnapshots
 } from '../../../cache/shared';
-import { invalidateJobAndFilmOrderQueries } from '../../inventoryInvalidation';
+import {
+  invalidateCaulkJobQueries,
+  invalidateJobAndFilmOrderQueries
+} from '../../inventoryInvalidation';
 
 export function useSetJobStagedForPickup() {
   const queryClient = useQueryClient();
@@ -77,13 +81,16 @@ export function useCheckoutAllJobMaterials() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: { jobNumber: string }) => checkoutAllJobMaterials(payload),
+    mutationFn: (payload: CheckoutAllJobMaterialsPayload) => checkoutAllJobMaterials(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot })
       ]);
@@ -92,24 +99,38 @@ export function useCheckoutAllJobMaterials() {
         queryClient,
         [
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber),
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
           inventoryKeys.listRoot,
           inventoryKeys.boxRoot
         ],
         () => {
-          applyCheckoutAllToCaches(queryClient, payload.jobNumber);
+          if (!jobId) {
+            applyCheckoutAllToCaches(queryClient, payload.jobNumber);
+          }
         }
       );
     },
     onError: (_error, _variables, context) => {
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }) => {
-      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
+    onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || result.summary.jobId || '').trim();
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !jobId,
+        syncLegacyJobDetail: !jobId
+      });
       await Promise.all([
-        invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber),
+        invalidateJobAndFilmOrderQueries(
+          queryClient,
+          jobId ? { jobId, jobNumber: '' } : result.summary.jobNumber
+        ),
+        invalidateCaulkJobQueries(
+          queryClient,
+          jobId ? { jobId, jobNumber: '' } : result.summary.jobNumber,
+          { includeJobCollections: true }
+        ),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot })
       ]);

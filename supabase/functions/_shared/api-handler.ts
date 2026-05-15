@@ -6756,67 +6756,30 @@ function requireServiceRoleClientForJobs() {
 }
 
 async function resolveAllocationsForCheckoutWithoutBoxMutation(
-  serviceClient: any,
+  _serviceClient: any,
   client: any,
   orgId: string,
   boxId: string,
   jobNumber: string,
   actor: string,
+  jobId = "",
 ) {
-  const activeAllocations = (await listAllocationsByBox(client, orgId, boxId)).filter((entry) => entry.status === "ACTIVE");
-  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
-  const checkoutMarkerNote = `Checked out for job ${jobNumber}.`;
-  const nowIso = new Date().toISOString();
-  const otherJobs: string[] = [];
-  const seenOtherJobs: Record<string, boolean> = {};
-  let fulfilledCount = 0;
-  let fulfilledFeet = 0;
-
-  for (const entry of activeAllocations) {
-    if (normalizeJobNumberKey(entry.jobNumber) === normalizedJobNumber) {
-      const allocationId = asTrimmedString(entry.allocationId);
-      if (!allocationId) {
-        continue;
-      }
-
-      const nextResolvedAt = entry.resolvedAt || nowIso;
-      const nextResolvedBy = entry.resolvedBy || actor;
-      const nextNotes = entry.notes === checkoutMarkerNote ? entry.notes : checkoutMarkerNote;
-
-      if (
-        entry.resolvedAt !== nextResolvedAt ||
-        entry.resolvedBy !== nextResolvedBy ||
-        entry.notes !== nextNotes
-      ) {
-        const { error: updateAllocationError } = await serviceClient
-          .schema("app")
-          .from("allocations")
-          .update({
-            resolved_at: nextResolvedAt,
-            resolved_by: nextResolvedBy,
-            notes: nextNotes,
-          })
-          .eq("org_id", orgId)
-          .eq("id", allocationId);
-        throwOnSupabaseError(updateAllocationError, `Unable to resolve allocation ${allocationId}`);
-      }
-
-      fulfilledCount += 1;
-      fulfilledFeet += integerOrZero(entry.allocatedFeet);
-      continue;
-    }
-
-    const otherJobNumber = asTrimmedString(entry.jobNumber);
-    if (otherJobNumber && !seenOtherJobs[otherJobNumber]) {
-      seenOtherJobs[otherJobNumber] = true;
-      otherJobs.push(otherJobNumber);
-    }
-  }
+  const result = await rpcOrThrow<any>(client, "api_acl_boxes_resolve_checkout_allocations", {
+    p_org_id: orgId,
+    p_actor: actor,
+    p_payload: {
+      boxId,
+      jobNumber,
+      ...(jobId ? { jobId } : {}),
+    },
+  });
 
   return {
-    fulfilledCount,
-    fulfilledFeet,
-    otherJobs,
+    fulfilledCount: integerOrZero(result?.fulfilledCount),
+    fulfilledFeet: integerOrZero(result?.fulfilledFeet),
+    otherJobs: Array.isArray(result?.otherJobs)
+      ? result.otherJobs.map((entry: unknown) => asTrimmedString(entry)).filter(Boolean)
+      : [],
   };
 }
 
@@ -6824,27 +6787,58 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
-  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, payload, {
+    findJobById,
+    normalizeJobNumberDigits,
+  });
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, "JobNumber")
+    : requireString(payload.jobNumber, "JobNumber");
+  const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
   const serviceClient = requireServiceRoleClientForJobs();
-  const { data: jobRow, error: jobError } = await serviceClient
-    .schema("app")
-    .from("jobs")
-    .select("id, lifecycle_status, warehouse")
-    .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .maybeSingle();
+  const { data: legacyJobRow, error: jobError } = target.usedJobId
+    ? { data: null, error: null }
+    : await serviceClient
+      .schema("app")
+      .from("jobs")
+      .select("id, lifecycle_status, warehouse")
+      .eq("org_id", orgId)
+      .eq("job_number", jobNumber)
+      .maybeSingle();
   throwOnSupabaseError(jobError, "Unable to load job");
+  const jobRow = target.usedJobId ? target.job : legacyJobRow;
   if (!jobRow) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  const lifecycleStatus = normalizeJobLifecycleStatus(
+    (jobRow as Record<string, unknown>).lifecycleStatus ||
+      (jobRow as Record<string, unknown>).lifecycle_status
+  );
   if (lifecycleStatus !== "ACTIVE") {
     throw new HttpError(400, `Job ${jobNumber} is closed and checkout-all cannot be changed.`);
   }
 
   const jobWarehouse = asTrimmedString((jobRow as Record<string, unknown>).warehouse);
-  const preCheckoutState = await loadJobStagingValidationState(client, orgId, jobNumber, jobWarehouse);
+  const canonicalHeader = target.usedJobId
+    ? { ...(jobRow as Record<string, unknown>), id: targetJobId, jobNumber, warehouse: jobWarehouse }
+    : null;
+  const canonicalSeedData = target.usedJobId
+    ? {
+      allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
+      filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+      requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
+      caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
+      caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+    }
+    : {};
+  const preCheckoutState = await loadJobStagingValidationState(
+    client,
+    orgId,
+    jobNumber,
+    jobWarehouse,
+    canonicalSeedData,
+  );
   if (preCheckoutState.filmTransferAlerts.length > 0 && preCheckoutState.caulkTransferAlerts.length > 0) {
     throw new HttpError(400, "Receive transferred film and caulk before checking out this job.");
   }
@@ -6876,9 +6870,13 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     }
 
     const normalizedBoxStatus = asTrimmedString(box.status).toUpperCase();
+    const boxLastCheckoutJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
     const sameJobCheckedOut =
       normalizedBoxStatus === "CHECKED_OUT" &&
-      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber);
+      (target.usedJobId
+        ? boxLastCheckoutJobId === targetJobId.toLowerCase() ||
+          (!boxLastCheckoutJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber))
+        : normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber));
 
     if (!sameJobCheckedOut && normalizedBoxStatus !== "IN_STOCK") {
       throw new HttpError(
@@ -6895,6 +6893,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
         box.boxId,
         jobNumber,
         actor,
+        targetJobId,
       );
       if (allocationResolution.fulfilledCount > 0) {
         warnings.push(
@@ -6913,6 +6912,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       p_payload: {
         boxId: box.boxId,
         status: "CHECKED_OUT",
+        ...(target.usedJobId ? { jobId: targetJobId, jobNumber } : {}),
         auditNote: `Checked out for job ${jobNumber}`,
       },
     });
@@ -6957,7 +6957,21 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     }
   }
 
-  const refreshedState = await loadJobStagingValidationState(client, orgId, jobNumber, jobWarehouse);
+  const refreshedState = await loadJobStagingValidationState(
+    client,
+    orgId,
+    jobNumber,
+    jobWarehouse,
+    target.usedJobId
+      ? {
+        allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
+        filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+        requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
+        caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
+        caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+      }
+      : {},
+  );
   if (refreshedState.blockingReason) {
     throw new HttpError(400, refreshedState.blockingReason);
   }
@@ -6969,6 +6983,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   }
 
   return {
+    ...(target.usedJobId ? { jobId: targetJobId } : {}),
     jobNumber,
     warnings,
     stagingState: refreshedState,

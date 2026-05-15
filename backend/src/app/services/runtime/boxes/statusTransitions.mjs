@@ -123,7 +123,11 @@ async function setBoxStatus(client, orgId, payload, actor) {
       client,
       orgId,
       existing.boxId,
-      jobNumber
+      jobNumber,
+      {
+        jobId: selectedJobId,
+        selectedJob
+      }
     );
     if (crewConflictJobs.length > 0) {
       throw new HttpError(
@@ -151,7 +155,11 @@ async function setBoxStatus(client, orgId, payload, actor) {
       updatedBox,
       jobNumber,
       actor,
-      'checkout'
+      'checkout',
+      {
+        jobId: selectedJobId,
+        selectedJob
+      }
     );
     if (autoLinkResult.created) {
       warnings.push(
@@ -166,7 +174,8 @@ async function setBoxStatus(client, orgId, payload, actor) {
       orgId,
       updatedBox.boxId,
       jobNumber,
-      actor
+      actor,
+      selectedJobId
     );
     if (allocationResolution.fulfilledCount > 0) {
       warnings.push(

@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0130_box_checkout_jobid_identity.sql';
+const LATEST_MIGRATION = '0131_checkout_all_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -70,9 +70,11 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_boxes_resolve_checkout_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_box_dealers(uuid)' },
   { kind: 'function', signature: 'public.api_acl_box_dealers_upsert(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_set_status(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.resolve_allocations_for_checkout(uuid, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.film_order_matches_requirement(uuid, uuid, text, text, numeric, uuid, text, text, numeric)' },
   { kind: 'function', signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)' },

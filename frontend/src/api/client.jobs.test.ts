@@ -693,4 +693,37 @@ describe('jobs API client canonical routes', () => {
       }
     });
   });
+
+  it('passes canonical jobId through checkout-all requests when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123',
+          isStagedForPickup: true
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    await checkoutAllJobMaterials({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/checkout-all', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123'
+      }
+    });
+  });
 });
