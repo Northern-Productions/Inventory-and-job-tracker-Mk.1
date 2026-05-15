@@ -11,7 +11,11 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { useToast } from '../../../components/Toast';
-import type { CreateFilmOrderPayload, FilmOrderEntry } from '../../../domain';
+import type {
+  CreateFilmOrderPayload,
+  DeleteFilmOrderPayload,
+  FilmOrderEntry
+} from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
@@ -33,8 +37,26 @@ import {
   isUnresolvedFilmOrder
 } from '../utils/filmOrders';
 
-function buildJobHref(jobNumber: string) {
-  return `/allocations/${encodeURIComponent(jobNumber)}`;
+function getFilmOrderJobId(order: Pick<FilmOrderEntry, 'jobId'>) {
+  return String(order.jobId || '').trim();
+}
+
+function buildJobHref(order: Pick<FilmOrderEntry, 'jobId' | 'jobNumber'>) {
+  const jobId = getFilmOrderJobId(order);
+  return jobId
+    ? `/allocations/jobs/${encodeURIComponent(jobId)}`
+    : `/allocations/${encodeURIComponent(order.jobNumber)}`;
+}
+
+function buildDeleteFilmOrderPayload(order: FilmOrderEntry, reason: string): DeleteFilmOrderPayload {
+  const jobId = getFilmOrderJobId(order);
+
+  return {
+    ...(jobId ? { jobId } : {}),
+    filmOrderId: order.filmOrderId,
+    jobNumber: order.jobNumber,
+    reason: reason || `Deleted from Film Orders (${order.filmOrderId})`
+  };
 }
 
 function compareDateAscending(left: string, right: string) {
@@ -165,11 +187,9 @@ export default function FilmOrdersPage() {
     }
 
     try {
-      const { warnings } = await deleteFilmOrderMutation.mutateAsync({
-        filmOrderId: order.filmOrderId,
-        jobNumber: order.jobNumber,
-        reason: reason || `Deleted from Film Orders (${order.filmOrderId})`
-      });
+      const { warnings } = await deleteFilmOrderMutation.mutateAsync(
+        buildDeleteFilmOrderPayload(order, reason)
+      );
       toast.push({
         title: `Deleted ${order.filmOrderId}`,
         description: formatMutationWarningDescription(
@@ -260,7 +280,7 @@ export default function FilmOrdersPage() {
                       title={`${order.manufacturer} ${order.filmName}`}
                       subtitle={
                         <Link
-                          to={buildJobHref(order.jobNumber)}
+                          to={buildJobHref(order)}
                           className="film-orders-job-link film-orders-job-link-mobile"
                         >
                           Job {displayJobNumber}
@@ -347,7 +367,7 @@ export default function FilmOrdersPage() {
                           {order.warehouse}
                         </td>
                         <td>
-                          <Link to={buildJobHref(order.jobNumber)} className="film-orders-job-link">
+                          <Link to={buildJobHref(order)} className="film-orders-job-link">
                             {displayJobNumber}
                           </Link>
                         </td>

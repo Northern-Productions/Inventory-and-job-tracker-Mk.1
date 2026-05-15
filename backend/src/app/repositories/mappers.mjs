@@ -361,8 +361,11 @@ function mapDbFilmOrderRow(row) {
 }
 
 function toPublicFilmOrder(entry, linkedBoxes) {
+  const jobId = asTrimmedString(entry.jobId);
+
   return {
     filmOrderId: entry.filmOrderId,
+    ...(jobId ? { jobId } : {}),
     requirementId: asTrimmedString(entry.requirementId),
     jobNumber: entry.jobNumber,
     warehouse: entry.warehouse,

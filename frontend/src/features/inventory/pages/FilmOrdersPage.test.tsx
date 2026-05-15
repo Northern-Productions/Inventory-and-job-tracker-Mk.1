@@ -17,6 +17,7 @@ const createFilmOrderMock = vi.fn();
 const cancelJobMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
+const JOB_ID = '11111111-1111-4111-8111-111111111111';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -170,6 +171,14 @@ describe('FilmOrdersPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => {
+      expect(deleteFilmOrderMock).toHaveBeenCalledWith({
+        filmOrderId: 'FO-1',
+        jobNumber: '2941',
+        reason: 'Deleted from Film Orders (FO-1)'
+      });
+    });
+
+    await waitFor(() => {
       expect(screen.queryByText('Prestige Demo')).toBeNull();
     });
 
@@ -269,6 +278,47 @@ describe('FilmOrdersPage', () => {
       'IL1-2944',
       'IL1-2945'
     ]);
+  });
+
+  it('uses the canonical job route when film order records include jobId', () => {
+    renderPage([
+      buildFilmOrderEntry({
+        jobId: JOB_ID,
+        jobNumber: '2941'
+      })
+    ]);
+
+    expect(screen.getByRole('link', { name: 'IL1-2941' }).getAttribute('href')).toBe(
+      `/allocations/jobs/${JOB_ID}`
+    );
+  });
+
+  it('sends jobId with Film Orders page delete payloads when available', async () => {
+    const order = buildFilmOrderEntry({
+      filmOrderId: 'FO-JOB-ID',
+      jobId: JOB_ID,
+      jobNumber: '2941'
+    });
+    deleteFilmOrderMock.mockResolvedValueOnce({
+      result: order,
+      warnings: []
+    });
+
+    renderPage([order]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Delete Film Order' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(deleteFilmOrderMock).toHaveBeenCalledWith({
+        jobId: JOB_ID,
+        filmOrderId: 'FO-JOB-ID',
+        jobNumber: '2941',
+        reason: 'Deleted from Film Orders (FO-JOB-ID)'
+      });
+    });
   });
 
   it('renders the mobile job ID as a link', () => {

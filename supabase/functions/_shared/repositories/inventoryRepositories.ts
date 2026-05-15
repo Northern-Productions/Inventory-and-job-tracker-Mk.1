@@ -382,8 +382,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
   }
 
   function toPublicFilmOrder(entry: any, linkedBoxes: any[]) {
+    const jobId = deps.asTrimmedString(entry.jobId);
+
     return {
       filmOrderId: entry.filmOrderId,
+      ...(jobId ? { jobId } : {}),
       requirementId: deps.asTrimmedString(entry.requirementId),
       jobNumber: entry.jobNumber,
       warehouse: entry.warehouse,

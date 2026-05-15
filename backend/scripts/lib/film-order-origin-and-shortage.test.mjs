@@ -95,6 +95,58 @@ test('mapDbFilmOrderRow derives MANUAL origin when no source box is present', ()
   assert.equal(toPublicFilmOrder(entry, []).origin, 'MANUAL');
 });
 
+test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
+  const entry = mapDbFilmOrderRow({
+    id: 'row-job-id',
+    org_id: 'org-1',
+    film_order_id: 'FO-JOB-ID',
+    job_id: '11111111-1111-4111-8111-111111111111',
+    job_number: '4447',
+    warehouse: 'IL1',
+    manufacturer: 'Security',
+    film_name: '3M Ultra S800',
+    width_in: 60,
+    requested_feet: 100,
+    covered_feet: 0,
+    ordered_feet: 0,
+    remaining_to_order_feet: 100,
+    status: 'FILM_ORDER',
+    source_box_id: '',
+    created_at: '2026-04-16T15:47:48.884Z',
+    created_by: 'tester',
+  });
+  const publicEntry = toPublicFilmOrder(entry, []);
+
+  assert.equal(publicEntry.jobId, '11111111-1111-4111-8111-111111111111');
+  assert.equal(publicEntry.jobNumber, '4447');
+});
+
+test('toPublicFilmOrder preserves legacy records without jobId', () => {
+  const entry = mapDbFilmOrderRow({
+    id: 'row-legacy',
+    org_id: 'org-1',
+    film_order_id: 'FO-LEGACY',
+    job_id: null,
+    job_number: '4447',
+    warehouse: 'IL1',
+    manufacturer: 'Security',
+    film_name: '3M Ultra S800',
+    width_in: 60,
+    requested_feet: 100,
+    covered_feet: 0,
+    ordered_feet: 0,
+    remaining_to_order_feet: 100,
+    status: 'FILM_ORDER',
+    source_box_id: '',
+    created_at: '2026-04-16T15:47:48.884Z',
+    created_by: 'tester',
+  });
+  const publicEntry = toPublicFilmOrder(entry, []);
+
+  assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'jobId'), false);
+  assert.equal(publicEntry.jobNumber, '4447');
+});
+
 test('mapDbFilmOrderRow derives AUTO_SHORTAGE origin when a source box is present', () => {
   const entry = mapDbFilmOrderRow({
     id: 'row-2',
