@@ -26,11 +26,14 @@ export function useSetJobStagedForPickup() {
   return useMutation({
     mutationFn: (payload: SetJobStagedForPickupPayload) => setJobStagedForPickup(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot })
       ]);
@@ -39,18 +42,20 @@ export function useSetJobStagedForPickup() {
         queryClient,
         [
           inventoryKeys.jobs,
-          inventoryKeys.job(payload.jobNumber),
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
-          inventoryKeys.allocationJob(payload.jobNumber),
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
           inventoryKeys.listRoot,
           inventoryKeys.boxRoot
         ],
         () => {
-          if (payload.autoCheckoutRemaining) {
+          if (payload.autoCheckoutRemaining && !jobId) {
             applyCheckoutAllToCaches(queryClient, payload.jobNumber);
           }
 
-          const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(payload.jobNumber));
+          const currentJob = queryClient.getQueryData<JobDetail>(
+            jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber)
+          );
           if (!currentJob) {
             return;
           }
@@ -63,16 +68,33 @@ export function useSetJobStagedForPickup() {
               status: payload.isStagedForPickup ? 'READY' : currentJob.summary.status
             }
           };
-          syncJobDetailCaches(queryClient, nextJob, { syncAllocationJobDetail: true });
+          syncJobDetailCaches(queryClient, nextJob, {
+            syncAllocationJobDetail: !jobId,
+            syncLegacyJobDetail: !jobId
+          });
         }
       );
     },
     onError: (_error, _variables, context) => {
       restoreSnapshots(queryClient, context?.snapshots);
     },
-    onSuccess: async ({ result }) => {
-      syncJobDetailCaches(queryClient, result, { syncAllocationJobDetail: true });
-      await invalidateJobAndFilmOrderQueries(queryClient, result.summary.jobNumber);
+    onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || result.summary.jobId || '').trim();
+      const identity = jobId ? { jobId, jobNumber: '' } : result.summary.jobNumber;
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !jobId,
+        syncLegacyJobDetail: !jobId
+      });
+      await Promise.all([
+        invalidateJobAndFilmOrderQueries(queryClient, identity),
+        ...(jobId && variables.autoCheckoutRemaining
+          ? [
+              invalidateCaulkJobQueries(queryClient, identity, { includeJobCollections: true }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.boxRoot })
+            ]
+          : [])
+      ]);
     }
   });
 }

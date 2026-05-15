@@ -222,18 +222,11 @@ test('frontend checkout-all sends canonical jobId and avoids unsafe legacy detai
   assert.match(mutationSource, /invalidateCaulkJobQueries\(/);
 });
 
-test('checkout-all jobId scope keeps staged pickup and unrelated mutation families out of scope', async () => {
-  const [migration, stagedPickupSource, checkoutFlow, edgeRouteSource] = await Promise.all([
+test('checkout-all jobId scope keeps unrelated mutation families out of scope', async () => {
+  const [migration, checkoutFlow] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
-    readFile(stagedPickupFlowPath, 'utf8'),
     readFile(checkoutFlowPath, 'utf8'),
-    readFile(edgeMutationHandlersPath, 'utf8'),
   ]);
-  const stagedPickupRouteBody = extractBetween(
-    edgeRouteSource,
-    '"/jobs/set-staged-pickup": async',
-    '"/jobs/checkout-all": async'
-  );
 
   assert.doesNotMatch(migration, /api_jobs_set_staged_pickup/);
   assert.doesNotMatch(migration, /api_jobs_complete/);
@@ -243,6 +236,4 @@ test('checkout-all jobId scope keeps staged pickup and unrelated mutation famili
   assert.doesNotMatch(migration, /api_jobs_create/);
   assert.doesNotMatch(migration, /api_jobs_check_duplicate/);
   assert.doesNotMatch(checkoutFlow, /setJobStagedPickup/);
-  assert.doesNotMatch(stagedPickupRouteBody, /buildJobDetailById/);
-  assert.match(stagedPickupSource, /checkoutAllJobMaterials: async \(\) =>/);
 });

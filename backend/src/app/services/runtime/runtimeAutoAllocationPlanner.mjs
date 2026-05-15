@@ -64,6 +64,7 @@ const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
   '/allocations/apply',
   '/allocations/remove-box',
   '/jobs/checkout-all',
+  '/jobs/set-staged-pickup',
   '/jobs/update',
   '/jobs/reopen',
 ]);

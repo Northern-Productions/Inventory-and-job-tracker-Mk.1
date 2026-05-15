@@ -2,17 +2,23 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobDetail, JobListEntry } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useCheckoutAllJobMaterials } from './jobMaterialWorkflowMutations';
+import { useCheckoutAllJobMaterials, useSetJobStagedForPickup } from './jobMaterialWorkflowMutations';
 
 const checkoutAllJobMaterialsMock = vi.fn();
+const setJobStagedForPickupMock = vi.fn();
 
 vi.mock('../../../../../api/features/jobsClient', () => ({
   checkoutAllJobMaterials: (...args: unknown[]) => checkoutAllJobMaterialsMock(...args),
-  setJobStagedForPickup: vi.fn()
+  setJobStagedForPickup: (...args: unknown[]) => setJobStagedForPickupMock(...args)
 }));
+
+beforeEach(() => {
+  checkoutAllJobMaterialsMock.mockReset();
+  setJobStagedForPickupMock.mockReset();
+});
 
 function createQueryClient() {
   return new QueryClient({
@@ -135,6 +141,75 @@ describe('useCheckoutAllJobMaterials identity caches', () => {
 
     expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job(before.summary.jobNumber))?.summary).toEqual(
       expect.objectContaining({ status: 'CHECKED_OUT' })
+    );
+  });
+});
+
+describe('useSetJobStagedForPickup identity caches', () => {
+  it('canonical staged pickup invalidates jobById and leaves same-number legacy detail caches alone', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail();
+    const after = buildDetail(buildSummary({ isStagedForPickup: true, status: 'READY' }));
+
+    queryClient.setQueryData(inventoryKeys.jobById(before.summary.jobId!), before);
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob(before.summary.jobNumber), {
+      source: 'legacy-allocation-job'
+    });
+    setJobStagedForPickupMock.mockResolvedValueOnce({ result: after, warnings: [] });
+
+    const { result } = renderHook(() => useSetJobStagedForPickup(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        isStagedForPickup: true,
+        autoCheckoutRemaining: true
+      });
+    });
+
+    expect(setJobStagedForPickupMock).toHaveBeenCalledWith({
+      jobId: before.summary.jobId,
+      jobNumber: before.summary.jobNumber,
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true
+    });
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.jobById(before.summary.jobId!))?.summary).toEqual(
+      expect.objectContaining({ isStagedForPickup: true })
+    );
+    expect(queryClient.getQueryData(inventoryKeys.job(before.summary.jobNumber))).toEqual({
+      source: 'legacy-job'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+  });
+
+  it('legacy staged pickup keeps jobNumber cache behavior', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail(buildSummary({ jobId: undefined }));
+    const after = buildDetail(buildSummary({ jobId: undefined, isStagedForPickup: true }));
+
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), before);
+    setJobStagedForPickupMock.mockResolvedValueOnce({ result: after, warnings: [] });
+
+    const { result } = renderHook(() => useSetJobStagedForPickup(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobNumber: before.summary.jobNumber,
+        isStagedForPickup: true,
+        autoCheckoutRemaining: true
+      });
+    });
+
+    expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job(before.summary.jobNumber))?.summary).toEqual(
+      expect.objectContaining({ isStagedForPickup: true })
     );
   });
 });

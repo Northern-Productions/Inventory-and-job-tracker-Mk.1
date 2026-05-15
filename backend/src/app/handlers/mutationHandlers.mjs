@@ -186,7 +186,12 @@ const mutationHandlers = {
     if (!result) {
       throw new HttpError(500, 'Job staged pickup update failed.');
     }
-    return ok(await buildJobDetail(client, orgId, jobNumber), result.warnings || []);
+    return ok(
+      result.jobId
+        ? await buildJobDetailById(client, orgId, result.jobId)
+        : await buildJobDetail(client, orgId, jobNumber),
+      result.warnings || []
+    );
   },
   '/jobs/checkout-all': async ({ client, orgId, authContext, params }) => {
     const jobNumber = requireString(params.jobNumber, 'JobNumber');

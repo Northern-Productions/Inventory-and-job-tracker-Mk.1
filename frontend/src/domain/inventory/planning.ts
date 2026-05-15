@@ -394,6 +394,7 @@ export interface UpdateJobPayload {
 }
 
 export interface SetJobStagedForPickupPayload {
+  jobId?: string;
   jobNumber: string;
   isStagedForPickup: boolean;
   autoCheckoutRemaining?: boolean;

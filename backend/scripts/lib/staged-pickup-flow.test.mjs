@@ -124,6 +124,149 @@ test('executeSetJobStagedPickup reuses refreshed checkout state after auto check
   assert.deepEqual(result.warnings, ['Checked out 1 film box and 0 caulk allocations for job 18722.']);
 });
 
+test('executeSetJobStagedPickup passes canonical jobId payload into auto checkout', async () => {
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  let checkoutPayload = null;
+  let updateParams = null;
+
+  const result = await executeSetJobStagedPickup(
+    {},
+    'org-1',
+    '18722',
+    true,
+    'tester',
+    { jobId, autoCheckoutRemaining: true },
+    {
+      nowIso: '2026-04-15T12:00:00Z',
+      normalizeJobNumberDigits: (value) => String(value).trim(),
+      asTrimmedString: (value) => String(value || '').trim(),
+      findJobById: async (_client, orgId, selectedJobId) => ({
+        id: selectedJobId,
+        orgId,
+        jobNumber: '18722',
+        warehouse: 'IL1',
+        lifecycleStatus: 'ACTIVE',
+      }),
+      normalizeJobLifecycleStatus: () => 'ACTIVE',
+      checkoutAllJobMaterials: async (_client, _orgId, payload) => {
+        checkoutPayload = payload;
+        return {
+          warnings: ['Checked out 1 film box and 0 caulk allocations for job 18722.'],
+          stagingState: { blockingReason: '' },
+        };
+      },
+      queryRow: async (_client, _sql, params) => {
+        updateParams = params;
+        return {
+          job_number: '18722',
+          is_staged_for_pickup: true,
+          updated_at: '2026-04-15T12:00:00Z',
+        };
+      },
+      mapDbJobRow: (row) => ({
+        jobNumber: row.job_number,
+        isStagedForPickup: row.is_staged_for_pickup,
+        updatedAt: row.updated_at,
+      }),
+    },
+  );
+
+  assert.deepEqual(checkoutPayload, { jobId, jobNumber: '18722' });
+  assert.deepEqual(updateParams?.slice(0, 4), ['org-1', jobId, '18722', true]);
+  assert.equal(result.jobId, jobId);
+  assert.equal(result.isStagedForPickup, true);
+});
+
+test('executeSetJobStagedPickup clears canonical staged flag by jobId without checkout-all', async () => {
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  let checkoutCalled = false;
+  let updateParams = null;
+
+  const result = await executeSetJobStagedPickup(
+    {},
+    'org-1',
+    '18722',
+    false,
+    'tester',
+    { jobId },
+    {
+      nowIso: '2026-04-15T12:00:00Z',
+      normalizeJobNumberDigits: (value) => String(value).trim(),
+      asTrimmedString: (value) => String(value || '').trim(),
+      findJobById: async (_client, orgId, selectedJobId) => ({
+        id: selectedJobId,
+        orgId,
+        jobNumber: '18722',
+        warehouse: 'IL1',
+        lifecycleStatus: 'ACTIVE',
+      }),
+      normalizeJobLifecycleStatus: () => 'ACTIVE',
+      checkoutAllJobMaterials: async () => {
+        checkoutCalled = true;
+        return {};
+      },
+      queryRow: async (_client, _sql, params) => {
+        updateParams = params;
+        return {
+          job_number: '18722',
+          is_staged_for_pickup: false,
+          updated_at: '2026-04-15T12:00:00Z',
+        };
+      },
+      mapDbJobRow: (row) => ({
+        jobNumber: row.job_number,
+        isStagedForPickup: row.is_staged_for_pickup,
+        updatedAt: row.updated_at,
+      }),
+    },
+  );
+
+  assert.equal(checkoutCalled, false);
+  assert.deepEqual(updateParams?.slice(0, 4), ['org-1', jobId, '18722', false]);
+  assert.equal(result.jobId, jobId);
+  assert.equal(result.isStagedForPickup, false);
+});
+
+test('executeSetJobStagedPickup rejects canonical identity mismatch before side effects', async () => {
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  let checkoutCalled = false;
+  let updateCalled = false;
+
+  await assert.rejects(
+    () =>
+      executeSetJobStagedPickup(
+        {},
+        'org-1',
+        '18722',
+        true,
+        'tester',
+        { jobId, autoCheckoutRemaining: true },
+        {
+          normalizeJobNumberDigits: (value) => String(value).trim(),
+          asTrimmedString: (value) => String(value || '').trim(),
+          findJobById: async () => ({
+            id: jobId,
+            jobNumber: '99999',
+            warehouse: 'IL1',
+            lifecycleStatus: 'ACTIVE',
+          }),
+          checkoutAllJobMaterials: async () => {
+            checkoutCalled = true;
+            return {};
+          },
+          queryRow: async () => {
+            updateCalled = true;
+            return {};
+          },
+        },
+      ),
+    /Job identity mismatch: jobId/,
+  );
+
+  assert.equal(checkoutCalled, false);
+  assert.equal(updateCalled, false);
+});
+
 test('executeSetJobStagedPickup rejects closed jobs', async () => {
   await assert.rejects(
     () =>
