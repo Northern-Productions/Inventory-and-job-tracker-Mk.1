@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0129_caulk_transfer_jobid_scope.sql';
+const LATEST_MIGRATION = '0130_box_checkout_jobid_identity.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -21,9 +21,11 @@ const REQUIRED_OBJECTS = [
   { kind: 'type', signature: 'app.caulk_transfer_status' },
   { kind: 'column', signature: 'app.boxes.dealer' },
   { kind: 'column', signature: 'app.boxes.has_label' },
+  { kind: 'column', signature: 'app.boxes.last_checkout_job_id' },
   { kind: 'column', signature: 'app.allocations.allocation_source' },
   { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
   { kind: 'column', signature: 'app.roll_weight_log.created_at' },
+  { kind: 'column', signature: 'app.roll_weight_log.job_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
@@ -129,6 +131,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, text, text, numeric, timestamp without time zone, text, numeric, numeric, integer, integer, text)' },
+  { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, uuid, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
+  { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, uuid, text, text, numeric, timestamp without time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
@@ -525,7 +529,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)',
     includes: [
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
-      'perform app_api.reconcile_auto_planned_allocations('
+      'perform app_api.reconcile_auto_planned_allocations(',
+      "'boxIds', jsonb_build_array(v_lookup_box_id)",
+      "'jobIds', jsonb_build_array(v_result->>'jobId')",
+      "'jobNumbers', jsonb_build_array(v_result->>'jobNumber')"
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box(']
   },
@@ -536,15 +543,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "perform app_api.assert_no_ship_direct_to_job_site_flag(p_payload, 'Set Box Status');",
       "if v_status not in ('IN_STOCK', 'CHECKED_OUT') then",
       "perform app_api.raise_http(400, 'Status must be IN_STOCK or CHECKED_OUT.');",
+      "v_payload_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
+      "if v_payload_job_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then",
+      "perform app_api.raise_http(400, 'jobId must be a valid UUID.');",
+      'and j.id = v_checkout_job_id',
+      "perform app_api.raise_http(400, 'jobId does not match jobNumber.');",
+      'v_box.last_checkout_job_id := v_checkout_job_id;',
       'perform app_api.assert_can_checkout_box_from_warehouse(v_existing);',
-      'and coalesce(a.allocation_kind::text, \'REQUIREMENT\') = \'REQUIREMENT\'',
-      'and a.requirement_id is not null',
-      'and a.job_date is not null',
+      'v_checkout_job_id := v_selected_job.id;',
+      'v_checkout_job := v_selected_job.job_number;',
+      'v_box.last_checkout_job_id := null;',
+      'v_checkout_job_id,',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
-      'v_reconciliation_result := app_api.reconcile_box_checkin_allocations(',
-      "v_box.feet_available := coalesce(",
+      "'jobId', v_checkout_job_id::text",
     ],
-    excludes: ['Received physical LF cannot be lower than the box']
+    excludes: []
   },
   {
     signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)',

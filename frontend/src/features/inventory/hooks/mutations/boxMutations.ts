@@ -300,11 +300,13 @@ export function useSetBoxStatus() {
     mutationKey: inventoryKeys.setBoxStatusMutation,
     mutationFn: (payload: SetBoxStatusPayload) => setBoxStatus(payload),
     onMutate: async (payload) => {
+      const payloadJobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot }),
+        ...(payloadJobId ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(payloadJobId) })] : [])
       ]);
 
       const nextDate = todayDateString();
@@ -317,7 +319,8 @@ export function useSetBoxStatus() {
           inventoryKeys.box(payload.boxId),
           inventoryKeys.listRoot,
           inventoryKeys.jobRoot,
-          inventoryKeys.allocationJobRoot
+          inventoryKeys.allocationJobRoot,
+          ...(payloadJobId ? [inventoryKeys.jobById(payloadJobId)] : [])
         ],
         () => {
           updateBoxCaches(queryClient, payload.boxId, (box) => ({
@@ -335,7 +338,9 @@ export function useSetBoxStatus() {
                 ? nextDate
                 : box.lastWeighedDate
           }));
-          updateCheckedOutBoxCaches(queryClient, payload.boxId, payload.status);
+          if (!payloadJobId) {
+            updateCheckedOutBoxCaches(queryClient, payload.boxId, payload.status);
+          }
         }
       );
     },
@@ -345,10 +350,12 @@ export function useSetBoxStatus() {
     },
     onSuccess: async ({ result }, _variables, context) => {
       await context?.operation?.waitForApply();
+      const resultJobId = String(result.jobId || _variables.jobId || '').trim();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.jobRoot }),
+        ...(resultJobId ? [queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(resultJobId) })] : []),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),

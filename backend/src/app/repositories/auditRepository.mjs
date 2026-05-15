@@ -130,6 +130,7 @@ async function appendRollHistoryEntry(client, orgId, entry) {
         manufacturer,
         film_name,
         width_in,
+        job_id,
         job_number,
         checked_out_at,
         checked_out_by,
@@ -144,11 +145,13 @@ async function appendRollHistoryEntry(client, orgId, entry) {
         created_at
       )
       values (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        nullif($9, '')::timestamptz,
-        $10,$11,
-        nullif($12, '')::timestamptz,
-        $13,$14,$15,$16,$17,$18,now()
+        $1,$2,$3,$4,$5,$6,$7,
+        nullif($8, '')::uuid,
+        $9,
+        nullif($10, '')::timestamptz,
+        $11,$12,
+        nullif($13, '')::timestamptz,
+        $14,$15,$16,$17,$18,$19,now()
       )
     `,
     [
@@ -159,6 +162,7 @@ async function appendRollHistoryEntry(client, orgId, entry) {
       manufacturer,
       filmName,
       entry.widthIn,
+      entry.jobId || '',
       entry.jobNumber,
       entry.checkedOutAt,
       entry.checkedOutBy,

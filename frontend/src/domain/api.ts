@@ -47,6 +47,8 @@ export interface ApiEnvelope<T> {
 export interface BoxMutationResult {
   box: Box;
   logId: string;
+  jobId?: string;
+  jobNumber?: string;
 }
 
 export interface UndoMutationResult {

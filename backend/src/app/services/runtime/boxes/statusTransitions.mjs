@@ -3,7 +3,9 @@ import {
   ok,
   asTrimmedString,
   assertBoxStatus,
+  requireUuid,
   integerOrZero,
+  normalizeJobNumberKey,
   cloneValue,
   roundToDecimals,
   todayDateString,
@@ -16,6 +18,7 @@ import {
   applyCheckInWarnings,
   toPublicBox,
   findBoxById,
+  findJobById,
   saveBoxRecord,
   listAllocationsByBox,
   reconcileBoxCheckinAllocations,
@@ -88,10 +91,30 @@ async function setBoxStatus(client, orgId, payload, actor) {
   let updatedBox = cloneValue(existing);
   let auditAction = 'SET_STATUS';
   let finalAuditNote = asTrimmedString(payload.auditNote);
+  let responseJobId = '';
+  let responseJobNumber = '';
 
   if (status === 'CHECKED_OUT') {
     assertCanCheckoutBoxFromWarehouse(existing);
-    const jobNumber = getCheckoutJobNumberFromAuditNotes(payload.auditNote);
+    const suppliedJobId = asTrimmedString(payload.jobId);
+    let selectedJob = null;
+    let selectedJobId = '';
+    let jobNumber = getCheckoutJobNumberFromAuditNotes(payload.auditNote);
+
+    if (suppliedJobId) {
+      selectedJobId = requireUuid(suppliedJobId, 'jobId');
+      selectedJob = await findJobById(client, orgId, selectedJobId);
+      if (!selectedJob) {
+        throw new HttpError(404, `Job ${selectedJobId} was not found.`);
+      }
+
+      const selectedJobNumber = asTrimmedString(selectedJob.jobNumber);
+      if (jobNumber && normalizeJobNumberKey(jobNumber) !== normalizeJobNumberKey(selectedJobNumber)) {
+        throw new HttpError(400, 'jobId does not match jobNumber.');
+      }
+      jobNumber = selectedJobNumber;
+    }
+
     if (!jobNumber) {
       throw new HttpError(400, 'A checkout job number is required.');
     }
@@ -111,7 +134,10 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     updatedBox.status = 'CHECKED_OUT';
     updatedBox.hasEverBeenCheckedOut = true;
+    updatedBox.lastCheckoutJobId = selectedJob ? selectedJobId : '';
     updatedBox.lastCheckoutJob = jobNumber;
+    responseJobId = selectedJobId;
+    responseJobNumber = selectedJob ? jobNumber : '';
     updatedBox.lastCheckoutDate = todayDateString();
     updatedBox.zeroedDate = '';
     updatedBox.zeroedReason = '';
@@ -155,9 +181,20 @@ async function setBoxStatus(client, orgId, payload, actor) {
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
   } else {
     const checkoutAudit = await findLatestCheckoutAuditEntryByBoxId(client, orgId, updatedBox.boxId);
+    let checkoutJobId = asTrimmedString(existing.lastCheckoutJobId);
     let checkoutJob = asTrimmedString(existing.lastCheckoutJob);
     let checkoutDate = asTrimmedString(existing.lastCheckoutDate);
     let checkoutUser = '';
+
+    if (checkoutJobId) {
+      const checkoutJobRecord = await findJobById(client, orgId, checkoutJobId);
+      if (checkoutJobRecord) {
+        checkoutJob = asTrimmedString(checkoutJobRecord.jobNumber);
+        checkoutJobId = asTrimmedString(checkoutJobRecord.id || checkoutJobId);
+      } else {
+        checkoutJobId = '';
+      }
+    }
 
     if (checkoutAudit) {
       if (!checkoutJob) {
@@ -175,6 +212,8 @@ async function setBoxStatus(client, orgId, payload, actor) {
       checkoutJob = 'UNKNOWN';
       warnings.push('Roll history was logged with UNKNOWN job number because no checkout job was saved.');
     }
+    responseJobId = checkoutJobId;
+    responseJobNumber = checkoutJobId ? checkoutJob : '';
 
     if (!checkoutDate) {
       checkoutDate = todayDateString();
@@ -272,6 +311,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
       manufacturer: updatedBox.manufacturer,
       filmName: updatedBox.filmName,
       widthIn: updatedBox.widthIn,
+      jobId: checkoutJobId,
       jobNumber: checkoutJob,
       checkedOutAt: checkoutDate,
       checkedOutBy: checkoutUser,
@@ -286,6 +326,7 @@ async function setBoxStatus(client, orgId, payload, actor) {
     });
 
     updatedBox.lastCheckoutJob = '';
+    updatedBox.lastCheckoutJobId = '';
     updatedBox.lastCheckoutDate = '';
 
     const reachedZeroState =
@@ -334,7 +375,15 @@ async function setBoxStatus(client, orgId, payload, actor) {
     finalAuditNote
   );
 
-  return ok({ box: publicAfter, logId }, warnings);
+  return ok(
+    {
+      box: publicAfter,
+      logId,
+      ...(responseJobId ? { jobId: responseJobId } : {}),
+      ...(responseJobNumber ? { jobNumber: responseJobNumber } : {})
+    },
+    warnings
+  );
 }
 
 export { setBoxStatus };

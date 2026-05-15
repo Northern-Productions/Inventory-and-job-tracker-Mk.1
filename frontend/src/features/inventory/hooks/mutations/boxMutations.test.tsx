@@ -7,11 +7,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OptimisticQueueProvider } from '../../../../components/OptimisticQueue';
 import type { Box } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
-import { useMarkLabelsPrinted, useReceiveOrderedBox, useUpsertBoxDealer } from './boxMutations';
+import { useMarkLabelsPrinted, useReceiveOrderedBox, useSetBoxStatus, useUpsertBoxDealer } from './boxMutations';
 
 const upsertBoxDealerMock = vi.fn();
 const receiveOrderedBoxMock = vi.fn();
 const markLabelsPrintedMock = vi.fn();
+const setBoxStatusMock = vi.fn();
 
 vi.mock('../../../../api/features/inventoryClient', async () => {
   const actual = await vi.importActual<typeof import('../../../../api/features/inventoryClient')>(
@@ -22,6 +23,7 @@ vi.mock('../../../../api/features/inventoryClient', async () => {
     ...actual,
     markLabelsPrinted: (...args: unknown[]) => markLabelsPrintedMock(...args),
     receiveOrderedBox: (...args: unknown[]) => receiveOrderedBoxMock(...args),
+    setBoxStatus: (...args: unknown[]) => setBoxStatusMock(...args),
     upsertBoxDealer: (...args: unknown[]) => upsertBoxDealerMock(...args)
   };
 });
@@ -147,6 +149,7 @@ describe('useReceiveOrderedBox', () => {
     upsertBoxDealerMock.mockReset();
     receiveOrderedBoxMock.mockReset();
     markLabelsPrintedMock.mockReset();
+    setBoxStatusMock.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -195,9 +198,66 @@ describe('useReceiveOrderedBox', () => {
   });
 });
 
+describe('useSetBoxStatus', () => {
+  afterEach(() => {
+    setBoxStatusMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('invalidates canonical job detail when box status returns additive jobId without patching legacy detail data', async () => {
+    const queryClient = createQueryClient();
+    const box = buildBox({ status: 'IN_STOCK', lastCheckoutJob: '' });
+    const checkedOutBox = buildBox({
+      status: 'CHECKED_OUT',
+      lastCheckoutJob: 'JOB-7',
+      lastCheckoutJobId: 'job-id-7'
+    });
+    const legacyDetail = { source: 'legacy-detail' };
+
+    queryClient.setQueryData(inventoryKeys.box(box.boxId), box);
+    queryClient.setQueryData(inventoryKeys.jobById('job-id-7'), { source: 'job-id-detail' });
+    queryClient.setQueryData(inventoryKeys.job('JOB-7'), legacyDetail);
+    setBoxStatusMock.mockResolvedValue({
+      result: {
+        box: checkedOutBox,
+        logId: 'log-1',
+        jobId: 'job-id-7',
+        jobNumber: 'JOB-7'
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useSetBoxStatus(), { wrapper: createWrapper(queryClient) });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        boxId: box.boxId,
+        status: 'CHECKED_OUT',
+        jobId: 'job-id-7',
+        jobNumber: 'JOB-7'
+      });
+    });
+
+    expect(setBoxStatusMock).toHaveBeenCalledWith({
+      boxId: box.boxId,
+      status: 'CHECKED_OUT',
+      jobId: 'job-id-7',
+      jobNumber: 'JOB-7'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById('job-id-7'))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(inventoryKeys.job('JOB-7'))).toBe(legacyDetail);
+    expect(queryClient.getQueryData<Box>(inventoryKeys.box(box.boxId))).toMatchObject({
+      status: 'CHECKED_OUT',
+      lastCheckoutJob: 'JOB-7',
+      lastCheckoutJobId: 'job-id-7'
+    });
+  });
+});
+
 describe('useMarkLabelsPrinted', () => {
   afterEach(() => {
     markLabelsPrintedMock.mockReset();
+    setBoxStatusMock.mockReset();
     vi.restoreAllMocks();
   });
 

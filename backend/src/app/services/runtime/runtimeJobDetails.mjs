@@ -204,8 +204,8 @@ function filterRollHistoryForJobAllocations(entries, allocations) {
 }
 
 async function listRollHistoryForJobAllocations(client, orgId, allocations) {
-  // roll_weight_log does not store job_id yet, so by-id detail scopes usage through
-  // selected allocation box windows instead of trusting matching job_number alone.
+  // Historical roll_weight_log rows may not store job_id, so by-id detail still
+  // scopes usage through selected allocation box windows during the transition.
   const boxIds = Object.keys(buildRollHistoryAllocationWindowsByBox(allocations));
   if (!boxIds.length) {
     return [];
@@ -220,8 +220,8 @@ async function listRollHistoryForJobAllocations(client, orgId, allocations) {
 }
 
 async function listRollHistoryForJobAllocationsWithPooledReads(orgId, allocations) {
-  // roll_weight_log does not store job_id yet, so by-id detail scopes usage through
-  // selected allocation box windows instead of trusting matching job_number alone.
+  // Historical roll_weight_log rows may not store job_id, so by-id detail still
+  // scopes usage through selected allocation box windows during the transition.
   const boxIds = Object.keys(buildRollHistoryAllocationWindowsByBox(allocations));
   if (!boxIds.length) {
     return [];

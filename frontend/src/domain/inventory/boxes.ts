@@ -45,6 +45,7 @@ export interface Box {
   directToJobSite?: boolean;
   hasLabel?: boolean;
   hasEverBeenCheckedOut: boolean;
+  lastCheckoutJobId?: string;
   lastCheckoutJob: string;
   lastCheckoutDate: string;
   zeroedDate: string;
@@ -112,6 +113,8 @@ export interface DeleteBoxResult {
 export interface SetBoxStatusPayload {
   boxId: string;
   status: Extract<BoxStatus, 'IN_STOCK' | 'CHECKED_OUT'>;
+  jobId?: string;
+  jobNumber?: string;
   lastRollWeightLbs?: number;
   currentFeetOnRoll?: number;
   coreType?: BoxCoreType;
@@ -218,6 +221,7 @@ export interface RollHistoryEntry {
   manufacturer: string;
   filmName: string;
   widthIn: number;
+  jobId?: string;
   jobNumber: string;
   checkedOutAt: string;
   checkedOutBy: string;
