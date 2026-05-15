@@ -17,7 +17,7 @@ vi.mock('./http', () => {
   };
 });
 
-import { createFilmOrder, deleteFilmOrder } from './client';
+import { cancelJob, createFilmOrder, deleteFilmOrder } from './client';
 import { request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -89,6 +89,51 @@ describe('film orders API client identity payloads', () => {
         filmName: 'Night Vision 35',
         widthIn: 60,
         requestedFeet: 40
+      }
+    });
+  });
+
+  it('posts canonical cancel payloads with jobId and jobNumber', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234'
+      },
+      warnings: []
+    });
+
+    await cancelJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '1234',
+      reason: 'Cancel selected job.'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/cancel', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234',
+        reason: 'Cancel selected job.'
+      }
+    });
+  });
+
+  it('preserves legacy/global cancel payloads without requiring jobId', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        jobNumber: '1234'
+      },
+      warnings: []
+    });
+
+    await cancelJob({
+      jobNumber: '1234',
+      reason: 'Cancel from film orders.'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/cancel', {
+      body: {
+        jobNumber: '1234',
+        reason: 'Cancel from film orders.'
       }
     });
   });

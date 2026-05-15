@@ -11,6 +11,7 @@ import {
 import type { CompleteJobPayload, ReopenJobPayload } from '../../../../../api/features/jobsClient';
 import type {
   AllocationJobDetail,
+  CancelJobPayload,
   CaulkProductEntry,
   CreateJobPayload,
   DeleteJobPayload,
@@ -151,19 +152,42 @@ export function useCancelJob() {
   const optimisticQueue = useOptimisticQueue();
 
   return useMutation({
-    mutationFn: (payload: { jobNumber: string; reason?: string }) => cancelJob(payload),
+    mutationFn: (payload: CancelJobPayload) => cancelJob(payload),
     onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) }),
-        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
+        ...(jobId
+          ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
+          : [queryClient.cancelQueries({ queryKey: inventoryKeys.job(payload.jobNumber) })]),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        ...(jobId
+          ? [
+              queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+              queryClient.cancelQueries({ queryKey: inventoryKeys.boxRoot }),
+              queryClient.cancelQueries({ queryKey: inventoryKeys.reportsRoot }),
+              queryClient.cancelQueries({ queryKey: inventoryKeys.ownerReportsRoot })
+            ]
+          : [])
       ]);
 
       return beginDelayedOptimisticMutation(
         queryClient,
         optimisticQueue,
         `Cancelling ${payload.jobNumber}`,
-        [inventoryKeys.jobs, inventoryKeys.job(payload.jobNumber), inventoryKeys.filmOrders],
+        [
+          inventoryKeys.jobs,
+          ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
+          inventoryKeys.filmOrders,
+          ...(jobId
+            ? [
+                inventoryKeys.allocationJobs,
+                inventoryKeys.boxRoot,
+                inventoryKeys.reportsRoot,
+                inventoryKeys.ownerReportsRoot
+              ]
+            : [])
+        ],
         () => {}
       );
     },
@@ -173,11 +197,20 @@ export function useCancelJob() {
     },
     onSuccess: async (_data, variables, context) => {
       await context?.operation?.waitForApply();
-      await Promise.all([
-        invalidateGlobalPlanningQueries(queryClient),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
-      ]);
+      const jobId = String(variables.jobId || '').trim();
+      if (jobId) {
+        await Promise.all([
+          invalidateGlobalPlanningQueries(queryClient),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
+        ]);
+      } else {
+        await Promise.all([
+          invalidateGlobalPlanningQueries(queryClient),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+        ]);
+      }
       void syncOfflineInventoryQueries(queryClient);
     },
     onSettled: (_data, _error, _variables, context) => {

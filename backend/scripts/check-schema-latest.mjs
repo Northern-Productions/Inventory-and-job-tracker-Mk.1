@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0132_complete_job_jobid_scope.sql';
+const LATEST_MIGRATION = '0133_job_cancel_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -370,11 +370,18 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_film_orders_cancel(uuid, text, jsonb)',
     includes: [
+      "v_job_id_text text := app_api.trim_text(v_payload->>'jobId');",
+      'from app.jobs j',
+      'and j.id = v_job_id',
+      'Job identity mismatch: jobId %s belongs to job %s, not %s.',
+      'and a.job_id = v_selected_job.id',
       "v_entry.status := 'CANCELLED';",
       'perform app_api.save_allocation(v_entry);',
       'app_api.next_feet_available_after_allocation_release(',
+      'and f.job_id = v_selected_job.id',
       'perform app_api.delete_film_order_links_by_film_order_id(p_org_id, v_order.film_order_id);',
       'perform app_api.delete_film_order(p_org_id, v_order.film_order_id);',
+      'and id = v_selected_job.id',
       "lifecycle_status = 'CANCELLED'",
       'Released %s active film allocation%s across %s box%s and deleted %s film order%s.'
     ],

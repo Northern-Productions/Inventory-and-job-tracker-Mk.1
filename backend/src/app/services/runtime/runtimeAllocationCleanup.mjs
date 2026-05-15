@@ -142,11 +142,13 @@ import {
   upsertFilmCatalogRecord,
   listAllocations,
   listAllocationsByJob,
+  listAllocationsByJobId,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
   deleteFilmOrderRecord,
@@ -300,11 +302,9 @@ async function deleteStaleAutoShortageFilmOrdersForRequirement(
   return [];
 }
 
-async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, reason) {
-  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
+async function cancelJobAndReleaseAllocationEntries(client, orgId, jobNumber, allocations, filmOrders, user, reason) {
   const activeByBoxId = {};
   let activeCount = 0;
-  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
   const note = asTrimmedString(reason) || 'Job cancelled.';
   let deletedFilmOrderCount = 0;
 
@@ -348,6 +348,22 @@ async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, re
     affectedBoxCount: Object.keys(activeByBoxId).length,
     deletedFilmOrderCount
   };
+}
+
+async function cancelJobAndReleaseAllocations(client, orgId, jobNumber, user, reason) {
+  const [allocations, filmOrders] = await Promise.all([
+    listAllocationsByJob(client, orgId, jobNumber),
+    listFilmOrdersByJob(client, orgId, jobNumber),
+  ]);
+  return cancelJobAndReleaseAllocationEntries(client, orgId, jobNumber, allocations, filmOrders, user, reason);
+}
+
+async function cancelJobAndReleaseAllocationsByJobId(client, orgId, jobId, jobNumber, user, reason) {
+  const [allocations, filmOrders] = await Promise.all([
+    listAllocationsByJobId(client, orgId, jobId),
+    listFilmOrdersByJobId(client, orgId, jobId),
+  ]);
+  return cancelJobAndReleaseAllocationEntries(client, orgId, jobNumber, allocations, filmOrders, user, reason);
 }
 
 function formatDeletedJobCleanupWarning({
@@ -660,6 +676,7 @@ async function recalculateFilmOrdersForBoxLinks(client, orgId, boxId, user) {
 export {
   buildStaleAutoShortageFilmOrderCleanupCandidates,
   cancelJobAndReleaseAllocations,
+  cancelJobAndReleaseAllocationsByJobId,
   formatDeletedJobCleanupWarning,
   prepareDeletedJobCleanup,
   removeAllocationFromJob,

@@ -6,13 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OptimisticQueueProvider } from '../../../../../components/OptimisticQueue';
 import type { JobDetail, JobListEntry } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useCompleteJob, useUpdateJob } from './jobLifecycleMutations';
+import { useCancelJob, useCompleteJob, useUpdateJob } from './jobLifecycleMutations';
 
 const updateJobMock = vi.fn();
 const completeJobMock = vi.fn();
+const cancelJobMock = vi.fn();
 
 vi.mock('../../../../../api/features/jobsClient', () => ({
-  cancelJob: vi.fn(),
   completeJob: (...args: unknown[]) => completeJobMock(...args),
   createJob: vi.fn(),
   deleteJob: vi.fn(),
@@ -20,9 +20,14 @@ vi.mock('../../../../../api/features/jobsClient', () => ({
   updateJob: (...args: unknown[]) => updateJobMock(...args)
 }));
 
+vi.mock('../../../../../api/features/filmOrdersClient', () => ({
+  cancelJob: (...args: unknown[]) => cancelJobMock(...args)
+}));
+
 beforeEach(() => {
   updateJobMock.mockReset();
   completeJobMock.mockReset();
+  cancelJobMock.mockReset();
 });
 
 function createQueryClient() {
@@ -137,6 +142,80 @@ describe('useUpdateJob identity caches', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
       source: 'legacy-allocation-job'
     });
+  });
+});
+
+describe('useCancelJob identity caches', () => {
+  it('canonical cancel invalidates jobById and leaves same-number legacy detail caches unpatched', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.jobById(before.summary.jobId!), before);
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), { source: 'legacy-job' });
+    queryClient.setQueryData(inventoryKeys.allocationJob(before.summary.jobNumber), {
+      source: 'legacy-allocation-job'
+    });
+    cancelJobMock.mockResolvedValueOnce({
+      result: { jobId: before.summary.jobId, jobNumber: before.summary.jobNumber },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCancelJob(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        reason: 'Cancel selected job.'
+      });
+    });
+
+    expect(cancelJobMock).toHaveBeenCalledWith({
+      jobId: before.summary.jobId,
+      jobNumber: before.summary.jobNumber,
+      reason: 'Cancel selected job.'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.jobById(before.summary.jobId!))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(inventoryKeys.job(before.summary.jobNumber))).toEqual({
+      source: 'legacy-job'
+    });
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
+      source: 'legacy-allocation-job'
+    });
+  });
+
+  it('legacy cancel keeps jobNumber cache behavior', async () => {
+    const queryClient = createQueryClient();
+    const before = buildDetail();
+
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), before);
+    queryClient.setQueryData(inventoryKeys.allocationJob(before.summary.jobNumber), {
+      source: 'legacy-allocation-job'
+    });
+    cancelJobMock.mockResolvedValueOnce({
+      result: { jobNumber: before.summary.jobNumber },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCancelJob(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        jobNumber: before.summary.jobNumber,
+        reason: 'Cancel legacy job.'
+      });
+    });
+
+    expect(cancelJobMock).toHaveBeenCalledWith({
+      jobNumber: before.summary.jobNumber,
+      reason: 'Cancel legacy job.'
+    });
+    expect(queryClient.getQueryState(inventoryKeys.job(before.summary.jobNumber))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.allocationJob(before.summary.jobNumber))?.isInvalidated).toBe(true);
   });
 });
 

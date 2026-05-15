@@ -1,5 +1,7 @@
 // Purpose: Film order and catalog API surface.
 import type {
+  CancelJobPayload,
+  CancelJobResult,
   CreateFilmOrderPayload,
   DeleteFilmOrderPayload,
   FilmCatalogEntry,
@@ -34,10 +36,10 @@ export async function createFilmOrder(
 }
 
 export async function cancelJob(
-  payload: { jobNumber: string; reason?: string }
-): Promise<{ result: { jobNumber: string }; warnings: string[] }> {
+  payload: CancelJobPayload
+): Promise<{ result: CancelJobResult; warnings: string[] }> {
   assertFeatureAccess('film_orders', 'write');
-  const response = await request<{ jobNumber: string }>('POST', '/film-orders/cancel', {
+  const response = await request<CancelJobResult>('POST', '/film-orders/cancel', {
     body: payload
   });
   return {

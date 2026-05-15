@@ -893,8 +893,23 @@ const mutationHandlers: Record<string, MutationHandler> = {
     );
   },
   "/film-orders/cancel": async ({ client, orgId, actor, normalizedPayload }, deps) => {
-    const result = await deps.callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, normalizedPayload);
-    return ok({ jobNumber: deps.asTrimmedString(result.jobNumber) }, result.warnings || []);
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const suppliedJobId = deps.asTrimmedString(payloadWithoutRequestOrg.jobId);
+    let rpcPayload = payloadWithoutRequestOrg;
+    if (suppliedJobId) {
+      if (!JOB_ID_PATTERN.test(suppliedJobId)) {
+        throw new HttpError(400, "jobId must be a valid UUID.");
+      }
+      deps.requireString(payloadWithoutRequestOrg.jobNumber, "JobNumber");
+      const target = await resolveEdgeJobMutationTargetById(client, orgId, payloadWithoutRequestOrg, {
+        findJobById: deps.findJobById,
+        normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+      });
+      rpcPayload = { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber };
+    }
+    const result = await deps.callMutationRpc(client, "api_acl_film_orders_cancel", orgId, actor, rpcPayload);
+    const jobId = deps.asTrimmedString(result.jobId);
+    return ok({ ...(jobId ? { jobId } : {}), jobNumber: deps.asTrimmedString(result.jobNumber) }, result.warnings || []);
   },
   "/film-orders/delete": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const filmOrderId = deps.requireString(normalizedPayload.filmOrderId, "FilmOrderID");
