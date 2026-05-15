@@ -117,7 +117,7 @@ test('film order create jobId scope migration does not alter deferred workflows 
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0131_checkout_all_jobid_scope\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0132_complete_job_jobid_scope\.sql';/);
   assert.match(schemaCheck, /RequirementID is required when jobId is supplied/);
   assert.match(schemaCheck, /when v_has_job_id then fo\.job_id = v_order\.job_id/);
 });

@@ -2950,3 +2950,77 @@ Deno.test("/jobs/complete keeps existing org-wide planner and detail reload beha
     "Expected /jobs/complete response behavior to stay unchanged.",
   );
 });
+
+Deno.test("/jobs/complete reloads canonical detail by jobId after route-owned planner", async () => {
+  const plannerCalls: Array<Record<string, unknown>> = [];
+  const detailByIdCalls: Array<Record<string, unknown>> = [];
+  const detailByNumberCalls: Array<Record<string, unknown>> = [];
+  const jobId = "11111111-1111-4111-8111-111111111111";
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/complete",
+    {
+      jobId,
+      jobNumber: "81234",
+    },
+    buildDeps({
+      completeJob: async (_client: unknown, _identity: unknown, payload: Record<string, unknown>) => ({
+        ok: true,
+        data: { summary: { jobId: payload.jobId, jobNumber: payload.jobNumber }, detailSource: "completeJob" },
+        warnings: ["Complete warning."],
+      }),
+      reconcileAutoPlannedAllocations: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        scope: Record<string, unknown>,
+      ) => {
+        plannerCalls.push({ orgId, actor, scope });
+        return {
+          warnings: ["Planner warning."],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, receivedJobId: unknown) => {
+        detailByIdCalls.push({ orgId, jobId: receivedJobId });
+        return { jobId: receivedJobId, detailSource: "postPlannerReloadById" };
+      },
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+        detailByNumberCalls.push({ orgId, jobNumber });
+        return { jobNumber, detailSource: "postPlannerReloadByNumber" };
+      },
+    }),
+  );
+
+  assertEquals(
+    plannerCalls,
+    [
+      {
+        orgId: "org-1",
+        actor: "tester",
+        scope: {},
+      },
+    ],
+    "Expected canonical /jobs/complete to preserve route-owned org-wide planning.",
+  );
+  assertEquals(
+    detailByIdCalls,
+    [{ orgId: "org-1", jobId }],
+    "Expected canonical /jobs/complete to reload by jobId.",
+  );
+  assertEquals(
+    detailByNumberCalls,
+    [],
+    "Expected canonical /jobs/complete to avoid legacy jobNumber detail reload.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: { jobId, detailSource: "postPlannerReloadById" },
+      warnings: ["Complete warning.", "Planner warning."],
+    },
+    "Expected canonical /jobs/complete to reload by jobId after planner reconciliation.",
+  );
+});

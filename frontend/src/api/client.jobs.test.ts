@@ -27,6 +27,7 @@ import {
   __resetJobsApiAvailabilityForTests,
   checkJobDuplicate,
   checkoutAllJobMaterials,
+  completeJob,
   createJob,
   deleteJob,
   getJob,
@@ -603,6 +604,76 @@ describe('jobs API client canonical routes', () => {
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '000123',
         reason: 'Reopened after staging correction.'
+      }
+    });
+  });
+
+  it('completes a job through POST /jobs/complete', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobNumber: '000123',
+          lifecycleStatus: 'COMPLETED',
+          status: 'COMPLETED'
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    const result = await completeJob({
+      jobNumber: '000123',
+      reason: 'Done.'
+    });
+
+    expect(result.result.summary.lifecycleStatus).toBe('COMPLETED');
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/complete', {
+      body: {
+        jobNumber: '000123',
+        reason: 'Done.'
+      }
+    });
+  });
+
+  it('passes canonical jobId through complete-job requests when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123',
+          lifecycleStatus: 'COMPLETED',
+          status: 'COMPLETED'
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    await completeJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      reason: 'Done.'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/complete', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        reason: 'Done.'
       }
     });
   });

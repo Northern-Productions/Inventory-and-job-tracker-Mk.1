@@ -115,6 +115,6 @@ test('remove-box jobId planner migration does not alter deferred workflows or du
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0131_checkout_all_jobid_scope\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0132_complete_job_jobid_scope\.sql';/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
 });

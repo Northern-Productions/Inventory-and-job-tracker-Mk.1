@@ -7468,17 +7468,34 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
-  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, payload, {
+    findJobById,
+    normalizeJobNumberDigits,
+  });
+  const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, "JobNumber")
+    : requireString(payload.jobNumber, "JobNumber");
   const serviceClient = requireServiceRoleClientForJobs();
 
-  const { data: jobRow, error: jobError } = await serviceClient
-    .schema("app")
-    .from("jobs")
-    .select("id, org_id, job_number, lifecycle_status")
-    .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .maybeSingle();
+  const { data: legacyJobRow, error: jobError } = target.usedJobId
+    ? { data: null, error: null }
+    : await serviceClient
+      .schema("app")
+      .from("jobs")
+      .select("id, org_id, job_number, lifecycle_status")
+      .eq("org_id", orgId)
+      .eq("job_number", jobNumber)
+      .maybeSingle();
   throwOnSupabaseError(jobError, "Unable to load job");
+  const jobRow = target.usedJobId
+    ? {
+        id: targetJobId,
+        org_id: orgId,
+        job_number: jobNumber,
+        lifecycle_status: asTrimmedString((target.job as Record<string, unknown> | null)?.lifecycleStatus) || "ACTIVE",
+      }
+    : legacyJobRow;
   if (!jobRow) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
@@ -7494,13 +7511,24 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
   const { data: checkedOutRows, error: checkedOutError } = await serviceClient
     .schema("app")
     .from("boxes")
-    .select("box_id, last_checkout_job")
+    .select("box_id, last_checkout_job, last_checkout_job_id")
     .eq("org_id", orgId)
     .eq("status", "CHECKED_OUT");
   throwOnSupabaseError(checkedOutError, "Unable to load checked-out boxes");
-  const matchingCheckedOutRows = (Array.isArray(checkedOutRows) ? checkedOutRows : []).filter((row) =>
-    normalizeJobNumberKey((row as Record<string, unknown>).last_checkout_job) === normalizeJobNumberKey(jobNumber)
-  );
+  const normalizedTargetJobId = targetJobId.toLowerCase();
+  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
+  const matchingCheckedOutRows = (Array.isArray(checkedOutRows) ? checkedOutRows : []).filter((row) => {
+    const entry = row as Record<string, unknown>;
+    if (!target.usedJobId) {
+      return normalizeJobNumberKey(entry.last_checkout_job) === normalizedTargetJobNumber;
+    }
+
+    const boxJobId = asTrimmedString(entry.last_checkout_job_id).toLowerCase();
+    return (
+      boxJobId === normalizedTargetJobId ||
+      (!boxJobId && normalizeJobNumberKey(entry.last_checkout_job) === normalizedTargetJobNumber)
+    );
+  });
   if (matchingCheckedOutRows.length) {
     const listedBoxes = matchingCheckedOutRows
       .slice(0, 5)
@@ -7513,15 +7541,40 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     );
   }
 
-  const { data: openCaulkCheckoutRows, error: openCaulkCheckoutError } = await serviceClient
-    .schema("app")
-    .from("caulk_job_checkouts")
-    .select("caulk_checkout_id")
-    .eq("org_id", orgId)
-    .eq("status", "OPEN")
-    .eq("job_number", jobNumber);
-  throwOnSupabaseError(openCaulkCheckoutError, "Unable to load open caulk checkouts");
-  const openCaulkCheckoutCount = Array.isArray(openCaulkCheckoutRows) ? openCaulkCheckoutRows.length : 0;
+  let openCaulkCheckoutCount = 0;
+  if (target.usedJobId) {
+    const { data: activeCaulkAllocationRows, error: activeCaulkAllocationError } = await serviceClient
+      .schema("app")
+      .from("caulk_job_allocations")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("job_id", targetJobId);
+    throwOnSupabaseError(activeCaulkAllocationError, "Unable to resolve caulk allocations for selected job");
+    const caulkAllocationIds = (Array.isArray(activeCaulkAllocationRows) ? activeCaulkAllocationRows : [])
+      .map((row) => asTrimmedString((row as Record<string, unknown>).id))
+      .filter(Boolean);
+    if (caulkAllocationIds.length) {
+      const { data: openCaulkCheckoutRows, error: openCaulkCheckoutError } = await serviceClient
+        .schema("app")
+        .from("caulk_job_checkouts")
+        .select("caulk_checkout_id")
+        .eq("org_id", orgId)
+        .eq("status", "OPEN")
+        .in("caulk_allocation_id", caulkAllocationIds);
+      throwOnSupabaseError(openCaulkCheckoutError, "Unable to load open caulk checkouts");
+      openCaulkCheckoutCount = Array.isArray(openCaulkCheckoutRows) ? openCaulkCheckoutRows.length : 0;
+    }
+  } else {
+    const { data: openCaulkCheckoutRows, error: openCaulkCheckoutError } = await serviceClient
+      .schema("app")
+      .from("caulk_job_checkouts")
+      .select("caulk_checkout_id")
+      .eq("org_id", orgId)
+      .eq("status", "OPEN")
+      .eq("job_number", jobNumber);
+    throwOnSupabaseError(openCaulkCheckoutError, "Unable to load open caulk checkouts");
+    openCaulkCheckoutCount = Array.isArray(openCaulkCheckoutRows) ? openCaulkCheckoutRows.length : 0;
+  }
   if (openCaulkCheckoutCount > 0) {
     throw new HttpError(
       400,
@@ -7536,8 +7589,8 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     .from("allocations")
     .select("id, box_id, allocated_feet")
     .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .eq("status", "ACTIVE");
+    .eq("status", "ACTIVE")
+    .eq(target.usedJobId ? "job_id" : "job_number", target.usedJobId ? targetJobId : jobNumber);
   throwOnSupabaseError(activeAllocationsError, "Unable to load active allocations");
 
   const releasedFeetByBox: Record<string, number> = {};
@@ -7604,8 +7657,8 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     .from("film_orders")
     .select("id")
     .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .in("status", ["FILM_ORDER", "FILM_ON_THE_WAY"]);
+    .in("status", ["FILM_ORDER", "FILM_ON_THE_WAY"])
+    .eq(target.usedJobId ? "job_id" : "job_number", target.usedJobId ? targetJobId : jobNumber);
   throwOnSupabaseError(openFilmOrdersError, "Unable to load open film orders");
 
   let cancelledFilmOrderCount = 0;
@@ -7633,6 +7686,7 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
     p_org_id: orgId,
     p_actor: actor,
     p_payload: {
+      ...(target.usedJobId ? { jobId: targetJobId } : {}),
       jobNumber,
       reason: cancelNote,
     },
@@ -7649,14 +7703,17 @@ async function completeJob(client: any, identity: AuthIdentity, payload: Record<
       updated_by: actor,
     })
     .eq("org_id", orgId)
-    .eq("id", (jobRow as Record<string, unknown>).id);
+    .eq("id", target.usedJobId ? targetJobId : (jobRow as Record<string, unknown>).id);
   throwOnSupabaseError(completeJobError, "Unable to mark job completed");
 
   warnings.push(
     `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active film allocation${cancelledAllocationCount === 1 ? "" : "s"}, ${cancelledCaulkAllocationCount} active caulk allocation${cancelledCaulkAllocationCount === 1 ? "" : "s"}, released ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? "" : "s"}, and cancelled ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? "" : "s"}.`,
   );
 
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+  return ok(
+    target.usedJobId ? await buildJobDetailById(client, orgId, targetJobId) : await buildJobDetail(client, orgId, jobNumber),
+    warnings,
+  );
 }
 
 function formatDeletedJobCleanupWarning({

@@ -33,6 +33,7 @@ import {
   saveBoxRecord,
   deleteBoxRecord,
   listAllocationsByJob,
+  listAllocationsByJobId,
   findAllocationById,
   saveAllocationRecord,
   listFilmOrdersByJob,
@@ -47,6 +48,7 @@ import {
   listJobCaulkRequirementsByJob,
   listJobCaulkRequirementsByJobId,
   listCaulkJobCheckoutsByJob,
+  listCaulkJobCheckoutsByJobId,
   replaceJobRequirementsForJob,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,
@@ -437,17 +439,38 @@ async function updateJob(client, orgId, payload, actor) {
   );
 }
 
+async function cancelActiveCaulkAllocationsForCompleteJob(client, orgId, actor, payload) {
+  const response = await queryRow(
+    client,
+    `select public.api_acl_jobs_cancel_caulk_allocations($1::uuid, $2::text, $3::jsonb) as payload`,
+    [orgId, asTrimmedString(actor), JSON.stringify(payload)]
+  );
+
+  return response && typeof response.payload === 'object'
+    ? cloneValue(response.payload)
+    : {};
+}
+
 async function completeJob(client, orgId, payload, actor) {
   const warnings = [];
-  const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const jobNumber = target.usedJobId
+    ? target.jobNumber
+    : normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
   const resolvedAt = new Date().toISOString();
-  const resolvedContext = await resolveExistingOrLegacyJobHeader(
-    client,
-    orgId,
-    jobNumber,
-    actor,
-    resolvedAt
-  );
+  const resolvedContext = target.usedJobId
+    ? {
+        header: target.job,
+        allocations: await listAllocationsByJobId(client, orgId, target.jobId),
+        filmOrders: await listFilmOrdersByJobId(client, orgId, target.jobId),
+      }
+    : await resolveExistingOrLegacyJobHeader(
+        client,
+        orgId,
+        jobNumber,
+        actor,
+        resolvedAt
+      );
   const existingJob = resolvedContext.header;
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
@@ -462,11 +485,22 @@ async function completeJob(client, orgId, payload, actor) {
     throw new HttpError(400, `Job ${jobNumber} is cancelled and cannot be completed.`);
   }
 
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter(
-    (box) =>
-      box.status === 'CHECKED_OUT' &&
-      normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber)
-  );
+  const normalizedTargetJobId = target.usedJobId ? asTrimmedString(target.jobId).toLowerCase() : '';
+  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
+  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
+    if (box.status !== 'CHECKED_OUT') {
+      return false;
+    }
+    if (!target.usedJobId) {
+      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
+    }
+
+    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
+    return (
+      boxJobId === normalizedTargetJobId ||
+      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
+    );
+  });
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
@@ -479,9 +513,10 @@ async function completeJob(client, orgId, payload, actor) {
     );
   }
 
-  const openCaulkCheckoutCount = (await listCaulkJobCheckoutsByJob(client, orgId, jobNumber)).filter(
-    (entry) => entry.status === 'OPEN'
-  ).length;
+  const caulkCheckouts = target.usedJobId
+    ? await listCaulkJobCheckoutsByJobId(client, orgId, target.jobId)
+    : await listCaulkJobCheckoutsByJob(client, orgId, jobNumber);
+  const openCaulkCheckoutCount = caulkCheckouts.filter((entry) => entry.status === 'OPEN').length;
   if (openCaulkCheckoutCount > 0) {
     throw new HttpError(
       400,
@@ -536,16 +571,37 @@ async function completeJob(client, orgId, payload, actor) {
     cancelledFilmOrderCount += 1;
   }
 
+  const caulkCancelPayload = target.usedJobId
+    ? await cancelActiveCaulkAllocationsForCompleteJob(client, orgId, actor, {
+        jobId: target.jobId,
+        jobNumber,
+        reason: cancelNote
+      })
+    : {};
+  const cancelledCaulkAllocationCount = integerOrZero(caulkCancelPayload.cancelledAllocationCount);
+  const releasedReservedCaulkTubes = integerOrZero(caulkCancelPayload.releasedReservedTubes);
+
   existingJob.lifecycleStatus = 'COMPLETED';
   existingJob.updatedAt = resolvedAt;
   existingJob.updatedBy = actor;
-  await saveJobRecord(client, orgId, existingJob);
+  await (target.usedJobId
+    ? saveJobRecordById(client, orgId, existingJob)
+    : saveJobRecord(client, orgId, existingJob));
 
-  warnings.push(
-    `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? '' : 's'} and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? '' : 's'}.`
+  if (target.usedJobId) {
+    warnings.push(
+      `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? '' : 's'}, ${cancelledCaulkAllocationCount} active caulk allocation${cancelledCaulkAllocationCount === 1 ? '' : 's'}, released ${releasedReservedCaulkTubes} reserved caulk tube${releasedReservedCaulkTubes === 1 ? '' : 's'}, and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? '' : 's'}.`
+    );
+  } else {
+    warnings.push(
+      `Marked job ${jobNumber} completed. Cancelled ${cancelledAllocationCount} active allocation${cancelledAllocationCount === 1 ? '' : 's'} and ${cancelledFilmOrderCount} open film order${cancelledFilmOrderCount === 1 ? '' : 's'}.`
+    );
+  }
+
+  return ok(
+    target.usedJobId ? await buildJobDetailById(client, orgId, target.jobId) : await buildJobDetail(client, orgId, jobNumber),
+    warnings
   );
-
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
 }
 
 async function reopenJob(client, orgId, payload, actor) {

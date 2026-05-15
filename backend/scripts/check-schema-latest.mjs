@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0131_checkout_all_jobid_scope.sql';
+const LATEST_MIGRATION = '0132_complete_job_jobid_scope.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -89,6 +89,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_checkout(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_checkin(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_remove(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.cancel_active_caulk_allocations_for_job_id(uuid, text, uuid, text, text, boolean)' },
+  { kind: 'function', signature: 'public.api_acl_jobs_cancel_caulk_allocations(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_caulk_transfer_receive(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_caulk_transfer_cancel(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.total_active_allocated_feet_for_box(uuid, text)' },
@@ -381,6 +383,33 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'JOB_ALLOCATION_CANCEL_RETURN',
       'caulk_job_allocations'
     ]
+  },
+  {
+    signature: 'app_api.cancel_active_caulk_allocations_for_job_id(uuid, text, uuid, text, text, boolean)',
+    includes: [
+      'from app.jobs j',
+      'and j.id = p_job_id',
+      "perform app_api.raise_http(400, 'jobId does not match jobNumber.');",
+      'and a.job_id = v_job.id',
+      'app_api.caulk_cancel_pending_transfer_internal(',
+      "'JOB_ALLOCATION_CANCEL_RETURN'",
+      "'jobId', v_job.id::text",
+      "'jobNumber', v_job_number"
+    ],
+    excludes: [
+      'upper(a.job_number) = upper(v_job_number)',
+      'upper(c.job_number) = upper(v_job_number)'
+    ]
+  },
+  {
+    signature: 'public.api_acl_jobs_cancel_caulk_allocations(uuid, text, jsonb)',
+    includes: [
+      "v_job_id_text text := app_api.trim_text(v_payload->>'jobId');",
+      "if v_job_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then",
+      'app_api.cancel_active_caulk_allocations_for_job_id(',
+      'app_api.cancel_active_caulk_allocations_for_job('
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.compute_allocation_planning_feet(text, integer, integer, integer)',
