@@ -124,9 +124,10 @@ test('backend local job delete resolves selected job before scoped side effects'
   const helperBody = extractBetween(cleanup, 'async function prepareDeletedJobCleanupByJobId', 'async function removeAllocationFromJob');
 
   assert.match(deleteBody, /requireUuid\(suppliedJobId, 'jobId'\);/);
-  assert.match(deleteBody, /const target = await resolveJobMutationTargetById\(client, orgId, payload\);/);
+  assert.match(deleteBody, /const suppliedJobNumber = normalizeJobNumberDigits\(payload\.jobNumber, 'Job ID number'\);/);
+  assert.match(deleteBody, /resolveJobMutationTargetById\(client, orgId, \{\s+\.\.\.payload,\s+jobNumber: suppliedJobNumber\s+\}\)/);
   assert.ok(
-    deleteBody.indexOf('resolveJobMutationTargetById(client, orgId, payload)') <
+    deleteBody.indexOf('resolveJobMutationTargetById(client, orgId, {') <
       deleteBody.indexOf('listBoxes(client, orgId)'),
     'Expected selected job validation before checked-out box blocker.'
   );
@@ -151,9 +152,10 @@ test('Edge job delete validates canonical identity before selected-job scoped de
   const deleteBody = extractBetween(edge, 'async function deleteJob', 'async function recalculateFilmOrderAfterAllocationMutation');
 
   assert.match(deleteBody, /JOB_ID_PATTERN\.test\(suppliedJobId\)/);
-  assert.match(deleteBody, /resolveEdgeJobMutationTargetById\(client, orgId, payload,/);
+  assert.match(deleteBody, /const suppliedJobNumber = normalizeJobNumberDigits\(requireString\(payload\.jobNumber, "Job ID number"\)\);/);
+  assert.match(deleteBody, /resolveEdgeJobMutationTargetById\(client, orgId, \{\s+\.\.\.payload,\s+jobNumber: suppliedJobNumber,\s+\},/);
   assert.ok(
-    deleteBody.indexOf('resolveEdgeJobMutationTargetById(client, orgId, payload') <
+    deleteBody.indexOf('resolveEdgeJobMutationTargetById(client, orgId, {') <
       deleteBody.indexOf('listBoxes(client, orgId)'),
     'Expected Edge selected job validation before checked-out box blocker.'
   );

@@ -649,10 +649,14 @@ async function deleteJob(client, orgId, payload, actor, role) {
   if (suppliedJobId) {
     requireUuid(suppliedJobId, 'jobId');
   }
-  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  const suppliedJobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const target = await resolveJobMutationTargetById(client, orgId, {
+    ...payload,
+    jobNumber: suppliedJobNumber
+  });
   const jobNumber = target.usedJobId
     ? target.jobNumber
-    : normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+    : suppliedJobNumber;
   const existingJob = target.usedJobId
     ? target.job
     : await findJobByNumber(client, orgId, jobNumber);

@@ -7766,17 +7766,21 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   if (suppliedJobId && !JOB_ID_PATTERN.test(suppliedJobId)) {
     throw new HttpError(400, "jobId must be a valid UUID.");
   }
-  const target = await resolveEdgeJobMutationTargetById(client, orgId, payload, {
+  const suppliedJobNumber = normalizeJobNumberDigits(requireString(payload.jobNumber, "Job ID number"));
+  if (!suppliedJobNumber) {
+    throw new HttpError(400, "Job ID number must include at least one digit.");
+  }
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, {
+    ...payload,
+    jobNumber: suppliedJobNumber,
+  }, {
     findJobById,
     normalizeJobNumberDigits,
   });
   const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
   const jobNumber = target.usedJobId
     ? requireString(target.jobNumber, "JobNumber")
-    : normalizeJobNumberDigits(requireString(payload.jobNumber, "Job ID number"));
-  if (!jobNumber) {
-    throw new HttpError(400, "Job ID number must include at least one digit.");
-  }
+    : suppliedJobNumber;
   const existingJob = target.usedJobId ? target.job : await findJobByNumber(client, orgId, jobNumber);
   if (!existingJob) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
