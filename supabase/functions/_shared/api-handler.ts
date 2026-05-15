@@ -6997,7 +6997,14 @@ async function checkoutAllJobMaterials(client: any, identity: AuthIdentity, payl
 async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const orgId = identity.orgId;
   const actor = identity.actor;
-  const jobNumber = requireString(payload.jobNumber, "JobNumber");
+  const target = await resolveEdgeJobMutationTargetById(client, orgId, payload, {
+    findJobById,
+    normalizeJobNumberDigits,
+  });
+  const jobNumber = target.usedJobId
+    ? requireString(target.jobNumber, "JobNumber")
+    : requireString(payload.jobNumber, "JobNumber");
+  const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
   const normalizedFlag = typeof payload.isStagedForPickup === "boolean"
     ? String(payload.isStagedForPickup)
     : asTrimmedString(payload.isStagedForPickup).toLowerCase();
@@ -7014,38 +7021,65 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
   }
 
   const serviceClient = requireServiceRoleClientForJobs();
-  const { data: jobRow, error: jobError } = await serviceClient
-    .schema("app")
-    .from("jobs")
-    .select("id, lifecycle_status, warehouse")
-    .eq("org_id", orgId)
-    .eq("job_number", jobNumber)
-    .maybeSingle();
+  const { data: legacyJobRow, error: jobError } = target.usedJobId
+    ? { data: null, error: null }
+    : await serviceClient
+      .schema("app")
+      .from("jobs")
+      .select("id, lifecycle_status, warehouse")
+      .eq("org_id", orgId)
+      .eq("job_number", jobNumber)
+      .maybeSingle();
   throwOnSupabaseError(jobError, "Unable to load job");
+  const jobRow = target.usedJobId ? target.job : legacyJobRow;
   if (!jobRow) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const lifecycleStatus = normalizeJobLifecycleStatus((jobRow as Record<string, unknown>).lifecycle_status);
+  const lifecycleStatus = normalizeJobLifecycleStatus(
+    (jobRow as Record<string, unknown>).lifecycleStatus ||
+      (jobRow as Record<string, unknown>).lifecycle_status
+  );
   if (lifecycleStatus !== "ACTIVE") {
     throw new HttpError(400, `Job ${jobNumber} is closed and staged pickup cannot be changed.`);
   }
 
   const warnings: string[] = [];
   const jobWarehouse = asTrimmedString((jobRow as Record<string, unknown>).warehouse);
+  const canonicalHeader = target.usedJobId
+    ? { ...(jobRow as Record<string, unknown>), id: targetJobId, jobNumber, warehouse: jobWarehouse }
+    : null;
   if (nextIsStaged) {
     let stagingState: Record<string, unknown> | null = null;
     const autoCheckoutRemaining =
       payload.autoCheckoutRemaining === true || asTrimmedString(payload.autoCheckoutRemaining).toLowerCase() === "true";
 
     if (autoCheckoutRemaining) {
-      const checkoutResult = await executeCheckoutAllJobMaterials(client, identity, payload);
+      const checkoutResult = await executeCheckoutAllJobMaterials(
+        client,
+        identity,
+        target.usedJobId ? { ...payload, jobId: targetJobId, jobNumber } : payload,
+      );
       warnings.push(...(checkoutResult.warnings || []));
       stagingState = checkoutResult.stagingState || null;
     }
 
     if (!stagingState) {
-      stagingState = await loadJobStagingValidationState(client, orgId, jobNumber, jobWarehouse);
+      stagingState = await loadJobStagingValidationState(
+        client,
+        orgId,
+        jobNumber,
+        jobWarehouse,
+        target.usedJobId
+          ? {
+            allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
+            filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+            requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
+            caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
+            caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+          }
+          : {},
+      );
     }
     if (stagingState.blockingReason) {
       throw new HttpError(400, String(stagingState.blockingReason));
@@ -7062,10 +7096,11 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
       updated_by: actor,
     })
     .eq("org_id", orgId)
-    .eq("id", (jobRow as Record<string, unknown>).id);
+    .eq("id", target.usedJobId ? targetJobId : (jobRow as Record<string, unknown>).id);
   throwOnSupabaseError(updateError, "Unable to update staged pickup");
 
   return {
+    ...(target.usedJobId ? { jobId: targetJobId } : {}),
     jobNumber,
     isStagedForPickup: nextIsStaged,
     updatedAt,

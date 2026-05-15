@@ -668,6 +668,43 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('passes canonical jobId through staged pickup requests when supplied', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        summary: buildJobListEntry({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123',
+          isStagedForPickup: true
+        }),
+        requirements: [],
+        allocations: [],
+        usage: [],
+        usageTimeline: [],
+        caulkRequirements: [],
+        caulkAllocations: [],
+        caulkCheckouts: [],
+        filmOrders: []
+      },
+      warnings: []
+    });
+
+    await setJobStagedForPickup({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/jobs/set-staged-pickup', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123',
+        isStagedForPickup: true,
+        autoCheckoutRemaining: true
+      }
+    });
+  });
+
   it('checks out all materials through POST /jobs/checkout-all', async () => {
     requestMock.mockResolvedValueOnce({
       data: {

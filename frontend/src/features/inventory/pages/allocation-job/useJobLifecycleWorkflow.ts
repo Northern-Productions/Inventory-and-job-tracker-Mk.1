@@ -62,7 +62,7 @@ interface UseJobLifecycleWorkflowArgs {
   >;
   checkoutAllJobMaterials: MutationFn<{ jobId?: string; jobNumber: string }, { warnings: string[] }>;
   setJobStagedForPickup: MutationFn<
-    { jobNumber: string; isStagedForPickup: boolean; autoCheckoutRemaining?: boolean },
+    { jobId?: string; jobNumber: string; isStagedForPickup: boolean; autoCheckoutRemaining?: boolean },
     { warnings: string[] }
   >;
   onUserDrivenFilmCoverageChange?: (
@@ -470,6 +470,7 @@ export function useJobLifecycleWorkflow({
 
     try {
       const { warnings } = await setJobStagedForPickup({
+        ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary.jobNumber,
         isStagedForPickup: nextIsStaged,
         ...(nextIsStaged ? { autoCheckoutRemaining: true } : {})

@@ -144,11 +144,13 @@ import {
   upsertFilmCatalogRecord,
   listAllocations,
   listAllocationsByJob,
+  listAllocationsByJobId,
   listAllocationsByFilmOrderId,
   listActiveAllocations,
   saveAllocationRecord,
   listFilmOrders,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
   deleteFilmOrderRecord,
@@ -159,13 +161,17 @@ import {
   deleteFilmOrderLinksByFilmOrderId,
   listJobs,
   findJobByNumber,
+  findJobById,
   saveJobRecord,
   listJobRequirements,
   listJobRequirementsByJob,
+  listJobRequirementsByJobId,
   listJobCaulkRequirements,
   listJobCaulkRequirementsByJob,
+  listJobCaulkRequirementsByJobId,
   listCaulkJobAllocations,
   listCaulkJobAllocationsByJob,
+  listCaulkJobAllocationsByJobId,
   listCaulkJobCheckoutsByJob,
   replaceJobRequirementsForJob,
   normalizeJobCaulkRequirementEntries,
@@ -638,10 +644,18 @@ async function executeSetJobStagedPickup(
   const normalizeLifecycleStatus = deps.normalizeJobLifecycleStatus || normalizeJobLifecycleStatus;
   const runCheckoutAllJobMaterials = deps.checkoutAllJobMaterials || checkoutAllJobMaterials;
   const loadStagingValidationState = deps.loadJobStagingValidationState || loadJobStagingValidationState;
+  const loadJobById = deps.findJobById || findJobById;
+  const loadAllocationsByJobId = deps.listAllocationsByJobId || listAllocationsByJobId;
+  const loadFilmOrdersByJobId = deps.listFilmOrdersByJobId || listFilmOrdersByJobId;
+  const loadJobRequirementsByJobId = deps.listJobRequirementsByJobId || listJobRequirementsByJobId;
+  const loadJobCaulkRequirementsByJobId = deps.listJobCaulkRequirementsByJobId || listJobCaulkRequirementsByJobId;
+  const loadCaulkJobAllocationsByJobId = deps.listCaulkJobAllocationsByJobId || listCaulkJobAllocationsByJobId;
   const runQueryRow = deps.queryRow || queryRow;
   const mapJob = deps.mapDbJobRow || mapDbJobRow;
   const nowIso = deps.nowIso || new Date().toISOString();
-  const normalizedJobNumber = normalizeJobNumber(jobNumber, 'JobNumber');
+  let normalizedJobNumber = normalizeJobNumber(jobNumber, 'JobNumber');
+  const suppliedJobId = trimString(payload?.jobId);
+  const selectedJobId = suppliedJobId ? requireUuid(suppliedJobId, 'jobId') : '';
   const warnings = [];
   const normalizedFlag = typeof isStagedForPickup === 'boolean'
     ? String(isStagedForPickup)
@@ -664,8 +678,32 @@ async function executeSetJobStagedPickup(
     throw new HttpError(400, 'isStagedForPickup must be true or false.');
   }
 
-  const resolvedContext = await resolveJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
-  const existingJob = resolvedContext.header;
+  let resolvedContext = null;
+  let existingJob = null;
+
+  if (selectedJobId) {
+    existingJob = await loadJobById(client, orgId, selectedJobId);
+    if (!existingJob) {
+      throw new HttpError(404, `Job ${selectedJobId} was not found.`);
+    }
+    const selectedJobNumber = normalizeJobNumber(existingJob.jobNumber, 'JobNumber');
+    if (normalizeJobNumberKey(selectedJobNumber) !== normalizeJobNumberKey(normalizedJobNumber)) {
+      throw new HttpError(
+        409,
+        `Job identity mismatch: jobId ${selectedJobId} belongs to job ${selectedJobNumber}, not ${normalizedJobNumber}.`
+      );
+    }
+    normalizedJobNumber = selectedJobNumber;
+    resolvedContext = {
+      header: existingJob,
+      allocations: null,
+      filmOrders: null
+    };
+  } else {
+    resolvedContext = await resolveJobHeader(client, orgId, normalizedJobNumber, actor, nowIso);
+    existingJob = resolvedContext.header;
+  }
+
   if (!existingJob) {
     throw new HttpError(404, `Job ${normalizedJobNumber} was not found.`);
   }
@@ -679,7 +717,17 @@ async function executeSetJobStagedPickup(
     const autoCheckoutRemaining = payload.autoCheckoutRemaining === true || String(payload.autoCheckoutRemaining) === 'true';
 
     if (autoCheckoutRemaining) {
-      const checkoutResult = await runCheckoutAllJobMaterials(client, orgId, normalizedJobNumber, actor);
+      const checkoutResult = await runCheckoutAllJobMaterials(
+        client,
+        orgId,
+        selectedJobId
+          ? {
+              jobId: selectedJobId,
+              jobNumber: normalizedJobNumber
+            }
+          : normalizedJobNumber,
+        actor
+      );
       if (checkoutResult && Array.isArray(checkoutResult.warnings)) {
         for (let index = 0; index < checkoutResult.warnings.length; index += 1) {
           const warning = trimString(checkoutResult.warnings[index]);
@@ -692,15 +740,24 @@ async function executeSetJobStagedPickup(
     }
 
     if (!stagingState) {
+      const seedData = selectedJobId
+        ? {
+            allocations: await loadAllocationsByJobId(client, orgId, selectedJobId),
+            filmOrders: await loadFilmOrdersByJobId(client, orgId, selectedJobId),
+            requirements: await loadJobRequirementsByJobId(client, orgId, selectedJobId),
+            caulkRequirements: await loadJobCaulkRequirementsByJobId(client, orgId, selectedJobId),
+            caulkAllocations: await loadCaulkJobAllocationsByJobId(client, orgId, selectedJobId)
+          }
+        : {
+            allocations: resolvedContext.allocations || undefined,
+            filmOrders: resolvedContext.filmOrders || undefined
+          };
       stagingState = await loadStagingValidationState(
         client,
         orgId,
         normalizedJobNumber,
         existingJob.warehouse,
-        {
-          allocations: resolvedContext.allocations || undefined,
-          filmOrders: resolvedContext.filmOrders || undefined
-        }
+        seedData
       );
     }
 
@@ -714,15 +771,19 @@ async function executeSetJobStagedPickup(
     `
       update app.jobs
       set
-        is_staged_for_pickup = $3,
-        updated_at = $4::timestamptz,
-        updated_by = $5
+        is_staged_for_pickup = $4,
+        updated_at = $5::timestamptz,
+        updated_by = $6
       where org_id = $1
-        and upper(trim(job_number)) = upper(trim($2))
+        and (
+          ($2::uuid is not null and id = $2::uuid)
+          or ($2::uuid is null and upper(trim(job_number)) = upper(trim($3)))
+        )
       returning *
     `,
     [
       orgId,
+      selectedJobId || null,
       normalizedJobNumber,
       nextIsStaged,
       nowIso,
@@ -736,6 +797,7 @@ async function executeSetJobStagedPickup(
 
   const savedJob = mapJob(row);
   return {
+    ...(selectedJobId ? { jobId: selectedJobId } : {}),
     jobNumber: savedJob.jobNumber,
     isStagedForPickup: savedJob.isStagedForPickup,
     updatedAt: savedJob.updatedAt,

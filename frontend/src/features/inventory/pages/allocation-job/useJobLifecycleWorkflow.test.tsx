@@ -70,6 +70,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
   const reopenJob = vi.fn().mockResolvedValue({ warnings: [] });
   const deleteFilmOrder = vi.fn().mockResolvedValue({ warnings: [] });
   const checkoutAllJobMaterials = vi.fn().mockResolvedValue({ warnings: [] });
+  const setJobStagedForPickup = vi.fn().mockResolvedValue({ warnings: [] });
   const summary = buildSummary(overrides.summary as Partial<JobListEntry> | undefined);
   const detail = overrides.detail === undefined ? buildDetail(summary) : (overrides.detail as JobDetail | undefined);
   const updateJob = vi.fn().mockResolvedValue({ result: detail || buildDetail(summary), warnings: [] });
@@ -96,7 +97,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
         canonicalJobId: overrides.canonicalJobId as string | undefined,
         deleteFilmOrder,
         checkoutAllJobMaterials,
-        setJobStagedForPickup: vi.fn(),
+        setJobStagedForPickup,
         onUserDrivenFilmCoverageChange: vi.fn()
       }),
     { wrapper: createWrapper() }
@@ -108,6 +109,7 @@ function buildWorkflow(overrides: Record<string, unknown> = {}) {
     reopenJob,
     deleteFilmOrder,
     checkoutAllJobMaterials,
+    setJobStagedForPickup,
     pushToast
   };
 }
@@ -294,6 +296,59 @@ describe('useJobLifecycleWorkflow checkout-all identity', () => {
 
     expect(workflow.checkoutAllJobMaterials).toHaveBeenCalledWith({
       jobNumber: '000123'
+    });
+  });
+});
+
+describe('useJobLifecycleWorkflow staged pickup identity', () => {
+  it('sends jobId and jobNumber from canonical job route context when staging', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleSetStagedPickup(true);
+    });
+
+    expect(workflow.setJobStagedForPickup).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true
+    });
+  });
+
+  it('sends jobId and jobNumber from canonical job route context when clearing staging', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY', isStagedForPickup: true }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleSetStagedPickup(false);
+    });
+
+    expect(workflow.setJobStagedForPickup).toHaveBeenCalledWith({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '000123',
+      isStagedForPickup: false
+    });
+  });
+
+  it('preserves legacy jobNumber-only staged pickup payload without canonical jobId', async () => {
+    const workflow = buildWorkflow({
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleSetStagedPickup(true);
+    });
+
+    expect(workflow.setJobStagedForPickup).toHaveBeenCalledWith({
+      jobNumber: '000123',
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true
     });
   });
 });

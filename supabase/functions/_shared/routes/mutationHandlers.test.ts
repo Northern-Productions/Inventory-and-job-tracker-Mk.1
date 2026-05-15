@@ -1267,6 +1267,87 @@ Deno.test("/jobs/checkout-all reloads canonical job detail by jobId and keeps SQ
   );
 });
 
+Deno.test("/jobs/set-staged-pickup reloads canonical job detail by jobId and keeps SQL planner ownership", async () => {
+  const stagedPayloads: Array<Record<string, unknown>> = [];
+  const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
+  let legacyDetailCallCount = 0;
+  let plannerCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/jobs/set-staged-pickup",
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true,
+    },
+    buildDeps({
+      setJobStagedPickup: async (_client: unknown, identity: Record<string, unknown>, payload: Record<string, unknown>) => {
+        stagedPayloads.push({ orgId: identity.orgId, ...payload });
+        return {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          warnings: ["Staged pickup completed."],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobDetailByIdCalls.push({ orgId, jobId });
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+            isStagedForPickup: true,
+          },
+        };
+      },
+      buildJobDetail: async () => {
+        legacyDetailCallCount += 1;
+        return {};
+      },
+      reconcileAutoPlannedAllocations: async () => {
+        plannerCallCount += 1;
+        return {};
+      },
+    }),
+  );
+
+  assertEquals(
+    stagedPayloads,
+    [{
+      orgId: "org-from-auth",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      isStagedForPickup: true,
+      autoCheckoutRemaining: true,
+    }],
+    "Expected staged pickup to receive canonical payload with auth-derived org context.",
+  );
+  assertEquals(
+    jobDetailByIdCalls,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected canonical staged pickup to reload detail by jobId.",
+  );
+  assertEquals(legacyDetailCallCount, 0, "Expected canonical staged pickup to avoid legacy jobNumber reload.");
+  assertEquals(plannerCallCount, 0, "Expected staged pickup to keep planner ownership in SQL/subflows.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          isStagedForPickup: true,
+        },
+      },
+      warnings: ["Staged pickup completed."],
+    },
+    "Expected canonical staged pickup response to preserve job detail and warnings.",
+  );
+});
+
 Deno.test("caulk add canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
   const rpcPayloads: Array<Record<string, unknown>> = [];
   const findJobCalls: Array<Record<string, unknown>> = [];
