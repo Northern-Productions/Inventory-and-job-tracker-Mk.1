@@ -132,6 +132,7 @@ function normalizeBox(box: Box): Box {
     allocatedWithoutInstallDateFeet,
     allocationPlanningFeet: activePlanningFeet,
     hasLabel: normalizeHasLabel((box as Box & { hasLabel?: unknown }).hasLabel),
+    lastCheckoutJobId: String(box.lastCheckoutJobId || '').trim(),
     orderedForJobs: normalizeOrderedForJobs((box as Box & { orderedForJobs?: unknown }).orderedForJobs),
     pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };

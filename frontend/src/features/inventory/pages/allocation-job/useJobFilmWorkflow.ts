@@ -218,6 +218,7 @@ export function useJobFilmWorkflow({
       const { warnings } = await setBoxStatus({
         boxId: entry.boxId,
         status: 'CHECKED_OUT',
+        ...(canonicalJobId ? { jobId: canonicalJobId, jobNumber: targetJobNumber } : {}),
         auditNote: `Checked out for job ${targetJobNumber}`
       });
 

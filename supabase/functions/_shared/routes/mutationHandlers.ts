@@ -468,8 +468,15 @@ const mutationHandlers: Record<string, MutationHandler> = {
     if (!box) {
       throw new HttpError(500, "Box mutation completed but the updated box could not be reloaded.");
     }
+    const resultJobId = deps.asTrimmedString(result.jobId);
+    const resultJobNumber = deps.asTrimmedString(result.jobNumber);
     return ok(
-      { box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps), logId: deps.asTrimmedString(result.logId) },
+      {
+        box: await buildPublicBoxWithReservationMetrics(client, orgId, box, deps),
+        logId: deps.asTrimmedString(result.logId),
+        ...(resultJobId ? { jobId: resultJobId } : {}),
+        ...(resultJobNumber ? { jobNumber: resultJobNumber } : {}),
+      },
       result.warnings || []
     );
   },
