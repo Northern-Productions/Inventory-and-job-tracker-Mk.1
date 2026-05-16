@@ -135,6 +135,8 @@ export interface FilmOrderEntry {
   requirementId?: string;
   jobNumber: string;
   warehouse: Warehouse;
+  workScope?: string | null;
+  sections?: string | null;
   manufacturer: string;
   filmName: string;
   widthIn: number;

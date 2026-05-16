@@ -5104,10 +5104,36 @@ function countUnresolvedFilmOrders(entries: any[]) {
 
 async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, filmOrders: any[]) {
   const entries = Array.isArray(filmOrders) ? filmOrders : [];
+  const jobIdsNeedingHeaders = Array.from(
+    new Set(
+      entries
+        .filter((entry) => {
+          if (!entry) {
+            return false;
+          }
+          const jobId = asTrimmedString(entry.jobId);
+          if (!jobId) {
+            return false;
+          }
+          const needsScope = !asTrimmedString(entry.workScope || entry.sections);
+          const needsSchedule =
+            isUnresolvedFilmOrderStatus(entry.status) &&
+            (!asTrimmedString(entry.installDate) || !asTrimmedString(entry.crewLeader));
+          return needsScope || needsSchedule;
+        })
+        .map((entry) => asTrimmedString(entry.jobId))
+        .filter(Boolean),
+    ),
+  );
+  const idHeaderEntries = await Promise.all(
+    jobIdsNeedingHeaders.map(async (jobId) => [jobId, (await findJobById(client, orgId, jobId)) || null]),
+  );
+  const jobHeaderById = new Map<string, any | null>(idHeaderEntries as Array<[string, any | null]>);
   const jobNumbersNeedingHeaders = Array.from(
     new Set(
       entries
         .filter((entry) => entry && isUnresolvedFilmOrderStatus(entry.status))
+        .filter((entry) => !asTrimmedString(entry.jobId))
         .filter((entry) => !asTrimmedString(entry.installDate) || !asTrimmedString(entry.crewLeader))
         .map((entry) => asTrimmedString(entry.jobNumber))
         .filter(Boolean),
@@ -5120,32 +5146,51 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
   const response = [];
 
   for (const entry of entries) {
-    if (!entry || !isUnresolvedFilmOrderStatus(entry.status)) {
+    if (!entry) {
       response.push(entry);
+      continue;
+    }
+
+    const jobId = asTrimmedString(entry.jobId);
+    const jobHeaderByJobId = jobId ? jobHeaderById.get(jobId) : null;
+    const existingScope = asTrimmedString(entry.workScope || entry.sections);
+    const headerScope = jobHeaderByJobId
+      ? asTrimmedString(jobHeaderByJobId.workScope || jobHeaderByJobId.sections)
+      : "";
+    const scopePatch = !existingScope && headerScope
+      ? {
+          workScope: headerScope,
+          sections: headerScope,
+        }
+      : {};
+
+    if (!isUnresolvedFilmOrderStatus(entry.status)) {
+      response.push(Object.keys(scopePatch).length ? { ...entry, ...scopePatch } : entry);
       continue;
     }
 
     const needsInstallDate = !asTrimmedString(entry.installDate);
     const needsCrewLeader = !asTrimmedString(entry.crewLeader);
     if (!needsInstallDate && !needsCrewLeader) {
-      response.push(entry);
+      response.push(Object.keys(scopePatch).length ? { ...entry, ...scopePatch } : entry);
       continue;
     }
 
     const jobNumber = asTrimmedString(entry.jobNumber);
     if (!jobNumber) {
-      response.push(entry);
+      response.push(Object.keys(scopePatch).length ? { ...entry, ...scopePatch } : entry);
       continue;
     }
 
-    const jobHeader = jobHeaderCache.get(jobNumber);
+    const jobHeader = jobHeaderByJobId || jobHeaderCache.get(jobNumber);
     if (!jobHeader) {
-      response.push(entry);
+      response.push(Object.keys(scopePatch).length ? { ...entry, ...scopePatch } : entry);
       continue;
     }
 
     response.push({
       ...entry,
+      ...scopePatch,
       ...(needsInstallDate && asTrimmedString(jobHeader.installDate)
         ? { installDate: asTrimmedString(jobHeader.installDate) }
         : {}),

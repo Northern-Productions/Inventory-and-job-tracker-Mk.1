@@ -330,6 +330,36 @@ describe('AddBoxPage', () => {
     expect((screen.getByLabelText('Initial Linear Feet') as HTMLInputElement).value).toBe('');
   });
 
+  it('shows Work Scope from film-order prefill query params', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&workScope=Sections%204%2C%205&sections=Sections%204%2C%205&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    expect((await screen.findAllByText(/IL1-2941.*Sections 4, 5/)).length).toBeGreaterThan(0);
+  });
+
+  it('prefers Work Scope from the loaded linked film order over query params', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    getFilmOrdersMock.mockResolvedValue([
+      buildFilmOrderEntry({
+        workScope: 'Lobby Glass',
+        sections: 'Lobby Glass'
+      })
+    ]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&workScope=Old%20Scope&sections=Old%20Scope&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    expect((await screen.findAllByText(/IL1-2941.*Lobby Glass/)).length).toBeGreaterThan(0);
+  });
+
   it('keeps the ordinary add-box flow seeded at 100 LF', async () => {
     const queryClient = createQueryClient();
     searchBoxesMock.mockResolvedValue([buildBox()]);

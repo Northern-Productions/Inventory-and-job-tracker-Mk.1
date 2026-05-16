@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { mapDbFilmOrderRow, toPublicFilmOrder } from '../../src/app/repositories/mappers.mjs';
 import { reconcileAutoShortageFilmOrdersForRequirement } from '../../src/app/services/runtime/runtimeAutoShortageFilmOrders.mjs';
+import { enrichOpenFilmOrdersWithJobSchedule } from '../../src/app/services/runtime/runtimeFilmOrderSchedule.mjs';
 
 function asTrimmedString(value) {
   return String(value || '').trim();
@@ -121,6 +122,33 @@ test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
   assert.equal(publicEntry.jobNumber, '4447');
 });
 
+test('toPublicFilmOrder exposes additive Work Scope fields when the row has sections', () => {
+  const entry = mapDbFilmOrderRow({
+    id: 'row-work-scope',
+    org_id: 'org-1',
+    film_order_id: 'FO-SCOPE',
+    job_id: '11111111-1111-4111-8111-111111111111',
+    job_number: '4447',
+    warehouse: 'IL1',
+    sections: 'Sections 4, 5',
+    manufacturer: 'Security',
+    film_name: '3M Ultra S800',
+    width_in: 60,
+    requested_feet: 100,
+    covered_feet: 0,
+    ordered_feet: 0,
+    remaining_to_order_feet: 100,
+    status: 'FILM_ORDER',
+    source_box_id: '',
+    created_at: '2026-04-16T15:47:48.884Z',
+    created_by: 'tester',
+  });
+  const publicEntry = toPublicFilmOrder(entry, []);
+
+  assert.equal(publicEntry.workScope, 'Sections 4, 5');
+  assert.equal(publicEntry.sections, 'Sections 4, 5');
+});
+
 test('toPublicFilmOrder preserves legacy records without jobId', () => {
   const entry = mapDbFilmOrderRow({
     id: 'row-legacy',
@@ -144,7 +172,56 @@ test('toPublicFilmOrder preserves legacy records without jobId', () => {
   const publicEntry = toPublicFilmOrder(entry, []);
 
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'jobId'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'workScope'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'sections'), false);
   assert.equal(publicEntry.jobNumber, '4447');
+});
+
+test('enrichOpenFilmOrdersWithJobSchedule attaches Work Scope by jobId without jobNumber lookup', async () => {
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  const client = {
+    calls: [],
+    async query(text, params = []) {
+      const sql = String(text);
+      this.calls.push({ text: sql, params });
+
+      if (sql.includes('from app.jobs') && sql.includes('id = $2')) {
+        return {
+          rows: [
+            {
+              id: jobId,
+              org_id: 'org-1',
+              job_number: '4447',
+              warehouse: 'IL1',
+              sections: 'Sections 4, 5',
+              due_date: '2026-04-16',
+              crew_leader: 'Crew',
+              lifecycle_status: 'ACTIVE',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query during test: ${sql.trim()}`);
+    },
+  };
+
+  const [entry] = await enrichOpenFilmOrdersWithJobSchedule(client, 'org-1', [
+    {
+      filmOrderId: 'FO-SCOPE',
+      jobId,
+      jobNumber: '4447',
+      warehouse: 'IL1',
+      installDate: '2026-04-16',
+      crewLeader: 'Crew',
+      status: 'FILM_ORDER',
+    },
+  ]);
+
+  assert.equal(entry.workScope, 'Sections 4, 5');
+  assert.equal(entry.sections, 'Sections 4, 5');
+  assert.equal(client.calls.length, 1);
+  assert.match(client.calls[0].text, /id = \$2/);
 });
 
 test('mapDbFilmOrderRow derives AUTO_SHORTAGE origin when a source box is present', () => {
