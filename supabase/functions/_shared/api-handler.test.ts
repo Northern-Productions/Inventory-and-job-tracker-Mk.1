@@ -789,6 +789,53 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
   }, "Expected /boxes/get to include structured ordered-for job data.");
 });
 
+Deno.test("/reports/summary preserves additive closed-job work scope fields", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/reports/summary",
+    { warehouse: "IL1" },
+    {} as any,
+    {
+      buildReportsSummary: async () => ({
+        availableFeetByWidth: [],
+        neverCheckedOut: [],
+        zeroedByMonth: [],
+        zeroedBoxes: [],
+        completedJobs: [
+          {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "4953",
+            workScope: "Sections 4, 5",
+            sections: "Sections 4, 5",
+            warehouse: "IL1",
+          },
+        ],
+        cancelledJobs: [
+          {
+            jobNumber: "81234",
+            warehouse: "MS1",
+          },
+        ],
+      }),
+    } as any,
+  );
+
+  assertEquals(
+    {
+      completedWorkScope: (response.data as any).completedJobs[0].workScope,
+      completedSections: (response.data as any).completedJobs[0].sections,
+      legacyHasWorkScope: Object.prototype.hasOwnProperty.call((response.data as any).cancelledJobs[0], "workScope"),
+    },
+    {
+      completedWorkScope: "Sections 4, 5",
+      completedSections: "Sections 4, 5",
+      legacyHasWorkScope: false,
+    },
+    "Expected /reports/summary to keep additive scope fields without requiring them on legacy rows.",
+  );
+});
+
 Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", async () => {
   const response = await dispatchReadWithHandlers(
     {},

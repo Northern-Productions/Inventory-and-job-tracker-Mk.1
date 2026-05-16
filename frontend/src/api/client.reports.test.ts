@@ -57,6 +57,8 @@ describe('reports API client', () => {
         completedJobs: [
           {
             jobId: '11111111-1111-4111-8111-111111111111',
+            workScope: 'Sections 4, 5',
+            sections: 'Sections 4, 5',
             jobNumber: '4953',
             warehouse: 'IL1',
             installDate: '2026-04-10',
@@ -78,6 +80,8 @@ describe('reports API client', () => {
 
     expect(result.zeroedBoxes).toEqual([]);
     expect(result.completedJobs[0]?.jobId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.completedJobs[0]?.workScope).toBe('Sections 4, 5');
+    expect(result.completedJobs[0]?.sections).toBe('Sections 4, 5');
     expect(result.completedJobs[0]?.jobNumber).toBe('4953');
     expect(requestMock).toHaveBeenCalledWith('GET', '/reports/summary', {
       query: {

@@ -1,6 +1,7 @@
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { formatDate, formatDateTime } from '../../../lib/date';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { CaulkAllocationsSection } from './allocation-job/CaulkAllocationsSection';
 import { CaulkCheckoutCyclesSection } from './allocation-job/CaulkCheckoutCyclesSection';
 import { CaulkRequirementsSection } from './allocation-job/CaulkRequirementsSection';
@@ -147,7 +148,7 @@ export default function AllocationJobPage() {
             <tbody>
               {legacyJobNumberAmbiguity.candidates.map((candidate) => (
                 <tr key={candidate.jobId}>
-                  <td>{candidate.jobNumber}</td>
+                  <td>{formatJobDisplayLabel(candidate)}</td>
                   <td>{candidate.workScope || candidate.sections || 'Unscoped'}</td>
                   <td>{candidate.warehouse || '--'}</td>
                   <td>{formatDate(candidate.installDate || '')}</td>
