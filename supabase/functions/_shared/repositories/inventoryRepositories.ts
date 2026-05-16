@@ -176,6 +176,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const orderedForJobs = Array.isArray(box.orderedForJobs)
       ? box.orderedForJobs
           .map((entry: any) => {
+            const jobId = deps.asTrimmedString(entry?.jobId);
             const jobNumber = deps.asTrimmedString(entry?.jobNumber);
             if (!jobNumber) {
               return null;
@@ -186,6 +187,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
                 ? NaN
                 : Number(entry.orderedFeet);
             return {
+              ...(jobId ? { jobId } : {}),
               jobNumber,
               filmOrderId: deps.asTrimmedString(entry?.filmOrderId),
               orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,

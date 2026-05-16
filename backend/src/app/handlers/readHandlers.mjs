@@ -66,6 +66,7 @@ export async function buildOrderedForJobsForBox(client, orgId, boxId, deps = {})
     }
 
     const filmOrder = await findOrder(client, orgId, filmOrderId);
+    const jobId = String(filmOrder?.jobId || '').trim();
     const jobNumber = String(filmOrder?.jobNumber || '').trim();
     if (!jobNumber) {
       continue;
@@ -82,6 +83,7 @@ export async function buildOrderedForJobsForBox(client, orgId, boxId, deps = {})
         ? NaN
         : Number(link.orderedFeet);
     orderedForJobs.push({
+      ...(jobId ? { jobId } : {}),
       jobNumber,
       filmOrderId,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,

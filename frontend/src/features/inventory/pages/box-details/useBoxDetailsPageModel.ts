@@ -37,6 +37,7 @@ import {
   buildTransferDestinationAnalysis,
   createFallbackBox
 } from './helpers';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 import { useBoxDetailActions } from './useBoxDetailActions';
 import { useBoxQrCode } from './useBoxQrCode';
 import { useBoxTransferWorkflow } from './useBoxTransferWorkflow';
@@ -445,6 +446,7 @@ export function useBoxDetailsPageModel() {
     handleDownloadQrImage,
     transferWorkflow,
     goBackToInventory: () => navigate('/'),
-    openAllocationJob: (jobNumber: string) => navigate(`/allocations/${encodeURIComponent(jobNumber)}`)
+    openAllocationJob: (job: { jobId?: string | null; jobNumber?: string | null }) =>
+      navigate(buildAllocationJobRoute(job))
   };
 }

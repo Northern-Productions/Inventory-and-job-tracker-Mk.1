@@ -280,12 +280,12 @@ export default function ReportsPage() {
               ) : isPhoneLayout ? (
                 <div className="mobile-record-list">
                   {completedJobs.map((row) => (
-                    <MobileRecordCard key={`completed-${row.jobNumber}`}>
+                    <MobileRecordCard key={`completed-${row.jobId || row.jobNumber}`}>
                       <MobileRecordHeader
                         title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => openAllocationJob(row.jobNumber)}
+                        onTitleClick={() => openAllocationJob(row)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
@@ -308,12 +308,12 @@ export default function ReportsPage() {
                     </thead>
                     <tbody>
                       {completedJobs.map((row) => (
-                        <tr key={`completed-${row.jobNumber}`}>
+                        <tr key={`completed-${row.jobId || row.jobNumber}`}>
                           <td>
                             <button
                               type="button"
                               className="row-button"
-                              onClick={() => openAllocationJob(row.jobNumber)}
+                              onClick={() => openAllocationJob(row)}
                             >
                               {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                             </button>
@@ -338,12 +338,12 @@ export default function ReportsPage() {
               ) : isPhoneLayout ? (
                 <div className="mobile-record-list">
                   {cancelledJobs.map((row) => (
-                    <MobileRecordCard key={`cancelled-${row.jobNumber}`}>
+                    <MobileRecordCard key={`cancelled-${row.jobId || row.jobNumber}`}>
                       <MobileRecordHeader
                         title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => openAllocationJob(row.jobNumber)}
+                        onTitleClick={() => openAllocationJob(row)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
@@ -374,12 +374,12 @@ export default function ReportsPage() {
                     </thead>
                     <tbody>
                       {cancelledJobs.map((row) => (
-                        <tr key={`cancelled-${row.jobNumber}`}>
+                        <tr key={`cancelled-${row.jobId || row.jobNumber}`}>
                           <td>
                             <button
                               type="button"
                               className="row-button"
-                              onClick={() => openAllocationJob(row.jobNumber)}
+                              onClick={() => openAllocationJob(row)}
                             >
                               {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
                             </button>

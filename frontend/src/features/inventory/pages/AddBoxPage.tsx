@@ -27,10 +27,12 @@ import {
   getNextBoxIdForWarehouse,
   type BoxDraft
 } from '../utils/boxHelpers';
+import { buildAllocationJobRoute } from '../utils/jobRoutes';
 import { getWarehousePrefix } from '../utils/warehouseOptions';
 
 interface FilmOrderPrefill {
   filmOrderId: string;
+  jobId: string;
   jobNumber: string;
   warehouse: Warehouse;
   manufacturer: string;
@@ -300,7 +302,11 @@ export default function AddBoxPage() {
         const nextRemainingFeet = Math.max(currentRemainingFeet - payload.initialFeet, 0);
 
         setFilmOrderRemainingFeet(nextRemainingFeet);
-        void invalidateJobLifecycleQueries(queryClient, filmOrderPrefill.jobNumber);
+        const jobIdentity = {
+          jobId: filmOrderPrefill.jobId,
+          jobNumber: filmOrderPrefill.jobNumber
+        };
+        void invalidateJobLifecycleQueries(queryClient, jobIdentity);
 
         if (nextRemainingFeet <= 0) {
           toast.push({
@@ -315,7 +321,7 @@ export default function AddBoxPage() {
           }
 
           redirectTimerRef.current = setTimeout(() => {
-            navigate(`/allocations/${encodeURIComponent(filmOrderPrefill.jobNumber)}`, {
+            navigate(buildAllocationJobRoute(jobIdentity), {
               replace: true
             });
           }, 2000);
@@ -485,6 +491,7 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
 
   return {
     filmOrderId: (searchParams.get('filmOrderId') || '').trim(),
+    jobId: (searchParams.get('jobId') || '').trim(),
     jobNumber: (searchParams.get('jobNumber') || '').trim(),
     warehouse: parseWarehouse(warehouse),
     manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),

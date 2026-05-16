@@ -298,6 +298,7 @@ async function buildOrderedForJobsForBox(
     }
 
     const filmOrder = await deps.findFilmOrderById(client, orgId, filmOrderId);
+    const jobId = deps.asTrimmedString(filmOrder?.jobId);
     const jobNumber = deps.asTrimmedString(filmOrder?.jobNumber);
     if (!jobNumber) {
       continue;
@@ -314,6 +315,7 @@ async function buildOrderedForJobsForBox(
         ? NaN
         : Number(link.orderedFeet);
     orderedForJobs.push({
+      ...(jobId ? { jobId } : {}),
       jobNumber,
       filmOrderId,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,

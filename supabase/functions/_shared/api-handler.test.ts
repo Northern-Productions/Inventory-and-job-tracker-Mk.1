@@ -153,6 +153,70 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
   );
 });
 
+Deno.test("Edge public box mapper exposes additive ordered-for jobId only when present", () => {
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async () => {
+      throw new Error("Unexpected RPC call.");
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+
+  const publicBox = repositories.toPublicBox({
+    boxId: "IL1-1234",
+    warehouse: "IL1",
+    status: "IN_STOCK",
+    initialFeet: 500,
+    feetAvailable: 420,
+    orderedForJobs: [
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "4953",
+        filmOrderId: "FO-1",
+        orderedFeet: "120.9",
+      },
+      {
+        jobId: "",
+        jobNumber: "16242",
+        filmOrderId: "FO-2",
+        orderedFeet: 48,
+      },
+    ],
+  }) as any;
+
+  assertEquals(
+    publicBox.orderedForJobs,
+    [
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "4953",
+        filmOrderId: "FO-1",
+        orderedFeet: 120,
+      },
+      {
+        jobNumber: "16242",
+        filmOrderId: "FO-2",
+        orderedFeet: 48,
+      },
+    ],
+    "Expected Edge public box mapper to expose ordered-for jobId additively.",
+  );
+});
+
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
   const payload = await canonicalizeMutationPayloadForRoute({} as any, "org-1", "/boxes/receive", {
     boxId: "IL1-1234",
@@ -700,7 +764,11 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
       listFilmOrderLinksByBoxId: async () => [
         { filmOrderId: "FO-1", orderedFeet: 120 },
       ],
-      findFilmOrderById: async () => ({ filmOrderId: "FO-1", jobNumber: "4953" }),
+      findFilmOrderById: async () => ({
+        filmOrderId: "FO-1",
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "4953",
+      }),
       toPublicBox: (box: Record<string, unknown>) => ({
         boxId: box.boxId,
         orderedForJobs: box.orderedForJobs,
@@ -710,7 +778,14 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
 
   assertEquals(response.data, {
     boxId: "IL1-1234",
-    orderedForJobs: [{ jobNumber: "4953", filmOrderId: "FO-1", orderedFeet: 120 }],
+    orderedForJobs: [
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "4953",
+        filmOrderId: "FO-1",
+        orderedFeet: 120,
+      },
+    ],
   }, "Expected /boxes/get to include structured ordered-for job data.");
 });
 

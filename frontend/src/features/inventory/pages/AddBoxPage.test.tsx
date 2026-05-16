@@ -585,6 +585,72 @@ describe('AddBoxPage', () => {
     expect(navigateMock).toHaveBeenCalledWith('/allocations/2941', { replace: true });
   });
 
+  it('uses canonical job identity for film-order cover invalidation and redirect when jobId is prefilled', async () => {
+    const queryClient = createQueryClient();
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    const filmOrder = buildFilmOrderEntry({ jobId });
+    const initialBoxes = [buildBox()];
+    const searchKey = inventoryKeys.list({ warehouse: 'IL1', showRetired: false });
+    const deferred = createDeferred<{ result: { box: Box; logId: string }; warnings: string[] }>();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    queryClient.setQueryData(searchKey, initialBoxes);
+    queryClient.setQueryData(inventoryKeys.filmOrders, [filmOrder]);
+    queryClient.setQueryData(inventoryKeys.job(filmOrder.jobNumber), buildJobDetail(filmOrder));
+    queryClient.setQueryData(
+      inventoryKeys.allocationJob(filmOrder.jobNumber),
+      buildAllocationJobDetail(filmOrder)
+    );
+
+    searchBoxesMock.mockResolvedValue(initialBoxes);
+    addBoxMock.mockImplementation(() => deferred.promise);
+
+    renderPage(
+      queryClient,
+      `/inventory/add?filmOrderId=FO-1&jobId=${jobId}&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=123&notes=Ordered%20for%20job%202941%20via%20FO-1`
+    );
+
+    await waitFor(() => {
+      expect(getInput('BoxID').value).toBe('IL1-0006');
+    });
+
+    vi.useFakeTimers();
+
+    fireEvent.change(getInput('Initial Linear Feet'), {
+      target: { value: '125' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
+    expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
+    submitMissingDealerDialog();
+
+    deferred.resolve({
+      result: {
+        box: buildBox({
+          boxId: 'IL1-0006',
+          initialFeet: 125,
+          feetAvailable: 125,
+          notes: 'Ordered for job 2941 via FO-1'
+        }),
+        logId: 'log-1'
+      },
+      warnings: []
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: inventoryKeys.jobById(jobId) });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: inventoryKeys.job('2941') });
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(`/allocations/jobs/${jobId}`, { replace: true });
+  });
+
   it('keeps the draft on the film-order intake page and rolls optimistic changes back when the add fails', async () => {
     const queryClient = createQueryClient();
     const filmOrder = buildFilmOrderEntry();

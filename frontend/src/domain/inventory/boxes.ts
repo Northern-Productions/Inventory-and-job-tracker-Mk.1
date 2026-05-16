@@ -9,6 +9,7 @@ export interface BoxPendingTransferSummary {
 }
 
 export interface BoxOrderedForJob {
+  jobId?: string;
   jobNumber: string;
   filmOrderId?: string;
   orderedFeet?: number | null;

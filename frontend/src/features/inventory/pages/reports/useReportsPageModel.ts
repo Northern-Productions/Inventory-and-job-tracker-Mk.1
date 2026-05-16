@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import type { ReportsSummaryFilters } from '../../../../domain';
+import type { ClosedJobReportRow, ReportsSummaryFilters } from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { searchOfflineBoxes } from '../../../../lib/offlineInventory';
 import { useAuth } from '../../../auth/AuthContext';
@@ -16,6 +16,7 @@ import {
   filterZeroedBoxes,
   type ZeroedBoxesFilters
 } from '../../utils/reportsZeroedFilters';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 import { normalizeSelectedWidths } from '../../utils/widthFilters';
 import { parseWarehouseFilterValue } from '../../utils/warehouseOptions';
 
@@ -179,6 +180,7 @@ export function useReportsPageModel() {
     patchWarehouse,
     patchZeroedFilters,
     openInventoryBox: (boxId: string) => navigate(`/inventory/${encodeURIComponent(boxId)}`),
-    openAllocationJob: (jobNumber: string) => navigate(`/allocations/${encodeURIComponent(jobNumber)}`)
+    openAllocationJob: (job: Pick<ClosedJobReportRow, 'jobId' | 'jobNumber'>) =>
+      navigate(buildAllocationJobRoute(job))
   };
 }

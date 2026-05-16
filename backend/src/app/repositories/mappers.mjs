@@ -113,6 +113,7 @@ function toPublicBox(box) {
   const orderedForJobs = Array.isArray(box.orderedForJobs)
     ? box.orderedForJobs
         .map((entry) => {
+          const jobId = asTrimmedString(entry?.jobId);
           const jobNumber = asTrimmedString(entry?.jobNumber);
           if (!jobNumber) {
             return null;
@@ -123,6 +124,7 @@ function toPublicBox(box) {
               ? NaN
               : Number(entry.orderedFeet);
           return {
+            ...(jobId ? { jobId } : {}),
             jobNumber,
             filmOrderId: asTrimmedString(entry?.filmOrderId),
             orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
