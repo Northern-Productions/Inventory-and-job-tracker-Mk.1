@@ -42,6 +42,23 @@ export interface ApiEnvelope<T> {
   data?: T;
   error?: string;
   warnings?: string[];
+  code?: string;
+  jobNumber?: string;
+  candidates?: JobNumberAmbiguityCandidate[];
+}
+
+export interface JobNumberAmbiguityCandidate {
+  jobId: string;
+  jobNumber: string;
+  routeTarget: string;
+  workScope?: string | null;
+  sections?: string | null;
+  warehouse?: string;
+  installDate?: string;
+  crewLeader?: string;
+  status?: string;
+  lifecycleStatus?: string;
+  updatedAt?: string;
 }
 
 export interface BoxMutationResult {

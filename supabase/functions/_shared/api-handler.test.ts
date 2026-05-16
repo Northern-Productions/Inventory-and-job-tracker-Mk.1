@@ -763,6 +763,228 @@ Deno.test("/jobs/get-by-id implementation does not delegate to job-number detail
   }
 });
 
+Deno.test("/jobs/get guards ambiguous legacy jobNumber reads before building detail", async () => {
+  const jobNumber = "81234";
+  let detailBuilt = false;
+
+  try {
+    await dispatchReadWithHandlers(
+      {},
+      "org-1",
+      "/jobs/get",
+      { jobNumber },
+      {} as any,
+      {
+        requireString: (value: unknown) => String(value || "").trim(),
+        asTrimmedString: (value: unknown) => String(value || "").trim(),
+        listJobs: async () => [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            jobNumber,
+            warehouse: "IL1",
+            sections: "Phase A",
+            installDate: "2026-05-01",
+            crewLeader: "Crew A",
+            lifecycleStatus: "ACTIVE",
+            updatedAt: "2026-05-01T12:00:00Z",
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            jobNumber,
+            warehouse: "MS1",
+            sections: "Phase B",
+            installDate: "2026-05-02",
+            crewLeader: "Crew B",
+            lifecycleStatus: "COMPLETED",
+            updatedAt: "2026-05-02T12:00:00Z",
+          },
+        ],
+        buildJobDetail: async () => {
+          detailBuilt = true;
+          return {};
+        },
+      } as any,
+    );
+  } catch (error) {
+    assertEquals((error as any).statusCode, 409, "Expected ambiguous /jobs/get to return HTTP 409.");
+    assertEquals((error as any).details?.code, "JOB_NUMBER_AMBIGUOUS", "Expected structured ambiguity code.");
+    assertEquals((error as any).details?.jobNumber, jobNumber, "Expected ambiguity jobNumber.");
+    assertEquals(
+      (error as any).details?.candidates?.map((candidate: any) => ({
+        jobId: candidate.jobId,
+        jobNumber: candidate.jobNumber,
+        routeTarget: candidate.routeTarget,
+        workScope: candidate.workScope,
+        warehouse: candidate.warehouse,
+        installDate: candidate.installDate,
+        crewLeader: candidate.crewLeader,
+        lifecycleStatus: candidate.lifecycleStatus,
+        updatedAt: candidate.updatedAt,
+      })),
+      [
+        {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber,
+          routeTarget: "/allocations/jobs/11111111-1111-4111-8111-111111111111",
+          workScope: "Phase A",
+          warehouse: "IL1",
+          installDate: "2026-05-01",
+          crewLeader: "Crew A",
+          lifecycleStatus: "ACTIVE",
+          updatedAt: "2026-05-01T12:00:00Z",
+        },
+        {
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber,
+          routeTarget: "/allocations/jobs/22222222-2222-4222-8222-222222222222",
+          workScope: "Phase B",
+          warehouse: "MS1",
+          installDate: "2026-05-02",
+          crewLeader: "Crew B",
+          lifecycleStatus: "COMPLETED",
+          updatedAt: "2026-05-02T12:00:00Z",
+        },
+      ],
+      "Expected ambiguity candidates to include canonical route and job metadata.",
+    );
+    assertEquals(detailBuilt, false, "Expected ambiguous /jobs/get to reject before detail aggregation.");
+    return;
+  }
+
+  throw new Error("Expected ambiguous /jobs/get to reject.");
+});
+
+Deno.test("/jobs/get preserves one-match and zero-header legacy read behavior", async () => {
+  const oneMatchResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/get",
+    { jobNumber: "81234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      listJobs: async () => [{ id: "11111111-1111-4111-8111-111111111111", jobNumber: "81234" }],
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => ({
+        source: "legacy-detail",
+        orgId,
+        jobNumber,
+      }),
+    } as any,
+  );
+  assertEquals(
+    oneMatchResponse.data,
+    { source: "legacy-detail", orgId: "org-1", jobNumber: "81234" },
+    "Expected one matching header to preserve legacy successful detail shape.",
+  );
+
+  const zeroMatchResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/get",
+    { jobNumber: "81234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      listJobs: async () => [],
+      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => ({
+        source: "legacy-orphan-detail",
+        orgId,
+        jobNumber,
+      }),
+    } as any,
+  );
+  assertEquals(
+    zeroMatchResponse.data,
+    { source: "legacy-orphan-detail", orgId: "org-1", jobNumber: "81234" },
+    "Expected zero matching headers to preserve legacy orphan/no-header fallback.",
+  );
+});
+
+Deno.test("/allocations/by-job mirrors legacy read ambiguity behavior", async () => {
+  const jobNumber = "81234";
+  let detailBuilt = false;
+
+  try {
+    await dispatchReadWithHandlers(
+      {},
+      "org-1",
+      "/allocations/by-job",
+      { jobNumber },
+      {} as any,
+      {
+        requireString: (value: unknown) => String(value || "").trim(),
+        asTrimmedString: (value: unknown) => String(value || "").trim(),
+        listJobs: async () => [
+          { id: "11111111-1111-4111-8111-111111111111", jobNumber, sections: "Phase A" },
+          { id: "22222222-2222-4222-8222-222222222222", jobNumber, sections: "Phase B" },
+        ],
+        buildAllocationJobDetail: async () => {
+          detailBuilt = true;
+          return {};
+        },
+      } as any,
+    );
+  } catch (error) {
+    assertEquals((error as any).statusCode, 409, "Expected ambiguous /allocations/by-job to return HTTP 409.");
+    assertEquals((error as any).details?.code, "JOB_NUMBER_AMBIGUOUS", "Expected structured ambiguity code.");
+    assertEquals((error as any).details?.candidates?.length, 2, "Expected two ambiguity candidates.");
+    assertEquals(detailBuilt, false, "Expected ambiguous /allocations/by-job to reject before detail aggregation.");
+    return;
+  }
+
+  throw new Error("Expected ambiguous /allocations/by-job to reject.");
+});
+
+Deno.test("/allocations/by-job preserves one-match and zero-header legacy read behavior", async () => {
+  const oneMatchResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/by-job",
+    { jobNumber: "81234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      listJobs: async () => [{ id: "11111111-1111-4111-8111-111111111111", jobNumber: "81234" }],
+      buildAllocationJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => ({
+        source: "legacy-allocation-detail",
+        orgId,
+        jobNumber,
+      }),
+    } as any,
+  );
+  assertEquals(
+    oneMatchResponse.data,
+    { source: "legacy-allocation-detail", orgId: "org-1", jobNumber: "81234" },
+    "Expected one matching header to preserve legacy allocation detail shape.",
+  );
+
+  const zeroMatchResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/by-job",
+    { jobNumber: "81234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      listJobs: async () => [],
+      buildAllocationJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => ({
+        source: "legacy-orphan-allocation-detail",
+        orgId,
+        jobNumber,
+      }),
+    } as any,
+  );
+  assertEquals(
+    zeroMatchResponse.data,
+    { source: "legacy-orphan-allocation-detail", orgId: "org-1", jobNumber: "81234" },
+    "Expected zero matching headers to preserve legacy allocation orphan/no-header fallback.",
+  );
+});
+
 Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job exists", async () => {
   const response = await dispatchReadWithHandlers(
     {},
