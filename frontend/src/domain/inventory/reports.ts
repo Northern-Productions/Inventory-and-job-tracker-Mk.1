@@ -34,6 +34,8 @@ export interface ZeroedBoxRow {
 
 export interface ClosedJobReportRow {
   jobId?: string;
+  workScope?: string | null;
+  sections?: string | null;
   jobNumber: string;
   warehouse: Warehouse;
   installDate: string;

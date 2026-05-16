@@ -8,7 +8,7 @@ import {
 } from '../../../components/MobileRecordCard';
 import { Select } from '../../../components/Select';
 import { formatDate } from '../../../lib/date';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { WidthFilterField } from '../components/WidthFilterField';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 import { REPORT_TYPE_TITLES, type ReportType, useReportsPageModel } from './reports/useReportsPageModel';
@@ -24,6 +24,10 @@ function formatCurrency(value: number) {
 
 function formatStatusLabel(status: string) {
   return status.replace(/_/g, ' ');
+}
+
+function formatWorkScope(row: { workScope?: string | null; sections?: string | null }) {
+  return String(row.workScope ?? row.sections ?? '').trim() || '--';
 }
 
 export default function ReportsPage() {
@@ -282,13 +286,14 @@ export default function ReportsPage() {
                   {completedJobs.map((row) => (
                     <MobileRecordCard key={`completed-${row.jobId || row.jobNumber}`}>
                       <MobileRecordHeader
-                        title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
+                        title={formatJobDisplayLabel(row)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
                         onTitleClick={() => openAllocationJob(row)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
+                        <MobileField label="Work Scope" value={formatWorkScope(row)} />
                         <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
                       </MobileFieldList>
                     </MobileRecordCard>
@@ -300,6 +305,7 @@ export default function ReportsPage() {
                     <thead>
                       <tr>
                         <th>Job ID</th>
+                        <th>Work Scope</th>
                         <th>Warehouse</th>
                         <th>Install Date</th>
                         <th>Crew Leader</th>
@@ -315,9 +321,10 @@ export default function ReportsPage() {
                               className="row-button"
                               onClick={() => openAllocationJob(row)}
                             >
-                              {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
+                              {formatJobDisplayLabel(row)}
                             </button>
                           </td>
+                          <td>{formatWorkScope(row)}</td>
                           <td>{row.warehouse}</td>
                           <td>{formatDate(row.installDate)}</td>
                           <td>{row.crewLeader || '--'}</td>
@@ -340,13 +347,14 @@ export default function ReportsPage() {
                   {cancelledJobs.map((row) => (
                     <MobileRecordCard key={`cancelled-${row.jobId || row.jobNumber}`}>
                       <MobileRecordHeader
-                        title={formatJobDisplayNumber(row.jobNumber, row.warehouse)}
+                        title={formatJobDisplayLabel(row)}
                         subtitle={`${row.warehouse} warehouse`}
                         badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
                         onTitleClick={() => openAllocationJob(row)}
                       />
                       <MobileFieldList>
                         <MobileField label="Install Date" value={formatDate(row.installDate)} />
+                        <MobileField label="Work Scope" value={formatWorkScope(row)} />
                         <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
                         <MobileField label="Required LF" value={row.requiredFeet} />
                         <MobileField label="Allocated LF" value={row.allocatedFeet} />
@@ -362,6 +370,7 @@ export default function ReportsPage() {
                     <thead>
                       <tr>
                         <th>Job ID</th>
+                        <th>Work Scope</th>
                         <th>Warehouse</th>
                         <th>Install Date</th>
                         <th>Crew Leader</th>
@@ -381,9 +390,10 @@ export default function ReportsPage() {
                               className="row-button"
                               onClick={() => openAllocationJob(row)}
                             >
-                              {formatJobDisplayNumber(row.jobNumber, row.warehouse)}
+                              {formatJobDisplayLabel(row)}
                             </button>
                           </td>
+                          <td>{formatWorkScope(row)}</td>
                           <td>{row.warehouse}</td>
                           <td>{formatDate(row.installDate)}</td>
                           <td>{row.crewLeader || '--'}</td>

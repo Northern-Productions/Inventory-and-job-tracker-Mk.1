@@ -389,6 +389,12 @@ async function buildReportsSummary(client, orgId, params) {
 
     const reportEntry = {
       ...(asTrimmedString(jobEntry.jobId) ? { jobId: asTrimmedString(jobEntry.jobId) } : {}),
+      ...(asTrimmedString(jobEntry.workScope ?? jobEntry.sections)
+        ? {
+            workScope: asTrimmedString(jobEntry.workScope ?? jobEntry.sections),
+            sections: asTrimmedString(jobEntry.workScope ?? jobEntry.sections),
+          }
+        : {}),
       jobNumber: jobEntry.jobNumber,
       warehouse: jobEntry.warehouse,
       installDate: jobEntry.installDate,

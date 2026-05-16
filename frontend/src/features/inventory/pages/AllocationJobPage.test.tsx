@@ -500,6 +500,8 @@ describe('AllocationJobPage', () => {
     const view = renderInteractivePage();
 
     expect(screen.getByText('Choose Job 000123')).toBeTruthy();
+    expect(screen.getByText(/IL1-000123.*Lobby/)).toBeTruthy();
+    expect(screen.getByText(/MS1-000123.*Exterior/)).toBeTruthy();
     expect(screen.getByText('Lobby')).toBeTruthy();
     expect(screen.getByText('Exterior')).toBeTruthy();
 

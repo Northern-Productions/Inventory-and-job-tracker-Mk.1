@@ -143,6 +143,7 @@ function buildRequirementRows() {
 }
 
 function createFakeClient(options = {}) {
+  const jobs = Array.isArray(options.jobs) ? options.jobs : buildJobRows();
   const allocations = Array.isArray(options.allocations) ? options.allocations : [];
   const requirements = Array.isArray(options.requirements) ? options.requirements : [];
   const queryDelayMs = Number.isFinite(options.queryDelayMs) ? Math.max(0, Math.floor(options.queryDelayMs)) : 0;
@@ -202,7 +203,7 @@ function createFakeClient(options = {}) {
         }
         if (normalized.includes('from app.jobs')) {
           counts.jobs += 1;
-          return { rows: buildJobRows() };
+          return { rows: jobs };
         }
         throw new Error(`Unexpected query in reports summary box reuse test: ${normalized.slice(0, 160)}`);
       } finally {
@@ -288,6 +289,10 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
     ['job-completed']
   );
   assert.deepEqual(
+    summary.completedJobs.map((entry) => ({ workScope: entry.workScope, sections: entry.sections })),
+    [{ workScope: 'A', sections: 'A' }]
+  );
+  assert.deepEqual(
     summary.cancelledJobs.map((entry) => entry.jobNumber),
     ['20002']
   );
@@ -295,6 +300,22 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
     summary.cancelledJobs.map((entry) => entry.jobId),
     ['job-cancelled']
   );
+  assert.deepEqual(
+    summary.cancelledJobs.map((entry) => ({ workScope: entry.workScope, sections: entry.sections })),
+    [{ workScope: 'B', sections: 'B' }]
+  );
+});
+
+test('buildReportsSummary keeps closed job rows compatible when work scope is absent', async () => {
+  const jobs = buildJobRows().map((row) => ({ ...row, sections: '' }));
+  const client = createFakeClient({ jobs });
+
+  const summary = await buildReportsSummary(client, ORG_ID, { warehouse: 'IL1' });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.completedJobs[0], 'workScope'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.completedJobs[0], 'sections'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.cancelledJobs[0], 'workScope'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(summary.cancelledJobs[0], 'sections'), false);
 });
 
 test('buildAllocationJobList preserves allocation summaries with parallelized snapshot reads', async () => {
@@ -380,6 +401,8 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
     edgeSource,
     /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
+  assert.match(localReportsSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);
+  assert.match(edgeSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);
   assert.match(edgeSource, /zeroedBoxes,/);
   assert.match(localReadHandlersSource, /'\/allocations\/jobs'/);
   assert.match(localReadHandlersSource, /'\/jobs\/calendar'/);
