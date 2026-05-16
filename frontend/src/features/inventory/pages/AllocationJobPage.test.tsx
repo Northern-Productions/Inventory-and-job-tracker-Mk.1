@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobDetail } from '../../../domain';
 import { formatCaulkTubeBreakdown } from '../utils/caulkAllocationPlanning';
@@ -316,6 +319,28 @@ function renderPage(detail?: JobDetail) {
   return html;
 }
 
+function renderInteractivePage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity
+      }
+    }
+  });
+
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <AllocationJobPage />
+    </QueryClientProvider>
+  );
+
+  return {
+    ...view,
+    queryClient
+  };
+}
+
 describe('AllocationJobPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
@@ -408,6 +433,81 @@ describe('AllocationJobPage', () => {
     expect(useJobMock).toHaveBeenCalledWith('');
     expect(useJobByIdMock).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
     expect(html).toContain('IL1-000123');
+  });
+
+  it('replace-navigates a legacy allocation route to the canonical jobId route when unambiguous', async () => {
+    useJobMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        ...baseDetail,
+        summary: buildSummary({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '000123'
+        }) as JobDetail['summary']
+      },
+      error: null
+    });
+
+    const view = renderInteractivePage();
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith('/allocations/jobs/11111111-1111-4111-8111-111111111111', {
+        replace: true
+      });
+    });
+    view.queryClient.clear();
+    view.unmount();
+  });
+
+  it('renders legacy jobNumber ambiguity choices and opens the selected canonical route', () => {
+    useJobMock.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      data: undefined,
+      error: {
+        name: 'APIError',
+        message: 'Job number 000123 matches multiple jobs.',
+        code: 'JOB_NUMBER_AMBIGUOUS',
+        jobNumber: '000123',
+        candidates: [
+          {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '000123',
+            routeTarget: '/allocations/jobs/11111111-1111-4111-8111-111111111111',
+            workScope: 'Lobby',
+            warehouse: 'IL1',
+            installDate: '2026-05-01',
+            crewLeader: 'Crew A',
+            lifecycleStatus: 'ACTIVE',
+            updatedAt: '2026-05-01T12:00:00Z'
+          },
+          {
+            jobId: '22222222-2222-4222-8222-222222222222',
+            jobNumber: '000123',
+            routeTarget: '/allocations/jobs/22222222-2222-4222-8222-222222222222',
+            workScope: 'Exterior',
+            warehouse: 'MS1',
+            installDate: '2026-05-02',
+            crewLeader: 'Crew B',
+            lifecycleStatus: 'COMPLETED',
+            updatedAt: '2026-05-02T12:00:00Z'
+          }
+        ]
+      }
+    });
+
+    const view = renderInteractivePage();
+
+    expect(screen.getByText('Choose Job 000123')).toBeTruthy();
+    expect(screen.getByText('Lobby')).toBeTruthy();
+    expect(screen.getByText('Exterior')).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1]);
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/jobs/22222222-2222-4222-8222-222222222222');
+    view.queryClient.clear();
+    view.unmount();
   });
 
   it('renders caulk requirement/allocation sections and unified film+caulk usage timeline', () => {

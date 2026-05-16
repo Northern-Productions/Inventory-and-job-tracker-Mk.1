@@ -135,6 +135,54 @@ describe('http request envelope parsing', () => {
     });
   });
 
+  it('preserves structured job-number ambiguity metadata from error envelopes', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'Job number 81234 matches multiple jobs.',
+          warnings: [],
+          code: 'JOB_NUMBER_AMBIGUOUS',
+          jobNumber: '81234',
+          candidates: [
+            {
+              jobId: '11111111-1111-4111-8111-111111111111',
+              jobNumber: '81234',
+              routeTarget: '/allocations/jobs/11111111-1111-4111-8111-111111111111',
+              workScope: 'Phase A',
+              warehouse: 'IL1',
+              installDate: '2026-05-01',
+              crewLeader: 'Crew A',
+              lifecycleStatus: 'ACTIVE',
+              updatedAt: '2026-05-01T12:00:00Z'
+            }
+          ]
+        }),
+        {
+          status: 409,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+    );
+
+    await expect(request('GET', '/jobs/get')).rejects.toMatchObject({
+      name: 'APIError',
+      code: 'JOB_NUMBER_AMBIGUOUS',
+      jobNumber: '81234',
+      candidates: [
+        {
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '81234',
+          routeTarget: '/allocations/jobs/11111111-1111-4111-8111-111111111111',
+          workScope: 'Phase A',
+          warehouse: 'IL1'
+        }
+      ]
+    });
+  });
+
   it('serializes repeated query values for array params', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

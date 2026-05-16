@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
@@ -7,7 +7,8 @@ import type {
   FilmOrderEntry,
   JobCaulkRequirementLine,
   JobDetail,
-  JobFilmTransferAlert
+  JobFilmTransferAlert,
+  JobNumberAmbiguityCandidate
 } from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { safeDecodePathParam } from '../../../../lib/url';
@@ -50,6 +51,7 @@ import { useActionAccess } from '../../hooks/useActionAccess';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import { inventoryKeys } from '../../hooks/inventoryQueryKeys';
 import { reconcileJobDetailCaulkCoverage } from '../../cache/jobRequirementCoverage';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 import { useCaulkWorkflow } from './useCaulkWorkflow';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
@@ -115,6 +117,28 @@ export function useAllocationJobPageModel() {
     [rawDetail]
   );
   const summary = detail?.summary;
+  const jobQueryError =
+    jobQuery.error && typeof jobQuery.error === 'object'
+      ? (jobQuery.error as {
+          code?: unknown;
+          jobNumber?: unknown;
+          candidates?: unknown;
+        })
+      : null;
+  const legacyJobNumberAmbiguity =
+    !routeJobId &&
+    jobQuery.isError &&
+    jobQueryError?.code === 'JOB_NUMBER_AMBIGUOUS'
+      ? {
+          jobNumber:
+            typeof jobQueryError.jobNumber === 'string' && jobQueryError.jobNumber.trim()
+              ? jobQueryError.jobNumber.trim()
+              : jobNumber,
+          candidates: Array.isArray(jobQueryError.candidates)
+            ? (jobQueryError.candidates as JobNumberAmbiguityCandidate[])
+            : []
+        }
+      : null;
   const requirements = detail?.requirements || [];
   const allocations = detail?.allocations || [];
   const filmTransferAlerts = detail?.filmTransferAlerts || [];
@@ -139,6 +163,20 @@ export function useAllocationJobPageModel() {
     () => getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true }),
     [detail]
   );
+
+  useEffect(() => {
+    if (routeJobId || !summary?.jobId) {
+      return;
+    }
+
+    navigate(
+      buildAllocationJobRoute({
+        jobId: summary.jobId,
+        jobNumber: summary.jobNumber
+      }),
+      { replace: true }
+    );
+  }, [navigate, routeJobId, summary?.jobId, summary?.jobNumber]);
   const canMarkStagedPickup = useMemo(
     () => canMarkJobStagedForPickupWithAutoCheckout(detail),
     [detail]
@@ -691,6 +729,13 @@ export function useAllocationJobPageModel() {
     isCompleteJobPending: completeJobMutation.isPending,
     isUpdateJobPending: updateJobMutation.isPending,
     isCheckinCaulkPending: checkinCaulkAllocationMutation.isPending,
+    legacyJobNumberAmbiguity,
+    openAmbiguousJobCandidate: (candidate: JobNumberAmbiguityCandidate) => {
+      const routeTarget = String(candidate.routeTarget || '').trim();
+      if (routeTarget) {
+        navigate(routeTarget);
+      }
+    },
     goBackToAllocations: () => navigate('/allocations'),
     openInventoryBox: (boxId: string) => navigate(`/inventory/${encodeURIComponent(boxId)}`),
     openOrderFilm: (order: Parameters<typeof buildAddBoxTarget>[0]) => navigate(buildAddBoxTarget(order))

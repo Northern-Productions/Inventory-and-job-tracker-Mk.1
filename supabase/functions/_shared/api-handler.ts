@@ -8365,6 +8365,7 @@ async function dispatchRead(
     ) => listJobRequirementsByJobIdDirect(readOrgId, selectedJob),
     buildActiveAllocationsByBoxIndex,
     listActiveAllocations,
+    listJobs,
     buildJobsList,
     buildJobsCalendar,
     buildJobsSearchResults,

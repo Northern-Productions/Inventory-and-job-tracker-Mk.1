@@ -213,6 +213,7 @@ import {
   loadJobDetailContextById,
   loadJobDetailContextWithPooledReads,
   loadJobDetailContextByIdWithPooledReads,
+  assertLegacyJobNumberReadIsUnambiguousWithPooledReads,
 } from './runtimeJobDetails.mjs';
 
 const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
@@ -622,6 +623,7 @@ async function buildJobDetailById(client, orgId, jobId) {
 }
 
 async function buildReadJobDetail(orgId, jobNumber) {
+  await assertLegacyJobNumberReadIsUnambiguousWithPooledReads(orgId, jobNumber);
   return buildJobDetailPayload(await loadJobDetailContextWithPooledReads(orgId, jobNumber));
 }
 

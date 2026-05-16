@@ -1,5 +1,6 @@
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
+import { formatDate, formatDateTime } from '../../../lib/date';
 import { CaulkAllocationsSection } from './allocation-job/CaulkAllocationsSection';
 import { CaulkCheckoutCyclesSection } from './allocation-job/CaulkCheckoutCyclesSection';
 import { CaulkRequirementsSection } from './allocation-job/CaulkRequirementsSection';
@@ -77,6 +78,8 @@ export default function AllocationJobPage() {
     isDeleteJobPending,
     isCompleteJobPending,
     isUpdateJobPending,
+    legacyJobNumberAmbiguity,
+    openAmbiguousJobCandidate,
     goBackToAllocations,
     openInventoryBox,
     openOrderFilm
@@ -113,6 +116,64 @@ export default function AllocationJobPage() {
 
   if (jobQuery.isLoading && !detail) {
     return <DeferredLoadingState when label="Loading job details..." />;
+  }
+
+  if (legacyJobNumberAmbiguity) {
+    return (
+      <section className="panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Choose Job {legacyJobNumberAmbiguity.jobNumber}</h2>
+            <p className="muted-text">More than one job uses this number. Choose the Work Scope to continue.</p>
+          </div>
+          <Button type="button" variant="ghost" onClick={goBackToAllocations}>
+            Back to Jobs
+          </Button>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Work Scope</th>
+                <th>Warehouse</th>
+                <th>Install Date</th>
+                <th>Crew Leader</th>
+                <th>Status</th>
+                <th>Updated</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {legacyJobNumberAmbiguity.candidates.map((candidate) => (
+                <tr key={candidate.jobId}>
+                  <td>{candidate.jobNumber}</td>
+                  <td>{candidate.workScope || candidate.sections || 'Unscoped'}</td>
+                  <td>{candidate.warehouse || '--'}</td>
+                  <td>{formatDate(candidate.installDate || '')}</td>
+                  <td>{candidate.crewLeader || '--'}</td>
+                  <td>
+                    {candidate.status || candidate.lifecycleStatus ? (
+                      <span className={`badge badge-${candidate.status || candidate.lifecycleStatus}`}>
+                        {candidate.status || candidate.lifecycleStatus}
+                      </span>
+                    ) : (
+                      '--'
+                    )}
+                  </td>
+                  <td>{formatDateTime(candidate.updatedAt || '')}</td>
+                  <td>
+                    <Button type="button" size="sm" onClick={() => openAmbiguousJobCandidate(candidate)}>
+                      Open
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
   }
 
   if (jobQuery.isError || !detail || !summary) {

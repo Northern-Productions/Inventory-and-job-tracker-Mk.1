@@ -4,6 +4,7 @@ import {
   HttpError,
   asTrimmedString,
   requireString,
+  listJobs,
   findJobByNumber,
   findJobById,
   listAllocationsByJob,
@@ -46,6 +47,9 @@ import {
   buildPublicJobUsageEntries,
   buildPublicJobUsageTimelineEntries,
 } from './runtimeTransferUsage.mjs';
+import {
+  resolveLegacyJobNumberReadTargetFromHeaders,
+} from '../../../../../shared/domain/legacyJobNumberReadAmbiguity.mjs';
 
 function collectJobBoxIds(allocations, rollHistory, filmOrderLinks = []) {
   const boxIds = new Set();
@@ -621,6 +625,25 @@ async function loadJobDetailContextWithPooledReads(orgId, jobNumber) {
   return hydrateDetailContextWithPooledReads(orgId, normalizedJobNumber, baseData);
 }
 
+async function assertLegacyJobNumberReadIsUnambiguousWithPooledReads(orgId, jobNumber) {
+  const normalizedJobNumber = requireString(jobNumber, 'jobNumber');
+  const [jobs] = await runParallelReadTasks([
+    (client) => listJobs(client, orgId),
+  ]);
+  const target = resolveLegacyJobNumberReadTargetFromHeaders(jobs, normalizedJobNumber);
+
+  if (target.kind === 'ambiguous') {
+    throw new HttpError(
+      409,
+      `Job number ${normalizedJobNumber} matches multiple jobs. Choose a Work Scope to continue.`,
+      [],
+      target.details
+    );
+  }
+
+  return target;
+}
+
 async function loadJobDetailContextByIdWithPooledReads(orgId, jobId) {
   const [header] = await runParallelReadTasks([
     (client) => findJobById(client, orgId, jobId),
@@ -717,6 +740,7 @@ export {
   loadJobDetailContextById,
   loadJobDetailContextWithPooledReads,
   loadJobDetailContextByIdWithPooledReads,
+  assertLegacyJobNumberReadIsUnambiguousWithPooledReads,
   buildJobDetailPayload,
   buildAllocationJobDetailPayload,
 };

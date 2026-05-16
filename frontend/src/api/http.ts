@@ -1,4 +1,4 @@
-import type { ApiEnvelope, AuthUser } from '../domain';
+import type { ApiEnvelope, AuthUser, JobNumberAmbiguityCandidate } from '../domain';
 import { getStoredAuthSession } from '../lib/storage';
 import { getSupabaseClient } from '../lib/supabase';
 
@@ -60,11 +60,22 @@ function resolveApiBaseUrl(): string {
 
 export class APIError extends Error {
   warnings: string[];
+  code?: string;
+  jobNumber?: string;
+  candidates?: JobNumberAmbiguityCandidate[];
 
-  constructor(message: string, warnings: string[] = []) {
+  constructor(
+    message: string,
+    warnings: string[] = [],
+    details: { code?: string; jobNumber?: string; candidates?: JobNumberAmbiguityCandidate[] } = {}
+  ) {
     super(message);
     this.name = 'APIError';
     this.warnings = warnings;
+    this.code = typeof details.code === 'string' && details.code.trim() ? details.code.trim() : undefined;
+    this.jobNumber =
+      typeof details.jobNumber === 'string' && details.jobNumber.trim() ? details.jobNumber.trim() : undefined;
+    this.candidates = Array.isArray(details.candidates) ? details.candidates : undefined;
   }
 }
 
@@ -228,7 +239,12 @@ export async function request<T>(
   if (!response.ok || !envelope.ok || envelope.data === undefined) {
     throw new APIError(
       envelope.error || fallbackErrorMessage || 'The request could not be completed.',
-      envelope.warnings ?? []
+      envelope.warnings ?? [],
+      {
+        code: envelope.code,
+        jobNumber: envelope.jobNumber,
+        candidates: envelope.candidates
+      }
     );
   }
 

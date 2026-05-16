@@ -6,6 +6,9 @@ import {
   buildJobDuplicateCheckResult,
   getJobDuplicateWorkScopeInput,
 } from "../../../../shared/domain/jobDuplicateContract.mjs";
+import {
+  resolveLegacyJobNumberReadTargetFromHeaders,
+} from "../../../../shared/domain/legacyJobNumberReadAmbiguity.mjs";
 
 type ReadContext = {
   client: any;
@@ -91,6 +94,7 @@ export type ReadHandlerDeps = {
   ) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
+  listJobs: (client: any, orgId: string) => Promise<any[]>;
   buildJobsList: (
     client: any,
     orgId: string,
@@ -145,6 +149,28 @@ function requireUuid(value: unknown, fieldName: string) {
     throw new HttpError(400, `${fieldName} must be a valid UUID.`);
   }
   return normalized;
+}
+
+async function assertLegacyJobNumberReadIsUnambiguous(
+  client: any,
+  orgId: string,
+  jobNumber: unknown,
+  deps: ReadHandlerDeps,
+) {
+  const normalizedJobNumber = deps.requireString(jobNumber, "jobNumber");
+  const jobs = await deps.listJobs(client, orgId);
+  const target = resolveLegacyJobNumberReadTargetFromHeaders(jobs, normalizedJobNumber);
+
+  if (target.kind === "ambiguous") {
+    throw new HttpError(
+      409,
+      `Job number ${normalizedJobNumber} matches multiple jobs. Choose a Work Scope to continue.`,
+      [],
+      target.details,
+    );
+  }
+
+  return target;
 }
 
 async function resolveAllocationPreviewJobContext(
@@ -567,6 +593,7 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok({ entries: await deps.buildAllocationJobList(client, orgId) });
   },
   "/allocations/by-job": async ({ client, orgId, params }, deps) => {
+    await assertLegacyJobNumberReadIsUnambiguous(client, orgId, params.jobNumber, deps);
     return ok(await deps.buildAllocationJobDetail(client, orgId, params.jobNumber));
   },
   "/allocations/preview": async ({ client, orgId, params }, deps) => {
@@ -695,6 +722,7 @@ const readHandlers: Record<string, ReadHandler> = {
     }));
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {
+    await assertLegacyJobNumberReadIsUnambiguous(client, orgId, params.jobNumber, deps);
     return ok(await deps.buildJobDetail(client, orgId, params.jobNumber));
   },
   "/jobs/get-by-id": async ({ client, orgId, params }, deps) => {
