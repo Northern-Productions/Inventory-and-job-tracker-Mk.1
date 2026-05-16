@@ -70,6 +70,7 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
     }
 
     const record = entry as Record<string, unknown>;
+    const jobId = String(record.jobId || '').trim();
     const jobNumber = String(record.jobNumber || '').trim();
     if (!jobNumber) {
       continue;
@@ -81,6 +82,7 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
         ? NaN
         : Number(record.orderedFeet);
     orderedForJobs.push({
+      ...(jobId ? { jobId } : {}),
       jobNumber,
       filmOrderId: filmOrderId || undefined,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null

@@ -284,8 +284,16 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
     ['10001']
   );
   assert.deepEqual(
+    summary.completedJobs.map((entry) => entry.jobId),
+    ['job-completed']
+  );
+  assert.deepEqual(
     summary.cancelledJobs.map((entry) => entry.jobNumber),
     ['20002']
+  );
+  assert.deepEqual(
+    summary.cancelledJobs.map((entry) => entry.jobId),
+    ['job-cancelled']
   );
 });
 

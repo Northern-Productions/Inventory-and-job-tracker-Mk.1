@@ -351,6 +351,20 @@ describe('FilmOrdersPage', () => {
     expect(screen.getByLabelText('Received IL1-0042')).toBeTruthy();
   });
 
+  it('renders the mobile job ID as a canonical link when jobId is available', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+
+    renderPage([
+      buildFilmOrderEntry({
+        jobId: JOB_ID
+      })
+    ]);
+
+    expect(screen.getByRole('link', { name: 'Job IL1-2941' }).getAttribute('href')).toBe(
+      `/allocations/jobs/${JOB_ID}`
+    );
+  });
+
   it('shows linked ordered box ids and dealer text without exposing origin/source-box display', () => {
     renderPage([
       buildFilmOrderEntry({
@@ -415,6 +429,23 @@ describe('FilmOrdersPage', () => {
     const manualRow = screen.getByText(/Plain Roll/, { selector: 'td' }).closest('tr');
     expect(manualRow).toBeTruthy();
     expect(within(manualRow as HTMLTableRowElement).getAllByText('--')).toHaveLength(2);
+  });
+
+  it('includes jobId in add-box film-order prefill links when available', () => {
+    renderPage([
+      buildFilmOrderEntry({
+        jobId: JOB_ID,
+        filmOrderId: 'FO-JOB-ID',
+        jobNumber: '2941'
+      })
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'FILM ORDERED' }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      expect.stringContaining(`jobId=${encodeURIComponent(JOB_ID)}`)
+    );
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('jobNumber=2941'));
   });
 
   it('navigates into the first outstanding ordered box when RECEIVE is clicked', async () => {

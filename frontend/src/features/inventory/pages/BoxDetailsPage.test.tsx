@@ -938,7 +938,28 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('aria-hidden="false"');
   });
 
-  it('renders the last checkout job as a clickable button while the box is checked out', () => {
+  it('opens the last checkout job with the canonical job id route when available', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJobId: '11111111-1111-4111-8111-111111111111',
+        lastCheckoutJob: '000123'
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123' }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
+    );
+  });
+
+  it('falls back to the last checkout job number route when job id is absent', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -949,11 +970,11 @@ describe('BoxDetailsPage', () => {
       error: null
     });
 
-    const html = renderPage();
+    renderInteractivePage();
 
-    expect(html).toContain('Last Checkout Job');
-    expect(html).toContain('class="row-button"');
-    expect(html).toContain('>IL1-000123</button>');
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/000123');
   });
 
   it('renders structured ordered-for jobs as clickable box metadata', () => {
@@ -962,7 +983,12 @@ describe('BoxDetailsPage', () => {
       isError: false,
       data: buildBox({
         orderedForJobs: [
-          { jobNumber: '4953', filmOrderId: 'FO-1', orderedFeet: 120 },
+          {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '4953',
+            filmOrderId: 'FO-1',
+            orderedFeet: 120
+          },
           { jobNumber: '16242', filmOrderId: 'FO-2', orderedFeet: 48 }
         ]
       }),
@@ -976,7 +1002,33 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('>IL1-16242</button>');
   });
 
-  it('opens the ordered-for job detail page when the job number is clicked', () => {
+  it('opens ordered-for job detail with the canonical job id route when available', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        orderedForJobs: [
+          {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '4953',
+            filmOrderId: 'FO-1',
+            orderedFeet: 120
+          }
+        ]
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953' }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
+    );
+  });
+
+  it('falls back to the ordered-for job number route when job id is absent', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,

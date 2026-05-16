@@ -54,7 +54,21 @@ describe('reports API client', () => {
         neverCheckedOut: [],
         zeroedByMonth: [],
         zeroedBoxes: [],
-        completedJobs: [],
+        completedJobs: [
+          {
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '4953',
+            warehouse: 'IL1',
+            installDate: '2026-04-10',
+            crewLeader: 'Crew',
+            status: 'COMPLETED',
+            lifecycleStatus: 'COMPLETED',
+            requiredFeet: 100,
+            allocatedFeet: 100,
+            remainingFeet: 0,
+            closedAt: '2026-04-11T10:00:00Z'
+          }
+        ],
         cancelledJobs: []
       },
       warnings: []
@@ -63,6 +77,8 @@ describe('reports API client', () => {
     const result = await getReportsSummary({ warehouse: 'IL1' });
 
     expect(result.zeroedBoxes).toEqual([]);
+    expect(result.completedJobs[0]?.jobId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.completedJobs[0]?.jobNumber).toBe('4953');
     expect(requestMock).toHaveBeenCalledWith('GET', '/reports/summary', {
       query: {
         warehouse: 'IL1',

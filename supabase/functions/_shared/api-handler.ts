@@ -6561,6 +6561,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     }
 
     const reportEntry = {
+      ...(asTrimmedString(jobEntry.jobId) ? { jobId: asTrimmedString(jobEntry.jobId) } : {}),
       jobNumber: jobEntry.jobNumber,
       warehouse: jobEntry.warehouse,
       installDate: jobEntry.installDate,

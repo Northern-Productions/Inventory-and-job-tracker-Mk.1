@@ -11,11 +11,21 @@ describe('normalizeOrderedForJobs', () => {
     expect(
       normalizeOrderedForJobs([
         { jobNumber: ' 4953 ', filmOrderId: ' FO-1 ', orderedFeet: '120.9' },
-        { jobNumber: '16242', filmOrderId: '', orderedFeet: null },
+        {
+          jobId: ' 11111111-1111-4111-8111-111111111111 ',
+          jobNumber: '16242',
+          filmOrderId: '',
+          orderedFeet: null
+        },
       ])
     ).toEqual([
       { jobNumber: '4953', filmOrderId: 'FO-1', orderedFeet: 120 },
-      { jobNumber: '16242', filmOrderId: undefined, orderedFeet: null },
+      {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '16242',
+        filmOrderId: undefined,
+        orderedFeet: null
+      },
     ]);
   });
 

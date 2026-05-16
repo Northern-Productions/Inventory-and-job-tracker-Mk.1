@@ -66,7 +66,7 @@ interface BoxDetailHeroSectionProps {
   qrCodeError: string;
   onOpenTransferDialog: () => void;
   onStartEdit: () => void;
-  onOpenJob: (jobNumber: string) => void;
+  onOpenJob: (job: { jobId?: string | null; jobNumber?: string | null }) => void;
   onSetTransferActionState: (state: 'receive' | 'cancel') => void;
   onToggleQrSection: () => void;
   onCopyQrImage: () => void;
@@ -262,7 +262,7 @@ export function BoxDetailHeroSection({
                     type="button"
                     className="row-button detail-link-button"
                     key={`${entry.filmOrderId || 'film-order'}-${entry.jobNumber}`}
-                    onClick={() => onOpenJob(entry.jobNumber)}
+                    onClick={() => onOpenJob(entry)}
                   >
                     {formatJobDisplayNumber(entry.jobNumber, box.warehouse)}
                   </button>
@@ -286,7 +286,12 @@ export function BoxDetailHeroSection({
               <button
                 type="button"
                 className="row-button"
-                onClick={() => onOpenJob(box.lastCheckoutJob)}
+                onClick={() =>
+                  onOpenJob({
+                    jobId: box.lastCheckoutJobId,
+                    jobNumber: box.lastCheckoutJob
+                  })
+                }
               >
                 {formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)}
               </button>

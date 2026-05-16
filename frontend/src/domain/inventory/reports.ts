@@ -33,6 +33,7 @@ export interface ZeroedBoxRow {
 }
 
 export interface ClosedJobReportRow {
+  jobId?: string;
   jobNumber: string;
   warehouse: Warehouse;
   installDate: string;

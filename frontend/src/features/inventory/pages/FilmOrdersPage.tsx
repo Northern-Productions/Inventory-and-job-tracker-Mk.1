@@ -125,6 +125,10 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
     remainingToOrderFeet: String(Math.max(order.remainingToOrderFeet, 0)),
     notes: `Ordered for job ${order.jobNumber} via ${order.filmOrderId}`
   });
+  const jobId = getFilmOrderJobId(order);
+  if (jobId) {
+    params.set('jobId', jobId);
+  }
 
   return `/inventory/add?${params.toString()}`;
 }
