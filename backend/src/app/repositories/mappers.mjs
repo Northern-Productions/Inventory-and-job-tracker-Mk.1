@@ -342,6 +342,8 @@ function mapDbFilmOrderRow(row) {
     jobId: row.job_id || null,
     jobNumber: asTrimmedString(row.job_number),
     warehouse: asTrimmedString(row.warehouse),
+    workScope: asTrimmedString(row.work_scope || row.workScope || row.sections) || null,
+    sections: asTrimmedString(row.sections || row.work_scope || row.workScope) || null,
     manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
@@ -364,6 +366,8 @@ function mapDbFilmOrderRow(row) {
 
 function toPublicFilmOrder(entry, linkedBoxes) {
   const jobId = asTrimmedString(entry.jobId);
+  const workScope = asTrimmedString(entry.workScope || entry.sections);
+  const sections = asTrimmedString(entry.sections || entry.workScope);
 
   return {
     filmOrderId: entry.filmOrderId,
@@ -371,6 +375,8 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     requirementId: asTrimmedString(entry.requirementId),
     jobNumber: entry.jobNumber,
     warehouse: entry.warehouse,
+    ...(workScope ? { workScope } : {}),
+    ...(sections ? { sections } : {}),
     manufacturer: entry.manufacturer,
     filmName: entry.filmName,
     widthIn: entry.widthIn,

@@ -363,6 +363,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       jobId: row.job_id || null,
       jobNumber: deps.asTrimmedString(row.job_number),
       warehouse: deps.asTrimmedString(row.warehouse),
+      workScope: deps.asTrimmedString(row.work_scope || row.workScope || row.sections) || null,
+      sections: deps.asTrimmedString(row.sections || row.work_scope || row.workScope) || null,
       manufacturer: deps.asTrimmedString(row.manufacturer),
       filmName: deps.asTrimmedString(row.film_name),
       widthIn: deps.numericOrNull(row.width_in) ?? 0,
@@ -385,6 +387,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
 
   function toPublicFilmOrder(entry: any, linkedBoxes: any[]) {
     const jobId = deps.asTrimmedString(entry.jobId);
+    const workScope = deps.asTrimmedString(entry.workScope || entry.sections);
+    const sections = deps.asTrimmedString(entry.sections || entry.workScope);
 
     return {
       filmOrderId: entry.filmOrderId,
@@ -392,6 +396,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       requirementId: deps.asTrimmedString(entry.requirementId),
       jobNumber: entry.jobNumber,
       warehouse: entry.warehouse,
+      ...(workScope ? { workScope } : {}),
+      ...(sections ? { sections } : {}),
       manufacturer: entry.manufacturer,
       filmName: entry.filmName,
       widthIn: entry.widthIn,

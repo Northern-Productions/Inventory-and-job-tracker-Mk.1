@@ -109,6 +109,7 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     job_id: "11111111-1111-4111-8111-111111111111",
     job_number: "4447",
     warehouse: "IL1",
+    sections: "Sections 4, 5",
     manufacturer: "Security",
     film_name: "3M Ultra S800",
     width_in: 60,
@@ -147,9 +148,29 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     "Expected Edge public film order mapper to expose jobId when present.",
   );
   assertEquals(
+    repositories.toPublicFilmOrder(canonicalEntry, []).workScope,
+    "Sections 4, 5",
+    "Expected Edge public film order mapper to expose Work Scope when present.",
+  );
+  assertEquals(
+    repositories.toPublicFilmOrder(canonicalEntry, []).sections,
+    "Sections 4, 5",
+    "Expected Edge public film order mapper to expose sections when present.",
+  );
+  assertEquals(
     Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "jobId"),
     false,
     "Expected Edge public film order mapper to omit jobId for legacy rows.",
+  );
+  assertEquals(
+    Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "workScope"),
+    false,
+    "Expected Edge public film order mapper to omit Work Scope for legacy rows.",
+  );
+  assertEquals(
+    Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "sections"),
+    false,
+    "Expected Edge public film order mapper to omit sections for legacy rows.",
   );
 });
 

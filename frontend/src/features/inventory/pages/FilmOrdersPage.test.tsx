@@ -293,6 +293,21 @@ describe('FilmOrdersPage', () => {
     );
   });
 
+  it('shows Work Scope in desktop job labels without changing canonical links', () => {
+    renderPage([
+      buildFilmOrderEntry({
+        jobId: JOB_ID,
+        jobNumber: '2941',
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5'
+      })
+    ]);
+
+    expect(
+      screen.getByRole('link', { name: /IL1-2941.*Sections 4, 5/ }).getAttribute('href')
+    ).toBe(`/allocations/jobs/${JOB_ID}`);
+  });
+
   it('sends jobId with Film Orders page delete payloads when available', async () => {
     const order = buildFilmOrderEntry({
       filmOrderId: 'FO-JOB-ID',
@@ -363,6 +378,21 @@ describe('FilmOrdersPage', () => {
     expect(screen.getByRole('link', { name: 'Job IL1-2941' }).getAttribute('href')).toBe(
       `/allocations/jobs/${JOB_ID}`
     );
+  });
+
+  it('shows Work Scope in mobile job labels without changing legacy links', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+
+    renderPage([
+      buildFilmOrderEntry({
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5'
+      })
+    ]);
+
+    expect(
+      screen.getByRole('link', { name: /Job IL1-2941.*Sections 4, 5/ }).getAttribute('href')
+    ).toBe('/allocations/2941');
   });
 
   it('shows linked ordered box ids and dealer text without exposing origin/source-box display', () => {
@@ -436,7 +466,9 @@ describe('FilmOrdersPage', () => {
       buildFilmOrderEntry({
         jobId: JOB_ID,
         filmOrderId: 'FO-JOB-ID',
-        jobNumber: '2941'
+        jobNumber: '2941',
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5'
       })
     ]);
 
@@ -446,6 +478,10 @@ describe('FilmOrdersPage', () => {
       expect.stringContaining(`jobId=${encodeURIComponent(JOB_ID)}`)
     );
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('jobNumber=2941'));
+    const target = String(navigateMock.mock.calls[0][0]);
+    const params = new URL(target, 'https://example.test').searchParams;
+    expect(params.get('workScope')).toBe('Sections 4, 5');
+    expect(params.get('sections')).toBe('Sections 4, 5');
   });
 
   it('navigates into the first outstanding ordered box when RECEIVE is clicked', async () => {

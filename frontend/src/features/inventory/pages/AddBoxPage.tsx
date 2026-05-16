@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import { useAuth } from '../../auth/AuthContext';
 import { BoxForm, type BoxFormSubmitContext } from '../components/BoxForm';
@@ -35,6 +35,8 @@ interface FilmOrderPrefill {
   jobId: string;
   jobNumber: string;
   warehouse: Warehouse;
+  workScope: string;
+  sections: string;
   manufacturer: string;
   filmName: string;
   widthIn: string;
@@ -166,6 +168,27 @@ export default function AddBoxPage() {
   const displayedRemainingToOrderFeet = filmOrderPrefill.filmOrderId
     ? formatRemainingToOrderFeetValue(filmOrderRemainingFeet, filmOrderPrefill.remainingToOrderFeet)
     : '';
+  const filmOrderJobLabel = useMemo(
+    () =>
+      formatJobDisplayLabel({
+        jobNumber: filmOrderPrefill.jobNumber,
+        warehouse: filmOrderPrefill.warehouse,
+        workScope:
+          String(linkedFilmOrder?.workScope || linkedFilmOrder?.sections || '').trim() ||
+          filmOrderPrefill.workScope,
+        sections:
+          String(linkedFilmOrder?.sections || linkedFilmOrder?.workScope || '').trim() ||
+          filmOrderPrefill.sections
+      }),
+    [
+      filmOrderPrefill.jobNumber,
+      filmOrderPrefill.sections,
+      filmOrderPrefill.warehouse,
+      filmOrderPrefill.workScope,
+      linkedFilmOrder?.sections,
+      linkedFilmOrder?.workScope
+    ]
+  );
 
   useEffect(() => {
     if (!filmOrderPrefill.filmOrderId) {
@@ -399,7 +422,7 @@ export default function AddBoxPage() {
               <h2>Film Order Intake</h2>
               <p className="muted-text">
                 This new box will link to {filmOrderPrefill.filmOrderId} for job{' '}
-                {formatJobDisplayNumber(filmOrderPrefill.jobNumber, filmOrderPrefill.warehouse)}.
+                {filmOrderJobLabel}.
               </p>
             </div>
           </div>
@@ -441,7 +464,7 @@ export default function AddBoxPage() {
               </span>
               <span className="muted-text">
                 Skip warehouse receipt for this Film Order. The box will be created already checked out to job{' '}
-                {formatJobDisplayNumber(filmOrderPrefill.jobNumber, filmOrderPrefill.warehouse)} and its first
+                {filmOrderJobLabel} and its first
                 warehouse return will require both return weight and remaining LF.
               </span>
               {directToJobSiteBlockedReason ? (
@@ -494,6 +517,8 @@ function buildFilmOrderPrefill(searchParams: URLSearchParams): FilmOrderPrefill 
     jobId: (searchParams.get('jobId') || '').trim(),
     jobNumber: (searchParams.get('jobNumber') || '').trim(),
     warehouse: parseWarehouse(warehouse),
+    workScope: (searchParams.get('workScope') || '').trim(),
+    sections: (searchParams.get('sections') || '').trim(),
     manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     filmName: (searchParams.get('filmName') || '').trim(),
     widthIn: width && Number.isFinite(Number(width)) && Number(width) > 0 ? width : '',

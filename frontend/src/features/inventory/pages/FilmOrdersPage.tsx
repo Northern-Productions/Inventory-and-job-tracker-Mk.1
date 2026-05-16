@@ -18,7 +18,7 @@ import type {
 } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
@@ -128,6 +128,14 @@ function buildAddBoxTarget(order: FilmOrderEntry) {
   const jobId = getFilmOrderJobId(order);
   if (jobId) {
     params.set('jobId', jobId);
+  }
+  const workScope = String(order.workScope ?? '').trim();
+  if (workScope) {
+    params.set('workScope', workScope);
+  }
+  const sections = String(order.sections ?? '').trim();
+  if (sections) {
+    params.set('sections', sections);
   }
 
   return `/inventory/add?${params.toString()}`;
@@ -273,7 +281,7 @@ export default function FilmOrdersPage() {
                 const isDeletePending = pendingDeleteFilmOrderIds.has(
                   order.filmOrderId.trim().toUpperCase()
                 );
-                const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
+                const displayJobLabel = formatJobDisplayLabel(order);
                 const receiveTarget = buildReceiveOrderedTarget(order);
                 const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
                 const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
@@ -287,7 +295,7 @@ export default function FilmOrdersPage() {
                           to={buildJobHref(order)}
                           className="film-orders-job-link film-orders-job-link-mobile"
                         >
-                          Job {displayJobNumber}
+                          Job {displayJobLabel}
                         </Link>
                       }
                       badge={
@@ -355,7 +363,7 @@ export default function FilmOrdersPage() {
                     const isDeletePending = pendingDeleteFilmOrderIds.has(
                       order.filmOrderId.trim().toUpperCase()
                     );
-                    const displayJobNumber = formatJobDisplayNumber(order.jobNumber, order.warehouse);
+                    const displayJobLabel = formatJobDisplayLabel(order);
                     const receiveTarget = buildReceiveOrderedTarget(order);
                     const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
                     const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
@@ -372,7 +380,7 @@ export default function FilmOrdersPage() {
                         </td>
                         <td>
                           <Link to={buildJobHref(order)} className="film-orders-job-link">
-                            {displayJobNumber}
+                            {displayJobLabel}
                           </Link>
                         </td>
                         <td>
