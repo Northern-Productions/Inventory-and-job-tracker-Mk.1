@@ -25,6 +25,7 @@ import {
   clearAllocationPlannerSuppression,
   checkoutCaulkJobAllocation,
   getAllocationJob,
+  getAllocationsByBox,
   previewAllocationPlan,
   removeCaulkJobAllocation,
   removeJobBoxAllocations,
@@ -82,6 +83,47 @@ describe('allocations API client caulk routes', () => {
     expect(detail.caulkCheckouts).toEqual([]);
     expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/by-job', {
       query: { jobNumber: '000123' }
+    });
+  });
+
+  it('preserves optional jobId and Work Scope fields on box allocations', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'IL1-100',
+            warehouse: 'IL1',
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '4953',
+            workScope: ' Sections 4, 5 ',
+            sections: '',
+            allocationSource: 'manual',
+            allocatedFeet: 24,
+            coveredFeet: 0,
+            status: 'ACTIVE'
+          }
+        ]
+      },
+      warnings: []
+    });
+
+    const entries = await getAllocationsByBox('IL1-100');
+
+    expect(entries[0]).toEqual(
+      expect.objectContaining({
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4953',
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5',
+        allocationSource: 'MANUAL',
+        allocatedFeet: 24,
+        backedPhysicalFeet: 24,
+        reservationState: 'WITHOUT_INSTALL_DATE'
+      })
+    );
+    expect(requestMock).toHaveBeenCalledWith('GET', '/allocations/by-box', {
+      query: { boxId: 'IL1-100' }
     });
   });
 

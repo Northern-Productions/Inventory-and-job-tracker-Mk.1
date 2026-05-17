@@ -130,6 +130,25 @@ export async function buildLastCheckoutScopeForBox(client, orgId, box, deps = {}
   return asOptionalScopeFields((await findJob(client, orgId, checkoutJobId)) || null);
 }
 
+export async function buildJobScopeFieldsByJobId(client, orgId, entries, deps = {}) {
+  const findJob = deps.findJobById || findJobById;
+  const jobIds = [
+    ...new Set(
+      (Array.isArray(entries) ? entries : [])
+        .map((entry) => String(entry?.jobId || '').trim())
+        .filter((jobId) => jobId && isUuidLike(jobId))
+    ),
+  ];
+  const scopeFieldsByJobId = new Map();
+
+  for (const jobId of jobIds) {
+    const job = await findJob(client, orgId, jobId);
+    scopeFieldsByJobId.set(jobId, asOptionalScopeFields(job || null));
+  }
+
+  return scopeFieldsByJobId;
+}
+
 const readHandlers = {
   '/app/attention-summary': async ({ client, orgId, authContext }) =>
     ok(await buildAppAttentionSummary(client, orgId, authContext)),
@@ -184,12 +203,16 @@ const readHandlers = {
       return listAllocationsByBox(client, orgId, normalizedBoxId).then(async (entries) => {
         const box = await findBoxById(client, orgId, normalizedBoxId);
         const reservationMetrics = box ? buildBoxReservationMetrics(box, entries) : null;
+        const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries);
         return ok({
           entries: entries.map((entry) => {
             const reservationSnapshot =
               reservationMetrics?.allocationSnapshotsById?.[entry.allocationId] || null;
+            const jobId = String(entry?.jobId || '').trim();
             return {
               ...toPublicAllocation(entry),
+              ...(jobId ? { jobId } : {}),
+              ...(scopeFieldsByJobId.get(jobId) || {}),
               backedPhysicalFeet: reservationSnapshot ? reservationSnapshot.backedPhysicalFeet : entry.allocatedFeet,
               reservationState: reservationSnapshot ? reservationSnapshot.reservationState : 'WITHOUT_INSTALL_DATE',
             };
@@ -239,8 +262,19 @@ const readHandlers = {
   '/jobs/get-by-id': async ({ orgId, params }) => ok(await buildReadJobDetailById(orgId, params.jobId)),
   '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),
-  '/roll-history/by-box': async ({ client, orgId, params }) =>
-    ok({ entries: await listRollHistoryByBox(client, orgId, requireString(params.boxId, 'boxId')) }),
+  '/roll-history/by-box': async ({ client, orgId, params }) => {
+    const entries = await listRollHistoryByBox(client, orgId, requireString(params.boxId, 'boxId'));
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries);
+    return ok({
+      entries: entries.map((entry) => {
+        const jobId = String(entry?.jobId || '').trim();
+        return {
+          ...entry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
+  },
   '/reports/summary': async ({ client, orgId, params }) => ok(await buildReportsSummary(client, orgId, params)),
   '/owner/reports/asset-total-cost': async ({ client, orgId, params }) =>
     ok(await buildOwnerAssetTotalCost(client, orgId, params)),

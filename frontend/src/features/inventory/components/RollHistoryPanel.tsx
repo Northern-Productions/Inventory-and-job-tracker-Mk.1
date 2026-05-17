@@ -7,7 +7,7 @@ import {
 } from '../../../components/MobileRecordCard';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { useRollHistory } from '../hooks/useInventoryQueries';
 
 function isKnownNumber(value: number | null | undefined): value is number {
@@ -93,7 +93,7 @@ export function RollHistoryPanel({
               {historyQuery.data.map((entry) => (
                 <MobileRecordCard key={entry.logId}>
                   <MobileRecordHeader
-                    title={formatJobDisplayNumber(entry.jobNumber, entry.warehouse) || '--'}
+                    title={formatJobDisplayLabel(entry) || '--'}
                     subtitle={formatDateTime(entry.checkedInAt)}
                   />
                   <MobileFieldList>
@@ -145,7 +145,7 @@ export function RollHistoryPanel({
                     <tr key={entry.logId}>
                       <td>{formatDateTime(entry.checkedOutAt)}</td>
                       <td>{formatDateTime(entry.checkedInAt)}</td>
-                      <td>{formatJobDisplayNumber(entry.jobNumber, entry.warehouse) || '--'}</td>
+                      <td>{formatJobDisplayLabel(entry) || '--'}</td>
                       <td>{renderWeight(entry.checkedOutWeightLbs)}</td>
                       <td>{renderWeight(entry.checkedInWeightLbs)}</td>
                       <td>

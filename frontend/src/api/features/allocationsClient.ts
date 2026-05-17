@@ -42,6 +42,10 @@ function normalizeAllocationSource(value: unknown): AllocationSource {
   return 'MANUAL';
 }
 
+function normalizeOptionalText(value: unknown): string | null {
+  return String(value ?? '').trim() || null;
+}
+
 function normalizeAllocationJobSummary(summary: AllocationJobSummary): AllocationJobSummary {
   const workScope = String(summary.workScope ?? summary.sections ?? '').trim() || null;
   return {
@@ -61,8 +65,15 @@ function normalizeAllocationJobSummary(summary: AllocationJobSummary): Allocatio
 }
 
 function normalizeAllocationEntry<T extends AllocationEntry>(entry: T): T {
+  const jobId = String(entry.jobId || '').trim();
+  const rawWorkScope = normalizeOptionalText(entry.workScope);
+  const rawSections = normalizeOptionalText(entry.sections);
+  const workScope = rawWorkScope ?? rawSections;
   return {
     ...entry,
+    jobId: jobId || undefined,
+    workScope,
+    sections: rawSections ?? workScope,
     allocationSource: normalizeAllocationSource(entry.allocationSource),
     allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
     coveredFeet: Math.max(0, Number(entry.coveredFeet || 0)),
