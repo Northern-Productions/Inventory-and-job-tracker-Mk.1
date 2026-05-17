@@ -945,14 +945,16 @@ describe('BoxDetailsPage', () => {
       data: buildBox({
         status: 'CHECKED_OUT',
         lastCheckoutJobId: '11111111-1111-4111-8111-111111111111',
-        lastCheckoutJob: '000123'
+        lastCheckoutJob: '000123',
+        lastCheckoutWorkScope: 'Sections 4, 5',
+        lastCheckoutSections: 'Sections 4, 5'
       }),
       error: null
     });
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123' }));
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123 · Sections 4, 5' }));
 
     expect(navigateMock).toHaveBeenCalledWith(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'
@@ -986,6 +988,8 @@ describe('BoxDetailsPage', () => {
           {
             jobId: '11111111-1111-4111-8111-111111111111',
             jobNumber: '4953',
+            workScope: 'Sections 4, 5',
+            sections: 'Sections 4, 5',
             filmOrderId: 'FO-1',
             orderedFeet: 120
           },
@@ -998,7 +1002,7 @@ describe('BoxDetailsPage', () => {
     const html = renderPage();
 
     expect(html).toContain('Ordered For Job');
-    expect(html).toContain('>IL1-4953</button>');
+    expect(html).toContain('>IL1-4953 · Sections 4, 5</button>');
     expect(html).toContain('>IL1-16242</button>');
   });
 
@@ -1011,6 +1015,8 @@ describe('BoxDetailsPage', () => {
           {
             jobId: '11111111-1111-4111-8111-111111111111',
             jobNumber: '4953',
+            workScope: 'Sections 4, 5',
+            sections: 'Sections 4, 5',
             filmOrderId: 'FO-1',
             orderedFeet: 120
           }
@@ -1021,7 +1027,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953' }));
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953 · Sections 4, 5' }));
 
     expect(navigateMock).toHaveBeenCalledWith(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'

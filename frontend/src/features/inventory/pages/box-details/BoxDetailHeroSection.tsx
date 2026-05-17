@@ -2,7 +2,7 @@ import { type ReactNode, useMemo } from 'react';
 import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
-import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 
 function DetailField({
   label,
@@ -175,6 +175,12 @@ export function BoxDetailHeroSection({
   const orderedForJobs = Array.isArray(box.orderedForJobs)
     ? box.orderedForJobs.filter((entry) => entry.jobNumber)
     : [];
+  const lastCheckoutJobLabel = formatJobDisplayLabel({
+    jobNumber: box.lastCheckoutJob,
+    warehouse: box.warehouse,
+    workScope: box.lastCheckoutWorkScope,
+    sections: box.lastCheckoutSections
+  });
 
   return (
     <section className="panel detail-hero">
@@ -264,7 +270,7 @@ export function BoxDetailHeroSection({
                     key={`${entry.filmOrderId || 'film-order'}-${entry.jobNumber}`}
                     onClick={() => onOpenJob(entry)}
                   >
-                    {formatJobDisplayNumber(entry.jobNumber, box.warehouse)}
+                    {formatJobDisplayLabel({ ...entry, warehouse: box.warehouse })}
                   </button>
                 ))}
               </span>
@@ -293,10 +299,10 @@ export function BoxDetailHeroSection({
                   })
                 }
               >
-                {formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)}
+                {lastCheckoutJobLabel}
               </button>
             ) : (
-              formatJobDisplayNumber(box.lastCheckoutJob, box.warehouse)
+              lastCheckoutJobLabel
             )
           }
         />

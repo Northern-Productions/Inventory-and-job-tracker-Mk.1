@@ -72,6 +72,8 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
     const record = entry as Record<string, unknown>;
     const jobId = String(record.jobId || '').trim();
     const jobNumber = String(record.jobNumber || '').trim();
+    const workScope = String(record.workScope ?? record.sections ?? '').trim();
+    const sections = String(record.sections ?? record.workScope ?? '').trim();
     if (!jobNumber) {
       continue;
     }
@@ -84,6 +86,8 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
     orderedForJobs.push({
       ...(jobId ? { jobId } : {}),
       jobNumber,
+      ...(workScope ? { workScope } : {}),
+      ...(sections ? { sections } : {}),
       filmOrderId: filmOrderId || undefined,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null
     });
@@ -121,6 +125,16 @@ function normalizeBox(box: Box): Box {
         : box.status === 'ORDERED'
           ? Math.max(0, initialFeet - activeAllocatedFeet)
           : 0;
+  const lastCheckoutWorkScope = String(
+    (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutWorkScope ??
+      (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutSections ??
+      ''
+  ).trim();
+  const lastCheckoutSections = String(
+    (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutSections ??
+      (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutWorkScope ??
+      ''
+  ).trim();
 
   return {
     ...box,
@@ -135,6 +149,8 @@ function normalizeBox(box: Box): Box {
     allocationPlanningFeet: activePlanningFeet,
     hasLabel: normalizeHasLabel((box as Box & { hasLabel?: unknown }).hasLabel),
     lastCheckoutJobId: String(box.lastCheckoutJobId || '').trim(),
+    lastCheckoutWorkScope: lastCheckoutWorkScope || null,
+    lastCheckoutSections: lastCheckoutSections || null,
     orderedForJobs: normalizeOrderedForJobs((box as Box & { orderedForJobs?: unknown }).orderedForJobs),
     pendingTransfer: normalizePendingTransfer(box.pendingTransfer)
   };

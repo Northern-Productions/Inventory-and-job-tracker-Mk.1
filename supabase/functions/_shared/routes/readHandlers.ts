@@ -151,6 +151,19 @@ function requireUuid(value: unknown, fieldName: string) {
   return normalized;
 }
 
+function isUuidLike(value: unknown) {
+  return UUID_PATTERN.test(String(value || "").trim());
+}
+
+function asOptionalScopeFields(source: any, deps: ReadHandlerDeps) {
+  const workScope = deps.asTrimmedString(source?.workScope ?? source?.sections);
+  const sections = deps.asTrimmedString(source?.sections ?? source?.workScope);
+  return {
+    ...(workScope ? { workScope } : {}),
+    ...(sections ? { sections } : {}),
+  };
+}
+
 async function assertLegacyJobNumberReadIsUnambiguous(
   client: any,
   orgId: string,
@@ -290,6 +303,7 @@ async function buildOrderedForJobsForBox(
   const links = await deps.listFilmOrderLinksByBoxId(client, orgId, boxId);
   const orderedForJobs = [];
   const seen = new Set<string>();
+  const jobHeaderById = new Map<string, any | null>();
 
   for (const link of Array.isArray(links) ? links : []) {
     const filmOrderId = deps.asTrimmedString(link?.filmOrderId);
@@ -314,15 +328,38 @@ async function buildOrderedForJobsForBox(
       link?.orderedFeet === null || link?.orderedFeet === undefined || link?.orderedFeet === ""
         ? NaN
         : Number(link.orderedFeet);
+    let scopeFields = asOptionalScopeFields(filmOrder, deps);
+    if (!scopeFields.workScope && jobId && isUuidLike(jobId)) {
+      if (!jobHeaderById.has(jobId)) {
+        jobHeaderById.set(jobId, (await deps.findJobById(client, orgId, jobId)) || null);
+      }
+      scopeFields = asOptionalScopeFields(jobHeaderById.get(jobId), deps);
+    }
+
     orderedForJobs.push({
       ...(jobId ? { jobId } : {}),
       jobNumber,
+      ...scopeFields,
       filmOrderId,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
     });
   }
 
   return orderedForJobs;
+}
+
+async function buildLastCheckoutScopeForBox(
+  client: any,
+  orgId: string,
+  box: any,
+  deps: ReadHandlerDeps,
+) {
+  const checkoutJobId = deps.asTrimmedString(box?.lastCheckoutJobId);
+  if (!checkoutJobId || !isUuidLike(checkoutJobId)) {
+    return {};
+  }
+
+  return asOptionalScopeFields((await deps.findJobById(client, orgId, checkoutJobId)) || null, deps);
 }
 
 const readHandlers: Record<string, ReadHandler> = {
@@ -545,10 +582,17 @@ const readHandlers: Record<string, ReadHandler> = {
     const allocations = await deps.listAllocationsByBox(client, orgId, found.boxId);
     const reservationSnapshot = buildBoxReservationSnapshot(found, allocations);
     const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId, deps);
+    const lastCheckoutScope = await buildLastCheckoutScopeForBox(client, orgId, found, deps);
     return ok(
       deps.toPublicBox({
         ...found,
         orderedForJobs,
+        ...((lastCheckoutScope as Record<string, unknown>).workScope
+          ? { lastCheckoutWorkScope: (lastCheckoutScope as Record<string, unknown>).workScope }
+          : {}),
+        ...((lastCheckoutScope as Record<string, unknown>).sections
+          ? { lastCheckoutSections: (lastCheckoutScope as Record<string, unknown>).sections }
+          : {}),
         physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
         allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
         allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,

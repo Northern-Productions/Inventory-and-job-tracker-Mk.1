@@ -39,6 +39,7 @@ import {
   buildOwnerAssetTotalCost,
   buildReportsSummary,
 } from '../services/jobs.mjs';
+import { findJobById } from '../repositories/jobsRepository.mjs';
 import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
 import { listWarehouses } from '../services/warehouses.mjs';
@@ -52,12 +53,29 @@ import {
 } from '../services/access.mjs';
 import { withReadClient } from '../../db/client.mjs';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function asOptionalScopeFields(source) {
+  const workScope = String(source?.workScope ?? source?.sections ?? '').trim();
+  const sections = String(source?.sections ?? source?.workScope ?? '').trim();
+  return {
+    ...(workScope ? { workScope } : {}),
+    ...(sections ? { sections } : {}),
+  };
+}
+
+function isUuidLike(value) {
+  return UUID_PATTERN.test(String(value || '').trim());
+}
+
 export async function buildOrderedForJobsForBox(client, orgId, boxId, deps = {}) {
   const listLinks = deps.listFilmOrderLinksByBoxId || listFilmOrderLinksByBoxId;
   const findOrder = deps.findFilmOrderById || findFilmOrderById;
+  const findJob = deps.findJobById || findJobById;
   const links = await listLinks(client, orgId, boxId);
   const orderedForJobs = [];
   const seen = new Set();
+  const jobHeaderById = new Map();
 
   for (const link of Array.isArray(links) ? links : []) {
     const filmOrderId = String(link?.filmOrderId || '').trim();
@@ -82,15 +100,34 @@ export async function buildOrderedForJobsForBox(client, orgId, boxId, deps = {})
       link?.orderedFeet === null || link?.orderedFeet === undefined || link?.orderedFeet === ''
         ? NaN
         : Number(link.orderedFeet);
+    let scopeFields = asOptionalScopeFields(filmOrder);
+    if (!scopeFields.workScope && jobId && isUuidLike(jobId)) {
+      if (!jobHeaderById.has(jobId)) {
+        jobHeaderById.set(jobId, (await findJob(client, orgId, jobId)) || null);
+      }
+      scopeFields = asOptionalScopeFields(jobHeaderById.get(jobId));
+    }
+
     orderedForJobs.push({
       ...(jobId ? { jobId } : {}),
       jobNumber,
+      ...scopeFields,
       filmOrderId,
       orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
     });
   }
 
   return orderedForJobs;
+}
+
+export async function buildLastCheckoutScopeForBox(client, orgId, box, deps = {}) {
+  const checkoutJobId = String(box?.lastCheckoutJobId || '').trim();
+  if (!checkoutJobId || !isUuidLike(checkoutJobId)) {
+    return {};
+  }
+
+  const findJob = deps.findJobById || findJobById;
+  return asOptionalScopeFields((await findJob(client, orgId, checkoutJobId)) || null);
 }
 
 const readHandlers = {
@@ -118,7 +155,20 @@ const readHandlers = {
     }
     const allocations = await listAllocationsByBox(client, orgId, found.boxId);
     const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId);
-    return ok(toPublicBox(applyReservationMetricsToBox({ ...found, orderedForJobs }, allocations)));
+    const lastCheckoutScope = await buildLastCheckoutScopeForBox(client, orgId, found);
+    return ok(
+      toPublicBox(
+        applyReservationMetricsToBox(
+          {
+            ...found,
+            orderedForJobs,
+            ...(lastCheckoutScope.workScope ? { lastCheckoutWorkScope: lastCheckoutScope.workScope } : {}),
+            ...(lastCheckoutScope.sections ? { lastCheckoutSections: lastCheckoutScope.sections } : {}),
+          },
+          allocations
+        )
+      )
+    );
   },
   '/boxes/transfer/by-box': async ({ client, orgId, params }) =>
     ok(await getBoxTransferByBox(client, orgId, params.boxId)),

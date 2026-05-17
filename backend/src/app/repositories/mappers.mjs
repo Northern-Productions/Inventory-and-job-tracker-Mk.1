@@ -115,6 +115,8 @@ function toPublicBox(box) {
         .map((entry) => {
           const jobId = asTrimmedString(entry?.jobId);
           const jobNumber = asTrimmedString(entry?.jobNumber);
+          const workScope = asTrimmedString(entry?.workScope || entry?.sections);
+          const sections = asTrimmedString(entry?.sections || entry?.workScope);
           if (!jobNumber) {
             return null;
           }
@@ -126,12 +128,16 @@ function toPublicBox(box) {
           return {
             ...(jobId ? { jobId } : {}),
             jobNumber,
+            ...(workScope ? { workScope } : {}),
+            ...(sections ? { sections } : {}),
             filmOrderId: asTrimmedString(entry?.filmOrderId),
             orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
           };
         })
         .filter(Boolean)
     : undefined;
+  const lastCheckoutWorkScope = asTrimmedString(box.lastCheckoutWorkScope || box.lastCheckoutSections);
+  const lastCheckoutSections = asTrimmedString(box.lastCheckoutSections || box.lastCheckoutWorkScope);
   const publicBox = {
     boxId: box.boxId,
     warehouse: box.warehouse,
@@ -174,6 +180,8 @@ function toPublicBox(box) {
     hasEverBeenCheckedOut: box.hasEverBeenCheckedOut,
     lastCheckoutJobId: asTrimmedString(box.lastCheckoutJobId),
     lastCheckoutJob: box.lastCheckoutJob,
+    ...(lastCheckoutWorkScope ? { lastCheckoutWorkScope } : {}),
+    ...(lastCheckoutSections ? { lastCheckoutSections } : {}),
     lastCheckoutDate: box.lastCheckoutDate,
     zeroedDate: box.zeroedDate,
     zeroedReason: box.zeroedReason,

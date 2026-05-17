@@ -174,7 +174,7 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
   );
 });
 
-Deno.test("Edge public box mapper exposes additive ordered-for jobId only when present", () => {
+Deno.test("Edge public box mapper exposes additive ordered-for and checkout job metadata", () => {
   const repositories = createInventoryRepositories({
     rpcOrThrow: async () => {
       throw new Error("Unexpected RPC call.");
@@ -203,10 +203,16 @@ Deno.test("Edge public box mapper exposes additive ordered-for jobId only when p
     status: "IN_STOCK",
     initialFeet: 500,
     feetAvailable: 420,
+    lastCheckoutJobId: "11111111-1111-4111-8111-111111111111",
+    lastCheckoutJob: "4953",
+    lastCheckoutWorkScope: "Sections 4, 5",
+    lastCheckoutSections: "Sections 4, 5",
     orderedForJobs: [
       {
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "4953",
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
         filmOrderId: "FO-1",
         orderedFeet: "120.9",
       },
@@ -225,6 +231,8 @@ Deno.test("Edge public box mapper exposes additive ordered-for jobId only when p
       {
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "4953",
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
         filmOrderId: "FO-1",
         orderedFeet: 120,
       },
@@ -235,6 +243,16 @@ Deno.test("Edge public box mapper exposes additive ordered-for jobId only when p
       },
     ],
     "Expected Edge public box mapper to expose ordered-for jobId additively.",
+  );
+  assertEquals(
+    publicBox.lastCheckoutWorkScope,
+    "Sections 4, 5",
+    "Expected Edge public box mapper to expose last-checkout Work Scope when present.",
+  );
+  assertEquals(
+    publicBox.lastCheckoutSections,
+    "Sections 4, 5",
+    "Expected Edge public box mapper to expose last-checkout sections when present.",
   );
 });
 
@@ -780,6 +798,8 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
         status: "IN_STOCK",
         initialFeet: 500,
         feetAvailable: 420,
+        lastCheckoutJobId: "22222222-2222-4222-8222-222222222222",
+        lastCheckoutJob: "16242",
       }),
       listAllocationsByBox: async () => [],
       listFilmOrderLinksByBoxId: async () => [
@@ -790,9 +810,23 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "4953",
       }),
+      findJobById: async (_client: unknown, _orgId: string, jobId: string) =>
+        jobId === "11111111-1111-4111-8111-111111111111"
+          ? {
+              jobNumber: "4953",
+              workScope: "Sections 4, 5",
+              sections: "Sections 4, 5",
+            }
+          : {
+              jobNumber: "16242",
+              workScope: "Lobby Phase",
+              sections: "Lobby Phase",
+            },
       toPublicBox: (box: Record<string, unknown>) => ({
         boxId: box.boxId,
         orderedForJobs: box.orderedForJobs,
+        lastCheckoutWorkScope: box.lastCheckoutWorkScope,
+        lastCheckoutSections: box.lastCheckoutSections,
       }),
     } as any,
   );
@@ -803,10 +837,14 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
       {
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "4953",
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
         filmOrderId: "FO-1",
         orderedFeet: 120,
       },
     ],
+    lastCheckoutWorkScope: "Lobby Phase",
+    lastCheckoutSections: "Lobby Phase",
   }, "Expected /boxes/get to include structured ordered-for job data.");
 });
 
