@@ -11,6 +11,8 @@ export interface BoxPendingTransferSummary {
 export interface BoxOrderedForJob {
   jobId?: string;
   jobNumber: string;
+  workScope?: string | null;
+  sections?: string | null;
   filmOrderId?: string;
   orderedFeet?: number | null;
 }
@@ -48,6 +50,8 @@ export interface Box {
   hasEverBeenCheckedOut: boolean;
   lastCheckoutJobId?: string;
   lastCheckoutJob: string;
+  lastCheckoutWorkScope?: string | null;
+  lastCheckoutSections?: string | null;
   lastCheckoutDate: string;
   zeroedDate: string;
   zeroedReason: string;

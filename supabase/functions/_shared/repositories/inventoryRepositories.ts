@@ -178,6 +178,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
           .map((entry: any) => {
             const jobId = deps.asTrimmedString(entry?.jobId);
             const jobNumber = deps.asTrimmedString(entry?.jobNumber);
+            const workScope = deps.asTrimmedString(entry?.workScope || entry?.sections);
+            const sections = deps.asTrimmedString(entry?.sections || entry?.workScope);
             if (!jobNumber) {
               return null;
             }
@@ -189,12 +191,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
             return {
               ...(jobId ? { jobId } : {}),
               jobNumber,
+              ...(workScope ? { workScope } : {}),
+              ...(sections ? { sections } : {}),
               filmOrderId: deps.asTrimmedString(entry?.filmOrderId),
               orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
             };
           })
           .filter(Boolean)
       : undefined;
+    const lastCheckoutWorkScope = deps.asTrimmedString(box.lastCheckoutWorkScope || box.lastCheckoutSections);
+    const lastCheckoutSections = deps.asTrimmedString(box.lastCheckoutSections || box.lastCheckoutWorkScope);
     const publicBox = {
       boxId: box.boxId,
       warehouse: box.warehouse,
@@ -247,6 +253,8 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       hasEverBeenCheckedOut: box.hasEverBeenCheckedOut,
       lastCheckoutJobId: deps.asTrimmedString(box.lastCheckoutJobId),
       lastCheckoutJob: box.lastCheckoutJob,
+      ...(lastCheckoutWorkScope ? { lastCheckoutWorkScope } : {}),
+      ...(lastCheckoutSections ? { lastCheckoutSections } : {}),
       lastCheckoutDate: box.lastCheckoutDate,
       zeroedDate: box.zeroedDate,
       zeroedReason: box.zeroedReason,

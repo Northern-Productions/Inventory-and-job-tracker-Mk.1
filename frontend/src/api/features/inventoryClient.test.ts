@@ -10,7 +10,13 @@ describe('normalizeOrderedForJobs', () => {
   it('normalizes one or more structured ordered-for jobs', () => {
     expect(
       normalizeOrderedForJobs([
-        { jobNumber: ' 4953 ', filmOrderId: ' FO-1 ', orderedFeet: '120.9' },
+        {
+          jobNumber: ' 4953 ',
+          workScope: ' Sections 4, 5 ',
+          sections: ' Sections 4, 5 ',
+          filmOrderId: ' FO-1 ',
+          orderedFeet: '120.9'
+        },
         {
           jobId: ' 11111111-1111-4111-8111-111111111111 ',
           jobNumber: '16242',
@@ -19,7 +25,13 @@ describe('normalizeOrderedForJobs', () => {
         },
       ])
     ).toEqual([
-      { jobNumber: '4953', filmOrderId: 'FO-1', orderedFeet: 120 },
+      {
+        jobNumber: '4953',
+        workScope: 'Sections 4, 5',
+        sections: 'Sections 4, 5',
+        filmOrderId: 'FO-1',
+        orderedFeet: 120
+      },
       {
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '16242',
