@@ -79,6 +79,179 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
 });
 
+Deno.test("Edge /audit/list projects structured checkout job identity by jobId only", async () => {
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const calls: string[] = [];
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/audit/list",
+    { action: "SET_STATUS" },
+    {} as any,
+    {
+      listAudit: async (_client: unknown, orgId: string, params: Record<string, unknown>) => {
+        calls.push(`listAudit:${orgId}:${params.action}`);
+        return [
+          {
+            logId: "audit-1",
+            action: "SET_STATUS",
+            boxId: "IL1-100",
+            date: "2026-05-18T12:00:00Z",
+            before: null,
+            after: {
+              status: "CHECKED_OUT",
+              lastCheckoutJobId: jobId,
+              lastCheckoutJob: "4953",
+            },
+            user: "tester",
+            notes: "Readable note text",
+          },
+          {
+            logId: "legacy-1",
+            action: "SET_STATUS",
+            boxId: "IL1-200",
+            date: "2026-05-18T13:00:00Z",
+            before: null,
+            after: {
+              status: "CHECKED_OUT",
+              lastCheckoutJobId: "",
+              lastCheckoutJob: "16242",
+            },
+            user: "tester",
+            notes: "Checked out for job 16242",
+          },
+        ];
+      },
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+        return {
+          warehouse: "IL1",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+        };
+      },
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    ["listAudit:org-1:SET_STATUS", `findJobById:org-1:${jobId}`],
+    "Expected audit scope lookup by structured jobId only.",
+  );
+  assertEquals(
+    (response.data as { entries: Record<string, unknown>[] }).entries.map((entry) => ({
+      logId: entry.logId,
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      jobWarehouse: entry.jobWarehouse,
+      workScope: entry.workScope,
+      sections: entry.sections,
+    })),
+    [
+      {
+        logId: "audit-1",
+        jobId,
+        jobNumber: "4953",
+        jobWarehouse: "IL1",
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
+      },
+      {
+        logId: "legacy-1",
+      },
+    ],
+    "Expected structured audit rows to be additive while legacy note-only rows remain unchanged.",
+  );
+});
+
+Deno.test("Edge /audit/by-box projects check-in job identity from structured before snapshot", async () => {
+  const jobId = "22222222-2222-4222-8222-222222222222";
+  const calls: string[] = [];
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/audit/by-box",
+    { boxId: "IL1-100" },
+    {} as any,
+    {
+      requireString: (value: unknown, fieldName: string) => {
+        const text = String(value || "").trim();
+        if (!text) {
+          throw new Error(`${fieldName} required`);
+        }
+        return text;
+      },
+      listAuditEntriesByBox: async (_client: unknown, orgId: string, boxId: string) => {
+        calls.push(`listAuditEntriesByBox:${orgId}:${boxId}`);
+        return [
+          {
+            logId: "audit-2",
+            action: "SET_STATUS",
+            boxId,
+            date: "2026-05-18T14:00:00Z",
+            before: {
+              status: "CHECKED_OUT",
+              lastCheckoutJobId: jobId,
+              lastCheckoutJob: "16242",
+            },
+            after: {
+              status: "IN_STOCK",
+              lastCheckoutJobId: "",
+              lastCheckoutJob: "",
+            },
+            user: "tester",
+            notes: "Checked in at 3.34 lbs",
+          },
+        ];
+      },
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+        return {
+          warehouse: "MS1",
+          sections: "Lobby Phase",
+        };
+      },
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    ["listAuditEntriesByBox:org-1:IL1-100", `findJobById:org-1:${jobId}`],
+    "Expected /audit/by-box to enrich only the structured before-state jobId.",
+  );
+  assertEquals(
+    (response.data as { entries: Record<string, unknown>[] }).entries[0],
+    {
+      logId: "audit-2",
+      action: "SET_STATUS",
+      boxId: "IL1-100",
+      date: "2026-05-18T14:00:00Z",
+      before: {
+        status: "CHECKED_OUT",
+        lastCheckoutJobId: jobId,
+        lastCheckoutJob: "16242",
+      },
+      after: {
+        status: "IN_STOCK",
+        lastCheckoutJobId: "",
+        lastCheckoutJob: "",
+      },
+      user: "tester",
+      notes: "Checked in at 3.34 lbs",
+      jobId,
+      jobNumber: "16242",
+      jobWarehouse: "MS1",
+      workScope: "Lobby Phase",
+      sections: "Lobby Phase",
+    },
+    "Expected check-in audit projection to preserve raw notes and add optional identity fields.",
+  );
+});
+
 Deno.test("Edge /caulk/transfers/list projects jobId and enriches scope by jobId only", async () => {
   const jobId = "11111111-1111-4111-8111-111111111111";
   const calls: string[] = [];

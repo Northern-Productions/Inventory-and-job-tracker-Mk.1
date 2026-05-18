@@ -384,6 +384,72 @@ async function buildJobScopeFieldsByJobId(
   return scopeFieldsByJobId;
 }
 
+function extractAuditCheckoutJobIdentity(
+  entry: unknown,
+  deps: ReadHandlerDeps,
+): { jobId: string; jobNumber: string } | null {
+  const auditEntry = entry as Record<string, unknown>;
+  const snapshots = [
+    auditEntry?.after as Record<string, unknown> | null | undefined,
+    auditEntry?.before as Record<string, unknown> | null | undefined,
+  ];
+
+  for (const snapshot of snapshots) {
+    const status = deps.asTrimmedString(snapshot?.status).toUpperCase();
+    const jobId = deps.asTrimmedString(snapshot?.lastCheckoutJobId);
+    const jobNumber = deps.asTrimmedString(snapshot?.lastCheckoutJob);
+    if (status === "CHECKED_OUT" && jobId && isUuidLike(jobId) && jobNumber) {
+      return { jobId, jobNumber };
+    }
+  }
+
+  return null;
+}
+
+async function enrichAuditEntriesWithCheckoutJobIdentity(
+  client: any,
+  orgId: string,
+  entries: unknown[],
+  deps: ReadHandlerDeps,
+) {
+  const rows = Array.isArray(entries) ? entries : [];
+  const identitiesByLogId = new Map<string, { jobId: string; jobNumber: string }>();
+  const jobIds = new Set<string>();
+
+  for (const entry of rows) {
+    const identity = extractAuditCheckoutJobIdentity(entry, deps);
+    if (!identity) {
+      continue;
+    }
+
+    identitiesByLogId.set(deps.asTrimmedString((entry as Record<string, unknown>)?.logId), identity);
+    jobIds.add(identity.jobId);
+  }
+
+  const jobHeaderById = new Map<string, any | null>();
+  for (const jobId of jobIds) {
+    jobHeaderById.set(jobId, (await deps.findJobById(client, orgId, jobId)) || null);
+  }
+
+  return rows.map((entry) => {
+    const auditEntry = entry as Record<string, unknown>;
+    const identity = identitiesByLogId.get(deps.asTrimmedString(auditEntry?.logId));
+    if (!identity) {
+      return entry;
+    }
+
+    const jobHeader = jobHeaderById.get(identity.jobId);
+    const jobWarehouse = deps.asTrimmedString(jobHeader?.warehouse);
+    return {
+      ...auditEntry,
+      jobId: identity.jobId,
+      jobNumber: identity.jobNumber,
+      ...(jobWarehouse ? { jobWarehouse } : {}),
+      ...asOptionalScopeFields(jobHeader, deps),
+    };
+  });
+}
+
 const readHandlers: Record<string, ReadHandler> = {
   "/app/attention-summary": async ({ client, orgId, identity }, deps) => {
     const start = Date.now();
@@ -655,10 +721,12 @@ const readHandlers: Record<string, ReadHandler> = {
     return await deps.getBoxTransferPlan(client, orgId, params);
   },
   "/audit/list": async ({ client, orgId, params }, deps) => {
-    return ok({ entries: await deps.listAudit(client, orgId, params) });
+    const entries = await deps.listAudit(client, orgId, params);
+    return ok({ entries: await enrichAuditEntriesWithCheckoutJobIdentity(client, orgId, entries, deps) });
   },
   "/audit/by-box": async ({ client, orgId, params }, deps) => {
-    return ok({ entries: await deps.listAuditEntriesByBox(client, orgId, deps.requireString(params.boxId, "boxId")) });
+    const entries = await deps.listAuditEntriesByBox(client, orgId, deps.requireString(params.boxId, "boxId"));
+    return ok({ entries: await enrichAuditEntriesWithCheckoutJobIdentity(client, orgId, entries, deps) });
   },
   "/allocations/by-box": async ({ client, orgId, params }, deps) => {
     const boxId = deps.requireString(params.boxId, "boxId");

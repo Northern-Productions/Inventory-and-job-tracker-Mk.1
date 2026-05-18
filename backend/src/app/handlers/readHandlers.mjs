@@ -149,6 +149,59 @@ export async function buildJobScopeFieldsByJobId(client, orgId, entries, deps = 
   return scopeFieldsByJobId;
 }
 
+function extractAuditCheckoutJobIdentity(entry) {
+  const snapshots = [entry?.after, entry?.before];
+  for (const snapshot of snapshots) {
+    const status = String(snapshot?.status || '').trim().toUpperCase();
+    const jobId = String(snapshot?.lastCheckoutJobId || '').trim();
+    const jobNumber = String(snapshot?.lastCheckoutJob || '').trim();
+    if (status === 'CHECKED_OUT' && jobId && isUuidLike(jobId) && jobNumber) {
+      return { jobId, jobNumber };
+    }
+  }
+
+  return null;
+}
+
+export async function enrichAuditEntriesWithCheckoutJobIdentity(client, orgId, entries, deps = {}) {
+  const findJob = deps.findJobById || findJobById;
+  const rows = Array.isArray(entries) ? entries : [];
+  const identitiesByLogId = new Map();
+  const jobIds = new Set();
+
+  for (const entry of rows) {
+    const identity = extractAuditCheckoutJobIdentity(entry);
+    if (!identity) {
+      continue;
+    }
+
+    identitiesByLogId.set(String(entry?.logId || ''), identity);
+    jobIds.add(identity.jobId);
+  }
+
+  const jobHeaderById = new Map();
+  for (const jobId of jobIds) {
+    jobHeaderById.set(jobId, (await findJob(client, orgId, jobId)) || null);
+  }
+
+  return rows.map((entry) => {
+    const identity = identitiesByLogId.get(String(entry?.logId || ''));
+    if (!identity) {
+      return entry;
+    }
+
+    const jobHeader = jobHeaderById.get(identity.jobId);
+    const jobWarehouse = String(jobHeader?.warehouse || '').trim();
+    return {
+      ...entry,
+      jobId: identity.jobId,
+      jobNumber: identity.jobNumber,
+      ...(jobWarehouse ? { jobWarehouse } : {}),
+      ...asOptionalScopeFields(jobHeader),
+    };
+  });
+}
+
 const readHandlers = {
   '/app/attention-summary': async ({ client, orgId, authContext }) =>
     ok(await buildAppAttentionSummary(client, orgId, authContext)),
@@ -193,10 +246,14 @@ const readHandlers = {
     ok(await getBoxTransferByBox(client, orgId, params.boxId)),
   '/boxes/transfer/plan': async ({ client, orgId, params }) =>
     ok(await getBoxTransferPlan(client, orgId, params)),
-  '/audit/list': async ({ client, orgId, params }) =>
-    ok({ entries: await listAudit(client, orgId, params) }),
-  '/audit/by-box': async ({ client, orgId, params }) =>
-    ok({ entries: await listAuditEntriesByBox(client, orgId, requireString(params.boxId, 'boxId')) }),
+  '/audit/list': async ({ client, orgId, params }) => {
+    const entries = await listAudit(client, orgId, params);
+    return ok({ entries: await enrichAuditEntriesWithCheckoutJobIdentity(client, orgId, entries) });
+  },
+  '/audit/by-box': async ({ client, orgId, params }) => {
+    const entries = await listAuditEntriesByBox(client, orgId, requireString(params.boxId, 'boxId'));
+    return ok({ entries: await enrichAuditEntriesWithCheckoutJobIdentity(client, orgId, entries) });
+  },
   '/allocations/by-box': async ({ client, orgId, params }) =>
     (() => {
       const normalizedBoxId = requireString(params.boxId, 'boxId');

@@ -205,6 +205,11 @@ export interface AuditEntry {
   after: Box | null;
   user: string;
   notes: string;
+  jobId?: string;
+  jobNumber?: string;
+  jobWarehouse?: string;
+  workScope?: string | null;
+  sections?: string | null;
 }
 
 export interface AuditListParams {
