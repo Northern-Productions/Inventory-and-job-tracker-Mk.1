@@ -287,6 +287,13 @@ export function mapCaulkTransactionEntry(value: unknown): CaulkTransactionEntry 
     notes: String(source.notes || '').trim(),
     transferId: String(source.transferId || '').trim(),
     sourceBoxId: String(source.sourceBoxId || '').trim(),
+    ...(String(source.jobId || '').trim() ? { jobId: String(source.jobId || '').trim() } : {}),
+    ...(String(source.jobNumber || '').trim() ? { jobNumber: String(source.jobNumber || '').trim() } : {}),
+    ...(String(source.jobWarehouse || '').trim()
+      ? { jobWarehouse: String(source.jobWarehouse || '').trim().toUpperCase() as Warehouse }
+      : {}),
+    ...(String(source.workScope || '').trim() ? { workScope: String(source.workScope || '').trim() } : {}),
+    ...(String(source.sections || '').trim() ? { sections: String(source.sections || '').trim() } : {}),
     createdAt: String(source.createdAt || '').trim(),
     createdBy: String(source.createdBy || '').trim()
   };
@@ -307,7 +314,10 @@ export function mapCaulkTransferEntry(value: unknown): CaulkTransferEntry | null
     transferId,
     caulkAllocationId: String(source.caulkAllocationId || '').trim(),
     jobNumber: String(source.jobNumber || '').trim(),
+    ...(String(source.jobId || '').trim() ? { jobId: String(source.jobId || '').trim() } : {}),
     jobWarehouse: String(source.jobWarehouse || '').trim().toUpperCase() as Warehouse,
+    ...(String(source.workScope || '').trim() ? { workScope: String(source.workScope || '').trim() } : {}),
+    ...(String(source.sections || '').trim() ? { sections: String(source.sections || '').trim() } : {}),
     productId: String(source.productId || '').trim(),
     manufacturerId: String(source.manufacturerId || '').trim(),
     manufacturer: String(source.manufacturer || '').trim(),

@@ -16,7 +16,10 @@ export interface CaulkTransferEntry {
   transferId: string;
   caulkAllocationId: string;
   jobNumber: string;
+  jobId?: string;
   jobWarehouse: Warehouse | '';
+  workScope?: string | null;
+  sections?: string | null;
   productId: string;
   manufacturerId: string;
   manufacturer: string;
@@ -181,6 +184,11 @@ export interface CaulkTransactionEntry {
   notes: string;
   transferId: string;
   sourceBoxId: string;
+  jobId?: string;
+  jobNumber?: string;
+  jobWarehouse?: Warehouse | '';
+  workScope?: string | null;
+  sections?: string | null;
   createdAt: string;
   createdBy: string;
 }

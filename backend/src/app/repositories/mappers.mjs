@@ -547,6 +547,10 @@ function mapDbCaulkTransferRow(row) {
     return null;
   }
 
+  const jobId = asTrimmedString(row.resolved_job_id || row.job_id);
+  const workScope = asTrimmedString(row.work_scope || row.workScope);
+  const sections = asTrimmedString(row.sections);
+
   return {
     id: row.id,
     orgId: row.org_id,
@@ -554,7 +558,10 @@ function mapDbCaulkTransferRow(row) {
     transferId: asTrimmedString(row.transfer_id),
     caulkAllocationId: asTrimmedString(row.caulk_allocation_public_id || row.caulk_allocation_id_text),
     jobNumber: asTrimmedString(row.job_number),
+    ...(jobId ? { jobId } : {}),
     jobWarehouse: asTrimmedString(row.job_warehouse).toUpperCase(),
+    ...(workScope ? { workScope } : {}),
+    ...(sections ? { sections } : {}),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
     manufacturer: asTrimmedString(row.manufacturer),
@@ -729,6 +736,12 @@ function mapCaulkTransactionRow(row) {
     return null;
   }
 
+  const jobId = asTrimmedString(row.job_id);
+  const jobNumber = asTrimmedString(row.job_number);
+  const jobWarehouse = asTrimmedString(row.job_warehouse).toUpperCase();
+  const workScope = asTrimmedString(row.work_scope || row.workScope);
+  const sections = asTrimmedString(row.sections);
+
   return {
     transactionId: asTrimmedString(row.transaction_id),
     productId: asTrimmedString(row.product_id),
@@ -744,6 +757,11 @@ function mapCaulkTransactionRow(row) {
     notes: asTrimmedString(row.notes),
     transferId: asTrimmedString(row.transfer_id),
     sourceBoxId: asTrimmedString(row.source_box_id),
+    ...(jobId ? { jobId } : {}),
+    ...(jobNumber ? { jobNumber } : {}),
+    ...(jobWarehouse ? { jobWarehouse } : {}),
+    ...(workScope ? { workScope } : {}),
+    ...(sections ? { sections } : {}),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
   };

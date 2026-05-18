@@ -79,6 +79,211 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
 });
 
+Deno.test("Edge /caulk/transfers/list projects jobId and enriches scope by jobId only", async () => {
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const calls: string[] = [];
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/caulk/transfers/list",
+    {
+      warehouse: "IL1",
+      productId: "",
+    },
+    {} as any,
+    {
+      rpcOrThrow: async (_client: unknown, rpcName: string, params: Record<string, unknown>) => {
+        calls.push(`rpc:${rpcName}:${params.p_org_id}:${params.p_warehouse}`);
+        return [
+          {
+            transfer_id: "TR-1",
+            caulk_allocation_id: "CA-1",
+            job_number: "4953",
+            job_id: jobId,
+            job_warehouse: "il1",
+            product_id: "product-1",
+            manufacturer_id: "manufacturer-1",
+            manufacturer: "OSI",
+            product_name: "Quad",
+            product_code: "Q",
+            tubes_per_case: 12,
+            source_warehouse: "IL1",
+            destination_warehouse: "MS1",
+            pending_tubes: 3,
+            status: "PENDING",
+          },
+          {
+            transfer_id: "TR-LEGACY",
+            caulk_allocation_id: "CA-LEGACY",
+            job_number: "16242",
+            job_warehouse: "MS1",
+            product_id: "product-1",
+            manufacturer_id: "manufacturer-1",
+            manufacturer: "OSI",
+            product_name: "Quad",
+            product_code: "Q",
+            tubes_per_case: 12,
+            source_warehouse: "IL1",
+            destination_warehouse: "MS1",
+            pending_tubes: 2,
+            status: "PENDING",
+          },
+        ];
+      },
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+        return {
+          jobNumber: "4953",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+        };
+      },
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    [
+      "rpc:api_acl_list_caulk_transfers:org-1:IL1",
+      `findJobById:org-1:${jobId}`,
+    ],
+    "Expected one jobId-based scope lookup and no legacy jobNumber lookup.",
+  );
+  assertEquals(
+    (response.data as { entries: Record<string, unknown>[] }).entries.map((entry) => ({
+      transferId: entry.transferId,
+      jobId: entry.jobId,
+      workScope: entry.workScope,
+      sections: entry.sections,
+    })),
+    [
+      {
+        transferId: "TR-1",
+        jobId,
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
+      },
+      {
+        transferId: "TR-LEGACY",
+      },
+    ],
+    "Expected scoped transfer rows to be additive while legacy rows remain compatible.",
+  );
+});
+
+Deno.test("Edge /caulk/transactions/list projects safe transaction identity and leaves generic rows unchanged", async () => {
+  const jobId = "22222222-2222-4222-8222-222222222222";
+  const calls: string[] = [];
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/caulk/transactions/list",
+    {
+      warehouse: "ALL",
+      productId: "",
+      limit: 50,
+    },
+    {} as any,
+    {
+      rpcOrThrow: async (_client: unknown, rpcName: string, params: Record<string, unknown>) => {
+        calls.push(`rpc:${rpcName}:${params.p_org_id}:${params.p_warehouse}:${params.p_limit}`);
+        return [
+          {
+            transaction_id: "TX-1",
+            product_id: "product-1",
+            warehouse: "IL1",
+            manufacturer: "OSI",
+            product_name: "Quad",
+            product_code: "Q",
+            action: "TRANSFER_IN",
+            delta_tubes: 3,
+            resulting_tubes_on_hand: 10,
+            tubes_per_case: 12,
+            reason: "Transfer",
+            transfer_id: "TR-1",
+            source_box_id: "",
+            job_id: jobId,
+            job_number: "4953",
+            job_warehouse: "il1",
+            created_at: "2026-05-18T00:00:00Z",
+            created_by: "tester",
+          },
+          {
+            transaction_id: "TX-GENERIC",
+            product_id: "product-1",
+            warehouse: "IL1",
+            manufacturer: "OSI",
+            product_name: "Quad",
+            product_code: "Q",
+            action: "ADJUST",
+            delta_tubes: 1,
+            resulting_tubes_on_hand: 11,
+            tubes_per_case: 12,
+            reason: "Inventory edit",
+            transfer_id: "",
+            source_box_id: "",
+            created_at: "2026-05-18T00:01:00Z",
+            created_by: "tester",
+          },
+        ];
+      },
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
+        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+        return {
+          jobNumber: "4953",
+          workScope: "Lobby",
+          sections: "Lobby",
+        };
+      },
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    [
+      "rpc:api_acl_list_caulk_transactions:org-1:ALL:50",
+      `findJobById:org-1:${jobId}`,
+    ],
+    "Expected transaction scope enrichment to use only structured jobId.",
+  );
+  assertEquals(
+    (response.data as { entries: Record<string, unknown>[] }).entries.map((entry) => ({
+      transactionId: entry.transactionId,
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      jobWarehouse: entry.jobWarehouse,
+      workScope: entry.workScope,
+      sections: entry.sections,
+    })),
+    [
+      {
+        transactionId: "TX-1",
+        jobId,
+        jobNumber: "4953",
+        jobWarehouse: "IL1",
+        workScope: "Lobby",
+        sections: "Lobby",
+      },
+      {
+        transactionId: "TX-GENERIC",
+      },
+    ],
+    "Expected generic caulk transactions without structured identity to remain unchanged.",
+  );
+});
+
 Deno.test("Edge public film order mapper exposes additive jobId only when present", () => {
   const repositories = createInventoryRepositories({
     rpcOrThrow: async () => {

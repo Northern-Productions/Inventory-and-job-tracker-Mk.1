@@ -43,7 +43,7 @@ test('backend and Supabase job requirement id preservation migrations stay mirro
 test('latest schema guard requires job requirement id preservation release objects', () => {
   assert.match(
     schemaGuard,
-    /const LATEST_MIGRATION = '0133_job_cancel_jobid_scope\.sql';/,
+    /const LATEST_MIGRATION = '0134_caulk_read_jobid_scope_projection\.sql';/,
     'Expected the schema guard to name the new latest backend migration.'
   );
   assert.match(

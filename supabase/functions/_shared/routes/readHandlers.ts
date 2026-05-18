@@ -555,10 +555,24 @@ const readHandlers: Record<string, ReadHandler> = {
       notes: deps.asTrimmedString(entry.notes),
       transferId: deps.asTrimmedString(entry.transfer_id),
       sourceBoxId: deps.asTrimmedString(entry.source_box_id),
+      ...(deps.asTrimmedString(entry.job_id) ? { jobId: deps.asTrimmedString(entry.job_id) } : {}),
+      ...(deps.asTrimmedString(entry.job_number) ? { jobNumber: deps.asTrimmedString(entry.job_number) } : {}),
+      ...(deps.asTrimmedString(entry.job_warehouse)
+        ? { jobWarehouse: deps.asTrimmedString(entry.job_warehouse).toUpperCase() }
+        : {}),
       createdAt: deps.asTrimmedString(entry.created_at),
       createdBy: deps.asTrimmedString(entry.created_by),
     }));
-    return ok({ entries });
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries, deps);
+    return ok({
+      entries: entries.map((entry) => {
+        const jobId = deps.asTrimmedString((entry as Record<string, unknown>).jobId);
+        return {
+          ...entry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
   },
   "/caulk/transfers/list": async ({ client, orgId, params }, deps) => {
     const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_list_caulk_transfers", {
@@ -570,6 +584,7 @@ const readHandlers: Record<string, ReadHandler> = {
       transferId: deps.asTrimmedString(entry.transfer_id),
       caulkAllocationId: deps.asTrimmedString(entry.caulk_allocation_id),
       jobNumber: deps.asTrimmedString(entry.job_number),
+      ...(deps.asTrimmedString(entry.job_id) ? { jobId: deps.asTrimmedString(entry.job_id) } : {}),
       jobWarehouse: deps.asTrimmedString(entry.job_warehouse).toUpperCase(),
       productId: deps.asTrimmedString(entry.product_id),
       manufacturerId: deps.asTrimmedString(entry.manufacturer_id),
@@ -591,7 +606,16 @@ const readHandlers: Record<string, ReadHandler> = {
       updatedBy: deps.asTrimmedString(entry.updated_by),
       notes: deps.asTrimmedString(entry.notes),
     })).filter((entry) => entry.transferId);
-    return ok({ entries });
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries, deps);
+    return ok({
+      entries: entries.map((entry) => {
+        const jobId = deps.asTrimmedString((entry as Record<string, unknown>).jobId);
+        return {
+          ...entry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
   },
   "/boxes/search": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildSearchBoxes(client, orgId, params));

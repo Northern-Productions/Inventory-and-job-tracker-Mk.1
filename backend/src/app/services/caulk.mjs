@@ -171,8 +171,8 @@ async function listCaulkTransactions(client, orgId, params) {
         t.tubes_per_case,
         case
           when t.action = 'JOB_CHECKIN_UNUSED'
-            and btrim(coalesce(a.job_number, '')) <> ''
-            then format('Checked in unused caulk from job %s.', a.job_number)
+            and btrim(coalesce(source_allocation.job_number, '')) <> ''
+            then format('Checked in unused caulk from job %s.', source_allocation.job_number)
           when t.action = 'ADJUST'
             and lower(btrim(coalesce(t.reason, ''))) = 'inventory edit'
             and btrim(coalesce(t.notes, '')) <> ''
@@ -182,6 +182,9 @@ async function listCaulkTransactions(client, orgId, params) {
         t.notes,
         t.transfer_id,
         t.source_box_id,
+        resolved_job.id as job_id,
+        resolved_job.job_number,
+        resolved_job.warehouse as job_warehouse,
         t.created_at,
         t.created_by
       from app.caulk_transactions t
@@ -191,9 +194,19 @@ async function listCaulkTransactions(client, orgId, params) {
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
-      left join app.caulk_job_allocations a
-        on a.org_id = t.org_id
-       and a.caulk_allocation_id = t.source_box_id
+      left join app.caulk_job_allocations source_allocation
+        on source_allocation.org_id = t.org_id
+       and source_allocation.caulk_allocation_id = t.source_box_id
+      left join app.caulk_transfers source_transfer
+        on source_transfer.org_id = t.org_id
+       and source_transfer.transfer_id = t.transfer_id
+       and btrim(coalesce(t.transfer_id, '')) <> ''
+      left join app.caulk_job_allocations transfer_allocation
+        on transfer_allocation.org_id = source_transfer.org_id
+       and transfer_allocation.id = source_transfer.caulk_allocation_id
+      left join app.jobs resolved_job
+        on resolved_job.org_id = t.org_id
+       and resolved_job.id = coalesce(source_allocation.job_id, source_transfer.job_id, transfer_allocation.job_id)
       where t.org_id = $1::uuid
         and ($2::text = '' or t.warehouse = $2::text)
         and ($3::uuid is null or t.product_id = $3::uuid)
@@ -216,9 +229,10 @@ async function listPendingCaulkTransfers(client, orgId, params) {
     `
       select
         t.*,
+        coalesce(t.job_id, a.job_id) as resolved_job_id,
         a.caulk_allocation_id as caulk_allocation_public_id,
         a.job_number,
-        j.warehouse as job_warehouse,
+        coalesce(job_by_id.warehouse, legacy_job.warehouse) as job_warehouse,
         p.id as product_id,
         p.manufacturer_id,
         m.name as manufacturer,
@@ -232,9 +246,13 @@ async function listPendingCaulkTransfers(client, orgId, params) {
       join app.caulk_products p
         on p.org_id = t.org_id
        and p.id = t.product_id
-      left join app.jobs j
-        on j.org_id = a.org_id
-       and upper(trim(j.job_number)) = upper(trim(a.job_number))
+      left join app.jobs job_by_id
+        on job_by_id.org_id = t.org_id
+       and job_by_id.id = coalesce(t.job_id, a.job_id)
+      left join app.jobs legacy_job
+        on legacy_job.org_id = a.org_id
+       and coalesce(t.job_id, a.job_id) is null
+       and upper(trim(legacy_job.job_number)) = upper(trim(a.job_number))
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
