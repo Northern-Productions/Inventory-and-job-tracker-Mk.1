@@ -51,7 +51,7 @@ test('ordered receive core type migration patches the existing receive RPC narro
 test('latest schema check tracks ordered receive core type semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0134_caulk_read_jobid_scope_projection\.sql/);
+  assert.match(schemaCheck, /0135_job_work_scope_key_groundwork\.sql/);
   assert.match(schemaCheck, /v_core_type := app_api\.normalize_core_type\(v_payload->>'coreType', true\);/);
   assert.match(
     schemaCheck,
