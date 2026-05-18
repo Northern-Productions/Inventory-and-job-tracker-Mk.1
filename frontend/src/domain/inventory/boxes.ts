@@ -228,6 +228,8 @@ export interface RollHistoryEntry {
   widthIn: number;
   jobId?: string;
   jobNumber: string;
+  workScope?: string | null;
+  sections?: string | null;
   checkedOutAt: string;
   checkedOutBy: string;
   checkedOutWeightLbs: number | null;

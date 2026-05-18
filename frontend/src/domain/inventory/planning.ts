@@ -62,7 +62,10 @@ export interface AllocationEntry {
   allocationId: string;
   boxId: string;
   warehouse: Warehouse;
+  jobId?: string;
   jobNumber: string;
+  workScope?: string | null;
+  sections?: string | null;
   installDate: string;
   crewLeader: string;
   allocatedFeet: number;

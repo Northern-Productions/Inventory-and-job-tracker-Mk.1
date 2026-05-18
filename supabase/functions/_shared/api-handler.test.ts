@@ -848,6 +848,140 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
   }, "Expected /boxes/get to include structured ordered-for job data.");
 });
 
+Deno.test("/allocations/by-box enriches allocation history scope by job id only", async () => {
+  const jobLookups: string[] = [];
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/by-box",
+    { boxId: "IL1-1234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      listAllocationsByBox: async () => [
+        {
+          allocationId: "alloc-1",
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "4953",
+          warehouse: "IL1",
+          allocatedFeet: 24,
+        },
+        {
+          allocationId: "alloc-legacy",
+          jobNumber: "16242",
+          warehouse: "IL1",
+          allocatedFeet: 10,
+        },
+      ],
+      findBoxById: async () => null,
+      findJobById: async (_client: unknown, _orgId: string, jobId: string) => {
+        jobLookups.push(jobId);
+        return {
+          jobNumber: "4953",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+        };
+      },
+      toPublicAllocation: (entry: Record<string, unknown>) => ({
+        allocationId: entry.allocationId,
+        jobNumber: entry.jobNumber,
+        warehouse: entry.warehouse,
+        allocatedFeet: entry.allocatedFeet,
+      }),
+    } as any,
+  );
+
+  assertEquals(jobLookups, ["11111111-1111-4111-8111-111111111111"], "Expected only jobId-based scope lookup.");
+  assertEquals(
+    (response.data as any).entries,
+    [
+      {
+        allocationId: "alloc-1",
+        jobNumber: "4953",
+        warehouse: "IL1",
+        allocatedFeet: 24,
+        jobId: "11111111-1111-4111-8111-111111111111",
+        workScope: "Sections 4, 5",
+        sections: "Sections 4, 5",
+        backedPhysicalFeet: 24,
+        reservationState: "WITHOUT_INSTALL_DATE",
+      },
+      {
+        allocationId: "alloc-legacy",
+        jobNumber: "16242",
+        warehouse: "IL1",
+        allocatedFeet: 10,
+        backedPhysicalFeet: 10,
+        reservationState: "WITHOUT_INSTALL_DATE",
+      },
+    ],
+    "Expected /allocations/by-box to add scope only to rows with jobId.",
+  );
+});
+
+Deno.test("/roll-history/by-box enriches roll history scope by job id only", async () => {
+  const jobLookups: string[] = [];
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/roll-history/by-box",
+    { boxId: "IL1-1234" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      listRollHistoryByBox: async () => [
+        {
+          logId: "roll-1",
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "4803",
+          warehouse: "MS1",
+        },
+        {
+          logId: "roll-legacy",
+          jobId: null,
+          jobNumber: "4953",
+          warehouse: "IL1",
+        },
+      ],
+      findJobById: async (_client: unknown, _orgId: string, jobId: string) => {
+        jobLookups.push(jobId);
+        return {
+          jobNumber: "4803",
+          sections: "Lobby Phase",
+        };
+      },
+    } as any,
+  );
+
+  assertEquals(jobLookups, ["22222222-2222-4222-8222-222222222222"], "Expected only jobId-based scope lookup.");
+  assertEquals(
+    (response.data as any).entries,
+    [
+      {
+        logId: "roll-1",
+        jobId: "22222222-2222-4222-8222-222222222222",
+        jobNumber: "4803",
+        warehouse: "MS1",
+        workScope: "Lobby Phase",
+        sections: "Lobby Phase",
+      },
+      {
+        logId: "roll-legacy",
+        jobId: null,
+        jobNumber: "4953",
+        warehouse: "IL1",
+      },
+    ],
+    "Expected /roll-history/by-box to add scope only to rows with jobId.",
+  );
+});
+
 Deno.test("/reports/summary preserves additive closed-job work scope fields", async () => {
   const response = await dispatchReadWithHandlers(
     {},

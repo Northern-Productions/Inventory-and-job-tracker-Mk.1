@@ -69,6 +69,45 @@ describe('RollHistoryPanel', () => {
     expect(screen.getByText('12 LF')).toBeTruthy();
   });
 
+  it('displays formatted roll history job labels with Work Scope when available', () => {
+    useRollHistoryMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: [
+        buildRollHistoryEntry({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          workScope: 'Sections 4, 5',
+          sections: 'Sections 4, 5'
+        })
+      ],
+      error: null
+    });
+
+    render(<RollHistoryPanel boxId="IL1-100" />);
+
+    expect(screen.getByText('IL1-000123 · Sections 4, 5')).toBeTruthy();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('falls back to job number only for legacy roll history without Work Scope', () => {
+    useRollHistoryMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: [
+        buildRollHistoryEntry({
+          jobId: undefined,
+          jobNumber: '4953'
+        })
+      ],
+      error: null
+    });
+
+    render(<RollHistoryPanel boxId="IL1-100" />);
+
+    expect(screen.getByText('IL1-4953')).toBeTruthy();
+    expect(screen.queryByText(/Unscoped/)).toBeNull();
+  });
+
   it('renders untrusted zero LF history as unknown instead of known zero usage', () => {
     useRollHistoryMock.mockReturnValue({
       isLoading: false,

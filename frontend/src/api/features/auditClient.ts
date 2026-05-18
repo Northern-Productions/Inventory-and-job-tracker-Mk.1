@@ -12,6 +12,23 @@ import type {
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
+function normalizeOptionalText(value: unknown): string | null {
+  return String(value ?? '').trim() || null;
+}
+
+function normalizeRollHistoryEntry(entry: RollHistoryEntry): RollHistoryEntry {
+  const jobId = String(entry.jobId || '').trim();
+  const rawWorkScope = normalizeOptionalText(entry.workScope);
+  const rawSections = normalizeOptionalText(entry.sections);
+  const workScope = rawWorkScope ?? rawSections;
+  return {
+    ...entry,
+    jobId: jobId || undefined,
+    workScope,
+    sections: rawSections ?? workScope
+  };
+}
+
 export async function getAuditByBox(boxId: string): Promise<AuditEntry[]> {
   assertFeatureAccess('activity_history', 'read');
   const data = await requestReadWithFallback<BoxHistoryResponse>('/audit/by-box', { boxId }, { boxId });
@@ -37,7 +54,7 @@ export async function getRollHistoryByBox(boxId: string): Promise<RollHistoryEnt
     { boxId },
     { boxId }
   );
-  return data.entries;
+  return (data.entries || []).map(normalizeRollHistoryEntry);
 }
 
 export async function undoAudit(

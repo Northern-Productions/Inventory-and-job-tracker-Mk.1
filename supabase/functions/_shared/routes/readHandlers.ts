@@ -362,6 +362,28 @@ async function buildLastCheckoutScopeForBox(
   return asOptionalScopeFields((await deps.findJobById(client, orgId, checkoutJobId)) || null, deps);
 }
 
+async function buildJobScopeFieldsByJobId(
+  client: any,
+  orgId: string,
+  entries: unknown[],
+  deps: ReadHandlerDeps,
+) {
+  const jobIds = [
+    ...new Set(
+      (Array.isArray(entries) ? entries : [])
+        .map((entry) => deps.asTrimmedString((entry as Record<string, unknown>)?.jobId))
+        .filter((jobId): jobId is string => Boolean(jobId) && isUuidLike(jobId))
+    ),
+  ];
+  const scopeFieldsByJobId = new Map<string, Record<string, unknown>>();
+
+  for (const jobId of jobIds) {
+    scopeFieldsByJobId.set(jobId, asOptionalScopeFields((await deps.findJobById(client, orgId, jobId)) || null, deps));
+  }
+
+  return scopeFieldsByJobId;
+}
+
 const readHandlers: Record<string, ReadHandler> = {
   "/app/attention-summary": async ({ client, orgId, identity }, deps) => {
     const start = Date.now();
@@ -619,14 +641,18 @@ const readHandlers: Record<string, ReadHandler> = {
     const entries = await deps.listAllocationsByBox(client, orgId, boxId);
     const box = await deps.findBoxById(client, orgId, boxId);
     const reservationSnapshot = box ? buildBoxReservationSnapshot(box, entries) : null;
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries, deps);
     return ok({
       entries: entries.map((entry) => {
         const allocationEntry = entry as Record<string, unknown>;
         const allocationSnapshotsById = (reservationSnapshot as any)?.allocationSnapshotsById || {};
         const allocationSnapshot =
           allocationSnapshotsById[deps.asTrimmedString(allocationEntry.allocationId)] || null;
+        const jobId = deps.asTrimmedString(allocationEntry.jobId);
         return {
           ...deps.toPublicAllocation(entry),
+          ...(jobId ? { jobId } : {}),
+          ...(scopeFieldsByJobId.get(jobId) || {}),
           backedPhysicalFeet: allocationSnapshot
             ? allocationSnapshot.backedPhysicalFeet
             : deps.integerOrZero(allocationEntry.allocatedFeet),
@@ -781,7 +807,18 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok({ entries: await deps.buildFilmCatalog(client, orgId) });
   },
   "/roll-history/by-box": async ({ client, orgId, params }, deps) => {
-    return ok({ entries: await deps.listRollHistoryByBox(client, orgId, deps.requireString(params.boxId, "boxId")) });
+    const entries = await deps.listRollHistoryByBox(client, orgId, deps.requireString(params.boxId, "boxId"));
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries, deps);
+    return ok({
+      entries: entries.map((entry) => {
+        const historyEntry = entry as Record<string, unknown>;
+        const jobId = deps.asTrimmedString(historyEntry.jobId);
+        return {
+          ...historyEntry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
   },
   "/reports/summary": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildReportsSummary(client, orgId, params));
