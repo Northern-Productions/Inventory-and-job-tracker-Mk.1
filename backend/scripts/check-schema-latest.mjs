@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0133_job_cancel_jobid_scope.sql';
+const LATEST_MIGRATION = '0134_caulk_read_jobid_scope_projection.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -83,6 +83,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transfers(uuid, text, uuid)' },
+  { kind: 'function', signature: 'public.api_acl_list_caulk_transactions(uuid, text, uuid, integer)' },
   { kind: 'function', signature: 'public.api_acl_caulk_upsert_product(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_add(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_update(uuid, text, jsonb)' },

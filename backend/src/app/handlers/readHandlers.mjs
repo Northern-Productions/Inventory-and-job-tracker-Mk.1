@@ -286,10 +286,32 @@ const readHandlers = {
     ok({ entries: await listCaulkProducts(client, orgId) }),
   '/caulk/stock/list': async ({ client, orgId, params }) =>
     ok({ entries: await listCaulkStock(client, orgId, params) }),
-  '/caulk/transactions/list': async ({ client, orgId, params }) =>
-    ok({ entries: await listCaulkTransactions(client, orgId, params) }),
-  '/caulk/transfers/list': async ({ client, orgId, params }) =>
-    ok({ entries: await listPendingCaulkTransfers(client, orgId, params) }),
+  '/caulk/transactions/list': async ({ client, orgId, params }) => {
+    const entries = await listCaulkTransactions(client, orgId, params);
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries);
+    return ok({
+      entries: entries.map((entry) => {
+        const jobId = String(entry?.jobId || '').trim();
+        return {
+          ...entry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
+  },
+  '/caulk/transfers/list': async ({ client, orgId, params }) => {
+    const entries = await listPendingCaulkTransfers(client, orgId, params);
+    const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries);
+    return ok({
+      entries: entries.map((entry) => {
+        const jobId = String(entry?.jobId || '').trim();
+        return {
+          ...entry,
+          ...(scopeFieldsByJobId.get(jobId) || {}),
+        };
+      }),
+    });
+  },
 };
 
 const POOLED_READ_HANDLERS = new Set([
