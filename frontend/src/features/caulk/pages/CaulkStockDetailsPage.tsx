@@ -15,7 +15,7 @@ import {
 } from '../../../api/features/caulkClient';
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import {
   usePendingCancelCaulkTransferIds,
@@ -42,6 +42,24 @@ function formatDateLabel(value: string) {
     hour: 'numeric',
     minute: '2-digit'
   }).format(parsed);
+}
+
+function formatCaulkJobLabel(job: {
+  jobNumber?: string | null;
+  jobWarehouse?: string | null;
+  workScope?: string | null;
+  sections?: string | null;
+}) {
+  if (!String(job.jobNumber || '').trim()) {
+    return '';
+  }
+
+  return formatJobDisplayLabel({
+    jobNumber: job.jobNumber,
+    warehouse: job.jobWarehouse,
+    workScope: job.workScope,
+    sections: job.sections
+  });
 }
 
 export default function CaulkStockDetailsPage() {
@@ -319,11 +337,12 @@ export default function CaulkStockDetailsPage() {
                   const transferPending =
                     pendingReceiveCaulkTransferIds.has(transfer.transferId.toUpperCase()) ||
                     pendingCancelCaulkTransferIds.has(transfer.transferId.toUpperCase());
+                  const transferJobLabel = formatCaulkJobLabel(transfer);
 
                   return (
                     <div key={transfer.transferId} className="job-transfer-alert-row">
                       <div className="job-transfer-alert-copy">
-                        <strong>Job {formatJobDisplayNumber(transfer.jobNumber, transfer.jobWarehouse) || '--'}</strong>
+                        <strong>Job {transferJobLabel || '--'}</strong>
                         <p className="muted-text">
                           {transfer.sourceWarehouse} to {transfer.destinationWarehouse} | {transfer.pendingTubes}{' '}
                           tube{transfer.pendingTubes === 1 ? '' : 's'}
@@ -491,15 +510,25 @@ export default function CaulkStockDetailsPage() {
                     </td>
                   </tr>
                 ) : (
-                  (transactionsQuery.data || []).map((entry) => (
-                    <tr key={entry.transactionId}>
-                      <td>{entry.action}</td>
-                      <td>{entry.deltaTubes}</td>
-                      <td>{entry.resultingTubesOnHand}</td>
-                      <td>{entry.reason || '--'}</td>
-                      <td>{formatDateLabel(entry.createdAt)}</td>
-                    </tr>
-                  ))
+                  (transactionsQuery.data || []).map((entry) => {
+                    const transactionJobLabel =
+                      entry.jobId && entry.jobNumber ? formatCaulkJobLabel(entry) : '';
+
+                    return (
+                      <tr key={entry.transactionId}>
+                        <td>{entry.action}</td>
+                        <td>{entry.deltaTubes}</td>
+                        <td>{entry.resultingTubesOnHand}</td>
+                        <td>
+                          {entry.reason || '--'}
+                          {transactionJobLabel ? (
+                            <div className="muted-text">Job {transactionJobLabel}</div>
+                          ) : null}
+                        </td>
+                        <td>{formatDateLabel(entry.createdAt)}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
