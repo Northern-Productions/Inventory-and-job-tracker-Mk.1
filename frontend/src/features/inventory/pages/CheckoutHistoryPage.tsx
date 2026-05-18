@@ -11,7 +11,7 @@ import {
 import type { AuditEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
-import { formatJobDisplayNumber } from '../../../lib/jobDisplay';
+import { formatJobDisplayLabel, formatJobDisplayNumber } from '../../../lib/jobDisplay';
 import { useAuditList } from '../hooks/useInventoryQueries';
 
 const CHECKOUT_PREFIX = 'Checked out for job ';
@@ -32,6 +32,23 @@ function getCheckoutJobWarehouse(entry: AuditEntry): string {
   return String(entry.after?.warehouse || entry.before?.warehouse || '').trim().toUpperCase();
 }
 
+function hasStructuredCheckoutJob(entry: AuditEntry): boolean {
+  return Boolean(String(entry.jobId || '').trim() && String(entry.jobNumber || '').trim());
+}
+
+function getCheckoutJobLabel(entry: AuditEntry): string {
+  if (hasStructuredCheckoutJob(entry)) {
+    return formatJobDisplayLabel({
+      jobNumber: entry.jobNumber || '',
+      warehouse: entry.jobWarehouse,
+      workScope: entry.workScope,
+      sections: entry.sections
+    });
+  }
+
+  return formatJobDisplayNumber(getCheckoutJobNumber(entry.notes), getCheckoutJobWarehouse(entry));
+}
+
 export default function CheckoutHistoryPage() {
   const navigate = useNavigate();
   const isPhoneLayout = useIsPhoneLayout();
@@ -40,8 +57,7 @@ export default function CheckoutHistoryPage() {
   const checkoutEntries = useMemo(
     () =>
       (checkoutQuery.data ?? []).filter((entry) => {
-        const jobNumber = getCheckoutJobNumber(entry.notes);
-        return Boolean(jobNumber);
+        return hasStructuredCheckoutJob(entry) || Boolean(getCheckoutJobNumber(entry.notes));
       }),
     [checkoutQuery.data]
   );
@@ -77,7 +93,7 @@ export default function CheckoutHistoryPage() {
                   <MobileFieldList>
                     <MobileField
                       label="Job Number"
-                      value={formatJobDisplayNumber(getCheckoutJobNumber(entry.notes), getCheckoutJobWarehouse(entry)) || '--'}
+                      value={getCheckoutJobLabel(entry) || '--'}
                     />
                     <MobileField label="User" value={entry.user || '--'} />
                   </MobileFieldList>
@@ -108,7 +124,7 @@ export default function CheckoutHistoryPage() {
                           {entry.boxId}
                         </button>
                       </td>
-                      <td>{formatJobDisplayNumber(getCheckoutJobNumber(entry.notes), getCheckoutJobWarehouse(entry)) || '--'}</td>
+                      <td>{getCheckoutJobLabel(entry) || '--'}</td>
                       <td>{entry.user || '--'}</td>
                     </tr>
                   ))}
