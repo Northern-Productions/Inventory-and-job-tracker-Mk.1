@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0134_caulk_read_jobid_scope_projection.sql';
+const LATEST_MIGRATION = '0135_job_work_scope_key_groundwork.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -15,6 +15,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.owner_notification_preferences' },
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
+  { kind: 'column', signature: 'app.jobs.work_scope_key' },
+  { kind: 'index', signature: 'app.idx_jobs_org_job_number_work_scope_key' },
   { kind: 'table', signature: 'app.caulk_transfers' },
   { kind: 'table', signature: 'app.box_dealers' },
   { kind: 'type', signature: 'app.allocation_source' },
@@ -48,6 +50,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_find_job_by_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_find_job_by_id(uuid, uuid)' },
   { kind: 'function', signature: 'app_api.normalize_job_work_scope(text)' },
+  { kind: 'function', signature: 'app_api.normalize_job_work_scope_key(text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_match_surface_film_name(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_film_family_key(uuid, text, text)' },
@@ -235,6 +238,19 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'app_api.normalize_job_sections(text)',
     includes: ['app_api.normalize_job_work_scope(p_value)'],
     excludes: ['Sections must contain numbers separated by commas.']
+  },
+  {
+    signature: 'app_api.normalize_job_work_scope_key(text)',
+    includes: [
+      "return 'blank:';",
+      "regexp_replace(v_normalized, '[[:space:]]*,[[:space:]]*', ',', 'g')",
+      "regexp_replace(v_section_candidate, '\\mand\\M', ',', 'g')",
+      "regexp_split_to_table(v_token_source, '[,[:space:]]+')",
+      'array_agg(token order by length(token), token)',
+      "return 'section:' || array_to_string(v_section_numbers, ',');",
+      "return 'text:' || v_normalized;"
+    ],
+    excludes: ['app_api.normalize_job_work_scope(p_value)', 'update app.jobs', 'unique (org_id, job_number, work_scope_key)']
   },
   {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',
@@ -1045,6 +1061,7 @@ async function runSchemaCheck() {
           signature,
           case
             when kind = 'table' then to_regclass(signature) is not null
+            when kind = 'index' then to_regclass(signature) is not null
             when kind = 'type' then to_regtype(signature) is not null
             when kind = 'function' then to_regprocedure(signature) is not null
             when kind = 'column' then exists (
@@ -1068,6 +1085,73 @@ async function runSchemaCheck() {
         '[schema-check] Missing required schema objects for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           `${details}`
+      );
+    }
+
+    const workScopeKeyRows = await client.query(
+      `
+        select
+          a.attgenerated = 's' as is_generated_stored,
+          coalesce(pg_get_expr(d.adbin, d.adrelid), '') as generation_expression
+        from pg_attribute a
+        join pg_class c
+          on c.oid = a.attrelid
+        join pg_namespace n
+          on n.oid = c.relnamespace
+        left join pg_attrdef d
+          on d.adrelid = a.attrelid
+          and d.adnum = a.attnum
+        where n.nspname = 'app'
+          and c.relname = 'jobs'
+          and a.attname = 'work_scope_key'
+          and not a.attisdropped;
+      `
+    );
+
+    const workScopeKeyState = workScopeKeyRows.rows[0] || {};
+    const workScopeKeyIssues = [];
+    if (workScopeKeyState.is_generated_stored !== true) {
+      workScopeKeyIssues.push('- generated column mismatch: app.jobs.work_scope_key is not a stored generated column');
+    }
+    if (!String(workScopeKeyState.generation_expression || '').includes('app_api.normalize_job_work_scope_key(sections)')) {
+      workScopeKeyIssues.push(
+        '- generated column mismatch: app.jobs.work_scope_key does not derive from app_api.normalize_job_work_scope_key(sections)'
+      );
+    }
+
+    const workScopeKeyIndexRows = await client.query(
+      `
+        select
+          i.indisunique as is_unique,
+          pg_get_indexdef(idx.oid) as definition
+        from pg_class idx
+        join pg_namespace n
+          on n.oid = idx.relnamespace
+        join pg_index i
+          on i.indexrelid = idx.oid
+        where n.nspname = 'app'
+          and idx.relname = 'idx_jobs_org_job_number_work_scope_key';
+      `
+    );
+
+    const workScopeKeyIndexState = workScopeKeyIndexRows.rows[0] || {};
+    const workScopeKeyIndexDefinition = String(workScopeKeyIndexState.definition || '').toLowerCase();
+    if (workScopeKeyIndexState.is_unique === true) {
+      workScopeKeyIssues.push(
+        '- index mismatch: app.idx_jobs_org_job_number_work_scope_key must remain non-unique until duplicate enablement'
+      );
+    }
+    if (!workScopeKeyIndexDefinition.includes('(org_id, job_number, work_scope_key)')) {
+      workScopeKeyIssues.push(
+        '- index mismatch: app.idx_jobs_org_job_number_work_scope_key is not on (org_id, job_number, work_scope_key)'
+      );
+    }
+
+    if (workScopeKeyIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Work Scope key groundwork is out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          workScopeKeyIssues.join('\n')
       );
     }
 
