@@ -1407,6 +1407,68 @@ Deno.test("/reports/summary preserves additive closed-job work scope fields", as
   );
 });
 
+Deno.test("/jobs/list preserves same-number rows returned by the list builder", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/list",
+    { jobNumbers: ["9327001"] },
+    {} as any,
+    {
+      buildJobsList: async (
+        _client: unknown,
+        orgId: string,
+        limit: number,
+        lifecycleStatus: unknown,
+        jobNumbers: unknown,
+      ) => {
+        calls.push({ orgId, limit, lifecycleStatus, jobNumbers });
+        return [
+          {
+            jobId: "11111111-1111-4111-8111-111111111111",
+            jobNumber: "9327001",
+            workScope: "Sections 1",
+            workScopeKey: "section:1",
+          },
+          {
+            jobId: "22222222-2222-4222-8222-222222222222",
+            jobNumber: "9327001",
+            workScope: "Sections 2",
+            workScopeKey: "section:2",
+          },
+        ];
+      },
+    } as any,
+  );
+
+  assertEquals(
+    calls,
+    [{ orgId: "org-1", limit: 25, lifecycleStatus: undefined, jobNumbers: ["9327001"] }],
+    "Expected /jobs/list to pass the job-number filter through without deduping it.",
+  );
+  assertEquals(
+    (response.data as any).entries.map((entry: any) => ({
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      workScopeKey: entry.workScopeKey,
+    })),
+    [
+      {
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "9327001",
+        workScopeKey: "section:1",
+      },
+      {
+        jobId: "22222222-2222-4222-8222-222222222222",
+        jobNumber: "9327001",
+        workScopeKey: "section:2",
+      },
+    ],
+    "Expected /jobs/list to return distinct same-number rows from the builder.",
+  );
+});
+
 Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", async () => {
   const response = await dispatchReadWithHandlers(
     {},

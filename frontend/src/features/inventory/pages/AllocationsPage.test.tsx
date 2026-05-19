@@ -225,6 +225,38 @@ describe('AllocationsPage', () => {
     expect(useCaulkProductsMock).toHaveBeenCalledWith({ enabled: false });
   });
 
+  it('renders same-number jobs as distinct list rows by job id and work scope', () => {
+    const sectionOneJob = buildJob({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '9327001',
+      sections: 'Sections 1',
+      workScope: 'Sections 1',
+      workScopeKey: 'section:1',
+      requiredFeet: 11
+    });
+    const sectionTwoJob = buildJob({
+      jobId: '22222222-2222-4222-8222-222222222222',
+      jobNumber: '9327001',
+      sections: 'Sections 2',
+      workScope: 'Sections 2',
+      workScopeKey: 'section:2',
+      requiredFeet: 22
+    });
+    useJobsListMock.mockReturnValue({
+      data: [sectionOneJob, sectionTwoJob],
+      isLoading: false,
+      error: null
+    });
+
+    const html = renderPage({ initialJobsViewMode: 'list' });
+
+    expect(html).toContain('Showing</span><strong class="hero-metric-value inventory-summary-value">2</strong>');
+    expect(html).toContain(formatJobDisplayLabel(sectionOneJob));
+    expect(html).toContain(formatJobDisplayLabel(sectionTwoJob));
+    expect(html).toContain('<td>Sections 1</td>');
+    expect(html).toContain('<td>Sections 2</td>');
+  });
+
   it('renders the completed workflow copy and data when list mode is selected', () => {
     const html = renderPage({ initialWorkflowView: 'completed', initialJobsViewMode: 'list' });
 

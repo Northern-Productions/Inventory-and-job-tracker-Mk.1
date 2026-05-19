@@ -28,6 +28,20 @@ function renderStatusBadges(entry: JobListEntry) {
   );
 }
 
+function getJobListRowKey(entry: JobListEntry) {
+  const jobId = String(entry.jobId || '').trim();
+  if (jobId) {
+    return `job:${jobId}`;
+  }
+
+  return [
+    'legacy-job',
+    entry.jobNumber,
+    entry.workScopeKey || entry.workScope || entry.sections || '',
+    entry.warehouse || ''
+  ].join(':');
+}
+
 interface JobsResultsSectionProps {
   isCalendarView: boolean;
   workflowTitle: string;
@@ -133,7 +147,7 @@ export function JobsResultsSection({
             {listJobs.map((entry) => {
               const displayJobLabel = formatJobDisplayLabel(entry);
               return (
-                <MobileRecordCard key={entry.jobNumber}>
+                <MobileRecordCard key={getJobListRowKey(entry)}>
                   <MobileRecordHeader
                     title={displayJobLabel}
                     subtitle={`${entry.warehouse} warehouse`}
@@ -172,7 +186,7 @@ export function JobsResultsSection({
                 {listJobs.map((entry) => {
                   const displayJobLabel = formatJobDisplayLabel(entry);
                   return (
-                    <tr key={entry.jobNumber}>
+                    <tr key={getJobListRowKey(entry)}>
                       <td>
                         <button
                           type="button"

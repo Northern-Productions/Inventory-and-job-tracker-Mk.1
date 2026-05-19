@@ -480,6 +480,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     }
     return {
       requirementId: deps.asTrimmedString(row.requirement_id),
+      jobId: row.job_id || null,
       jobNumber: deps.asTrimmedString(row.job_number),
       productId: deps.asTrimmedString(row.product_id),
       manufacturerId: deps.asTrimmedString(row.manufacturer_id),
@@ -501,6 +502,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return {
       caulkAllocationId: deps.asTrimmedString(row.caulk_allocation_id),
       requirementId: deps.asTrimmedString(row.requirement_id),
+      jobId: row.job_id || null,
       jobNumber: deps.asTrimmedString(row.job_number),
       productId: deps.asTrimmedString(row.product_id),
       manufacturerId: deps.asTrimmedString(row.manufacturer_id),

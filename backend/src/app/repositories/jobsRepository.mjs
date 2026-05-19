@@ -289,6 +289,7 @@ async function listJobCaulkRequirements(client, orgId) {
     `
       select
         r.id as requirement_id,
+        r.job_id,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -337,6 +338,7 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
     `
       select
         r.id as requirement_id,
+        r.job_id,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -386,6 +388,7 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
     `
       select
         r.id as requirement_id,
+        r.job_id,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -460,6 +463,7 @@ async function listCaulkJobAllocations(client, orgId) {
       select
         a.caulk_allocation_id,
         a.requirement_id,
+        a.job_id,
         a.product_id,
         p.manufacturer_id,
         m.name as manufacturer,
@@ -543,6 +547,7 @@ async function listCaulkJobAllocationsByJob(client, orgId, jobNumber) {
       select
         a.caulk_allocation_id,
         a.requirement_id,
+        a.job_id,
         a.product_id,
         p.manufacturer_id,
         m.name as manufacturer,
@@ -635,6 +640,7 @@ async function listCaulkJobAllocationsByJobId(client, orgId, jobId) {
       select
         a.caulk_allocation_id,
         a.requirement_id,
+        a.job_id,
         a.product_id,
         p.manufacturer_id,
         m.name as manufacturer,

@@ -17,6 +17,20 @@ import {
   type JobCalendarView
 } from '../utils/jobCalendar';
 
+function getCalendarJobKey(job: JobListEntry) {
+  const jobId = String(job.jobId || '').trim();
+  if (jobId) {
+    return `job:${jobId}`;
+  }
+
+  return [
+    'legacy-job',
+    job.jobNumber,
+    job.workScopeKey || job.workScope || job.sections || '',
+    job.warehouse || ''
+  ].join(':');
+}
+
 interface JobsCalendarViewProps {
   view: JobCalendarView;
   anchorDate: string;
@@ -96,7 +110,7 @@ function renderJobLink(
 
   return (
     <Link
-      key={job.jobNumber}
+      key={getCalendarJobKey(job)}
       ref={(node) => options.registerRef?.(job.jobNumber, node)}
       to={buildAllocationJobRoute(job)}
       className={[

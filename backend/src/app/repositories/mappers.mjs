@@ -479,6 +479,7 @@ function mapDbCaulkJobRequirementRow(row) {
 
   return {
     requirementId: asTrimmedString(row.requirement_id || row.id),
+    jobId: row.job_id || null,
     jobNumber: asTrimmedString(row.job_number),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
@@ -501,6 +502,7 @@ function mapDbCaulkJobAllocationRow(row) {
   return {
     caulkAllocationId: asTrimmedString(row.caulk_allocation_id),
     requirementId: asTrimmedString(row.requirement_id),
+    jobId: row.job_id || null,
     jobNumber: asTrimmedString(row.job_number),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),

@@ -291,6 +291,38 @@ describe('AllocationsPage interactions', () => {
     );
   });
 
+  it('opens the selected same-number list row by its own canonical jobId', () => {
+    useJobsListMock.mockReturnValue({
+      data: [
+        buildJob({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '9327001',
+          sections: 'Sections 1',
+          workScope: 'Sections 1',
+          workScopeKey: 'section:1'
+        }),
+        buildJob({
+          jobId: '22222222-2222-4222-8222-222222222222',
+          jobNumber: '9327001',
+          sections: 'Sections 2',
+          workScope: 'Sections 2',
+          workScopeKey: 'section:2'
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+
+    renderPage({ initialJobsViewMode: 'list' });
+
+    expect(screen.getByRole('button', { name: /IL1-9327001.*Sections 1/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /IL1-9327001.*Sections 2/ }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/22222222-2222-4222-8222-222222222222'
+    );
+  });
+
   it('defers film catalog and caulk products until the New Job dialog opens and shows safe loading states', () => {
     renderPage({ initialJobsViewMode: 'calendar' });
 
