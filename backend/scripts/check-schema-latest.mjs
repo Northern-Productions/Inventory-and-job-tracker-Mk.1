@@ -1135,7 +1135,7 @@ async function runSchemaCheck() {
           c.conname,
           pg_get_constraintdef(c.oid) as definition,
           (
-            select array_agg(a.attname order by cols.ordinality)
+            select array_to_string(array_agg(a.attname::text order by cols.ordinality), ',')
             from unnest(c.conkey) with ordinality as cols(attnum, ordinality)
             join pg_attribute a
               on a.attrelid = c.conrelid
@@ -1148,7 +1148,7 @@ async function runSchemaCheck() {
     );
 
     const uniqueColumnSets = workScopeKeyConstraintRows.rows.map((row) => ({
-      columns: Array.isArray(row.columns) ? row.columns.join(',') : ''
+      columns: String(row.columns || '')
     }));
     const hasTripletUnique = uniqueColumnSets.some((row) => row.columns === 'org_id,job_number,work_scope_key');
     const hasLegacyJobNumberUnique = uniqueColumnSets.some((row) => row.columns === 'org_id,job_number');
@@ -1160,6 +1160,15 @@ async function runSchemaCheck() {
     if (hasLegacyJobNumberUnique) {
       workScopeKeyIssues.push(
         '- uniqueness mismatch: app.jobs must not retain unique(org_id, job_number) after duplicate enablement'
+      );
+    }
+
+    const workScopeKeySupportIndexRows = await client.query(
+      `select to_regclass('app.idx_jobs_org_job_number_work_scope_key') is not null as exists;`
+    );
+    if (workScopeKeySupportIndexRows.rows[0]?.exists === true) {
+      workScopeKeyIssues.push(
+        '- index mismatch: app.idx_jobs_org_job_number_work_scope_key must be dropped after duplicate enablement'
       );
     }
 

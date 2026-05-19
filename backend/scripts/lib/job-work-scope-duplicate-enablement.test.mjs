@@ -87,8 +87,22 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
   assert.match(schemaLatest, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
+  assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
+  assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);
+  assert.match(schemaLatest, /columns: String\(row\.columns \|\| ''\)/);
+  assert.doesNotMatch(schemaLatest, /Array\.isArray\(row\.columns\)/);
+  assert.match(
+    schemaLatest,
+    /const hasTripletUnique = uniqueColumnSets\.some\(\(row\) => row\.columns === 'org_id,job_number,work_scope_key'\);/
+  );
+  assert.match(
+    schemaLatest,
+    /const hasLegacyJobNumberUnique = uniqueColumnSets\.some\(\(row\) => row\.columns === 'org_id,job_number'\);/
+  );
   assert.match(schemaLatest, /unique\(org_id, job_number, work_scope_key\)/);
   assert.match(schemaLatest, /must not retain unique\(org_id, job_number\)/);
+  assert.match(schemaLatest, /to_regclass\('app\.idx_jobs_org_job_number_work_scope_key'\) is not null as exists/);
+  assert.match(schemaLatest, /idx_jobs_org_job_number_work_scope_key must be dropped after duplicate enablement/);
   assert.match(schemaLatest, /on conflict \(id\) do update set/);
   assert.doesNotMatch(schemaLatest, /idx_jobs_org_job_number_work_scope_key must remain non-unique/);
 });
