@@ -435,6 +435,7 @@ function mapDbJobRow(row) {
     jobNumber: asTrimmedString(row.job_number),
     warehouse: asTrimmedString(row.warehouse),
     workScope: asTrimmedString(row.sections) || null,
+    workScopeKey: asTrimmedString(row.work_scope_key) || undefined,
     sections: asTrimmedString(row.sections) || null,
     installDate: formatDateValue(row.due_date),
     crewLeader: asTrimmedString(row.crew_leader),

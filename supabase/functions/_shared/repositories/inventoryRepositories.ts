@@ -437,6 +437,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       jobNumber: deps.asTrimmedString(row.job_number),
       warehouse: deps.asTrimmedString(row.warehouse),
       workScope: deps.asTrimmedString(row.sections) || null,
+      workScopeKey: deps.asTrimmedString(row.work_scope_key) || undefined,
       sections: deps.asTrimmedString(row.sections) || null,
       installDate: deps.formatDateValue(row.due_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),

@@ -160,6 +160,7 @@ import {
   saveFilmOrderLinkRecord,
   deleteFilmOrderLinksByFilmOrderId,
   listJobs,
+  listJobsByNumber,
   findJobByNumber,
   findJobById,
   saveJobRecord,
@@ -440,68 +441,20 @@ async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStat
   });
 }
 
-function buildDuplicateJobFallbackSummary(header) {
-  const lifecycleStatus = normalizeJobLifecycleStatus(header?.lifecycleStatus);
-  const workScope = header?.workScope ?? header?.sections ?? null;
-  return {
-    jobId: header?.id || '',
-    jobNumber: header?.jobNumber || '',
-    warehouse: header?.warehouse || '',
-    workScope,
-    sections: workScope,
-    installDate: header?.installDate || '',
-    crewLeader: header?.crewLeader || '',
-    status: lifecycleStatus === 'COMPLETED' || lifecycleStatus === 'CANCELLED'
-      ? lifecycleStatus
-      : 'FILM_ORDER',
-    lifecycleStatus,
-    isLaborOnly: Boolean(header?.isLaborOnly),
-    isStagedForPickup: Boolean(header?.isStagedForPickup),
-    requiredFeet: 0,
-    allocatedFeet: 0,
-    allocatedWithInstallDateFeet: 0,
-    allocatedWithoutInstallDateFeet: 0,
-    remainingFeet: 0,
-    requiredTubes: 0,
-    allocatedTubes: 0,
-    remainingTubes: 0,
-    requirementCount: 0,
-    allocationCount: 0,
-    filmOrderCount: 0,
-    hasOrderedAllocations: false,
-    createdAt: header?.createdAt || '',
-    updatedAt: header?.updatedAt || '',
-    notes: header?.notes || ''
-  };
-}
-
 async function checkJobDuplicate(client, orgId, params, deps = {}) {
   const normalizeJobNumber = deps.normalizeJobNumberDigits || normalizeJobNumberDigits;
-  const findJob = deps.findJobByNumber || findJobByNumber;
-  const buildList = deps.buildJobsList || buildJobsList;
+  const listCandidates = deps.listJobsByNumber || listJobsByNumber;
   const rawJobNumber = params && typeof params === 'object' ? params.jobNumber : params;
   const workScopeInput = params && typeof params === 'object'
     ? getJobDuplicateWorkScopeInput(params)
     : undefined;
   const jobNumber = normalizeJobNumber(rawJobNumber, 'JobNumber');
-  const existing = await findJob(client, orgId, jobNumber);
-  if (!existing) {
-    return buildJobDuplicateCheckResult({
-      jobNumber,
-      workScopeInput,
-      existingJob: null,
-      sameJobNumberJobs: [],
-    });
-  }
-
-  const entries = await buildList(client, orgId, 0, undefined, [jobNumber]);
-  const summary = entries.find((entry) => asTrimmedString(entry?.jobNumber) === jobNumber);
-  const duplicateJob = summary || buildDuplicateJobFallbackSummary(existing);
+  const sameJobNumberJobs = await listCandidates(client, orgId, jobNumber);
   return buildJobDuplicateCheckResult({
     jobNumber,
     workScopeInput,
-    existingJob: duplicateJob,
-    sameJobNumberJobs: [duplicateJob],
+    existingJob: sameJobNumberJobs[0] || null,
+    sameJobNumberJobs,
   });
 }
 

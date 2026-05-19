@@ -261,39 +261,6 @@ async function resolveAllocationPreviewJobContext(
   };
 }
 
-function buildDuplicateJobFallbackSummary(header: any, deps: ReadHandlerDeps) {
-  const lifecycleStatus = deps.normalizeJobLifecycleStatus(header?.lifecycleStatus);
-  const workScope = deps.asTrimmedString(header?.workScope ?? header?.sections) || null;
-  return {
-    jobId: deps.asTrimmedString(header?.id),
-    jobNumber: deps.asTrimmedString(header?.jobNumber),
-    warehouse: deps.asTrimmedString(header?.warehouse),
-    workScope,
-    sections: workScope,
-    installDate: deps.asTrimmedString(header?.installDate),
-    crewLeader: deps.asTrimmedString(header?.crewLeader),
-    status: lifecycleStatus === "COMPLETED" || lifecycleStatus === "CANCELLED" ? lifecycleStatus : "FILM_ORDER",
-    lifecycleStatus,
-    isLaborOnly: header?.isLaborOnly === true,
-    isStagedForPickup: header?.isStagedForPickup === true,
-    requiredFeet: 0,
-    allocatedFeet: 0,
-    allocatedWithInstallDateFeet: 0,
-    allocatedWithoutInstallDateFeet: 0,
-    remainingFeet: 0,
-    requiredTubes: 0,
-    allocatedTubes: 0,
-    remainingTubes: 0,
-    requirementCount: 0,
-    allocationCount: 0,
-    filmOrderCount: 0,
-    hasOrderedAllocations: false,
-    createdAt: deps.asTrimmedString(header?.createdAt),
-    updatedAt: deps.asTrimmedString(header?.updatedAt),
-    notes: deps.asTrimmedString(header?.notes),
-  };
-}
-
 async function buildOrderedForJobsForBox(
   client: any,
   orgId: string,
@@ -865,24 +832,15 @@ const readHandlers: Record<string, ReadHandler> = {
       "JobNumber"
     );
     const workScopeInput = getJobDuplicateWorkScopeInput(params);
-    const existing = await deps.findJobByNumber(client, orgId, jobNumber);
-    if (!existing) {
-      return ok(buildJobDuplicateCheckResult({
-        jobNumber,
-        workScopeInput,
-        existingJob: null,
-        sameJobNumberJobs: [],
-      }));
-    }
-
-    const entries = await deps.buildJobsList(client, orgId, 0, undefined, [jobNumber]);
-    const job = entries.find((entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber)
-      || buildDuplicateJobFallbackSummary(existing, deps);
+    const entries = await deps.listJobs(client, orgId);
+    const sameJobNumberJobs = entries.filter(
+      (entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber
+    );
     return ok(buildJobDuplicateCheckResult({
       jobNumber,
       workScopeInput,
-      existingJob: job,
-      sameJobNumberJobs: [job],
+      existingJob: sameJobNumberJobs[0] || null,
+      sameJobNumberJobs,
     }));
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {

@@ -11,6 +11,13 @@ export const JOB_DUPLICATE_REASONS = Object.freeze({
     'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED',
 });
 
+export const JOB_DUPLICATE_SCOPE_MODES = Object.freeze({
+  NO_MATCH: 'NO_MATCH',
+  EXACT_SCOPE: 'EXACT_SCOPE',
+  DIFFERENT_SCOPE: 'DIFFERENT_SCOPE',
+  MIXED_SCOPE: 'MIXED_SCOPE',
+});
+
 export function getJobDuplicateWorkScopeInput(payload) {
   if (Object.prototype.hasOwnProperty.call(payload || {}, 'workScope')) {
     return payload.workScope;
@@ -48,6 +55,7 @@ export function normalizeDuplicateJobEntry(entry) {
   const jobId = asContractString(entry.jobId ?? entry.id);
   const jobNumber = asContractString(entry.jobNumber ?? entry.job_number);
   const workScope = normalizeJobWorkScopeDisplay(entry.workScope ?? entry.sections);
+  const persistedWorkScopeKey = asContractString(entry.workScopeKey ?? entry.work_scope_key);
   const lifecycleStatus = normalizeLifecycleStatus(entry.lifecycleStatus ?? entry.lifecycle_status);
   const status = asContractString(entry.status) || (
     lifecycleStatus === 'COMPLETED' || lifecycleStatus === 'CANCELLED'
@@ -63,23 +71,40 @@ export function normalizeDuplicateJobEntry(entry) {
     sections: workScope,
     lifecycleStatus,
     status,
-    workScopeKey: normalizeJobWorkScopeKey(workScope),
+    workScopeKey: persistedWorkScopeKey || normalizeJobWorkScopeKey(workScope),
     routeTarget: buildJobRouteTarget(jobId, jobNumber),
   };
 }
 
-function getDuplicateReason(existingJob, requestedWorkScopeKey) {
-  if (!existingJob) {
+function getExactScopeDuplicateReason(exactScopeJobs) {
+  if (!exactScopeJobs.length) {
     return JOB_DUPLICATE_REASONS.NO_MATCH;
   }
 
-  if (existingJob.workScopeKey === requestedWorkScopeKey) {
-    return existingJob.lifecycleStatus === 'COMPLETED'
-      ? JOB_DUPLICATE_REASONS.SAME_JOB_SCOPE_COMPLETED
-      : JOB_DUPLICATE_REASONS.SAME_JOB_SCOPE_ACTIVE;
+  const hasActiveExactScopeJob = exactScopeJobs.some(
+    (job) => job.lifecycleStatus !== 'COMPLETED'
+  );
+  if (hasActiveExactScopeJob) {
+    return JOB_DUPLICATE_REASONS.SAME_JOB_SCOPE_ACTIVE;
   }
 
-  return JOB_DUPLICATE_REASONS.SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED;
+  return JOB_DUPLICATE_REASONS.SAME_JOB_SCOPE_COMPLETED;
+}
+
+function getDuplicateScopeMode(exactScopeJobs, differentScopeJobs) {
+  if (exactScopeJobs.length && differentScopeJobs.length) {
+    return JOB_DUPLICATE_SCOPE_MODES.MIXED_SCOPE;
+  }
+
+  if (exactScopeJobs.length) {
+    return JOB_DUPLICATE_SCOPE_MODES.EXACT_SCOPE;
+  }
+
+  if (differentScopeJobs.length) {
+    return JOB_DUPLICATE_SCOPE_MODES.DIFFERENT_SCOPE;
+  }
+
+  return JOB_DUPLICATE_SCOPE_MODES.NO_MATCH;
 }
 
 export function buildJobDuplicateCheckResult({
@@ -100,18 +125,40 @@ export function buildJobDuplicateCheckResult({
     : normalizedExistingJob
       ? [normalizedExistingJob]
       : [];
-  const reason = getDuplicateReason(normalizedExistingJob, workScopeKey);
-  const exists = Boolean(normalizedExistingJob);
+  const exactScopeJobs = listedJobs.filter((entry) => entry.workScopeKey === workScopeKey);
+  const differentScopeJobs = listedJobs.filter((entry) => entry.workScopeKey !== workScopeKey);
+  const exactScopeDuplicateExists = exactScopeJobs.length > 0;
+  const sameJobNumberDifferentScopeExists = differentScopeJobs.length > 0;
+  const duplicateScopeMode = getDuplicateScopeMode(exactScopeJobs, differentScopeJobs);
+  const exists = listedJobs.length > 0;
+  const reason = !exists
+    ? JOB_DUPLICATE_REASONS.NO_MATCH
+    : exactScopeDuplicateExists
+      ? getExactScopeDuplicateReason(exactScopeJobs)
+      : JOB_DUPLICATE_REASONS.SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED;
+  const primaryDuplicateJob = exactScopeJobs[0] || differentScopeJobs[0] || null;
+  const canCreate = !exists;
 
   return {
     exists,
-    allowed: !exists,
+    allowed: canCreate,
+    canCreate,
+    duplicatesEnabled: false,
     reason,
+    blockingReason: exists ? reason : null,
+    duplicateScopeMode,
     jobNumber: normalizedJobNumber,
     workScope,
     workScopeKey,
-    job: normalizedExistingJob,
-    existingJob: normalizedExistingJob,
+    requestedWorkScope: workScope,
+    requestedWorkScopeKey: workScopeKey,
+    exactScopeDuplicateExists,
+    sameJobNumberDifferentScopeExists,
+    futureCanCreateAfterEnablement: sameJobNumberDifferentScopeExists && !exactScopeDuplicateExists,
+    exactScopeJobs,
+    differentScopeJobs,
+    job: primaryDuplicateJob,
+    existingJob: primaryDuplicateJob,
     sameJobNumberJobs: listedJobs,
   };
 }

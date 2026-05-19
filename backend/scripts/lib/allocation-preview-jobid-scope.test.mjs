@@ -58,7 +58,7 @@ test('Edge allocation preview mirrors canonical jobId validation and job_id requ
   const resolverBody = extractBetween(
     edgeReadHandlers,
     'async function resolveAllocationPreviewJobContext',
-    'function buildDuplicateJobFallbackSummary'
+    'async function buildOrderedForJobsForBox'
   );
   const previewHandlerBody = extractBetween(
     edgeReadHandlers,
