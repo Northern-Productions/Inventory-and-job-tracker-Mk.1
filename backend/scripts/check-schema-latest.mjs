@@ -270,10 +270,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.save_job(app.jobs)',
     includes: [
+      'coalesce(p_job.id, gen_random_uuid())',
       'on conflict (id) do update set',
-      'job_number = excluded.job_number'
+      'job_number = excluded.job_number',
+      'updated_by = excluded.updated_by\n  returning * into v_row;'
     ],
-    excludes: ['on conflict (org_id, job_number)']
+    excludes: [
+      'on conflict (org_id, job_number)',
+      'where app.jobs.org_id = excluded.org_id\n    and app.jobs.job_number = excluded.job_number'
+    ]
   },
   {
     signature: 'public.api_jobs_update(uuid, text, jsonb)',
@@ -691,16 +696,6 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.assert_film_box_allocation_capacity(v_row.org_id, v_row.box_id, v_row.allocation_id);'
     ],
     excludes: []
-  },
-  {
-    signature: 'app_api.save_job(app.jobs)',
-    includes: [
-      'on conflict (org_id, job_number) do update set',
-      'where app.jobs.org_id = excluded.org_id\n    and app.jobs.job_number = excluded.job_number'
-    ],
-    excludes: [
-      'updated_by = excluded.updated_by\n  returning * into v_row;'
-    ]
   },
   {
     signature: 'app_api.auto_planner_scope_job_numbers(uuid, jsonb)',

@@ -85,6 +85,10 @@ test('local and Edge create paths use exact-scope checks and jobId reloads', asy
 
 test('schema latest guard advances to final duplicate enablement', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
+  const requiredFunctionSemantics = schemaLatest.slice(
+    schemaLatest.indexOf('const REQUIRED_FUNCTION_SEMANTICS = ['),
+    schemaLatest.indexOf('const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [')
+  );
 
   assert.match(schemaLatest, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
@@ -103,6 +107,15 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   assert.match(schemaLatest, /must not retain unique\(org_id, job_number\)/);
   assert.match(schemaLatest, /to_regclass\('app\.idx_jobs_org_job_number_work_scope_key'\) is not null as exists/);
   assert.match(schemaLatest, /idx_jobs_org_job_number_work_scope_key must be dropped after duplicate enablement/);
-  assert.match(schemaLatest, /on conflict \(id\) do update set/);
+  assert.match(requiredFunctionSemantics, /on conflict \(id\) do update set/);
+  assert.equal([...requiredFunctionSemantics.matchAll(/signature: 'app_api\.save_job\(app\.jobs\)'/g)].length, 1);
+  assert.match(requiredFunctionSemantics, /coalesce\(p_job\.id, gen_random_uuid\(\)\)/);
+  assert.match(requiredFunctionSemantics, /updated_by = excluded\.updated_by\\n  returning \* into v_row;/);
+  assert.match(requiredFunctionSemantics, /'on conflict \(org_id, job_number\)'/);
+  assert.match(
+    requiredFunctionSemantics,
+    /'where app\.jobs\.org_id = excluded\.org_id\\n    and app\.jobs\.job_number = excluded\.job_number'/
+  );
+  assert.doesNotMatch(requiredFunctionSemantics, /on conflict \(org_id, job_number\) do update set/);
   assert.doesNotMatch(schemaLatest, /idx_jobs_org_job_number_work_scope_key must remain non-unique/);
 });
