@@ -97,7 +97,7 @@ function renderJobLink(
     compact?: boolean;
     onNavigate?: () => void;
     onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
-    registerRef?: (jobNumber: string, node: HTMLAnchorElement | null) => void;
+    registerRef?: (job: JobListEntry, node: HTMLAnchorElement | null) => void;
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
@@ -111,7 +111,7 @@ function renderJobLink(
   return (
     <Link
       key={getCalendarJobKey(job)}
-      ref={(node) => options.registerRef?.(job.jobNumber, node)}
+      ref={(node) => options.registerRef?.(job, node)}
       to={buildAllocationJobRoute(job)}
       className={[
         'job-calendar-job-link',
@@ -185,7 +185,11 @@ export function JobsCalendarView({
     );
 
     const frame = window.requestAnimationFrame(() => {
-      const targetLink = jobLinkRefs.current.get(targetJobNumber);
+      const targetJob = targetDay?.jobs.find((job) => {
+        const installDate = String(job.installDate || '').trim().slice(0, 10);
+        return job.jobNumber === targetJobNumber && (!targetInstallDate || installDate === targetInstallDate);
+      }) || targetDay?.jobs.find((job) => job.jobNumber === targetJobNumber);
+      const targetLink = targetJob ? jobLinkRefs.current.get(getCalendarJobKey(targetJob)) : null;
       if (targetLink) {
         targetLink.scrollIntoView({ block: 'center', behavior: 'smooth' });
         return;
@@ -214,13 +218,14 @@ export function JobsCalendarView({
     setSelectedDayDate('');
   }
 
-  function registerJobLinkRef(jobNumber: string, node: HTMLAnchorElement | null) {
+  function registerJobLinkRef(job: JobListEntry, node: HTMLAnchorElement | null) {
+    const key = getCalendarJobKey(job);
     if (!node) {
-      jobLinkRefs.current.delete(jobNumber);
+      jobLinkRefs.current.delete(key);
       return;
     }
 
-    jobLinkRefs.current.set(jobNumber, node);
+    jobLinkRefs.current.set(key, node);
   }
 
   function registerDayRef(dateKey: string, node: HTMLElement | null) {
