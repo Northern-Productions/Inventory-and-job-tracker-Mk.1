@@ -665,6 +665,7 @@ function buildJobListEntry(
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || '',
     workScope,
+    workScopeKey: jobHeader.workScopeKey || '',
     sections: workScope,
     installDate,
     crewLeader,

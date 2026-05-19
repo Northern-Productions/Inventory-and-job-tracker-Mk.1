@@ -179,7 +179,19 @@ function compareJobsListEntries(left, right) {
     return 1;
   }
 
-  return left.jobNumber > right.jobNumber ? -1 : left.jobNumber < right.jobNumber ? 1 : 0;
+  if (left.jobNumber !== right.jobNumber) {
+    return left.jobNumber > right.jobNumber ? -1 : 1;
+  }
+
+  const leftScope = asTrimmedString(left.workScopeKey || left.workScope || left.sections);
+  const rightScope = asTrimmedString(right.workScopeKey || right.workScope || right.sections);
+  if (leftScope !== rightScope) {
+    return leftScope < rightScope ? -1 : 1;
+  }
+
+  const leftJobId = asTrimmedString(left.jobId);
+  const rightJobId = asTrimmedString(right.jobId);
+  return leftJobId < rightJobId ? -1 : leftJobId > rightJobId ? 1 : 0;
 }
 
 function extractJobNumberDigitsForSearch(value) {

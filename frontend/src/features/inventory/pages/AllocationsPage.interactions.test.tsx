@@ -291,6 +291,85 @@ describe('AllocationsPage interactions', () => {
     );
   });
 
+  it('opens the selected same-number list row by its own canonical jobId', () => {
+    useJobsListMock.mockReturnValue({
+      data: [
+        buildJob({
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '9327001',
+          sections: 'Sections 1',
+          workScope: 'Sections 1',
+          workScopeKey: 'section:1'
+        }),
+        buildJob({
+          jobId: '22222222-2222-4222-8222-222222222222',
+          jobNumber: '9327001',
+          sections: 'Sections 2',
+          workScope: 'Sections 2',
+          workScopeKey: 'section:2'
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+
+    renderPage({ initialJobsViewMode: 'list' });
+
+    expect(screen.getByRole('button', { name: /IL1-9327001.*Sections 1/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /IL1-9327001.*Sections 2/ }));
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/allocations/jobs/22222222-2222-4222-8222-222222222222'
+    );
+  });
+
+  it('renders same-number calendar rows as distinct canonical links without duplicate keys', () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    useJobsCalendarEntriesMock.mockImplementation(
+      (_anchorDate?: unknown, options?: { lifecycleStatus?: string }) =>
+        buildCalendarQueryState(
+          options?.lifecycleStatus === 'COMPLETED'
+            ? []
+            : [
+                buildJob({
+                  jobId: '11111111-1111-4111-8111-111111111111',
+                  jobNumber: '9327001',
+                  installDate: '2026-03-24',
+                  sections: 'Sections 1',
+                  workScope: 'Sections 1',
+                  workScopeKey: 'section:1'
+                }),
+                buildJob({
+                  jobId: '22222222-2222-4222-8222-222222222222',
+                  jobNumber: '9327001',
+                  installDate: '2026-03-24',
+                  sections: 'Sections 2',
+                  workScope: 'Sections 2',
+                  workScopeKey: 'section:2'
+                })
+              ]
+        )
+    );
+
+    try {
+      renderPage({ initialJobsViewMode: 'calendar', initialCalendarAnchorDate: '2026-03-24' });
+
+      const duplicateLinks = screen.getAllByRole('link', { name: /IL1-9327001/ });
+      expect(duplicateLinks).toHaveLength(2);
+      expect(duplicateLinks.map((link) => link.getAttribute('href'))).toEqual([
+        '/allocations/jobs/11111111-1111-4111-8111-111111111111',
+        '/allocations/jobs/22222222-2222-4222-8222-222222222222'
+      ]);
+      expect(
+        consoleErrorSpy.mock.calls.some((call) =>
+          call.map((entry) => String(entry)).join(' ').includes('Encountered two children with the same key')
+        )
+      ).toBe(false);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it('defers film catalog and caulk products until the New Job dialog opens and shows safe loading states', () => {
     renderPage({ initialJobsViewMode: 'calendar' });
 

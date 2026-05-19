@@ -230,6 +230,7 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
     'jobNumber',
     'warehouse',
     'workScope',
+    'workScopeKey',
     'sections',
     'installDate',
     'crewLeader',
@@ -254,6 +255,144 @@ test('buildJobsList still loads boxes normally when no preloaded box snapshot is
     'notes',
   ]);
   assert.equal(entries.find((entry) => entry.jobNumber === '30003').status, 'READY');
+});
+
+test('buildJobsList preserves duplicate job-number rows by canonical jobId', async () => {
+  const duplicateJobs = [
+    {
+      id: 'job-9327001-section-1',
+      org_id: ORG_ID,
+      job_number: '9327001',
+      warehouse: 'IL1',
+      sections: 'Sections 1',
+      work_scope_key: 'section:1',
+      due_date: '2026-04-01',
+      crew_leader: 'Fixture Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: NOW,
+      updated_at: '2026-04-01T09:00:00.000Z',
+    },
+    {
+      id: 'job-9327001-section-2',
+      org_id: ORG_ID,
+      job_number: '9327001',
+      warehouse: 'IL1',
+      sections: 'Sections 2',
+      work_scope_key: 'section:2',
+      due_date: '2026-04-01',
+      crew_leader: 'Fixture Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: NOW,
+      updated_at: '2026-04-01T09:00:00.000Z',
+    },
+  ];
+  const duplicateRequirements = [
+    {
+      id: 'requirement-section-1',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-1',
+      job_number: '9327001',
+      manufacturer: '3M',
+      film_name: 'Solar Film',
+      width_in: 60,
+      required_feet: 10,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'requirement-section-2',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-2',
+      job_number: '9327001',
+      manufacturer: '3M',
+      film_name: 'Solar Film',
+      width_in: 60,
+      required_feet: 20,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const duplicateAllocations = [
+    {
+      id: 'allocation-section-1',
+      org_id: ORG_ID,
+      allocation_id: 'ALLOC-S1',
+      box_id: 'IL1-1000',
+      warehouse: 'IL1',
+      job_id: 'job-9327001-section-1',
+      job_number: '9327001',
+      job_date: '2026-04-01',
+      allocated_feet: 10,
+      covered_feet: 10,
+      requirement_id: 'requirement-section-1',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      crew_leader: 'Fixture Lead',
+    },
+    {
+      id: 'allocation-section-2',
+      org_id: ORG_ID,
+      allocation_id: 'ALLOC-S2',
+      box_id: 'IL1-1000',
+      warehouse: 'IL1',
+      job_id: 'job-9327001-section-2',
+      job_number: '9327001',
+      job_date: '2026-04-01',
+      allocated_feet: 5,
+      covered_feet: 5,
+      requirement_id: 'requirement-section-2',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      crew_leader: 'Fixture Lead',
+    },
+  ];
+  const client = createFakeClient({
+    jobs: duplicateJobs,
+    requirements: duplicateRequirements,
+    allocations: duplicateAllocations,
+  });
+
+  const entries = await buildJobsList(client, ORG_ID, 0, 'ACTIVE', ['9327001']);
+
+  assert.equal(entries.length, 2);
+  assert.deepEqual(
+    entries.map((entry) => ({
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      workScope: entry.workScope,
+      workScopeKey: entry.workScopeKey,
+      requiredFeet: entry.requiredFeet,
+      allocatedFeet: entry.allocatedFeet,
+    })),
+    [
+      {
+        jobId: 'job-9327001-section-1',
+        jobNumber: '9327001',
+        workScope: 'Sections 1',
+        workScopeKey: 'section:1',
+        requiredFeet: 10,
+        allocatedFeet: 10,
+      },
+      {
+        jobId: 'job-9327001-section-2',
+        jobNumber: '9327001',
+        workScope: 'Sections 2',
+        workScopeKey: 'section:2',
+        requiredFeet: 20,
+        allocatedFeet: 5,
+      },
+    ]
+  );
 });
 
 test('buildReportsSummary reuses its already-loaded box snapshot for job summaries', async () => {
@@ -414,4 +553,31 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
   const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
   assert.doesNotMatch(localBuildJobsList, /listCaulkStock|caulkStockEntries: allCaulkStock/);
   assert.doesNotMatch(edgeBuildJobsList, /listCaulkStockEntries|caulkStockEntries: allCaulkStock/);
+});
+
+test('local and Edge jobs list builders avoid jobNumber-only row identity', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  const localJobsReadSource = fs.readFileSync(
+    path.join(repoRoot, 'backend/src/app/services/runtime/runtimeJobsRead.mjs'),
+    'utf8'
+  );
+  const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
+  const localBuildJobsList = localJobsReadSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+  const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+
+  for (const [label, source] of [
+    ['local', localBuildJobsList],
+    ['edge', edgeBuildJobsList],
+  ]) {
+    assert.ok(source, `${label} buildJobsList source should be present`);
+    assert.match(source, /const jobHeaders/);
+    assert.match(source, /const jobContexts/);
+    assert.match(source, /groupEntriesByCanonicalJobId\(allAllocations\)/);
+    assert.doesNotMatch(source, /const byJobNumber/);
+    assert.doesNotMatch(source, /byJobNumber\[[^\]]+\.jobNumber\]\s*=/);
+    assert.doesNotMatch(source, /Object\.keys\(byJobNumber\)/);
+  }
+
+  assert.match(edgeBuildJobsList, /requirementsByJobId\[contextJobId\]/);
+  assert.match(edgeBuildJobsList, /allocationsByJobId\[contextJobId\]/);
 });

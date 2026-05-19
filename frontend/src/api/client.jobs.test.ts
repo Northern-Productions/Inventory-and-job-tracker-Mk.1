@@ -119,6 +119,56 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('preserves same-number job rows with distinct canonical job ids', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          buildJobListEntry({
+            jobId: '11111111-1111-4111-8111-111111111111',
+            jobNumber: '9327001',
+            sections: 'Sections 1',
+            workScope: 'Sections 1',
+            workScopeKey: 'section:1'
+          }),
+          buildJobListEntry({
+            jobId: '22222222-2222-4222-8222-222222222222',
+            jobNumber: '9327001',
+            sections: 'Sections 2',
+            workScope: 'Sections 2',
+            workScopeKey: 'section:2'
+          })
+        ]
+      },
+      warnings: []
+    });
+
+    const entries = await getJobs(0, { jobNumbers: ['9327001'] });
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => ({
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      sections: entry.sections,
+      workScopeKey: entry.workScopeKey
+    }))).toEqual([
+      {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '9327001',
+        sections: 'Sections 1',
+        workScopeKey: 'section:1'
+      },
+      {
+        jobId: '22222222-2222-4222-8222-222222222222',
+        jobNumber: '9327001',
+        sections: 'Sections 2',
+        workScopeKey: 'section:2'
+      }
+    ]);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
+      query: { limit: 0, jobNumbers: ['9327001'] }
+    });
+  });
+
   it('normalizes first-class and legacy work scope fields from job reads', async () => {
     requestMock.mockResolvedValueOnce({
       data: {
