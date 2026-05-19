@@ -84,6 +84,7 @@ async function saveJobRecord(client, orgId, job) {
     client,
     `
       insert into app.jobs (
+        id,
         org_id,
         job_number,
         warehouse,
@@ -100,15 +101,17 @@ async function saveJobRecord(client, orgId, job) {
         updated_by
       )
       values (
-        $1,$2,$3,$4,
-        nullif($5, '')::date,
-        $6,$7,$8,$9,$10,
-        coalesce($11::timestamptz, now()),
-        $12,
-        coalesce($13::timestamptz, now()),
-        $14
+        coalesce(nullif($2, '')::uuid, gen_random_uuid()),
+        $1,$3,$4,$5,
+        nullif($6, '')::date,
+        $7,$8,$9,$10,$11,
+        coalesce($12::timestamptz, now()),
+        $13,
+        coalesce($14::timestamptz, now()),
+        $15
       )
-      on conflict (org_id, job_number) do update set
+      on conflict (id) do update set
+        job_number = excluded.job_number,
         warehouse = excluded.warehouse,
         sections = excluded.sections,
         due_date = excluded.due_date,
@@ -123,6 +126,7 @@ async function saveJobRecord(client, orgId, job) {
     `,
     [
       orgId,
+      job.id || job.jobId || '',
       job.jobNumber,
       job.warehouse,
       job.sections,

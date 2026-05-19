@@ -135,8 +135,10 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         open={Boolean(jobCreationWorkflow.duplicateJobPrompt)}
         duplicate={jobCreationWorkflow.duplicateJobPrompt?.duplicate || null}
         job={jobCreationWorkflow.duplicateJobPrompt?.job || null}
+        canConfirmCreate={jobCreationWorkflow.duplicateJobPrompt?.canConfirmCreate === true}
         onEditNewJob={jobCreationWorkflow.dismissDuplicateJobPrompt}
         onGoToJob={jobCreationWorkflow.goToDuplicateJob}
+        onConfirmCreate={jobCreationWorkflow.confirmDifferentScopeDuplicateCreate}
       />
     </>
   );

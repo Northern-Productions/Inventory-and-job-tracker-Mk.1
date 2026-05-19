@@ -283,7 +283,7 @@ describe('jobs API client canonical routes', () => {
         exists: true,
         allowed: false,
         canCreate: false,
-        duplicatesEnabled: false,
+        duplicatesEnabled: true,
         reason: 'SAME_JOB_SCOPE_ACTIVE',
         blockingReason: 'SAME_JOB_SCOPE_ACTIVE',
         duplicateScopeMode: 'EXACT_SCOPE',
@@ -344,7 +344,7 @@ describe('jobs API client canonical routes', () => {
     expect(result.exists).toBe(true);
     expect(result.allowed).toBe(false);
     expect(result.canCreate).toBe(false);
-    expect(result.duplicatesEnabled).toBe(false);
+    expect(result.duplicatesEnabled).toBe(true);
     expect(result.reason).toBe('SAME_JOB_SCOPE_ACTIVE');
     expect(result.blockingReason).toBe('SAME_JOB_SCOPE_ACTIVE');
     expect(result.duplicateScopeMode).toBe('EXACT_SCOPE');
@@ -377,7 +377,7 @@ describe('jobs API client canonical routes', () => {
         exists: false,
         allowed: true,
         canCreate: true,
-        duplicatesEnabled: false,
+        duplicatesEnabled: true,
         reason: 'NO_MATCH',
         blockingReason: null,
         duplicateScopeMode: 'NO_MATCH',
@@ -404,7 +404,7 @@ describe('jobs API client canonical routes', () => {
       exists: false,
       allowed: true,
       canCreate: true,
-      duplicatesEnabled: false,
+      duplicatesEnabled: true,
       reason: 'NO_MATCH',
       blockingReason: null,
       duplicateScopeMode: 'NO_MATCH',

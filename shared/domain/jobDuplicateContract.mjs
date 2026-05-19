@@ -112,6 +112,7 @@ export function buildJobDuplicateCheckResult({
   workScopeInput,
   existingJob,
   sameJobNumberJobs,
+  duplicatesEnabled = false,
 }) {
   const normalizedJobNumber = asContractString(jobNumber);
   const workScope = normalizeJobWorkScopeDisplay(workScopeInput);
@@ -131,21 +132,22 @@ export function buildJobDuplicateCheckResult({
   const sameJobNumberDifferentScopeExists = differentScopeJobs.length > 0;
   const duplicateScopeMode = getDuplicateScopeMode(exactScopeJobs, differentScopeJobs);
   const exists = listedJobs.length > 0;
-  const reason = !exists
+  const canCreate = !exactScopeDuplicateExists && (!exists || duplicatesEnabled);
+  const reason = !exists || canCreate
     ? JOB_DUPLICATE_REASONS.NO_MATCH
     : exactScopeDuplicateExists
       ? getExactScopeDuplicateReason(exactScopeJobs)
       : JOB_DUPLICATE_REASONS.SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED;
   const primaryDuplicateJob = exactScopeJobs[0] || differentScopeJobs[0] || null;
-  const canCreate = !exists;
+  const blockingReason = canCreate ? null : reason;
 
   return {
     exists,
     allowed: canCreate,
     canCreate,
-    duplicatesEnabled: false,
+    duplicatesEnabled,
     reason,
-    blockingReason: exists ? reason : null,
+    blockingReason,
     duplicateScopeMode,
     jobNumber: normalizedJobNumber,
     workScope,
@@ -154,7 +156,7 @@ export function buildJobDuplicateCheckResult({
     requestedWorkScopeKey: workScopeKey,
     exactScopeDuplicateExists,
     sameJobNumberDifferentScopeExists,
-    futureCanCreateAfterEnablement: sameJobNumberDifferentScopeExists && !exactScopeDuplicateExists,
+    futureCanCreateAfterEnablement: !duplicatesEnabled && sameJobNumberDifferentScopeExists && !exactScopeDuplicateExists,
     exactScopeJobs,
     differentScopeJobs,
     job: primaryDuplicateJob,

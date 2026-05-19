@@ -40,6 +40,7 @@ import {
   listFilmOrdersByJobId,
   findFilmOrderById,
   saveFilmOrderRecord,
+  listJobsByNumber,
   findJobByNumber,
   saveJobRecord,
   saveJobRecordById,
@@ -123,18 +124,20 @@ function getRestoredAllocatableFeet(entry) {
 async function createJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
-  const existingHeader = await findJobByNumber(client, orgId, jobNumber);
-  if (existingHeader) {
+  const sameJobNumberJobs = await listJobsByNumber(client, orgId, jobNumber);
+  const duplicateResult = buildJobDuplicateCheckResult({
+    jobNumber,
+    workScopeInput: getJobDuplicateWorkScopeInput(payload),
+    existingJob: sameJobNumberJobs[0] || null,
+    sameJobNumberJobs,
+    duplicatesEnabled: true,
+  });
+  if (duplicateResult.exactScopeDuplicateExists) {
     throw new HttpError(
       409,
       `Job ${jobNumber} already exists.`,
       [],
-      buildJobDuplicateCheckResult({
-        jobNumber,
-        workScopeInput: getJobDuplicateWorkScopeInput(payload),
-        existingJob: existingHeader,
-        sameJobNumberJobs: [existingHeader],
-      })
+      duplicateResult
     );
   }
 
@@ -187,9 +190,28 @@ async function createJob(client, orgId, payload, actor) {
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
 
-  nextHeader = await saveJobRecord(client, orgId, nextHeader);
+  try {
+    nextHeader = await saveJobRecord(client, orgId, nextHeader);
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === '23505') {
+      const raceCandidates = await listJobsByNumber(client, orgId, jobNumber);
+      throw new HttpError(
+        409,
+        `Job ${jobNumber} already exists.`,
+        [],
+        buildJobDuplicateCheckResult({
+          jobNumber,
+          workScopeInput: getJobDuplicateWorkScopeInput(payload),
+          existingJob: raceCandidates[0] || null,
+          sameJobNumberJobs: raceCandidates,
+          duplicatesEnabled: true,
+        })
+      );
+    }
+    throw error;
+  }
 
-  const existingRequirements = await listJobRequirementsByJob(client, orgId, jobNumber);
+  const existingRequirements = await listJobRequirementsByJobId(client, orgId, nextHeader.id);
   const merged = {};
 
   for (let index = 0; index < existingRequirements.length; index += 1) {
@@ -250,7 +272,7 @@ async function createJob(client, orgId, payload, actor) {
     nowIso
   );
 
-  return ok(await buildJobDetail(client, orgId, jobNumber), warnings);
+  return ok(await buildJobDetailById(client, orgId, nextHeader.id), warnings);
 }
 
 async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(

@@ -91,7 +91,7 @@ test('job delete guarded transition remains runtime-only', async () => {
 
   assert.equal(await fileExists(backendMigrationPath), false);
   assert.equal(await fileExists(supabaseMigrationPath), false);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0135_job_work_scope_key_groundwork\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
 });
 
 test('frontend job delete payload sends canonical jobId and avoids same-number detail removal', async () => {

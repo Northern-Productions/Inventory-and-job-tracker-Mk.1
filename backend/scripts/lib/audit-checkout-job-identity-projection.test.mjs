@@ -175,7 +175,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.doesNotMatch(checkoutHistoryPage, /<Link|navigate\(`\/allocations\/jobs/);
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
-  assert.match(schemaLatest, /0135_job_work_scope_key_groundwork\.sql/);
+  assert.match(schemaLatest, /0136_enable_job_number_work_scope_uniqueness\.sql/);
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
@@ -183,6 +183,6 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   const latestSupabaseMigration = readdir(supabaseMigrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
-  assert.equal(await latestBackendMigration, '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(await latestSupabaseMigration, '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(await latestBackendMigration, '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(await latestSupabaseMigration, '20260518020000_enable_job_number_work_scope_uniqueness.sql');
 });

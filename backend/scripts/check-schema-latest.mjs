@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0135_job_work_scope_key_groundwork.sql';
+const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -16,7 +16,6 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'column', signature: 'app.jobs.work_scope_key' },
-  { kind: 'index', signature: 'app.idx_jobs_org_job_number_work_scope_key' },
   { kind: 'table', signature: 'app.caulk_transfers' },
   { kind: 'table', signature: 'app.box_dealers' },
   { kind: 'type', signature: 'app.allocation_source' },
@@ -250,20 +249,31 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "return 'section:' || array_to_string(v_section_numbers, ',');",
       "return 'text:' || v_normalized;"
     ],
-    excludes: ['app_api.normalize_job_work_scope(p_value)', 'update app.jobs', 'unique (org_id, job_number, work_scope_key)']
+    excludes: ['app_api.normalize_job_work_scope(p_value)', 'update app.jobs']
   },
   {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',
     includes: [
       "v_job_number text := app_api.require_job_number_digits(p_payload->>'jobNumber', 'Job ID number');",
+      'v_work_scope_key text := app_api.normalize_job_work_scope_key(v_sections);',
+      'and j.work_scope_key = v_work_scope_key',
       "perform app_api.raise_http(409, format('Job %s already exists.', v_job_number));",
       "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
-      'app_api.normalize_job_work_scope('
+      'app_api.normalize_job_work_scope(',
+      "'jobId', v_job.id::text"
     ],
     excludes: [
       "app_api.normalize_job_sections(p_payload->>'sections')",
       'if not found then'
     ]
+  },
+  {
+    signature: 'app_api.save_job(app.jobs)',
+    includes: [
+      'on conflict (id) do update set',
+      'job_number = excluded.job_number'
+    ],
+    excludes: ['on conflict (org_id, job_number)']
   },
   {
     signature: 'public.api_jobs_update(uuid, text, jsonb)',
@@ -1119,31 +1129,37 @@ async function runSchemaCheck() {
       );
     }
 
-    const workScopeKeyIndexRows = await client.query(
+    const workScopeKeyConstraintRows = await client.query(
       `
         select
-          i.indisunique as is_unique,
-          pg_get_indexdef(idx.oid) as definition
-        from pg_class idx
-        join pg_namespace n
-          on n.oid = idx.relnamespace
-        join pg_index i
-          on i.indexrelid = idx.oid
-        where n.nspname = 'app'
-          and idx.relname = 'idx_jobs_org_job_number_work_scope_key';
+          c.conname,
+          pg_get_constraintdef(c.oid) as definition,
+          (
+            select array_agg(a.attname order by cols.ordinality)
+            from unnest(c.conkey) with ordinality as cols(attnum, ordinality)
+            join pg_attribute a
+              on a.attrelid = c.conrelid
+             and a.attnum = cols.attnum
+          ) as columns
+        from pg_constraint c
+        where c.conrelid = 'app.jobs'::regclass
+          and c.contype = 'u';
       `
     );
 
-    const workScopeKeyIndexState = workScopeKeyIndexRows.rows[0] || {};
-    const workScopeKeyIndexDefinition = String(workScopeKeyIndexState.definition || '').toLowerCase();
-    if (workScopeKeyIndexState.is_unique === true) {
+    const uniqueColumnSets = workScopeKeyConstraintRows.rows.map((row) => ({
+      columns: Array.isArray(row.columns) ? row.columns.join(',') : ''
+    }));
+    const hasTripletUnique = uniqueColumnSets.some((row) => row.columns === 'org_id,job_number,work_scope_key');
+    const hasLegacyJobNumberUnique = uniqueColumnSets.some((row) => row.columns === 'org_id,job_number');
+    if (!hasTripletUnique) {
       workScopeKeyIssues.push(
-        '- index mismatch: app.idx_jobs_org_job_number_work_scope_key must remain non-unique until duplicate enablement'
+        '- uniqueness mismatch: app.jobs must have unique(org_id, job_number, work_scope_key)'
       );
     }
-    if (!workScopeKeyIndexDefinition.includes('(org_id, job_number, work_scope_key)')) {
+    if (hasLegacyJobNumberUnique) {
       workScopeKeyIssues.push(
-        '- index mismatch: app.idx_jobs_org_job_number_work_scope_key is not on (org_id, job_number, work_scope_key)'
+        '- uniqueness mismatch: app.jobs must not retain unique(org_id, job_number) after duplicate enablement'
       );
     }
 

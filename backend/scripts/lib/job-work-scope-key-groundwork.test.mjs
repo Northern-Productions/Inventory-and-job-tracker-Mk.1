@@ -74,14 +74,16 @@ test('work scope key groundwork migrations stay mirrored between backend and Sup
   assert.equal(supabaseMigration, backendMigration);
 });
 
-test('work scope key groundwork migration order follows the released caulk projection migration', async () => {
+test('work scope key groundwork migration order precedes final duplicate enablement', async () => {
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-2), '0134_caulk_read_jobid_scope_projection.sql');
-  assert.equal(backendMigrations.at(-1), '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260514030000_caulk_read_jobid_scope_projection.sql');
-  assert.equal(supabaseMigrations.at(-1), '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(backendMigrations.at(-3), '0134_caulk_read_jobid_scope_projection.sql');
+  assert.equal(backendMigrations.at(-2), '0135_job_work_scope_key_groundwork.sql');
+  assert.equal(backendMigrations.at(-1), '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(supabaseMigrations.at(-3), '20260514030000_caulk_read_jobid_scope_projection.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(supabaseMigrations.at(-1), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
 });
 
 test('work scope key migration adds only the helper, generated column, and non-unique support index', async () => {
@@ -146,15 +148,14 @@ test('SQL work scope key normalization mirrors shared JS normalization for repre
   assert.match(migration, /array_agg\(token order by length\(token\), token\)/);
 });
 
-test('schema latest guard tracks work scope key schema groundwork without duplicate enablement', async () => {
+test('schema latest guard keeps work scope key generated column checks after duplicate enablement', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0135_job_work_scope_key_groundwork\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
-  assert.match(schemaLatest, /signature: 'app\.idx_jobs_org_job_number_work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);
-  assert.match(schemaLatest, /when kind = 'index' then to_regclass\(signature\) is not null/);
   assert.match(schemaLatest, /a\.attgenerated = 's' as is_generated_stored/);
   assert.match(schemaLatest, /app_api\.normalize_job_work_scope_key\(sections\)/);
-  assert.match(schemaLatest, /idx_jobs_org_job_number_work_scope_key must remain non-unique/);
+  assert.match(schemaLatest, /unique\(org_id, job_number, work_scope_key\)/);
+  assert.match(schemaLatest, /must not retain unique\(org_id, job_number\)/);
 });
