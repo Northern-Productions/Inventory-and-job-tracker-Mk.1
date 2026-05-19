@@ -541,6 +541,34 @@ describe('AllocationsPage interactions', () => {
     expect(navigateMock).toHaveBeenCalledWith('/allocations/81234');
   });
 
+  it('keeps old duplicate responses with only existingJob compatible', async () => {
+    const createMutation = buildMutationState();
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: true,
+      existingJob: buildJob({
+        jobId: '67676767-6767-4767-8767-676767676767',
+        jobNumber: '81234',
+        workScope: 'Sections 10',
+        sections: 'Sections 10',
+        lifecycleStatus: 'ACTIVE',
+        status: 'READY'
+      })
+    });
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Sections 10' });
+
+    expect(await screen.findByRole('heading', { name: 'This job already exists and is active.' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Existing job' })).toBeTruthy();
+    expect(screen.getAllByText('Sections 10').length).toBeGreaterThan(0);
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Existing Job' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/jobs/67676767-6767-4767-8767-676767676767');
+  });
+
   it('blocks completed duplicate job creation with completed-job guidance', async () => {
     const createMutation = buildMutationState();
     const completedJob = buildJob({
