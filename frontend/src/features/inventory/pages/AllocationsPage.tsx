@@ -133,6 +133,7 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
 
       <DuplicateJobCreationDialog
         open={Boolean(jobCreationWorkflow.duplicateJobPrompt)}
+        duplicate={jobCreationWorkflow.duplicateJobPrompt?.duplicate || null}
         job={jobCreationWorkflow.duplicateJobPrompt?.job || null}
         onEditNewJob={jobCreationWorkflow.dismissDuplicateJobPrompt}
         onGoToJob={jobCreationWorkflow.goToDuplicateJob}

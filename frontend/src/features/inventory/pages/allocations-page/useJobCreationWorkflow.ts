@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import { checkJobDuplicate } from '../../../../api/features/jobsClient';
+import type { JobDuplicateCheckResult } from '../../../../api/features/jobsClient';
 import type { CreateJobPayload, JobListEntry } from '../../../../domain';
 import type { JobEditorSubmitPayload } from '../../components/JobEditorDialog';
 import { shouldPromptForLaborOnlyConfirmation } from '../../utils/laborOnlyJobs';
@@ -27,7 +28,8 @@ interface AuthLike {
 }
 
 export interface DuplicateJobPrompt {
-  job: JobListEntry;
+  duplicate: JobDuplicateCheckResult;
+  job: JobListEntry | null;
 }
 
 interface UseJobCreationWorkflowOptions {
@@ -52,6 +54,17 @@ function buildCreateJobPayload(
     caulkRequirements: submitPayload.caulkRequirements,
     isLaborOnly
   };
+}
+
+function findPrimaryDuplicateJob(duplicate: JobDuplicateCheckResult): JobListEntry | null {
+  return (
+    duplicate.exactScopeJobs?.[0] ??
+    duplicate.job ??
+    duplicate.existingJob ??
+    duplicate.differentScopeJobs?.[0] ??
+    duplicate.sameJobNumberJobs?.[0] ??
+    null
+  );
 }
 
 export function useJobCreationWorkflow({
@@ -95,9 +108,12 @@ export function useJobCreationWorkflow({
         workScope: submitPayload.workScope,
         sections: submitPayload.sections
       });
-      if (duplicate.exists && duplicate.job) {
+      if (duplicate.canCreate === false || duplicate.exists === true) {
         setPendingLaborOnlyCreate(null);
-        setDuplicateJobPrompt({ job: duplicate.job });
+        setDuplicateJobPrompt({
+          duplicate,
+          job: findPrimaryDuplicateJob(duplicate)
+        });
         return false;
       }
       return true;

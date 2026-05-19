@@ -87,6 +87,27 @@ function buildJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildDuplicateResult(overrides: Record<string, unknown> = {}) {
+  return {
+    exists: true,
+    allowed: false,
+    canCreate: false,
+    duplicatesEnabled: false,
+    reason: 'SAME_JOB_SCOPE_ACTIVE',
+    blockingReason: 'SAME_JOB_SCOPE_ACTIVE',
+    duplicateScopeMode: 'EXACT_SCOPE',
+    job: null,
+    existingJob: null,
+    sameJobNumberJobs: [],
+    exactScopeJobs: [],
+    differentScopeJobs: [],
+    exactScopeDuplicateExists: false,
+    sameJobNumberDifferentScopeExists: false,
+    futureCanCreateAfterEnablement: false,
+    ...overrides
+  };
+}
+
 function buildCalendarQueryState(entries: ReturnType<typeof buildJob>[]) {
   return {
     data: entries,
@@ -161,7 +182,17 @@ describe('AllocationsPage interactions', () => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
     checkJobDuplicateMock.mockReset();
-    checkJobDuplicateMock.mockResolvedValue({ exists: false, job: null });
+    checkJobDuplicateMock.mockResolvedValue({
+      exists: false,
+      allowed: true,
+      canCreate: true,
+      duplicatesEnabled: false,
+      reason: 'NO_MATCH',
+      job: null,
+      sameJobNumberJobs: [],
+      exactScopeJobs: [],
+      differentScopeJobs: []
+    });
     const activeListEntries = [
       buildJob({
         jobId: '11111111-1111-4111-8111-111111111111',
@@ -314,32 +345,156 @@ describe('AllocationsPage interactions', () => {
 
   it('blocks active duplicate job creation before mutation and keeps the draft editable', async () => {
     const createMutation = buildMutationState();
-    useCreateJobMock.mockReturnValue(createMutation);
-    checkJobDuplicateMock.mockResolvedValue({
-      exists: true,
-      job: buildJob({
-        jobId: '44444444-4444-4444-8444-444444444444',
-        jobNumber: '81234',
-        workScope: 'Sections 4, 5',
-        sections: 'Sections 4, 5',
-        lifecycleStatus: 'ACTIVE',
-        status: 'READY'
-      })
+    const exactJob = buildJob({
+      jobId: '44444444-4444-4444-8444-444444444444',
+      jobNumber: '81234',
+      workScope: 'Sections 4, 5',
+      sections: 'Sections 4, 5',
+      workScopeKey: 'section:4+section:5',
+      lifecycleStatus: 'ACTIVE',
+      status: 'READY'
     });
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
+      job: exactJob,
+      existingJob: exactJob,
+      sameJobNumberJobs: [exactJob],
+      exactScopeJobs: [exactJob],
+      exactScopeDuplicateExists: true
+    }));
     renderPage({ initialJobsViewMode: 'calendar' });
 
-    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Different Scope' });
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Sections 4, 5' });
 
-    expect(await screen.findByRole('heading', { name: 'This job already exists and is active.' })).toBeTruthy();
+    expect(await screen.findByRole('heading', {
+      name: 'This job number already exists for this Work Scope.'
+    })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Exact Work Scope match' })).toBeTruthy();
+    expect(screen.getAllByText('Sections 4, 5').length).toBeGreaterThan(0);
     expect(screen.queryByRole('heading', { name: /Labor-Only Job/ })).toBeNull();
     expect(createMutation.mutateAsync).not.toHaveBeenCalled();
-    expect(screen.getByText(/Existing job: IL1-81234/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit New Job' }));
 
     expect(screen.getByRole('heading', { name: 'New Job' })).toBeTruthy();
     expect((screen.getByLabelText(/Job ID number/) as HTMLInputElement).value).toBe('81234');
-    expect((screen.getByLabelText(/Work Scope/) as HTMLInputElement).value).toBe('Different Scope');
+    expect((screen.getByLabelText(/Work Scope/) as HTMLInputElement).value).toBe('Sections 4, 5');
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows different-scope duplicate context while keeping creation blocked', async () => {
+    const createMutation = buildMutationState();
+    const differentJob = buildJob({
+      jobId: '47474747-4747-4747-8747-474747474747',
+      jobNumber: '81234',
+      workScope: 'Lobby',
+      sections: 'Lobby',
+      workScopeKey: 'scope:lobby',
+      lifecycleStatus: 'ACTIVE',
+      status: 'READY'
+    });
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
+      reason: 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED',
+      blockingReason: 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED',
+      duplicateScopeMode: 'DIFFERENT_SCOPE',
+      job: differentJob,
+      existingJob: differentJob,
+      sameJobNumberJobs: [differentJob],
+      differentScopeJobs: [differentJob],
+      sameJobNumberDifferentScopeExists: true,
+      futureCanCreateAfterEnablement: true
+    }));
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Penthouse' });
+
+    expect(await screen.findByRole('heading', {
+      name: 'This job number exists with a different Work Scope.'
+    })).toBeTruthy();
+    expect(screen.getByText(
+      'Same-number jobs with different Work Scopes are not enabled yet, so this job cannot be created. Edit the new job or open the existing job.'
+    )).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Same number, different Work Scope' })).toBeTruthy();
+    expect(screen.getAllByText('Lobby').length).toBeGreaterThan(0);
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('prioritizes exact-scope copy and shows different-scope jobs for mixed duplicate candidates', async () => {
+    const createMutation = buildMutationState();
+    const exactJob = buildJob({
+      jobId: '48484848-4848-4848-8848-484848484848',
+      jobNumber: '81234',
+      workScope: 'Penthouse',
+      sections: 'Penthouse',
+      workScopeKey: 'scope:penthouse',
+      lifecycleStatus: 'ACTIVE',
+      status: 'READY'
+    });
+    const differentJob = buildJob({
+      jobId: '49494949-4949-4949-8949-494949494949',
+      jobNumber: '81234',
+      workScope: 'Lobby',
+      sections: 'Lobby',
+      workScopeKey: 'scope:lobby',
+      lifecycleStatus: 'ACTIVE',
+      status: 'READY'
+    });
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
+      duplicateScopeMode: 'MIXED_SCOPE',
+      job: exactJob,
+      existingJob: exactJob,
+      sameJobNumberJobs: [exactJob, differentJob],
+      exactScopeJobs: [exactJob],
+      differentScopeJobs: [differentJob],
+      exactScopeDuplicateExists: true,
+      sameJobNumberDifferentScopeExists: true
+    }));
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Penthouse' });
+
+    expect(await screen.findByRole('heading', {
+      name: 'This job number already exists for this Work Scope.'
+    })).toBeTruthy();
+    expect(screen.getByText(
+      'An exact Work Scope match exists, so creation is blocked. Other jobs with this number are shown for context.'
+    )).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Exact Work Scope match' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Same number, different Work Scope' })).toBeTruthy();
+    expect(screen.getAllByText('Penthouse').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Lobby').length).toBeGreaterThan(0);
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('labels blank work scope duplicates and keeps creation blocked', async () => {
+    const createMutation = buildMutationState();
+    const blankScopeJob = buildJob({
+      jobId: '50505050-5050-4050-8050-505050505050',
+      jobNumber: '81234',
+      workScope: '',
+      sections: '',
+      workScopeKey: 'blank:',
+      lifecycleStatus: 'ACTIVE',
+      status: 'READY'
+    });
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
+      job: blankScopeJob,
+      existingJob: blankScopeJob,
+      sameJobNumberJobs: [blankScopeJob],
+      exactScopeJobs: [blankScopeJob],
+      exactScopeDuplicateExists: true
+    }));
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234' });
+
+    expect(await screen.findByRole('heading', {
+      name: 'This job number already exists for this Work Scope.'
+    })).toBeTruthy();
+    expect(screen.getByText('Blank Work Scope')).toBeTruthy();
     expect(createMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
@@ -386,25 +541,63 @@ describe('AllocationsPage interactions', () => {
     expect(navigateMock).toHaveBeenCalledWith('/allocations/81234');
   });
 
-  it('blocks completed duplicate job creation with completed-job guidance', async () => {
+  it('keeps old duplicate responses with only existingJob compatible', async () => {
     const createMutation = buildMutationState();
     useCreateJobMock.mockReturnValue(createMutation);
     checkJobDuplicateMock.mockResolvedValue({
       exists: true,
-      job: buildJob({
-        jobId: '66666666-6666-4666-8666-666666666666',
+      existingJob: buildJob({
+        jobId: '67676767-6767-4767-8767-676767676767',
         jobNumber: '81234',
-        lifecycleStatus: 'COMPLETED',
-        status: 'COMPLETED'
+        workScope: 'Sections 10',
+        sections: 'Sections 10',
+        lifecycleStatus: 'ACTIVE',
+        status: 'READY'
       })
     });
     renderPage({ initialJobsViewMode: 'calendar' });
 
-    await openNewJobAndSaveDraft({ jobNumber: '81234' });
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Sections 10' });
+
+    expect(await screen.findByRole('heading', { name: 'This job already exists and is active.' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Existing job' })).toBeTruthy();
+    expect(screen.getAllByText('Sections 10').length).toBeGreaterThan(0);
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Existing Job' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/allocations/jobs/67676767-6767-4767-8767-676767676767');
+  });
+
+  it('blocks completed duplicate job creation with completed-job guidance', async () => {
+    const createMutation = buildMutationState();
+    const completedJob = buildJob({
+      jobId: '66666666-6666-4666-8666-666666666666',
+      jobNumber: '81234',
+      workScope: 'Sections 9',
+      sections: 'Sections 9',
+      workScopeKey: 'section:9',
+      lifecycleStatus: 'COMPLETED',
+      status: 'COMPLETED'
+    });
+    useCreateJobMock.mockReturnValue(createMutation);
+    checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
+      reason: 'SAME_JOB_SCOPE_COMPLETED',
+      blockingReason: 'SAME_JOB_SCOPE_COMPLETED',
+      job: completedJob,
+      existingJob: completedJob,
+      sameJobNumberJobs: [completedJob],
+      exactScopeJobs: [completedJob],
+      exactScopeDuplicateExists: true
+    }));
+    renderPage({ initialJobsViewMode: 'calendar' });
+
+    await openNewJobAndSaveDraft({ jobNumber: '81234', workScope: 'Sections 9' });
 
     expect(await screen.findByRole('heading', {
-      name: 'This job was already completed. What would you like to do?'
+      name: 'This job number was already completed for this Work Scope.'
     })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Exact Work Scope match' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Go to Completed Job' })).toBeTruthy();
     expect(createMutation.mutateAsync).not.toHaveBeenCalled();
   });
