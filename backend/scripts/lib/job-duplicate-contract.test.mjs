@@ -140,6 +140,22 @@ test('/jobs/check-duplicate still blocks same job number with different work sco
   assert.equal(response.differentScopeJobs.length, 1);
 });
 
+test('/jobs/check-duplicate blocks same job number with blank work scope', async () => {
+  const { response } = await check(
+    { jobNumber: '81234', workScope: '   ' },
+    { candidates: [buildJob({ workScope: null, sections: null, workScopeKey: 'blank:' })] }
+  );
+
+  assert.equal(response.exists, true);
+  assert.equal(response.allowed, false);
+  assert.equal(response.canCreate, false);
+  assert.equal(response.reason, 'SAME_JOB_SCOPE_ACTIVE');
+  assert.equal(response.workScopeKey, 'blank:');
+  assert.equal(response.exactScopeDuplicateExists, true);
+  assert.equal(response.futureCanCreateAfterEnablement, false);
+  assert.equal(response.exactScopeJobs.length, 1);
+});
+
 test('/jobs/check-duplicate prefers workScope over legacy sections', async () => {
   const { response } = await check(
     { jobNumber: '81234', workScope: 'Section 1', sections: 'Sections 4, 5' },
