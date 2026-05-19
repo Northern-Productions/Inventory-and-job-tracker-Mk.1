@@ -1696,19 +1696,11 @@ Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job
       },
       normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
       normalizeJobLifecycleStatus: () => "ACTIVE",
-      findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
-        id: "11111111-1111-4111-8111-111111111111",
-        orgId,
-        jobNumber,
-        warehouse: "IL1",
-        workScope: "Sections 4, 5",
-        lifecycleStatus: "ACTIVE",
-      }),
-      buildJobsList: async (_client: unknown, orgId: string, _limit: number, _status: unknown, jobNumbers: unknown) => [
+      listJobs: async (_client: unknown, orgId: string) => [
         {
           jobId: "11111111-1111-4111-8111-111111111111",
           orgId,
-          jobNumber: Array.isArray(jobNumbers) ? jobNumbers[0] : "",
+          jobNumber: "81234",
           workScope: "Sections 4, 5",
           sections: "Sections 4, 5",
           lifecycleStatus: "ACTIVE",
@@ -1721,10 +1713,31 @@ Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job
   assertEquals(response.data, {
     exists: true,
     allowed: false,
+    canCreate: false,
+    duplicatesEnabled: false,
     reason: "SAME_JOB_SCOPE_ACTIVE",
+    blockingReason: "SAME_JOB_SCOPE_ACTIVE",
+    duplicateScopeMode: "EXACT_SCOPE",
     jobNumber: "81234",
     workScope: "Sections 4, 5",
     workScopeKey: "section:4,5",
+    requestedWorkScope: "Sections 4, 5",
+    requestedWorkScopeKey: "section:4,5",
+    exactScopeDuplicateExists: true,
+    sameJobNumberDifferentScopeExists: false,
+    futureCanCreateAfterEnablement: false,
+    exactScopeJobs: [{
+      jobId: "11111111-1111-4111-8111-111111111111",
+      orgId: "org-1",
+      jobNumber: "81234",
+      workScope: "Sections 4, 5",
+      sections: "Sections 4, 5",
+      lifecycleStatus: "ACTIVE",
+      status: "READY",
+      workScopeKey: "section:4,5",
+      routeTarget: "/allocations/jobs/11111111-1111-4111-8111-111111111111",
+    }],
+    differentScopeJobs: [],
     job: {
       jobId: "11111111-1111-4111-8111-111111111111",
       orgId: "org-1",
@@ -1779,20 +1792,28 @@ Deno.test("/jobs/check-duplicate returns exists false when no job exists", async
       },
       normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
       normalizeJobLifecycleStatus: () => "ACTIVE",
-      findJobByNumber: async () => null,
-      buildJobsList: async () => {
-        throw new Error("Duplicate check should not load summaries when no job exists.");
-      },
+      listJobs: async () => [],
     } as any,
   );
 
   assertEquals(response.data, {
     exists: false,
     allowed: true,
+    canCreate: true,
+    duplicatesEnabled: false,
     reason: "NO_MATCH",
+    blockingReason: null,
+    duplicateScopeMode: "NO_MATCH",
     jobNumber: "81235",
     workScope: "Section 1",
     workScopeKey: "section:1",
+    requestedWorkScope: "Section 1",
+    requestedWorkScopeKey: "section:1",
+    exactScopeDuplicateExists: false,
+    sameJobNumberDifferentScopeExists: false,
+    futureCanCreateAfterEnablement: false,
+    exactScopeJobs: [],
+    differentScopeJobs: [],
     job: null,
     existingJob: null,
     sameJobNumberJobs: [],
@@ -1817,15 +1838,7 @@ Deno.test("/jobs/check-duplicate blocks different work scope until duplicate job
       },
       normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
       normalizeJobLifecycleStatus: () => "ACTIVE",
-      findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
-        id: "11111111-1111-4111-8111-111111111111",
-        orgId,
-        jobNumber,
-        warehouse: "IL1",
-        workScope: "Section 1",
-        lifecycleStatus: "ACTIVE",
-      }),
-      buildJobsList: async () => [{
+      listJobs: async () => [{
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "81234",
         workScope: "Section 1",
@@ -1841,6 +1854,64 @@ Deno.test("/jobs/check-duplicate blocks different work scope until duplicate job
     "SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED",
     "Expected same-number different-scope checks to stay blocked in Phase 3A-2.",
   );
+  assertEquals((response.data as Record<string, unknown>).canCreate, false, "Expected same-number candidate to remain blocked.");
+  assertEquals((response.data as Record<string, unknown>).futureCanCreateAfterEnablement, true, "Expected different-scope candidate to be future-create eligible only after enablement.");
+  assertEquals((response.data as Record<string, unknown>).exactScopeDuplicateExists, false, "Expected no exact-scope match.");
+  assertEquals((response.data as Record<string, unknown>).sameJobNumberDifferentScopeExists, true, "Expected different-scope match to be reported.");
+});
+
+Deno.test("/jobs/check-duplicate preserves all same-number candidates across scope groups", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/jobs/check-duplicate",
+    { jobNumber: "81234", workScope: "Sections 01" },
+    {} as any,
+    {
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      requireString: (value: unknown, fieldName: string) => {
+        const trimmed = String(value || "").trim();
+        if (!trimmed) {
+          throw new Error(`${fieldName} is required.`);
+        }
+        return trimmed;
+      },
+      normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
+      normalizeJobLifecycleStatus: (value: unknown) => String(value || "ACTIVE").trim().toUpperCase(),
+      listJobs: async () => [
+        {
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "81234",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+          workScopeKey: "section:4,5",
+          lifecycleStatus: "ACTIVE",
+          status: "READY",
+        },
+        {
+          jobId: "33333333-3333-4333-8333-333333333333",
+          jobNumber: "81234",
+          workScope: "Section 1",
+          sections: "Section 1",
+          workScopeKey: "section:1",
+          lifecycleStatus: "ACTIVE",
+          status: "READY",
+        },
+      ],
+    } as any,
+  );
+
+  const data = response.data as Record<string, any>;
+  assertEquals(data.reason, "SAME_JOB_SCOPE_ACTIVE", "Expected exact-scope match to take priority.");
+  assertEquals(data.duplicateScopeMode, "MIXED_SCOPE", "Expected mixed scope mode.");
+  assertEquals(data.canCreate, false, "Expected creation to remain blocked.");
+  assertEquals(data.duplicatesEnabled, false, "Expected duplicate enablement flag to remain false.");
+  assertEquals(data.futureCanCreateAfterEnablement, false, "Expected exact-scope duplicate to prevent future-create eligibility.");
+  assertEquals(data.sameJobNumberJobs.length, 2, "Expected all same-number candidates to be preserved.");
+  assertEquals(data.exactScopeJobs.length, 1, "Expected one exact-scope candidate.");
+  assertEquals(data.exactScopeJobs[0].jobId, "33333333-3333-4333-8333-333333333333", "Expected exact-scope job identity to be preserved.");
+  assertEquals(data.differentScopeJobs.length, 1, "Expected one different-scope candidate.");
+  assertEquals(data.differentScopeJobs[0].jobId, "22222222-2222-4222-8222-222222222222", "Expected different-scope job identity to be preserved.");
 });
 
 Deno.test("/jobs/check-duplicate uses workScope before legacy sections", async () => {
@@ -1861,15 +1932,7 @@ Deno.test("/jobs/check-duplicate uses workScope before legacy sections", async (
       },
       normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
       normalizeJobLifecycleStatus: () => "COMPLETED",
-      findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
-        id: "11111111-1111-4111-8111-111111111111",
-        orgId,
-        jobNumber,
-        warehouse: "IL1",
-        workScope: "Sections 01",
-        lifecycleStatus: "COMPLETED",
-      }),
-      buildJobsList: async () => [{
+      listJobs: async () => [{
         jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "81234",
         workScope: "Sections 01",

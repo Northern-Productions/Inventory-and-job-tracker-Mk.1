@@ -57,6 +57,7 @@ export {
 } from '../../../repositories/inventory-records/index.mjs';
 export {
   listJobs,
+  listJobsByNumber,
   findJobByNumber,
   findJobById,
   saveJobRecord,

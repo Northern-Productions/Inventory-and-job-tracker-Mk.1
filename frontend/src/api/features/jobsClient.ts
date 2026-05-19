@@ -26,17 +26,28 @@ export interface JobsCalendarEntriesOptions {
 export interface JobDuplicateCheckResult {
   exists: boolean;
   allowed?: boolean;
+  canCreate?: boolean;
+  duplicatesEnabled?: boolean;
   reason?:
     | 'NO_MATCH'
     | 'SAME_JOB_SCOPE_ACTIVE'
     | 'SAME_JOB_SCOPE_COMPLETED'
     | 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED';
+  blockingReason?: JobDuplicateCheckResult['reason'] | null;
+  duplicateScopeMode?: 'NO_MATCH' | 'EXACT_SCOPE' | 'DIFFERENT_SCOPE' | 'MIXED_SCOPE';
   jobNumber?: string;
   workScope?: string | null;
   workScopeKey?: string;
+  requestedWorkScope?: string | null;
+  requestedWorkScopeKey?: string;
+  exactScopeDuplicateExists?: boolean;
+  sameJobNumberDifferentScopeExists?: boolean;
+  futureCanCreateAfterEnablement?: boolean;
   job: JobListEntry | null;
   existingJob?: JobListEntry | null;
   sameJobNumberJobs?: JobListEntry[];
+  exactScopeJobs?: JobListEntry[];
+  differentScopeJobs?: JobListEntry[];
 }
 
 export interface CheckJobDuplicateOptions {
@@ -230,13 +241,24 @@ export async function checkJobDuplicate(
   const result = await requestReadWithFallback<{
     exists?: boolean;
     allowed?: boolean;
+    canCreate?: boolean;
+    duplicatesEnabled?: boolean;
     reason?: JobDuplicateCheckResult['reason'];
+    blockingReason?: JobDuplicateCheckResult['reason'] | null;
+    duplicateScopeMode?: JobDuplicateCheckResult['duplicateScopeMode'];
     jobNumber?: string;
     workScope?: string | null;
     workScopeKey?: string;
+    requestedWorkScope?: string | null;
+    requestedWorkScopeKey?: string;
+    exactScopeDuplicateExists?: boolean;
+    sameJobNumberDifferentScopeExists?: boolean;
+    futureCanCreateAfterEnablement?: boolean;
     job?: JobListEntry | null;
     existingJob?: JobListEntry | null;
     sameJobNumberJobs?: JobListEntry[];
+    exactScopeJobs?: JobListEntry[];
+    differentScopeJobs?: JobListEntry[];
   }>(
     '/jobs/check-duplicate',
     query,
@@ -244,15 +266,29 @@ export async function checkJobDuplicate(
   );
   const job = result.job ? normalizeJobListEntry(result.job) : null;
   const existingJob = result.existingJob ? normalizeJobListEntry(result.existingJob) : job;
+  const sameJobNumberJobs = (result.sameJobNumberJobs || []).map(normalizeJobListEntry);
+  const exactScopeJobs = (result.exactScopeJobs || []).map(normalizeJobListEntry);
+  const differentScopeJobs = (result.differentScopeJobs || []).map(normalizeJobListEntry);
   return {
-    exists: Boolean(result.exists && job),
+    exists: Boolean(result.exists && (job || sameJobNumberJobs.length)),
     allowed: result.allowed,
+    canCreate: result.canCreate === undefined ? result.allowed : Boolean(result.canCreate),
+    duplicatesEnabled: result.duplicatesEnabled === true,
     reason: result.reason,
+    blockingReason: result.blockingReason || null,
+    duplicateScopeMode: result.duplicateScopeMode,
     jobNumber: normalizeOptionalText(result.jobNumber) || undefined,
     workScope: normalizeOptionalText(result.workScope),
     workScopeKey: normalizeOptionalText(result.workScopeKey) || undefined,
+    requestedWorkScope: normalizeOptionalText(result.requestedWorkScope),
+    requestedWorkScopeKey: normalizeOptionalText(result.requestedWorkScopeKey) || undefined,
+    exactScopeDuplicateExists: Boolean(result.exactScopeDuplicateExists),
+    sameJobNumberDifferentScopeExists: Boolean(result.sameJobNumberDifferentScopeExists),
+    futureCanCreateAfterEnablement: Boolean(result.futureCanCreateAfterEnablement),
     existingJob,
-    sameJobNumberJobs: (result.sameJobNumberJobs || []).map(normalizeJobListEntry),
+    sameJobNumberJobs,
+    exactScopeJobs,
+    differentScopeJobs,
     job
   };
 }

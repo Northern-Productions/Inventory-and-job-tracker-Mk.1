@@ -282,10 +282,19 @@ describe('jobs API client canonical routes', () => {
       data: {
         exists: true,
         allowed: false,
+        canCreate: false,
+        duplicatesEnabled: false,
         reason: 'SAME_JOB_SCOPE_ACTIVE',
+        blockingReason: 'SAME_JOB_SCOPE_ACTIVE',
+        duplicateScopeMode: 'EXACT_SCOPE',
         jobNumber: '000123',
         workScope: 'Sections 4, 5',
         workScopeKey: 'section:4,5',
+        requestedWorkScope: 'Sections 4, 5',
+        requestedWorkScopeKey: 'section:4,5',
+        exactScopeDuplicateExists: true,
+        sameJobNumberDifferentScopeExists: false,
+        futureCanCreateAfterEnablement: false,
         job: buildJobListEntry({
           jobId: '33333333-3333-4333-8333-333333333333',
           jobNumber: '000123',
@@ -311,7 +320,18 @@ describe('jobs API client canonical routes', () => {
             workScopeKey: 'section:4,5',
             routeTarget: '/allocations/jobs/33333333-3333-4333-8333-333333333333'
           })
-        ]
+        ],
+        exactScopeJobs: [
+          buildJobListEntry({
+            jobId: '33333333-3333-4333-8333-333333333333',
+            jobNumber: '000123',
+            workScope: 'Sections 4, 5',
+            sections: null,
+            workScopeKey: 'section:4,5',
+            routeTarget: '/allocations/jobs/33333333-3333-4333-8333-333333333333'
+          })
+        ],
+        differentScopeJobs: []
       },
       warnings: []
     });
@@ -323,14 +343,25 @@ describe('jobs API client canonical routes', () => {
 
     expect(result.exists).toBe(true);
     expect(result.allowed).toBe(false);
+    expect(result.canCreate).toBe(false);
+    expect(result.duplicatesEnabled).toBe(false);
     expect(result.reason).toBe('SAME_JOB_SCOPE_ACTIVE');
+    expect(result.blockingReason).toBe('SAME_JOB_SCOPE_ACTIVE');
+    expect(result.duplicateScopeMode).toBe('EXACT_SCOPE');
     expect(result.workScopeKey).toBe('section:4,5');
+    expect(result.requestedWorkScope).toBe('Sections 4, 5');
+    expect(result.requestedWorkScopeKey).toBe('section:4,5');
+    expect(result.exactScopeDuplicateExists).toBe(true);
+    expect(result.sameJobNumberDifferentScopeExists).toBe(false);
+    expect(result.futureCanCreateAfterEnablement).toBe(false);
     expect(result.job?.jobId).toBe('33333333-3333-4333-8333-333333333333');
     expect(result.job?.workScope).toBe('Sections 4, 5');
     expect(result.job?.sections).toBe('Sections 4, 5');
     expect(result.job?.routeTarget).toBe('/allocations/jobs/33333333-3333-4333-8333-333333333333');
     expect(result.existingJob?.workScopeKey).toBe('section:4,5');
     expect(result.sameJobNumberJobs).toHaveLength(1);
+    expect(result.exactScopeJobs).toHaveLength(1);
+    expect(result.differentScopeJobs).toHaveLength(0);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
       query: {
         jobNumber: '000123',
@@ -345,13 +376,24 @@ describe('jobs API client canonical routes', () => {
       data: {
         exists: false,
         allowed: true,
+        canCreate: true,
+        duplicatesEnabled: false,
         reason: 'NO_MATCH',
+        blockingReason: null,
+        duplicateScopeMode: 'NO_MATCH',
         jobNumber: '000124',
         workScope: null,
         workScopeKey: 'blank:',
+        requestedWorkScope: null,
+        requestedWorkScopeKey: 'blank:',
+        exactScopeDuplicateExists: false,
+        sameJobNumberDifferentScopeExists: false,
+        futureCanCreateAfterEnablement: false,
         job: null,
         existingJob: null,
-        sameJobNumberJobs: []
+        sameJobNumberJobs: [],
+        exactScopeJobs: [],
+        differentScopeJobs: []
       },
       warnings: []
     });
@@ -361,12 +403,23 @@ describe('jobs API client canonical routes', () => {
     expect(result).toEqual({
       exists: false,
       allowed: true,
+      canCreate: true,
+      duplicatesEnabled: false,
       reason: 'NO_MATCH',
+      blockingReason: null,
+      duplicateScopeMode: 'NO_MATCH',
       jobNumber: '000124',
       workScope: null,
       workScopeKey: 'blank:',
+      requestedWorkScope: null,
+      requestedWorkScopeKey: 'blank:',
+      exactScopeDuplicateExists: false,
+      sameJobNumberDifferentScopeExists: false,
+      futureCanCreateAfterEnablement: false,
       existingJob: null,
       sameJobNumberJobs: [],
+      exactScopeJobs: [],
+      differentScopeJobs: [],
       job: null
     });
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/check-duplicate', {
