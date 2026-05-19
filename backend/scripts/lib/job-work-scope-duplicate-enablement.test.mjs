@@ -43,8 +43,10 @@ test('final uniqueness migration replaces only job-number uniqueness with work-s
 
   assert.match(migration, /group by org_id, job_number, work_scope_key\s+having count\(\*\) > 1/is);
   assert.match(migration, /work_scope_key is distinct from app_api\.normalize_job_work_scope_key\(sections\)/i);
-  assert.match(migration, /array\['org_id', 'job_number'\]/);
-  assert.match(migration, /array\['org_id', 'job_number', 'work_scope_key'\]/);
+  assert.match(migration, /array_agg\(a\.attname::text order by cols\.ordinality\)/);
+  assert.match(migration, /\)\s*=\s*array\['org_id', 'job_number'\]::text\[\]/);
+  assert.match(migration, /\)\s*=\s*array\['org_id', 'job_number', 'work_scope_key'\]::text\[\]/);
+  assert.doesNotMatch(migration, /array_agg\(a\.attname order by cols\.ordinality\)/);
   assert.match(migration, /alter table app\.jobs drop constraint %I/i);
   assert.match(migration, /add constraint jobs_org_job_number_work_scope_key_unique\s+unique \(org_id, job_number, work_scope_key\)/i);
   assert.match(migration, /drop index if exists app\.idx_jobs_org_job_number_work_scope_key/i);

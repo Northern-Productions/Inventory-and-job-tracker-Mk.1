@@ -101,12 +101,12 @@ begin
     where c.conrelid = 'app.jobs'::regclass
       and c.contype = 'u'
       and (
-        select array_agg(a.attname order by cols.ordinality)
+        select array_agg(a.attname::text order by cols.ordinality)
         from unnest(c.conkey) with ordinality as cols(attnum, ordinality)
         join pg_attribute a
           on a.attrelid = c.conrelid
          and a.attnum = cols.attnum
-      ) = array['org_id', 'job_number', 'work_scope_key']
+      ) = array['org_id', 'job_number', 'work_scope_key']::text[]
   )
   into v_triplet_constraint_exists;
 
@@ -116,12 +116,12 @@ begin
   where c.conrelid = 'app.jobs'::regclass
     and c.contype = 'u'
     and (
-      select array_agg(a.attname order by cols.ordinality)
+      select array_agg(a.attname::text order by cols.ordinality)
       from unnest(c.conkey) with ordinality as cols(attnum, ordinality)
       join pg_attribute a
         on a.attrelid = c.conrelid
        and a.attnum = cols.attnum
-    ) = array['org_id', 'job_number']
+    ) = array['org_id', 'job_number']::text[]
   limit 1;
 
   if v_job_number_constraint_name is not null then
