@@ -30,6 +30,8 @@ interface AuthLike {
 export interface DuplicateJobPrompt {
   duplicate: JobDuplicateCheckResult;
   job: JobListEntry | null;
+  submitPayload: JobEditorSubmitPayload;
+  canConfirmCreate: boolean;
 }
 
 interface UseJobCreationWorkflowOptions {
@@ -108,11 +110,15 @@ export function useJobCreationWorkflow({
         workScope: submitPayload.workScope,
         sections: submitPayload.sections
       });
-      if (duplicate.canCreate === false || duplicate.exists === true) {
+      const blocksCreate = duplicate.canCreate === false || (duplicate.canCreate === undefined && duplicate.exists === true);
+      const requiresConfirmation = duplicate.exists === true && duplicate.canCreate === true;
+      if (blocksCreate || requiresConfirmation) {
         setPendingLaborOnlyCreate(null);
         setDuplicateJobPrompt({
           duplicate,
-          job: findPrimaryDuplicateJob(duplicate)
+          job: findPrimaryDuplicateJob(duplicate),
+          submitPayload,
+          canConfirmCreate: requiresConfirmation
         });
         return false;
       }
@@ -198,6 +204,21 @@ export function useJobCreationWorkflow({
     navigate(buildAllocationJobRoute(job));
   }
 
+  async function confirmDifferentScopeDuplicateCreate() {
+    const prompt = duplicateJobPrompt;
+    if (!prompt?.canConfirmCreate) {
+      return;
+    }
+
+    setDuplicateJobPrompt(null);
+    if (shouldPromptForLaborOnlyConfirmation(prompt.submitPayload)) {
+      setPendingLaborOnlyCreate(prompt.submitPayload);
+      return;
+    }
+
+    await submitCreateJob(prompt.submitPayload, false);
+  }
+
   return {
     isNewJobOpen,
     setIsNewJobOpen,
@@ -207,6 +228,7 @@ export function useJobCreationWorkflow({
     isCreateSubmitting: createJobMutation.isPending || isCheckingDuplicate,
     handleCreateJob,
     confirmLaborOnlyCreate,
+    confirmDifferentScopeDuplicateCreate,
     dismissDuplicateJobPrompt,
     goToDuplicateJob
   };

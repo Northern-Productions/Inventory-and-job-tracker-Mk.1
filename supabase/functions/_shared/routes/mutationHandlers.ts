@@ -774,23 +774,34 @@ const mutationHandlers: Record<string, MutationHandler> = {
       deps.normalizeJobNumberDigits(normalizedPayload.jobNumber, "Job ID number"),
       "Job ID number"
     );
-    const existingJob = await deps.findJobByNumber(client, orgId, jobNumber);
-    if (existingJob) {
+    const entries = await deps.listJobs(client, orgId);
+    const sameJobNumberJobs = entries.filter(
+      (entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber
+    );
+    const duplicateResult = buildJobDuplicateCheckResult({
+      jobNumber,
+      workScopeInput: getJobDuplicateWorkScopeInput(normalizedPayload),
+      existingJob: sameJobNumberJobs[0] || null,
+      sameJobNumberJobs,
+      duplicatesEnabled: true,
+    });
+    if (duplicateResult.exactScopeDuplicateExists) {
       throw new HttpError(
         409,
         `Job ${jobNumber} already exists.`,
         [],
-        buildJobDuplicateCheckResult({
-          jobNumber,
-          workScopeInput: getJobDuplicateWorkScopeInput(normalizedPayload),
-          existingJob,
-          sameJobNumberJobs: [existingJob],
-        }),
+        duplicateResult,
       );
     }
 
     const result = await deps.callMutationRpc(client, "api_acl_jobs_create", orgId, actor, normalizedPayload);
-    return ok(await deps.buildJobDetail(client, orgId, result.jobNumber), result.warnings || []);
+    const jobId = deps.asTrimmedString(result.jobId);
+    return ok(
+      jobId
+        ? await deps.buildJobDetailById(client, orgId, jobId)
+        : await deps.buildJobDetail(client, orgId, result.jobNumber),
+      result.warnings || []
+    );
   },
   "/jobs/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {

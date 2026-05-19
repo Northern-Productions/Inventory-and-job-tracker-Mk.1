@@ -39,14 +39,14 @@ test('/jobs/check-duplicate keeps jobNumber-only compatibility when a duplicate 
   });
 
   assert.equal(response.exists, true);
-  assert.equal(response.allowed, false);
+  assert.equal(response.allowed, true);
   assert.equal(response.job.jobNumber, '81234');
   assert.equal(response.job.workScope, 'Sections 4, 5');
   assert.equal(response.existingJob.jobId, '11111111-1111-4111-8111-111111111111');
   assert.equal(response.existingJob.routeTarget, '/allocations/jobs/11111111-1111-4111-8111-111111111111');
-  assert.equal(response.canCreate, false);
-  assert.equal(response.duplicatesEnabled, false);
-  assert.equal(response.blockingReason, 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED');
+  assert.equal(response.canCreate, true);
+  assert.equal(response.duplicatesEnabled, true);
+  assert.equal(response.blockingReason, null);
 });
 
 test('/jobs/check-duplicate returns allowed no-match diagnostics for unique job numbers', async () => {
@@ -59,7 +59,7 @@ test('/jobs/check-duplicate returns allowed no-match diagnostics for unique job 
     exists: false,
     allowed: true,
     canCreate: true,
-    duplicatesEnabled: false,
+    duplicatesEnabled: true,
     reason: 'NO_MATCH',
     blockingReason: null,
     duplicateScopeMode: 'NO_MATCH',
@@ -120,22 +120,23 @@ test('/jobs/check-duplicate blocks completed same job number and same normalized
   assert.equal(response.existingJob.lifecycleStatus, 'COMPLETED');
 });
 
-test('/jobs/check-duplicate still blocks same job number with different work scope until duplicates are enabled', async () => {
+test('/jobs/check-duplicate allows same job number with different work scope after enablement', async () => {
   const { response } = await check(
     { jobNumber: '81234', workScope: 'Sections 4, 5' },
     { candidates: [buildJob({ workScope: 'Section 1', sections: 'Section 1' })] }
   );
 
   assert.equal(response.exists, true);
-  assert.equal(response.allowed, false);
-  assert.equal(response.canCreate, false);
-  assert.equal(response.reason, 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED');
-  assert.equal(response.blockingReason, 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED');
+  assert.equal(response.allowed, true);
+  assert.equal(response.canCreate, true);
+  assert.equal(response.duplicatesEnabled, true);
+  assert.equal(response.reason, 'NO_MATCH');
+  assert.equal(response.blockingReason, null);
   assert.equal(response.duplicateScopeMode, 'DIFFERENT_SCOPE');
   assert.equal(response.workScopeKey, 'section:4,5');
   assert.equal(response.exactScopeDuplicateExists, false);
   assert.equal(response.sameJobNumberDifferentScopeExists, true);
-  assert.equal(response.futureCanCreateAfterEnablement, true);
+  assert.equal(response.futureCanCreateAfterEnablement, false);
   assert.equal(response.exactScopeJobs.length, 0);
   assert.equal(response.differentScopeJobs.length, 1);
 });

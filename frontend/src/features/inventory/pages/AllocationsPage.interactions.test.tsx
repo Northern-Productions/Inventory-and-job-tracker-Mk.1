@@ -92,7 +92,7 @@ function buildDuplicateResult(overrides: Record<string, unknown> = {}) {
     exists: true,
     allowed: false,
     canCreate: false,
-    duplicatesEnabled: false,
+    duplicatesEnabled: true,
     reason: 'SAME_JOB_SCOPE_ACTIVE',
     blockingReason: 'SAME_JOB_SCOPE_ACTIVE',
     duplicateScopeMode: 'EXACT_SCOPE',
@@ -186,7 +186,7 @@ describe('AllocationsPage interactions', () => {
       exists: false,
       allowed: true,
       canCreate: true,
-      duplicatesEnabled: false,
+      duplicatesEnabled: true,
       reason: 'NO_MATCH',
       job: null,
       sameJobNumberJobs: [],
@@ -382,8 +382,16 @@ describe('AllocationsPage interactions', () => {
     expect(createMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('shows different-scope duplicate context while keeping creation blocked', async () => {
+  it('confirms before creating a same-number different-scope job', async () => {
     const createMutation = buildMutationState();
+    createMutation.mutateAsync.mockResolvedValue({
+      result: {
+        summary: {
+          jobId: '57575757-5757-4757-8757-575757575757',
+          jobNumber: '81234'
+        }
+      }
+    });
     const differentJob = buildJob({
       jobId: '47474747-4747-4747-8747-474747474747',
       jobNumber: '81234',
@@ -395,15 +403,18 @@ describe('AllocationsPage interactions', () => {
     });
     useCreateJobMock.mockReturnValue(createMutation);
     checkJobDuplicateMock.mockResolvedValue(buildDuplicateResult({
-      reason: 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED',
-      blockingReason: 'SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED',
+      allowed: true,
+      canCreate: true,
+      duplicatesEnabled: true,
+      reason: 'NO_MATCH',
+      blockingReason: null,
       duplicateScopeMode: 'DIFFERENT_SCOPE',
       job: differentJob,
       existingJob: differentJob,
       sameJobNumberJobs: [differentJob],
       differentScopeJobs: [differentJob],
       sameJobNumberDifferentScopeExists: true,
-      futureCanCreateAfterEnablement: true
+      futureCanCreateAfterEnablement: false
     }));
     renderPage({ initialJobsViewMode: 'calendar' });
 
@@ -413,11 +424,26 @@ describe('AllocationsPage interactions', () => {
       name: 'This job number exists with a different Work Scope.'
     })).toBeTruthy();
     expect(screen.getByText(
-      'Same-number jobs with different Work Scopes are not enabled yet, so this job cannot be created. Edit the new job or open the existing job.'
+      'The Work Scope is different, so creating this same-number job is now allowed. Review the existing job first, then continue only if this is intentional.'
     )).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Same number, different Work Scope' })).toBeTruthy();
     expect(screen.getAllByText('Lobby').length).toBeGreaterThan(0);
     expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Different Work Scope Job' }));
+
+    expect(await screen.findByRole('heading', { name: 'Labor-Only Job 81234?' })).toBeTruthy();
+    expect(createMutation.mutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, Labor Only' }));
+
+    await waitFor(() => expect(createMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobNumber: '81234',
+        workScope: 'Penthouse',
+        isLaborOnly: true
+      })
+    ));
   });
 
   it('prioritizes exact-scope copy and shows different-scope jobs for mixed duplicate candidates', async () => {

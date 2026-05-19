@@ -730,7 +730,7 @@ Deno.test("/allocations/remove-box rejects allocation ownership mismatch before 
   throw new Error("Expected remove-box allocation ownership mismatch to fail.");
 });
 
-Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and reloads job detail", async () => {
+Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and reloads job detail by jobId", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
   const jobDetailCalls: Array<Record<string, unknown>> = [];
   let plannerCallCount = 0;
@@ -754,14 +754,16 @@ Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and relo
       ) => {
         rpcCalls.push({ fn, orgId, actor, payload });
         return {
+          jobId: "11111111-1111-4111-8111-111111111111",
           jobNumber: "81234",
           warnings: ["SQL planner completed."],
         };
       },
-      buildJobDetail: async (_client: unknown, orgId: string, jobNumber: unknown) => {
-        jobDetailCalls.push({ orgId, jobNumber });
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => {
+        jobDetailCalls.push({ orgId, jobId });
         return {
-          jobNumber,
+          jobId,
+          jobNumber: "81234",
           plannerSource: "sql",
         };
       },
@@ -791,14 +793,15 @@ Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and relo
   assertEquals(plannerCallCount, 0, "Expected /jobs/create to skip the redundant Edge planner pass.");
   assertEquals(
     jobDetailCalls,
-    [{ orgId: "org-1", jobNumber: "81234" }],
-    "Expected /jobs/create to reload canonical job detail after SQL create.",
+    [{ orgId: "org-1", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected /jobs/create to reload canonical job detail by jobId after SQL create.",
   );
   assertEquals(
     response,
     {
       ok: true,
       data: {
+        jobId: "11111111-1111-4111-8111-111111111111",
         jobNumber: "81234",
         plannerSource: "sql",
       },
@@ -808,7 +811,7 @@ Deno.test("/jobs/create delegates planner reconciliation to the SQL RPC and relo
   );
 });
 
-Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC", async () => {
+Deno.test("/jobs/create rejects exact Work Scope duplicate job numbers before the SQL create RPC", async () => {
   let rpcCallCount = 0;
   let detailCallCount = 0;
 
@@ -824,13 +827,15 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
         requirements: [],
       },
       buildDeps({
-        findJobByNumber: async (_client: unknown, orgId: string, jobNumber: string) => ({
-          orgId,
-          jobNumber,
-          workScope: "Sections 4, 5",
-          sections: "Sections 4, 5",
-          lifecycleStatus: "COMPLETED",
-        }),
+        listJobs: async (_client: unknown, orgId: string) => [
+          {
+            orgId,
+            jobNumber: "81234",
+            workScope: "Sections 4, 5",
+            sections: "Sections 4, 5",
+            lifecycleStatus: "COMPLETED",
+          },
+        ],
         callMutationRpc: async () => {
           rpcCallCount += 1;
           return {};
@@ -867,6 +872,63 @@ Deno.test("/jobs/create rejects duplicate job numbers before the SQL create RPC"
   }
 
   throw new Error("Expected duplicate /jobs/create to fail.");
+});
+
+Deno.test("/jobs/create allows same job number when Work Scope differs", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-1", actor: "tester", role: "owner" } as any,
+    "/jobs/create",
+    {
+      jobNumber: "81234",
+      warehouse: "IL1",
+      workScope: "Penthouse",
+      requirements: [],
+    },
+    buildDeps({
+      listJobs: async (_client: unknown, orgId: string) => [
+        {
+          orgId,
+          jobNumber: "81234",
+          workScope: "Lobby",
+          sections: "Lobby",
+          workScopeKey: "text:lobby",
+          lifecycleStatus: "ACTIVE",
+        },
+      ],
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          jobId: "22222222-2222-4222-8222-222222222222",
+          jobNumber: "81234",
+          warnings: [],
+        };
+      },
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => ({
+        orgId,
+        jobId,
+        jobNumber: "81234",
+      }),
+    }),
+  );
+
+  assertEquals(rpcCalls.length, 1, "Expected different-scope duplicate job number to call the SQL create RPC.");
+  assertEquals(
+    response.data,
+    {
+      orgId: "org-1",
+      jobId: "22222222-2222-4222-8222-222222222222",
+      jobNumber: "81234",
+    },
+    "Expected different-scope create to reload by returned jobId.",
+  );
 });
 
 Deno.test("/jobs/reopen reloads jobId-scoped detail when canonical identity is present", async () => {

@@ -455,6 +455,7 @@ async function checkJobDuplicate(client, orgId, params, deps = {}) {
     workScopeInput,
     existingJob: sameJobNumberJobs[0] || null,
     sameJobNumberJobs,
+    duplicatesEnabled: true,
   });
 }
 

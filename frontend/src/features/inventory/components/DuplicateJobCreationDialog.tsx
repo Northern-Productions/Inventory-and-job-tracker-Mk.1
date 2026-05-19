@@ -8,8 +8,10 @@ interface DuplicateJobCreationDialogProps {
   open: boolean;
   duplicate: JobDuplicateCheckResult | null;
   job: JobListEntry | null;
+  canConfirmCreate?: boolean;
   onEditNewJob: () => void;
   onGoToJob: () => void;
+  onConfirmCreate?: () => void;
 }
 
 function isCompletedJob(job: JobListEntry | null | undefined) {
@@ -114,8 +116,10 @@ export function DuplicateJobCreationDialog({
   open,
   duplicate,
   job,
+  canConfirmCreate = false,
   onEditNewJob,
-  onGoToJob
+  onGoToJob,
+  onConfirmCreate
 }: DuplicateJobCreationDialogProps) {
   if (!open || !duplicate) {
     return null;
@@ -144,6 +148,11 @@ export function DuplicateJobCreationDialog({
   const isCompleted = isCompletedJob(primaryJob);
   const differentScopeOnly = !hasExactScopeSignal && hasDifferentScopeSignal;
   const mixedScope = hasExactScopeSignal && hasDifferentScopeSignal;
+  const canCreateDifferentScope =
+    differentScopeOnly &&
+    canConfirmCreate &&
+    duplicate.canCreate === true &&
+    duplicate.duplicatesEnabled === true;
 
   let title = 'This job number already exists.';
   if (differentScopeOnly) {
@@ -161,8 +170,9 @@ export function DuplicateJobCreationDialog({
   let message =
     'This job number already exists. Creation is blocked until the duplicate can be reviewed.';
   if (differentScopeOnly) {
-    message =
-      'Same-number jobs with different Work Scopes are not enabled yet, so this job cannot be created. Edit the new job or open the existing job.';
+    message = canCreateDifferentScope
+      ? 'The Work Scope is different, so creating this same-number job is now allowed. Review the existing job first, then continue only if this is intentional.'
+      : 'Same-number jobs with different Work Scopes are not enabled yet, so this job cannot be created. Edit the new job or open the existing job.';
   } else if (mixedScope) {
     message =
       'An exact Work Scope match exists, so creation is blocked. Other jobs with this number are shown for context.';
@@ -194,6 +204,11 @@ export function DuplicateJobCreationDialog({
         {primaryJob ? (
           <Button type="button" fullWidth onClick={onGoToJob}>
             {goLabel}
+          </Button>
+        ) : null}
+        {canCreateDifferentScope && onConfirmCreate ? (
+          <Button type="button" fullWidth onClick={onConfirmCreate}>
+            Create Different Work Scope Job
           </Button>
         ) : null}
       </div>

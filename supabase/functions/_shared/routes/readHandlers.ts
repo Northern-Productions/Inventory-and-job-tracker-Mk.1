@@ -841,6 +841,7 @@ const readHandlers: Record<string, ReadHandler> = {
       workScopeInput,
       existingJob: sameJobNumberJobs[0] || null,
       sameJobNumberJobs,
+      duplicatesEnabled: true,
     }));
   },
   "/jobs/get": async ({ client, orgId, params }, deps) => {

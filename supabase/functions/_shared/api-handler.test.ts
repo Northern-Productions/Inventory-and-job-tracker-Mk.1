@@ -1714,7 +1714,7 @@ Deno.test("/jobs/check-duplicate returns org-scoped duplicate summary when a job
     exists: true,
     allowed: false,
     canCreate: false,
-    duplicatesEnabled: false,
+    duplicatesEnabled: true,
     reason: "SAME_JOB_SCOPE_ACTIVE",
     blockingReason: "SAME_JOB_SCOPE_ACTIVE",
     duplicateScopeMode: "EXACT_SCOPE",
@@ -1800,7 +1800,7 @@ Deno.test("/jobs/check-duplicate returns exists false when no job exists", async
     exists: false,
     allowed: true,
     canCreate: true,
-    duplicatesEnabled: false,
+    duplicatesEnabled: true,
     reason: "NO_MATCH",
     blockingReason: null,
     duplicateScopeMode: "NO_MATCH",
@@ -1820,7 +1820,7 @@ Deno.test("/jobs/check-duplicate returns exists false when no job exists", async
   }, "Expected unique job number to return exists false.");
 });
 
-Deno.test("/jobs/check-duplicate blocks different work scope until duplicate job numbers are enabled", async () => {
+Deno.test("/jobs/check-duplicate allows different work scope after duplicate job numbers are enabled", async () => {
   const response = await dispatchReadWithHandlers(
     {},
     "org-1",
@@ -1851,11 +1851,13 @@ Deno.test("/jobs/check-duplicate blocks different work scope until duplicate job
 
   assertEquals(
     (response.data as Record<string, unknown>).reason,
-    "SAME_JOB_NUMBER_BLOCKED_UNTIL_SCOPE_DUPLICATES_ENABLED",
-    "Expected same-number different-scope checks to stay blocked in Phase 3A-2.",
+    "NO_MATCH",
+    "Expected same-number different-scope checks to be allowed after enablement.",
   );
-  assertEquals((response.data as Record<string, unknown>).canCreate, false, "Expected same-number candidate to remain blocked.");
-  assertEquals((response.data as Record<string, unknown>).futureCanCreateAfterEnablement, true, "Expected different-scope candidate to be future-create eligible only after enablement.");
+  assertEquals((response.data as Record<string, unknown>).canCreate, true, "Expected different-scope same-number candidate to be create-eligible.");
+  assertEquals((response.data as Record<string, unknown>).allowed, true, "Expected different-scope same-number candidate to be allowed.");
+  assertEquals((response.data as Record<string, unknown>).blockingReason, null, "Expected no blocking reason for different-scope same-number candidate.");
+  assertEquals((response.data as Record<string, unknown>).futureCanCreateAfterEnablement, false, "Expected future eligibility flag to be cleared after enablement.");
   assertEquals((response.data as Record<string, unknown>).exactScopeDuplicateExists, false, "Expected no exact-scope match.");
   assertEquals((response.data as Record<string, unknown>).sameJobNumberDifferentScopeExists, true, "Expected different-scope match to be reported.");
 });
@@ -1905,7 +1907,7 @@ Deno.test("/jobs/check-duplicate preserves all same-number candidates across sco
   assertEquals(data.reason, "SAME_JOB_SCOPE_ACTIVE", "Expected exact-scope match to take priority.");
   assertEquals(data.duplicateScopeMode, "MIXED_SCOPE", "Expected mixed scope mode.");
   assertEquals(data.canCreate, false, "Expected creation to remain blocked.");
-  assertEquals(data.duplicatesEnabled, false, "Expected duplicate enablement flag to remain false.");
+  assertEquals(data.duplicatesEnabled, true, "Expected duplicate enablement flag to be true.");
   assertEquals(data.futureCanCreateAfterEnablement, false, "Expected exact-scope duplicate to prevent future-create eligibility.");
   assertEquals(data.sameJobNumberJobs.length, 2, "Expected all same-number candidates to be preserved.");
   assertEquals(data.exactScopeJobs.length, 1, "Expected one exact-scope candidate.");
