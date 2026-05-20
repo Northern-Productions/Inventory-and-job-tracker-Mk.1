@@ -585,7 +585,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         }
         feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - storedAllocatedFeet, initialFeet);
       } else {
-        feetAvailable = clampFeetToInitialRange(feetAvailable, initialFeet);
+        feetAvailable = clampFeetToInitialRange(existingBox?.feetAvailable ?? feetAvailable, initialFeet);
       }
     } else {
       if (resolvedLastRollWeightLbs === null) {
