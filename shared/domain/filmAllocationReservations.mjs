@@ -267,6 +267,19 @@ function resolveExplicitPhysicalFeet(box) {
   return null;
 }
 
+function resolveCheckedOutPhysicalFeet(box) {
+  if (
+    box &&
+    box.feetAvailable !== undefined &&
+    box.feetAvailable !== null &&
+    Number.isFinite(Number(box.feetAvailable))
+  ) {
+    return integerOrZero(box.feetAvailable);
+  }
+
+  return integerOrZero(box?.initialFeet);
+}
+
 function buildBoxReservationSnapshot(box, allocations, options = {}) {
   const reservationEntries = getCapacityReservationEntries(allocations, box);
   const activeEntries = reservationEntries.filter((entry) => getAllocationStatus(entry) === 'ACTIVE');
@@ -325,7 +338,7 @@ function buildBoxReservationSnapshot(box, allocations, options = {}) {
   if (isCheckedOutFilmReservationBoxStatus(box?.status)) {
     const explicitPhysicalFeet = resolveExplicitPhysicalFeet(box);
     const physicalFeetAvailable =
-      explicitPhysicalFeet === null ? integerOrZero(box?.initialFeet) : explicitPhysicalFeet;
+      explicitPhysicalFeet === null ? resolveCheckedOutPhysicalFeet(box) : explicitPhysicalFeet;
     let remainingPhysicalFeet = physicalFeetAvailable;
     const prioritizedEntries = [
       ...activeScheduledEntries,
