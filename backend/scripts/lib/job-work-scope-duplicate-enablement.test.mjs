@@ -28,14 +28,16 @@ test('final work scope duplicate enablement migrations stay mirrored', async () 
   assert.equal(supabaseMigration, backendMigration);
 });
 
-test('final work scope duplicate enablement migration is latest in both trees', async () => {
+test('final work scope duplicate enablement migration precedes box update parity repair', async () => {
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-2), '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(backendMigrations.at(-1), '0136_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260518010000_job_work_scope_key_groundwork.sql');
-  assert.equal(supabaseMigrations.at(-1), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(backendMigrations.at(-3), '0135_job_work_scope_key_groundwork.sql');
+  assert.equal(backendMigrations.at(-2), '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(backendMigrations.at(-1), '0137_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(supabaseMigrations.at(-3), '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(supabaseMigrations.at(-1), '20260520010000_repair_box_update_partial_receiving_parity.sql');
 });
 
 test('final uniqueness migration replaces only job-number uniqueness with work-scope uniqueness', async () => {
@@ -90,7 +92,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
     schemaLatest.indexOf('const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [')
   );
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity\.sql';/);
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);
   assert.match(schemaLatest, /columns: String\(row\.columns \|\| ''\)/);

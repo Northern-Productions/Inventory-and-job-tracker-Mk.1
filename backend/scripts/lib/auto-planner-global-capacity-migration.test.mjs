@@ -44,7 +44,7 @@ test('auto planner global capacity migration treats out-of-scope reservations as
 test('latest schema check requires scoped planner global capacity semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0136_enable_job_number_work_scope_uniqueness\.sql/);
+  assert.match(schemaCheck, /0137_repair_box_update_partial_receiving_parity\.sql/);
   assert.match(schemaCheck, /auto_planner_fixed_box_commitments/);
   assert.match(schemaCheck, /AUTO planner capacity invariant failed/);
   assert.doesNotMatch(
