@@ -1831,6 +1831,28 @@ async function listBoxesByIds(orgId: string, boxIds: string[]) {
   return rows.map((row) => mapDbBoxRow(row)).filter(isPresent);
 }
 
+async function listBoxesSnapshotDirect(orgId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const rows: any[] = [];
+  for (let from = 0; ; from += WAREHOUSE_BOX_READ_PAGE_SIZE) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("*")
+      .eq("org_id", orgId)
+      .order("box_id", { ascending: true })
+      .range(from, from + WAREHOUSE_BOX_READ_PAGE_SIZE - 1);
+    throwOnSupabaseError(error, "Unable to load report boxes");
+    const batch = Array.isArray(data) ? data : [];
+    rows.push(...batch);
+    if (batch.length < WAREHOUSE_BOX_READ_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return rows.map((row) => mapDbBoxRow(row)).filter(isPresent);
+}
+
 async function listCaulkStockEntries(client: any, orgId: string) {
   const entriesRaw = await rpcOrThrow<any[]>(client, "api_acl_list_caulk_stock", {
     p_org_id: orgId,
@@ -6381,9 +6403,6 @@ export async function buildJobsList(
     () => listFilmOrders(client, orgId),
     () => listJobRequirements(client, orgId),
   ];
-  if (!hasPreloadedBoxes) {
-    snapshotTasks.push(() => listBoxes(client, orgId));
-  }
 
   const snapshotResults = await runBoundedSnapshotReads(snapshotTasks, options.snapshotConcurrency);
   let snapshotIndex = 0;
@@ -6391,7 +6410,9 @@ export async function buildJobsList(
   const allAllocations = snapshotResults[snapshotIndex++];
   const allFilmOrders = snapshotResults[snapshotIndex++];
   const allRequirements = snapshotResults[snapshotIndex++];
-  const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
+  const allBoxes: any[] = hasPreloadedBoxes
+    ? (options.preloadedBoxes as any[])
+    : await listBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
   const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
@@ -6939,7 +6960,7 @@ async function buildReportsSummary(client: any, orgId: string, params: Record<st
     from: asTrimmedString(params.from),
     to: asTrimmedString(params.to),
   };
-  const allBoxes = await listBoxes(client, orgId);
+  const allBoxes = await listBoxesSnapshotDirect(orgId);
   const activeBoxes = allBoxes.filter((box) => box.status !== "ZEROED" && box.status !== "RETIRED");
   const widthGroups: Record<string, { widthIn: number; totalFeetAvailable: number; boxCount: number }> = {};
   const neverCheckedOut: any[] = [];
