@@ -11,6 +11,16 @@ function canReadFeature(authContext, feature) {
   return Boolean(authContext?.permissions?.[feature]?.read);
 }
 
+export function isJobNeedingAllocationAttention(entry) {
+  const status = String(entry?.status || '').trim().toUpperCase();
+  return Boolean(
+    entry?.lifecycleStatus === 'ACTIVE' &&
+    String(entry?.installDate || '').trim() &&
+    (status === 'FILM_ORDER' || status === 'ORDERED') &&
+    (Number(entry?.remainingFeet || 0) > 0 || Number(entry?.remainingTubes || 0) > 0)
+  );
+}
+
 export async function buildAppAttentionSummary(client, orgId, authContext) {
   const canReadJobs = canReadFeature(authContext, 'jobs') || canReadFeature(authContext, 'allocations');
   const canReadFilmOrders = canReadFeature(authContext, 'film_orders');
@@ -21,11 +31,7 @@ export async function buildAppAttentionSummary(client, orgId, authContext) {
   const accessRequests = canReviewAccessRequests ? await listAccessRequests(client, orgId, 'pending') : [];
 
   return {
-    hasJobsNeedingAllocation: jobs.some(
-      (entry) =>
-        entry.lifecycleStatus === 'ACTIVE' &&
-        (Number(entry.remainingFeet || 0) > 0 || Number(entry.remainingTubes || 0) > 0)
-    ),
+    hasJobsNeedingAllocation: jobs.some((entry) => isJobNeedingAllocationAttention(entry)),
     hasFilmOrdersNeedingAttention: filmOrders.some((entry) => isFilmOrderNeedingAttention(entry)),
     pendingAccessRequests: accessRequests.length > 0
   };

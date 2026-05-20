@@ -73,6 +73,10 @@ function getAllocationRequirementId(entry) {
   return asTrimmedString(entry?.requirementId ?? entry?.requirement_id);
 }
 
+function getAllocationJobId(entry) {
+  return asTrimmedString(entry?.jobId ?? entry?.job_id);
+}
+
 function isRequirementAllocationEntry(entry) {
   return normalizeAllocationKind(entry?.allocationKind ?? entry?.allocation_kind) === 'REQUIREMENT';
 }
@@ -179,6 +183,14 @@ function getJobCreatedAtForAllocation(entry, options = {}) {
     }
   }
 
+  const jobId = getAllocationJobId(entry);
+  if (jobId && options.jobCreatedAtByJobId) {
+    const resolved = asTrimmedString(options.jobCreatedAtByJobId[jobId]);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
   const jobNumber = asTrimmedString(entry?.jobNumber ?? entry?.job_number);
   if (jobNumber && options.jobCreatedAtByJobNumber) {
     const resolved = asTrimmedString(options.jobCreatedAtByJobNumber[jobNumber]);
@@ -207,6 +219,11 @@ function compareScheduledReservationEntries(left, right, options = {}) {
     return jobCreatedAtCompare;
   }
 
+  const jobIdCompare = compareAscendingStrings(getAllocationJobId(left), getAllocationJobId(right));
+  if (jobIdCompare !== 0) {
+    return jobIdCompare;
+  }
+
   const allocationCreatedAtCompare = compareAscendingStrings(
     asTrimmedString(left?.createdAt ?? left?.created_at),
     asTrimmedString(right?.createdAt ?? right?.created_at)
@@ -228,6 +245,11 @@ function comparePlaceholderReservationEntries(left, right, options = {}) {
   );
   if (jobCreatedAtCompare !== 0) {
     return jobCreatedAtCompare;
+  }
+
+  const jobIdCompare = compareAscendingStrings(getAllocationJobId(left), getAllocationJobId(right));
+  if (jobIdCompare !== 0) {
+    return jobIdCompare;
   }
 
   const allocationCreatedAtCompare = compareAscendingStrings(

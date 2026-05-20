@@ -6523,13 +6523,31 @@ async function buildJobsSearchResults(
 async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, orgId: string) {
   const jobs = (await listJobs(client, orgId)).slice(0, 500);
   const activeJobs = jobs.filter(
-    (job) => asTrimmedString(job?.lifecycleStatus).toUpperCase() === "ACTIVE",
+    (job) => {
+      const normalizedStatus = asTrimmedString((job as Record<string, unknown>)?.status).toUpperCase();
+      return (
+        asTrimmedString(job?.lifecycleStatus).toUpperCase() === "ACTIVE" &&
+        (normalizedStatus === "FILM_ORDER" || normalizedStatus === "ORDERED") &&
+        Boolean(
+          asTrimmedString(
+            (job as Record<string, unknown>)?.installDate ||
+              (job as Record<string, unknown>)?.dueDate ||
+              (job as Record<string, unknown>)?.jobDate,
+          ),
+        )
+      );
+    },
   );
 
   if (!activeJobs.length) {
     return false;
   }
 
+  const headersByJobId = Object.fromEntries(
+    activeJobs
+      .map((job) => [getEntryJobId(job), job])
+      .filter(([jobId]) => Boolean(jobId)),
+  );
   const activeJobNumbers = new Set(
     activeJobs.map((job) => normalizeJobNumberKey(job?.jobNumber)).filter(Boolean),
   );
@@ -6537,42 +6555,53 @@ async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, or
     listJobRequirements(client, orgId),
     listAllocations(client, orgId),
   ]);
-  const requirementsByJobNumber: Record<string, any[]> = {};
-  const allocationsByJobNumber: Record<string, any[]> = {};
+  const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
+  const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
+  const legacyRequirementsByJobNumber: Record<string, any[]> = {};
+  const legacyAllocationsByJobNumber: Record<string, any[]> = {};
   const relevantAllocations = allAllocations.filter((allocation) =>
-    activeJobNumbers.has(normalizeJobNumberKey(allocation?.jobNumber)),
+    getEntryJobId(allocation)
+      ? Boolean(headersByJobId[getEntryJobId(allocation)])
+      : activeJobNumbers.has(normalizeJobNumberKey(allocation?.jobNumber)),
   );
   const boxById = indexBoxesById(
     await listBoxesByIds(orgId, collectAllocationBoxIds(relevantAllocations)),
   );
 
   for (const requirement of allRequirements) {
+    if (getEntryJobId(requirement)) {
+      continue;
+    }
     const jobNumber = normalizeJobNumberKey(requirement?.jobNumber);
     if (!activeJobNumbers.has(jobNumber)) {
       continue;
     }
-    if (!requirementsByJobNumber[jobNumber]) {
-      requirementsByJobNumber[jobNumber] = [];
+    if (!legacyRequirementsByJobNumber[jobNumber]) {
+      legacyRequirementsByJobNumber[jobNumber] = [];
     }
-    requirementsByJobNumber[jobNumber].push(requirement);
+    legacyRequirementsByJobNumber[jobNumber].push(requirement);
   }
 
   for (const allocation of relevantAllocations) {
+    if (getEntryJobId(allocation)) {
+      continue;
+    }
     const jobNumber = normalizeJobNumberKey(allocation?.jobNumber);
     if (!activeJobNumbers.has(jobNumber)) {
       continue;
     }
-    if (!allocationsByJobNumber[jobNumber]) {
-      allocationsByJobNumber[jobNumber] = [];
+    if (!legacyAllocationsByJobNumber[jobNumber]) {
+      legacyAllocationsByJobNumber[jobNumber] = [];
     }
-    allocationsByJobNumber[jobNumber].push(allocation);
+    legacyAllocationsByJobNumber[jobNumber].push(allocation);
   }
 
   for (const job of activeJobs) {
+    const jobId = getEntryJobId(job);
     const jobNumber = normalizeJobNumberKey(job?.jobNumber);
     const requirements = buildPublicJobRequirementEntries(
-      requirementsByJobNumber[jobNumber] || [],
-      allocationsByJobNumber[jobNumber] || [],
+      jobId ? requirementsByJobId[jobId] || [] : legacyRequirementsByJobNumber[jobNumber] || [],
+      jobId ? allocationsByJobId[jobId] || [] : legacyAllocationsByJobNumber[jobNumber] || [],
       boxById,
     );
 
@@ -6581,16 +6610,16 @@ async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, or
     }
   }
 
-  const caulkPlanning = await loadCaulkPlanningByJobNumbers(
+  const caulkPlanning = await loadCaulkPlanningByJobContexts(
     client,
     orgId,
-    activeJobs.map((job) => asTrimmedString(job?.jobNumber)).filter(Boolean),
-    Object.fromEntries(activeJobs.map((job) => [asTrimmedString(job?.jobNumber), job])),
+    activeJobs.map((job) => ({ jobNumber: asTrimmedString(job?.jobNumber), header: job, legacy: !getEntryJobId(job) })),
   );
 
-  return Object.values(caulkPlanning.requirementsByJob).some((requirements) =>
-    requirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0),
-  );
+  return [...Object.values(caulkPlanning.requirementsByJobId), ...Object.values(caulkPlanning.requirementsByJob)]
+    .some((requirements) =>
+      requirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0),
+    );
 }
 
 /**

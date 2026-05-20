@@ -133,6 +133,82 @@ test('buildBoxReservationSnapshot uses stored checked-out physical feet instead 
   assert.equal(snapshot.allocationSnapshotsById['checked-out-fixture'].shortageFeet, 0);
 });
 
+test('buildBoxReservationSnapshot protects scheduled jobs before unscheduled jobs when physical LF is short', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', initialFeet: 100, feetAvailable: 70 }),
+    [
+      buildAllocation({
+        allocationId: 'unscheduled-old-job',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        allocatedFeet: 50,
+        installDate: '',
+      }),
+      buildAllocation({
+        allocationId: 'scheduled-later-job',
+        jobId: '22222222-2222-4222-8222-222222222222',
+        allocatedFeet: 25,
+        installDate: '2026-04-25',
+      }),
+      buildAllocation({
+        allocationId: 'scheduled-earliest-job',
+        jobId: '33333333-3333-4333-8333-333333333333',
+        allocatedFeet: 25,
+        installDate: '2026-04-20',
+      }),
+    ],
+    {
+      jobCreatedAtByJobId: {
+        '11111111-1111-4111-8111-111111111111': '2026-03-01T10:00:00.000Z',
+        '22222222-2222-4222-8222-222222222222': '2026-03-03T10:00:00.000Z',
+        '33333333-3333-4333-8333-333333333333': '2026-03-04T10:00:00.000Z',
+      },
+    }
+  );
+
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-earliest-job'].backedPhysicalFeet, 25);
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-later-job'].backedPhysicalFeet, 25);
+  assert.equal(snapshot.allocationSnapshotsById['unscheduled-old-job'].backedPhysicalFeet, 20);
+  assert.equal(snapshot.allocationSnapshotsById['unscheduled-old-job'].shortageFeet, 30);
+});
+
+test('buildBoxReservationSnapshot uses job creation and jobId tie-breakers within equal priority groups', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', initialFeet: 100, feetAvailable: 55 }),
+    [
+      buildAllocation({
+        allocationId: 'scheduled-newer',
+        jobId: '33333333-3333-4333-8333-333333333333',
+        allocatedFeet: 20,
+        installDate: '2026-04-20',
+      }),
+      buildAllocation({
+        allocationId: 'scheduled-jobid-later',
+        jobId: '22222222-2222-4222-8222-222222222222',
+        allocatedFeet: 20,
+        installDate: '2026-04-20',
+      }),
+      buildAllocation({
+        allocationId: 'scheduled-jobid-earlier',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        allocatedFeet: 20,
+        installDate: '2026-04-20',
+      }),
+    ],
+    {
+      jobCreatedAtByJobId: {
+        '11111111-1111-4111-8111-111111111111': '2026-03-01T10:00:00.000Z',
+        '22222222-2222-4222-8222-222222222222': '2026-03-01T10:00:00.000Z',
+        '33333333-3333-4333-8333-333333333333': '2026-03-02T10:00:00.000Z',
+      },
+    }
+  );
+
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-jobid-earlier'].backedPhysicalFeet, 20);
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-jobid-later'].backedPhysicalFeet, 20);
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-newer'].backedPhysicalFeet, 15);
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-newer'].shortageFeet, 5);
+});
+
 test('buildBoxReservationSnapshot keeps checked-out physical feet separate from public allocatable feet', () => {
   const snapshot = buildBoxReservationSnapshot(
     buildBox({ status: 'CHECKED_OUT', initialFeet: 20, feetAvailable: 0, storedFeetAvailable: 12 }),

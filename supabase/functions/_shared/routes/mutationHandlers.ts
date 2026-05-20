@@ -211,11 +211,20 @@ async function buildPublicAllocationsWithReservationMetrics(
   }
 
   const jobs = await deps.listJobs(client, orgId);
-  const jobCreatedAtByJobNumber = Object.fromEntries(
-    (Array.isArray(jobs) ? jobs : [])
-      .map((job) => [deps.asTrimmedString(job?.jobNumber), deps.asTrimmedString(job?.createdAt)])
-      .filter(([jobNumber]) => Boolean(jobNumber))
-  );
+  const jobCreatedAtByJobId: Record<string, string> = {};
+  const jobCreatedAtByJobNumber: Record<string, string> = {};
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    const createdAt = deps.asTrimmedString(job?.createdAt);
+    const jobId = deps.asTrimmedString(job?.id || job?.jobId);
+    if (jobId && createdAt) {
+      jobCreatedAtByJobId[jobId] = createdAt;
+    }
+
+    const jobNumber = deps.asTrimmedString(job?.jobNumber);
+    if (jobNumber && createdAt && (!jobCreatedAtByJobNumber[jobNumber] || createdAt < jobCreatedAtByJobNumber[jobNumber])) {
+      jobCreatedAtByJobNumber[jobNumber] = createdAt;
+    }
+  }
   const boxIds = Array.from(
     new Set(source.map((entry) => deps.asTrimmedString(entry?.boxId)).filter(Boolean))
   );
@@ -230,7 +239,7 @@ async function buildPublicAllocationsWithReservationMetrics(
     snapshotsByBoxId[boxId] = buildBoxReservationSnapshot(
       box,
       await deps.listAllocationsByBox(client, orgId, boxId),
-      { jobCreatedAtByJobNumber }
+      { jobCreatedAtByJobId, jobCreatedAtByJobNumber }
     );
   }
 
