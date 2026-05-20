@@ -202,7 +202,6 @@ import {
   buildPublicFilmOrdersForJob,
   deriveInStockReadinessStatus,
 } from './runtimeJobSummaries.mjs';
-import { groupEntriesByJobNumber } from './runtimeCollectionsAndBoxes.mjs';
 import {
   buildAllocationJobDetailPayload,
   loadJobDetailContext,
@@ -211,6 +210,71 @@ import {
 } from './runtimeJobDetails.mjs';
 
 const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
+
+function getEntryJobId(entry) {
+  return asTrimmedString(entry?.jobId || entry?.id);
+}
+
+function getEntryJobNumber(entry) {
+  return asTrimmedString(entry?.jobNumber);
+}
+
+function groupEntriesByCanonicalJobId(entries) {
+  const grouped = {};
+  for (let index = 0; index < entries.length; index += 1) {
+    const jobId = getEntryJobId(entries[index]);
+    if (!jobId) {
+      continue;
+    }
+    if (!grouped[jobId]) {
+      grouped[jobId] = [];
+    }
+    grouped[jobId].push(entries[index]);
+  }
+  return grouped;
+}
+
+function groupEntriesByJobNumberFallback(entries, { includeScopedRows = false } = {}) {
+  const grouped = {};
+  for (let index = 0; index < entries.length; index += 1) {
+    if (!includeScopedRows && getEntryJobId(entries[index])) {
+      continue;
+    }
+    const jobNumber = getEntryJobNumber(entries[index]);
+    if (!jobNumber) {
+      continue;
+    }
+    if (!grouped[jobNumber]) {
+      grouped[jobNumber] = [];
+    }
+    grouped[jobNumber].push(entries[index]);
+  }
+  return grouped;
+}
+
+function getRowsForJobHeader(header, rowsByJobId, unscopedRowsByJobNumber, jobNumberHeaderCounts) {
+  const jobId = getEntryJobId(header);
+  const jobNumber = getEntryJobNumber(header);
+  const scopedRows = jobId ? rowsByJobId[jobId] || [] : [];
+  const fallbackRows = jobNumberHeaderCounts[jobNumber] === 1
+    ? unscopedRowsByJobNumber[jobNumber] || []
+    : [];
+  return fallbackRows.length ? [...scopedRows, ...fallbackRows] : scopedRows;
+}
+
+function getRowsForLegacyJobNumber(jobNumber, rowsByJobNumber) {
+  return rowsByJobNumber[jobNumber] || [];
+}
+
+function collectJobNumbersFromRows(rows, legacyJobNumbers) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const jobNumber = getEntryJobNumber(rows[index]);
+    if (!jobNumber) {
+      continue;
+    }
+    legacyJobNumbers.add(jobNumber);
+  }
+}
 
 function shouldUsePooledSummaryReads(client) {
   return !client || typeof client.release === 'function';
@@ -265,20 +329,32 @@ async function buildAllocationJobList(client, orgId) {
     (readClient) => listBoxes(readClient, orgId),
     (readClient) => listCaulkStock(readClient, orgId, {}),
   ]);
-  const groupedAllocations = groupEntriesByJobNumber(allAllocations);
-  const groupedFilmOrders = groupEntriesByJobNumber(allFilmOrders);
-  const groupedRequirements = groupEntriesByJobNumber(allRequirements);
-  const groupedCaulkRequirements = groupEntriesByJobNumber(allCaulkRequirements);
-  const groupedCaulkAllocations = groupEntriesByJobNumber(allCaulkAllocations);
-  const jobNumbers = {};
-  const jobHeadersByNumber = {};
+  const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
+  const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
+  const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
+  const caulkRequirementsByJobId = groupEntriesByCanonicalJobId(allCaulkRequirements);
+  const caulkAllocationsByJobId = groupEntriesByCanonicalJobId(allCaulkAllocations);
+  const legacyAllocationsByJobNumber = groupEntriesByJobNumberFallback(allAllocations);
+  const legacyFilmOrdersByJobNumber = groupEntriesByJobNumberFallback(allFilmOrders);
+  const legacyRequirementsByJobNumber = groupEntriesByJobNumberFallback(allRequirements);
+  const legacyCaulkRequirementsByJobNumber = groupEntriesByJobNumberFallback(allCaulkRequirements);
+  const legacyCaulkAllocationsByJobNumber = groupEntriesByJobNumberFallback(allCaulkAllocations);
+  const allAllocationsByJobNumber = groupEntriesByJobNumberFallback(allAllocations, { includeScopedRows: true });
+  const allFilmOrdersByJobNumber = groupEntriesByJobNumberFallback(allFilmOrders, { includeScopedRows: true });
+  const allRequirementsByJobNumber = groupEntriesByJobNumberFallback(allRequirements, { includeScopedRows: true });
+  const allCaulkRequirementsByJobNumber = groupEntriesByJobNumberFallback(allCaulkRequirements, { includeScopedRows: true });
+  const allCaulkAllocationsByJobNumber = groupEntriesByJobNumberFallback(allCaulkAllocations, { includeScopedRows: true });
+  const jobHeaders = [];
+  const jobNumberHeaderCounts = {};
+  const legacyJobNumbers = new Set();
   const boxById = {};
   const response = [];
 
   for (let index = 0; index < jobs.length; index += 1) {
-    if (asTrimmedString(jobs[index].jobNumber)) {
-      jobNumbers[jobs[index].jobNumber] = true;
-      jobHeadersByNumber[jobs[index].jobNumber] = jobs[index];
+    const jobNumber = getEntryJobNumber(jobs[index]);
+    if (jobNumber) {
+      jobHeaders.push(jobs[index]);
+      jobNumberHeaderCounts[jobNumber] = (jobNumberHeaderCounts[jobNumber] || 0) + 1;
     }
   }
 
@@ -286,44 +362,63 @@ async function buildAllocationJobList(client, orgId) {
     boxById[allBoxes[index].boxId] = allBoxes[index];
   }
 
-  for (let index = 0; index < allAllocations.length; index += 1) {
-    if (allAllocations[index].jobNumber) {
-      jobNumbers[allAllocations[index].jobNumber] = true;
+  collectJobNumbersFromRows(allAllocations, legacyJobNumbers);
+  collectJobNumbersFromRows(allFilmOrders, legacyJobNumbers);
+  collectJobNumbersFromRows(allRequirements, legacyJobNumbers);
+  collectJobNumbersFromRows(allCaulkRequirements, legacyJobNumbers);
+  collectJobNumbersFromRows(allCaulkAllocations, legacyJobNumbers);
+
+  const jobContexts = jobHeaders.map((header) => ({
+    jobNumber: getEntryJobNumber(header),
+    header,
+    legacy: false,
+  }));
+
+  for (const jobNumber of legacyJobNumbers) {
+    if (!jobNumberHeaderCounts[jobNumber]) {
+      jobContexts.push({
+        jobNumber,
+        header: null,
+        legacy: true,
+      });
     }
   }
 
-  for (let index = 0; index < allFilmOrders.length; index += 1) {
-    if (allFilmOrders[index].jobNumber) {
-      jobNumbers[allFilmOrders[index].jobNumber] = true;
-    }
-  }
-
-  for (let index = 0; index < allCaulkRequirements.length; index += 1) {
-    if (allCaulkRequirements[index].jobNumber) {
-      jobNumbers[allCaulkRequirements[index].jobNumber] = true;
-    }
-  }
-
-  for (let index = 0; index < allCaulkAllocations.length; index += 1) {
-    if (allCaulkAllocations[index].jobNumber) {
-      jobNumbers[allCaulkAllocations[index].jobNumber] = true;
-    }
-  }
-
-  const keys = Object.keys(jobNumbers);
-  for (let index = 0; index < keys.length; index += 1) {
-    const jobNumber = keys[index];
-    const allocations = groupedAllocations[jobNumber] || [];
-    const filmOrders = groupedFilmOrders[jobNumber] || [];
+  for (let index = 0; index < jobContexts.length; index += 1) {
+    const context = jobContexts[index];
+    const jobNumber = context.jobNumber;
+    const allocations = context.legacy
+      ? getRowsForLegacyJobNumber(jobNumber, allAllocationsByJobNumber)
+      : getRowsForJobHeader(context.header, allocationsByJobId, legacyAllocationsByJobNumber, jobNumberHeaderCounts);
+    const filmOrders = context.legacy
+      ? getRowsForLegacyJobNumber(jobNumber, allFilmOrdersByJobNumber)
+      : getRowsForJobHeader(context.header, filmOrdersByJobId, legacyFilmOrdersByJobNumber, jobNumberHeaderCounts);
     const requirements = buildPublicJobRequirementEntries(
-      groupedRequirements[jobNumber] || [],
+      context.legacy
+        ? getRowsForLegacyJobNumber(jobNumber, allRequirementsByJobNumber)
+        : getRowsForJobHeader(context.header, requirementsByJobId, legacyRequirementsByJobNumber, jobNumberHeaderCounts),
       allocations,
       boxById
     );
-    const header = jobHeadersByNumber[jobNumber];
+    const header = context.header;
+    const caulkAllocations = context.legacy
+      ? getRowsForLegacyJobNumber(jobNumber, allCaulkAllocationsByJobNumber)
+      : getRowsForJobHeader(
+          context.header,
+          caulkAllocationsByJobId,
+          legacyCaulkAllocationsByJobNumber,
+          jobNumberHeaderCounts
+        );
     const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
-      groupedCaulkRequirements[jobNumber] || [],
-      groupedCaulkAllocations[jobNumber] || [],
+      context.legacy
+        ? getRowsForLegacyJobNumber(jobNumber, allCaulkRequirementsByJobNumber)
+        : getRowsForJobHeader(
+            context.header,
+            caulkRequirementsByJobId,
+            legacyCaulkRequirementsByJobNumber,
+            jobNumberHeaderCounts
+          ),
+      caulkAllocations,
       {
         jobNumber,
         jobWarehouse: header?.warehouse || ''
@@ -354,7 +449,7 @@ async function buildAllocationJobList(client, orgId) {
       requirements,
       caulkRequirements: publicCaulkRequirements,
       allocations,
-      caulkAllocations: groupedCaulkAllocations[jobNumber] || [],
+      caulkAllocations,
       filmOrders,
       allBoxes,
       boxById,

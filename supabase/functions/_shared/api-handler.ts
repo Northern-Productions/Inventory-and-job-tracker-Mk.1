@@ -5788,7 +5788,7 @@ async function runBoundedSnapshotReads(
   return results;
 }
 
-async function buildAllocationJobList(client: any, orgId: string) {
+export async function buildAllocationJobList(client: any, orgId: string) {
   const [
     jobs,
     allAllocations,
@@ -5804,58 +5804,74 @@ async function buildAllocationJobList(client: any, orgId: string) {
     () => listBoxes(client, orgId),
     () => listCaulkStockEntries(client, orgId),
   ]);
-  const groupedAllocations: Record<string, any[]> = {};
-  const groupedFilmOrders: Record<string, any[]> = {};
-  const groupedRequirements: Record<string, any[]> = {};
-  const jobNumbers: Record<string, boolean> = {};
-  const jobHeadersByNumber: Record<string, any> = {};
+  const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
+  const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
+  const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
+  const legacyAllocationsByJobNumber = groupEntriesByJobNumberFallback(allAllocations);
+  const legacyFilmOrdersByJobNumber = groupEntriesByJobNumberFallback(allFilmOrders);
+  const legacyRequirementsByJobNumber = groupEntriesByJobNumberFallback(allRequirements);
+  const allAllocationsByJobNumber = groupEntriesByJobNumberFallback(allAllocations, { includeScopedRows: true });
+  const allFilmOrdersByJobNumber = groupEntriesByJobNumberFallback(allFilmOrders, { includeScopedRows: true });
+  const allRequirementsByJobNumber = groupEntriesByJobNumberFallback(allRequirements, { includeScopedRows: true });
+  const jobHeaders: any[] = [];
+  const jobNumberHeaderCounts: Record<string, number> = {};
+  const legacyJobNumbers = new Set<string>();
   const boxById = Object.fromEntries(allBoxes.map((box: any) => [box.boxId, box]));
 
   for (const job of jobs) {
-    if (asTrimmedString(job.jobNumber)) {
-      jobNumbers[job.jobNumber] = true;
-      jobHeadersByNumber[job.jobNumber] = job;
+    const jobNumber = getEntryJobNumber(job);
+    if (jobNumber) {
+      jobHeaders.push(job);
+      jobNumberHeaderCounts[jobNumber] = (jobNumberHeaderCounts[jobNumber] || 0) + 1;
     }
   }
 
-  for (const allocation of allAllocations) {
-    if (allocation.jobNumber) {
-      jobNumbers[allocation.jobNumber] = true;
-      if (!groupedAllocations[allocation.jobNumber]) {
-        groupedAllocations[allocation.jobNumber] = [];
-      }
-      groupedAllocations[allocation.jobNumber].push(allocation);
+  collectLegacyJobNumbersFromRows(allAllocations, legacyJobNumbers, new Set());
+  collectLegacyJobNumbersFromRows(allFilmOrders, legacyJobNumbers, new Set());
+  collectLegacyJobNumbersFromRows(allRequirements, legacyJobNumbers, new Set());
+
+  const jobContexts = jobHeaders.map((header) => ({
+    jobNumber: getEntryJobNumber(header),
+    header,
+    legacy: false,
+  }));
+
+  for (const jobNumber of legacyJobNumbers) {
+    if (!jobNumberHeaderCounts[jobNumber]) {
+      jobContexts.push({
+        jobNumber,
+        header: null,
+        legacy: true,
+      });
     }
   }
 
-  for (const filmOrder of allFilmOrders) {
-    if (filmOrder.jobNumber) {
-      jobNumbers[filmOrder.jobNumber] = true;
-      if (!groupedFilmOrders[filmOrder.jobNumber]) {
-        groupedFilmOrders[filmOrder.jobNumber] = [];
-      }
-      groupedFilmOrders[filmOrder.jobNumber].push(filmOrder);
-    }
-  }
-  for (const requirement of allRequirements) {
-    if (!groupedRequirements[requirement.jobNumber]) {
-      groupedRequirements[requirement.jobNumber] = [];
-    }
-    groupedRequirements[requirement.jobNumber].push(requirement);
-  }
-  const caulkPlanning = await loadCaulkPlanningByJobNumbers(client, orgId, Object.keys(jobNumbers), jobHeadersByNumber);
+  const caulkPlanning = await loadCaulkPlanningByJobContexts(client, orgId, jobContexts);
 
-  const response = Object.keys(jobNumbers)
-    .map((jobNumber) => {
-      const allocations = groupedAllocations[jobNumber] || [];
-      const filmOrders = groupedFilmOrders[jobNumber] || [];
+  const response = jobContexts
+    .map((context) => {
+      const jobNumber = context.jobNumber;
+      const contextJobId = context.header ? getEntryJobId(context.header) : "";
+      const allocations = context.legacy
+        ? getRowsForLegacyJobNumber(jobNumber, allAllocationsByJobNumber)
+        : getRowsForJobHeader(context.header, allocationsByJobId, legacyAllocationsByJobNumber, jobNumberHeaderCounts);
+      const filmOrders = context.legacy
+        ? getRowsForLegacyJobNumber(jobNumber, allFilmOrdersByJobNumber)
+        : getRowsForJobHeader(context.header, filmOrdersByJobId, legacyFilmOrdersByJobNumber, jobNumberHeaderCounts);
       const requirements = buildPublicJobRequirementEntries(
-        groupedRequirements[jobNumber] || [],
+        context.legacy
+          ? getRowsForLegacyJobNumber(jobNumber, allRequirementsByJobNumber)
+          : getRowsForJobHeader(context.header, requirementsByJobId, legacyRequirementsByJobNumber, jobNumberHeaderCounts),
         allocations,
         boxById,
       );
-      const publicCaulkRequirements = caulkPlanning.requirementsByJob[jobNumber] || [];
-      const header = jobHeadersByNumber[jobNumber];
+      const publicCaulkRequirements = contextJobId
+        ? caulkPlanning.requirementsByJobId[contextJobId] || []
+        : caulkPlanning.requirementsByJob[jobNumber] || [];
+      const caulkAllocations = contextJobId
+        ? caulkPlanning.allocationsByJobId[contextJobId] || []
+        : caulkPlanning.allocationsByJob[jobNumber] || [];
+      const header = context.header;
 
       if (!allocations.length && !filmOrders.length && !requirements.length && !publicCaulkRequirements.length) {
         return null;
@@ -5882,7 +5898,7 @@ async function buildAllocationJobList(client: any, orgId: string) {
         requirements,
         caulkRequirements: publicCaulkRequirements,
         allocations,
-        caulkAllocations: caulkPlanning.allocationsByJob[jobNumber] || [],
+        caulkAllocations,
         filmOrders,
         allBoxes,
         boxById,
