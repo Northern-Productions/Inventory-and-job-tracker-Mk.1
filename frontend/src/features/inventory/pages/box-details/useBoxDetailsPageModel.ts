@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import { type Box } from '../../../../domain';
-import { formatJobDisplayNumber } from '../../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
 import {
@@ -34,6 +33,7 @@ import {
 } from '../../utils/boxHelpers';
 import { getNextFilmOrderLinkedBoxToReceive } from '../../utils/filmOrders';
 import {
+  buildCheckoutJobOptions,
   buildTransferDestinationAnalysis,
   createFallbackBox
 } from './helpers';
@@ -177,42 +177,7 @@ export function useBoxDetailsPageModel() {
       ? Math.max(effectiveCurrentFeetOnRoll, 0) * box.pricePerLf
       : null;
   const checkoutJobOptions = useMemo(() => {
-    const activeAllocations = allocations
-      .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
-      .slice()
-      .sort((left, right) => {
-        const leftTime = new Date(left.createdAt).getTime();
-        const rightTime = new Date(right.createdAt).getTime();
-
-        if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
-          return 0;
-        }
-
-        if (Number.isNaN(leftTime)) {
-          return 1;
-        }
-
-        if (Number.isNaN(rightTime)) {
-          return -1;
-        }
-
-        return leftTime - rightTime;
-      });
-    const seenJobNumbers = new Set<string>();
-
-    return activeAllocations.reduce<Array<{ label: string; value: string }>>((options, entry) => {
-      const jobNumber = entry.jobNumber.trim();
-      if (seenJobNumbers.has(jobNumber)) {
-        return options;
-      }
-
-      seenJobNumbers.add(jobNumber);
-      options.push({
-        label: formatJobDisplayNumber(jobNumber, entry.warehouse),
-        value: jobNumber
-      });
-      return options;
-    }, []);
+    return buildCheckoutJobOptions(allocations);
   }, [allocations]);
   const initialDraft = useMemo(
     () =>

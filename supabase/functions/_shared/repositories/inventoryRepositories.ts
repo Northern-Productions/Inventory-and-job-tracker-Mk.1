@@ -339,10 +339,12 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
   }
 
   function toPublicAllocation(entry: any) {
+    const jobId = deps.asTrimmedString(entry.jobId);
     return {
       allocationId: entry.allocationId,
       boxId: entry.boxId,
       warehouse: entry.warehouse,
+      ...(jobId ? { jobId } : {}),
       jobNumber: entry.jobNumber,
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,

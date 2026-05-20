@@ -64,7 +64,7 @@ test('planner jobId scope groundwork preserves legacy jobNumber planner behavior
 
   assert.doesNotMatch(migration, /drop function/i);
   assert.doesNotMatch(migration, /create or replace function app_api\.auto_planner_scope_job_numbers/);
-  assert.match(schemaCheck, /0138_preserve_partial_box_update_physical_feet\.sql/);
+  assert.match(schemaCheck, /0139_box_status_duplicate_job_checkout_guard\.sql/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_ids\(uuid, jsonb\)/);
 });
