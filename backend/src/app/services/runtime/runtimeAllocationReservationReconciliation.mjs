@@ -17,7 +17,7 @@ import {
 import {
   applyReservationMetricsToBox,
   buildBoxReservationMetrics,
-  buildJobCreatedAtByJobNumber,
+  buildJobCreatedAtIndexes,
   deriveBoxPhysicalFeetAvailable,
   getActiveScheduledAllocatedFeet,
 } from './runtimeAllocationReservations.mjs';
@@ -56,7 +56,7 @@ async function recalculateReservationBoxesByIds(client, orgId, boxIds = [], opti
   }
 
   const jobs = Array.isArray(options.jobs) ? options.jobs : await listJobs(client, orgId);
-  const jobCreatedAtByJobNumber = buildJobCreatedAtByJobNumber(jobs);
+  const jobCreatedAtIndexes = buildJobCreatedAtIndexes(jobs);
   const response = {};
 
   for (let index = 0; index < uniqueBoxIds.length; index += 1) {
@@ -74,7 +74,8 @@ async function recalculateReservationBoxesByIds(client, orgId, boxIds = [], opti
         : deriveBoxPhysicalFeetAvailable(box, allocations);
     const recalculatedBox = applyReservationMetricsToBox(box, allocations, {
       jobs,
-      jobCreatedAtByJobNumber,
+      jobCreatedAtByJobId: jobCreatedAtIndexes.byJobId,
+      jobCreatedAtByJobNumber: jobCreatedAtIndexes.byJobNumber,
       physicalFeetAvailable,
     });
 
@@ -217,7 +218,7 @@ async function reconcileReservationShortagesForJob(
 
   if (missingBoxIds.length > 0) {
     const jobs = await listJobs(client, orgId);
-    const jobCreatedAtByJobNumber = buildJobCreatedAtByJobNumber(jobs);
+    const jobCreatedAtIndexes = buildJobCreatedAtIndexes(jobs);
     resolvedBoxesById = { ...boxesById };
     resolvedReservationMetricsByBoxId = { ...reservationMetricsByBoxId };
     for (let index = 0; index < missingBoxIds.length; index += 1) {
@@ -231,7 +232,8 @@ async function reconcileReservationShortagesForJob(
       resolvedBoxesById[boxId] = box;
       resolvedReservationMetricsByBoxId[boxId] = buildBoxReservationMetrics(box, allocations, {
         jobs,
-        jobCreatedAtByJobNumber,
+        jobCreatedAtByJobId: jobCreatedAtIndexes.byJobId,
+        jobCreatedAtByJobNumber: jobCreatedAtIndexes.byJobNumber,
       });
     }
   }

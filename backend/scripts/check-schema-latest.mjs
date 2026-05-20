@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0139_box_status_duplicate_job_checkout_guard.sql';
+const LATEST_MIGRATION = '0140_box_checkin_physical_lf_reconciliation_priority.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -639,25 +639,32 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_checkout_job_id is not null and a.job_id = v_checkout_job_id',
       'v_checkout_job_id is null',
       "'Released during film box check-in.',\n        v_checkout_job_id",
+      'v_reconciliation_result jsonb',
+      'v_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_box.last_checkout_job_id := null;',
       'v_checkout_job_id,',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
       "'jobId', v_checkout_job_id::text",
     ],
-    excludes: []
+    excludes: [
+      "Received physical LF cannot be lower than the box''s active allocated feet"
+    ]
   },
   {
     signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)',
     includes: [
       'for update;',
-      'order by a.created_at asc, a.allocation_id asc',
+      'case when a.job_date is not null then 0 else 1 end',
+      'a.job_date asc nulls last',
+      'coalesce(j.created_at, a.created_at) asc',
+      "coalesce(j.id::text, a.job_id::text, '') asc",
       'app_api.compute_covered_feet_from_allocation(',
       "set status = 'CANCELLED'",
       'app_api.reconcile_existing_film_order_need_for_requirement(',
       "'updatedFilmOrderIds'",
       "'warnings'"
     ],
-    excludes: ['job_date asc', 'due_date', 'install date']
+    excludes: ['order by a.created_at asc, a.allocation_id asc', 'due_date', 'install date']
   },
   {
     signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',

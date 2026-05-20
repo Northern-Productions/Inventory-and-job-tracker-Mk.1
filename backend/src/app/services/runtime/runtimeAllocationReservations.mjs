@@ -27,17 +27,23 @@ function canDeriveBoxPhysicalFeet(box) {
   );
 }
 
-function buildJobCreatedAtByJobNumber(jobs) {
+function buildJobCreatedAtIndexes(jobs) {
   const source = Array.isArray(jobs) ? jobs : [];
   const createdAtByJobNumber = {};
+  const createdAtByJobId = {};
 
   for (let index = 0; index < source.length; index += 1) {
+    const jobId = asTrimmedString(source[index]?.id || source[index]?.jobId);
+    const createdAt = asTrimmedString(source[index]?.createdAt);
+    if (jobId && createdAt) {
+      createdAtByJobId[jobId] = createdAt;
+    }
+
     const jobNumber = asTrimmedString(source[index]?.jobNumber);
     if (!jobNumber) {
       continue;
     }
 
-    const createdAt = asTrimmedString(source[index]?.createdAt);
     if (!createdAt) {
       continue;
     }
@@ -47,7 +53,18 @@ function buildJobCreatedAtByJobNumber(jobs) {
     }
   }
 
-  return createdAtByJobNumber;
+  return {
+    byJobId: createdAtByJobId,
+    byJobNumber: createdAtByJobNumber,
+  };
+}
+
+function buildJobCreatedAtByJobNumber(jobs) {
+  return buildJobCreatedAtIndexes(jobs).byJobNumber;
+}
+
+function buildJobCreatedAtByJobId(jobs) {
+  return buildJobCreatedAtIndexes(jobs).byJobId;
 }
 
 function deriveBoxPhysicalFeetAvailable(box, allocations = []) {
@@ -68,8 +85,13 @@ function deriveBoxPhysicalFeetAvailable(box, allocations = []) {
 }
 
 function buildBoxReservationMetrics(box, allocations = [], options = {}) {
+  const createdAtIndexes = options.jobs
+    ? buildJobCreatedAtIndexes(options.jobs)
+    : { byJobId: {}, byJobNumber: {} };
+  const jobCreatedAtByJobId =
+    options.jobCreatedAtByJobId || createdAtIndexes.byJobId;
   const jobCreatedAtByJobNumber =
-    options.jobCreatedAtByJobNumber || buildJobCreatedAtByJobNumber(options.jobs || []);
+    options.jobCreatedAtByJobNumber || createdAtIndexes.byJobNumber;
   const physicalFeetAvailableOverride =
     options.physicalFeetAvailable !== undefined && options.physicalFeetAvailable !== null
       ? integerOrZero(options.physicalFeetAvailable)
@@ -81,6 +103,7 @@ function buildBoxReservationMetrics(box, allocations = [], options = {}) {
     },
     allocations,
     {
+      jobCreatedAtByJobId,
       jobCreatedAtByJobNumber,
     }
   );
@@ -149,7 +172,9 @@ function getActivePlaceholderAllocatedFeet(entries = []) {
 export {
   applyReservationMetricsToBox,
   buildBoxReservationMetrics,
+  buildJobCreatedAtByJobId,
   buildJobCreatedAtByJobNumber,
+  buildJobCreatedAtIndexes,
   canDeriveBoxPhysicalFeet,
   deriveBoxPhysicalFeetAvailable,
   getActivePlaceholderAllocatedFeet,

@@ -175,7 +175,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.doesNotMatch(checkoutHistoryPage, /<Link|navigate\(`\/allocations\/jobs/);
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
-  assert.match(schemaLatest, /0139_box_status_duplicate_job_checkout_guard\.sql/);
+  assert.match(schemaLatest, /0140_box_checkin_physical_lf_reconciliation_priority\.sql/);
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
@@ -183,6 +183,9 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   const latestSupabaseMigration = readdir(supabaseMigrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
-  assert.equal(await latestBackendMigration, '0139_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(await latestSupabaseMigration, '20260520030000_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(await latestBackendMigration, '0140_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(
+    await latestSupabaseMigration,
+    '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql'
+  );
 });

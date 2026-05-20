@@ -56,7 +56,7 @@ test('job id read-route permission migration restricts direct helper execution',
 });
 
 test('schema guard expects the job id read-route permission migration and RPC permissions', () => {
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0139_box_status_duplicate_job_checkout_guard\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0140_box_checkin_physical_lf_reconciliation_priority\.sql';/);
   assert.match(schemaCheck, /signature: 'public\.api_find_job_by_id\(uuid, uuid\)'/);
   assert.match(schemaCheck, /signature: 'public\.api_acl_find_job_by_id\(uuid, uuid\)'/);
   assert.match(schemaCheck, /public_find_job_by_id_execute/);
