@@ -47,7 +47,7 @@ test('film-order cancel keeps film release behavior without caulk cancellation s
 test('latest schema check tracks film-order cancel caulk preservation semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0137_repair_box_update_partial_receiving_parity\.sql/);
+  assert.match(schemaCheck, /0138_preserve_partial_box_update_physical_feet\.sql/);
   assert.match(schemaCheck, /public\.api_film_orders_cancel\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.cancel_active_caulk_allocations_for_job\(/);
   assert.match(schemaCheck, /JOB_ALLOCATION_CANCEL_RETURN/);

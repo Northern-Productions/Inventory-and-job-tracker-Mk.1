@@ -104,7 +104,7 @@ test('box checkout jobId identity migration adds nullable durable identity witho
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0138_preserve_partial_box_update_physical_feet\.sql';/);
   assert.match(schemaCheck, /app\.boxes\.last_checkout_job_id/);
   assert.match(schemaCheck, /app\.roll_weight_log\.job_id/);
 });

@@ -76,7 +76,7 @@ test('job cancel jobId scope migration stays mirrored and advances schema latest
   ]);
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0138_preserve_partial_box_update_physical_feet\.sql';/);
   assert.match(schemaCheck, /public\.api_film_orders_cancel\(uuid, text, jsonb\)/);
 });
 
