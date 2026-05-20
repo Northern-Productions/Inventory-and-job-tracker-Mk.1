@@ -97,7 +97,7 @@ test('buildBoxReservationSnapshot excludes extra, placeholder, cancelled, and in
 
 test('buildBoxReservationSnapshot counts fulfilled requirement allocations while checked out', () => {
   const snapshot = buildBoxReservationSnapshot(
-    buildBox({ status: 'CHECKED_OUT', feetAvailable: 0 }),
+    buildBox({ status: 'CHECKED_OUT', feetAvailable: 45 }),
     [
       buildAllocation({
         allocationId: 'fulfilled-checked-out',
@@ -111,6 +111,26 @@ test('buildBoxReservationSnapshot counts fulfilled requirement allocations while
   assert.equal(snapshot.activeAllocatedFeet, 45);
   assert.equal(snapshot.allocatableNowFeet, 0);
   assert.equal(snapshot.allocationSnapshotsById['fulfilled-checked-out'].backedPhysicalFeet, 45);
+});
+
+test('buildBoxReservationSnapshot uses stored checked-out physical feet instead of initial feet', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', initialFeet: 20, feetAvailable: 12 }),
+    [
+      buildAllocation({
+        allocationId: 'checked-out-fixture',
+        allocatedFeet: 12,
+        installDate: '',
+        allocationSource: 'AUTO_PLANNED',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 12);
+  assert.equal(snapshot.allocatableNowFeet, 0);
+  assert.equal(snapshot.allocatedWithoutInstallDateFeet, 12);
+  assert.equal(snapshot.allocationSnapshotsById['checked-out-fixture'].backedPhysicalFeet, 12);
+  assert.equal(snapshot.allocationSnapshotsById['checked-out-fixture'].shortageFeet, 0);
 });
 
 test('buildBoxReservationSnapshot stops counting fulfilled allocations after check-in', () => {

@@ -1226,6 +1226,68 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
   }, "Expected /boxes/get to include structured ordered-for job data.");
 });
 
+Deno.test("/boxes/get reports checked-out physical LF from stored current feet, not initial feet", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/boxes/get",
+    { boxId: "IL1-P3C2D-S2-05191440" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      findBoxById: async () => ({
+        boxId: "IL1-P3C2D-S2-05191440",
+        warehouse: "IL1",
+        status: "CHECKED_OUT",
+        initialFeet: 20,
+        feetAvailable: 12,
+        lastCheckoutJobId: "4971d840-171f-4969-9bdf-8a79a94e2bc8",
+        lastCheckoutJob: "9327001",
+      }),
+      listAllocationsByBox: async () => [
+        {
+          allocationId: "alloc-checked-out-fixture",
+          boxId: "IL1-P3C2D-S2-05191440",
+          jobId: "4971d840-171f-4969-9bdf-8a79a94e2bc8",
+          jobNumber: "9327001",
+          requirementId: "8457dc46-e538-4e7b-b0ff-678ee0748e4b",
+          allocatedFeet: 12,
+          status: "ACTIVE",
+          installDate: "",
+          allocationKind: "REQUIREMENT",
+          allocationSource: "AUTO_PLANNED",
+        },
+      ],
+      listFilmOrderLinksByBoxId: async () => [],
+      findJobById: async () => ({
+        jobNumber: "9327001",
+        workScope: "Sections 2",
+        sections: "Sections 2",
+      }),
+      toPublicBox: (box: Record<string, unknown>) => ({
+        boxId: box.boxId,
+        status: box.status,
+        physicalFeetAvailable: box.physicalFeetAvailable,
+        allocatedWithoutInstallDateFeet: box.allocatedWithoutInstallDateFeet,
+        allocatableNowFeet: box.allocatableNowFeet,
+      }),
+    } as any,
+  );
+
+  assertEquals(response.data, {
+    boxId: "IL1-P3C2D-S2-05191440",
+    status: "CHECKED_OUT",
+    physicalFeetAvailable: 12,
+    allocatedWithoutInstallDateFeet: 12,
+    allocatableNowFeet: 0,
+  }, "Expected checked-out box readback to use the stored current LF, not initialFeet.");
+});
+
 Deno.test("/allocations/by-box enriches allocation history scope by job id only", async () => {
   const jobLookups: string[] = [];
   const response = await dispatchReadWithHandlers(
