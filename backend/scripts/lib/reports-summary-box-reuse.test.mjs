@@ -146,6 +146,8 @@ function createFakeClient(options = {}) {
   const jobs = Array.isArray(options.jobs) ? options.jobs : buildJobRows();
   const allocations = Array.isArray(options.allocations) ? options.allocations : [];
   const requirements = Array.isArray(options.requirements) ? options.requirements : [];
+  const caulkRequirements = Array.isArray(options.caulkRequirements) ? options.caulkRequirements : [];
+  const caulkAllocations = Array.isArray(options.caulkAllocations) ? options.caulkAllocations : [];
   const queryDelayMs = Number.isFinite(options.queryDelayMs) ? Math.max(0, Math.floor(options.queryDelayMs)) : 0;
   const counts = {
     boxes: 0,
@@ -183,11 +185,11 @@ function createFakeClient(options = {}) {
         }
         if (normalized.includes('from app.job_caulk_requirements r')) {
           counts.caulkRequirements += 1;
-          return { rows: [] };
+          return { rows: caulkRequirements };
         }
         if (normalized.includes('from app.caulk_job_allocations a')) {
           counts.caulkAllocations += 1;
-          return { rows: [] };
+          return { rows: caulkAllocations };
         }
         if (normalized.includes('from app.caulk_stock s')) {
           counts.caulkStock += 1;
@@ -356,10 +358,94 @@ test('buildJobsList preserves duplicate job-number rows by canonical jobId', asy
       crew_leader: 'Fixture Lead',
     },
   ];
+  const duplicateCaulkRequirements = [
+    {
+      requirement_id: 'caulk-requirement-section-1',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-1',
+      job_number: '9327001',
+      product_id: 'caulk-product-bronze',
+      manufacturer_id: 'caulk-manufacturer-3m',
+      manufacturer: '3M',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRONZE',
+      tubes_per_case: 12,
+      required_tubes: 1,
+      updated_at: NOW,
+    },
+    {
+      requirement_id: 'caulk-requirement-section-2',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-2',
+      job_number: '9327001',
+      product_id: 'caulk-product-bronze',
+      manufacturer_id: 'caulk-manufacturer-3m',
+      manufacturer: '3M',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRONZE',
+      tubes_per_case: 12,
+      required_tubes: 2,
+      updated_at: NOW,
+    },
+  ];
+  const duplicateCaulkAllocations = [
+    {
+      caulk_allocation_id: 'CAULK-ALLOC-S1',
+      requirement_id: 'caulk-requirement-section-1',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-1',
+      job_number: '9327001',
+      product_id: 'caulk-product-bronze',
+      manufacturer_id: 'caulk-manufacturer-3m',
+      manufacturer: '3M',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRONZE',
+      tubes_per_case: 12,
+      warehouse: 'IL1',
+      allocated_tubes: 1,
+      reserved_tubes_remaining: 1,
+      checked_out_tubes_total: 0,
+      returned_unused_tubes_total: 0,
+      used_tubes_total: 0,
+      overage_tubes_total: 0,
+      status: 'ACTIVE',
+      allocation_source: 'MANUAL',
+      created_at: NOW,
+      created_by: 'test',
+      updated_at: NOW,
+    },
+    {
+      caulk_allocation_id: 'CAULK-ALLOC-S2',
+      requirement_id: 'caulk-requirement-section-2',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-section-2',
+      job_number: '9327001',
+      product_id: 'caulk-product-bronze',
+      manufacturer_id: 'caulk-manufacturer-3m',
+      manufacturer: '3M',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRONZE',
+      tubes_per_case: 12,
+      warehouse: 'IL1',
+      allocated_tubes: 2,
+      reserved_tubes_remaining: 2,
+      checked_out_tubes_total: 0,
+      returned_unused_tubes_total: 0,
+      used_tubes_total: 0,
+      overage_tubes_total: 0,
+      status: 'ACTIVE',
+      allocation_source: 'MANUAL',
+      created_at: NOW,
+      created_by: 'test',
+      updated_at: NOW,
+    },
+  ];
   const client = createFakeClient({
     jobs: duplicateJobs,
     requirements: duplicateRequirements,
     allocations: duplicateAllocations,
+    caulkRequirements: duplicateCaulkRequirements,
+    caulkAllocations: duplicateCaulkAllocations,
   });
 
   const entries = await buildJobsList(client, ORG_ID, 0, 'ACTIVE', ['9327001']);
@@ -373,6 +459,8 @@ test('buildJobsList preserves duplicate job-number rows by canonical jobId', asy
       workScopeKey: entry.workScopeKey,
       requiredFeet: entry.requiredFeet,
       allocatedFeet: entry.allocatedFeet,
+      requiredTubes: entry.requiredTubes,
+      allocatedTubes: entry.allocatedTubes,
     })),
     [
       {
@@ -382,6 +470,8 @@ test('buildJobsList preserves duplicate job-number rows by canonical jobId', asy
         workScopeKey: 'section:1',
         requiredFeet: 10,
         allocatedFeet: 10,
+        requiredTubes: 1,
+        allocatedTubes: 1,
       },
       {
         jobId: 'job-9327001-section-2',
@@ -390,6 +480,8 @@ test('buildJobsList preserves duplicate job-number rows by canonical jobId', asy
         workScopeKey: 'section:2',
         requiredFeet: 20,
         allocatedFeet: 5,
+        requiredTubes: 2,
+        allocatedTubes: 2,
       },
     ]
   );
@@ -580,4 +672,26 @@ test('local and Edge jobs list builders avoid jobNumber-only row identity', () =
 
   assert.match(edgeBuildJobsList, /requirementsByJobId\[contextJobId\]/);
   assert.match(edgeBuildJobsList, /allocationsByJobId\[contextJobId\]/);
+  assert.match(edgeBuildJobsList, /loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/);
+  assert.doesNotMatch(edgeBuildJobsList, /loadCaulkPlanningByJobNumbers\(/);
+});
+
+test('Edge jobs list and calendar load caulk summaries through canonical job ids', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
+  const caulkPlanningSource = edgeSource.match(
+    /async function loadCaulkPlanningByJobContexts[\s\S]*?\/\*\*\n \* PURPOSE:/
+  )?.[0] || '';
+  const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+  const edgeCalendarSource = edgeSource.match(
+    /async function buildJobsCalendarEntriesForHeaders[\s\S]*?async function buildJobsCalendar/
+  )?.[0] || '';
+
+  assert.match(caulkPlanningSource, /listJobCaulkRequirementsByJobIdDirect\(orgId, header\)/);
+  assert.match(caulkPlanningSource, /listCaulkJobAllocationsByJobIdDirect\(orgId, jobId\)/);
+  assert.match(caulkPlanningSource, /listJobCaulkRequirementsByJob\(client, orgId, jobNumber\)/);
+  assert.match(caulkPlanningSource, /listCaulkJobAllocationsByJob\(client, orgId, jobNumber\)/);
+  assert.match(edgeBuildJobsList, /loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/);
+  assert.match(edgeCalendarSource, /jobId\s*\?\s*listJobCaulkRequirementsByJobIdDirect\(orgId, header\)/);
+  assert.match(edgeCalendarSource, /jobId\s*\?\s*listCaulkJobAllocationsByJobIdDirect\(orgId, jobId\)/);
 });
