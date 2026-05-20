@@ -570,6 +570,210 @@ test('buildAllocationJobList preserves allocation summaries with parallelized sn
   assert.equal(entries[0].status, 'READY');
 });
 
+test('buildAllocationJobList preserves duplicate job-number rows and caulk totals by job id', async () => {
+  const jobs = [
+    {
+      id: 'job-9327001-s1',
+      org_id: ORG_ID,
+      job_number: '9327001',
+      warehouse: 'IL1',
+      sections: 'Sections 1',
+      due_date: '2026-05-20',
+      crew_leader: 'Fixture Crew',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'job-9327001-s2',
+      org_id: ORG_ID,
+      job_number: '9327001',
+      warehouse: 'IL1',
+      sections: 'Sections 2',
+      due_date: '2026-05-21',
+      crew_leader: 'Fixture Crew',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const allocations = [
+    {
+      id: 'allocation-s1',
+      org_id: ORG_ID,
+      allocation_id: 'ALLOC-S1',
+      box_id: 'IL1-1000',
+      warehouse: 'IL1',
+      job_id: 'job-9327001-s1',
+      job_number: '9327001',
+      job_date: '2026-05-20',
+      allocated_feet: 12,
+      covered_feet: 12,
+      requirement_id: 'film-req-s1',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      crew_leader: 'Fixture Crew',
+    },
+    {
+      id: 'allocation-s2',
+      org_id: ORG_ID,
+      allocation_id: 'ALLOC-S2',
+      box_id: 'IL1-1000',
+      warehouse: 'IL1',
+      job_id: 'job-9327001-s2',
+      job_number: '9327001',
+      job_date: '2026-05-21',
+      allocated_feet: 12,
+      covered_feet: 12,
+      requirement_id: 'film-req-s2',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'MANUAL',
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      crew_leader: 'Fixture Crew',
+    },
+  ];
+  const requirements = [
+    {
+      id: 'film-req-s1',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-s1',
+      job_number: '9327001',
+      manufacturer: '3M',
+      film_name: 'Solar Film',
+      width_in: 60,
+      required_feet: 12,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'film-req-s2',
+      org_id: ORG_ID,
+      job_id: 'job-9327001-s2',
+      job_number: '9327001',
+      manufacturer: '3M',
+      film_name: 'Solar Film',
+      width_in: 60,
+      required_feet: 12,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const caulkRequirements = [
+    {
+      requirement_id: 'caulk-req-s1',
+      job_id: 'job-9327001-s1',
+      job_number: '9327001',
+      product_id: 'fixture-caulk',
+      manufacturer: 'Fixture',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRZ',
+      tubes_per_case: 12,
+      required_tubes: 1,
+      auto_planning_suppressed: false,
+      updated_at: NOW,
+    },
+    {
+      requirement_id: 'caulk-req-s2',
+      job_id: 'job-9327001-s2',
+      job_number: '9327001',
+      product_id: 'fixture-caulk',
+      manufacturer: 'Fixture',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRZ',
+      tubes_per_case: 12,
+      required_tubes: 1,
+      auto_planning_suppressed: false,
+      updated_at: NOW,
+    },
+  ];
+  const caulkAllocations = [
+    {
+      caulk_allocation_id: 'caulk-alloc-s1',
+      requirement_id: 'caulk-req-s1',
+      job_id: 'job-9327001-s1',
+      job_number: '9327001',
+      product_id: 'fixture-caulk',
+      manufacturer: 'Fixture',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRZ',
+      warehouse: 'IL1',
+      allocated_tubes: 1,
+      reserved_tubes_remaining: 1,
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      updated_at: NOW,
+    },
+    {
+      caulk_allocation_id: 'caulk-alloc-s2',
+      requirement_id: 'caulk-req-s2',
+      job_id: 'job-9327001-s2',
+      job_number: '9327001',
+      product_id: 'fixture-caulk',
+      manufacturer: 'Fixture',
+      product_name: 'Bronze Caulk',
+      product_code: 'BRZ',
+      warehouse: 'IL1',
+      allocated_tubes: 1,
+      reserved_tubes_remaining: 1,
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      updated_at: NOW,
+    },
+  ];
+  const client = createFakeClient({
+    jobs,
+    allocations,
+    requirements,
+    caulkRequirements,
+    caulkAllocations,
+  });
+
+  const entries = await buildAllocationJobList(client, ORG_ID);
+  const fixtureEntries = entries
+    .filter((entry) => entry.jobNumber === '9327001')
+    .sort((left, right) => left.jobId.localeCompare(right.jobId));
+
+  assert.deepEqual(
+    fixtureEntries.map((entry) => ({
+      jobId: entry.jobId,
+      jobNumber: entry.jobNumber,
+      workScope: entry.workScope,
+      activeAllocatedFeet: entry.activeAllocatedFeet,
+      requiredTubes: entry.requiredTubes,
+      allocatedTubes: entry.allocatedTubes,
+    })),
+    [
+      {
+        jobId: 'job-9327001-s1',
+        jobNumber: '9327001',
+        workScope: 'Sections 1',
+        activeAllocatedFeet: 12,
+        requiredTubes: 1,
+        allocatedTubes: 1,
+      },
+      {
+        jobId: 'job-9327001-s2',
+        jobNumber: '9327001',
+        workScope: 'Sections 2',
+        activeAllocatedFeet: 12,
+        requiredTubes: 1,
+        allocatedTubes: 1,
+      },
+    ]
+  );
+});
+
 test('summary snapshot reads are bounded while preserving job-list rows', async () => {
   const client = createFakeClient({ queryDelayMs: 5 });
 
@@ -680,7 +884,7 @@ test('Edge jobs list and calendar load caulk summaries through canonical job ids
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
   const caulkPlanningSource = edgeSource.match(
-    /async function loadCaulkPlanningByJobContexts[\s\S]*?\/\*\*\n \* PURPOSE:/
+    /(?:export\s+)?async function loadCaulkPlanningByJobContexts[\s\S]*?async function buildJobsList/
   )?.[0] || '';
   const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
   const edgeCalendarSource = edgeSource.match(
