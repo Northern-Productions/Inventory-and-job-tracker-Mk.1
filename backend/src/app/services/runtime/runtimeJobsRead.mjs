@@ -126,6 +126,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  listBoxesByIds,
   findBoxById,
   saveBoxRecord,
   findBoxByRecordId,
@@ -298,6 +299,16 @@ function collectLegacyJobNumbersFromRows(rows, legacyJobNumbers, jobNumberFilter
   }
 }
 
+function collectAllocationBoxIds(allocations) {
+  return Array.from(
+    new Set(
+      (Array.isArray(allocations) ? allocations : [])
+        .map((entry) => asTrimmedString(entry?.boxId))
+        .filter(Boolean)
+    )
+  );
+}
+
 function shouldUsePooledSummaryReads(client) {
   return !client || typeof client.release === 'function';
 }
@@ -364,9 +375,6 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
     (readClient) => listJobCaulkRequirements(readClient, orgId),
     (readClient) => listCaulkJobAllocations(readClient, orgId),
   ];
-  if (!hasPreloadedBoxes) {
-    readTasks.push((readClient) => listBoxes(readClient, orgId));
-  }
 
   const snapshotResults = await runSummarySnapshotReads(client, readTasks, snapshotConcurrency);
   let snapshotIndex = 0;
@@ -376,7 +384,15 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const allRequirements = snapshotResults[snapshotIndex++];
   const allCaulkRequirements = snapshotResults[snapshotIndex++];
   const allCaulkAllocations = snapshotResults[snapshotIndex++];
-  const allBoxes = hasPreloadedBoxes ? options.preloadedBoxes : snapshotResults[snapshotIndex++];
+  const allBoxes = hasPreloadedBoxes
+    ? options.preloadedBoxes
+    : (
+        await runSummarySnapshotReads(
+          client,
+          [(readClient) => listBoxesByIds(readClient, orgId, collectAllocationBoxIds(allAllocations))],
+          1
+        )
+      )[0];
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
   const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);

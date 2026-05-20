@@ -215,12 +215,12 @@ function createFakeClient(options = {}) {
   };
 }
 
-test('buildJobsList still loads boxes normally when no preloaded box snapshot is supplied', async () => {
+test('buildJobsList only loads referenced allocation boxes when no preloaded box snapshot is supplied', async () => {
   const client = createFakeClient();
 
   const entries = await buildJobsList(client, ORG_ID, 0);
 
-  assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.boxes, 0);
   assert.equal(client.counts.caulkStock, 0);
   assert.equal(entries.length, 3);
   assert.deepEqual(
@@ -799,12 +799,12 @@ test('allocation snapshot reads are bounded while preserving allocation rows', a
   assert.deepEqual(entries.map((entry) => entry.jobNumber), ['30003']);
 });
 
-test('jobs search keeps its existing default box-loading behavior', async () => {
+test('jobs search avoids loading unrelated boxes when no allocations need them', async () => {
   const client = createFakeClient();
 
   const entries = await buildJobsSearchResults(client, ORG_ID, '30003', 25, 'ACTIVE');
 
-  assert.equal(client.counts.boxes, 1);
+  assert.equal(client.counts.boxes, 0);
   assert.equal(client.counts.caulkStock, 0);
   assert.deepEqual(
     entries.map((entry) => entry.jobNumber),
@@ -836,6 +836,7 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
     edgeSource,
     /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
+  assert.match(edgeSource, /async function listBoxesSnapshotDirect\(orgId: string\)/);
   assert.match(localReportsSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);
   assert.match(edgeSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);
   assert.match(edgeSource, /zeroedBoxes,/);
@@ -847,6 +848,10 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
   assert.match(edgeSource, /await runBoundedSnapshotReads\(\[\s*\(\) => listJobs\(client, orgId\),\s*\(\) => listAllocations\(client, orgId\),\s*\(\) => listFilmOrders\(client, orgId\),\s*\(\) => listJobRequirements\(client, orgId\),/s);
   const localBuildJobsList = localJobsReadSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
   const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
+  assert.match(localBuildJobsList, /listBoxesByIds\(readClient, orgId, collectAllocationBoxIds\(allAllocations\)\)/);
+  assert.match(edgeBuildJobsList, /listBoxesByIds\(orgId, collectAllocationBoxIds\(allAllocations\)\)/);
+  assert.doesNotMatch(localBuildJobsList, /readTasks\.push\(\(readClient\) => listBoxes\(readClient, orgId\)\)/);
+  assert.doesNotMatch(edgeBuildJobsList, /snapshotTasks\.push\(\(\) => listBoxes\(client, orgId\)\)/);
   assert.doesNotMatch(localBuildJobsList, /listCaulkStock|caulkStockEntries: allCaulkStock/);
   assert.doesNotMatch(edgeBuildJobsList, /listCaulkStockEntries|caulkStockEntries: allCaulkStock/);
 });
