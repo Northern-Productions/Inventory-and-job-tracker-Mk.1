@@ -1940,6 +1940,139 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
+  it('enables manual allocation immediately from local source-box coverage while preview is loading', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-1',
+            boxId: 'MS1-487',
+            allocatedFeet: 85,
+            coveredFeet: 85,
+            requirementId: 'req-1',
+            allocationKind: 'REQUIREMENT',
+            allocationSource: 'MANUAL' as const,
+            status: 'ACTIVE',
+            createdAt: '2026-04-21T12:00:00Z',
+            createdBy: 'tester',
+            resolvedAt: '',
+            resolvedBy: '',
+            filmOrderId: '',
+            notes: ''
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'MS1-487'
+        ? buildPreviewState({
+            isLoading: true,
+            isFetching: true
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'MS1-487',
+        warehouse: 'MS1',
+        manufacturer: 'Security',
+        filmName: '3M Ultra S800',
+        widthIn: 60,
+        initialFeet: 86,
+        feetAvailable: 86,
+        allocationPlanningFeet: 86
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17872',
+      warehouse: 'MS1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Security',
+          filmName: '3M Ultra S800',
+          widthIn: 36,
+          requiredFeet: 85,
+          allocatedFeet: 0,
+          remainingFeet: 85
+        }
+      ]
+    });
+
+    const checkbox = (await screen.findByRole('checkbox')) as HTMLInputElement;
+    const allocateButton = screen.getByRole('button', { name: 'Allocate' }) as HTMLButtonElement;
+
+    expect(allocateButton.disabled).toBe(true);
+
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(checkbox.checked).toBe(true));
+    expect(allocateButton.disabled).toBe(false);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Covered\s*85/i);
+    expect(document.querySelector('.allocation-stat-grid')?.textContent || '').toMatch(/Still Short\s*0/i);
+
+    fireEvent.click(allocateButton);
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'MS1-487',
+          requestedFeet: 85,
+          requestedWidthIn: 36,
+          requirementId: 'req-1',
+          selectedSuggestionBoxIds: []
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps manual allocation blocked when the requested feet exceed the requirement', async () => {
+    const mutateAsync = vi.fn();
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string } | null) =>
+      payload?.boxId === 'IL1-RN07'
+        ? buildPreviewState({
+            isLoading: true,
+            isFetching: true
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([buildSearchBox({ boxId: 'IL1-RN07' })]);
+
+    const { queryClient } = renderDialog();
+
+    fireEvent.change(screen.getByLabelText('Requested LF'), {
+      target: { value: '20' }
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    const allocateButton = screen.getByRole('button', { name: 'Allocate' }) as HTMLButtonElement;
+    await waitFor(() =>
+      expect((within(table).getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    );
+    expect(allocateButton.disabled).toBe(true);
+
+    fireEvent.click(allocateButton);
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    queryClient.clear();
+  });
+
   it('prefers same-warehouse boxes before closer cross-warehouse matches and only previews after manual selection', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
       payload?.boxId === 'IL1-6915'

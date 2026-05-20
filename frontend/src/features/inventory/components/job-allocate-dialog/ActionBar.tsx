@@ -4,7 +4,6 @@ interface ActionBarProps {
   isSubmitting: boolean;
   isOrderFilmMode: boolean;
   isMatchingBoxesLoading: boolean;
-  isAllocationPreviewLoading: boolean;
   isAllocatePending: boolean;
   isCreateFilmOrderPending: boolean;
   canSubmit: boolean;
@@ -17,7 +16,6 @@ export function ActionBar({
   isSubmitting,
   isOrderFilmMode,
   isMatchingBoxesLoading,
-  isAllocationPreviewLoading,
   isAllocatePending,
   isCreateFilmOrderPending,
   canSubmit,
@@ -35,7 +33,7 @@ export function ActionBar({
         variant="secondary"
         fullWidth
         onClick={onSubmit}
-        disabled={isMatchingBoxesLoading || isAllocationPreviewLoading || isSubmitting || !canSubmit}
+        disabled={isMatchingBoxesLoading || isSubmitting || !canSubmit}
       >
         {isOrderFilmMode
           ? isCreateFilmOrderPending
