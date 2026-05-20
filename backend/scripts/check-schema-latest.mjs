@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness.sql';
+const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -645,10 +645,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',
     includes: [
+      'v_use_partial_receiving_metrics boolean := false;',
+      'if not v_has_full_receiving_metrics and p_existing_box_id is not null then',
+      'v_use_partial_receiving_metrics := true;',
       'v_active_allocated_feet := app_api.physical_film_commitment_feet_for_box(',
       'v_feet_available := greatest(v_initial_feet - v_active_allocated_feet, 0);'
     ],
     excludes: [
+      'if v_initial_weight_input is null and v_existing.initial_weight_lbs is null then',
       "select coalesce(sum(a.allocated_feet), 0)::integer\n    into v_active_allocated_feet\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = v_box_id\n      and a.status = 'ACTIVE';"
     ]
   },

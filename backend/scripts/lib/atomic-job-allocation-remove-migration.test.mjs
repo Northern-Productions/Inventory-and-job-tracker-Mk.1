@@ -63,7 +63,7 @@ test('allocation remove RPC remains jobNumber and planner-scope limited for guar
 test('latest schema check requires atomic allocation remove RPCs', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0136_enable_job_number_work_scope_uniqueness\.sql/);
+  assert.match(schemaCheck, /0137_repair_box_update_partial_receiving_parity\.sql/);
   assert.match(schemaCheck, /public\.api_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /public\.api_acl_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /perform app_api\.recalculate_physical_box_allocatable_now\(p_org_id, v_box\.box_id\);/);

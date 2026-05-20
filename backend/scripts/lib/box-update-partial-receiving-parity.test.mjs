@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { readFile, readdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import test from 'node:test';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const backendMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0137_repair_box_update_partial_receiving_parity.sql'
+);
+const supabaseMigrationPath = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260520010000_repair_box_update_partial_receiving_parity.sql'
+);
+const migrationsPath = path.join(repoRoot, 'backend', 'migrations');
+const supabaseMigrationsPath = path.join(repoRoot, 'supabase', 'migrations');
+const schemaLatestPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
+const edgeMutationHandlersPath = path.join(repoRoot, 'supabase', 'functions', '_shared', 'routes', 'mutationHandlers.ts');
+
+test('box update partial receiving parity repair migrations stay mirrored', async () => {
+  const [backendMigration, supabaseMigration] = await Promise.all([
+    readFile(backendMigrationPath, 'utf8'),
+    readFile(supabaseMigrationPath, 'utf8'),
+  ]);
+
+  assert.equal(supabaseMigration, backendMigration);
+});
+
+test('box update partial receiving parity repair is latest in both migration trees', async () => {
+  const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
+  const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
+
+  assert.equal(backendMigrations.at(-2), '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(backendMigrations.at(-1), '0137_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(supabaseMigrations.at(-1), '20260520010000_repair_box_update_partial_receiving_parity.sql');
+});
+
+test('repair migration reasserts existing-box partial receiving metrics without app data updates', async () => {
+  const migration = await readFile(backendMigrationPath, 'utf8');
+  const functionBody = migration.slice(
+    migration.indexOf('create or replace function app_api.build_box_from_payload('),
+    migration.indexOf('\nDO $$')
+  );
+
+  assert.match(migration, /create or replace function app_api\.build_box_from_payload\(/);
+  assert.match(functionBody, /v_use_partial_receiving_metrics boolean := false;/);
+  assert.match(functionBody, /if not v_has_full_receiving_metrics and p_existing_box_id is not null then/);
+  assert.match(functionBody, /v_use_partial_receiving_metrics := true;/);
+  assert.match(functionBody, /app_api\.physical_film_commitment_feet_for_box\(/);
+  assert.doesNotMatch(functionBody, /if v_initial_weight_input is null and v_existing\.initial_weight_lbs is null then/);
+  assert.match(migration, /missing existing-box partial receiving metrics branch/);
+  assert.match(migration, /stale first-save InitialWeightLbs guard/);
+  assert.doesNotMatch(migration, /\bupdate\s+app\./i);
+  assert.doesNotMatch(migration, /\binsert\s+into\s+app\./i);
+  assert.doesNotMatch(migration, /\bdelete\s+from\s+app\./i);
+});
+
+test('schema latest guard catches stale box update partial receiving function drift', async () => {
+  const schemaLatest = await readFile(schemaLatestPath, 'utf8');
+  const requiredFunctionSemantics = schemaLatest.slice(
+    schemaLatest.indexOf('const REQUIRED_FUNCTION_SEMANTICS = ['),
+    schemaLatest.indexOf('const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [')
+  );
+
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity\.sql';/);
+  assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
+  assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);
+  assert.match(
+    requiredFunctionSemantics,
+    /if not v_has_full_receiving_metrics and p_existing_box_id is not null then/
+  );
+  assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics := true;/);
+  assert.match(requiredFunctionSemantics, /v_active_allocated_feet := app_api\.physical_film_commitment_feet_for_box\(/);
+  assert.match(
+    requiredFunctionSemantics,
+    /'if v_initial_weight_input is null and v_existing\.initial_weight_lbs is null then'/
+  );
+});
+
+test('Edge boxes update route still targets the SQL ACL wrapper', async () => {
+  const edgeMutationHandlers = await readFile(edgeMutationHandlersPath, 'utf8');
+
+  assert.match(edgeMutationHandlers, /"\/boxes\/update": async/);
+  assert.match(edgeMutationHandlers, /callMutationRpc\(client, "api_acl_boxes_update", orgId, actor, normalizedPayload\)/);
+});

@@ -148,7 +148,7 @@ test('caulk update jobId scope migration keeps non-scope workflows and duplicate
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0136_enable_job_number_work_scope_uniqueness\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0137_repair_box_update_partial_receiving_parity\.sql';/);
   assert.match(schemaCheck, /public\.api_acl_allocations_caulk_update\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
   assert.match(schemaCheck, /'caulkProductWarehousePairs'/);
