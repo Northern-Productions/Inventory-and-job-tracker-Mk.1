@@ -144,7 +144,37 @@ describe('optimistic job update identity', () => {
     );
   });
 
-  it('keeps film order schedule patching jobNumber-based until that workflow moves to jobId', () => {
+  it('patches film order schedules by jobId for canonical duplicate jobs', () => {
+    const queryClient = createQueryClient();
+    const siblingJobId = '22222222-2222-4222-8222-222222222222';
+
+    queryClient.setQueryData(inventoryKeys.filmOrders, [
+      buildFilmOrder({
+        filmOrderId: 'FO-1',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234'
+      }),
+      buildFilmOrder({ filmOrderId: 'FO-2', jobId: siblingJobId, jobNumber: '1234' }),
+      buildFilmOrder({ filmOrderId: 'FO-LEGACY', jobNumber: '1234' })
+    ]);
+
+    applyOptimisticJobUpdateToCaches(queryClient, {
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '1234',
+      installDate: '2026-05-02',
+      crewLeader: 'Crew B',
+      requirements: [],
+      caulkRequirements: []
+    });
+
+    expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({ filmOrderId: 'FO-1', installDate: '2026-05-02', crewLeader: 'Crew B' }),
+      expect.objectContaining({ filmOrderId: 'FO-2', installDate: '2026-05-01', crewLeader: 'Crew A' }),
+      expect.objectContaining({ filmOrderId: 'FO-LEGACY', installDate: '2026-05-01', crewLeader: 'Crew A' })
+    ]);
+  });
+
+  it('preserves legacy jobNumber film order schedule patching when no jobId is supplied', () => {
     const queryClient = createQueryClient();
 
     queryClient.setQueryData(inventoryKeys.filmOrders, [
@@ -153,7 +183,6 @@ describe('optimistic job update identity', () => {
     ]);
 
     applyOptimisticJobUpdateToCaches(queryClient, {
-      jobId: '11111111-1111-4111-8111-111111111111',
       jobNumber: '1234',
       installDate: '2026-05-02',
       crewLeader: 'Crew B',

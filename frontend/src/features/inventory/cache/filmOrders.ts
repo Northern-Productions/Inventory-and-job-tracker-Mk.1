@@ -304,6 +304,7 @@ export function createOptimisticFilmOrderFromPayload(
 
   return {
     filmOrderId: `pending-film-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    ...(String(payload.jobId || '').trim() ? { jobId: String(payload.jobId || '').trim() } : {}),
     requirementId: String(payload.requirementId || '').trim(),
     jobNumber: payload.jobNumber,
     warehouse: payload.warehouse,
@@ -328,34 +329,72 @@ export function createOptimisticFilmOrderFromPayload(
   };
 }
 
+type OptimisticFilmOrderScheduleIdentity =
+  | string
+  | {
+      jobId?: string | null;
+      jobNumber?: string | null;
+    };
+
+function normalizeScheduleIdentity(identity: OptimisticFilmOrderScheduleIdentity) {
+  if (typeof identity === 'string') {
+    return {
+      jobId: '',
+      jobNumber: String(identity || '').trim()
+    };
+  }
+
+  return {
+    jobId: String(identity?.jobId || '').trim(),
+    jobNumber: String(identity?.jobNumber || '').trim()
+  };
+}
+
+function matchesScheduleIdentity(
+  entry: { jobId?: string | null; jobNumber?: string | null },
+  identity: { jobId: string; jobNumber: string }
+) {
+  if (identity.jobId) {
+    return String(entry.jobId || '').trim() === identity.jobId;
+  }
+
+  const entryJobNumber = String(entry.jobNumber || '').trim();
+  return Boolean(identity.jobNumber && entryJobNumber && entryJobNumber === identity.jobNumber);
+}
+
+function scheduleFromSummary(summary: { installDate?: string | null; crewLeader?: string | null }) {
+  return {
+    installDate: String(summary.installDate || '').trim(),
+    crewLeader: String(summary.crewLeader || '').trim()
+  };
+}
+
 export function resolveOptimisticFilmOrderScheduleFromCaches(
   queryClient: QueryClient,
-  jobNumber: string
+  identityInput: OptimisticFilmOrderScheduleIdentity
 ) {
-  const normalizedJobNumber = String(jobNumber || '').trim();
-  if (!normalizedJobNumber) {
+  const identity = normalizeScheduleIdentity(identityInput);
+  if (!identity.jobNumber) {
     return {
       installDate: '',
       crewLeader: ''
     };
   }
 
-  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
+  const currentJob = queryClient.getQueryData<JobDetail>(
+    identity.jobId ? inventoryKeys.jobById(identity.jobId) : inventoryKeys.job(identity.jobNumber)
+  );
   if (currentJob?.summary) {
-    return {
-      installDate: String(currentJob.summary.installDate || '').trim(),
-      crewLeader: String(currentJob.summary.crewLeader || '').trim()
-    };
+    return scheduleFromSummary(currentJob.summary);
   }
 
-  const currentAllocationJob = queryClient.getQueryData<AllocationJobDetail>(
-    inventoryKeys.allocationJob(normalizedJobNumber)
-  );
-  if (currentAllocationJob?.summary) {
-    return {
-      installDate: String(currentAllocationJob.summary.installDate || '').trim(),
-      crewLeader: String(currentAllocationJob.summary.crewLeader || '').trim()
-    };
+  if (!identity.jobId) {
+    const currentAllocationJob = queryClient.getQueryData<AllocationJobDetail>(
+      inventoryKeys.allocationJob(identity.jobNumber)
+    );
+    if (currentAllocationJob?.summary) {
+      return scheduleFromSummary(currentAllocationJob.summary);
+    }
   }
 
   const jobsQueries = queryClient.getQueriesData<JobListEntry[]>({
@@ -364,13 +403,10 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
   for (let index = 0; index < jobsQueries.length; index += 1) {
     const [, current] = jobsQueries[index];
     const match = Array.isArray(current)
-      ? current.find((entry) => entry.jobNumber === normalizedJobNumber)
+      ? current.find((entry) => matchesScheduleIdentity(entry, identity))
       : null;
     if (match) {
-      return {
-        installDate: String(match.installDate || '').trim(),
-        crewLeader: String(match.crewLeader || '').trim()
-      };
+      return scheduleFromSummary(match);
     }
   }
 
@@ -380,13 +416,10 @@ export function resolveOptimisticFilmOrderScheduleFromCaches(
   for (let index = 0; index < allocationJobQueries.length; index += 1) {
     const [, current] = allocationJobQueries[index];
     const match = Array.isArray(current)
-      ? current.find((entry) => entry.jobNumber === normalizedJobNumber)
+      ? current.find((entry) => matchesScheduleIdentity(entry, identity))
       : null;
     if (match) {
-      return {
-        installDate: String(match.installDate || '').trim(),
-        crewLeader: String(match.crewLeader || '').trim()
-      };
+      return scheduleFromSummary(match);
     }
   }
 

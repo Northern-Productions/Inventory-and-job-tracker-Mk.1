@@ -541,6 +541,7 @@ describe('inventoryMutationUtils', () => {
   it('can seed optimistic film orders with cached job scheduling metadata', () => {
     const optimisticFilmOrder = createOptimisticFilmOrderFromPayload(
       {
+        jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '18798',
         warehouse: 'IL1',
         manufacturer: '3M',
@@ -554,6 +555,7 @@ describe('inventoryMutationUtils', () => {
       }
     );
 
+    expect(optimisticFilmOrder.jobId).toBe('11111111-1111-4111-8111-111111111111');
     expect(optimisticFilmOrder.installDate).toBe('2026-04-13');
     expect(optimisticFilmOrder.crewLeader).toBe('Napo');
   });
@@ -590,6 +592,55 @@ describe('inventoryMutationUtils', () => {
     expect(resolveOptimisticFilmOrderScheduleFromCaches(queryClient, '2941')).toEqual({
       installDate: '2026-04-13',
       crewLeader: 'Napo'
+    });
+  });
+
+  it('resolves optimistic film-order scheduling metadata by jobId for same-number jobs', () => {
+    const queryClient = createQueryClient();
+    const jobA = {
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '2941',
+      warehouse: 'IL1',
+      workScope: 'Sections 1',
+      sections: 'Sections 1',
+      installDate: '2026-04-13',
+      crewLeader: 'Crew A',
+      status: 'FILM_ORDER' as const,
+      lifecycleStatus: 'ACTIVE' as const,
+      isLaborOnly: false,
+      isStagedForPickup: false,
+      requiredFeet: 260,
+      allocatedFeet: 93,
+      remainingFeet: 167,
+      requiredTubes: 0,
+      allocatedTubes: 0,
+      remainingTubes: 0,
+      requirementCount: 2,
+      allocationCount: 2,
+      filmOrderCount: 2,
+      hasOrderedAllocations: false,
+      createdAt: '2026-04-06T00:00:00Z',
+      updatedAt: '2026-04-06T00:00:00Z',
+      notes: ''
+    };
+    const jobB = {
+      ...jobA,
+      jobId: '22222222-2222-4222-8222-222222222222',
+      workScope: 'Sections 2',
+      sections: 'Sections 2',
+      installDate: '2026-04-20',
+      crewLeader: 'Crew B'
+    };
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [jobA, jobB]);
+
+    expect(
+      resolveOptimisticFilmOrderScheduleFromCaches(queryClient, {
+        jobId: jobB.jobId,
+        jobNumber: jobB.jobNumber
+      })
+    ).toEqual({
+      installDate: '2026-04-20',
+      crewLeader: 'Crew B'
     });
   });
 

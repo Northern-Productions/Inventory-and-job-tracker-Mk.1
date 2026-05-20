@@ -47,7 +47,7 @@ export function useCreateFilmOrder() {
 
       const optimisticFilmOrder = createOptimisticFilmOrderFromPayload(
         payload,
-        resolveOptimisticFilmOrderScheduleFromCaches(queryClient, payload.jobNumber)
+        resolveOptimisticFilmOrderScheduleFromCaches(queryClient, payload)
       );
       const context = beginImmediateOptimisticMutation(
         queryClient,
