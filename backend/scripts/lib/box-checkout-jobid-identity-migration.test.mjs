@@ -215,6 +215,7 @@ test('box status duplicate checkout guard requires jobId for ambiguous checkout 
   ]);
 
   assert.match(migration, /v_legacy_checkout_job_match_count integer := 0;/);
+  assert.match(migration, /replace\('[\s\S]*E'\\r\\n', E'\\n'\)/);
   assert.match(
     migration,
     /Job number %s matches multiple jobs\. Choose a Work Scope to continue\./
