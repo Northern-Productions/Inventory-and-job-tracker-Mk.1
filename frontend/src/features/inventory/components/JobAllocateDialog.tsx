@@ -18,6 +18,7 @@ import { AllocationPlanTable } from './job-allocate-dialog/AllocationPlanTable';
 import { RequirementFields } from './job-allocate-dialog/RequirementFields';
 import { StatusMessages } from './job-allocate-dialog/StatusMessages';
 import {
+  buildLocalSourceSelectionSummary,
   buildSelectionSummary,
   collectPreferredLinkedBoxIds,
   previewMatchesPayload
@@ -218,18 +219,20 @@ export function JobAllocateDialog({
 
       return activePreview
         ? buildSelectionSummary(activePreview, selectedPreviewSuggestionBoxIds)
-        : {
-            allocations: [],
-            coveredFeet: 0,
-            remainingFeet: requestedFeetValue
-          };
+        : buildLocalSourceSelectionSummary(
+            selectedSourceBox,
+            requestedFeetValue,
+            selectedRequirement?.widthIn || 0
+          );
     },
     [
       activePreview,
       isExtraFilmMode,
       prioritizedMatchingBoxes,
       requestedFeetValue,
+      selectedRequirement?.widthIn,
       selectedBoxIds,
+      selectedSourceBox,
       selectedPreviewSuggestionBoxIds
     ]
   );
@@ -414,16 +417,6 @@ export function JobAllocateDialog({
       return;
     }
 
-    if (!isExtraFilmMode && previewQuery.isError && !activePreview) {
-      setError(previewQuery.error.message || 'Unable to load the live allocation plan.');
-      return;
-    }
-
-    if (!isExtraFilmMode && previewPayload && !activePreview) {
-      setError('Loading the live allocation plan. Try again in a moment.');
-      return;
-    }
-
     if (!isExtraFilmMode && requestedFeetValue <= 0) {
       setError('Requested LF must be greater than zero.');
       return;
@@ -569,6 +562,13 @@ export function JobAllocateDialog({
   const isSubmitting = submitAction !== null;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
   const hasTransferCandidates = prioritizedMatchingBoxes.some((box) => box.status === 'TRANSFER');
+  const canSubmitAllocation = isExtraFilmMode
+    ? selectedBoxIds.length > 0
+    : selectedRequirement
+      ? selectedBoxIds.length > 0 &&
+        requestedFeetValue > 0 &&
+        requestedFeetValue <= selectedRequirement.remainingFeet
+      : false;
   const showsRemainingUncoveredNotice =
     !isExtraFilmMode &&
     selectedBoxIds.length > 0 &&
@@ -634,10 +634,9 @@ export function JobAllocateDialog({
           isSubmitting={isSubmitting}
           isOrderFilmMode={isOrderFilmMode}
           isMatchingBoxesLoading={isMatchingBoxesLoading}
-          isAllocationPreviewLoading={isAllocationPreviewLoading}
           isAllocatePending={submitAction === 'allocate'}
           isCreateFilmOrderPending={submitAction === 'order'}
-          canSubmit={isOrderFilmMode || selectedBoxIds.length > 0}
+          canSubmit={isOrderFilmMode || canSubmitAllocation}
           allocateLabel={isExtraFilmMode ? 'Allocate Extra' : 'Allocate'}
           onCancel={onCancel}
           onSubmit={isOrderFilmMode ? () => void handleOrderFilm() : () => void handleAllocate()}

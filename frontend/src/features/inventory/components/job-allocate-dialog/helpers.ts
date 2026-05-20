@@ -2,6 +2,30 @@ import { planCoverageAllocation } from '../../../../domain/allocationCoverageCon
 import type { AllocationPreview, FilmOrderEntry, JobRequirementLine, Warehouse } from '../../../../domain';
 import { canJobPlanningFilmSatisfyRequirement } from '../../utils/jobPlanningFilmIdentity';
 
+interface LocalSourceSelectionBox {
+  boxId: string;
+  widthIn?: number | null;
+  planningFeet?: number | null;
+  allocatableNowFeet?: number | null;
+  allocationPlanningFeet?: number | null;
+  feetAvailable?: number | null;
+}
+
+function getLocalSourcePlanningFeet(sourceBox: LocalSourceSelectionBox) {
+  return Math.max(
+    0,
+    Math.floor(
+      Number(
+        (sourceBox.planningFeet ??
+          sourceBox.allocatableNowFeet ??
+          sourceBox.allocationPlanningFeet ??
+          sourceBox.feetAvailable) ||
+          0
+      )
+    )
+  );
+}
+
 export function collectPreferredLinkedBoxIds(
   requirement: JobRequirementLine | null,
   filmOrders: FilmOrderEntry[]
@@ -95,6 +119,44 @@ export function buildSelectionSummary(preview: AllocationPreview, selectedSugges
     allocations,
     coveredFeet: preview.requestedFeet - remaining,
     remainingFeet: remaining
+  };
+}
+
+export function buildLocalSourceSelectionSummary(
+  sourceBox: LocalSourceSelectionBox | null,
+  requestedFeet: number,
+  requestedWidthIn: number
+) {
+  const requested = Math.max(0, Math.floor(Number(requestedFeet) || 0));
+  if (!sourceBox || requested <= 0) {
+    return {
+      allocations: [],
+      coveredFeet: 0,
+      remainingFeet: requested
+    };
+  }
+
+  const sourcePlan = planCoverageAllocation(
+    requested,
+    getLocalSourcePlanningFeet(sourceBox),
+    sourceBox.widthIn,
+    requestedWidthIn
+  );
+  const allocations =
+    sourcePlan.allocatedFeet > 0 && sourcePlan.coveredFeet > 0
+      ? [
+          {
+            boxId: sourceBox.boxId,
+            allocatedFeet: sourcePlan.allocatedFeet,
+            coveredFeet: sourcePlan.coveredFeet
+          }
+        ]
+      : [];
+
+  return {
+    allocations,
+    coveredFeet: requested - sourcePlan.remainingCoveredFeet,
+    remainingFeet: sourcePlan.remainingCoveredFeet
   };
 }
 
