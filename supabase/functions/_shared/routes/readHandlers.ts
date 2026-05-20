@@ -673,6 +673,7 @@ const readHandlers: Record<string, ReadHandler> = {
           ? { lastCheckoutSections: (lastCheckoutScope as Record<string, unknown>).sections }
           : {}),
         physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+        feetAvailable: reservationSnapshot.allocatableNowFeet,
         allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
         allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
         allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,

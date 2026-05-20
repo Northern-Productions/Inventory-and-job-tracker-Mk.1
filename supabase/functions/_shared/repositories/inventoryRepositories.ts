@@ -8,6 +8,7 @@ type RepositoryDeps = {
   formatDateValue: (value: unknown) => string;
   formatTimestamp: (value: unknown) => string;
   listInternalBoxRecordIdsByBoxId: (orgId: string, boxIds: string[]) => Promise<Record<string, string>>;
+  findRawBoxRowByBoxId?: (orgId: string, boxId: string) => Promise<Record<string, unknown> | null>;
 };
 
 export function createInventoryRepositories(deps: RepositoryDeps) {
@@ -68,6 +69,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const status = readValue("status");
     const initialFeet = readValue("initial_feet", "initialFeet");
     const feetAvailable = readValue("feet_available", "feetAvailable");
+    const storedFeetAvailable = readValue("stored_feet_available", "storedFeetAvailable");
     const activeAllocatedFeet = readValue("active_allocated_feet", "activeAllocatedFeet");
     const allocationPlanningFeet = readValue("allocation_planning_feet", "allocationPlanningFeet");
     const allocatableNowFeet = readValue("allocatable_now_feet", "allocatableNowFeet");
@@ -91,6 +93,12 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: deps.numericOrNull(readValue("width_in", "widthIn")) ?? 0,
       initialFeet: deps.integerOrZero(initialFeet),
       feetAvailable: deps.integerOrZero(feetAvailable),
+      storedFeetAvailable:
+        storedFeetAvailable === undefined || storedFeetAvailable === null
+          ? Object.prototype.hasOwnProperty.call(row, "feet_available")
+            ? deps.integerOrZero(row.feet_available)
+            : null
+          : deps.integerOrZero(storedFeetAvailable),
       activeAllocatedFeet: deps.integerOrZero(activeAllocatedFeet),
       allocatableNowFeet:
         allocatableNowFeet === undefined || allocatableNowFeet === null
@@ -629,7 +637,20 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_box_id: boxId,
     });
     const boxes = await enrichBoxesWithInternalIds(orgId, mapRows([row], mapDbBoxRow));
-    return boxes[0] || null;
+    const box = boxes[0] || null;
+    if (!box || typeof deps.findRawBoxRowByBoxId !== "function") {
+      return box;
+    }
+
+    const rawRow = await deps.findRawBoxRowByBoxId(orgId, box.boxId);
+    if (!rawRow || !Object.prototype.hasOwnProperty.call(rawRow, "feet_available")) {
+      return box;
+    }
+
+    return {
+      ...box,
+      storedFeetAvailable: deps.integerOrZero(rawRow.feet_available),
+    };
   }
 
   async function listFilmCatalog(client: any, orgId: string) {

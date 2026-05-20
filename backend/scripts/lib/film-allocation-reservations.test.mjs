@@ -133,6 +133,26 @@ test('buildBoxReservationSnapshot uses stored checked-out physical feet instead 
   assert.equal(snapshot.allocationSnapshotsById['checked-out-fixture'].shortageFeet, 0);
 });
 
+test('buildBoxReservationSnapshot keeps checked-out physical feet separate from public allocatable feet', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', initialFeet: 20, feetAvailable: 0, storedFeetAvailable: 12 }),
+    [
+      buildAllocation({
+        allocationId: 'checked-out-public-read',
+        allocatedFeet: 12,
+        installDate: '',
+        allocationSource: 'AUTO_PLANNED',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 12);
+  assert.equal(snapshot.allocatableNowFeet, 0);
+  assert.equal(snapshot.allocatedWithoutInstallDateFeet, 12);
+  assert.equal(snapshot.allocationSnapshotsById['checked-out-public-read'].backedPhysicalFeet, 12);
+  assert.equal(snapshot.allocationSnapshotsById['checked-out-public-read'].shortageFeet, 0);
+});
+
 test('buildBoxReservationSnapshot stops counting fulfilled allocations after check-in', () => {
   const snapshot = buildBoxReservationSnapshot(
     buildBox({ status: 'IN_STOCK', feetAvailable: 55 }),
