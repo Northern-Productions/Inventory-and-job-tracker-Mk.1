@@ -6063,6 +6063,64 @@ async function loadCaulkPlanningByJobNumbers(
   };
 }
 
+export async function loadCaulkPlanningByJobContexts(
+  client: any,
+  orgId: string,
+  jobContexts: Array<{ jobNumber: string; header: any; legacy: boolean }>,
+) {
+  const requirementsByJob: Record<string, any[]> = {};
+  const requirementsByJobId: Record<string, any[]> = {};
+  const allocationsByJob: Record<string, any[]> = {};
+  const allocationsByJobId: Record<string, any[]> = {};
+  const legacyJobNumbers = new Set<string>();
+  const canonicalContexts: Array<{ jobId: string; jobNumber: string; header: any }> = [];
+
+  for (const context of jobContexts) {
+    const jobNumber = asTrimmedString(context?.jobNumber || context?.header?.jobNumber);
+    const jobId = context?.header ? getEntryJobId(context.header) : "";
+    if (context?.header && jobId) {
+      canonicalContexts.push({ jobId, jobNumber, header: context.header });
+    } else if (jobNumber) {
+      legacyJobNumbers.add(jobNumber);
+    }
+  }
+
+  await Promise.all(
+    canonicalContexts.map(async ({ jobId, jobNumber, header }) => {
+      const [caulkRequirements, caulkAllocations] = await Promise.all([
+        listJobCaulkRequirementsByJobIdDirect(orgId, header),
+        listCaulkJobAllocationsByJobIdDirect(orgId, jobId),
+      ]);
+      requirementsByJobId[jobId] = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+        jobNumber,
+        jobWarehouse: header?.warehouse || "",
+      });
+      allocationsByJobId[jobId] = caulkAllocations;
+    }),
+  );
+
+  await Promise.all(
+    Array.from(legacyJobNumbers).map(async (jobNumber) => {
+      const [caulkRequirements, caulkAllocations] = await Promise.all([
+        listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+        listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+      ]);
+      requirementsByJob[jobNumber] = buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations, {
+        jobNumber,
+        jobWarehouse: "",
+      });
+      allocationsByJob[jobNumber] = caulkAllocations;
+    }),
+  );
+
+  return {
+    requirementsByJob,
+    requirementsByJobId,
+    allocationsByJob,
+    allocationsByJobId,
+  };
+}
+
 /**
  * PURPOSE:
  * Builds public job-list summaries from org-scoped job, allocation, order,
@@ -6080,7 +6138,7 @@ async function loadCaulkPlanningByJobNumbers(
  * Duplicate full-org reads, stale preloaded snapshots, local/Edge drift,
  * changed sort/filter behavior, or report response-shape regressions.
  */
-async function buildJobsList(
+export async function buildJobsList(
   client: any,
   orgId: string,
   limit: number,
@@ -6151,21 +6209,7 @@ async function buildJobsList(
     }
   }
 
-  const jobHeadersByNumber = Object.fromEntries(
-    jobHeaders.map((header) => [getEntryJobNumber(header), header]),
-  );
-  const jobHeadersById = Object.fromEntries(
-    jobHeaders
-      .map((header) => [getEntryJobId(header), header])
-      .filter(([jobId]) => Boolean(jobId)),
-  );
-  const caulkPlanning = await loadCaulkPlanningByJobNumbers(
-    client,
-    orgId,
-    Array.from(new Set(jobContexts.map((context) => context.jobNumber).filter(Boolean))),
-    jobHeadersByNumber,
-    jobHeadersById,
-  );
+  const caulkPlanning = await loadCaulkPlanningByJobContexts(client, orgId, jobContexts);
 
   const response = jobContexts.reduce<any[]>((entries, context) => {
     const jobNumber = context.jobNumber;
@@ -6342,12 +6386,17 @@ async function buildJobsCalendarEntriesForHeaders(
           return null;
         }
 
+        const jobId = getEntryJobId(header);
         const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
           listAllocationsByJob(client, orgId, jobNumber),
           listFilmOrdersByJob(client, orgId, jobNumber),
           listJobRequirementsByJob(client, orgId, jobNumber),
-          listJobCaulkRequirementsByJob(client, orgId, jobNumber),
-          listCaulkJobAllocationsByJob(client, orgId, jobNumber),
+          jobId
+            ? listJobCaulkRequirementsByJobIdDirect(orgId, header)
+            : listJobCaulkRequirementsByJob(client, orgId, jobNumber),
+          jobId
+            ? listCaulkJobAllocationsByJobIdDirect(orgId, jobId)
+            : listCaulkJobAllocationsByJob(client, orgId, jobNumber),
         ]);
 
         return {

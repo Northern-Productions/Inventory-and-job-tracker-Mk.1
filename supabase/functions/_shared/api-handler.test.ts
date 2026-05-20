@@ -1,9 +1,11 @@
 import {
+  buildJobsList,
   buildPublicCaulkRequirementEntries,
   buildPublicJobRequirementEntries,
   buildJobDetailById,
   canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
+  loadCaulkPlanningByJobContexts,
   maybeLogCaulkFallbackCoverageDecision,
   shouldUseCache,
 } from "./api-handler.ts";
@@ -1575,6 +1577,27 @@ Deno.test("/jobs/list preserves same-number rows returned by the list builder", 
     ],
     "Expected /jobs/list to return distinct same-number rows from the builder.",
   );
+});
+
+Deno.test("Edge job summaries load caulk counts by canonical job id when a header exists", async () => {
+  const buildJobsListSource = buildJobsList.toString();
+  const caulkPlanningSource = loadCaulkPlanningByJobContexts.toString();
+
+  if (!caulkPlanningSource) {
+    throw new Error("Expected Edge caulk planning helper for canonical job contexts to be present.");
+  }
+  if (!/listJobCaulkRequirementsByJobIdDirect\(orgId, header\)/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk requirements to load through the jobId direct path.");
+  }
+  if (!/listCaulkJobAllocationsByJobIdDirect\(orgId, jobId\)/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk allocations to load through the jobId direct path.");
+  }
+  if (!/loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/.test(buildJobsListSource)) {
+    throw new Error("Expected Edge /jobs/list to build caulk summaries from canonical job contexts.");
+  }
+  if (!/contextJobId\s*\?\s*caulkPlanning\.requirementsByJobId\[contextJobId\]/.test(buildJobsListSource)) {
+    throw new Error("Expected Edge /jobs/list to project caulk requirements by context jobId.");
+  }
 });
 
 Deno.test("/jobs/get-by-id dispatches through the by-id job detail builder", async () => {

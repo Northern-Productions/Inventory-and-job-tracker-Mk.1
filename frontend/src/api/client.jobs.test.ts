@@ -128,14 +128,18 @@ describe('jobs API client canonical routes', () => {
             jobNumber: '9327001',
             sections: 'Sections 1',
             workScope: 'Sections 1',
-            workScopeKey: 'section:1'
+            workScopeKey: 'section:1',
+            requiredTubes: 1,
+            allocatedTubes: 1
           }),
           buildJobListEntry({
             jobId: '22222222-2222-4222-8222-222222222222',
             jobNumber: '9327001',
             sections: 'Sections 2',
             workScope: 'Sections 2',
-            workScopeKey: 'section:2'
+            workScopeKey: 'section:2',
+            requiredTubes: 2,
+            allocatedTubes: 2
           })
         ]
       },
@@ -149,19 +153,25 @@ describe('jobs API client canonical routes', () => {
       jobId: entry.jobId,
       jobNumber: entry.jobNumber,
       sections: entry.sections,
-      workScopeKey: entry.workScopeKey
+      workScopeKey: entry.workScopeKey,
+      requiredTubes: entry.requiredTubes,
+      allocatedTubes: entry.allocatedTubes
     }))).toEqual([
       {
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '9327001',
         sections: 'Sections 1',
-        workScopeKey: 'section:1'
+        workScopeKey: 'section:1',
+        requiredTubes: 1,
+        allocatedTubes: 1
       },
       {
         jobId: '22222222-2222-4222-8222-222222222222',
         jobNumber: '9327001',
         sections: 'Sections 2',
-        workScopeKey: 'section:2'
+        workScopeKey: 'section:2',
+        requiredTubes: 2,
+        allocatedTubes: 2
       }
     ]);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
