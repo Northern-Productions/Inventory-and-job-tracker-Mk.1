@@ -31,7 +31,6 @@ import {
   autoLinkRemainingJobFeetToCheckedOutBox,
 } from '../runtimeAllocationLinks.mjs';
 import { resolveAllocationsForCheckout } from '../checkout/checkoutFlow.mjs';
-import { cancelActiveAllocationsForCheckInJob } from '../checkout/cancellations.mjs';
 import {
   findLatestCheckoutAuditEntryByBoxId,
   getCheckoutJobNumberFromAuditNotes,
@@ -264,25 +263,6 @@ async function setBoxStatus(client, orgId, payload, actor) {
         })
       : asTrimmedString(payload.auditNote);
     finalAuditNote = directToSiteFirstReturnNote;
-
-    if (checkInPlan.sameJobActiveAllocationCount > 0 && checkoutJob) {
-      const sameJobCancellation = await cancelActiveAllocationsForCheckInJob(
-        client,
-        orgId,
-        updatedBox.boxId,
-        checkoutJob,
-        actor,
-        '',
-        {
-          jobId: checkoutJobId
-        }
-      );
-      if (sameJobCancellation.cancelledCount > 0) {
-        warnings.push(
-          `Released ${sameJobCancellation.cancelledCount} active planning allocation${sameJobCancellation.cancelledCount === 1 ? '' : 's'} totaling ${sameJobCancellation.cancelledFeet} LF for job ${checkoutJob} during check-in.`
-        );
-      }
-    }
 
     const reconciliationResult = await reconcileBoxCheckinAllocations(
       client,
