@@ -270,6 +270,15 @@ function resolveExplicitPhysicalFeet(box) {
 function resolveCheckedOutPhysicalFeet(box) {
   if (
     box &&
+    box.storedFeetAvailable !== undefined &&
+    box.storedFeetAvailable !== null &&
+    Number.isFinite(Number(box.storedFeetAvailable))
+  ) {
+    return integerOrZero(box.storedFeetAvailable);
+  }
+
+  if (
+    box &&
     box.feetAvailable !== undefined &&
     box.feetAvailable !== null &&
     Number.isFinite(Number(box.feetAvailable))

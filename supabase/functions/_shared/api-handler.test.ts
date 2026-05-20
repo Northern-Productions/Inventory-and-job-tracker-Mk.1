@@ -634,6 +634,49 @@ Deno.test("Edge public box mapper exposes additive ordered-for and checkout job 
   );
 });
 
+Deno.test("Edge box repository preserves raw stored feet separately from public allocatable feet", async () => {
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async (_client: unknown, fn: string) => {
+      assertEquals(fn, "api_acl_find_box_by_id", "Expected lookup to use the public ACL box read.");
+      return {
+        boxId: "IL1-P3C2D-S2-05191440",
+        status: "CHECKED_OUT",
+        initialFeet: 20,
+        feetAvailable: 0,
+        physicalFeetAvailable: null,
+      } as any;
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+    findRawBoxRowByBoxId: async (_orgId: string, boxId: string) => {
+      assertEquals(boxId, "IL1-P3C2D-S2-05191440", "Expected raw lookup to use the resolved box id.");
+      return {
+        box_id: "IL1-P3C2D-S2-05191440",
+        feet_available: 12,
+      };
+    },
+  });
+
+  const box = await repositories.findBoxById({} as any, "org-1", "IL1-P3C2D-S2-05191440");
+
+  assertEquals(box?.feetAvailable, 0, "Expected public allocatable feet to remain public availability.");
+  assertEquals(box?.storedFeetAvailable, 12, "Expected checked-out physical projection to retain raw stored feet.");
+});
+
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
   const payload = await canonicalizeMutationPayloadForRoute({} as any, "org-1", "/boxes/receive", {
     boxId: "IL1-1234",
@@ -1245,7 +1288,8 @@ Deno.test("/boxes/get reports checked-out physical LF from stored current feet, 
         warehouse: "IL1",
         status: "CHECKED_OUT",
         initialFeet: 20,
-        feetAvailable: 12,
+        feetAvailable: 0,
+        storedFeetAvailable: 12,
         lastCheckoutJobId: "4971d840-171f-4969-9bdf-8a79a94e2bc8",
         lastCheckoutJob: "9327001",
       }),
@@ -1272,6 +1316,7 @@ Deno.test("/boxes/get reports checked-out physical LF from stored current feet, 
       toPublicBox: (box: Record<string, unknown>) => ({
         boxId: box.boxId,
         status: box.status,
+        feetAvailable: box.feetAvailable,
         physicalFeetAvailable: box.physicalFeetAvailable,
         allocatedWithoutInstallDateFeet: box.allocatedWithoutInstallDateFeet,
         allocatableNowFeet: box.allocatableNowFeet,
@@ -1282,6 +1327,7 @@ Deno.test("/boxes/get reports checked-out physical LF from stored current feet, 
   assertEquals(response.data, {
     boxId: "IL1-P3C2D-S2-05191440",
     status: "CHECKED_OUT",
+    feetAvailable: 0,
     physicalFeetAvailable: 12,
     allocatedWithoutInstallDateFeet: 12,
     allocatableNowFeet: 0,

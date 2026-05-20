@@ -190,6 +190,7 @@ async function buildPublicBoxWithReservationMetrics(
   return deps.toPublicBox({
     ...box,
     physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+    feetAvailable: reservationSnapshot.allocatableNowFeet,
     allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
     allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
     allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,

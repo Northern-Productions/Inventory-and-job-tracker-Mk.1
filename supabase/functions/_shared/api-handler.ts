@@ -1486,6 +1486,23 @@ async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: st
   return mappedBoxes;
 }
 
+async function findRawBoxRowByBoxIdForInventory(orgId: string, boxId: string) {
+  const normalizedBoxId = asTrimmedString(boxId);
+  if (!normalizedBoxId) {
+    return null;
+  }
+
+  const { data, error } = await requireServiceRoleClient()
+    .schema("app")
+    .from("boxes")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("box_id", normalizedBoxId)
+    .maybeSingle();
+  throwOnSupabaseError(error, "Unable to load box snapshot");
+  return data || null;
+}
+
 function pruneFilmNameAliasCache() {
   const now = Date.now();
   for (const [key, entry] of filmNameAliasCache.entries()) {
@@ -1589,6 +1606,7 @@ const inventoryRepositories = createInventoryRepositories({
   formatDateValue,
   formatTimestamp,
   listInternalBoxRecordIdsByBoxId,
+  findRawBoxRowByBoxId: findRawBoxRowByBoxIdForInventory,
 });
 const {
   mapDbBoxRow,
@@ -5697,6 +5715,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
     const publicBox = toPublicBox({
       ...box,
       physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+      feetAvailable: reservationSnapshot.allocatableNowFeet,
       allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
       allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
       allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
