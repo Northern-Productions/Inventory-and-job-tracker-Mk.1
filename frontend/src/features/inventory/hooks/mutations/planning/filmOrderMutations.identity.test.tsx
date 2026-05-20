@@ -22,6 +22,7 @@ vi.mock('../../../../../api/features/filmOrdersClient', () => ({
 }));
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
+const SIBLING_JOB_ID = '22222222-2222-4222-8222-222222222222';
 
 function createQueryClient() {
   return new QueryClient({
@@ -36,6 +37,16 @@ function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 function buildFilmOrder(overrides: Partial<FilmOrderEntry> = {}): FilmOrderEntry {
@@ -194,6 +205,68 @@ describe('film order mutation identity caches', () => {
     expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual(legacyJobCache);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual(legacyAllocationJobCache);
     expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([createdFilmOrder]);
+  });
+
+  it('canonical create seeds optimistic schedule metadata from the matching same-number jobId', async () => {
+    const queryClient = createQueryClient();
+    const deferred = createDeferred<{ result: FilmOrderEntry; warnings: string[] }>();
+    const payload: CreateFilmOrderPayload = {
+      jobId: SIBLING_JOB_ID,
+      jobNumber: '1234',
+      requirementId: 'req-2',
+      warehouse: 'IL1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requestedFeet: 50
+    };
+    const siblingSummary = buildSummary({
+      jobId: SIBLING_JOB_ID,
+      workScope: 'Section 2',
+      sections: 'Section 2',
+      installDate: '2026-06-01',
+      crewLeader: 'Crew B'
+    });
+
+    queryClient.setQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }), [
+      buildSummary({ installDate: '2026-05-01', crewLeader: 'Crew A' }),
+      siblingSummary
+    ]);
+    createFilmOrderMock.mockReturnValueOnce(deferred.promise);
+
+    const { result } = renderHook(() => useCreateFilmOrder(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    let mutationPromise!: Promise<unknown>;
+    await act(async () => {
+      mutationPromise = result.current.mutateAsync(payload);
+      await Promise.resolve();
+    });
+
+    expect(queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({
+        jobId: SIBLING_JOB_ID,
+        jobNumber: '1234',
+        requirementId: 'req-2',
+        installDate: '2026-06-01',
+        crewLeader: 'Crew B'
+      })
+    ]);
+
+    deferred.resolve({
+      result: buildFilmOrder({
+        filmOrderId: 'FO-2',
+        jobId: SIBLING_JOB_ID,
+        requirementId: 'req-2',
+        installDate: '2026-06-01',
+        crewLeader: 'Crew B'
+      }),
+      warnings: []
+    });
+    await act(async () => {
+      await mutationPromise;
+    });
   });
 
   it('legacy create remains jobNumber-only and keeps legacy detail cache patching', async () => {

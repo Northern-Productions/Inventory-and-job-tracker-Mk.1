@@ -13,7 +13,7 @@ import { buildAllocationJobSummaryFromJobDetail } from './jobSummaryMath';
 
 function updateCachedJobSummaryCollections(
   queryClient: QueryClient,
-  jobNumber: string,
+  identity: Pick<UpdateJobPayload, 'jobId' | 'jobNumber'>,
   updater: (entry: JobListEntry) => JobListEntry
 ) {
   const jobQueries = queryClient.getQueriesData<JobListEntry[]>({
@@ -22,21 +22,22 @@ function updateCachedJobSummaryCollections(
 
   for (let index = 0; index < jobQueries.length; index += 1) {
     const [queryKey, current] = jobQueries[index];
-    if (!Array.isArray(current) || !current.some((entry) => entry.jobNumber === jobNumber)) {
+    if (!Array.isArray(current) || !current.some((entry) => isSameScheduleJobIdentity(entry, identity))) {
       continue;
     }
 
     queryClient.setQueryData<JobListEntry[]>(
       queryKey,
-      current.map((entry) => (entry.jobNumber === jobNumber ? updater(entry) : entry))
+      current.map((entry) => (isSameScheduleJobIdentity(entry, identity) ? updater(entry) : entry))
     );
   }
 }
 
 export function applyOptimisticJobScheduleSyncToCaches(
   queryClient: QueryClient,
-  payload: Pick<UpdateJobPayload, 'jobNumber' | 'installDate' | 'crewLeader'>
+  payload: Pick<UpdateJobPayload, 'jobId' | 'jobNumber' | 'installDate' | 'crewLeader'>
 ) {
+  const normalizedJobId = String(payload.jobId || '').trim();
   const normalizedJobNumber = String(payload.jobNumber || '').trim();
   if (!normalizedJobNumber) {
     return;
@@ -50,7 +51,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
 
   const nextInstallDate = hasInstallDateUpdate ? String(payload.installDate || '').trim() : undefined;
   const nextCrewLeader = hasCrewLeaderUpdate ? String(payload.crewLeader || '').trim() : undefined;
-  const patchFilmOrder = (entry: FilmOrderEntry): FilmOrderEntry =>
+  const patchScopedFilmOrder = (entry: FilmOrderEntry): FilmOrderEntry =>
     entry.jobNumber === normalizedJobNumber && isUnresolvedFilmOrder(entry)
       ? {
           ...entry,
@@ -58,8 +59,19 @@ export function applyOptimisticJobScheduleSyncToCaches(
           ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
         }
       : entry;
+  const patchGlobalFilmOrder = (entry: FilmOrderEntry): FilmOrderEntry =>
+    isSameScheduleJobIdentity(entry, { jobId: normalizedJobId, jobNumber: normalizedJobNumber }) &&
+    isUnresolvedFilmOrder(entry)
+      ? {
+          ...entry,
+          ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
+          ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
+        }
+      : entry;
 
-  const currentJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job(normalizedJobNumber));
+  const currentJob = queryClient.getQueryData<JobDetail>(
+    normalizedJobId ? inventoryKeys.jobById(normalizedJobId) : inventoryKeys.job(normalizedJobNumber)
+  );
   if (currentJob) {
     syncJobDetailCaches(
       queryClient,
@@ -70,13 +82,16 @@ export function applyOptimisticJobScheduleSyncToCaches(
           ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
           ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
         },
-        filmOrders: currentJob.filmOrders.map(patchFilmOrder)
+        filmOrders: currentJob.filmOrders.map(patchScopedFilmOrder)
       },
-      { syncAllocationJobDetail: true }
+      {
+        syncAllocationJobDetail: !normalizedJobId,
+        syncLegacyJobDetail: !normalizedJobId
+      }
     );
   }
 
-  updateCachedJobSummaryCollections(queryClient, normalizedJobNumber, (entry) => ({
+  updateCachedJobSummaryCollections(queryClient, { jobId: normalizedJobId, jobNumber: normalizedJobNumber }, (entry) => ({
     ...entry,
     ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
     ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
@@ -85,7 +100,7 @@ export function applyOptimisticJobScheduleSyncToCaches(
   queryClient.setQueryData<AllocationJobSummary[] | undefined>(inventoryKeys.allocationJobs, (current) =>
     current
       ? current.map((entry) =>
-          entry.jobNumber === normalizedJobNumber
+          isSameScheduleJobIdentity(entry, { jobId: normalizedJobId, jobNumber: normalizedJobNumber })
             ? {
                 ...entry,
                 ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
@@ -96,24 +111,26 @@ export function applyOptimisticJobScheduleSyncToCaches(
       : current
   );
 
-  queryClient.setQueryData<AllocationJobDetail | undefined>(
-    inventoryKeys.allocationJob(normalizedJobNumber),
-    (current) =>
-      current
-        ? {
-            ...current,
-            summary: {
-              ...current.summary,
-              ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
-              ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
-            },
-            filmOrders: current.filmOrders.map(patchFilmOrder)
-          }
-        : current
-  );
+  if (!normalizedJobId) {
+    queryClient.setQueryData<AllocationJobDetail | undefined>(
+      inventoryKeys.allocationJob(normalizedJobNumber),
+      (current) =>
+        current
+          ? {
+              ...current,
+              summary: {
+                ...current.summary,
+                ...(nextInstallDate !== undefined ? { installDate: nextInstallDate } : {}),
+                ...(nextCrewLeader !== undefined ? { crewLeader: nextCrewLeader } : {})
+              },
+              filmOrders: current.filmOrders.map(patchScopedFilmOrder)
+            }
+          : current
+    );
+  }
 
   queryClient.setQueryData<FilmOrderEntry[] | undefined>(inventoryKeys.filmOrders, (current) =>
-    current ? current.map(patchFilmOrder) : current
+    current ? current.map(patchGlobalFilmOrder) : current
   );
 }
 
@@ -136,6 +153,18 @@ function isSameJobIdentity(left: Pick<JobListEntry, 'jobId' | 'jobNumber'>, righ
   const leftJobNumber = String(left.jobNumber || '').trim();
   const rightJobNumber = String(right.jobNumber || '').trim();
   return Boolean(leftJobNumber && rightJobNumber && leftJobNumber === rightJobNumber);
+}
+
+function isSameScheduleJobIdentity(
+  left: Pick<JobListEntry | FilmOrderEntry | AllocationJobSummary, 'jobId' | 'jobNumber'>,
+  right: Pick<UpdateJobPayload, 'jobId' | 'jobNumber'>
+) {
+  const rightJobId = String(right.jobId || '').trim();
+  if (rightJobId) {
+    return String(left.jobId || '').trim() === rightJobId;
+  }
+
+  return isSameJobIdentity(left, right);
 }
 
 export function upsertJobListCaches(queryClient: QueryClient, entry: JobListEntry) {

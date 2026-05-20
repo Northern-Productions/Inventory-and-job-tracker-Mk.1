@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AllocationJobSummary, JobDetail, JobListEntry } from '../../../domain';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 import {
+  applyOptimisticJobScheduleSyncToCaches,
   syncJobDetailCaches,
   syncJobSummaryCachesFromDetail,
   upsertAllocationJobSummaryCaches,
@@ -188,5 +189,112 @@ describe('job cache identity', () => {
     expect(queryClient.getQueryData(inventoryKeys.jobById(summary.jobId!))).toEqual(detail);
     expect(queryClient.getQueryData(inventoryKeys.job(summary.jobNumber))).toBeUndefined();
     expect(queryClient.getQueryData(inventoryKeys.allocationJob(summary.jobNumber))).toBeUndefined();
+  });
+
+  it('patches optimistic schedule caches by jobId without changing same-number sibling rows', () => {
+    const queryClient = createQueryClient();
+    const jobA = buildJobSummary('11111111-1111-4111-8111-111111111111', 'Section 1', 'Crew A');
+    const jobB = buildJobSummary('22222222-2222-4222-8222-222222222222', 'Section 2', 'Crew B');
+    const jobsListKey = inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' });
+    const calendarKey = inventoryKeys.jobsCalendarPeriod({
+      view: 'week',
+      anchorDate: '2026-05-01',
+      lifecycleStatus: 'ACTIVE'
+    });
+    const searchKey = inventoryKeys.jobsSearchResults({
+      query: '1234',
+      limit: 25,
+      lifecycleStatus: 'ACTIVE'
+    });
+
+    queryClient.setQueryData(inventoryKeys.jobById(jobA.jobId!), buildJobDetail(jobA));
+    queryClient.setQueryData(inventoryKeys.jobById(jobB.jobId!), buildJobDetail(jobB));
+    queryClient.setQueryData(jobsListKey, [jobA, jobB]);
+    queryClient.setQueryData(calendarKey, [jobA, jobB]);
+    queryClient.setQueryData(searchKey, [jobA, jobB]);
+    queryClient.setQueryData(inventoryKeys.allocationJobs, [
+      buildAllocationSummary(jobA.jobId!, 'Section 1', 'Crew A'),
+      buildAllocationSummary(jobB.jobId!, 'Section 2', 'Crew B')
+    ]);
+    queryClient.setQueryData(inventoryKeys.filmOrders, [
+      {
+        filmOrderId: 'FO-A',
+        jobId: jobA.jobId,
+        jobNumber: jobA.jobNumber,
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Film',
+        widthIn: 60,
+        requestedFeet: 10,
+        coveredFeet: 0,
+        orderedFeet: 0,
+        remainingToOrderFeet: 10,
+        installDate: jobA.installDate,
+        crewLeader: jobA.crewLeader,
+        status: 'FILM_ORDER',
+        sourceBoxId: '',
+        origin: 'MANUAL',
+        createdAt: '',
+        createdBy: '',
+        resolvedAt: '',
+        resolvedBy: '',
+        notes: '',
+        linkedBoxes: []
+      },
+      {
+        filmOrderId: 'FO-B',
+        jobId: jobB.jobId,
+        jobNumber: jobB.jobNumber,
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Film',
+        widthIn: 60,
+        requestedFeet: 10,
+        coveredFeet: 0,
+        orderedFeet: 0,
+        remainingToOrderFeet: 10,
+        installDate: jobB.installDate,
+        crewLeader: jobB.crewLeader,
+        status: 'FILM_ORDER',
+        sourceBoxId: '',
+        origin: 'MANUAL',
+        createdAt: '',
+        createdBy: '',
+        resolvedAt: '',
+        resolvedBy: '',
+        notes: '',
+        linkedBoxes: []
+      }
+    ]);
+
+    applyOptimisticJobScheduleSyncToCaches(queryClient, {
+      jobId: jobA.jobId,
+      jobNumber: jobA.jobNumber,
+      installDate: '2026-05-03',
+      crewLeader: 'Crew A Updated'
+    });
+
+    expect(queryClient.getQueryData<JobListEntry[]>(jobsListKey)).toEqual([
+      expect.objectContaining({ jobId: jobA.jobId, installDate: '2026-05-03', crewLeader: 'Crew A Updated' }),
+      jobB
+    ]);
+    expect(queryClient.getQueryData<JobListEntry[]>(calendarKey)).toEqual([
+      expect.objectContaining({ jobId: jobA.jobId, installDate: '2026-05-03', crewLeader: 'Crew A Updated' }),
+      jobB
+    ]);
+    expect(queryClient.getQueryData<JobListEntry[]>(searchKey)).toEqual([
+      expect.objectContaining({ jobId: jobA.jobId, installDate: '2026-05-03', crewLeader: 'Crew A Updated' }),
+      jobB
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
+      expect.objectContaining({ jobId: jobA.jobId, installDate: '2026-05-03', crewLeader: 'Crew A Updated' }),
+      buildAllocationSummary(jobB.jobId!, 'Section 2', 'Crew B')
+    ]);
+    expect(queryClient.getQueryData(inventoryKeys.job(jobA.jobNumber))).toBeUndefined();
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob(jobA.jobNumber))).toBeUndefined();
+    expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([
+      expect.objectContaining({ filmOrderId: 'FO-A', installDate: '2026-05-03', crewLeader: 'Crew A Updated' }),
+      expect.objectContaining({ filmOrderId: 'FO-B', installDate: jobB.installDate, crewLeader: jobB.crewLeader })
+    ]);
   });
 });
