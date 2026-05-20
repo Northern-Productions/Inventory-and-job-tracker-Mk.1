@@ -1587,11 +1587,14 @@ Deno.test("Edge job summaries load caulk counts by canonical job id when a heade
   if (!caulkPlanningSource) {
     throw new Error("Expected Edge caulk planning helper for canonical job contexts to be present.");
   }
-  if (!/listJobCaulkRequirementsByJobIdDirect\(orgId, header\)/.test(caulkPlanningSource)) {
-    throw new Error("Expected Edge /jobs/list caulk requirements to load through the jobId direct path.");
+  if (!/listJobCaulkRequirementsByJobIdsDirect\(orgId, canonicalHeadersByJobId\)/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk requirements to load through the batched jobId direct path.");
   }
-  if (!/listCaulkJobAllocationsByJobIdDirect\(orgId, jobId\)/.test(caulkPlanningSource)) {
-    throw new Error("Expected Edge /jobs/list caulk allocations to load through the jobId direct path.");
+  if (!/listCaulkJobAllocationsByJobIdsDirect\(orgId, canonicalJobIds\)/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk allocations to load through the batched jobId direct path.");
+  }
+  if (/canonicalContexts\.map\(async/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk planning not to issue per-job caulk queries.");
   }
   if (!/loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/.test(buildJobsListSource)) {
     throw new Error("Expected Edge /jobs/list to build caulk summaries from canonical job contexts.");
