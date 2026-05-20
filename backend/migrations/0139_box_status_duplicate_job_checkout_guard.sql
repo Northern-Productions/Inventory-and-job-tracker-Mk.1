@@ -117,20 +117,20 @@ begin
     v_next := replace(
       v_next,
       '  v_receipt_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);',
-      '  v_receipt_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);
-  v_legacy_checkout_job_match_count integer := 0;'
+      replace('  v_receipt_result jsonb := jsonb_build_object(''warnings'', ''[]''::jsonb);
+  v_legacy_checkout_job_match_count integer := 0;', E'\r\n', E'\n')
     );
   end if;
 
   if position('Job number %s matches multiple jobs. Choose a Work Scope to continue.' in v_next) = 0 then
     v_next := replace(
       v_next,
-      '    if v_checkout_job = '''' then
+      replace('    if v_checkout_job = '''' then
       perform app_api.raise_http(400, ''A checkout job number is required.'');
     end if;
 
-    v_box.status := ''CHECKED_OUT'';',
-      '    if v_checkout_job = '''' then
+    v_box.status := ''CHECKED_OUT'';', E'\r\n', E'\n'),
+      replace('    if v_checkout_job = '''' then
       perform app_api.raise_http(400, ''A checkout job number is required.'');
     end if;
 
@@ -149,55 +149,61 @@ begin
       end if;
     end if;
 
-    v_box.status := ''CHECKED_OUT'';'
+    v_box.status := ''CHECKED_OUT'';', E'\r\n', E'\n')
     );
   end if;
 
   v_next := replace(
     v_next,
-    '        and a.status = ''ACTIVE''
+    replace('        and a.status = ''ACTIVE''
         and upper(coalesce(a.job_number, '''')) = upper(v_checkout_job);',
-    '        and a.status = ''ACTIVE''
+      E'\r\n',
+      E'\n'
+    ),
+    replace('        and a.status = ''ACTIVE''
         and (
           (v_checkout_job_id is not null and a.job_id = v_checkout_job_id)
           or (
             v_checkout_job_id is null
             and upper(coalesce(a.job_number, '''')) = upper(v_checkout_job)
           )
-        );'
+        );', E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    '        and a.status = ''ACTIVE''
+    replace('        and a.status = ''ACTIVE''
         and upper(coalesce(a.job_number, '''')) <> upper(v_checkout_job);',
-    '        and a.status = ''ACTIVE''
+      E'\r\n',
+      E'\n'
+    ),
+    replace('        and a.status = ''ACTIVE''
         and not (
           (v_checkout_job_id is not null and a.job_id = v_checkout_job_id)
           or (
             v_checkout_job_id is null
             and upper(coalesce(a.job_number, '''')) = upper(v_checkout_job)
           )
-        );'
+        );', E'\r\n', E'\n')
   );
 
   v_next := replace(
     v_next,
-    '      v_same_job_release := app_api.cancel_active_allocations_for_box_job(
+    replace('      v_same_job_release := app_api.cancel_active_allocations_for_box_job(
         p_org_id,
         v_box.box_id,
         v_checkout_job,
         p_actor,
         ''Released during film box check-in.''
-      );',
-    '      v_same_job_release := app_api.cancel_active_allocations_for_box_job(
+      );', E'\r\n', E'\n'),
+    replace('      v_same_job_release := app_api.cancel_active_allocations_for_box_job(
         p_org_id,
         v_box.box_id,
         v_checkout_job,
         p_actor,
         ''Released during film box check-in.'',
         v_checkout_job_id
-      );'
+      );', E'\r\n', E'\n')
   );
 
   if v_next = v_base
@@ -205,8 +211,8 @@ begin
      and position('Job number %s matches multiple jobs. Choose a Work Scope to continue.' in v_next) > 0
      and position('v_checkout_job_id is not null and a.job_id = v_checkout_job_id' in v_next) > 0
      and position('v_checkout_job_id is null' in v_next) > 0
-     and position('''Released during film box check-in.'',
-        v_checkout_job_id' in v_next) > 0 then
+     and position(replace('''Released during film box check-in.'',
+        v_checkout_job_id', E'\r\n', E'\n') in v_next) > 0 then
     return;
   end if;
 
@@ -215,8 +221,8 @@ begin
      or position('Job number %s matches multiple jobs. Choose a Work Scope to continue.' in v_next) = 0
      or position('v_checkout_job_id is not null and a.job_id = v_checkout_job_id' in v_next) = 0
      or position('v_checkout_job_id is null' in v_next) = 0
-     or position('''Released during film box check-in.'',
-        v_checkout_job_id' in v_next) = 0 then
+     or position(replace('''Released during film box check-in.'',
+        v_checkout_job_id', E'\r\n', E'\n') in v_next) = 0 then
     raise exception 'public.api_boxes_set_status duplicate checkout guard patch did not match expected snippets';
   end if;
 
