@@ -288,3 +288,74 @@ test('setBoxStatus delegates check-in overuse reconciliation and surfaces affect
   assert.match(response.warnings.join(' '), /Reduced allocation alloc-other-job/);
   assert.match(response.warnings.join(' '), /manual reservations no longer fit this box/);
 });
+
+test('setBoxStatus lets reconciliation reduce same-job active allocations during check-in', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    box_id: 'IL1-DTS-3',
+    core_type: 'Red plastic',
+    last_checkout_job: '5555',
+  });
+  client.state.allocations = [
+    {
+      id: 'allocation-row-1',
+      org_id: 'org-1',
+      allocation_id: 'alloc-same-job',
+      box_id: 'IL1-DTS-3',
+      warehouse: 'IL1',
+      job_id: null,
+      job_number: '5555',
+      job_date: '2026-04-25',
+      allocated_feet: 8,
+      covered_feet: 8,
+      backed_physical_feet: null,
+      reservation_state: 'WITH_INSTALL_DATE',
+      requirement_id: '22222222-2222-4222-8222-222222222222',
+      allocation_kind: 'REQUIREMENT',
+      allocation_source: 'AUTO_PLANNED',
+      status: 'ACTIVE',
+      created_at: '2026-04-20T12:00:00Z',
+      created_by: 'planner',
+      resolved_at: null,
+      resolved_by: '',
+      notes: '',
+      crew_leader: '',
+      film_order_id: '',
+    },
+  ];
+  client.state.reconciliationResult = {
+    warnings: [
+      'Reduced allocation alloc-same-job for job 5555 from 8 LF to 5 LF because box IL1-DTS-3 physically returned with less LF.',
+    ],
+    affectedJobNumbers: ['5555'],
+    reducedAllocationIds: ['alloc-same-job'],
+    cancelledAllocationIds: [],
+    updatedFilmOrderIds: [],
+    feetAvailable: 0,
+  };
+
+  const response = await setBoxStatus(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-DTS-3',
+      status: 'IN_STOCK',
+      lastRollWeightLbs: 2.5,
+      currentFeetOnRoll: 5,
+      coreType: 'Red plastic',
+      auditNote: 'Returned with less LF than the checkout job allocation expected',
+    },
+    'warehouse-user'
+  );
+
+  const reconcileCall = client.state.calls.find((call) =>
+    call.sql.includes('select app_api.reconcile_box_checkin_allocations')
+  );
+
+  assert.equal(response.ok, true);
+  assert.ok(reconcileCall, 'expected check-in flow to delegate same-job shortages to reconciliation RPC');
+  assert.equal(reconcileCall.params[2], 'IL1-DTS-3');
+  assert.equal(reconcileCall.params[3], 5);
+  assert.match(response.warnings.join(' '), /Reduced allocation alloc-same-job/);
+  assert.doesNotMatch(response.warnings.join(' '), /Released 1 active planning allocation/);
+});

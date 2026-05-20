@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0140_box_checkin_physical_lf_reconciliation_priority.sql';
+const LATEST_MIGRATION = '0141_box_checkin_reconcile_same_job_allocations.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -638,7 +638,6 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_checkout_job := v_selected_job.job_number;',
       'v_checkout_job_id is not null and a.job_id = v_checkout_job_id',
       'v_checkout_job_id is null',
-      "'Released during film box check-in.',\n        v_checkout_job_id",
       'v_reconciliation_result jsonb',
       'v_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_box.last_checkout_job_id := null;',
@@ -647,7 +646,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'jobId', v_checkout_job_id::text",
     ],
     excludes: [
-      "Received physical LF cannot be lower than the box''s active allocated feet"
+      "Received physical LF cannot be lower than the box''s active allocated feet",
+      "Released %s active planning allocation%s totaling %s LF for job %s during check-in."
     ]
   },
   {
