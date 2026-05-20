@@ -41,7 +41,7 @@ import {
   shouldPromptZeroedInventoryReactivationOnEdit
 } from '../../utils/boxZeroedTransition';
 import { parseUpdateBoxDraft } from '../../schemas/boxSchemas';
-import { createStatusConfirmState } from './helpers';
+import { createStatusConfirmState, type CheckoutJobOption } from './helpers';
 import type {
   ConfirmState,
   PendingZeroedEditState,
@@ -81,7 +81,7 @@ interface UseBoxDetailActionsArgs {
   allocationsLoading: boolean;
   allocationsError: boolean;
   dealerEntries: BoxDealerEntry[];
-  checkoutJobOptions: Array<{ label: string; value: string }>;
+  checkoutJobOptions: CheckoutJobOption[];
   ensureSignedIn: (actionLabel: string, feature?: 'inventory' | 'allocations') => boolean;
   navigate: NavigateFunction;
   pushToast: PushToast;
@@ -393,9 +393,14 @@ export function useBoxDetailActions({
         return;
       }
 
+      const selectedCheckoutJob = checkoutJobOptions.find((option) => option.value === reason);
+      const checkoutJobNumber = String(selectedCheckoutJob?.jobNumber || reason || '').trim();
+      const checkoutJobId = String(selectedCheckoutJob?.jobId || '').trim();
       const payload = {
         ...confirmState.payload,
-        auditNote: `Checked out for job ${reason}`
+        ...(checkoutJobId ? { jobId: checkoutJobId } : {}),
+        ...(checkoutJobNumber ? { jobNumber: checkoutJobNumber } : {}),
+        auditNote: `Checked out for job ${checkoutJobNumber}`
       };
 
       try {

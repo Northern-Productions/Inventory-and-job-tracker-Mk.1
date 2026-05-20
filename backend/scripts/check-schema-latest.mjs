@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0138_preserve_partial_box_update_physical_feet.sql';
+const LATEST_MIGRATION = '0139_box_status_duplicate_job_checkout_guard.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -141,6 +141,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, uuid, text, text, numeric, timestamp with time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.append_roll_history(uuid, text, text, text, text, numeric, text, uuid, text, text, numeric, timestamp without time zone, text, numeric, numeric, integer, integer, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
+  { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)' },
@@ -542,6 +543,17 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text, uuid)',
+    includes: [
+      'p_job_id uuid',
+      'p_job_id is not null and a.job_id = p_job_id',
+      'p_job_id is null',
+      "upper(coalesce(a.job_number, '')) = upper(app_api.trim_text(p_job_number))",
+      'perform app_api.recalculate_film_order(p_org_id, v_film_order_id, p_actor);'
+    ],
+    excludes: []
+  },
+  {
     signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
@@ -618,10 +630,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "perform app_api.raise_http(400, 'jobId must be a valid UUID.');",
       'and j.id = v_checkout_job_id',
       "perform app_api.raise_http(400, 'jobId does not match jobNumber.');",
+      'v_legacy_checkout_job_match_count integer := 0;',
+      "perform app_api.raise_http(\n          409,\n          format('Job number %s matches multiple jobs. Choose a Work Scope to continue.', v_checkout_job)\n        );",
       'v_box.last_checkout_job_id := v_checkout_job_id;',
       'perform app_api.assert_can_checkout_box_from_warehouse(v_existing);',
       'v_checkout_job_id := v_selected_job.id;',
       'v_checkout_job := v_selected_job.job_number;',
+      'v_checkout_job_id is not null and a.job_id = v_checkout_job_id',
+      'v_checkout_job_id is null',
+      "'Released during film box check-in.',\n        v_checkout_job_id",
       'v_box.last_checkout_job_id := null;',
       'v_checkout_job_id,',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',

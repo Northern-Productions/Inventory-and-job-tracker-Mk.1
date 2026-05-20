@@ -19,6 +19,7 @@ import {
   toPublicBox,
   findBoxById,
   findJobById,
+  listJobs,
   saveBoxRecord,
   listAllocationsByBox,
   reconcileBoxCheckinAllocations,
@@ -44,6 +45,24 @@ import {
   assertNoShipDirectToJobSiteFlag,
   buildDirectToJobSiteFirstReturnNote,
 } from './directToJobSite.mjs';
+
+async function assertLegacyCheckoutJobNumberIsUnambiguous(client, orgId, jobNumber) {
+  const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
+  if (!normalizedJobNumber) {
+    return;
+  }
+
+  const matches = (await listJobs(client, orgId)).filter(
+    (entry) => normalizeJobNumberKey(entry?.jobNumber) === normalizedJobNumber
+  );
+
+  if (matches.length > 1) {
+    throw new HttpError(
+      409,
+      `Job number ${jobNumber} matches multiple jobs. Choose a Work Scope to continue.`
+    );
+  }
+}
 
 async function setBoxStatus(client, orgId, payload, actor) {
   assertDirectToJobSiteFlagIsServerOwned(payload, 'Set Box Status');
@@ -117,6 +136,10 @@ async function setBoxStatus(client, orgId, payload, actor) {
 
     if (!jobNumber) {
       throw new HttpError(400, 'A checkout job number is required.');
+    }
+
+    if (!selectedJobId) {
+      await assertLegacyCheckoutJobNumberIsUnambiguous(client, orgId, jobNumber);
     }
 
     const crewConflictJobs = await listCheckoutCrewConflictJobsForBox(
@@ -229,7 +252,9 @@ async function setBoxStatus(client, orgId, payload, actor) {
     }
 
     const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
-    const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob);
+    const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob, {
+      jobId: checkoutJobId
+    });
     const directToSiteFirstReturnNote = allowsFirstReturnCalibration
       ? buildDirectToJobSiteFirstReturnNote({
           jobNumber: checkoutJob,
@@ -246,7 +271,11 @@ async function setBoxStatus(client, orgId, payload, actor) {
         orgId,
         updatedBox.boxId,
         checkoutJob,
-        actor
+        actor,
+        '',
+        {
+          jobId: checkoutJobId
+        }
       );
       if (sameJobCancellation.cancelledCount > 0) {
         warnings.push(

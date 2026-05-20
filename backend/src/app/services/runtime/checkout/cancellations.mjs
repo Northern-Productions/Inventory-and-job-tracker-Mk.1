@@ -9,9 +9,27 @@ import {
 } from '../../runtimeDeps.mjs';
 import { recalculateFilmOrder } from '../runtimeAllocationPlanning.mjs';
 
-async function cancelActiveAllocationsForCheckInJob(client, orgId, boxId, jobNumber, user, reason = '') {
+function allocationMatchesCheckInJob(entry, jobNumber, jobId = '') {
+  const normalizedJobId = asTrimmedString(jobId).toLowerCase();
+  if (normalizedJobId) {
+    return asTrimmedString(entry?.jobId).toLowerCase() === normalizedJobId;
+  }
+
+  return normalizeJobNumberKey(entry?.jobNumber) === normalizeJobNumberKey(jobNumber);
+}
+
+async function cancelActiveAllocationsForCheckInJob(
+  client,
+  orgId,
+  boxId,
+  jobNumber,
+  user,
+  reason = '',
+  options = {}
+) {
   const normalizedJobNumber = normalizeJobNumberKey(jobNumber);
-  if (!normalizedJobNumber) {
+  const jobId = asTrimmedString(options.jobId);
+  if (!normalizedJobNumber && !jobId) {
     return { cancelledCount: 0, cancelledFeet: 0 };
   }
 
@@ -25,7 +43,7 @@ async function cancelActiveAllocationsForCheckInJob(client, orgId, boxId, jobNum
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = cloneValue(entries[index]);
-    if (entry.status !== 'ACTIVE' || normalizeJobNumberKey(entry.jobNumber) !== normalizedJobNumber) {
+    if (entry.status !== 'ACTIVE' || !allocationMatchesCheckInJob(entry, jobNumber, jobId)) {
       continue;
     }
 

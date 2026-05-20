@@ -6,11 +6,23 @@ import { test } from 'node:test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const backendMigrationPath = path.join(repoRoot, 'backend', 'migrations', '0130_box_checkout_jobid_identity.sql');
+const duplicateCheckoutGuardMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0139_box_status_duplicate_job_checkout_guard.sql'
+);
 const supabaseMigrationPath = path.join(
   repoRoot,
   'supabase',
   'migrations',
   '20260513230000_box_checkout_jobid_identity.sql'
+);
+const supabaseDuplicateCheckoutGuardMigrationPath = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260520030000_box_status_duplicate_job_checkout_guard.sql'
 );
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 const baseSchemaMigrationPath = path.join(repoRoot, 'backend', 'migrations', '0001_supabase_inventory_schema.sql');
@@ -55,6 +67,15 @@ const frontendFilmWorkflowPath = path.join(
   'allocation-job',
   'useJobFilmWorkflow.ts'
 );
+const localMappersPath = path.join(repoRoot, 'backend', 'src', 'app', 'repositories', 'mappers.mjs');
+const edgeRepositoriesPath = path.join(
+  repoRoot,
+  'supabase',
+  'functions',
+  '_shared',
+  'repositories',
+  'inventoryRepositories.ts'
+);
 
 function extractBody(sql, functionName) {
   const escapedName = functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -83,6 +104,15 @@ test('box checkout jobId identity migration stays mirrored between backend and S
   assert.equal(supabaseMigration, backendMigration);
 });
 
+test('box status duplicate checkout guard migration stays mirrored between backend and Supabase', async () => {
+  const [backendMigration, supabaseMigration] = await Promise.all([
+    readFile(duplicateCheckoutGuardMigrationPath, 'utf8'),
+    readFile(supabaseDuplicateCheckoutGuardMigrationPath, 'utf8'),
+  ]);
+
+  assert.equal(supabaseMigration, backendMigration);
+});
+
 test('box checkout jobId identity migration adds nullable durable identity without changing duplicate constraints', async () => {
   const [migration, baseSchemaMigration, duplicateGuardMigration, schemaCheck] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
@@ -104,7 +134,7 @@ test('box checkout jobId identity migration adds nullable durable identity witho
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0138_preserve_partial_box_update_physical_feet\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0139_box_status_duplicate_job_checkout_guard\.sql';/);
   assert.match(schemaCheck, /app\.boxes\.last_checkout_job_id/);
   assert.match(schemaCheck, /app\.roll_weight_log\.job_id/);
 });
@@ -177,14 +207,44 @@ test('backend local box status supports additive jobId without converting checko
   assert.match(source, /\.\.\.\(responseJobNumber \? \{ jobNumber: responseJobNumber \} : \{\}\)/);
 });
 
+test('box status duplicate checkout guard requires jobId for ambiguous checkout and releases check-in allocations by jobId', async () => {
+  const [migration, localBoxStatus, schemaCheck] = await Promise.all([
+    readFile(duplicateCheckoutGuardMigrationPath, 'utf8'),
+    readFile(localBoxStatusPath, 'utf8'),
+    readFile(schemaCheckPath, 'utf8'),
+  ]);
+
+  assert.match(migration, /v_legacy_checkout_job_match_count integer := 0;/);
+  assert.match(
+    migration,
+    /Job number %s matches multiple jobs\. Choose a Work Scope to continue\./
+  );
+  assert.match(migration, /p_job_id is not null and a\.job_id = p_job_id/);
+  assert.match(migration, /v_checkout_job_id is not null and a\.job_id = v_checkout_job_id/);
+  assert.match(migration, /''Released during film box check-in\.'',\s+v_checkout_job_id/s);
+  assert.doesNotMatch(migration, /api_jobs_create/);
+  assert.doesNotMatch(migration, /app\.jobs\s+add column/i);
+
+  assert.match(localBoxStatus, /async function assertLegacyCheckoutJobNumberIsUnambiguous/);
+  assert.match(localBoxStatus, /matches\.length > 1/);
+  assert.match(localBoxStatus, /await assertLegacyCheckoutJobNumberIsUnambiguous\(client, orgId, jobNumber\);/);
+  assert.match(localBoxStatus, /planBoxCheckIn\(existing, payload, existingAllocations, checkoutJob, \{\s+jobId: checkoutJobId\s+\}\)/s);
+  assert.match(localBoxStatus, /jobId: checkoutJobId/);
+
+  assert.match(schemaCheck, /0139_box_status_duplicate_job_checkout_guard\.sql/);
+  assert.match(schemaCheck, /app_api\.cancel_active_allocations_for_box_job\(uuid, text, text, text, text, uuid\)/);
+});
+
 test('Edge and frontend accept box status jobId additively and keep checkout-all/staged payloads unchanged', async () => {
-  const [edgeSource, domainSource, apiDomainSource, boxMutationSource, filmWorkflowSource] =
+  const [edgeSource, domainSource, apiDomainSource, boxMutationSource, filmWorkflowSource, localMapperSource, edgeRepositorySource] =
     await Promise.all([
       readFile(edgeMutationHandlersPath, 'utf8'),
       readFile(frontendDomainPath, 'utf8'),
       readFile(frontendApiDomainPath, 'utf8'),
       readFile(frontendBoxMutationsPath, 'utf8'),
       readFile(frontendFilmWorkflowPath, 'utf8'),
+      readFile(localMappersPath, 'utf8'),
+      readFile(edgeRepositoriesPath, 'utf8'),
     ]);
 
   const setStatusBody = extractBetween(edgeSource, '"/boxes/set-status": async', '"/boxes/delete": async');
@@ -202,4 +262,8 @@ test('Edge and frontend accept box status jobId additively and keep checkout-all
   assert.match(filmWorkflowSource, /\.\.\.\(canonicalJobId \? \{ jobId: canonicalJobId, jobNumber: targetJobNumber \} : \{\}\)/);
   assert.doesNotMatch(filmWorkflowSource, /checkoutAllJobMaterials/);
   assert.doesNotMatch(filmWorkflowSource, /autoCheckoutRemaining/);
+  assert.match(localMapperSource, /function toPublicAllocation\(entry\) \{\s+const jobId = asTrimmedString\(entry\.jobId\);/);
+  assert.match(localMapperSource, /\.\.\.\(jobId \? \{ jobId \} : \{\}\),\s+jobNumber: entry\.jobNumber,/);
+  assert.match(edgeRepositorySource, /function toPublicAllocation\(entry: any\) \{\s+const jobId = deps\.asTrimmedString\(entry\.jobId\);/);
+  assert.match(edgeRepositorySource, /\.\.\.\(jobId \? \{ jobId \} : \{\}\),\s+jobNumber: entry\.jobNumber,/);
 });

@@ -108,13 +108,23 @@ function summarizeOtherJobs(allocations) {
   return otherJobs;
 }
 
+function allocationMatchesCheckoutJob(entry, checkoutJobNumber, checkoutJobId = '') {
+  const normalizedCheckoutJobId = asTrimmedString(checkoutJobId).toLowerCase();
+  if (normalizedCheckoutJobId) {
+    return asTrimmedString(entry?.jobId).toLowerCase() === normalizedCheckoutJobId;
+  }
+
+  return normalizeJobNumberKey(entry?.jobNumber) === normalizeJobNumberKey(checkoutJobNumber);
+}
+
 function sumAllocatedFeet(entries) {
   return entries.reduce((total, entry) => total + integerOrZero(entry?.allocatedFeet), 0);
 }
 
-function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
+function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, options = {}) {
   const lastRollWeightLbs = coerceNonNegativeNumber(payload.lastRollWeightLbs, 'LastRollWeightLbs');
   const normalizedCheckoutJob = normalizeJobNumberKey(checkoutJobNumber);
+  const checkoutJobId = asTrimmedString(options.jobId);
   const firstReturnCalibration = requiresFirstReturnCalibration(existingBox);
   const currentFeetOnRoll = parseOptionalCurrentFeetOnRoll(payload.currentFeetOnRoll);
   const activeAllocations = Array.isArray(allocations)
@@ -124,11 +134,12 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber) {
     allocationReservesCapacity(entry, existingBox)
   );
 
-  const sameJobActiveAllocations = normalizedCheckoutJob
-    ? activeAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) === normalizedCheckoutJob)
+  const hasCheckoutIdentity = Boolean(checkoutJobId || normalizedCheckoutJob);
+  const sameJobActiveAllocations = hasCheckoutIdentity
+    ? activeAllocations.filter((entry) => allocationMatchesCheckoutJob(entry, checkoutJobNumber, checkoutJobId))
     : [];
-  const otherActiveAllocations = normalizedCheckoutJob
-    ? activeCapacityAllocations.filter((entry) => normalizeJobNumberKey(entry.jobNumber) !== normalizedCheckoutJob)
+  const otherActiveAllocations = hasCheckoutIdentity
+    ? activeCapacityAllocations.filter((entry) => !allocationMatchesCheckoutJob(entry, checkoutJobNumber, checkoutJobId))
     : activeCapacityAllocations;
   const otherStoredCapacityAllocations = otherActiveAllocations.filter(
     (entry) => normalizeAllocationSource(entry?.allocationSource ?? entry?.allocation_source) !== 'AUTO_PLANNED'

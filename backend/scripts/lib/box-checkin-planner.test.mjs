@@ -92,6 +92,39 @@ test('planBoxCheckIn preserves other-job reservations after same-job check-in re
   assert.deepEqual(plan.otherJobs, ['7777']);
 });
 
+test('planBoxCheckIn scopes same-number check-in release by jobId when available', () => {
+  const checkoutJobId = '11111111-1111-4111-8111-111111111111';
+  const otherScopeJobId = '22222222-2222-4222-8222-222222222222';
+  const plan = planBoxCheckIn(
+    buildBox(),
+    {
+      lastRollWeightLbs: 2.37,
+      currentFeetOnRoll: 10,
+    },
+    [
+      buildAllocation({
+        allocationId: 'alloc-s1',
+        jobId: checkoutJobId,
+        jobNumber: '9327001',
+        allocatedFeet: 12,
+      }),
+      buildAllocation({
+        allocationId: 'alloc-s2',
+        jobId: otherScopeJobId,
+        jobNumber: '9327001',
+        allocatedFeet: 6,
+      }),
+    ],
+    '9327001',
+    { jobId: checkoutJobId }
+  );
+
+  assert.equal(plan.sameJobActiveAllocationCount, 1);
+  assert.equal(plan.sameJobActiveAllocatedFeet, 12);
+  assert.equal(plan.otherActiveAllocatedFeet, 6);
+  assert.deepEqual(plan.otherJobs, ['9327001']);
+});
+
 test('planBoxCheckIn flags zero-foot returns for auto-zero handling', () => {
   const plan = planBoxCheckIn(
     buildBox(),

@@ -1,10 +1,12 @@
 import {
   WAREHOUSE_CODES,
+  type AllocationEntry,
   type Box,
   type JobListEntry,
   type SetBoxStatusPayload,
   type Warehouse
 } from '../../../../domain';
+import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 import type { ConfirmState, TransferDestinationAnalysis } from './types';
 
 export { copyTextToClipboard } from '../../../../lib/clipboard';
@@ -22,6 +24,61 @@ export function createStatusConfirmState(
     },
     message
   };
+}
+
+export interface CheckoutJobOption {
+  label: string;
+  value: string;
+  jobId?: string;
+  jobNumber: string;
+}
+
+export function buildCheckoutJobOptions(allocations: AllocationEntry[]): CheckoutJobOption[] {
+  const activeAllocations = allocations
+    .filter((entry) => entry.status === 'ACTIVE' && entry.jobNumber.trim())
+    .slice()
+    .sort((left, right) => {
+      const leftTime = new Date(left.createdAt).getTime();
+      const rightTime = new Date(right.createdAt).getTime();
+
+      if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+        return 0;
+      }
+
+      if (Number.isNaN(leftTime)) {
+        return 1;
+      }
+
+      if (Number.isNaN(rightTime)) {
+        return -1;
+      }
+
+      return leftTime - rightTime;
+    });
+  const seenJobKeys = new Set<string>();
+
+  return activeAllocations.reduce<CheckoutJobOption[]>((options, entry) => {
+    const jobNumber = entry.jobNumber.trim();
+    const jobId = String(entry.jobId || '').trim();
+    const jobKey = jobId ? `job:${jobId.toLowerCase()}` : `number:${jobNumber.toUpperCase()}`;
+    if (seenJobKeys.has(jobKey)) {
+      return options;
+    }
+
+    seenJobKeys.add(jobKey);
+    options.push({
+      label: formatJobDisplayLabel({
+        jobNumber,
+        warehouse: entry.warehouse,
+        workScope: entry.workScope,
+        sections: entry.sections
+      }),
+      value: jobId ? `job:${jobId}` : jobNumber,
+      ...(jobId ? { jobId } : {}),
+      jobNumber
+    });
+    return options;
+  }, []);
 }
 
 export function buildTransferDestinationAnalysis(

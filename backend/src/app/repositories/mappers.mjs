@@ -308,10 +308,12 @@ function mapDbAllocationRow(row) {
 }
 
 function toPublicAllocation(entry) {
+  const jobId = asTrimmedString(entry.jobId);
   return {
     allocationId: entry.allocationId,
     boxId: entry.boxId,
     warehouse: entry.warehouse,
+    ...(jobId ? { jobId } : {}),
     jobNumber: entry.jobNumber,
     installDate: entry.installDate,
     crewLeader: entry.crewLeader,
