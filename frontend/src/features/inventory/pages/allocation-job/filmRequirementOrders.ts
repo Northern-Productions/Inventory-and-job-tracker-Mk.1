@@ -57,6 +57,7 @@ export function getOrderableFilmRequirements(
 ) {
   return requirements.filter(
     (requirement) =>
+      requirement.status !== 'COMPLETE' &&
       Math.max(0, Number(requirement.remainingFeet || 0)) > 0 &&
       !findUnresolvedOrderForRequirement(requirement, filmOrders)
   );

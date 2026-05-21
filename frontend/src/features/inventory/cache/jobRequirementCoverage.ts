@@ -23,6 +23,27 @@ type UpdateJobCaulkRequirementInput = NonNullable<UpdateJobPayload['caulkRequire
   requirementId?: string;
 };
 
+function normalizeRequirementStatus(value: unknown): 'ACTIVE' | 'COMPLETE' {
+  return String(value || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+}
+
+function isRequirementComplete(requirement: Pick<JobRequirementLine, 'status'>) {
+  return normalizeRequirementStatus(requirement.status) === 'COMPLETE';
+}
+
+function deriveCompletionResult(
+  requirement: Pick<JobRequirementLine, 'status' | 'requiredFeet' | 'actualUsedFeet'>
+): JobRequirementLine['completionResult'] {
+  if (!isRequirementComplete(requirement)) {
+    return '' as const;
+  }
+
+  return Math.max(0, Number(requirement.actualUsedFeet || 0)) <=
+    Math.max(0, Number(requirement.requiredFeet || 0))
+    ? 'ON_TARGET'
+    : 'OVERUSED';
+}
+
 function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetailEntry) {
   return allocation.boxStatus === 'ZEROED' || allocation.boxStatus === 'RETIRED';
 }
@@ -122,12 +143,19 @@ function rebuildRequirementCoverage(
       requiredFeet,
       Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
     );
-    const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
+    const status = normalizeRequirementStatus(requirement.status);
+    const nextRequirement = {
+      ...requirement,
+      status,
+      isComplete: status === 'COMPLETE',
+      actualUsedFeet: Math.max(0, Number(requirement.actualUsedFeet || 0)),
+      allocatedFeet,
+      remainingFeet: status === 'COMPLETE' ? 0 : Math.max(0, requiredFeet - allocatedFeet)
+    };
 
     return {
-      ...requirement,
-      allocatedFeet,
-      remainingFeet
+      ...nextRequirement,
+      completionResult: deriveCompletionResult(nextRequirement)
     };
   });
 }
@@ -162,6 +190,9 @@ function getFilmOnTheWayFeetForRequirement(filmOrders: FilmOrderEntry[], require
 
 function areFilmShortagesFullyOnTheWay(requirements: JobRequirementLine[], filmOrders: FilmOrderEntry[]) {
   return requirements.every((requirement) => {
+    if (isRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
     const allocatedFeet = Math.max(0, Number(requirement.allocatedFeet || 0));
     const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
@@ -180,7 +211,7 @@ function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements:
   }
 
   const hasMaterialRequirements =
-    nextRequirements.some((entry) => entry.requiredFeet > 0) ||
+    nextRequirements.some((entry) => !isRequirementComplete(entry) && entry.requiredFeet > 0) ||
     detail.caulkRequirements.some((entry) => entry.requiredTubes > 0);
   if (!hasMaterialRequirements) {
     return 'READY' as const;
@@ -205,9 +236,10 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
     detail.allocations,
     detail.summary.jobNumber
   );
-  const requiredFeet = nextRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
-  const allocatedFeet = nextRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
-  const remainingFeet = nextRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
+  const activeRequirements = nextRequirements.filter((entry) => !isRequirementComplete(entry));
+  const requiredFeet = activeRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
+  const allocatedFeet = activeRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
+  const remainingFeet = activeRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
   const hasOrderedAllocations = detail.allocations.some(
     (entry) => entry.status === 'ACTIVE' && entry.boxStatus === 'ORDERED'
   );
@@ -226,6 +258,44 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
     },
     requirements: nextRequirements
   };
+}
+
+export function createOptimisticJobDetailAfterRequirementStateChange(
+  detail: JobDetail,
+  payload: { requirementId: string; status: 'ACTIVE' | 'COMPLETE' }
+) {
+  const nextStatus = normalizeRequirementStatus(payload.status);
+  const nextRequirements = detail.requirements.map((entry) => {
+    if (entry.requirementId !== payload.requirementId) {
+      return entry;
+    }
+
+    const nextRequirement = {
+      ...entry,
+      status: nextStatus,
+      isComplete: nextStatus === 'COMPLETE',
+      completedAt: nextStatus === 'COMPLETE' ? entry.completedAt || new Date().toISOString() : '',
+      completedBy: nextStatus === 'COMPLETE' ? entry.completedBy || '' : '',
+      remainingFeet:
+        nextStatus === 'COMPLETE'
+          ? 0
+          : Math.max(0, Number(entry.requiredFeet || 0) - Math.max(0, Number(entry.allocatedFeet || 0)))
+    };
+
+    return {
+      ...nextRequirement,
+      completionResult: deriveCompletionResult(nextRequirement)
+    };
+  });
+
+  return recomputeOptimisticJobDetail({
+    ...detail,
+    summary: {
+      ...detail.summary,
+      updatedAt: new Date().toISOString()
+    },
+    requirements: nextRequirements
+  });
 }
 
 function normalizeLookupSegment(value: string) {
@@ -502,6 +572,16 @@ function buildNextRequirementLines(
       filmName: entry.filmName,
       widthIn: entry.widthIn,
       requiredFeet: entry.requiredFeet,
+      status: normalizeRequirementStatus(matchedRequirement?.status),
+      isComplete: normalizeRequirementStatus(matchedRequirement?.status) === 'COMPLETE',
+      actualUsedFeet: Math.max(0, Number(matchedRequirement?.actualUsedFeet || 0)),
+      completedAt: matchedRequirement?.completedAt || '',
+      completedBy: matchedRequirement?.completedBy || '',
+      completionResult: deriveCompletionResult({
+        status: normalizeRequirementStatus(matchedRequirement?.status),
+        requiredFeet: entry.requiredFeet,
+        actualUsedFeet: Math.max(0, Number(matchedRequirement?.actualUsedFeet || 0))
+      }),
       allocatedFeet: 0,
       autoPlanningSuppressed:
         matchedRequirement?.autoPlanningSuppressed === true &&

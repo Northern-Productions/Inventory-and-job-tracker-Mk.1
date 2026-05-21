@@ -78,24 +78,26 @@ test('work scope key groundwork migration order precedes final duplicate enablem
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-8), '0134_caulk_read_jobid_scope_projection.sql');
-  assert.equal(backendMigrations.at(-7), '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(backendMigrations.at(-6), '0136_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(backendMigrations.at(-5), '0137_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(backendMigrations.at(-4), '0138_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(backendMigrations.at(-3), '0139_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(backendMigrations.at(-2), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(backendMigrations.at(-1), '0141_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(supabaseMigrations.at(-8), '20260514030000_caulk_read_jobid_scope_projection.sql');
-  assert.equal(supabaseMigrations.at(-7), '20260518010000_job_work_scope_key_groundwork.sql');
-  assert.equal(supabaseMigrations.at(-6), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(supabaseMigrations.at(-5), '20260520010000_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(supabaseMigrations.at(-4), '20260520020000_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(supabaseMigrations.at(-3), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(backendMigrations.at(-9), '0134_caulk_read_jobid_scope_projection.sql');
+  assert.equal(backendMigrations.at(-8), '0135_job_work_scope_key_groundwork.sql');
+  assert.equal(backendMigrations.at(-7), '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(backendMigrations.at(-6), '0137_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(backendMigrations.at(-5), '0138_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(backendMigrations.at(-4), '0139_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(backendMigrations.at(-3), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(backendMigrations.at(-2), '0141_box_checkin_reconcile_same_job_allocations.sql');
+  assert.equal(backendMigrations.at(-1), '0142_requirement_actual_usage_state.sql');
+  assert.equal(supabaseMigrations.at(-9), '20260514030000_caulk_read_jobid_scope_projection.sql');
+  assert.equal(supabaseMigrations.at(-8), '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(supabaseMigrations.at(-7), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(supabaseMigrations.at(-6), '20260520010000_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(supabaseMigrations.at(-5), '20260520020000_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(supabaseMigrations.at(-4), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(supabaseMigrations.at(-3), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
   assert.equal(
     supabaseMigrations.at(-1),
-    '20260520050000_box_checkin_reconcile_same_job_allocations.sql'
+    '20260521010000_requirement_actual_usage_state.sql'
   );
 });
 
@@ -164,7 +166,7 @@ test('SQL work scope key normalization mirrors shared JS normalization for repre
 test('schema latest guard keeps work scope key generated column checks after duplicate enablement', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0141_box_checkin_reconcile_same_job_allocations\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0142_requirement_actual_usage_state\.sql';/);
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);
   assert.match(schemaLatest, /a\.attgenerated = 's' as is_generated_stored/);

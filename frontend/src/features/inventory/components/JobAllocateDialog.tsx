@@ -82,8 +82,8 @@ export function JobAllocateDialog({
   const allocatableRequirements = useMemo(
     () =>
       isExtraFilmMode
-        ? requirements.filter((entry) => entry.requiredFeet > 0)
-        : requirements.filter((entry) => entry.remainingFeet > 0),
+        ? requirements.filter((entry) => entry.status !== 'COMPLETE' && entry.requiredFeet > 0)
+        : requirements.filter((entry) => entry.status !== 'COMPLETE' && entry.remainingFeet > 0),
     [isExtraFilmMode, requirements]
   );
   const selectedRequirement = useMemo(

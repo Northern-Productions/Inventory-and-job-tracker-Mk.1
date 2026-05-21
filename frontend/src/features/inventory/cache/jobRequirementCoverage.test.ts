@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { JobDetail } from '../../../domain';
-import { reconcileJobDetailCaulkCoverage } from './jobRequirementCoverage';
+import {
+  createOptimisticJobDetailAfterRequirementStateChange,
+  reconcileJobDetailCaulkCoverage
+} from './jobRequirementCoverage';
 
 function buildSummary(overrides: Partial<JobDetail['summary']> = {}): JobDetail['summary'] {
   return {
@@ -84,6 +87,26 @@ function buildCaulkAllocation(
     pendingTransfer: null,
     ...overrides
   } as JobDetail['caulkAllocations'][number];
+}
+
+function buildFilmRequirement(
+  overrides: Partial<JobDetail['requirements'][number]> = {}
+): JobDetail['requirements'][number] {
+  return {
+    requirementId: 'film-req-1',
+    manufacturer: '3M',
+    filmName: 'Night Vision 15',
+    widthIn: 36,
+    requiredFeet: 25,
+    status: 'ACTIVE',
+    isComplete: false,
+    actualUsedFeet: 20,
+    completionResult: '',
+    allocatedFeet: 0,
+    remainingFeet: 25,
+    autoPlanningSuppressed: false,
+    ...overrides
+  };
 }
 
 function buildJobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
@@ -211,6 +234,74 @@ describe('jobRequirementCoverage caulk fallback coverage', () => {
     expect(nextDetail.caulkRequirements[0]).toMatchObject({
       allocatedTubes: 0,
       remainingTubes: 20
+    });
+    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+  });
+});
+
+describe('jobRequirementCoverage requirement usage state', () => {
+  it('removes completed film requirements from material demand while preserving actual usage', () => {
+    const detail = buildJobDetail({
+      summary: buildSummary({
+        requiredFeet: 25,
+        remainingFeet: 25,
+        status: 'FILM_ORDER',
+        requiredTubes: 0,
+        remainingTubes: 0
+      }),
+      requirements: [buildFilmRequirement({ actualUsedFeet: 20 })],
+      caulkRequirements: []
+    });
+
+    const nextDetail = createOptimisticJobDetailAfterRequirementStateChange(detail, {
+      requirementId: 'film-req-1',
+      status: 'COMPLETE'
+    });
+
+    expect(nextDetail.requirements[0]).toMatchObject({
+      status: 'COMPLETE',
+      actualUsedFeet: 20,
+      remainingFeet: 0,
+      completionResult: 'ON_TARGET'
+    });
+    expect(nextDetail.summary).toMatchObject({
+      requiredFeet: 0,
+      remainingFeet: 0,
+      status: 'READY'
+    });
+  });
+
+  it('reactivates completed requirements without clearing actual used LF', () => {
+    const detail = buildJobDetail({
+      summary: buildSummary({
+        requiredFeet: 0,
+        remainingFeet: 0,
+        status: 'READY',
+        requiredTubes: 0,
+        remainingTubes: 0
+      }),
+      requirements: [
+        buildFilmRequirement({
+          status: 'COMPLETE',
+          isComplete: true,
+          actualUsedFeet: 28,
+          remainingFeet: 0,
+          completionResult: 'OVERUSED'
+        })
+      ],
+      caulkRequirements: []
+    });
+
+    const nextDetail = createOptimisticJobDetailAfterRequirementStateChange(detail, {
+      requirementId: 'film-req-1',
+      status: 'ACTIVE'
+    });
+
+    expect(nextDetail.requirements[0]).toMatchObject({
+      status: 'ACTIVE',
+      actualUsedFeet: 28,
+      completionResult: '',
+      remainingFeet: 25
     });
     expect(nextDetail.summary.status).toBe('FILM_ORDER');
   });

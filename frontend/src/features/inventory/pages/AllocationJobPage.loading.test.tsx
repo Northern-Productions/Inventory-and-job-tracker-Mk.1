@@ -176,6 +176,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useRemoveJobBoxAllocations: () => buildMutationState(),
   useClearAllocationPlannerSuppression: () => buildMutationState(),
   useSetBoxStatus: () => buildMutationState(),
+  useSetJobRequirementState: () => buildMutationState(),
   useSetJobStagedForPickup: () => buildMutationState(),
   useBox: () => ({
     data: null,

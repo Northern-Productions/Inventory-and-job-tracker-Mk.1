@@ -123,6 +123,18 @@ function buildFilmOrderEntry(overrides: Partial<FilmOrderEntry> = {}): FilmOrder
   };
 }
 
+function coreRequirementFields(requirements: JobDetail['requirements']) {
+  return requirements.map((entry) => ({
+    requirementId: entry.requirementId,
+    manufacturer: entry.manufacturer,
+    filmName: entry.filmName,
+    widthIn: entry.widthIn,
+    requiredFeet: entry.requiredFeet,
+    allocatedFeet: entry.allocatedFeet,
+    remainingFeet: entry.remainingFeet
+  }));
+}
+
 describe('inventoryMutationUtils', () => {
   it('applies delayed optimistic mutations immediately and can restore snapshots on failure', () => {
     const queryClient = createQueryClient();
@@ -381,7 +393,7 @@ describe('inventoryMutationUtils', () => {
 
     expect(nextDetail.summary.status).toBe('FILM_ORDER');
     expect(nextDetail.summary.remainingFeet).toBe(40);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       expect.objectContaining({ requirementId: 'req-48', allocatedFeet: 0, remainingFeet: 20 }),
       expect.objectContaining({ requirementId: 'req-60', allocatedFeet: 0, remainingFeet: 20 })
     ]);
@@ -1385,7 +1397,7 @@ describe('inventoryMutationUtils', () => {
     expect(nextDetail.summary.allocatedFeet).toBe(9);
     expect(nextDetail.summary.remainingFeet).toBe(11);
     expect(nextDetail.summary.allocationCount).toBe(1);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-1',
         manufacturer: '3M',
@@ -1636,7 +1648,7 @@ describe('inventoryMutationUtils', () => {
 
     expect(nextDetail.summary.allocatedFeet).toBe(10);
     expect(nextDetail.summary.remainingFeet).toBe(4);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-50',
         manufacturer: '3M Solar',
@@ -1772,7 +1784,7 @@ describe('inventoryMutationUtils', () => {
     expect(nextDetail.summary.allocatedFeet).toBe(12);
     expect(nextDetail.summary.remainingFeet).toBe(2);
     expect(nextDetail.summary.allocationCount).toBe(2);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       expect.objectContaining({
         requirementId: 'req-50',
         allocatedFeet: 2,
@@ -1836,7 +1848,7 @@ describe('inventoryMutationUtils', () => {
       }
     ]));
 
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-ext',
         manufacturer: '3M Solar',
@@ -1908,7 +1920,7 @@ describe('inventoryMutationUtils', () => {
       }
     ]));
 
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-ext',
         manufacturer: '3M Solar',
@@ -1980,7 +1992,7 @@ describe('inventoryMutationUtils', () => {
       }
     ]));
 
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-ext',
         manufacturer: '3M Solar',
@@ -2052,7 +2064,7 @@ describe('inventoryMutationUtils', () => {
       }
     ]));
 
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-base',
         manufacturer: 'Llumar',
@@ -2142,7 +2154,7 @@ describe('inventoryMutationUtils', () => {
 
     expect(nextDetail.summary.allocatedFeet).toBe(15);
     expect(nextDetail.summary.remainingFeet).toBe(0);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       {
         requirementId: 'req-base',
         manufacturer: 'Llumar',
@@ -2303,7 +2315,7 @@ describe('inventoryMutationUtils', () => {
     expect(nextDetail.summary.remainingFeet).toBe(2);
     expect(nextDetail.summary.allocatedFeet).not.toBe(12);
     expect(nextDetail.summary.remainingFeet).not.toBe(22);
-    expect(nextDetail.requirements).toEqual([
+    expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       expect.objectContaining({
         requirementId: 'req-fasara',
         allocatedFeet: 20,

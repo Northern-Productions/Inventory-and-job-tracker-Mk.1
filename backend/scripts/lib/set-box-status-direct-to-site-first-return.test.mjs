@@ -53,6 +53,7 @@ function createRecordingClient() {
     allocations: [],
     auditEntries: [],
     rollHistoryEntries: [],
+    requirementUsageEntries: [],
     filmOrderLinks: [],
     reconciliationResult: {
       warnings: [],
@@ -92,6 +93,33 @@ function createRecordingClient() {
 
       if (sql.includes('select * from app.allocations') && sql.includes('and box_id = $2')) {
         return { rows: state.allocations.filter((entry) => entry.box_id === params[1]) };
+      }
+
+      if (sql.includes('from app.allocations a join app.job_requirements r')) {
+        const boxId = String(params[1] || '').trim().toUpperCase();
+        const jobId = String(params[2] || '').trim();
+        const jobNumber = String(params[3] || '').trim().toUpperCase();
+        return {
+          rows: state.allocations
+            .filter(
+              (entry) =>
+                String(entry.box_id || '').trim().toUpperCase() === boxId &&
+                String(entry.status || '').trim().toUpperCase() === 'ACTIVE' &&
+                String(entry.allocation_kind || 'REQUIREMENT').trim().toUpperCase() === 'REQUIREMENT' &&
+                String(entry.requirement_id || '').trim() &&
+                (jobId
+                  ? String(entry.job_id || '').trim() === jobId
+                  : String(entry.job_number || '').trim().toUpperCase() === jobNumber)
+            )
+            .map((entry) => ({
+              allocation_id: entry.allocation_id,
+              requirement_id: entry.requirement_id,
+              usage_basis_feet: entry.covered_feet || entry.allocated_feet || 0,
+              created_at: entry.created_at,
+              job_id: entry.job_id || '33333333-3333-4333-8333-333333333333',
+              job_number: entry.job_number,
+            })),
+        };
       }
 
       if (sql.includes('select * from app.audit_log') && sql.includes('and box_id = $2')) {
@@ -167,6 +195,17 @@ function createRecordingClient() {
             },
           ],
         };
+      }
+
+      if (sql.includes('update app.job_requirements') && sql.includes('set actual_used_feet')) {
+        state.requirementUsageEntries.push({
+          org_id: params[0],
+          job_id: params[1],
+          requirement_id: params[2],
+          applied_feet: params[3],
+          actor: params[4],
+        });
+        return { rows: [] };
       }
 
       if (sql.includes('insert into app.audit_log')) {

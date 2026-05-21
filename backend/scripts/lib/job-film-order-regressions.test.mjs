@@ -898,8 +898,12 @@ test('job requirement and film order repositories preserve write-normalized labe
       }
     ]
   );
-  assert.equal(requirementsClient.calls[1].params[3], '3M Solar');
-  assert.equal(requirementsClient.calls[1].params[4], 'Prestige 40 Exterior');
+  const requirementInsertCall = requirementsClient.calls.find((call) =>
+    String(call.text || '').includes('insert into app.job_requirements')
+  );
+  assert.ok(requirementInsertCall, 'expected requirement insert call');
+  assert.equal(requirementInsertCall.params[3], '3M Solar');
+  assert.equal(requirementInsertCall.params[4], 'Prestige 40 Exterior');
 
   const filmOrdersClient = createRecordingClient([[]]);
   await saveFilmOrderRecord(filmOrdersClient, 'org-1', {

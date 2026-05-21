@@ -199,6 +199,7 @@ import {
   buildActiveAllocationsByBoxIndex,
   buildJobRequirementsByLookupKey,
   allocationMatchesRequirement,
+  isRequirementComplete,
   normalizeRequirementFilmKey,
   planningFilmCanSatisfyRequirement,
 } from './runtimeAllocationCoverage.mjs';
@@ -432,6 +433,10 @@ function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobN
     requirements.find((entry) => asTrimmedString(entry.id) === normalizedRequirementId) || null;
   if (!selectedRequirement) {
     throw new HttpError(400, `Requirement ${normalizedRequirementId} does not belong to job ${jobNumber}.`);
+  }
+
+  if (isRequirementComplete(selectedRequirement)) {
+    throw new HttpError(400, `Requirement ${normalizedRequirementId} is complete. Reactivate it before allocating film.`);
   }
 
   if (!allocationMatchesRequirement(sourceBox, selectedRequirement)) {

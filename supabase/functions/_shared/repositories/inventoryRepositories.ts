@@ -466,6 +466,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     if (!row) {
       return null;
     }
+    const status = deps.asTrimmedString(row.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
     return {
       id: row.id,
       orgId: row.org_id,
@@ -475,6 +476,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       filmName: deps.asTrimmedString(row.film_name),
       widthIn: deps.numericOrNull(row.width_in) ?? 0,
       requiredFeet: deps.integerOrZero(row.required_feet),
+      status,
+      isComplete: status === "COMPLETE",
+      actualUsedFeet: deps.integerOrZero(row.actual_used_feet),
+      completedAt: deps.formatTimestamp(row.completed_at),
+      completedBy: deps.asTrimmedString(row.completed_by),
       notes: deps.asTrimmedString(row.notes),
       autoPlanningSuppressed: row.auto_planning_suppressed === true,
       createdAt: deps.formatTimestamp(row.created_at),

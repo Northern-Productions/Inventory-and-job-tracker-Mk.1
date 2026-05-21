@@ -4498,6 +4498,22 @@ function buildAllocationCoverageByRequirementId(
   return coverageByRequirementId;
 }
 
+function normalizeRequirementState(requirement: any): "ACTIVE" | "COMPLETE" {
+  return asTrimmedString(requirement?.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
+}
+
+function isRequirementComplete(requirement: any): boolean {
+  return normalizeRequirementState(requirement) === "COMPLETE";
+}
+
+function deriveRequirementCompletionResult(requirement: any, requiredFeet: number, actualUsedFeet: number): "" | "ON_TARGET" | "OVERUSED" {
+  if (!isRequirementComplete(requirement)) {
+    return "";
+  }
+
+  return integerOrZero(actualUsedFeet) <= integerOrZero(requiredFeet) ? "ON_TARGET" : "OVERUSED";
+}
+
 /**
  * PURPOSE:
  * Builds public film requirement coverage rows from stored allocations and
@@ -4522,20 +4538,30 @@ export function buildPublicJobRequirementEntries(requirements: any[], allocation
     const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
     const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
-    const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
+    const status = normalizeRequirementState(requirement);
+    const isComplete = status === "COMPLETE";
+    const actualUsedFeet = Math.max(0, integerOrZero(requirement.actualUsedFeet));
+    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - allocatedFeet);
+    const cappedAllocatedFeet = Math.min(requiredFeet, allocatedFeet);
     return {
       requirementId,
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
       requiredFeet,
-      allocatedFeet: requiredFeet - remainingFeet,
+      status,
+      isComplete,
+      actualUsedFeet,
+      completedAt: asTrimmedString(requirement.completedAt),
+      completedBy: asTrimmedString(requirement.completedBy),
+      completionResult: deriveRequirementCompletionResult(requirement, requiredFeet, actualUsedFeet),
+      allocatedFeet: cappedAllocatedFeet,
       allocatedWithInstallDateFeet: Math.min(
-        requiredFeet - remainingFeet,
+        cappedAllocatedFeet,
         Math.max(0, Number(coverageSummary.allocatedWithInstallDateFeet || 0)),
       ),
       allocatedWithoutInstallDateFeet: Math.min(
-        requiredFeet - remainingFeet,
+        cappedAllocatedFeet,
         Math.max(0, Number(coverageSummary.allocatedWithoutInstallDateFeet || 0)),
       ),
       remainingFeet,
@@ -4619,6 +4645,9 @@ function getFilmOnTheWayFeetForRequirement(filmOrders: any[], requirement: any):
 
 function areFilmShortagesFullyOnTheWay(requirements: any[], filmOrders: any[]): boolean {
   for (const requirement of Array.isArray(requirements) ? requirements : []) {
+    if (isRequirementComplete(requirement)) {
+      continue;
+    }
     const missingFeet = Math.max(
       0,
       integerOrZero(requirement?.requiredFeet) - integerOrZero(requirement?.allocatedFeet),
@@ -4676,7 +4705,7 @@ function deriveInStockReadinessStatus(params: {
   const caulkRequirements = Array.isArray(params.caulkRequirements) ? params.caulkRequirements : [];
   const filmOrders = Array.isArray(params.filmOrders) ? params.filmOrders : [];
   const hasMaterialRequirements =
-    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
+    requirements.some((entry) => !isRequirementComplete(entry) && integerOrZero(entry?.requiredFeet) > 0) ||
     caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
 
   if (!hasMaterialRequirements) {
@@ -4705,6 +4734,9 @@ function deriveInStockReadinessStatus(params: {
     { jobNumber: params.jobNumber, jobWarehouse: params.jobWarehouse },
   );
   const filmReady = requirements.every((requirement) => {
+    if (isRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredFeet = integerOrZero(requirement?.requiredFeet);
     if (requiredFeet <= 0) {
       return true;
@@ -4736,6 +4768,9 @@ function deriveInStockReadinessStatus(params: {
   }
 
   const filmOrdered = requirements.every((requirement) => {
+    if (isRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredFeet = integerOrZero(requirement?.requiredFeet);
     if (requiredFeet <= 0) {
       return true;
@@ -4804,11 +4839,14 @@ function buildAllocationJobSummary(
   const normalizedLifecycleStatus = normalizeJobLifecycleStatus(lifecycleStatus);
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   const hasMaterialRequirements =
-    requirements.some((entry) => integerOrZero(entry?.requiredFeet) > 0) ||
+    requirements.some((entry) => !isRequirementComplete(entry) && integerOrZero(entry?.requiredFeet) > 0) ||
     caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
   const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
 
   for (const requirement of requirements) {
+    if (isRequirementComplete(requirement)) {
+      continue;
+    }
     allocatedWithInstallDateFeet += Math.max(0, Number(requirement?.allocatedWithInstallDateFeet || 0));
     allocatedWithoutInstallDateFeet += Math.max(0, Number(requirement?.allocatedWithoutInstallDateFeet || 0));
   }
@@ -5043,7 +5081,7 @@ function getJobStagingBlockingReason(
   boxById: Record<string, any> = {},
 ) {
   const hasMaterialRequirements =
-    requirements.some((entry) => integerOrZero(entry.requiredFeet) > 0) ||
+    requirements.some((entry) => !isRequirementComplete(entry) && integerOrZero(entry.requiredFeet) > 0) ||
     caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
   if (!hasMaterialRequirements) {
     return "";
@@ -5099,6 +5137,9 @@ function buildJobListEntry(
   let remainingFeet = 0;
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
   for (const requirement of requirements) {
+    if (isRequirementComplete(requirement)) {
+      continue;
+    }
     requiredFeet += requirement.requiredFeet;
     allocatedFeet += requirement.allocatedFeet;
     allocatedWithInstallDateFeet += Math.max(0, Number(requirement.allocatedWithInstallDateFeet || 0));

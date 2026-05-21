@@ -297,6 +297,12 @@ export interface JobRequirementLine {
   filmName: string;
   widthIn: number;
   requiredFeet: number;
+  status?: 'ACTIVE' | 'COMPLETE';
+  isComplete?: boolean;
+  actualUsedFeet?: number;
+  completedAt?: string;
+  completedBy?: string;
+  completionResult?: '' | 'ON_TARGET' | 'OVERUSED';
   allocatedFeet: number;
   allocatedWithInstallDateFeet?: number;
   allocatedWithoutInstallDateFeet?: number;
@@ -374,6 +380,7 @@ export interface CreateJobPayload {
   isLaborOnly?: boolean;
   notes?: string;
   requirements?: Array<{
+    requirementId?: string;
     manufacturer: string;
     filmName: string;
     widthIn: number;
@@ -398,6 +405,7 @@ export interface UpdateJobPayload {
   isLaborOnly?: boolean;
   notes?: string;
   requirements?: Array<{
+    requirementId?: string;
     manufacturer: string;
     filmName: string;
     widthIn: number;
@@ -415,6 +423,13 @@ export interface SetJobStagedForPickupPayload {
   jobNumber: string;
   isStagedForPickup: boolean;
   autoCheckoutRemaining?: boolean;
+}
+
+export interface SetJobRequirementStatePayload {
+  jobId?: string;
+  jobNumber: string;
+  requirementId: string;
+  status: 'ACTIVE' | 'COMPLETE';
 }
 
 export interface DeleteJobPayload {

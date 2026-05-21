@@ -56,6 +56,7 @@ export default function AllocationJobPage() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending,
+    isRequirementStatePending,
     isResumeAutoPlanningPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
@@ -64,6 +65,7 @@ export default function AllocationJobPage() {
     handleCancelStaleFilmOrders,
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
+    handleSetRequirementState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
@@ -228,9 +230,13 @@ export default function AllocationJobPage() {
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         isCreateFilmOrderPending={isCreateFilmOrderPending}
+        isRequirementStatePending={isRequirementStatePending}
         isResumeAutoPlanningPending={isResumeAutoPlanningPending}
         pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
         onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
+        onSetRequirementState={(requirement, nextStatus) =>
+          void handleSetRequirementState(requirement, nextStatus)
+        }
         onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}
         onCancelRequirementOrder={handleCancelRequirementOrder}
         onOrderAll={() => setIsOrderAllConfirmOpen(true)}

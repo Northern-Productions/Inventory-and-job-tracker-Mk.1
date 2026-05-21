@@ -14,6 +14,7 @@ export { buildReportsSummary, buildOwnerAssetTotalCost } from './runtime/runtime
 export {
   createJob,
   updateJob,
+  setJobRequirementState,
   completeJob,
   reopenJob,
   deleteJob,

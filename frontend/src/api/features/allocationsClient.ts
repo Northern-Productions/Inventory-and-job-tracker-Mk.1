@@ -119,9 +119,18 @@ function normalizeCaulkAllocationEntry<T extends CaulkJobAllocationEntry>(entry:
 }
 
 function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementLine {
+  const status = String(entry.status || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+  const actualUsedFeet = Math.max(0, Number(entry.actualUsedFeet || 0));
+  const requiredFeet = Math.max(0, Number(entry.requiredFeet || 0));
   return {
     ...entry,
-    requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
+    status,
+    isComplete: status === 'COMPLETE',
+    actualUsedFeet,
+    completedAt: String(entry.completedAt || '').trim(),
+    completedBy: String(entry.completedBy || '').trim(),
+    completionResult: status === 'COMPLETE' ? (actualUsedFeet <= requiredFeet ? 'ON_TARGET' : 'OVERUSED') : '',
+    requiredFeet,
     allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
     allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
     allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),

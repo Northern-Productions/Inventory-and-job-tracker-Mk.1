@@ -80,6 +80,7 @@ export {
   getJobs,
   reopenJob,
   searchJobsByNumber,
+  setJobRequirementState,
   setJobStagedForPickup,
   updateJob
 } from './features/jobsClient';

@@ -8,6 +8,7 @@ import type {
   JobCaulkRequirementLine,
   JobDetail,
   JobFilmTransferAlert,
+  JobRequirementLine,
   JobNumberAmbiguityCandidate
 } from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
@@ -37,6 +38,7 @@ import {
   useReopenJob,
   useRemoveJobBoxAllocations,
   useSetBoxStatus,
+  useSetJobRequirementState,
   useSetJobStagedForPickup,
   useUpdateCaulkJobAllocation,
   useUpdateJob
@@ -103,6 +105,7 @@ export function useAllocationJobPageModel() {
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const clearAutoPlanningSuppressionMutation = useClearAllocationPlannerSuppression();
   const setBoxStatusMutation = useSetBoxStatus();
+  const setJobRequirementStateMutation = useSetJobRequirementState();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const caulkProductsQuery = useCaulkProducts();
   const [isOrderAllConfirmOpen, setIsOrderAllConfirmOpen] = useState(false);
@@ -585,6 +588,46 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleSetRequirementState(
+    requirement: JobRequirementLine,
+    nextStatus: 'ACTIVE' | 'COMPLETE'
+  ) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'changing requirement state',
+        feature: 'jobs',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      await setJobRequirementStateMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
+        jobNumber: summary.jobNumber,
+        requirementId: requirement.requirementId,
+        status: nextStatus
+      });
+      toast.push({
+        title: nextStatus === 'COMPLETE' ? 'Requirement completed' : 'Requirement reactivated',
+        description:
+          nextStatus === 'COMPLETE'
+            ? `${requirement.filmName} is marked complete.`
+            : `${requirement.filmName} is active again for punch list work.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update requirement',
+        description: error instanceof Error ? error.message : 'The requirement update failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleResumeCaulkAutoPlanning(requirement: JobCaulkRequirementLine) {
     if (
       isReadOnlyJob ||
@@ -703,6 +746,7 @@ export function useAllocationJobPageModel() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending: createFilmOrderMutation.isPending,
+    isRequirementStatePending: setJobRequirementStateMutation.isPending,
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
@@ -711,6 +755,7 @@ export function useAllocationJobPageModel() {
     handleCancelStaleFilmOrders,
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
+    handleSetRequirementState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,

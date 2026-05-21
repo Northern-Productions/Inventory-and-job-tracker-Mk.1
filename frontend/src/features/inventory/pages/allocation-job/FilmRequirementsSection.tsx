@@ -19,9 +19,11 @@ interface FilmRequirementsSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   isCreateFilmOrderPending: boolean;
+  isRequirementStatePending: boolean;
   isResumeAutoPlanningPending: boolean;
   pendingDeleteFilmOrderIds: Set<string>;
   onOrderRequirement: (requirement: JobRequirementLine) => void;
+  onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
   onCancelRequirementOrder: (order: FilmOrderEntry) => void;
   onOrderAll: () => void;
@@ -35,9 +37,11 @@ export function FilmRequirementsSection({
   isAuthenticated,
   clientIdConfigured,
   isCreateFilmOrderPending,
+  isRequirementStatePending,
   isResumeAutoPlanningPending,
   pendingDeleteFilmOrderIds,
   onOrderRequirement,
+  onSetRequirementState,
   onResumeAutoPlanning,
   onCancelRequirementOrder,
   onOrderAll
@@ -50,12 +54,57 @@ export function FilmRequirementsSection({
     clientIdConfigured &&
     !isCreateFilmOrderPending;
 
+  function renderCompletionResult(entry: JobRequirementLine) {
+    if (entry.status !== 'COMPLETE') {
+      return <span className="muted-text">Active</span>;
+    }
+
+    const isOnTarget =
+      (entry.completionResult || '') === 'ON_TARGET' ||
+      Math.max(0, Number(entry.actualUsedFeet || 0)) <= Math.max(0, Number(entry.requiredFeet || 0));
+    return (
+      <span
+        className={`requirement-result ${
+          isOnTarget ? 'requirement-result--on-target' : 'requirement-result--overused'
+        }`}
+        aria-label={isOnTarget ? 'On target' : 'Overused'}
+      >
+        {isOnTarget ? '✓' : 'X'}
+      </span>
+    );
+  }
+
+  function renderStateToggle(entry: JobRequirementLine) {
+    const checked = entry.status === 'COMPLETE';
+    const disabled =
+      isReadOnlyJob ||
+      !isAuthenticated ||
+      !clientIdConfigured ||
+      isRequirementStatePending;
+
+    return (
+      <div className="requirement-state-cell">
+        <label className="requirement-state-toggle">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={() => onSetRequirementState(entry, checked ? 'ACTIVE' : 'COMPLETE')}
+          />
+          <span>{checked ? 'Complete' : 'Active'}</span>
+        </label>
+        {renderCompletionResult(entry)}
+      </div>
+    );
+  }
+
   function renderRequirementAction(entry: JobRequirementLine) {
     const matchingOrder = findUnresolvedOrderForRequirement(entry, filmOrders);
     const pendingDelete = matchingOrder
       ? pendingDeleteFilmOrderIds.has(matchingOrder.filmOrderId.trim().toUpperCase())
       : false;
     const remainingFeet = Math.max(0, Number(entry.remainingFeet || 0));
+    const isComplete = entry.status === 'COMPLETE';
 
     if (isReadOnlyJob) {
       return <span className="muted-text">Read-only</span>;
@@ -89,7 +138,7 @@ export function FilmRequirementsSection({
         type="button"
         variant="secondary"
         size="sm"
-        disabled={remainingFeet <= 0 || !isAuthenticated || !clientIdConfigured}
+        disabled={isComplete || remainingFeet <= 0 || !isAuthenticated || !clientIdConfigured}
         loading={isCreateFilmOrderPending}
         loadingLabel="Ordering"
         onClick={() => onOrderRequirement(entry)}
@@ -98,7 +147,7 @@ export function FilmRequirementsSection({
       </Button>
     );
 
-    if (!entry.autoPlanningSuppressed || remainingFeet <= 0) {
+    if (isComplete || !entry.autoPlanningSuppressed || remainingFeet <= 0) {
       return orderButton;
     }
 
@@ -150,8 +199,9 @@ export function FilmRequirementsSection({
                 subtitle={`Width ${entry.widthIn}"`}
               />
               <MobileFieldList>
-                <MobileField label="Required LF" value={entry.requiredFeet} />
+                <MobileField label="Planned LF" value={entry.requiredFeet} />
                 <MobileField label="Allocated LF" value={entry.allocatedFeet} />
+                <MobileField label="Actual Used LF" value={entry.actualUsedFeet} />
                 <MobileField
                   label="Locked LF"
                   value={entry.allocatedWithInstallDateFeet ?? 0}
@@ -162,6 +212,7 @@ export function FilmRequirementsSection({
                 />
                 <MobileField label="Remaining LF" value={entry.remainingFeet} />
               </MobileFieldList>
+              {renderStateToggle(entry)}
               <div className="film-order-actions">
                 {renderRequirementAction(entry)}
               </div>
@@ -176,11 +227,13 @@ export function FilmRequirementsSection({
                 <th>Manufacturer</th>
                 <th>Film</th>
                 <th>Width</th>
-                <th>Required LF</th>
+                <th>Planned LF</th>
                 <th>Allocated LF</th>
+                <th>Actual Used LF</th>
                 <th>Locked LF</th>
                 <th>Placeholder LF</th>
                 <th>Remaining LF</th>
+                <th>State</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -192,9 +245,11 @@ export function FilmRequirementsSection({
                   <td>{entry.widthIn}</td>
                   <td>{entry.requiredFeet}</td>
                   <td>{entry.allocatedFeet}</td>
+                  <td>{entry.actualUsedFeet}</td>
                   <td>{entry.allocatedWithInstallDateFeet ?? 0}</td>
                   <td>{entry.allocatedWithoutInstallDateFeet ?? 0}</td>
                   <td>{entry.remainingFeet}</td>
+                  <td>{renderStateToggle(entry)}</td>
                   <td>
                     <div className="film-order-actions">
                       {renderRequirementAction(entry)}

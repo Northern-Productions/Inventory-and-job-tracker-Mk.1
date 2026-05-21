@@ -199,6 +199,7 @@ import {
   buildCaulkCoverageByRequirementId,
   getFilmOnTheWayFeetForRequirement,
   getStoredAllocationCoveredFeet,
+  isRequirementComplete,
   resolveAllocationJobMetadata,
   summarizeCaulkRequirementCoverage,
 } from './runtimeAllocationCoverage.mjs';
@@ -410,6 +411,9 @@ function deriveInStockReadinessStatus({
   );
 
   const filmReady = normalizedRequirements.every((requirement) => {
+    if (isRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredFeet = integerOrZero(requirement?.requiredFeet);
     if (requiredFeet <= 0) {
       return true;
@@ -441,6 +445,9 @@ function deriveInStockReadinessStatus({
   }
 
   const filmOrdered = normalizedRequirements.every((requirement) => {
+    if (isRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredFeet = integerOrZero(requirement?.requiredFeet);
     if (requiredFeet <= 0) {
       return true;
@@ -624,6 +631,9 @@ function buildJobListEntry(
   const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
 
   for (let index = 0; index < requirements.length; index += 1) {
+    if (isRequirementComplete(requirements[index])) {
+      continue;
+    }
     requiredFeet += requirements[index].requiredFeet;
     allocatedFeet += requirements[index].allocatedFeet;
     allocatedWithInstallDateFeet += integerOrZero(requirements[index].allocatedWithInstallDateFeet);

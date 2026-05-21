@@ -46,6 +46,7 @@ import {
   saveJobRecordById,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
+  setJobRequirementState as saveJobRequirementState,
   listJobCaulkRequirementsByJob,
   listJobCaulkRequirementsByJobId,
   listCaulkJobCheckoutsByJob,
@@ -67,6 +68,7 @@ import {
 } from './runtimeJobsRead.mjs';
 import {
   buildJobRequirementsByLookupKey,
+  isRequirementComplete,
 } from './runtimeAllocationCoverage.mjs';
 import {
   formatDeletedJobCleanupWarning,
@@ -825,6 +827,10 @@ async function createFilmOrder(client, orgId, payload, actor) {
       throw new HttpError(404, 'Job requirement was not found.');
     }
 
+    if (isRequirementComplete(selectedRequirement)) {
+      throw new HttpError(400, 'Requirement is complete. Reactivate it before ordering more film.');
+    }
+
     const requirementKey = normalizeJobRequirementLookupKey(
       selectedRequirement.manufacturer,
       selectedRequirement.filmName,
@@ -887,6 +893,57 @@ async function createFilmOrder(client, orgId, payload, actor) {
   });
 
   return ok(toPublicFilmOrder(entry, []), warnings);
+}
+
+async function setJobRequirementState(client, orgId, payload, actor) {
+  const warnings = [];
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId) {
+    requireUuid(suppliedJobId, 'jobId');
+  }
+  const requirementId = requireUuid(payload.requirementId, 'RequirementId');
+  const nextStatus = asTrimmedString(payload.status).toUpperCase();
+  if (nextStatus !== 'ACTIVE' && nextStatus !== 'COMPLETE') {
+    throw new HttpError(400, 'Requirement status must be ACTIVE or COMPLETE.');
+  }
+
+  let jobId = '';
+  let jobNumber = '';
+  let existingJob = null;
+  if (suppliedJobId) {
+    const target = await resolveJobMutationTargetById(client, orgId, payload);
+    jobId = target.jobId;
+    jobNumber = target.jobNumber;
+    existingJob = target.job;
+  } else {
+    jobNumber = requireString(payload.jobNumber, 'JobNumber');
+    const sameNumberJobs = await listJobsByNumber(client, orgId, jobNumber);
+    if (sameNumberJobs.length > 1) {
+      throw new HttpError(409, `Job ${jobNumber} has multiple work scopes. Open the exact job before changing requirement state.`);
+    }
+    existingJob = sameNumberJobs[0] || null;
+    if (!existingJob) {
+      throw new HttpError(404, `Job ${jobNumber} was not found.`);
+    }
+    jobId = existingJob.id;
+  }
+
+  if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before changing requirement state.`);
+  }
+
+  await saveJobRequirementState(
+    client,
+    orgId,
+    {
+      jobId,
+      requirementId,
+      status: nextStatus,
+    },
+    actor
+  );
+
+  return ok(await buildJobDetailById(client, orgId, jobId), warnings);
 }
 
 async function cancelJob(client, orgId, payload, actor) {
@@ -1156,6 +1213,7 @@ export {
   reopenJob,
   deleteJob,
   createFilmOrder,
+  setJobRequirementState,
   cancelJob,
   removeJobBoxAllocation,
   clearAllocationPlannerSuppression,

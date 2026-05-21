@@ -9,6 +9,7 @@ import type {
   JobListEntry,
   JobListResponse,
   SetJobStagedForPickupPayload,
+  SetJobRequirementStatePayload,
   UpdateJobPayload
 } from '../../domain';
 import { request } from '../http';
@@ -93,12 +94,27 @@ function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulk
   };
 }
 
+function normalizeRequirementStatus(value: unknown): 'ACTIVE' | 'COMPLETE' {
+  return String(value || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+}
+
 function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
     summary: normalizeJobListEntry(detail.summary),
     requirements: (detail.requirements || []).map((entry) => ({
       ...entry,
+      status: normalizeRequirementStatus(entry.status),
+      isComplete: normalizeRequirementStatus(entry.status) === 'COMPLETE',
+      actualUsedFeet: Math.max(0, Number(entry.actualUsedFeet || 0)),
+      completedAt: String(entry.completedAt || '').trim(),
+      completedBy: String(entry.completedBy || '').trim(),
+      completionResult:
+        normalizeRequirementStatus(entry.status) === 'COMPLETE'
+          ? Math.max(0, Number(entry.actualUsedFeet || 0)) <= Math.max(0, Number(entry.requiredFeet || 0))
+            ? 'ON_TARGET'
+            : 'OVERUSED'
+          : '',
       requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
       allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
       allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
@@ -309,6 +325,17 @@ export async function updateJob(
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
   const response = await request<JobDetail>('POST', '/jobs/update', { body: payload });
+  return {
+    result: normalizeJobDetail(response.data),
+    warnings: response.warnings
+  };
+}
+
+export async function setJobRequirementState(
+  payload: SetJobRequirementStatePayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
+  const response = await request<JobDetail>('POST', '/jobs/requirement-state', { body: payload });
   return {
     result: normalizeJobDetail(response.data),
     warnings: response.warnings

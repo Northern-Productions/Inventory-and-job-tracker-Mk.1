@@ -3133,6 +3133,50 @@ td.col-available-linear-ft {
   align-items: start;
 }
 
+.requirement-state-cell {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 7.5rem;
+}
+
+.requirement-state-toggle {
+  align-items: center;
+  color: #26313f;
+  display: inline-flex;
+  font-size: 0.88rem;
+  font-weight: 700;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.requirement-state-toggle input {
+  accent-color: #1f7a3f;
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.requirement-result {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  justify-content: center;
+  min-height: 1.4rem;
+  min-width: 1.4rem;
+}
+
+.requirement-result--on-target {
+  background: #dff5e7;
+  color: #176333;
+}
+
+.requirement-result--overused {
+  background: #fde2e1;
+  color: #b42318;
+}
+
 .film-orders-job-link,
 .film-order-linked-box-link {
   color: #1d62c4;

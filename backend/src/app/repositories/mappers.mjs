@@ -457,6 +457,7 @@ function mapDbRequirementRow(row) {
     return null;
   }
 
+  const status = asTrimmedString(row.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
   return {
     id: row.id,
     orgId: row.org_id,
@@ -466,7 +467,13 @@ function mapDbRequirementRow(row) {
     filmName: asTrimmedString(row.film_name),
     widthIn: numericOrNull(row.width_in) ?? 0,
     requiredFeet: integerOrZero(row.required_feet),
+    status,
+    isComplete: status === 'COMPLETE',
+    actualUsedFeet: integerOrZero(row.actual_used_feet),
+    completedAt: formatTimestamp(row.completed_at),
+    completedBy: asTrimmedString(row.completed_by),
     notes: asTrimmedString(row.notes),
+    autoPlanningSuppressed: row.auto_planning_suppressed === true,
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
     updatedAt: formatTimestamp(row.updated_at),

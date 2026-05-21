@@ -535,6 +535,22 @@ function buildAllocationCoverageByRequirementId(requirements, allocations, boxBy
   return coverage;
 }
 
+function normalizeRequirementState(requirement) {
+  return asTrimmedString(requirement?.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+}
+
+function isRequirementComplete(requirement) {
+  return normalizeRequirementState(requirement) === 'COMPLETE';
+}
+
+function deriveRequirementCompletionResult(requirement, requiredFeet, actualUsedFeet) {
+  if (!isRequirementComplete(requirement)) {
+    return '';
+  }
+
+  return integerOrZero(actualUsedFeet) <= integerOrZero(requiredFeet) ? 'ON_TARGET' : 'OVERUSED';
+}
+
 /**
  * PURPOSE:
  * Builds public film requirement coverage rows from stored allocations and
@@ -562,8 +578,11 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
     const coverageSummary = coverage[requirementId] || createEmptyRequirementCoverageSummary();
     const allocatedFeet = Math.max(0, Number(coverageSummary.allocatedFeet || 0));
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
-    const remainingFeet = Math.max(0, requiredFeet - allocatedFeet);
-    const cappedAllocatedFeet = requiredFeet - remainingFeet;
+    const status = normalizeRequirementState(requirement);
+    const isComplete = status === 'COMPLETE';
+    const actualUsedFeet = Math.max(0, integerOrZero(requirement.actualUsedFeet));
+    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - allocatedFeet);
+    const cappedAllocatedFeet = Math.min(requiredFeet, allocatedFeet);
 
     response.push({
       requirementId,
@@ -571,6 +590,12 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
       requiredFeet,
+      status,
+      isComplete,
+      actualUsedFeet,
+      completedAt: asTrimmedString(requirement.completedAt),
+      completedBy: asTrimmedString(requirement.completedBy),
+      completionResult: deriveRequirementCompletionResult(requirement, requiredFeet, actualUsedFeet),
       allocatedFeet: cappedAllocatedFeet,
       allocatedWithInstallDateFeet: Math.min(
         cappedAllocatedFeet,
@@ -1083,6 +1108,9 @@ function areFilmShortagesFullyOnTheWay(requirements, filmOrders) {
   const entries = Array.isArray(requirements) ? requirements : [];
   for (let index = 0; index < entries.length; index += 1) {
     const requirement = entries[index];
+    if (isRequirementComplete(requirement)) {
+      continue;
+    }
     const requiredFeet = integerOrZero(requirement.requiredFeet);
     const allocatedFeet = integerOrZero(requirement.allocatedFeet);
     const missingFeet = Math.max(0, requiredFeet - allocatedFeet);
@@ -1131,6 +1159,9 @@ function buildAllocationJobSummary(
   const hasOrderedAllocations = hasActiveOrderedAllocations(allocations, boxById);
 
   for (let index = 0; index < requirements.length; index += 1) {
+    if (isRequirementComplete(requirements[index])) {
+      continue;
+    }
     allocatedWithInstallDateFeet += Math.max(0, Number(requirements[index]?.allocatedWithInstallDateFeet || 0));
     allocatedWithoutInstallDateFeet += Math.max(0, Number(requirements[index]?.allocatedWithoutInstallDateFeet || 0));
   }
@@ -1249,6 +1280,9 @@ export {
   shouldIgnoreAllocationCoverageForBoxStatus,
   compareRequirementCoveragePoolsForRequirement,
   buildAllocationCoverageByRequirementId,
+  normalizeRequirementState,
+  isRequirementComplete,
+  deriveRequirementCompletionResult,
   buildPublicJobRequirementEntries,
   buildCaulkFallbackDebugLogEntry,
   buildCaulkCoverageByRequirementId,

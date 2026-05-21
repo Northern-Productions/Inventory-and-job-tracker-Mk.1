@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0141_box_checkin_reconcile_same_job_allocations.sql';
+const LATEST_MIGRATION = '0142_requirement_actual_usage_state.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -27,6 +27,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.caulk_job_allocations.allocation_source' },
   { kind: 'column', signature: 'app.roll_weight_log.created_at' },
   { kind: 'column', signature: 'app.roll_weight_log.job_id' },
+  { kind: 'column', signature: 'app.job_requirements.status' },
+  { kind: 'column', signature: 'app.job_requirements.actual_used_feet' },
+  { kind: 'column', signature: 'app.job_requirements.completed_at' },
+  { kind: 'column', signature: 'app.job_requirements.completed_by' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
@@ -80,6 +84,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.film_order_matches_requirement(uuid, uuid, text, text, numeric, uuid, text, text, numeric)' },
   { kind: 'function', signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)' },
+  { kind: 'function', signature: 'app_api.normalize_requirement_status(text)' },
+  { kind: 'function', signature: 'app_api.record_requirement_actual_usage_for_checkin(uuid, text, text, uuid, text, integer)' },
+  { kind: 'function', signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)' },
@@ -315,6 +322,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'and j.id = v_job_id',
       'Job identity mismatch: selected job does not match jobNumber.',
       'and r.job_id = v_job_id',
+      'Reactivate it before allocating film.',
       'app_api.create_or_merge_manual_requirement_allocation_with_coverage(',
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',
@@ -381,6 +389,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "coalesce(fo.status::text, '') in ('FILM_ORDER', 'FILM_ON_THE_WAY')",
       'app_api.film_order_matches_requirement(',
       'Film order product and width must match the selected requirement.',
+      'Reactivate it before ordering more film.',
       'perform app_api.raise_http(',
       'Cancel it before creating another order.',
       'v_order := app_api.save_film_order(v_order);'
@@ -639,6 +648,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_checkout_job_id is not null and a.job_id = v_checkout_job_id',
       'v_checkout_job_id is null',
       'v_reconciliation_result jsonb',
+      'v_requirement_usage_result jsonb',
+      'app_api.record_requirement_actual_usage_for_checkin',
       'v_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_box.last_checkout_job_id := null;',
       'v_checkout_job_id,',
@@ -800,6 +811,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
       'app_api.plan_allocation_coverage(',
+      "coalesce(r.status, 'ACTIVE') = 'ACTIVE'",
       "'AUTO_PLANNED allocation created by planner reconciliation.'",
       'on conflict (box_id) do nothing;',
       'perform 1\n  from app.boxes b\n  join auto_planner_boxes bx',

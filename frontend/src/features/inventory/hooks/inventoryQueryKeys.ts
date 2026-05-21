@@ -56,6 +56,7 @@ export const inventoryKeys = {
   allocationPreview: (params: AllocateBoxPayload | null) => ['inventory', 'allocation-preview', params] as const,
   addBoxMutation: ['inventory', 'mutation', 'add-box'] as const,
   updateJobMutation: ['inventory', 'mutation', 'update-job'] as const,
+  setJobRequirementStateMutation: ['inventory', 'mutation', 'set-job-requirement-state'] as const,
   setBoxStatusMutation: ['inventory', 'mutation', 'set-box-status'] as const,
   receiveOrderedBoxMutation: ['inventory', 'mutation', 'receive-ordered-box'] as const,
   markLabelsPrintedMutation: ['inventory', 'mutation', 'mark-labels-printed'] as const,

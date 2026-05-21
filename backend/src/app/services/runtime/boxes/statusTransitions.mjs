@@ -23,6 +23,7 @@ import {
   saveBoxRecord,
   listAllocationsByBox,
   reconcileBoxCheckinAllocations,
+  recordRequirementActualUsageForCheckin,
   appendAuditEntry,
   appendRollHistoryEntry,
 } from '../../runtimeDeps.mjs';
@@ -263,6 +264,27 @@ async function setBoxStatus(client, orgId, payload, actor) {
         })
       : asTrimmedString(payload.auditNote);
     finalAuditNote = directToSiteFirstReturnNote;
+
+    if (existing.status === 'CHECKED_OUT') {
+      const requirementUsageResult = await recordRequirementActualUsageForCheckin(
+        client,
+        orgId,
+        {
+          boxId: updatedBox.boxId,
+          jobId: checkoutJobId,
+          jobNumber: checkoutJob,
+          usedFeet: Math.max(
+            0,
+            integerOrZero(checkInPlan.physicalFeetBeforeCheckIn) -
+              integerOrZero(checkInPlan.physicalFeetAfterCheckIn)
+          )
+        },
+        actor
+      );
+      if (Array.isArray(requirementUsageResult.warnings) && requirementUsageResult.warnings.length > 0) {
+        warnings.push(...requirementUsageResult.warnings);
+      }
+    }
 
     const reconciliationResult = await reconcileBoxCheckinAllocations(
       client,

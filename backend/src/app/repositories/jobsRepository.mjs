@@ -9,6 +9,7 @@ import {
   requireUuid,
 } from '../core/helpers.mjs';
 import { resolveCatalogWriteFilmEntry } from '../core/catalog.mjs';
+import { normalizeJobRequirementLookupKey } from '../core/jobs.mjs';
 import {
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
@@ -281,6 +282,39 @@ async function listJobRequirementsByJobId(client, orgId, jobId) {
   );
 
   return rows.map(mapDbRequirementRow);
+}
+
+async function findJobRequirementByIdForJob(client, orgId, jobId, requirementId) {
+  const row = await queryRow(
+    client,
+    `
+      select
+        r.*,
+        j.job_number,
+        exists (
+          select 1
+          from app.allocation_planner_suppressions s
+          where s.org_id = r.org_id
+            and s.job_id = r.job_id
+            and s.material_type = 'FILM'
+            and s.cleared_at is null
+            and s.requirement_signature = app_api.film_requirement_planner_signature(
+              r.manufacturer,
+              r.film_name,
+              r.width_in,
+              r.required_feet
+            )
+        ) as auto_planning_suppressed
+      from app.job_requirements r
+      join app.jobs j on j.id = r.job_id
+      where r.org_id = $1
+        and r.job_id = $2
+        and r.id = $3
+    `,
+    [orgId, requireUuid(jobId, 'JobId'), requireUuid(requirementId, 'RequirementId')]
+  );
+
+  return mapDbRequirementRow(row);
 }
 
 async function listJobCaulkRequirements(client, orgId) {
@@ -880,6 +914,20 @@ async function listPendingCaulkTransfersByWarehouseProduct(client, orgId, wareho
 }
 
 async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
+  const existingRequirements = await listJobRequirementsByJobId(client, orgId, jobHeader.id);
+  const existingById = {};
+  const unusedExistingByKey = new Map();
+  for (let index = 0; index < existingRequirements.length; index += 1) {
+    const existing = existingRequirements[index];
+    if (existing?.id) {
+      existingById[existing.id] = existing;
+    }
+    const key = normalizeJobRequirementLookupKey(existing.manufacturer, existing.filmName, existing.widthIn);
+    const matches = unusedExistingByKey.get(key) || [];
+    matches.push(existing);
+    unusedExistingByKey.set(key, matches);
+  }
+
   await client.query(
     `
       delete from app.job_requirements
@@ -894,6 +942,20 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
     const canonical = await resolveCatalogWriteFilmEntry(client, orgId, entry.manufacturer, entry.filmName);
     const manufacturer = canonical.manufacturer;
     const filmName = canonical.filmName;
+    const explicitRequirementId = asTrimmedString(entry.id || entry.requirementId);
+    const lookupKey = normalizeJobRequirementLookupKey(manufacturer, filmName, entry.widthIn);
+    const matchedExisting = explicitRequirementId
+      ? existingById[explicitRequirementId] || null
+      : (unusedExistingByKey.get(lookupKey) || [])[0] || null;
+    if (!explicitRequirementId && matchedExisting) {
+      const remainingMatches = (unusedExistingByKey.get(lookupKey) || []).filter(
+        (candidate) => candidate.id !== matchedExisting.id
+      );
+      unusedExistingByKey.set(lookupKey, remainingMatches);
+    }
+    const nextStatus = asTrimmedString(entry.status || matchedExisting?.status).toUpperCase() === 'COMPLETE'
+      ? 'COMPLETE'
+      : 'ACTIVE';
     await client.query(
       `
         insert into app.job_requirements (
@@ -904,30 +966,190 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
           film_name,
           width_in,
           required_feet,
+          status,
+          actual_used_feet,
+          completed_at,
+          completed_by,
           notes,
           created_at,
           created_by,
           updated_at,
           updated_by
         )
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9::timestamptz,$10,$11::timestamptz,$12)
+        values (
+          $1,$2,$3,$4,$5,$6,$7,$8,
+          $9::integer,
+          nullif($10, '')::timestamptz,
+          $11,
+          $12,
+          $13::timestamptz,$14,
+          $15::timestamptz,$16
+        )
       `,
       [
-        entry.id || crypto.randomUUID(),
+        explicitRequirementId || matchedExisting?.id || crypto.randomUUID(),
         orgId,
         jobHeader.id,
         manufacturer,
         filmName,
         entry.widthIn,
         entry.requiredFeet,
+        nextStatus,
+        integerOrZero(entry.actualUsedFeet ?? matchedExisting?.actualUsedFeet),
+        nextStatus === 'COMPLETE'
+          ? asTrimmedString(entry.completedAt || matchedExisting?.completedAt)
+          : '',
+        nextStatus === 'COMPLETE'
+          ? asTrimmedString(entry.completedBy || matchedExisting?.completedBy)
+          : '',
         entry.notes || '',
-        entry.createdAt || new Date().toISOString(),
-        entry.createdBy || '',
+        entry.createdAt || matchedExisting?.createdAt || new Date().toISOString(),
+        entry.createdBy || matchedExisting?.createdBy || '',
         entry.updatedAt || new Date().toISOString(),
         entry.updatedBy || '',
       ]
     );
   }
+}
+
+async function setJobRequirementState(client, orgId, params, actor) {
+  const jobId = requireUuid(params.jobId, 'JobId');
+  const requirementId = requireUuid(params.requirementId, 'RequirementId');
+  const status = asTrimmedString(params.status).toUpperCase();
+  if (status !== 'ACTIVE' && status !== 'COMPLETE') {
+    throw new HttpError(400, 'Requirement status must be ACTIVE or COMPLETE.');
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      update app.job_requirements r
+      set
+        status = $4,
+        completed_at = case when $4 = 'COMPLETE' then coalesce(r.completed_at, now()) else null end,
+        completed_by = case when $4 = 'COMPLETE' then $5 else '' end,
+        updated_at = now(),
+        updated_by = $5
+      from app.jobs j
+      where r.org_id = $1
+        and r.job_id = $2
+        and r.id = $3
+        and j.org_id = r.org_id
+        and j.id = r.job_id
+      returning r.*, j.job_number
+    `,
+    [orgId, jobId, requirementId, status, asTrimmedString(actor)]
+  );
+
+  if (!row) {
+    throw new HttpError(404, 'Job requirement was not found.');
+  }
+
+  return mapDbRequirementRow(row);
+}
+
+async function recordRequirementActualUsageForCheckin(client, orgId, params, actor) {
+  const boxId = asTrimmedString(params?.boxId).toUpperCase();
+  const usedFeet = Math.max(0, Math.floor(Number(params?.usedFeet || 0)));
+  const jobId = asTrimmedString(params?.jobId);
+  const jobNumber = asTrimmedString(params?.jobNumber);
+  const warnings = [];
+
+  if (!boxId || usedFeet <= 0) {
+    return { recordedFeet: 0, requirementIds: [], warnings };
+  }
+
+  const allocationRows = await queryRows(
+    client,
+    `
+      select
+        a.allocation_id,
+        a.requirement_id,
+        greatest(coalesce(nullif(a.covered_feet, 0), a.allocated_feet, 0), 0)::integer as usage_basis_feet,
+        a.created_at,
+        r.job_id,
+        j.job_number
+      from app.allocations a
+      join app.job_requirements r
+        on r.org_id = a.org_id
+       and r.id = a.requirement_id
+      join app.jobs j
+        on j.org_id = r.org_id
+       and j.id = r.job_id
+      where a.org_id = $1
+        and upper(trim(a.box_id)) = upper(trim($2))
+        and a.status = 'ACTIVE'
+        and coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
+        and a.requirement_id is not null
+        and case
+          when nullif($3, '')::uuid is not null then r.job_id = nullif($3, '')::uuid
+          else upper(trim(j.job_number)) = upper(trim($4))
+        end
+      order by a.created_at asc, a.allocation_id asc
+    `,
+    [orgId, boxId, jobId, jobNumber]
+  );
+
+  if (!allocationRows.length) {
+    warnings.push(
+      `Actual used LF from box ${boxId} was preserved in roll history but was not assigned to a requirement because no active requirement allocation matched the check-out job.`
+    );
+    return { recordedFeet: 0, requirementIds: [], warnings };
+  }
+
+  const distinctJobIds = new Set(allocationRows.map((entry) => asTrimmedString(entry.job_id)).filter(Boolean));
+  if (!jobId && distinctJobIds.size > 1) {
+    warnings.push(
+      `Actual used LF from box ${boxId} was preserved in roll history but was not assigned to a requirement because job number ${jobNumber || 'UNKNOWN'} maps to multiple jobs.`
+    );
+    return { recordedFeet: 0, requirementIds: [], warnings };
+  }
+
+  const appliedByRequirementId = new Map();
+  let remainingFeet = usedFeet;
+  for (let index = 0; index < allocationRows.length && remainingFeet > 0; index += 1) {
+    const row = allocationRows[index];
+    const basisFeet = Math.max(0, integerOrZero(row.usage_basis_feet));
+    const isLastRow = index === allocationRows.length - 1;
+    const appliedFeet = isLastRow ? remainingFeet : Math.min(remainingFeet, basisFeet);
+    if (appliedFeet <= 0) {
+      continue;
+    }
+
+    const requirementId = asTrimmedString(row.requirement_id);
+    appliedByRequirementId.set(
+      requirementId,
+      Math.max(0, Number(appliedByRequirementId.get(requirementId) || 0)) + appliedFeet
+    );
+    remainingFeet -= appliedFeet;
+  }
+
+  let recordedFeet = 0;
+  const requirementIds = [];
+  for (const [requirementId, appliedFeet] of appliedByRequirementId.entries()) {
+    await client.query(
+      `
+        update app.job_requirements
+        set actual_used_feet = greatest(coalesce(actual_used_feet, 0), 0) + $4,
+            updated_at = now(),
+            updated_by = $5
+        where org_id = $1
+          and job_id = $2
+          and id = $3
+      `,
+      [
+        orgId,
+        jobId || asTrimmedString(allocationRows[0]?.job_id),
+        requireUuid(requirementId, 'RequirementId'),
+        Math.max(0, Math.floor(Number(appliedFeet || 0))),
+        asTrimmedString(actor),
+      ]
+    );
+    recordedFeet += Math.max(0, Math.floor(Number(appliedFeet || 0)));
+    requirementIds.push(requirementId);
+  }
+
+  return { recordedFeet, requirementIds, warnings };
 }
 
 async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
@@ -1056,7 +1278,9 @@ function parseExplicitJobLaborOnlyValue(payload) {
 function hasJobMaterialRequirements(requirements, caulkRequirements) {
   return (
     (Array.isArray(requirements) ? requirements : []).some(
-      (entry) => integerOrZero(entry && entry.requiredFeet) > 0
+      (entry) =>
+        asTrimmedString(entry && entry.status).toUpperCase() !== 'COMPLETE' &&
+        integerOrZero(entry && entry.requiredFeet) > 0
     ) ||
     (Array.isArray(caulkRequirements) ? caulkRequirements : []).some(
       (entry) => integerOrZero(entry && entry.requiredTubes) > 0
@@ -1139,6 +1363,7 @@ export {
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
+  findJobRequirementByIdForJob,
   listJobCaulkRequirements,
   listJobCaulkRequirementsByJob,
   listJobCaulkRequirementsByJobId,
@@ -1151,6 +1376,8 @@ export {
   indexPendingCaulkTransfersByAllocationId,
   listPendingCaulkTransfersByWarehouseProduct,
   replaceJobRequirementsForJob,
+  setJobRequirementState,
+  recordRequirementActualUsageForCheckin,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,
   parseExplicitJobLaborOnlyValue,

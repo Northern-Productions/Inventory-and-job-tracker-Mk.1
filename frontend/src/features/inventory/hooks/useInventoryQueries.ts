@@ -65,6 +65,7 @@ export {
   useRemoveCaulkJobAllocation,
   useRemoveJobBoxAllocations,
   useReopenJob,
+  useSetJobRequirementState,
   useSetJobStagedForPickup,
   useSetBoxStatus,
   useUndoAudit,

@@ -27,6 +27,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
   '/allocations/remove-box',
   '/jobs/create',
   '/jobs/update',
+  '/jobs/requirement-state',
   '/jobs/set-staged-pickup',
   '/jobs/checkout-all',
   '/jobs/complete',
@@ -54,6 +55,7 @@ const SQL_PLANNER_HANDLED_ROUTES = new Set([
 const JOB_DETAIL_RELOAD_ROUTES = new Set([
   '/jobs/create',
   '/jobs/update',
+  '/jobs/requirement-state',
   '/jobs/set-staged-pickup',
   '/jobs/checkout-all',
   '/jobs/complete',
@@ -66,6 +68,7 @@ const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
   '/jobs/checkout-all',
   '/jobs/set-staged-pickup',
   '/jobs/update',
+  '/jobs/requirement-state',
   '/jobs/reopen',
 ]);
 

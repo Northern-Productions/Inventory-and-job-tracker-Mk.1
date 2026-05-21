@@ -61,6 +61,9 @@ function groupRequirementsByFilmKey(requirements: JobRequirementLine[]) {
   const grouped = new Map<string, JobRequirementLine[]>();
 
   for (const requirement of requirements || []) {
+    if (requirement.status === 'COMPLETE') {
+      continue;
+    }
     const key = normalizeFilmRequirementOrderKey(requirement);
     const entries = grouped.get(key) || [];
     entries.push(requirement);
@@ -74,6 +77,9 @@ function groupRequiredFeetByFilmKey(requirements: JobRequirementLine[]) {
   const grouped = new Map<string, number>();
 
   for (const requirement of requirements || []) {
+    if (requirement.status === 'COMPLETE') {
+      continue;
+    }
     const key = normalizeFilmRequirementOrderKey(requirement);
     grouped.set(key, (grouped.get(key) || 0) + Math.max(0, Number(requirement.requiredFeet || 0)));
   }

@@ -38,6 +38,12 @@ function buildOptimisticJobRequirements(
     filmName: entry.filmName,
     widthIn: entry.widthIn,
     requiredFeet: entry.requiredFeet,
+    status: 'ACTIVE',
+    isComplete: false,
+    actualUsedFeet: 0,
+    completedAt: '',
+    completedBy: '',
+    completionResult: '',
     allocatedFeet: 0,
     autoPlanningSuppressed: false,
     remainingFeet: entry.requiredFeet

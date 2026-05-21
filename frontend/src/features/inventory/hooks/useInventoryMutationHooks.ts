@@ -34,6 +34,7 @@ export {
   useCreateJob,
   useDeleteJob,
   useReopenJob,
+  useSetJobRequirementState,
   useUpdateJob
 } from './mutations/planning/jobLifecycleMutations';
 export {

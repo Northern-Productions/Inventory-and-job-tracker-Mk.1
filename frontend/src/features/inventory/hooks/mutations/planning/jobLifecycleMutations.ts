@@ -6,6 +6,7 @@ import {
   createJob,
   deleteJob,
   reopenJob,
+  setJobRequirementState,
   updateJob
 } from '../../../../../api/features/jobsClient';
 import type { CompleteJobPayload, ReopenJobPayload } from '../../../../../api/features/jobsClient';
@@ -15,6 +16,8 @@ import type {
   CaulkProductEntry,
   CreateJobPayload,
   DeleteJobPayload,
+  JobDetail,
+  SetJobRequirementStatePayload,
   UpdateJobPayload
 } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
@@ -22,6 +25,7 @@ import {
   applyOptimisticJobUpdateToCaches,
   createOptimisticAllocationJobSummaryFromJobDetail,
   createOptimisticJobDetailFromCreatePayload,
+  createOptimisticJobDetailAfterRequirementStateChange,
   removeJobPlanningCaches,
   syncJobDetailCaches,
   upsertAllocationJobSummaryCaches,
@@ -143,6 +147,67 @@ export function useUpdateJob() {
         jobId: variables.jobId,
         jobNumber: isCanonicalJobIdMutation ? '' : result.summary.jobNumber
       });
+    }
+  });
+}
+
+export function useSetJobRequirementState() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.setJobRequirementStateMutation,
+    mutationFn: (payload: SetJobRequirementStatePayload) => setJobRequirementState(payload),
+    onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
+      const detailKey = jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: detailKey }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
+      ]);
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          detailKey,
+          inventoryKeys.allocationJobs,
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
+          inventoryKeys.filmOrders
+        ],
+        () => {
+          const currentDetail = queryClient.getQueryData<JobDetail>(detailKey);
+          if (!currentDetail) {
+            return;
+          }
+          const optimisticDetail = createOptimisticJobDetailAfterRequirementStateChange(currentDetail, payload);
+          syncJobDetailCaches(queryClient, optimisticDetail, {
+            syncAllocationJobDetail: !jobId,
+            syncLegacyJobDetail: !jobId
+          });
+        }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || '').trim();
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !jobId,
+        syncLegacyJobDetail: !jobId
+      });
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({
+          queryKey: jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(variables.jobNumber)
+        }),
+        ...(jobId ? [] : [queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })]),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+      ]);
+      void syncOfflineInventoryQueries(queryClient);
     }
   });
 }
