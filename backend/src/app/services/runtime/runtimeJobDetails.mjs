@@ -7,6 +7,7 @@ import {
   listJobs,
   findJobByNumber,
   findJobById,
+  listJobPhasesByJobId,
   listAllocationsByJob,
   listAllocationsByJobId,
   listFilmOrdersByJob,
@@ -248,6 +249,7 @@ async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
     filmOrders.map((entry) => entry.filmOrderId)
   );
   const requirements = await listJobRequirementsByJob(client, orgId, normalizedJobNumber);
+  const phases = storedHeader?.id ? await listJobPhasesByJobId(client, orgId, storedHeader.id) : [];
   const caulkRequirements = await listJobCaulkRequirementsByJob(client, orgId, normalizedJobNumber);
   const caulkAllocations = await listCaulkJobAllocationsByJob(client, orgId, normalizedJobNumber);
   const caulkCheckouts = await listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber);
@@ -258,6 +260,7 @@ async function loadBaseJobDetailData(client, orgId, normalizedJobNumber) {
     allocations,
     filmOrders,
     filmOrderLinks,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -271,6 +274,7 @@ async function loadBaseJobDetailDataById(client, orgId, header) {
   const [
     allocations,
     filmOrders,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -278,6 +282,7 @@ async function loadBaseJobDetailDataById(client, orgId, header) {
   ] = await Promise.all([
     listAllocationsByJobId(client, orgId, jobId),
     listFilmOrdersByJobId(client, orgId, jobId),
+    listJobPhasesByJobId(client, orgId, jobId),
     listJobRequirementsByJobId(client, orgId, jobId),
     listJobCaulkRequirementsByJobId(client, orgId, jobId),
     listCaulkJobAllocationsByJobId(client, orgId, jobId),
@@ -295,6 +300,7 @@ async function loadBaseJobDetailDataById(client, orgId, header) {
     allocations,
     filmOrders,
     filmOrderLinks,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -323,20 +329,22 @@ async function loadBaseJobDetailDataWithPooledReads(orgId, normalizedJobNumber) 
     (client) => listCaulkJobCheckoutsByJob(client, orgId, normalizedJobNumber),
     (client) => listRollHistoryByJob(client, orgId, normalizedJobNumber),
   ]);
-  const filmOrderLinks = await runParallelReadTasks([
+  const [filmOrderLinks, phases] = await runParallelReadTasks([
     (client) =>
       listFilmOrderLinksByFilmOrderIds(
         client,
         orgId,
         filmOrders.map((entry) => entry.filmOrderId)
       ),
+    (client) => storedHeader?.id ? listJobPhasesByJobId(client, orgId, storedHeader.id) : Promise.resolve([]),
   ]);
 
   return {
     storedHeader,
     allocations,
     filmOrders,
-    filmOrderLinks: filmOrderLinks[0],
+    phases,
+    filmOrderLinks,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -350,6 +358,7 @@ async function loadBaseJobDetailDataByIdWithPooledReads(orgId, header) {
   const [
     allocations,
     filmOrders,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -357,6 +366,7 @@ async function loadBaseJobDetailDataByIdWithPooledReads(orgId, header) {
   ] = await runParallelReadTasks([
     (client) => listAllocationsByJobId(client, orgId, jobId),
     (client) => listFilmOrdersByJobId(client, orgId, jobId),
+    (client) => listJobPhasesByJobId(client, orgId, jobId),
     (client) => listJobRequirementsByJobId(client, orgId, jobId),
     (client) => listJobCaulkRequirementsByJobId(client, orgId, jobId),
     (client) => listCaulkJobAllocationsByJobId(client, orgId, jobId),
@@ -379,6 +389,7 @@ async function loadBaseJobDetailDataByIdWithPooledReads(orgId, header) {
     allocations,
     filmOrders,
     filmOrderLinks,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
@@ -573,6 +584,7 @@ function buildDetailContext(
   return {
     jobNumber: normalizedJobNumber,
     header: resolvedBaseContext.header,
+    phases: baseData.phases || [],
     allocations: baseData.allocations,
     filmOrders: baseData.filmOrders,
     requirements: baseData.requirements,
@@ -671,8 +683,24 @@ function buildJobDetailPayload(detailContext) {
         allBoxes: detailContext.allBoxes,
         caulkAllocations: detailContext.caulkAllocations,
         caulkStockEntries: detailContext.caulkStockEntries,
+        phases: detailContext.phases,
       }
     ),
+    phases: buildJobListEntry(
+      detailContext.header,
+      detailContext.publicRequirements,
+      detailContext.allocations,
+      detailContext.filmOrders,
+      detailContext.conflictAllocations,
+      detailContext.publicCaulkRequirements,
+      detailContext.boxById,
+      {
+        allBoxes: detailContext.allBoxes,
+        caulkAllocations: detailContext.caulkAllocations,
+        caulkStockEntries: detailContext.caulkStockEntries,
+        phases: detailContext.phases,
+      }
+    ).phases || [],
     requirements: detailContext.publicRequirements,
     allocations: detailContext.publicAllocations,
     usage: detailContext.usage,

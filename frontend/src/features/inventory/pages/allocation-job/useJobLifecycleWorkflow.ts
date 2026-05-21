@@ -34,7 +34,12 @@ function cloneJobEditorSubmitPayload(
   return {
     ...payload,
     requirements: payload.requirements.map((entry) => ({ ...entry })),
-    caulkRequirements: payload.caulkRequirements.map((entry) => ({ ...entry }))
+    caulkRequirements: payload.caulkRequirements.map((entry) => ({ ...entry })),
+    phases: (payload.phases || []).map((phase) => ({
+      ...phase,
+      requirements: (phase.requirements || []).map((entry) => ({ ...entry })),
+      caulkRequirements: (phase.caulkRequirements || []).map((entry) => ({ ...entry }))
+    }))
   };
 }
 
@@ -135,6 +140,7 @@ export function useJobLifecycleWorkflow({
       crewLeader: submitPayload.crewLeader,
       requirements: submitPayload.requirements,
       caulkRequirements: submitPayload.caulkRequirements,
+      phases: submitPayload.phases,
       isLaborOnly
     };
   }

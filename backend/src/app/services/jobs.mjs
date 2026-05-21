@@ -15,6 +15,7 @@ export {
   createJob,
   updateJob,
   setJobRequirementState,
+  setJobPhaseLaborState,
   completeJob,
   reopenJob,
   deleteJob,

@@ -452,6 +452,34 @@ function mapDbJobRow(row) {
   };
 }
 
+function mapDbJobPhaseRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  const laborStatus = asTrimmedString(row.labor_status).toUpperCase() === 'COMPLETE'
+    ? 'COMPLETE'
+    : 'ACTIVE';
+  return {
+    phaseId: row.id,
+    id: row.id,
+    orgId: row.org_id,
+    jobId: row.job_id,
+    phaseNumber: integerOrZero(row.phase_number),
+    workScope: asTrimmedString(row.sections) || null,
+    sections: asTrimmedString(row.sections) || null,
+    installDate: formatDateValue(row.install_date),
+    crewLeader: asTrimmedString(row.crew_leader),
+    laborStatus,
+    isComplete: laborStatus === 'COMPLETE',
+    isPrimary: row.is_primary === true,
+    createdAt: formatTimestamp(row.created_at),
+    createdBy: asTrimmedString(row.created_by),
+    updatedAt: formatTimestamp(row.updated_at),
+    updatedBy: asTrimmedString(row.updated_by),
+  };
+}
+
 function mapDbRequirementRow(row) {
   if (!row) {
     return null;
@@ -462,6 +490,11 @@ function mapDbRequirementRow(row) {
     id: row.id,
     orgId: row.org_id,
     jobId: row.job_id,
+    phaseId: asTrimmedString(row.phase_id),
+    phaseNumber: integerOrZero(row.phase_number),
+    phaseWorkScope: asTrimmedString(row.phase_sections || row.phase_work_scope) || null,
+    phaseInstallDate: formatDateValue(row.phase_install_date),
+    phaseCrewLeader: asTrimmedString(row.phase_crew_leader),
     jobNumber: asTrimmedString(row.job_number),
     manufacturer: canonicalizeManufacturerLabel(row.manufacturer),
     filmName: asTrimmedString(row.film_name),
@@ -489,6 +522,11 @@ function mapDbCaulkJobRequirementRow(row) {
   return {
     requirementId: asTrimmedString(row.requirement_id || row.id),
     jobId: row.job_id || null,
+    phaseId: asTrimmedString(row.phase_id),
+    phaseNumber: integerOrZero(row.phase_number),
+    phaseWorkScope: asTrimmedString(row.phase_sections || row.phase_work_scope) || null,
+    phaseInstallDate: formatDateValue(row.phase_install_date),
+    phaseCrewLeader: asTrimmedString(row.phase_crew_leader),
     jobNumber: asTrimmedString(row.job_number),
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
@@ -809,6 +847,7 @@ export {
   toPublicFilmOrder,
   mapDbFilmOrderLinkRow,
   mapDbJobRow,
+  mapDbJobPhaseRow,
   mapDbRequirementRow,
   mapDbCaulkJobRequirementRow,
   mapDbCaulkJobAllocationRow,

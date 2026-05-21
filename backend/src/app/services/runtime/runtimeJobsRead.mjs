@@ -165,6 +165,7 @@ import {
   findJobByNumber,
   findJobById,
   saveJobRecord,
+  listJobPhases,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
@@ -371,6 +372,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
     (readClient) => listJobs(readClient, orgId),
     (readClient) => listAllocations(readClient, orgId),
     (readClient) => listFilmOrders(readClient, orgId),
+    (readClient) => listJobPhases(readClient, orgId),
     (readClient) => listJobRequirements(readClient, orgId),
     (readClient) => listJobCaulkRequirements(readClient, orgId),
     (readClient) => listCaulkJobAllocations(readClient, orgId),
@@ -381,6 +383,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const jobs = snapshotResults[snapshotIndex++];
   const allAllocations = snapshotResults[snapshotIndex++];
   const allFilmOrders = snapshotResults[snapshotIndex++];
+  const allPhases = snapshotResults[snapshotIndex++];
   const allRequirements = snapshotResults[snapshotIndex++];
   const allCaulkRequirements = snapshotResults[snapshotIndex++];
   const allCaulkAllocations = snapshotResults[snapshotIndex++];
@@ -395,6 +398,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
       )[0];
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
+  const phasesByJobId = groupEntriesByCanonicalJobId(allPhases);
   const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
   const caulkRequirementsByJobId = groupEntriesByCanonicalJobId(allCaulkRequirements);
   const caulkAllocationsByJobId = groupEntriesByCanonicalJobId(allCaulkAllocations);
@@ -498,6 +502,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
       publicCaulkRequirements,
       boxById,
       {
+        phases: context.legacy ? [] : getRowsForJobHeader(context.header, phasesByJobId, {}, jobNumberHeaderCounts),
         allBoxes,
         caulkAllocations: context.legacy
           ? getRowsForLegacyJobNumber(jobNumber, allCaulkAllocationsByJobNumber)
@@ -653,11 +658,40 @@ function getCalendarWeekStart(anchorDate) {
   );
 }
 
+function buildPhaseCalendarEntries(entries) {
+  const response = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const phases = Array.isArray(entry?.phases) ? entry.phases : [];
+    if (phases.length <= 1) {
+      response.push(entry);
+      continue;
+    }
+
+    for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
+      const phase = phases[phaseIndex];
+      response.push({
+        ...entry,
+        installDate: asTrimmedString(phase.installDate),
+        crewLeader: asTrimmedString(phase.crewLeader),
+        status: asTrimmedString(phase.status) || entry.status,
+        workScope: phase.workScope ?? phase.sections ?? entry.workScope,
+        sections: phase.sections ?? phase.workScope ?? entry.sections,
+        phaseId: asTrimmedString(phase.phaseId),
+        phaseNumber: integerOrZero(phase.phaseNumber) || phaseIndex + 1,
+        phaseWorkScope: phase.workScope ?? phase.sections ?? entry.workScope,
+      });
+    }
+  }
+
+  return response;
+}
+
 async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecycleStatus) {
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
-  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  const entries = buildPhaseCalendarEntries(await buildJobsList(client, orgId, 0, lifecycleFilter));
   if (normalizedView === 'week') {
     const weekStart = getCalendarWeekStart(normalizedAnchorDate);
     const weekEnd = shiftCalendarDate(weekStart, 6);

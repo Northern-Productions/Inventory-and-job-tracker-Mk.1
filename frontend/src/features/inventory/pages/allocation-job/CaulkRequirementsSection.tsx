@@ -16,6 +16,8 @@ interface CaulkRequirementsSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   isResumeAutoPlanningPending: boolean;
+  title?: string;
+  embedded?: boolean;
   onResumeAutoPlanning: (requirement: JobCaulkRequirementLine) => void;
 }
 
@@ -26,6 +28,8 @@ export function CaulkRequirementsSection({
   isAuthenticated,
   clientIdConfigured,
   isResumeAutoPlanningPending,
+  title = 'Caulk Requirements',
+  embedded = false,
   onResumeAutoPlanning
 }: CaulkRequirementsSectionProps) {
   function renderRequirementAction(entry: JobCaulkRequirementLine) {
@@ -56,10 +60,12 @@ export function CaulkRequirementsSection({
     );
   }
 
+  const Wrapper = embedded ? 'div' : 'section';
+
   return (
-    <section className="panel">
+    <Wrapper className={embedded ? 'phase-requirements-block' : 'panel'}>
       <div className="panel-title-row">
-        <h2>Caulk Requirements</h2>
+        <h2>{title}</h2>
       </div>
       {!requirements.length ? (
         <div className="empty-state">No caulk requirements added yet.</div>
@@ -126,6 +132,6 @@ export function CaulkRequirementsSection({
           </table>
         </div>
       )}
-    </section>
+    </Wrapper>
   );
 }

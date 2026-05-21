@@ -44,6 +44,11 @@ export interface CaulkTransferEntry {
 export interface JobCaulkRequirementLine {
   requirementId: string;
   jobNumber: string;
+  phaseId?: string;
+  phaseNumber?: number;
+  phaseWorkScope?: string | null;
+  phaseInstallDate?: string;
+  phaseCrewLeader?: string;
   productId: string;
   manufacturerId: string;
   manufacturer: string;

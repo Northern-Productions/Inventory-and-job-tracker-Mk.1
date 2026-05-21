@@ -54,6 +54,7 @@ function buildCreateJobPayload(
     crewLeader: submitPayload.crewLeader,
     requirements: submitPayload.requirements,
     caulkRequirements: submitPayload.caulkRequirements,
+    phases: submitPayload.phases,
     isLaborOnly
   };
 }

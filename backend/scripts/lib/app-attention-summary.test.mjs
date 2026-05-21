@@ -39,8 +39,7 @@ test('Edge jobs attention source mirrors scheduled Film Order and Ordered guard'
   const body = source.slice(bodyStart, bodyEnd);
 
   assert.ok(bodyStart >= 0 && bodyEnd > bodyStart, 'Expected jobs attention helper body.');
-  assert.match(body, /normalizedStatus === "FILM_ORDER" \|\| normalizedStatus === "ORDERED"/);
+  assert.match(body, /status === "FILM_ORDER" \|\| status === "ORDERED"/);
   assert.match(body, /installDate/);
-  assert.match(body, /dueDate/);
-  assert.match(body, /jobDate/);
+  assert.match(body, /buildJobsList/);
 });

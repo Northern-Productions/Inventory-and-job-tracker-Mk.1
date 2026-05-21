@@ -9,6 +9,7 @@ import type {
   CaulkRequirementDraftLine,
   JobCaulkRequirementEditorLine,
   JobEditorSubmitPayload,
+  JobPhaseEditorLine,
   JobRequirementEditorLine,
   RequirementDraftLine
 } from './types';
@@ -21,6 +22,7 @@ interface BuildJobEditorSubmitPayloadArgs {
   sections: string;
   installDate: string;
   crewLeader: string;
+  phases: JobPhaseEditorLine[];
   requirements: RequirementDraftLine[];
   caulkRequirements: CaulkRequirementDraftLine[];
   filmNameDraft: string;
@@ -42,6 +44,7 @@ export function buildJobEditorSubmitPayload({
   sections,
   installDate,
   crewLeader,
+  phases,
   requirements,
   caulkRequirements,
   filmNameDraft,
@@ -71,11 +74,44 @@ export function buildJobEditorSubmitPayload({
     };
   }
 
+  const normalizedPhases: Array<Omit<JobPhaseEditorLine, 'phaseNumber'> & { phaseNumber: number }> = [];
+  const seenPhaseNumbers = new Set<number>();
+  for (let index = 0; index < phases.length; index += 1) {
+    const phase = phases[index];
+    const phaseNumber = Math.floor(Number(phase.phaseNumber));
+    if (!Number.isFinite(phaseNumber) || phaseNumber <= 0 || String(phase.phaseNumber).includes('.')) {
+      return {
+        error: `Phase ${index + 1}: Phase number must be a positive whole number.`,
+        payload: null
+      };
+    }
+    if (seenPhaseNumbers.has(phaseNumber)) {
+      return {
+        error: `Phase ${phaseNumber} already exists on this job.`,
+        payload: null
+      };
+    }
+    seenPhaseNumbers.add(phaseNumber);
+    normalizedPhases.push({
+      ...phase,
+      phaseNumber,
+      workScope: phase.workScope.trim(),
+      sections: phase.sections.trim(),
+      installDate: phase.installDate.trim(),
+      crewLeader: phase.crewLeader.trim(),
+      isPrimary: phase.isPrimary === true || index === 0
+    });
+  }
+
+  const primaryPhase = normalizedPhases.find((phase) => phase.isPrimary) || normalizedPhases[0];
+  const phaseByKey = new Map(normalizedPhases.map((phase) => [phase.id, phase]));
+
   const normalizedLines: JobRequirementEditorLine[] = [];
   for (let index = 0; index < requirements.length; index += 1) {
     const line = requirements[index];
     const parsedWidth = Number(line.widthIn);
     const parsedRequiredFeet = Number(line.requiredFeet);
+    const phase = phaseByKey.get(line.phaseKey) || primaryPhase;
 
     if (!line.manufacturer.trim() || !line.filmName.trim()) {
       return {
@@ -100,6 +136,8 @@ export function buildJobEditorSubmitPayload({
 
     normalizedLines.push({
       requirementId: line.requirementId || undefined,
+      phaseId: phase?.phaseId || undefined,
+      phaseNumber: phase?.phaseNumber,
       manufacturer: canonicalizeManufacturerLabel(line.manufacturer).trim(),
       filmName: line.filmName.trim(),
       widthIn: parsedWidth,
@@ -111,6 +149,7 @@ export function buildJobEditorSubmitPayload({
   for (let index = 0; index < caulkRequirements.length; index += 1) {
     const line = caulkRequirements[index];
     const parsedRequiredTubes = Number(line.requiredTubes);
+    const phase = phaseByKey.get(line.phaseKey) || primaryPhase;
 
     if (!line.productId.trim()) {
       return {
@@ -128,6 +167,8 @@ export function buildJobEditorSubmitPayload({
 
     normalizedCaulkLines.push({
       requirementId: line.requirementId || undefined,
+      phaseId: phase?.phaseId || undefined,
+      phaseNumber: phase?.phaseNumber,
       productId: line.productId,
       requiredTubes: Math.floor(parsedRequiredTubes)
     });
@@ -138,12 +179,27 @@ export function buildJobEditorSubmitPayload({
     payload: {
       jobNumber: mode === 'edit' ? initialJobNumber : normalizedJobNumber,
       warehouse,
-      workScope: sections,
-      sections,
-      installDate,
-      crewLeader: crewLeader.trim(),
+      workScope: primaryPhase?.workScope ?? sections,
+      sections: primaryPhase?.sections ?? sections,
+      installDate: primaryPhase?.installDate ?? installDate,
+      crewLeader: primaryPhase?.crewLeader ?? crewLeader.trim(),
       requirements: mergeRequirementLines(normalizedLines),
-      caulkRequirements: normalizedCaulkLines
+      caulkRequirements: normalizedCaulkLines,
+      phases: normalizedPhases.map((phase) => ({
+        ...phase,
+        requirements: mergeRequirementLines(
+          normalizedLines.filter((line) =>
+            phase.phaseId
+              ? line.phaseId === phase.phaseId
+              : line.phaseNumber === phase.phaseNumber
+          )
+        ),
+        caulkRequirements: normalizedCaulkLines.filter((line) =>
+          phase.phaseId
+            ? line.phaseId === phase.phaseId
+            : line.phaseNumber === phase.phaseNumber
+        )
+      }))
     }
   };
 }

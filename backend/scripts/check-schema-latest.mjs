@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0142_requirement_actual_usage_state.sql';
+const LATEST_MIGRATION = '0143_multi_phase_jobs.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -31,6 +31,12 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.job_requirements.actual_used_feet' },
   { kind: 'column', signature: 'app.job_requirements.completed_at' },
   { kind: 'column', signature: 'app.job_requirements.completed_by' },
+  { kind: 'table', signature: 'app.job_phases' },
+  { kind: 'column', signature: 'app.job_phases.phase_number' },
+  { kind: 'column', signature: 'app.job_phases.labor_status' },
+  { kind: 'column', signature: 'app.job_requirements.phase_id' },
+  { kind: 'column', signature: 'app.job_caulk_requirements.phase_id' },
+  { kind: 'column', signature: 'app.allocation_planner_suppressions.phase_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
@@ -85,8 +91,18 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_box_checkin_allocations(uuid, text, text, integer)' },
   { kind: 'function', signature: 'app_api.normalize_requirement_status(text)' },
+  { kind: 'function', signature: 'app_api.normalize_job_phase_labor_status(text)' },
+  { kind: 'function', signature: 'app_api.require_job_phase_number(text, text)' },
+  { kind: 'function', signature: 'app_api.job_phase_rows_from_payload(jsonb)' },
+  { kind: 'function', signature: 'app_api.replace_job_phases(uuid, app.jobs, jsonb, text, timestamp with time zone)' },
+  { kind: 'function', signature: 'app_api.job_phase_requirements_payload(uuid, app.jobs, jsonb)' },
+  { kind: 'function', signature: 'app_api.job_phase_caulk_requirements_payload(uuid, app.jobs, jsonb)' },
   { kind: 'function', signature: 'app_api.record_requirement_actual_usage_for_checkin(uuid, text, text, uuid, text, integer)' },
   { kind: 'function', signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_job_phase_set_state(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_list_job_phases(uuid)' },
+  { kind: 'function', signature: 'public.api_acl_list_job_phases_by_job(uuid, text)' },
+  { kind: 'function', signature: 'public.api_acl_list_job_phases_by_job_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)' },
@@ -152,6 +168,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)' },
+  { kind: 'function', signature: 'app_api.sync_active_job_phase_schedules(uuid, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
 ];

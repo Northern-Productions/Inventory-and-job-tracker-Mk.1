@@ -8,10 +8,12 @@ import { JobFilmRequirementsSection } from './job-editor/JobFilmRequirementsSect
 import type {
   JobCaulkRequirementEditorLine,
   JobEditorSubmitPayload,
+  JobPhaseEditorLine,
   JobRequirementEditorLine
 } from './job-editor/types';
 import {
   EMPTY_CAULK_REQUIREMENT_LINES,
+  EMPTY_PHASE_LINES,
   EMPTY_REQUIREMENT_LINES
 } from './job-editor/helpers';
 import { useJobEditorForm } from './job-editor/useJobEditorForm';
@@ -34,6 +36,7 @@ interface JobEditorDialogProps {
   initialSections?: string | number | null;
   initialInstallDate?: string;
   initialCrewLeader?: string;
+  initialPhases?: JobPhaseEditorLine[];
   initialRequirements?: JobRequirementEditorLine[];
   initialCaulkRequirements?: JobCaulkRequirementEditorLine[];
   filmCatalogEntries?: FilmCatalogEntry[];
@@ -58,6 +61,7 @@ export function JobEditorDialog({
   initialSections = null,
   initialInstallDate = '',
   initialCrewLeader = '',
+  initialPhases = EMPTY_PHASE_LINES,
   initialRequirements = EMPTY_REQUIREMENT_LINES,
   initialCaulkRequirements = EMPTY_CAULK_REQUIREMENT_LINES,
   filmCatalogEntries,
@@ -82,6 +86,7 @@ export function JobEditorDialog({
     installDate,
     error,
     filmName,
+    addPhaseLine,
     handleAddCaulkRequirement,
     handleAddRequirement,
     handleSave,
@@ -92,12 +97,14 @@ export function JobEditorDialog({
     jobNumber,
     manufacturer,
     manufacturerOptions,
+    phases,
     requiredFeet,
     removeCaulkRequirementLine,
     removeRequirementLine,
     requirements,
     saveCustomWidth,
     sections,
+    selectedPhaseKey,
     setCaulkProductId,
     setCaulkRequiredTubes,
     setCrewLeader,
@@ -108,8 +115,10 @@ export function JobEditorDialog({
     setManufacturer,
     setRequiredFeet,
     setSections,
+    setSelectedPhaseKey,
     setWarehouse,
     updateCaulkRequirementLine,
+    updatePhaseLine,
     updateRequirementLine,
     warehouse,
     widthIn
@@ -122,6 +131,7 @@ export function JobEditorDialog({
     initialSections,
     initialInstallDate,
     initialCrewLeader,
+    initialPhases,
     initialRequirements,
     initialCaulkRequirements,
     filmCatalogEntries,
@@ -131,6 +141,33 @@ export function JobEditorDialog({
 
   if (!open) {
     return null;
+  }
+
+  const phaseOptions = phases.map((phase) => ({
+    value: phase.id,
+    label: `Phase ${phase.phaseNumber}${phase.sections ? ` - ${phase.sections}` : ''}`
+  }));
+  const primaryPhase = phases.find((phase) => phase.isPrimary) || phases[0];
+
+  function handleSectionsChange(value: string) {
+    setSections(value);
+    if (primaryPhase) {
+      updatePhaseLine(primaryPhase.id, { sections: value, workScope: value });
+    }
+  }
+
+  function handleInstallDateChange(value: string) {
+    setInstallDate(value);
+    if (primaryPhase) {
+      updatePhaseLine(primaryPhase.id, { installDate: value });
+    }
+  }
+
+  function handleCrewLeaderChange(value: string) {
+    setCrewLeader(value);
+    if (primaryPhase) {
+      updatePhaseLine(primaryPhase.id, { crewLeader: value });
+    }
   }
 
   return (
@@ -168,12 +205,78 @@ export function JobEditorDialog({
           crewLeader={crewLeader}
           warehouse={warehouse}
           onJobNumberChange={setJobNumber}
-          onSectionsChange={setSections}
-          onInstallDateChange={setInstallDate}
-          onCrewLeaderChange={setCrewLeader}
+          onSectionsChange={handleSectionsChange}
+          onInstallDateChange={handleInstallDateChange}
+          onCrewLeaderChange={handleCrewLeaderChange}
           onWarehouseChange={setWarehouse}
           onClearError={clearError}
         />
+
+        <section className="job-editor-section">
+          <div className="panel-title-row">
+            <h3>Phases</h3>
+            <Button type="button" variant="secondary" size="sm" onClick={addPhaseLine}>
+              Add New Phase
+            </Button>
+          </div>
+          <div className="job-editor-phase-list">
+            {phases.map((phase, index) => (
+              <div className="job-editor-phase-row" key={phase.id}>
+                <label>
+                  <span>Phase</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={phase.phaseNumber}
+                    onChange={(event) =>
+                      updatePhaseLine(phase.id, {
+                        phaseNumber: event.target.value
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Work Scope</span>
+                  <input
+                    value={phase.sections}
+                    onChange={(event) =>
+                      updatePhaseLine(phase.id, {
+                        sections: event.target.value,
+                        workScope: event.target.value
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Install Date</span>
+                  <input
+                    type="date"
+                    value={phase.installDate}
+                    onChange={(event) => updatePhaseLine(phase.id, { installDate: event.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>Crew Leader</span>
+                  <input
+                    value={phase.crewLeader}
+                    onChange={(event) => updatePhaseLine(phase.id, { crewLeader: event.target.value })}
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+          <label className="field">
+            <span>Add requirements to phase</span>
+            <select value={selectedPhaseKey} onChange={(event) => setSelectedPhaseKey(event.target.value)}>
+              {phaseOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
 
         <JobFilmRequirementsSection
           manufacturerOptions={manufacturerOptions}

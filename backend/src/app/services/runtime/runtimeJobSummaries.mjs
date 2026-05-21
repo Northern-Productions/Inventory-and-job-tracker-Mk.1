@@ -606,6 +606,247 @@ function hasSharedActiveBoxConflict(jobNumber, installDate, crewLeader, jobAlloc
   );
 }
 
+function getEntryPhaseId(entry) {
+  return asTrimmedString(entry?.phaseId || entry?.phase_id);
+}
+
+function getPhaseDisplayWorkScope(phase, fallback = null) {
+  return phase?.workScope ?? phase?.sections ?? fallback ?? null;
+}
+
+function buildFallbackJobPhase(jobHeader) {
+  return {
+    phaseId: '',
+    phaseNumber: 1,
+    workScope: jobHeader.workScope ?? jobHeader.sections ?? null,
+    sections: jobHeader.sections ?? jobHeader.workScope ?? null,
+    installDate: jobHeader.installDate || '',
+    crewLeader: jobHeader.crewLeader || '',
+    laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+    isPrimary: true,
+    createdAt: jobHeader.createdAt || '',
+    updatedAt: jobHeader.updatedAt || '',
+  };
+}
+
+function filterEntriesForPhase(entries, phase, fallbackPhaseId = '') {
+  const phaseId = asTrimmedString(phase?.phaseId);
+  const fallbackId = asTrimmedString(fallbackPhaseId);
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    if (phaseId) {
+      return entryPhaseId === phaseId || (!entryPhaseId && fallbackId === phaseId);
+    }
+    return !entryPhaseId;
+  });
+}
+
+function filterRequirementLinkedEntriesForPhase(entries, phase, requirementIds, fallbackPhaseId = '') {
+  const phaseId = asTrimmedString(phase?.phaseId);
+  const fallbackId = asTrimmedString(fallbackPhaseId);
+  const scopedRequirementIds = requirementIds instanceof Set ? requirementIds : new Set();
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    if (entryPhaseId) {
+      return entryPhaseId === phaseId || (!phaseId && !entryPhaseId);
+    }
+
+    const requirementId = getRequirementId(entry);
+    if (requirementId) {
+      return scopedRequirementIds.has(requirementId);
+    }
+
+    return Boolean(phaseId && fallbackId === phaseId);
+  });
+}
+
+function isPhaseCompleteFromRequirements(phase, requirements) {
+  const filmRequirements = Array.isArray(requirements) ? requirements : [];
+  if (filmRequirements.length > 0) {
+    return filmRequirements.every((entry) => isRequirementComplete(entry));
+  }
+
+  return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === 'COMPLETE';
+}
+
+function comparePhasesByNumber(left, right) {
+  const leftNumber = integerOrZero(left?.phaseNumber) || 1;
+  const rightNumber = integerOrZero(right?.phaseNumber) || 1;
+  if (leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+
+  return compareCatalogStrings(left?.phaseId, right?.phaseId);
+}
+
+function chooseNextRelevantPhaseGroup(phases) {
+  const incomplete = (Array.isArray(phases) ? phases : [])
+    .filter((phase) => !phase.isComplete)
+    .slice();
+  if (!incomplete.length) {
+    return [];
+  }
+
+  const today = todayDateString();
+  const dated = incomplete.filter((phase) => asTrimmedString(phase.installDate));
+  const pastOrToday = dated
+    .filter((phase) => asTrimmedString(phase.installDate) <= today)
+    .sort((left, right) => {
+      if (left.installDate !== right.installDate) {
+        return left.installDate < right.installDate ? -1 : 1;
+      }
+      return comparePhasesByNumber(left, right);
+    });
+  const future = dated
+    .filter((phase) => asTrimmedString(phase.installDate) > today)
+    .sort((left, right) => {
+      if (left.installDate !== right.installDate) {
+        return left.installDate < right.installDate ? -1 : 1;
+      }
+      return comparePhasesByNumber(left, right);
+    });
+
+  const source = pastOrToday.length
+    ? pastOrToday
+    : future.length
+      ? future
+      : incomplete.sort(comparePhasesByNumber);
+  const first = source[0];
+  const installDate = asTrimmedString(first.installDate);
+  if (!installDate) {
+    return [first];
+  }
+
+  return source.filter((phase) => asTrimmedString(phase.installDate) === installDate);
+}
+
+function combinePhaseGroupStatus(phases) {
+  const statuses = (Array.isArray(phases) ? phases : []).map((phase) => asTrimmedString(phase.status).toUpperCase());
+  if (statuses.includes('FILM_ORDER')) {
+    return 'FILM_ORDER';
+  }
+  if (statuses.includes('ORDERED')) {
+    return 'ORDERED';
+  }
+  if (statuses.includes('COMPLETED')) {
+    return 'COMPLETED';
+  }
+  return 'READY';
+}
+
+function buildJobPhaseEntries(
+  jobHeader,
+  phases,
+  requirements,
+  allocations,
+  filmOrders,
+  caulkRequirements,
+  caulkAllocations,
+  boxById,
+  options = {}
+) {
+  const phaseSource = Array.isArray(phases) && phases.length
+    ? phases.slice().sort(comparePhasesByNumber)
+    : [buildFallbackJobPhase(jobHeader)];
+  const fallbackPhaseId = asTrimmedString(phaseSource.find((entry) => entry.isPrimary)?.phaseId || phaseSource[0]?.phaseId);
+  const entries = [];
+
+  for (let index = 0; index < phaseSource.length; index += 1) {
+    const phase = phaseSource[index];
+    const phaseRequirements = filterEntriesForPhase(requirements, phase, fallbackPhaseId);
+    const phaseCaulkRequirements = filterEntriesForPhase(caulkRequirements, phase, fallbackPhaseId);
+    const phaseRequirementIds = new Set(phaseRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+    const phaseCaulkRequirementIds = new Set(phaseCaulkRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+    const phaseAllocations = filterRequirementLinkedEntriesForPhase(
+      allocations,
+      phase,
+      phaseRequirementIds,
+      fallbackPhaseId
+    );
+    const phaseCaulkAllocations = filterRequirementLinkedEntriesForPhase(
+      caulkAllocations,
+      phase,
+      phaseCaulkRequirementIds,
+      fallbackPhaseId
+    );
+    const phaseFilmOrders = filterRequirementLinkedEntriesForPhase(
+      filmOrders,
+      phase,
+      phaseRequirementIds,
+      fallbackPhaseId
+    );
+    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements);
+    const status = isComplete
+      ? 'COMPLETED'
+      : deriveInStockReadinessStatus({
+          lifecycleStatus: jobHeader.lifecycleStatus,
+          isLaborOnly: !phaseRequirements.length && !phaseCaulkRequirements.length,
+          requirements: phaseRequirements,
+          caulkRequirements: phaseCaulkRequirements,
+          allocations: phaseAllocations,
+          caulkAllocations: phaseCaulkAllocations,
+          filmOrders: phaseFilmOrders,
+          allBoxes: options.allBoxes || Object.values(boxById || {}),
+          boxById,
+          caulkStockEntries: options.caulkStockEntries || [],
+          jobWarehouse: jobHeader.warehouse || '',
+          jobNumber: jobHeader.jobNumber || '',
+        });
+    let requiredFeet = 0;
+    let allocatedFeet = 0;
+    let allocatedWithInstallDateFeet = 0;
+    let allocatedWithoutInstallDateFeet = 0;
+    let remainingFeet = 0;
+    for (let requirementIndex = 0; requirementIndex < phaseRequirements.length; requirementIndex += 1) {
+      const requirement = phaseRequirements[requirementIndex];
+      if (isRequirementComplete(requirement)) {
+        continue;
+      }
+      requiredFeet += integerOrZero(requirement.requiredFeet);
+      allocatedFeet += integerOrZero(requirement.allocatedFeet);
+      allocatedWithInstallDateFeet += integerOrZero(requirement.allocatedWithInstallDateFeet);
+      allocatedWithoutInstallDateFeet += integerOrZero(requirement.allocatedWithoutInstallDateFeet);
+      remainingFeet += integerOrZero(requirement.remainingFeet);
+    }
+    const caulkTotals = summarizeCaulkRequirementCoverage(isComplete ? [] : phaseCaulkRequirements);
+
+    entries.push({
+      phaseId: asTrimmedString(phase.phaseId || phase.id),
+      phaseNumber: integerOrZero(phase.phaseNumber) || index + 1,
+      workScope: getPhaseDisplayWorkScope(phase, jobHeader.workScope ?? jobHeader.sections ?? null),
+      sections: getPhaseDisplayWorkScope(phase, jobHeader.sections ?? jobHeader.workScope ?? null),
+      installDate: asTrimmedString(phase.installDate),
+      crewLeader: asTrimmedString(phase.crewLeader),
+      laborStatus: asTrimmedString(phase.laborStatus || phase.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE',
+      status,
+      isComplete,
+      isPrimary: phase.isPrimary === true || (!phase.isPrimary && index === 0),
+      requiredFeet,
+      allocatedFeet,
+      allocatedWithInstallDateFeet,
+      allocatedWithoutInstallDateFeet,
+      remainingFeet,
+      requiredTubes: caulkTotals.requiredTubes,
+      allocatedTubes: caulkTotals.allocatedTubes,
+      remainingTubes: caulkTotals.remainingTubes,
+      requirementCount: phaseRequirements.length,
+      caulkRequirementCount: phaseCaulkRequirements.length,
+      filmOrderCount: countUnresolvedFilmOrders(phaseFilmOrders),
+      allocationCount: phaseAllocations.length,
+      createdAt: asTrimmedString(phase.createdAt),
+      updatedAt: asTrimmedString(phase.updatedAt),
+    });
+  }
+
+  const currentGroup = chooseNextRelevantPhaseGroup(entries);
+  const currentIds = new Set(currentGroup.map((entry) => asTrimmedString(entry.phaseId)));
+  return entries.map((entry) => ({
+    ...entry,
+    isNextRelevant: currentIds.has(asTrimmedString(entry.phaseId)),
+    isExpandedByDefault: currentIds.has(asTrimmedString(entry.phaseId)) || (!entry.isComplete && !entry.installDate)
+  }));
+}
+
 function buildJobListEntry(
   jobHeader,
   requirements,
@@ -617,40 +858,67 @@ function buildJobListEntry(
   options = {}
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
-  let installDate = jobHeader.installDate;
+  const phaseEntries = buildJobPhaseEntries(
+    jobHeader,
+    options.phases || [],
+    requirements,
+    allocations,
+    filmOrders,
+    caulkRequirements,
+    options.caulkAllocations || [],
+    boxById,
+    options
+  );
+  const nextPhaseGroup = chooseNextRelevantPhaseGroup(phaseEntries);
+  const currentPhase = nextPhaseGroup[0] || phaseEntries[0] || null;
+  let installDate = asTrimmedString(currentPhase?.installDate) || jobHeader.installDate;
   if (!installDate) {
     installDate = metadata.installDate;
   }
-  const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
+  const crewLeader = asTrimmedString(currentPhase?.crewLeader) || asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
 
   let requiredFeet = 0;
   let allocatedFeet = 0;
   let allocatedWithInstallDateFeet = 0;
   let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
-  const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
+  const summaryRequirements = nextPhaseGroup.length
+    ? requirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
+    : requirements;
+  const summaryCaulkRequirements = nextPhaseGroup.length
+    ? caulkRequirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
+    : caulkRequirements;
+  const caulkTotals = nextPhaseGroup.length
+    ? {
+        requiredTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
+        allocatedTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
+        remainingTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
+      }
+    : summarizeCaulkRequirementCoverage(caulkRequirements);
 
-  for (let index = 0; index < requirements.length; index += 1) {
-    if (isRequirementComplete(requirements[index])) {
+  for (let index = 0; index < summaryRequirements.length; index += 1) {
+    if (isRequirementComplete(summaryRequirements[index])) {
       continue;
     }
-    requiredFeet += requirements[index].requiredFeet;
-    allocatedFeet += requirements[index].allocatedFeet;
-    allocatedWithInstallDateFeet += integerOrZero(requirements[index].allocatedWithInstallDateFeet);
-    allocatedWithoutInstallDateFeet += integerOrZero(requirements[index].allocatedWithoutInstallDateFeet);
-    remainingFeet += requirements[index].remainingFeet;
+    requiredFeet += summaryRequirements[index].requiredFeet;
+    allocatedFeet += summaryRequirements[index].allocatedFeet;
+    allocatedWithInstallDateFeet += integerOrZero(summaryRequirements[index].allocatedWithInstallDateFeet);
+    allocatedWithoutInstallDateFeet += integerOrZero(summaryRequirements[index].allocatedWithoutInstallDateFeet);
+    remainingFeet += summaryRequirements[index].remainingFeet;
   }
 
   const lifecycleStatus =
     jobHeader && jobHeader.id
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
-  const baseStatus = computeJobStatusFromRequirements(
+  const baseStatus = nextPhaseGroup.length
+    ? combinePhaseGroupStatus(nextPhaseGroup)
+    : computeJobStatusFromRequirements(
     lifecycleStatus,
     Boolean(jobHeader.isLaborOnly),
     Boolean(jobHeader.isStagedForPickup),
-    requirements,
-    caulkRequirements,
+    summaryRequirements,
+    summaryCaulkRequirements,
     allocations,
     filmOrders,
     {
@@ -668,15 +936,22 @@ function buildJobListEntry(
       ? 'FILM_ORDER'
       : baseStatus;
 
-  const workScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+  const primaryWorkScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+  const workScope = getPhaseDisplayWorkScope(currentPhase, primaryWorkScope);
 
   return {
     jobId: jobHeader.id || '',
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || '',
     workScope,
+    primaryWorkScope,
     workScopeKey: jobHeader.workScopeKey || '',
     sections: workScope,
+    phaseId: asTrimmedString(currentPhase?.phaseId),
+    phaseNumber: integerOrZero(currentPhase?.phaseNumber) || undefined,
+    phaseWorkScope: workScope,
+    phaseCount: phaseEntries.length,
+    phases: phaseEntries,
     installDate,
     crewLeader,
     status,
@@ -885,6 +1160,9 @@ export {
   hasUncheckedOutCaulkAllocations,
   getJobStagingBlockingReason,
   hasSharedActiveBoxConflict,
+  buildJobPhaseEntries,
+  chooseNextRelevantPhaseGroup,
+  combinePhaseGroupStatus,
   buildJobListEntry,
   buildPublicAllocationEntriesForJob,
   buildPublicFilmOrderLinkedBoxesByFilmOrderId,

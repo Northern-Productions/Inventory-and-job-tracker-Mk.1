@@ -9,12 +9,17 @@ import {
   requireUuid,
 } from '../core/helpers.mjs';
 import { resolveCatalogWriteFilmEntry } from '../core/catalog.mjs';
-import { normalizeJobRequirementLookupKey } from '../core/jobs.mjs';
+import {
+  normalizeJobPhaseLaborStatus,
+  normalizeJobPhaseNumber,
+  normalizeJobRequirementLookupKey,
+} from '../core/jobs.mjs';
 import {
   mapDbCaulkJobAllocationRow,
   mapDbCaulkJobCheckoutRow,
   mapDbCaulkTransferRow,
   mapDbCaulkJobRequirementRow,
+  mapDbJobPhaseRow,
   mapDbJobRow,
   mapDbRequirementRow,
 } from './mappers.mjs';
@@ -186,6 +191,224 @@ async function saveJobRecordById(client, orgId, job) {
   return mapDbJobRow(row);
 }
 
+async function listJobPhases(client, orgId) {
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.job_phases
+      where org_id = $1
+      order by job_id asc, phase_number asc, created_at asc, id asc
+    `,
+    [orgId]
+  );
+
+  return rows.map(mapDbJobPhaseRow);
+}
+
+async function listJobPhasesByJobId(client, orgId, jobId) {
+  const rows = await queryRows(
+    client,
+    `
+      select *
+      from app.job_phases
+      where org_id = $1
+        and job_id = $2
+      order by phase_number asc, created_at asc, id asc
+    `,
+    [orgId, requireUuid(jobId, 'JobId')]
+  );
+
+  return rows.map(mapDbJobPhaseRow);
+}
+
+async function findJobPhaseById(client, orgId, jobId, phaseId) {
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.job_phases
+      where org_id = $1
+        and job_id = $2
+        and id = $3
+    `,
+    [orgId, requireUuid(jobId, 'JobId'), requireUuid(phaseId, 'PhaseId')]
+  );
+
+  return mapDbJobPhaseRow(row);
+}
+
+async function saveJobPhaseRecord(client, orgId, jobId, phase) {
+  const row = await queryRow(
+    client,
+    `
+      insert into app.job_phases (
+        id,
+        org_id,
+        job_id,
+        phase_number,
+        sections,
+        install_date,
+        crew_leader,
+        labor_status,
+        is_primary,
+        created_at,
+        created_by,
+        updated_at,
+        updated_by
+      )
+      values (
+        coalesce(nullif($3, '')::uuid, gen_random_uuid()),
+        $1,$2,$4,$5,
+        nullif($6, '')::date,
+        $7,$8,$9,
+        coalesce($10::timestamptz, now()),
+        $11,
+        coalesce($12::timestamptz, now()),
+        $13
+      )
+      on conflict (id) do update set
+        phase_number = excluded.phase_number,
+        sections = excluded.sections,
+        install_date = excluded.install_date,
+        crew_leader = excluded.crew_leader,
+        labor_status = excluded.labor_status,
+        is_primary = excluded.is_primary,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by
+      returning *
+    `,
+    [
+      orgId,
+      requireUuid(jobId, 'JobId'),
+      asTrimmedString(phase.phaseId || phase.id),
+      normalizeJobPhaseNumber(phase.phaseNumber, 'PhaseNumber'),
+      phase.sections ?? phase.workScope ?? null,
+      phase.installDate || '',
+      asTrimmedString(phase.crewLeader),
+      normalizeJobPhaseLaborStatus(phase.laborStatus || phase.status),
+      phase.isPrimary === true,
+      phase.createdAt || '',
+      asTrimmedString(phase.createdBy),
+      phase.updatedAt || new Date().toISOString(),
+      asTrimmedString(phase.updatedBy),
+    ]
+  );
+
+  return mapDbJobPhaseRow(row);
+}
+
+async function ensureDefaultJobPhase(client, orgId, jobHeader, actor = '', nowIso = '') {
+  const phases = await listJobPhasesByJobId(client, orgId, jobHeader.id);
+  if (phases.length) {
+    return phases[0];
+  }
+
+  return saveJobPhaseRecord(client, orgId, jobHeader.id, {
+    phaseNumber: 1,
+    sections: jobHeader.sections ?? jobHeader.workScope ?? null,
+    installDate: jobHeader.installDate || '',
+    crewLeader: jobHeader.crewLeader || '',
+    laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+    isPrimary: true,
+    createdAt: jobHeader.createdAt || nowIso || new Date().toISOString(),
+    createdBy: jobHeader.createdBy || actor || '',
+    updatedAt: nowIso || new Date().toISOString(),
+    updatedBy: actor || '',
+  });
+}
+
+async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, nowIso) {
+  const source = Array.isArray(phases) && phases.length
+    ? phases
+    : [{
+        phaseNumber: 1,
+        sections: jobHeader.sections ?? jobHeader.workScope ?? null,
+        installDate: jobHeader.installDate || '',
+        crewLeader: jobHeader.crewLeader || '',
+        laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+        isPrimary: true,
+      }];
+  const seenPhaseNumbers = new Set();
+  const saved = [];
+
+  await client.query('SET CONSTRAINTS job_phases_org_job_phase_number_unique DEFERRED');
+  await client.query(
+    `
+      update app.job_phases
+      set is_primary = false,
+          updated_at = $3::timestamptz,
+          updated_by = $4
+      where org_id = $1
+        and job_id = $2
+        and is_primary
+    `,
+    [orgId, jobHeader.id, nowIso || new Date().toISOString(), asTrimmedString(actor)]
+  );
+
+  for (let index = 0; index < source.length; index += 1) {
+    const entry = source[index] || {};
+    const phaseNumber = normalizeJobPhaseNumber(entry.phaseNumber ?? index + 1, `Phases[${index + 1}].PhaseNumber`);
+    if (seenPhaseNumbers.has(phaseNumber)) {
+      throw new HttpError(400, `Phase ${phaseNumber} already exists on this job.`);
+    }
+    seenPhaseNumbers.add(phaseNumber);
+    saved.push(await saveJobPhaseRecord(client, orgId, jobHeader.id, {
+      ...entry,
+      phaseNumber,
+      sections: entry.sections ?? entry.workScope ?? null,
+      laborStatus: entry.laborStatus || entry.status,
+      isPrimary: index === 0 || entry.isPrimary === true,
+      updatedAt: nowIso,
+      updatedBy: actor,
+      createdAt: entry.createdAt || nowIso,
+      createdBy: entry.createdBy || actor,
+    }));
+  }
+
+  if (saved.length && !saved.some((entry) => entry.isPrimary)) {
+    saved[0].isPrimary = true;
+    await saveJobPhaseRecord(client, orgId, jobHeader.id, {
+      ...saved[0],
+      updatedAt: nowIso,
+      updatedBy: actor,
+    });
+  }
+
+  return listJobPhasesByJobId(client, orgId, jobHeader.id);
+}
+
+async function setJobPhaseLaborState(client, orgId, params, actor) {
+  const jobId = requireUuid(params.jobId, 'JobId');
+  const phaseId = requireUuid(params.phaseId, 'PhaseId');
+  const status = normalizeJobPhaseLaborStatus(params.status);
+
+  const row = await queryRow(
+    client,
+    `
+      update app.job_phases p
+      set
+        labor_status = $4,
+        updated_at = now(),
+        updated_by = $5
+      from app.jobs j
+      where p.org_id = $1
+        and p.job_id = $2
+        and p.id = $3
+        and j.org_id = p.org_id
+        and j.id = p.job_id
+      returning p.*, j.job_number
+    `,
+    [orgId, jobId, phaseId, status, asTrimmedString(actor)]
+  );
+
+  if (!row) {
+    throw new HttpError(404, 'Job phase was not found.');
+  }
+
+  return mapDbJobPhaseRow(row);
+}
+
 async function listJobRequirements(client, orgId) {
   const rows = await queryRows(
     client,
@@ -193,11 +416,16 @@ async function listJobRequirements(client, orgId) {
       select
         r.*,
         j.job_number,
+        p.phase_number,
+        p.sections as phase_sections,
+        p.install_date as phase_install_date,
+        p.crew_leader as phase_crew_leader,
         exists (
           select 1
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'FILM'
             and s.cleared_at is null
             and s.requirement_signature = app_api.film_requirement_planner_signature(
@@ -209,8 +437,11 @@ async function listJobRequirements(client, orgId) {
         ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.id = r.phase_id
       where r.org_id = $1
-      order by j.job_number asc, r.manufacturer asc, r.film_name asc, r.width_in asc
+      order by j.job_number asc, p.phase_number asc nulls last, r.manufacturer asc, r.film_name asc, r.width_in asc
     `,
     [orgId]
   );
@@ -225,11 +456,16 @@ async function listJobRequirementsByJob(client, orgId, jobNumber) {
       select
         r.*,
         j.job_number,
+        p.phase_number,
+        p.sections as phase_sections,
+        p.install_date as phase_install_date,
+        p.crew_leader as phase_crew_leader,
         exists (
           select 1
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'FILM'
             and s.cleared_at is null
             and s.requirement_signature = app_api.film_requirement_planner_signature(
@@ -241,9 +477,12 @@ async function listJobRequirementsByJob(client, orgId, jobNumber) {
         ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.id = r.phase_id
       where r.org_id = $1
         and upper(trim(j.job_number)) = upper(trim($2))
-      order by r.manufacturer asc, r.film_name asc, r.width_in asc
+      order by p.phase_number asc nulls last, r.manufacturer asc, r.film_name asc, r.width_in asc
     `,
     [orgId, jobNumber]
   );
@@ -258,11 +497,16 @@ async function listJobRequirementsByJobId(client, orgId, jobId) {
       select
         r.*,
         j.job_number,
+        p.phase_number,
+        p.sections as phase_sections,
+        p.install_date as phase_install_date,
+        p.crew_leader as phase_crew_leader,
         exists (
           select 1
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'FILM'
             and s.cleared_at is null
             and s.requirement_signature = app_api.film_requirement_planner_signature(
@@ -274,9 +518,12 @@ async function listJobRequirementsByJobId(client, orgId, jobId) {
         ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.id = r.phase_id
       where r.org_id = $1
         and r.job_id = $2
-      order by r.manufacturer asc, r.film_name asc, r.width_in asc
+      order by p.phase_number asc nulls last, r.manufacturer asc, r.film_name asc, r.width_in asc
     `,
     [orgId, jobId]
   );
@@ -291,11 +538,16 @@ async function findJobRequirementByIdForJob(client, orgId, jobId, requirementId)
       select
         r.*,
         j.job_number,
+        p.phase_number,
+        p.sections as phase_sections,
+        p.install_date as phase_install_date,
+        p.crew_leader as phase_crew_leader,
         exists (
           select 1
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'FILM'
             and s.cleared_at is null
             and s.requirement_signature = app_api.film_requirement_planner_signature(
@@ -307,6 +559,9 @@ async function findJobRequirementByIdForJob(client, orgId, jobId, requirementId)
         ) as auto_planning_suppressed
       from app.job_requirements r
       join app.jobs j on j.id = r.job_id
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.id = r.phase_id
       where r.org_id = $1
         and r.job_id = $2
         and r.id = $3
@@ -324,6 +579,11 @@ async function listJobCaulkRequirements(client, orgId) {
       select
         r.id as requirement_id,
         r.job_id,
+        r.phase_id,
+        ph.phase_number,
+        ph.sections as phase_sections,
+        ph.install_date as phase_install_date,
+        ph.crew_leader as phase_crew_leader,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -339,6 +599,7 @@ async function listJobCaulkRequirements(client, orgId) {
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'CAULK'
             and s.cleared_at is null
             and s.requirement_signature = app_api.caulk_requirement_planner_signature(
@@ -351,6 +612,9 @@ async function listJobCaulkRequirements(client, orgId) {
       join app.jobs j
         on j.id = r.job_id
        and j.org_id = r.org_id
+      left join app.job_phases ph
+        on ph.org_id = r.org_id
+       and ph.id = r.phase_id
       join app.caulk_products p
         on p.id = r.product_id
        and p.org_id = r.org_id
@@ -358,7 +622,7 @@ async function listJobCaulkRequirements(client, orgId) {
         on m.id = p.manufacturer_id
        and m.org_id = p.org_id
       where r.org_id = $1
-      order by j.job_number asc, lower(m.name), lower(p.name), lower(p.code)
+      order by j.job_number asc, ph.phase_number asc nulls last, lower(m.name), lower(p.name), lower(p.code)
     `,
     [orgId]
   );
@@ -373,6 +637,11 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
       select
         r.id as requirement_id,
         r.job_id,
+        r.phase_id,
+        ph.phase_number,
+        ph.sections as phase_sections,
+        ph.install_date as phase_install_date,
+        ph.crew_leader as phase_crew_leader,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -388,6 +657,7 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'CAULK'
             and s.cleared_at is null
             and s.requirement_signature = app_api.caulk_requirement_planner_signature(
@@ -400,6 +670,9 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
       join app.jobs j
         on j.id = r.job_id
        and j.org_id = r.org_id
+      left join app.job_phases ph
+        on ph.org_id = r.org_id
+       and ph.id = r.phase_id
       join app.caulk_products p
         on p.id = r.product_id
        and p.org_id = r.org_id
@@ -408,7 +681,7 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
        and m.org_id = p.org_id
       where r.org_id = $1
         and upper(j.job_number) = upper(trim($2))
-      order by lower(m.name), lower(p.name), lower(p.code)
+      order by ph.phase_number asc nulls last, lower(m.name), lower(p.name), lower(p.code)
     `,
     [orgId, jobNumber]
   );
@@ -423,6 +696,11 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
       select
         r.id as requirement_id,
         r.job_id,
+        r.phase_id,
+        ph.phase_number,
+        ph.sections as phase_sections,
+        ph.install_date as phase_install_date,
+        ph.crew_leader as phase_crew_leader,
         j.job_number,
         r.product_id,
         p.manufacturer_id,
@@ -438,6 +716,7 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
           from app.allocation_planner_suppressions s
           where s.org_id = r.org_id
             and s.job_id = r.job_id
+            and (s.phase_id is null or s.phase_id = r.phase_id)
             and s.material_type = 'CAULK'
             and s.cleared_at is null
             and s.requirement_signature = app_api.caulk_requirement_planner_signature(
@@ -450,6 +729,9 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
       join app.jobs j
         on j.id = r.job_id
        and j.org_id = r.org_id
+      left join app.job_phases ph
+        on ph.org_id = r.org_id
+       and ph.id = r.phase_id
       join app.caulk_products p
         on p.id = r.product_id
        and p.org_id = r.org_id
@@ -458,7 +740,7 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
        and m.org_id = p.org_id
       where r.org_id = $1
         and r.job_id = $2
-      order by lower(m.name), lower(p.name), lower(p.code)
+      order by ph.phase_number asc nulls last, lower(m.name), lower(p.name), lower(p.code)
     `,
     [orgId, jobId]
   );
@@ -914,6 +1196,14 @@ async function listPendingCaulkTransfersByWarehouseProduct(client, orgId, wareho
 }
 
 async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
+  const defaultPhase = await ensureDefaultJobPhase(client, orgId, jobHeader);
+  const phases = await listJobPhasesByJobId(client, orgId, jobHeader.id);
+  const phasesById = {};
+  const phasesByNumber = {};
+  for (let index = 0; index < phases.length; index += 1) {
+    phasesById[asTrimmedString(phases[index].phaseId)] = phases[index];
+    phasesByNumber[String(phases[index].phaseNumber)] = phases[index];
+  }
   const existingRequirements = await listJobRequirementsByJobId(client, orgId, jobHeader.id);
   const existingById = {};
   const unusedExistingByKey = new Map();
@@ -922,7 +1212,10 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
     if (existing?.id) {
       existingById[existing.id] = existing;
     }
-    const key = normalizeJobRequirementLookupKey(existing.manufacturer, existing.filmName, existing.widthIn);
+    const key = [
+      asTrimmedString(existing.phaseId || defaultPhase.phaseId),
+      normalizeJobRequirementLookupKey(existing.manufacturer, existing.filmName, existing.widthIn),
+    ].join('|');
     const matches = unusedExistingByKey.get(key) || [];
     matches.push(existing);
     unusedExistingByKey.set(key, matches);
@@ -943,7 +1236,21 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
     const manufacturer = canonical.manufacturer;
     const filmName = canonical.filmName;
     const explicitRequirementId = asTrimmedString(entry.id || entry.requirementId);
-    const lookupKey = normalizeJobRequirementLookupKey(manufacturer, filmName, entry.widthIn);
+    const requestedPhaseId = asTrimmedString(entry.phaseId);
+    const requestedPhaseNumber = asTrimmedString(entry.phaseNumber);
+    const phase = requestedPhaseId
+      ? phasesById[requestedPhaseId]
+      : requestedPhaseNumber
+        ? phasesByNumber[requestedPhaseNumber]
+        : defaultPhase;
+    if (!phase) {
+      throw new HttpError(400, 'Requirement phase does not belong to this job.');
+    }
+    const phaseId = asTrimmedString(phase.phaseId);
+    const lookupKey = [
+      phaseId,
+      normalizeJobRequirementLookupKey(manufacturer, filmName, entry.widthIn),
+    ].join('|');
     const matchedExisting = explicitRequirementId
       ? existingById[explicitRequirementId] || null
       : (unusedExistingByKey.get(lookupKey) || [])[0] || null;
@@ -962,6 +1269,7 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
           id,
           org_id,
           job_id,
+          phase_id,
           manufacturer,
           film_name,
           width_in,
@@ -978,18 +1286,19 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
         )
         values (
           $1,$2,$3,$4,$5,$6,$7,$8,
-          $9::integer,
-          nullif($10, '')::timestamptz,
-          $11,
+          $9,$10::integer,
+          nullif($11, '')::timestamptz,
           $12,
-          $13::timestamptz,$14,
-          $15::timestamptz,$16
+          $13,
+          $14::timestamptz,$15,
+          $16::timestamptz,$17
         )
       `,
       [
         explicitRequirementId || matchedExisting?.id || crypto.randomUUID(),
         orgId,
         jobHeader.id,
+        phaseId,
         manufacturer,
         filmName,
         entry.widthIn,
@@ -1171,18 +1480,23 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
       throw new HttpError(400, `CaulkRequirements[${index + 1}].RequiredTubes must be greater than zero.`);
     }
 
-    if (!mergedByProductId[productId]) {
-      mergedByProductId[productId] = {
+    const phaseKey = asTrimmedString(entry.phaseId) || asTrimmedString(entry.phaseNumber) || 'default';
+    const mergeKey = `${phaseKey}|${productId}`;
+
+    if (!mergedByProductId[mergeKey]) {
+      mergedByProductId[mergeKey] = {
         requirementId: asTrimmedString(entry.requirementId),
+        phaseId: asTrimmedString(entry.phaseId),
+        phaseNumber: asTrimmedString(entry.phaseNumber),
         productId,
         requiredTubes: 0,
       };
     }
 
-    mergedByProductId[productId].requiredTubes += Math.floor(requiredTubes);
+    mergedByProductId[mergeKey].requiredTubes += Math.floor(requiredTubes);
   }
 
-  const productIds = Object.keys(mergedByProductId);
+  const productIds = Array.from(new Set(Object.values(mergedByProductId).map((entry) => entry.productId)));
   const rows = await queryRows(
     client,
     `
@@ -1204,10 +1518,18 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
     }
   }
 
-  return productIds.map((productId) => mergedByProductId[productId]);
+  return Object.values(mergedByProductId);
 }
 
 async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entries, actor, nowIso) {
+  const defaultPhase = await ensureDefaultJobPhase(client, orgId, jobHeader, actor, nowIso);
+  const phases = await listJobPhasesByJobId(client, orgId, jobHeader.id);
+  const phasesById = {};
+  const phasesByNumber = {};
+  for (let index = 0; index < phases.length; index += 1) {
+    phasesById[asTrimmedString(phases[index].phaseId)] = phases[index];
+    phasesByNumber[String(phases[index].phaseNumber)] = phases[index];
+  }
   await client.query(
     `
       delete from app.job_caulk_requirements
@@ -1219,12 +1541,23 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
+    const requestedPhaseId = asTrimmedString(entry.phaseId);
+    const requestedPhaseNumber = asTrimmedString(entry.phaseNumber);
+    const phase = requestedPhaseId
+      ? phasesById[requestedPhaseId]
+      : requestedPhaseNumber
+        ? phasesByNumber[requestedPhaseNumber]
+        : defaultPhase;
+    if (!phase) {
+      throw new HttpError(400, 'Caulk requirement phase does not belong to this job.');
+    }
     await client.query(
       `
         insert into app.job_caulk_requirements (
           id,
           org_id,
           job_id,
+          phase_id,
           product_id,
           required_tubes,
           notes,
@@ -1234,15 +1567,16 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
           updated_by
         )
         values (
-          $1,$2,$3,$4,$5,$6,
-          $7::timestamptz,$8,
-          $9::timestamptz,$10
+          $1,$2,$3,$4,$5,$6,$7,
+          $8::timestamptz,$9,
+          $10::timestamptz,$11
         )
       `,
       [
         entry.requirementId || crypto.randomUUID(),
         orgId,
         jobHeader.id,
+        asTrimmedString(phase.phaseId),
         entry.productId,
         entry.requiredTubes,
         '',
@@ -1360,6 +1694,13 @@ export {
   findJobById,
   saveJobRecord,
   saveJobRecordById,
+  listJobPhases,
+  listJobPhasesByJobId,
+  findJobPhaseById,
+  saveJobPhaseRecord,
+  ensureDefaultJobPhase,
+  replaceJobPhasesForJob,
+  setJobPhaseLaborState,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,

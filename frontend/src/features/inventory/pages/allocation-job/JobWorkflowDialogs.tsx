@@ -7,6 +7,7 @@ import type {
   FilmCatalogEntry,
   FilmOrderEntry,
   JobCaulkRequirementLine,
+  JobPhase,
   JobRequirementLine,
   Warehouse
 } from '../../../../domain';
@@ -54,6 +55,7 @@ type JobWorkflowDialogsProps = {
   sections: string | null;
   installDate: string;
   crewLeader: string;
+  phases: JobPhase[];
   requirements: JobRequirementLine[];
   filmOrders: FilmOrderEntry[];
   filmCatalogEntries: FilmCatalogEntry[] | undefined;
@@ -108,6 +110,7 @@ export function JobWorkflowDialogs({
   sections,
   installDate,
   crewLeader,
+  phases,
   requirements,
   filmOrders,
   filmCatalogEntries,
@@ -171,9 +174,22 @@ export function JobWorkflowDialogs({
         initialSections={sections}
         initialInstallDate={installDate}
         initialCrewLeader={crewLeader}
+        initialPhases={phases.map((phase) => ({
+          id: phase.phaseId || `phase-${phase.phaseNumber}`,
+          phaseId: phase.phaseId,
+          phaseNumber: phase.phaseNumber,
+          workScope: phase.workScope || phase.sections || '',
+          sections: phase.sections || phase.workScope || '',
+          installDate: phase.installDate || '',
+          crewLeader: phase.crewLeader || '',
+          laborStatus: phase.laborStatus,
+          isPrimary: phase.isPrimary
+        }))}
         initialRequirements={requirements}
         initialCaulkRequirements={caulkRequirements.map((entry) => ({
           requirementId: entry.requirementId,
+          phaseId: entry.phaseId,
+          phaseNumber: entry.phaseNumber,
           productId: entry.productId,
           requiredTubes: entry.requiredTubes
         }))}

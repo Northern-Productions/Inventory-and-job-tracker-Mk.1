@@ -353,11 +353,13 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
     'caulkTransferAlerts',
     'filmOrders',
     'filmTransferAlerts',
+    'phases',
     'requirements',
     'summary',
     'usage',
     'usageTimeline',
   ]);
+  assert.equal(Array.isArray(payload.phases), true);
   assert.equal(payload.summary.jobId, 'job-1');
   assert.equal(payload.summary.workScope, 'Sections 4, 5');
   assert.equal(payload.summary.sections, 'Sections 4, 5');

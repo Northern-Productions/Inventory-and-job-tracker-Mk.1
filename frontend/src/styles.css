@@ -3156,6 +3156,83 @@ td.col-available-linear-ft {
   block-size: 1rem;
 }
 
+.job-phases-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.job-phase-list,
+.job-phase-body,
+.job-editor-phase-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.job-phase-card,
+.job-editor-phase-row {
+  border: 1px solid rgba(18, 52, 59, 0.1);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.job-phase-card {
+  padding: 0.9rem;
+}
+
+.job-phase-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.job-phase-header h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.job-phase-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  color: #587177;
+  font-size: 0.86rem;
+}
+
+.job-phase-body {
+  margin-top: 0.85rem;
+}
+
+.phase-collapse-button {
+  min-width: 2.25rem;
+}
+
+.phase-labor-toggle {
+  align-self: center;
+}
+
+.job-editor-phase-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 0.5fr) minmax(12rem, 1.4fr) minmax(9rem, 1fr) minmax(10rem, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.85rem;
+}
+
+.job-editor-phase-row label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: #587177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.job-editor-phase-row input {
+  min-width: 0;
+}
+
 .requirement-result {
   align-items: center;
   border-radius: 999px;
@@ -4637,7 +4714,8 @@ td.col-available-linear-ft {
   }
 
   .job-editor-basics-primary-grid,
-  .job-editor-basics-secondary-grid {
+  .job-editor-basics-secondary-grid,
+  .job-editor-phase-row {
     grid-template-columns: 1fr;
   }
 

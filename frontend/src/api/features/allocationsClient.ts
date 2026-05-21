@@ -124,6 +124,11 @@ function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementL
   const requiredFeet = Math.max(0, Number(entry.requiredFeet || 0));
   return {
     ...entry,
+    phaseId: String(entry.phaseId || '').trim() || undefined,
+    phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
+    phaseWorkScope: String(entry.phaseWorkScope ?? '').trim() || null,
+    phaseInstallDate: String(entry.phaseInstallDate || '').trim(),
+    phaseCrewLeader: String(entry.phaseCrewLeader || '').trim(),
     status,
     isComplete: status === 'COMPLETE',
     actualUsedFeet,
@@ -142,6 +147,11 @@ function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementL
 function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
   return {
     ...entry,
+    phaseId: String(entry.phaseId || '').trim() || undefined,
+    phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
+    phaseWorkScope: String(entry.phaseWorkScope ?? '').trim() || null,
+    phaseInstallDate: String(entry.phaseInstallDate || '').trim(),
+    phaseCrewLeader: String(entry.phaseCrewLeader || '').trim(),
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),

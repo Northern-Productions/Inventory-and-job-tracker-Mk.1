@@ -878,11 +878,27 @@ test('normalizeCanonicalManufacturerAndFilm preserves explicit 3M Solar Prestige
 });
 
 test('job requirement and film order repositories preserve write-normalized labels', async () => {
-  const requirementsClient = createRecordingClient([[], []]);
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  const phaseRow = {
+    id: '22222222-2222-4222-8222-222222222222',
+    org_id: 'org-1',
+    job_id: jobId,
+    phase_number: 1,
+    sections: 'Sections 1',
+    install_date: '2026-04-15',
+    crew_leader: 'Alexis',
+    labor_status: 'ACTIVE',
+    is_primary: true,
+    created_at: '2026-04-15T08:00:00Z',
+    created_by: 'tester',
+    updated_at: '2026-04-15T08:00:00Z',
+    updated_by: 'tester'
+  };
+  const requirementsClient = createRecordingClient([[phaseRow], [phaseRow], [], [], []]);
   await replaceJobRequirementsForJob(
     requirementsClient,
     'org-1',
-    { id: 'job-1' },
+    { id: jobId },
     [
       {
         id: 'req-1',
@@ -902,13 +918,13 @@ test('job requirement and film order repositories preserve write-normalized labe
     String(call.text || '').includes('insert into app.job_requirements')
   );
   assert.ok(requirementInsertCall, 'expected requirement insert call');
-  assert.equal(requirementInsertCall.params[3], '3M Solar');
-  assert.equal(requirementInsertCall.params[4], 'Prestige 40 Exterior');
+  assert.equal(requirementInsertCall.params[4], '3M Solar');
+  assert.equal(requirementInsertCall.params[5], 'Prestige 40 Exterior');
 
   const filmOrdersClient = createRecordingClient([[]]);
   await saveFilmOrderRecord(filmOrdersClient, 'org-1', {
     filmOrderId: 'fo-1',
-    jobId: 'job-1',
+    jobId,
     jobNumber: '19413',
     warehouse: 'IL1',
     manufacturer: '3M Solar',

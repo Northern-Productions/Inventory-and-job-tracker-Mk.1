@@ -62,6 +62,25 @@ function normalizeJobLifecycleFilter(value) {
   throw new HttpError(400, 'lifecycleStatus must be ACTIVE or COMPLETED.');
 }
 
+function normalizeJobPhaseNumber(value, fieldName = 'Phase number') {
+  const raw = asTrimmedString(value);
+  if (!/^\d+$/.test(raw)) {
+    throw new HttpError(400, `${fieldName} must be a positive whole number.`);
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, `${fieldName} must be a positive whole number.`);
+  }
+
+  return parsed;
+}
+
+function normalizeJobPhaseLaborStatus(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  return normalized === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+}
+
 function normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn) {
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   return [
@@ -80,11 +99,12 @@ function dedupeJobRequirements(requirements, warnings) {
 
   for (let index = 0; index < requirements.length; index += 1) {
     const normalized = normalizeJobRequirementInput(requirements[index], warnings, index);
-    const key = normalizeJobRequirementLookupKey(
+    const phaseKey = asTrimmedString(normalized.phaseId) || asTrimmedString(normalized.phaseNumber) || 'default';
+    const key = `${phaseKey}|${normalizeJobRequirementLookupKey(
       normalized.manufacturer,
       normalized.filmName,
       normalized.widthIn
-    );
+    )}`;
 
     if (!deduped[key]) {
       deduped[key] = normalized;
@@ -221,6 +241,8 @@ export {
   normalizeJobSections,
   normalizeJobLifecycleStatus,
   normalizeJobLifecycleFilter,
+  normalizeJobPhaseNumber,
+  normalizeJobPhaseLaborStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,

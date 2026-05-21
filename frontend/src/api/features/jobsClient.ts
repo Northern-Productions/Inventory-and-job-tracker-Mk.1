@@ -8,8 +8,10 @@ import type {
   JobDetailResponse,
   JobListEntry,
   JobListResponse,
+  JobPhase,
   SetJobStagedForPickupPayload,
   SetJobRequirementStatePayload,
+  SetJobPhaseStatePayload,
   UpdateJobPayload
 } from '../../domain';
 import { request } from '../http';
@@ -63,13 +65,20 @@ function normalizeOptionalText(value: unknown): string | null {
 
 function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
   const workScope = normalizeOptionalText(entry.workScope ?? entry.sections);
+  const phases = (entry.phases || []).map(normalizeJobPhase);
   return {
     ...entry,
     jobId: String(entry.jobId || '').trim() || undefined,
     workScope,
+    primaryWorkScope: normalizeOptionalText(entry.primaryWorkScope),
     workScopeKey: normalizeOptionalText(entry.workScopeKey) || undefined,
     routeTarget: normalizeOptionalText(entry.routeTarget) || undefined,
     sections: normalizeOptionalText(entry.sections ?? workScope),
+    phaseId: String(entry.phaseId || '').trim() || undefined,
+    phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
+    phaseWorkScope: normalizeOptionalText(entry.phaseWorkScope),
+    phaseCount: Math.max(phases.length || 0, Number(entry.phaseCount || 0)),
+    phases,
     isLaborOnly: Boolean(entry.isLaborOnly),
     isStagedForPickup: Boolean(entry.isStagedForPickup),
     hasOrderedAllocations: Boolean(entry.hasOrderedAllocations),
@@ -84,9 +93,50 @@ function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
   } as T;
 }
 
+function normalizeJobPhase(entry: JobPhase): JobPhase {
+  const status = String(entry.status || '').trim().toUpperCase();
+  const laborStatus = String(entry.laborStatus || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+  return {
+    ...entry,
+    phaseId: String(entry.phaseId || entry.id || '').trim(),
+    id: String(entry.id || entry.phaseId || '').trim() || undefined,
+    jobId: String(entry.jobId || '').trim() || undefined,
+    phaseNumber: Math.max(1, Math.floor(Number(entry.phaseNumber || 1))),
+    workScope: normalizeOptionalText(entry.workScope ?? entry.sections),
+    sections: normalizeOptionalText(entry.sections ?? entry.workScope),
+    installDate: String(entry.installDate || '').trim(),
+    crewLeader: String(entry.crewLeader || '').trim(),
+    laborStatus,
+    status: (status || 'READY') as JobPhase['status'],
+    isComplete: Boolean(entry.isComplete || status === 'COMPLETED' || laborStatus === 'COMPLETE'),
+    isPrimary: Boolean(entry.isPrimary),
+    isNextRelevant: Boolean(entry.isNextRelevant),
+    isExpandedByDefault: Boolean(entry.isExpandedByDefault),
+    requiredFeet: Math.max(0, Number(entry.requiredFeet || 0)),
+    allocatedFeet: Math.max(0, Number(entry.allocatedFeet || 0)),
+    allocatedWithInstallDateFeet: Math.max(0, Number(entry.allocatedWithInstallDateFeet || 0)),
+    allocatedWithoutInstallDateFeet: Math.max(0, Number(entry.allocatedWithoutInstallDateFeet || 0)),
+    remainingFeet: Math.max(0, Number(entry.remainingFeet || 0)),
+    requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
+    allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
+    remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),
+    requirementCount: Math.max(0, Number(entry.requirementCount || 0)),
+    caulkRequirementCount: Math.max(0, Number(entry.caulkRequirementCount || 0)),
+    filmOrderCount: Math.max(0, Number(entry.filmOrderCount || 0)),
+    allocationCount: Math.max(0, Number(entry.allocationCount || 0)),
+    createdAt: String(entry.createdAt || '').trim(),
+    updatedAt: String(entry.updatedAt || '').trim()
+  };
+}
+
 function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
   return {
     ...entry,
+    phaseId: String(entry.phaseId || '').trim() || undefined,
+    phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
+    phaseWorkScope: normalizeOptionalText(entry.phaseWorkScope),
+    phaseInstallDate: String(entry.phaseInstallDate || '').trim(),
+    phaseCrewLeader: String(entry.phaseCrewLeader || '').trim(),
     requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
     remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),
@@ -102,8 +152,14 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
   return {
     ...detail,
     summary: normalizeJobListEntry(detail.summary),
+    phases: (detail.phases || detail.summary?.phases || []).map(normalizeJobPhase),
     requirements: (detail.requirements || []).map((entry) => ({
       ...entry,
+      phaseId: String(entry.phaseId || '').trim() || undefined,
+      phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
+      phaseWorkScope: normalizeOptionalText(entry.phaseWorkScope),
+      phaseInstallDate: String(entry.phaseInstallDate || '').trim(),
+      phaseCrewLeader: String(entry.phaseCrewLeader || '').trim(),
       status: normalizeRequirementStatus(entry.status),
       isComplete: normalizeRequirementStatus(entry.status) === 'COMPLETE',
       actualUsedFeet: Math.max(0, Number(entry.actualUsedFeet || 0)),
@@ -336,6 +392,17 @@ export async function setJobRequirementState(
 ): Promise<{ result: JobDetail; warnings: string[] }> {
   assertFeatureAccess('jobs', 'write');
   const response = await request<JobDetail>('POST', '/jobs/requirement-state', { body: payload });
+  return {
+    result: normalizeJobDetail(response.data),
+    warnings: response.warnings
+  };
+}
+
+export async function setJobPhaseState(
+  payload: SetJobPhaseStatePayload
+): Promise<{ result: JobDetail; warnings: string[] }> {
+  assertFeatureAccess('jobs', 'write');
+  const response = await request<JobDetail>('POST', '/jobs/phase-state', { body: payload });
   return {
     result: normalizeJobDetail(response.data),
     warnings: response.warnings

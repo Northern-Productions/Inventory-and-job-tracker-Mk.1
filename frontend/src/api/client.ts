@@ -80,6 +80,7 @@ export {
   getJobs,
   reopenJob,
   searchJobsByNumber,
+  setJobPhaseState,
   setJobRequirementState,
   setJobStagedForPickup,
   updateJob

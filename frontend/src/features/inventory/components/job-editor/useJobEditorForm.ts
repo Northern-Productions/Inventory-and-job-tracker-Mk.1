@@ -26,6 +26,7 @@ import type {
   CaulkRequirementDraftLine,
   JobCaulkRequirementEditorLine,
   JobEditorSubmitPayload,
+  JobPhaseEditorLine,
   JobRequirementEditorLine,
   RequirementDraftLine
 } from './types';
@@ -39,6 +40,7 @@ interface UseJobEditorFormOptions {
   initialSections?: string | number | null;
   initialInstallDate?: string;
   initialCrewLeader?: string;
+  initialPhases?: JobPhaseEditorLine[];
   initialRequirements: JobRequirementEditorLine[];
   initialCaulkRequirements: JobCaulkRequirementEditorLine[];
   filmCatalogEntries?: FilmCatalogEntry[];
@@ -55,6 +57,7 @@ export function useJobEditorForm({
   initialSections,
   initialInstallDate = '',
   initialCrewLeader = '',
+  initialPhases = [],
   initialRequirements,
   initialCaulkRequirements,
   filmCatalogEntries,
@@ -93,6 +96,8 @@ export function useJobEditorForm({
   const [sections, setSections] = useState(getSectionsInputValue(initialSections));
   const [installDate, setInstallDate] = useState(initialInstallDate);
   const [crewLeader, setCrewLeader] = useState(initialCrewLeader);
+  const [phases, setPhases] = useState<JobPhaseEditorLine[]>([]);
+  const [selectedPhaseKey, setSelectedPhaseKey] = useState('primary');
   const [requirements, setRequirements] = useState<RequirementDraftLine[]>(
     initialRequirements.map((entry) => createDraftLine(entry))
   );
@@ -112,6 +117,37 @@ export function useJobEditorForm({
   const lastResetTargetKeyRef = useRef('');
   const previousManufacturerOptionsLengthRef = useRef(0);
 
+  function makePhaseLineId() {
+    return `job-phase-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function buildDefaultPhase(): JobPhaseEditorLine {
+    return {
+      id: 'primary',
+      phaseNumber: 1,
+      workScope: getSectionsInputValue(initialSections),
+      sections: getSectionsInputValue(initialSections),
+      installDate: initialInstallDate,
+      crewLeader: initialCrewLeader,
+      laborStatus: 'ACTIVE',
+      isPrimary: true
+    };
+  }
+
+  function normalizeInitialPhaseLines(source: JobPhaseEditorLine[]): JobPhaseEditorLine[] {
+    return (source.length ? source : [buildDefaultPhase()]).map((phase, index) => ({
+      ...phase,
+      id: phase.id || phase.phaseId || (index === 0 ? 'primary' : makePhaseLineId()),
+      phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1))),
+      workScope: getSectionsInputValue(phase.workScope ?? phase.sections),
+      sections: getSectionsInputValue(phase.sections ?? phase.workScope),
+      installDate: phase.installDate || '',
+      crewLeader: phase.crewLeader || '',
+      laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' as const : 'ACTIVE' as const,
+      isPrimary: phase.isPrimary === true || index === 0
+    }));
+  }
+
   const hasCustomWidth =
     widthIn.trim() !== '' &&
     !STANDARD_WIDTH_OPTIONS.includes(widthIn as (typeof STANDARD_WIDTH_OPTIONS)[number]);
@@ -126,6 +162,7 @@ export function useJobEditorForm({
     const sourceSections = restoreDraft?.workScope ?? restoreDraft?.sections ?? initialSections;
     const sourceInstallDate = restoreDraft?.installDate ?? initialInstallDate;
     const sourceCrewLeader = restoreDraft?.crewLeader ?? initialCrewLeader;
+    const sourcePhases = normalizeInitialPhaseLines(restoreDraft?.phases ?? initialPhases);
     const sourceRequirements = restoreDraft?.requirements ?? initialRequirements;
     const sourceCaulkRequirements = restoreDraft?.caulkRequirements ?? initialCaulkRequirements;
 
@@ -134,6 +171,8 @@ export function useJobEditorForm({
     setSections(getSectionsInputValue(sourceSections));
     setInstallDate(sourceInstallDate);
     setCrewLeader(sourceCrewLeader);
+    setPhases(sourcePhases);
+    setSelectedPhaseKey(sourcePhases[0]?.id || 'primary');
     setRequirements(sourceRequirements.map((entry) => createDraftLine(entry)));
     setCaulkRequirements(sourceCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
     setManufacturer(manufacturerOptions[0] || '');
@@ -151,6 +190,7 @@ export function useJobEditorForm({
     initialCrewLeader,
     initialInstallDate,
     initialJobNumber,
+    initialPhases,
     initialRequirements,
     initialSections,
     initialWarehouse,
@@ -220,6 +260,49 @@ export function useJobEditorForm({
     setCaulkRequirements((current) => current.filter((line) => line.id !== id));
   }
 
+  function updatePhaseLine(id: string, patch: Partial<JobPhaseEditorLine>) {
+    setPhases((current) =>
+      current.map((line) => (line.id === id ? { ...line, ...patch } : line))
+    );
+  }
+
+  function addPhaseLine() {
+    setPhases((current) => {
+      const nextNumber = current.reduce((max, phase) => Math.max(max, Number(phase.phaseNumber || 0)), 0) + 1;
+      const nextPhase: JobPhaseEditorLine = {
+        id: makePhaseLineId(),
+        phaseNumber: nextNumber,
+        workScope: '',
+        sections: '',
+        installDate: '',
+        crewLeader: '',
+        laborStatus: 'ACTIVE',
+        isPrimary: false
+      };
+      setSelectedPhaseKey(nextPhase.id);
+      return [...current, nextPhase];
+    });
+    clearError();
+  }
+
+  function removePhaseLine(id: string) {
+    setPhases((current) => {
+      if (current.length <= 1 || current[0]?.id === id) {
+        return current;
+      }
+      const next = current.filter((line) => line.id !== id);
+      const fallbackKey = next[0]?.id || 'primary';
+      setSelectedPhaseKey((currentKey) => (currentKey === id ? fallbackKey : currentKey));
+      setRequirements((lines) =>
+        lines.map((line) => (line.phaseKey === id ? { ...line, phaseKey: fallbackKey } : line))
+      );
+      setCaulkRequirements((lines) =>
+        lines.map((line) => (line.phaseKey === id ? { ...line, phaseKey: fallbackKey } : line))
+      );
+      return next;
+    });
+  }
+
   function handleAddRequirement() {
     const parsedWidth = Number(widthIn);
     const parsedRequiredFeet = Number(requiredFeet);
@@ -248,6 +331,7 @@ export function useJobEditorForm({
     }
 
     const nextLine = makeNewRequirementDraftLine({
+      phaseKey: selectedPhaseKey,
       manufacturer: normalizedManufacturer,
       filmName: normalizedFilmName,
       widthIn: parsedWidth,
@@ -266,7 +350,7 @@ export function useJobEditorForm({
           return false;
         }
 
-        return buildRequirementLineKey(line.manufacturer, line.filmName, lineWidth) === nextKey;
+        return line.phaseKey === selectedPhaseKey && buildRequirementLineKey(line.manufacturer, line.filmName, lineWidth) === nextKey;
       });
 
       if (existingIndex === -1) {
@@ -305,11 +389,14 @@ export function useJobEditorForm({
     }
 
     setCaulkRequirements((current) => {
-      const existingIndex = current.findIndex((line) => line.productId === caulkProductId);
+      const existingIndex = current.findIndex(
+        (line) => line.productId === caulkProductId && line.phaseKey === selectedPhaseKey
+      );
       if (existingIndex === -1) {
         return [
           ...current,
           makeNewCaulkDraftLine({
+            phaseKey: selectedPhaseKey,
             productId: caulkProductId,
             requiredTubes: normalizedRequiredTubes
           })
@@ -365,6 +452,7 @@ export function useJobEditorForm({
       sections,
       installDate,
       crewLeader,
+      phases,
       requirements,
       caulkRequirements,
       filmNameDraft: filmName,
@@ -395,6 +483,7 @@ export function useJobEditorForm({
     installDate,
     error,
     filmName,
+    addPhaseLine,
     handleAddCaulkRequirement,
     handleAddRequirement,
     handleSave,
@@ -405,12 +494,15 @@ export function useJobEditorForm({
     jobNumber,
     manufacturer,
     manufacturerOptions,
+    phases,
     requiredFeet,
+    removePhaseLine,
     removeCaulkRequirementLine,
     removeRequirementLine,
     requirements,
     saveCustomWidth,
     sections,
+    selectedPhaseKey,
     setCaulkProductId,
     setCaulkRequiredTubes,
     setCrewLeader,
@@ -421,8 +513,10 @@ export function useJobEditorForm({
     setManufacturer,
     setRequiredFeet,
     setSections,
+    setSelectedPhaseKey,
     setWarehouse,
     updateCaulkRequirementLine,
+    updatePhaseLine,
     updateRequirementLine,
     warehouse,
     widthIn

@@ -126,6 +126,7 @@ export async function withMutation(callback) {
         app.film_orders,
         app.film_order_box_links,
         app.jobs,
+        app.job_phases,
         app.job_requirements,
         app.caulk_manufacturers,
         app.caulk_products,

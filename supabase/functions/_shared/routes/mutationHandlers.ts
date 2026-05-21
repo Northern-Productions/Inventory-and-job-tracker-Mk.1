@@ -112,6 +112,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
   "/jobs/create",
   "/jobs/update",
   "/jobs/requirement-state",
+  "/jobs/phase-state",
   "/jobs/set-staged-pickup",
   "/jobs/checkout-all",
   "/jobs/complete",
@@ -158,6 +159,7 @@ const SQL_PLANNER_HANDLED_ROUTES = new Set([
   "/jobs/set-staged-pickup",
   "/jobs/update",
   "/jobs/requirement-state",
+  "/jobs/phase-state",
 ]);
 
 const ORG_WIDE_MUTATION_ROUTES = new Set([
@@ -171,6 +173,7 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
   "/jobs/create",
   "/jobs/update",
   "/jobs/requirement-state",
+  "/jobs/phase-state",
   "/jobs/set-staged-pickup",
   "/jobs/checkout-all",
   "/jobs/complete",
@@ -180,6 +183,7 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
 const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
   "/jobs/update",
   "/jobs/requirement-state",
+  "/jobs/phase-state",
   "/jobs/reopen",
 ]);
 
@@ -858,6 +862,25 @@ const mutationHandlers: Record<string, MutationHandler> = {
       ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber }
       : payloadWithoutRequestOrg;
     const result = await deps.callMutationRpc(client, "api_acl_job_requirement_set_state", orgId, actor, rpcPayload);
+    const jobId = target.usedJobId ? target.jobId : deps.asTrimmedString(result.jobId);
+    const jobNumber = target.usedJobId ? target.jobNumber : deps.asTrimmedString(result.jobNumber || rpcPayload.jobNumber);
+    return ok(
+      jobId
+        ? await deps.buildJobDetailById(client, orgId, jobId)
+        : await deps.buildJobDetail(client, orgId, jobNumber),
+      result.warnings || []
+    );
+  },
+  "/jobs/phase-state": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber }
+      : payloadWithoutRequestOrg;
+    const result = await deps.callMutationRpc(client, "api_acl_job_phase_set_state", orgId, actor, rpcPayload);
     const jobId = target.usedJobId ? target.jobId : deps.asTrimmedString(result.jobId);
     const jobNumber = target.usedJobId ? target.jobNumber : deps.asTrimmedString(result.jobNumber || rpcPayload.jobNumber);
     return ok(

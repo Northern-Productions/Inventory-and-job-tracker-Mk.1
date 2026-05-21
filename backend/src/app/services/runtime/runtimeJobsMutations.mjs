@@ -21,6 +21,8 @@ import {
   normalizeJobWarehouse,
   normalizeJobWorkScope,
   normalizeJobLifecycleStatus,
+  normalizeJobPhaseNumber,
+  normalizeJobPhaseLaborStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,
@@ -44,6 +46,9 @@ import {
   findJobByNumber,
   saveJobRecord,
   saveJobRecordById,
+  listJobPhasesByJobId,
+  replaceJobPhasesForJob,
+  setJobPhaseLaborState as saveJobPhaseLaborState,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
   setJobRequirementState as saveJobRequirementState,
@@ -119,6 +124,113 @@ function hasWorkScopeInput(payload) {
   );
 }
 
+function getPayloadPhaseEntries(payload) {
+  return Array.isArray(payload?.phases) ? payload.phases : [];
+}
+
+function buildDefaultPhaseInputFromJobPayload(payload, fallbackPhase = {}) {
+  return {
+    phaseId: asTrimmedString(fallbackPhase.phaseId || fallbackPhase.id),
+    phaseNumber: normalizeJobPhaseNumber(payload.phaseNumber || fallbackPhase.phaseNumber || 1, 'PhaseNumber'),
+    sections: hasWorkScopeInput(payload)
+      ? normalizeJobWorkScope(getWorkScopeInput(payload))
+      : fallbackPhase.sections ?? fallbackPhase.workScope ?? null,
+    installDate: normalizeDateString(
+      payload.installDate !== undefined || payload.dueDate !== undefined
+        ? payload.installDate !== undefined ? payload.installDate : payload.dueDate
+        : fallbackPhase.installDate,
+      'Install Date',
+      true
+    ),
+    crewLeader: payload.crewLeader !== undefined
+      ? asTrimmedString(payload.crewLeader)
+      : asTrimmedString(fallbackPhase.crewLeader),
+    laborStatus: normalizeJobPhaseLaborStatus(fallbackPhase.laborStatus || fallbackPhase.status),
+    isPrimary: true,
+  };
+}
+
+function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
+  const rawPhases = getPayloadPhaseEntries(payload);
+  if (!rawPhases.length) {
+    return [buildDefaultPhaseInputFromJobPayload(payload, fallbackPrimaryPhase || {})];
+  }
+
+  const seenPhaseNumbers = new Set();
+  return rawPhases.map((entry, index) => {
+    const phaseNumber = normalizeJobPhaseNumber(entry?.phaseNumber ?? index + 1, `Phases[${index + 1}].PhaseNumber`);
+    if (seenPhaseNumbers.has(phaseNumber)) {
+      throw new HttpError(400, `Phase ${phaseNumber} already exists on this job.`);
+    }
+    seenPhaseNumbers.add(phaseNumber);
+    return {
+      phaseId: asTrimmedString(entry?.phaseId || entry?.id),
+      phaseNumber,
+      sections: normalizeJobWorkScope(entry?.workScope ?? entry?.sections ?? ''),
+      installDate: normalizeDateString(entry?.installDate ?? entry?.dueDate, `Phases[${index + 1}].InstallDate`, true),
+      crewLeader: asTrimmedString(entry?.crewLeader),
+      laborStatus: normalizeJobPhaseLaborStatus(entry?.laborStatus || entry?.status),
+      isPrimary: entry?.isPrimary === true || index === 0,
+      requirements: Array.isArray(entry?.requirements) ? entry.requirements : [],
+      caulkRequirements: Array.isArray(entry?.caulkRequirements) ? entry.caulkRequirements : [],
+    };
+  });
+}
+
+function attachPhaseIdentityToEntries(entries, phase) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => ({
+    ...entry,
+    phaseId: asTrimmedString(phase.phaseId),
+    phaseNumber: phase.phaseNumber,
+  }));
+}
+
+function buildPhaseScopedRequirementPayload(payload, savedPhases) {
+  const rawPhases = getPayloadPhaseEntries(payload);
+  if (!rawPhases.length) {
+    const primaryPhase = savedPhases.find((entry) => entry.isPrimary) || savedPhases[0];
+    return attachPhaseIdentityToEntries(payload.requirements, primaryPhase);
+  }
+
+  const savedByPhaseNumber = new Map(savedPhases.map((entry) => [Number(entry.phaseNumber), entry]));
+  const response = [];
+  for (let index = 0; index < rawPhases.length; index += 1) {
+    const phaseNumber = normalizeJobPhaseNumber(rawPhases[index]?.phaseNumber ?? index + 1, `Phases[${index + 1}].PhaseNumber`);
+    const phase = savedByPhaseNumber.get(phaseNumber);
+    response.push(...attachPhaseIdentityToEntries(rawPhases[index]?.requirements, phase));
+  }
+  return response;
+}
+
+function buildPhaseScopedCaulkRequirementPayload(payload, savedPhases) {
+  const rawPhases = getPayloadPhaseEntries(payload);
+  if (!rawPhases.length) {
+    const primaryPhase = savedPhases.find((entry) => entry.isPrimary) || savedPhases[0];
+    return attachPhaseIdentityToEntries(payload.caulkRequirements, primaryPhase);
+  }
+
+  const savedByPhaseNumber = new Map(savedPhases.map((entry) => [Number(entry.phaseNumber), entry]));
+  const response = [];
+  for (let index = 0; index < rawPhases.length; index += 1) {
+    const phaseNumber = normalizeJobPhaseNumber(rawPhases[index]?.phaseNumber ?? index + 1, `Phases[${index + 1}].PhaseNumber`);
+    const phase = savedByPhaseNumber.get(phaseNumber);
+    response.push(...attachPhaseIdentityToEntries(rawPhases[index]?.caulkRequirements, phase));
+  }
+  return response;
+}
+
+function mergeRetainedPhaseRequirements(existingRequirements, incomingRequirements, phasesToReplace) {
+  const replacingPhaseIds = new Set((Array.isArray(phasesToReplace) ? phasesToReplace : []).map((entry) => asTrimmedString(entry.phaseId)).filter(Boolean));
+  if (!replacingPhaseIds.size) {
+    return incomingRequirements;
+  }
+
+  return [
+    ...existingRequirements.filter((entry) => !replacingPhaseIds.has(asTrimmedString(entry.phaseId))),
+    ...incomingRequirements,
+  ];
+}
+
 function getRestoredAllocatableFeet(entry) {
   return getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? integerOrZero(entry?.allocatedFeet) : 0;
 }
@@ -126,10 +238,13 @@ function getRestoredAllocatableFeet(entry) {
 async function createJob(client, orgId, payload, actor) {
   const warnings = [];
   const jobNumber = normalizeJobNumberDigits(payload.jobNumber, 'Job ID number');
+  const phaseInputs = normalizePhaseInputsFromPayload(payload);
+  const primaryPhaseInput = phaseInputs.find((entry) => entry.isPrimary) || phaseInputs[0];
+  const duplicatePayload = { ...payload, workScope: primaryPhaseInput.sections, sections: primaryPhaseInput.sections };
   const sameJobNumberJobs = await listJobsByNumber(client, orgId, jobNumber);
   const duplicateResult = buildJobDuplicateCheckResult({
     jobNumber,
-    workScopeInput: getJobDuplicateWorkScopeInput(payload),
+    workScopeInput: getJobDuplicateWorkScopeInput(duplicatePayload),
     existingJob: sameJobNumberJobs[0] || null,
     sameJobNumberJobs,
     duplicatesEnabled: true,
@@ -138,33 +253,27 @@ async function createJob(client, orgId, payload, actor) {
     throw new HttpError(
       409,
       `Job ${jobNumber} already exists.`,
-      [],
+          [],
       duplicateResult
     );
   }
 
   const warehouse = normalizeJobWarehouse(payload.warehouse);
-  const sections = normalizeJobWorkScope(getWorkScopeInput(payload));
-  const installDate = normalizeDateString(
-    payload.installDate !== undefined ? payload.installDate : payload.dueDate,
-    'Install Date',
-    true
-  );
-  const crewLeader = asTrimmedString(payload.crewLeader);
+  const sections = normalizeJobWorkScope(primaryPhaseInput.sections);
+  const installDate = primaryPhaseInput.installDate;
+  const crewLeader = asTrimmedString(primaryPhaseInput.crewLeader);
   const lifecycleStatus = normalizeJobLifecycleStatus(payload.lifecycleStatus);
   const notes = asTrimmedString(payload.notes);
-  const incomingRequirementsRaw = dedupeJobRequirements(payload.requirements, warnings);
-  const incomingRequirements = await normalizeJobRequirementEntriesForWrite(
-    client,
-    orgId,
-    incomingRequirementsRaw
-  );
-  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
-    client,
-    orgId,
-    payload.caulkRequirements
-  );
   const nowIso = new Date().toISOString();
+  const hasNestedPhasePayload = getPayloadPhaseEntries(payload).length > 0;
+  const rawRequirementPayload = hasNestedPhasePayload
+    ? phaseInputs.flatMap((phase) => attachPhaseIdentityToEntries(phase.requirements, phase))
+    : (payload.requirements || []);
+  const rawCaulkRequirementPayload = hasNestedPhasePayload
+    ? phaseInputs.flatMap((phase) => attachPhaseIdentityToEntries(phase.caulkRequirements, phase))
+    : (payload.caulkRequirements || []);
+  const hasRawMaterials = (Array.isArray(rawRequirementPayload) && rawRequirementPayload.length > 0) ||
+    (Array.isArray(rawCaulkRequirementPayload) && rawCaulkRequirementPayload.length > 0);
   let nextHeader = {
     id: '',
     orgId,
@@ -186,8 +295,8 @@ async function createJob(client, orgId, payload, actor) {
   const materialFlags = derivePersistedJobMaterialFlags(
     nextHeader,
     payload,
-    incomingRequirements,
-    normalizedCaulkRequirements
+    hasRawMaterials ? [{ requiredFeet: 1 }] : [],
+    []
   );
   nextHeader.isLaborOnly = materialFlags.isLaborOnly;
   nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
@@ -213,6 +322,38 @@ async function createJob(client, orgId, payload, actor) {
     throw error;
   }
 
+  const savedPhases = await replaceJobPhasesForJob(client, orgId, nextHeader, phaseInputs, actor, nowIso);
+  const incomingRequirementsRaw = dedupeJobRequirements(
+    buildPhaseScopedRequirementPayload(payload, savedPhases),
+    warnings
+  );
+  const incomingRequirements = await normalizeJobRequirementEntriesForWrite(
+    client,
+    orgId,
+    incomingRequirementsRaw
+  );
+  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
+    client,
+    orgId,
+    buildPhaseScopedCaulkRequirementPayload(payload, savedPhases)
+  );
+  const persistedFlags = derivePersistedJobMaterialFlags(
+    nextHeader,
+    payload,
+    incomingRequirements,
+    normalizedCaulkRequirements
+  );
+  if (
+    persistedFlags.isLaborOnly !== nextHeader.isLaborOnly ||
+    persistedFlags.isStagedForPickup !== nextHeader.isStagedForPickup
+  ) {
+    nextHeader.isLaborOnly = persistedFlags.isLaborOnly;
+    nextHeader.isStagedForPickup = persistedFlags.isStagedForPickup;
+    nextHeader.updatedAt = nowIso;
+    nextHeader.updatedBy = actor;
+    nextHeader = await saveJobRecordById(client, orgId, nextHeader);
+  }
+
   const existingRequirements = await listJobRequirementsByJobId(client, orgId, nextHeader.id);
   const merged = {};
 
@@ -231,7 +372,9 @@ async function createJob(client, orgId, payload, actor) {
       existingFilmName,
       existing.widthIn
     );
-    merged[existingKey] = {
+    merged[`${asTrimmedString(existing.phaseId) || 'default'}|${existingKey}`] = {
+      phaseId: existing.phaseId,
+      phaseNumber: existing.phaseNumber,
       manufacturer: existingManufacturer,
       filmName: existingFilmName,
       widthIn: existing.widthIn,
@@ -246,15 +389,16 @@ async function createJob(client, orgId, payload, actor) {
       incoming.filmName,
       incoming.widthIn
     );
+    const incomingMergeKey = `${asTrimmedString(incoming.phaseId) || asTrimmedString(incoming.phaseNumber) || 'default'}|${incomingKey}`;
 
-    if (!merged[incomingKey]) {
-      merged[incomingKey] = incoming;
+    if (!merged[incomingMergeKey]) {
+      merged[incomingMergeKey] = incoming;
       continue;
     }
 
-    merged[incomingKey].manufacturer = incoming.manufacturer;
-    merged[incomingKey].filmName = incoming.filmName;
-    merged[incomingKey].requiredFeet += incoming.requiredFeet;
+    merged[incomingMergeKey].manufacturer = incoming.manufacturer;
+    merged[incomingMergeKey].filmName = incoming.filmName;
+    merged[incomingMergeKey].requiredFeet += incoming.requiredFeet;
   }
 
   const mergedValues = Object.values(merged);
@@ -284,13 +428,41 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
   actor,
   previousInstallDate,
   installDate,
-  crewLeader
+  crewLeader,
+  options = {}
 ) {
-  const allocations = await listAllocationsByJob(client, orgId, jobNumber);
-  const filmOrders = await listFilmOrdersByJob(client, orgId, jobNumber);
+  const jobId = asTrimmedString(options.jobId);
+  const allocations = jobId
+    ? await listAllocationsByJobId(client, orgId, jobId)
+    : await listAllocationsByJob(client, orgId, jobNumber);
+  const filmOrders = jobId
+    ? await listFilmOrdersByJobId(client, orgId, jobId)
+    : await listFilmOrdersByJob(client, orgId, jobNumber);
+  const phaseSchedulesByRequirementId = {};
+  const scheduledPhases = Array.isArray(options.phases) ? options.phases : [];
+  if (jobId && scheduledPhases.length) {
+    const phaseById = new Map(
+      scheduledPhases
+        .map((phase) => [asTrimmedString(phase.phaseId), phase])
+        .filter(([phaseId]) => Boolean(phaseId))
+    );
+    const requirements = await listJobRequirementsByJobId(client, orgId, jobId);
+    for (let index = 0; index < requirements.length; index += 1) {
+      const phase = phaseById.get(asTrimmedString(requirements[index].phaseId));
+      if (!phase) {
+        continue;
+      }
+      phaseSchedulesByRequirementId[asTrimmedString(requirements[index].id || requirements[index].requirementId)] = {
+        installDate: asTrimmedString(phase.installDate),
+        crewLeader: asTrimmedString(phase.crewLeader),
+      };
+    }
+  }
   let updatedAllocationCount = 0;
   let updatedFilmOrderCount = 0;
-  const installDateChanged = asTrimmedString(previousInstallDate) !== asTrimmedString(installDate);
+  const installDateChanged =
+    options.forceScheduleRefresh === true ||
+    asTrimmedString(previousInstallDate) !== asTrimmedString(installDate);
   const affectedBoxIds = Array.from(
     new Set(
       allocations
@@ -309,12 +481,20 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       continue;
     }
 
-    if (allocation.installDate === installDate && allocation.crewLeader === crewLeader) {
+    const schedule = phaseSchedulesByRequirementId[asTrimmedString(allocation.requirementId)] || { installDate, crewLeader };
+    if (
+      Object.keys(phaseSchedulesByRequirementId).length &&
+      !phaseSchedulesByRequirementId[asTrimmedString(allocation.requirementId)]
+    ) {
       continue;
     }
 
-    allocation.installDate = installDate;
-    allocation.crewLeader = crewLeader;
+    if (allocation.installDate === schedule.installDate && allocation.crewLeader === schedule.crewLeader) {
+      continue;
+    }
+
+    allocation.installDate = schedule.installDate;
+    allocation.crewLeader = schedule.crewLeader;
     await saveAllocationRecord(client, orgId, allocation);
     updatedAllocationCount += 1;
   }
@@ -325,12 +505,20 @@ async function syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       continue;
     }
 
-    if (filmOrder.installDate === installDate && filmOrder.crewLeader === crewLeader) {
+    const schedule = phaseSchedulesByRequirementId[asTrimmedString(filmOrder.requirementId)] || { installDate, crewLeader };
+    if (
+      Object.keys(phaseSchedulesByRequirementId).length &&
+      !phaseSchedulesByRequirementId[asTrimmedString(filmOrder.requirementId)]
+    ) {
       continue;
     }
 
-    filmOrder.installDate = installDate;
-    filmOrder.crewLeader = crewLeader;
+    if (filmOrder.installDate === schedule.installDate && filmOrder.crewLeader === schedule.crewLeader) {
+      continue;
+    }
+
+    filmOrder.installDate = schedule.installDate;
+    filmOrder.crewLeader = schedule.crewLeader;
     await saveFilmOrderRecord(client, orgId, filmOrder);
     updatedFilmOrderCount += 1;
   }
@@ -360,13 +548,6 @@ async function updateJob(client, orgId, payload, actor) {
   ) {
     throw new HttpError(400, `Closed lifecycle changes are not allowed here. Use complete/reopen actions for job ${jobNumber}.`);
   }
-  const requirementsRaw = dedupeJobRequirements(updatePayload.requirements, warnings);
-  const requirements = await normalizeJobRequirementEntriesForWrite(client, orgId, requirementsRaw);
-  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
-    client,
-    orgId,
-    updatePayload.caulkRequirements
-  );
   const nowIso = new Date().toISOString();
   const header = target.usedJobId
     ? target.job
@@ -375,25 +556,25 @@ async function updateJob(client, orgId, payload, actor) {
     throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before editing.`);
   }
   const nextHeader = cloneValue(header);
+  const existingPhases = header?.id ? await listJobPhasesByJobId(client, orgId, header.id) : [];
+  const primaryExistingPhase = existingPhases.find((entry) => entry.isPrimary) || existingPhases[0] || null;
+  const phaseInputs = normalizePhaseInputsFromPayload(updatePayload, primaryExistingPhase);
+  const primaryPhaseInput = phaseInputs.find((entry) => entry.isPrimary) || phaseInputs[0];
 
   if (updatePayload.warehouse !== undefined) {
     nextHeader.warehouse = normalizeJobWarehouse(updatePayload.warehouse);
   }
 
   if (hasWorkScopeInput(updatePayload)) {
-    nextHeader.sections = normalizeJobWorkScope(getWorkScopeInput(updatePayload));
+    nextHeader.sections = normalizeJobWorkScope(primaryPhaseInput.sections ?? getWorkScopeInput(updatePayload));
   }
 
   if (updatePayload.installDate !== undefined || updatePayload.dueDate !== undefined) {
-    nextHeader.installDate = normalizeDateString(
-      updatePayload.installDate !== undefined ? updatePayload.installDate : updatePayload.dueDate,
-      'Install Date',
-      true
-    );
+    nextHeader.installDate = primaryPhaseInput.installDate;
   }
 
   if (updatePayload.crewLeader !== undefined) {
-    nextHeader.crewLeader = asTrimmedString(updatePayload.crewLeader);
+    nextHeader.crewLeader = asTrimmedString(primaryPhaseInput.crewLeader);
   }
 
   if (updatePayload.lifecycleStatus !== undefined) {
@@ -404,36 +585,68 @@ async function updateJob(client, orgId, payload, actor) {
     nextHeader.notes = asTrimmedString(updatePayload.notes);
   }
 
+  nextHeader.updatedAt = nowIso;
+  nextHeader.updatedBy = actor;
+
+  let savedHeader = target.usedJobId
+    ? await saveJobRecordById(client, orgId, nextHeader)
+    : await saveJobRecord(client, orgId, nextHeader);
+  const savedPhases = await replaceJobPhasesForJob(client, orgId, savedHeader, phaseInputs, actor, nowIso);
+  const replacingPhases = getPayloadPhaseEntries(updatePayload).length
+    ? savedPhases
+    : [savedPhases.find((entry) => entry.isPrimary) || savedPhases[0]];
+  const phaseScopedRequirementsRaw = dedupeJobRequirements(
+    buildPhaseScopedRequirementPayload(updatePayload, savedPhases),
+    warnings
+  );
+  const requirements = await normalizeJobRequirementEntriesForWrite(client, orgId, phaseScopedRequirementsRaw);
+  const normalizedCaulkRequirements = await normalizeJobCaulkRequirementEntries(
+    client,
+    orgId,
+    buildPhaseScopedCaulkRequirementPayload(updatePayload, savedPhases)
+  );
   const materialFlags = derivePersistedJobMaterialFlags(
-    nextHeader,
+    savedHeader,
     updatePayload,
     requirements,
     normalizedCaulkRequirements
   );
-  nextHeader.isLaborOnly = materialFlags.isLaborOnly;
-  nextHeader.isStagedForPickup = materialFlags.isStagedForPickup;
-
-  nextHeader.updatedAt = nowIso;
-  nextHeader.updatedBy = actor;
-
-  const savedHeader = target.usedJobId
-    ? await saveJobRecordById(client, orgId, nextHeader)
-    : await saveJobRecord(client, orgId, nextHeader);
+  if (
+    materialFlags.isLaborOnly !== savedHeader.isLaborOnly ||
+    materialFlags.isStagedForPickup !== savedHeader.isStagedForPickup
+  ) {
+    savedHeader.isLaborOnly = materialFlags.isLaborOnly;
+    savedHeader.isStagedForPickup = materialFlags.isStagedForPickup;
+    savedHeader.updatedAt = nowIso;
+    savedHeader.updatedBy = actor;
+    savedHeader = target.usedJobId
+      ? await saveJobRecordById(client, orgId, savedHeader)
+      : await saveJobRecord(client, orgId, savedHeader);
+  }
   const existingRequirements = target.usedJobId
     ? await listJobRequirementsByJobId(client, orgId, target.jobId)
     : await listJobRequirementsByJob(client, orgId, jobNumber);
   const existingByKey = buildJobRequirementsByLookupKey(existingRequirements);
+  const replacementRequirements = getPayloadPhaseEntries(updatePayload).length
+    ? requirements
+    : mergeRetainedPhaseRequirements(existingRequirements, requirements, replacingPhases);
   await replaceJobRequirementsForJob(
     client,
     orgId,
     savedHeader,
-    buildRequirementRowsForReplace(jobNumber, requirements, existingByKey, actor, nowIso)
+    buildRequirementRowsForReplace(jobNumber, replacementRequirements, existingByKey, actor, nowIso)
   );
+  const existingCaulkRequirements = target.usedJobId
+    ? await listJobCaulkRequirementsByJobId(client, orgId, target.jobId)
+    : await listJobCaulkRequirementsByJob(client, orgId, jobNumber);
+  const replacementCaulkRequirements = getPayloadPhaseEntries(updatePayload).length
+    ? normalizedCaulkRequirements
+    : mergeRetainedPhaseRequirements(existingCaulkRequirements, normalizedCaulkRequirements, replacingPhases);
   await replaceJobCaulkRequirementsForJob(
     client,
     orgId,
     savedHeader,
-    normalizedCaulkRequirements,
+    replacementCaulkRequirements,
     actor,
     nowIso
   );
@@ -441,7 +654,8 @@ async function updateJob(client, orgId, payload, actor) {
   const installDateChanged = asTrimmedString(header.installDate) !== asTrimmedString(savedHeader.installDate);
   const crewLeaderChanged =
     normalizeCrewLeaderKey(header.crewLeader) !== normalizeCrewLeaderKey(savedHeader.crewLeader);
-  if (installDateChanged || crewLeaderChanged) {
+  const phasePayloadChanged = getPayloadPhaseEntries(updatePayload).length > 0;
+  if (installDateChanged || crewLeaderChanged || phasePayloadChanged) {
     const syncResult = await syncJobMetadataToActiveAllocationsAndOpenFilmOrders(
       client,
       orgId,
@@ -449,7 +663,12 @@ async function updateJob(client, orgId, payload, actor) {
       actor,
       header.installDate,
       savedHeader.installDate,
-      savedHeader.crewLeader
+      savedHeader.crewLeader,
+      {
+        jobId: savedHeader.id,
+        phases: replacingPhases,
+        forceScheduleRefresh: phasePayloadChanged,
+      }
     );
     if (syncResult.updatedAllocationCount > 0 || syncResult.updatedFilmOrderCount > 0) {
       warnings.push(
@@ -881,8 +1100,8 @@ async function createFilmOrder(client, orgId, payload, actor) {
     coveredFeet: 0,
     orderedFeet: 0,
     remainingToOrderFeet: requestedFeet,
-    installDate: asTrimmedString(existingJob?.installDate),
-    crewLeader: asTrimmedString(existingJob?.crewLeader),
+    installDate: asTrimmedString(selectedRequirement?.phaseInstallDate || existingJob?.installDate),
+    crewLeader: asTrimmedString(selectedRequirement?.phaseCrewLeader || existingJob?.crewLeader),
     status: 'FILM_ORDER',
     sourceBoxId: '',
     createdAt: new Date().toISOString(),
@@ -943,6 +1162,44 @@ async function setJobRequirementState(client, orgId, payload, actor) {
     actor
   );
 
+  return ok(await buildJobDetailById(client, orgId, jobId), warnings);
+}
+
+async function setJobPhaseLaborState(client, orgId, payload, actor) {
+  const warnings = [];
+  const suppliedJobId = asTrimmedString(payload.jobId);
+  if (suppliedJobId) {
+    requireUuid(suppliedJobId, 'jobId');
+  }
+  const phaseId = requireUuid(payload.phaseId, 'PhaseId');
+  const nextStatus = normalizeJobPhaseLaborStatus(payload.status);
+
+  let jobId = '';
+  let jobNumber = '';
+  let existingJob = null;
+  if (suppliedJobId) {
+    const target = await resolveJobMutationTargetById(client, orgId, payload);
+    jobId = target.jobId;
+    jobNumber = target.jobNumber;
+    existingJob = target.job;
+  } else {
+    jobNumber = requireString(payload.jobNumber, 'JobNumber');
+    const sameNumberJobs = await listJobsByNumber(client, orgId, jobNumber);
+    if (sameNumberJobs.length > 1) {
+      throw new HttpError(409, `Job ${jobNumber} has multiple work scopes. Open the exact job before changing phase state.`);
+    }
+    existingJob = sameNumberJobs[0] || null;
+    if (!existingJob) {
+      throw new HttpError(404, `Job ${jobNumber} was not found.`);
+    }
+    jobId = existingJob.id;
+  }
+
+  if (existingJob && normalizeJobLifecycleStatus(existingJob.lifecycleStatus) !== 'ACTIVE') {
+    throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before changing phase state.`);
+  }
+
+  await saveJobPhaseLaborState(client, orgId, { jobId, phaseId, status: nextStatus }, actor);
   return ok(await buildJobDetailById(client, orgId, jobId), warnings);
 }
 
@@ -1214,6 +1471,7 @@ export {
   deleteJob,
   createFilmOrder,
   setJobRequirementState,
+  setJobPhaseLaborState,
   cancelJob,
   removeJobBoxAllocation,
   clearAllocationPlannerSuppression,

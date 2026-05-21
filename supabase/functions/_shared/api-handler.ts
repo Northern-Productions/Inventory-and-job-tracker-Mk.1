@@ -1612,6 +1612,7 @@ const {
   mapDbBoxRow,
   mapDbAllocationRow,
   mapDbFilmOrderRow,
+  mapDbJobPhaseRow,
   mapDbRequirementRow,
   mapDbCaulkJobRequirementRow,
   mapDbCaulkJobAllocationRow,
@@ -1637,6 +1638,9 @@ const {
   listJobsCalendar,
   findJobByNumber,
   findJobById,
+  listJobPhases,
+  listJobPhasesByJob,
+  listJobPhasesByJobId,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobCaulkRequirementsByJob,
@@ -1948,12 +1952,48 @@ async function listFilmOrdersByJobIdDirect(orgId: string, jobId: string) {
   return (Array.isArray(data) ? data : []).map((row) => mapDbFilmOrderRow(row)).filter(isPresent);
 }
 
+async function listJobPhaseRowsByJobIdDirect(orgId: string, jobId: string) {
+  const serviceClient = requireServiceRoleClient();
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("job_phases")
+    .select("*")
+    .eq("org_id", orgId)
+    .eq("job_id", jobId)
+    .order("phase_number", { ascending: true })
+    .order("created_at", { ascending: true });
+  throwOnSupabaseError(error, "Unable to load job phases by id");
+  return Array.isArray(data) ? data : [];
+}
+
+function indexPhaseRowsById(rows: any[]) {
+  const phasesById: Record<string, any> = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const phaseId = asTrimmedString(row?.id);
+    if (phaseId) {
+      phasesById[phaseId] = row;
+    }
+  }
+  return phasesById;
+}
+
+function enrichRequirementRowWithPhase(row: any, phasesById: Record<string, any>) {
+  const phase = phasesById[asTrimmedString(row?.phase_id)] || {};
+  return {
+    ...row,
+    phase_number: phase.phase_number,
+    phase_sections: phase.sections,
+    phase_install_date: phase.install_date,
+    phase_crew_leader: phase.crew_leader,
+  };
+}
+
 async function listPlannerSuppressionSignatures(orgId: string, jobId: string, materialType: "FILM" | "CAULK") {
   const serviceClient = requireServiceRoleClient();
   const { data, error } = await serviceClient
     .schema("app")
     .from("allocation_planner_suppressions")
-    .select("requirement_signature")
+    .select("phase_id, requirement_signature")
     .eq("org_id", orgId)
     .eq("job_id", jobId)
     .eq("material_type", materialType)
@@ -1961,7 +2001,7 @@ async function listPlannerSuppressionSignatures(orgId: string, jobId: string, ma
   throwOnSupabaseError(error, `Unable to load ${materialType.toLowerCase()} planner suppressions`);
   return new Set(
     (Array.isArray(data) ? data : [])
-      .map((entry: any) => asTrimmedString(entry?.requirement_signature))
+      .map((entry: any) => buildSuppressionSignatureKey(entry?.phase_id, entry?.requirement_signature))
       .filter(Boolean),
   );
 }
@@ -1982,7 +2022,7 @@ async function listPlannerSuppressionSignaturesByJobId(
     const { data, error } = await serviceClient
       .schema("app")
       .from("allocation_planner_suppressions")
-      .select("job_id, requirement_signature")
+      .select("job_id, phase_id, requirement_signature")
       .eq("org_id", orgId)
       .eq("material_type", materialType)
       .is("cleared_at", null)
@@ -1998,11 +2038,27 @@ async function listPlannerSuppressionSignaturesByJobId(
       if (!result[jobId]) {
         result[jobId] = new Set<string>();
       }
-      result[jobId].add(signature);
+      result[jobId].add(buildSuppressionSignatureKey(entry?.phase_id, signature));
     }
   }
 
   return result;
+}
+
+function buildSuppressionSignatureKey(phaseId: unknown, signature: unknown) {
+  const normalizedSignature = asTrimmedString(signature);
+  if (!normalizedSignature) {
+    return "";
+  }
+  return `${asTrimmedString(phaseId)}|${normalizedSignature}`;
+}
+
+function hasPlannerSuppression(suppressedSignatures: Set<string>, phaseId: unknown, signature: unknown) {
+  const normalizedSignature = asTrimmedString(signature);
+  return (
+    suppressedSignatures.has(buildSuppressionSignatureKey(phaseId, normalizedSignature)) ||
+    suppressedSignatures.has(buildSuppressionSignatureKey("", normalizedSignature))
+  );
 }
 
 function buildFilmRequirementPlannerSignature(row: any) {
@@ -2024,22 +2080,31 @@ function buildCaulkRequirementPlannerSignature(productId: unknown, warehouse: un
 async function listJobRequirementsByJobIdDirect(orgId: string, header: any) {
   const jobId = requireString(header?.id, "jobId");
   const serviceClient = requireServiceRoleClient();
-  const { data, error } = await serviceClient
-    .schema("app")
-    .from("job_requirements")
-    .select("*")
-    .eq("org_id", orgId)
-    .eq("job_id", jobId)
-    .order("manufacturer", { ascending: true })
-    .order("film_name", { ascending: true })
-    .order("width_in", { ascending: true });
+  const [phaseRows, requirementsResult] = await Promise.all([
+    listJobPhaseRowsByJobIdDirect(orgId, jobId),
+    serviceClient
+      .schema("app")
+      .from("job_requirements")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("job_id", jobId)
+      .order("manufacturer", { ascending: true })
+      .order("film_name", { ascending: true })
+      .order("width_in", { ascending: true }),
+  ]);
+  const { data, error } = requirementsResult;
   throwOnSupabaseError(error, "Unable to load job requirements by id");
   const suppressedSignatures = await listPlannerSuppressionSignatures(orgId, jobId, "FILM");
+  const phasesById = indexPhaseRowsById(phaseRows);
   return (Array.isArray(data) ? data : [])
     .map((row: any) => ({
-      ...row,
+      ...enrichRequirementRowWithPhase(row, phasesById),
       job_number: header.jobNumber,
-      auto_planning_suppressed: suppressedSignatures.has(buildFilmRequirementPlannerSignature(row)),
+      auto_planning_suppressed: hasPlannerSuppression(
+        suppressedSignatures,
+        row.phase_id,
+        buildFilmRequirementPlannerSignature(row),
+      ),
     }))
     .map((row: any) => mapDbRequirementRow(row))
     .filter(isPresent);
@@ -2091,16 +2156,21 @@ async function loadCaulkProductsById(orgId: string, productIds: string[]) {
 async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any) {
   const jobId = requireString(header?.id, "jobId");
   const serviceClient = requireServiceRoleClient();
-  const { data, error } = await serviceClient
-    .schema("app")
-    .from("job_caulk_requirements")
-    .select("id, product_id, required_tubes, notes, updated_at")
-    .eq("org_id", orgId)
-    .eq("job_id", jobId)
-    .order("updated_at", { ascending: false });
+  const [phaseRows, requirementsResult] = await Promise.all([
+    listJobPhaseRowsByJobIdDirect(orgId, jobId),
+    serviceClient
+      .schema("app")
+      .from("job_caulk_requirements")
+      .select("id, phase_id, product_id, required_tubes, notes, updated_at")
+      .eq("org_id", orgId)
+      .eq("job_id", jobId)
+      .order("updated_at", { ascending: false }),
+  ]);
+  const { data, error } = requirementsResult;
   throwOnSupabaseError(error, "Unable to load job caulk requirements by id");
 
   const rows = Array.isArray(data) ? data : [];
+  const phasesById = indexPhaseRowsById(phaseRows);
   const productsById = await loadCaulkProductsById(
     orgId,
     rows.map((row: any) => asTrimmedString(row?.product_id)),
@@ -2113,6 +2183,8 @@ async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any)
       return {
         requirement_id: row.id,
         job_id: jobId,
+        phase_id: row.phase_id,
+        ...enrichRequirementRowWithPhase(row, phasesById),
         job_number: header.jobNumber,
         product_id: row.product_id,
         manufacturer_id: product.manufacturer_id,
@@ -2123,7 +2195,9 @@ async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any)
         required_tubes: row.required_tubes,
         notes: row.notes,
         updated_at: row.updated_at,
-        auto_planning_suppressed: suppressedSignatures.has(
+        auto_planning_suppressed: hasPlannerSuppression(
+          suppressedSignatures,
+          row.phase_id,
           buildCaulkRequirementPlannerSignature(row.product_id, header.warehouse, row.required_tubes),
         ),
       };
@@ -2144,12 +2218,35 @@ async function listJobCaulkRequirementsByJobIdsDirect(orgId: string, headersByJo
     const { data, error } = await serviceClient
       .schema("app")
       .from("job_caulk_requirements")
-      .select("id, job_id, product_id, required_tubes, notes, updated_at")
+      .select("id, job_id, phase_id, product_id, required_tubes, notes, updated_at")
       .eq("org_id", orgId)
       .in("job_id", batchIds)
       .order("updated_at", { ascending: false });
     throwOnSupabaseError(error, "Unable to load job caulk requirements by id");
     rows.push(...(Array.isArray(data) ? data : []));
+  }
+  const phaseRowsByJobId: Record<string, any[]> = {};
+  const phaseRows: any[] = [];
+  for (const batchIds of chunkValues(jobIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("job_phases")
+      .select("*")
+      .eq("org_id", orgId)
+      .in("job_id", batchIds)
+      .order("phase_number", { ascending: true });
+    throwOnSupabaseError(error, "Unable to load job phases by id");
+    phaseRows.push(...(Array.isArray(data) ? data : []));
+  }
+  for (const phaseRow of phaseRows) {
+    const jobId = asTrimmedString(phaseRow?.job_id);
+    if (!jobId) {
+      continue;
+    }
+    if (!phaseRowsByJobId[jobId]) {
+      phaseRowsByJobId[jobId] = [];
+    }
+    phaseRowsByJobId[jobId].push(phaseRow);
   }
 
   const productsById = await loadCaulkProductsById(
@@ -2163,9 +2260,12 @@ async function listJobCaulkRequirementsByJobIdsDirect(orgId: string, headersByJo
       const jobId = asTrimmedString(row?.job_id);
       const header = headersByJobId[jobId] || {};
       const product = productsById[asTrimmedString(row?.product_id)] || {};
+      const phasesById = indexPhaseRowsById(phaseRowsByJobId[jobId] || []);
       return {
         requirement_id: row.id,
         job_id: jobId,
+        phase_id: row.phase_id,
+        ...enrichRequirementRowWithPhase(row, phasesById),
         job_number: header.jobNumber,
         product_id: row.product_id,
         manufacturer_id: product.manufacturer_id,
@@ -2176,7 +2276,9 @@ async function listJobCaulkRequirementsByJobIdsDirect(orgId: string, headersByJo
         required_tubes: row.required_tubes,
         notes: row.notes,
         updated_at: row.updated_at,
-        auto_planning_suppressed: (suppressedSignaturesByJobId[jobId] || new Set<string>()).has(
+        auto_planning_suppressed: hasPlannerSuppression(
+          suppressedSignaturesByJobId[jobId] || new Set<string>(),
+          row.phase_id,
           buildCaulkRequirementPlannerSignature(row.product_id, header.warehouse, row.required_tubes),
         ),
       };
@@ -3886,6 +3988,11 @@ export function buildPublicCaulkRequirementEntries(
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     return {
       requirementId,
+      phaseId: asTrimmedString(entry.phaseId),
+      phaseNumber: integerOrZero(entry.phaseNumber),
+      phaseWorkScope: asTrimmedString(entry.phaseWorkScope),
+      phaseInstallDate: asTrimmedString(entry.phaseInstallDate),
+      phaseCrewLeader: asTrimmedString(entry.phaseCrewLeader),
       jobNumber: asTrimmedString(entry.jobNumber),
       productId: asTrimmedString(entry.productId),
       manufacturerId: asTrimmedString(entry.manufacturerId),
@@ -4545,6 +4652,11 @@ export function buildPublicJobRequirementEntries(requirements: any[], allocation
     const cappedAllocatedFeet = Math.min(requiredFeet, allocatedFeet);
     return {
       requirementId,
+      phaseId: asTrimmedString(requirement.phaseId),
+      phaseNumber: integerOrZero(requirement.phaseNumber),
+      phaseWorkScope: asTrimmedString(requirement.phaseWorkScope),
+      phaseInstallDate: asTrimmedString(requirement.phaseInstallDate),
+      phaseCrewLeader: asTrimmedString(requirement.phaseCrewLeader),
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
@@ -4592,6 +4704,18 @@ function isOpenMaterialFilmOrder(entry: any) {
 
 function getRequirementId(requirement: any): string {
   return asTrimmedString(requirement?.requirementId || requirement?.id);
+}
+
+function getEntryPhaseId(entry: any): string {
+  return asTrimmedString(entry?.phaseId || entry?.phase_id);
+}
+
+function getPhaseDisplayWorkScope(phase: any, fallback: unknown = null) {
+  return phase?.workScope ?? phase?.sections ?? fallback;
+}
+
+function todayDateString(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function indexReadinessBoxes(allBoxes: any[], boxById: Record<string, any> = {}) {
@@ -5109,6 +5233,214 @@ function getJobStagingBlockingReason(
   return "";
 }
 
+function buildFallbackJobPhase(jobHeader: any) {
+  return {
+    phaseId: "",
+    phaseNumber: 1,
+    workScope: jobHeader.workScope ?? jobHeader.sections ?? null,
+    sections: jobHeader.sections ?? jobHeader.workScope ?? null,
+    installDate: jobHeader.installDate || "",
+    crewLeader: jobHeader.crewLeader || "",
+    laborStatus: "ACTIVE",
+    isPrimary: true,
+    createdAt: jobHeader.createdAt || "",
+    updatedAt: jobHeader.updatedAt || "",
+  };
+}
+
+function filterEntriesForPhase(entries: any[], phase: any, fallbackPhaseId = "") {
+  const phaseId = asTrimmedString(phase?.phaseId);
+  const fallbackId = asTrimmedString(fallbackPhaseId);
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    if (phaseId) {
+      return entryPhaseId === phaseId || (!entryPhaseId && fallbackId === phaseId);
+    }
+    return !entryPhaseId;
+  });
+}
+
+function filterRequirementLinkedEntriesForPhase(
+  entries: any[],
+  phase: any,
+  requirementIds: Set<string>,
+  fallbackPhaseId = "",
+) {
+  const phaseId = asTrimmedString(phase?.phaseId);
+  const fallbackId = asTrimmedString(fallbackPhaseId);
+  const scopedRequirementIds = requirementIds instanceof Set ? requirementIds : new Set<string>();
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    if (entryPhaseId) {
+      return entryPhaseId === phaseId || (!phaseId && !entryPhaseId);
+    }
+
+    const requirementId = getRequirementId(entry);
+    if (requirementId) {
+      return scopedRequirementIds.has(requirementId);
+    }
+
+    return Boolean(phaseId && fallbackId === phaseId);
+  });
+}
+
+function isPhaseCompleteFromRequirements(phase: any, requirements: any[]) {
+  const filmRequirements = Array.isArray(requirements) ? requirements : [];
+  if (filmRequirements.length > 0) {
+    return filmRequirements.every((entry) => isRequirementComplete(entry));
+  }
+  return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === "COMPLETE";
+}
+
+function comparePhasesByNumber(left: any, right: any): number {
+  const leftNumber = integerOrZero(left?.phaseNumber) || 1;
+  const rightNumber = integerOrZero(right?.phaseNumber) || 1;
+  if (leftNumber !== rightNumber) {
+    return leftNumber - rightNumber;
+  }
+  return compareCatalogStrings(left?.phaseId, right?.phaseId);
+}
+
+function chooseNextRelevantPhaseGroup(phases: any[]) {
+  const incomplete = (Array.isArray(phases) ? phases : []).filter((phase) => !phase.isComplete).slice();
+  if (!incomplete.length) {
+    return [];
+  }
+  const today = todayDateString();
+  const dated = incomplete.filter((phase) => asTrimmedString(phase.installDate));
+  const pastOrToday = dated
+    .filter((phase) => asTrimmedString(phase.installDate) <= today)
+    .sort((left, right) => left.installDate !== right.installDate ? (left.installDate < right.installDate ? -1 : 1) : comparePhasesByNumber(left, right));
+  const future = dated
+    .filter((phase) => asTrimmedString(phase.installDate) > today)
+    .sort((left, right) => left.installDate !== right.installDate ? (left.installDate < right.installDate ? -1 : 1) : comparePhasesByNumber(left, right));
+  const source = pastOrToday.length ? pastOrToday : future.length ? future : incomplete.sort(comparePhasesByNumber);
+  const first = source[0];
+  const installDate = asTrimmedString(first.installDate);
+  return installDate ? source.filter((phase) => asTrimmedString(phase.installDate) === installDate) : [first];
+}
+
+function combinePhaseGroupStatus(phases: any[]) {
+  const statuses = (Array.isArray(phases) ? phases : []).map((phase) => asTrimmedString(phase.status).toUpperCase());
+  if (statuses.includes("FILM_ORDER")) {
+    return "FILM_ORDER";
+  }
+  if (statuses.includes("ORDERED")) {
+    return "ORDERED";
+  }
+  if (statuses.includes("COMPLETED")) {
+    return "COMPLETED";
+  }
+  return "READY";
+}
+
+function buildJobPhaseEntries(
+  jobHeader: any,
+  phases: any[],
+  requirements: any[],
+  allocations: any[],
+  filmOrders: any[],
+  caulkRequirements: any[],
+  caulkAllocations: any[],
+  boxById: Record<string, any>,
+  options: { allBoxes?: any[]; caulkStockEntries?: any[] } = {},
+) {
+  const phaseSource = Array.isArray(phases) && phases.length ? phases.slice().sort(comparePhasesByNumber) : [buildFallbackJobPhase(jobHeader)];
+  const fallbackPhaseId = asTrimmedString(phaseSource.find((entry) => entry.isPrimary)?.phaseId || phaseSource[0]?.phaseId);
+  const entries = phaseSource.map((phase, index) => {
+    const phaseRequirements = filterEntriesForPhase(requirements, phase, fallbackPhaseId);
+    const phaseCaulkRequirements = filterEntriesForPhase(caulkRequirements, phase, fallbackPhaseId);
+    const phaseRequirementIds = new Set(phaseRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+    const phaseCaulkRequirementIds = new Set(
+      phaseCaulkRequirements.map((entry) => getRequirementId(entry)).filter(Boolean),
+    );
+    const phaseAllocations = filterRequirementLinkedEntriesForPhase(
+      allocations,
+      phase,
+      phaseRequirementIds,
+      fallbackPhaseId,
+    );
+    const phaseCaulkAllocations = filterRequirementLinkedEntriesForPhase(
+      caulkAllocations,
+      phase,
+      phaseCaulkRequirementIds,
+      fallbackPhaseId,
+    );
+    const phaseFilmOrders = filterRequirementLinkedEntriesForPhase(
+      filmOrders,
+      phase,
+      phaseRequirementIds,
+      fallbackPhaseId,
+    );
+    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements);
+    const status = isComplete
+      ? "COMPLETED"
+      : deriveInStockReadinessStatus({
+          lifecycleStatus: jobHeader.lifecycleStatus,
+          isLaborOnly: !phaseRequirements.length && !phaseCaulkRequirements.length,
+          requirements: phaseRequirements,
+          caulkRequirements: phaseCaulkRequirements,
+          allocations: phaseAllocations,
+          caulkAllocations: phaseCaulkAllocations,
+          filmOrders: phaseFilmOrders,
+          allBoxes: options.allBoxes || Object.values(boxById || {}),
+          boxById,
+          caulkStockEntries: options.caulkStockEntries || [],
+          jobWarehouse: jobHeader.warehouse || "",
+          jobNumber: jobHeader.jobNumber || "",
+        });
+    let requiredFeet = 0;
+    let allocatedFeet = 0;
+    let allocatedWithInstallDateFeet = 0;
+    let allocatedWithoutInstallDateFeet = 0;
+    let remainingFeet = 0;
+    for (const requirement of phaseRequirements) {
+      if (isRequirementComplete(requirement)) {
+        continue;
+      }
+      requiredFeet += integerOrZero(requirement.requiredFeet);
+      allocatedFeet += integerOrZero(requirement.allocatedFeet);
+      allocatedWithInstallDateFeet += integerOrZero(requirement.allocatedWithInstallDateFeet);
+      allocatedWithoutInstallDateFeet += integerOrZero(requirement.allocatedWithoutInstallDateFeet);
+      remainingFeet += integerOrZero(requirement.remainingFeet);
+    }
+    const caulkTotals = summarizeCaulkRequirementCoverage(isComplete ? [] : phaseCaulkRequirements);
+    return {
+      phaseId: asTrimmedString(phase.phaseId || phase.id),
+      phaseNumber: integerOrZero(phase.phaseNumber) || index + 1,
+      workScope: getPhaseDisplayWorkScope(phase, jobHeader.workScope ?? jobHeader.sections ?? null),
+      sections: getPhaseDisplayWorkScope(phase, jobHeader.sections ?? jobHeader.workScope ?? null),
+      installDate: asTrimmedString(phase.installDate),
+      crewLeader: asTrimmedString(phase.crewLeader),
+      laborStatus: asTrimmedString(phase.laborStatus || phase.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE",
+      status,
+      isComplete,
+      isPrimary: phase.isPrimary === true || (!phase.isPrimary && index === 0),
+      requiredFeet,
+      allocatedFeet,
+      allocatedWithInstallDateFeet,
+      allocatedWithoutInstallDateFeet,
+      remainingFeet,
+      requiredTubes: caulkTotals.requiredTubes,
+      allocatedTubes: caulkTotals.allocatedTubes,
+      remainingTubes: caulkTotals.remainingTubes,
+      requirementCount: phaseRequirements.length,
+      caulkRequirementCount: phaseCaulkRequirements.length,
+      filmOrderCount: countUnresolvedFilmOrders(phaseFilmOrders),
+      allocationCount: phaseAllocations.length,
+      createdAt: asTrimmedString(phase.createdAt),
+      updatedAt: asTrimmedString(phase.updatedAt),
+    };
+  });
+  const currentGroup = chooseNextRelevantPhaseGroup(entries);
+  const currentIds = new Set(currentGroup.map((entry) => asTrimmedString(entry.phaseId)));
+  return entries.map((entry) => ({
+    ...entry,
+    isNextRelevant: currentIds.has(asTrimmedString(entry.phaseId)),
+    isExpandedByDefault: currentIds.has(asTrimmedString(entry.phaseId)) || (!entry.isComplete && !entry.installDate),
+  }));
+}
+
 function buildJobListEntry(
   jobHeader: any,
   requirements: any[],
@@ -5122,21 +5454,49 @@ function buildJobListEntry(
     caulkAllocations?: any[];
     caulkStockEntries?: any[];
     jobWarehouse?: unknown;
+    phases?: any[];
   } = {},
 ) {
   const metadata = resolveAllocationJobMetadata(allocations, filmOrders);
-  let installDate = jobHeader.installDate;
+  const phaseEntries = buildJobPhaseEntries(
+    jobHeader,
+    options.phases || [],
+    requirements,
+    allocations,
+    filmOrders,
+    caulkRequirements,
+    options.caulkAllocations || [],
+    boxById,
+    options,
+  );
+  const nextPhaseGroup = chooseNextRelevantPhaseGroup(phaseEntries);
+  const currentPhase = nextPhaseGroup[0] || phaseEntries[0] || null;
+  let installDate = asTrimmedString(currentPhase?.installDate) || jobHeader.installDate;
   if (!installDate) {
     installDate = metadata.installDate;
   }
-  const crewLeader = asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
+  const crewLeader = asTrimmedString(currentPhase?.crewLeader) || asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
   let requiredFeet = 0;
   let allocatedFeet = 0;
   let allocatedWithInstallDateFeet = 0;
   let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
-  const caulkTotals = summarizeCaulkRequirementCoverage(caulkRequirements);
-  for (const requirement of requirements) {
+  const summaryRequirements = nextPhaseGroup.length
+    ? requirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
+    : requirements;
+  const summaryCaulkRequirements = nextPhaseGroup.length
+    ? caulkRequirements.filter((entry) =>
+        nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)),
+      )
+    : caulkRequirements;
+  const caulkTotals = nextPhaseGroup.length
+    ? {
+        requiredTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
+        allocatedTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
+        remainingTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
+      }
+    : summarizeCaulkRequirementCoverage(caulkRequirements);
+  for (const requirement of summaryRequirements) {
     if (isRequirementComplete(requirement)) {
       continue;
     }
@@ -5150,36 +5510,46 @@ function buildJobListEntry(
     jobHeader && jobHeader.id
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
-  const workScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+  const status = nextPhaseGroup.length
+    ? combinePhaseGroupStatus(nextPhaseGroup)
+    : computeJobStatusFromRequirements(
+        effectiveLifecycleStatus,
+        Boolean(jobHeader.isLaborOnly),
+        Boolean(jobHeader.isStagedForPickup),
+        summaryRequirements,
+        summaryCaulkRequirements,
+        allocations,
+        filmOrders,
+        {
+          allBoxes: options.allBoxes || Object.values(boxById || {}),
+          boxById: options.boxById || boxById,
+          caulkAllocations: options.caulkAllocations || [],
+          caulkStockEntries: options.caulkStockEntries || [],
+          jobNumber: jobHeader.jobNumber || "",
+          jobWarehouse: options.jobWarehouse || jobHeader.warehouse || "",
+        },
+      );
+  const primaryWorkScope = jobHeader.workScope ?? jobHeader.sections ?? null;
+  const workScope = getPhaseDisplayWorkScope(currentPhase, primaryWorkScope);
 
   return {
     jobId: jobHeader.id || "",
     jobNumber: jobHeader.jobNumber,
     warehouse: jobHeader.warehouse || "",
     workScope,
+    primaryWorkScope,
     workScopeKey: jobHeader.workScopeKey || "",
     sections: workScope,
+    phaseId: asTrimmedString(currentPhase?.phaseId),
+    phaseNumber: integerOrZero(currentPhase?.phaseNumber) || undefined,
+    phaseWorkScope: workScope,
+    phaseCount: phaseEntries.length,
+    phases: phaseEntries,
     installDate,
     crewLeader,
     isLaborOnly: Boolean(jobHeader.isLaborOnly),
     isStagedForPickup: Boolean(jobHeader.isStagedForPickup),
-    status: computeJobStatusFromRequirements(
-      effectiveLifecycleStatus,
-      Boolean(jobHeader.isLaborOnly),
-      Boolean(jobHeader.isStagedForPickup),
-      requirements,
-      caulkRequirements,
-      allocations,
-      filmOrders,
-      {
-        allBoxes: options.allBoxes || Object.values(boxById || {}),
-        boxById: options.boxById || boxById,
-        caulkAllocations: options.caulkAllocations || [],
-        caulkStockEntries: options.caulkStockEntries || [],
-        jobNumber: jobHeader.jobNumber || "",
-        jobWarehouse: options.jobWarehouse || jobHeader.warehouse || "",
-      },
-    ),
+    status,
     lifecycleStatus: effectiveLifecycleStatus,
     requiredFeet,
     allocatedFeet,
@@ -5193,6 +5563,7 @@ function buildJobListEntry(
     allocationCount: allocations.length,
     filmOrderCount: countUnresolvedFilmOrders(filmOrders),
     hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
+    createdAt: jobHeader.createdAt || "",
     updatedAt: jobHeader.updatedAt || "",
     notes: jobHeader.notes || "",
   };
@@ -6442,6 +6813,7 @@ export async function buildJobsList(
     () => listJobs(client, orgId),
     () => listAllocations(client, orgId),
     () => listFilmOrders(client, orgId),
+    () => listJobPhases(client, orgId),
     () => listJobRequirements(client, orgId),
   ];
 
@@ -6450,12 +6822,14 @@ export async function buildJobsList(
   const jobs = snapshotResults[snapshotIndex++];
   const allAllocations = snapshotResults[snapshotIndex++];
   const allFilmOrders = snapshotResults[snapshotIndex++];
+  const allPhases = snapshotResults[snapshotIndex++];
   const allRequirements = snapshotResults[snapshotIndex++];
   const allBoxes: any[] = hasPreloadedBoxes
     ? (options.preloadedBoxes as any[])
     : await listBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
+  const phasesByJobId = groupEntriesByCanonicalJobId(allPhases);
   const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
   const legacyAllocationsByJobNumber = groupEntriesByJobNumberFallback(allAllocations);
   const legacyFilmOrdersByJobNumber = groupEntriesByJobNumberFallback(allFilmOrders);
@@ -6520,6 +6894,7 @@ export async function buildJobsList(
       : caulkPlanning.requirementsByJob[jobNumber] || [];
     const header = context.header || buildLegacyJobHeaderFromData(jobNumber, allocations, filmOrders);
     const entry = buildJobListEntry(header, requirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      phases: context.legacy ? [] : getRowsForJobHeader(context.header, phasesByJobId, {}, jobNumberHeaderCounts),
       allBoxes,
       caulkAllocations: contextJobId
         ? caulkPlanning.allocationsByJobId[contextJobId] || []
@@ -6562,105 +6937,12 @@ async function buildJobsSearchResults(
 }
 
 async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, orgId: string) {
-  const jobs = (await listJobs(client, orgId)).slice(0, 500);
-  const activeJobs = jobs.filter(
-    (job) => {
-      const normalizedStatus = asTrimmedString((job as Record<string, unknown>)?.status).toUpperCase();
-      return (
-        asTrimmedString(job?.lifecycleStatus).toUpperCase() === "ACTIVE" &&
-        (normalizedStatus === "FILM_ORDER" || normalizedStatus === "ORDERED") &&
-        Boolean(
-          asTrimmedString(
-            (job as Record<string, unknown>)?.installDate ||
-              (job as Record<string, unknown>)?.dueDate ||
-              (job as Record<string, unknown>)?.jobDate,
-          ),
-        )
-      );
-    },
-  );
-
-  if (!activeJobs.length) {
-    return false;
-  }
-
-  const headersByJobId = Object.fromEntries(
-    activeJobs
-      .map((job) => [getEntryJobId(job), job])
-      .filter(([jobId]) => Boolean(jobId)),
-  );
-  const activeJobNumbers = new Set(
-    activeJobs.map((job) => normalizeJobNumberKey(job?.jobNumber)).filter(Boolean),
-  );
-  const [allRequirements, allAllocations] = await Promise.all([
-    listJobRequirements(client, orgId),
-    listAllocations(client, orgId),
-  ]);
-  const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
-  const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
-  const legacyRequirementsByJobNumber: Record<string, any[]> = {};
-  const legacyAllocationsByJobNumber: Record<string, any[]> = {};
-  const relevantAllocations = allAllocations.filter((allocation) =>
-    getEntryJobId(allocation)
-      ? Boolean(headersByJobId[getEntryJobId(allocation)])
-      : activeJobNumbers.has(normalizeJobNumberKey(allocation?.jobNumber)),
-  );
-  const boxById = indexBoxesById(
-    await listBoxesByIds(orgId, collectAllocationBoxIds(relevantAllocations)),
-  );
-
-  for (const requirement of allRequirements) {
-    if (getEntryJobId(requirement)) {
-      continue;
-    }
-    const jobNumber = normalizeJobNumberKey(requirement?.jobNumber);
-    if (!activeJobNumbers.has(jobNumber)) {
-      continue;
-    }
-    if (!legacyRequirementsByJobNumber[jobNumber]) {
-      legacyRequirementsByJobNumber[jobNumber] = [];
-    }
-    legacyRequirementsByJobNumber[jobNumber].push(requirement);
-  }
-
-  for (const allocation of relevantAllocations) {
-    if (getEntryJobId(allocation)) {
-      continue;
-    }
-    const jobNumber = normalizeJobNumberKey(allocation?.jobNumber);
-    if (!activeJobNumbers.has(jobNumber)) {
-      continue;
-    }
-    if (!legacyAllocationsByJobNumber[jobNumber]) {
-      legacyAllocationsByJobNumber[jobNumber] = [];
-    }
-    legacyAllocationsByJobNumber[jobNumber].push(allocation);
-  }
-
-  for (const job of activeJobs) {
-    const jobId = getEntryJobId(job);
-    const jobNumber = normalizeJobNumberKey(job?.jobNumber);
-    const requirements = buildPublicJobRequirementEntries(
-      jobId ? requirementsByJobId[jobId] || [] : legacyRequirementsByJobNumber[jobNumber] || [],
-      jobId ? allocationsByJobId[jobId] || [] : legacyAllocationsByJobNumber[jobNumber] || [],
-      boxById,
-    );
-
-    if (requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0)) {
-      return true;
-    }
-  }
-
-  const caulkPlanning = await loadCaulkPlanningByJobContexts(
-    client,
-    orgId,
-    activeJobs.map((job) => ({ jobNumber: asTrimmedString(job?.jobNumber), header: job, legacy: !getEntryJobId(job) })),
-  );
-
-  return [...Object.values(caulkPlanning.requirementsByJobId), ...Object.values(caulkPlanning.requirementsByJob)]
-    .some((requirements) =>
-      requirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0),
-    );
+  const activeJobs = await buildJobsList(client, orgId, 0, "ACTIVE", [], { snapshotConcurrency: 2 });
+  return activeJobs.some((job) => {
+    const status = asTrimmedString((job as Record<string, unknown>).status).toUpperCase();
+    return Boolean(asTrimmedString((job as Record<string, unknown>).installDate)) &&
+      (status === "FILM_ORDER" || status === "ORDERED");
+  });
 }
 
 /**
@@ -6775,6 +7057,34 @@ async function buildJobsCalendarEntriesForHeaders(
   return entries;
 }
 
+function buildPhaseCalendarEntries(entries: any[]) {
+  const response: any[] = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const phases = Array.isArray(entry?.phases) ? entry.phases : [];
+    if (phases.length <= 1) {
+      response.push(entry);
+      continue;
+    }
+
+    for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
+      const phase = phases[phaseIndex];
+      response.push({
+        ...entry,
+        installDate: asTrimmedString(phase.installDate),
+        crewLeader: asTrimmedString(phase.crewLeader),
+        status: asTrimmedString(phase.status) || entry.status,
+        workScope: phase.workScope ?? phase.sections ?? entry.workScope,
+        sections: phase.sections ?? phase.workScope ?? entry.sections,
+        phaseId: asTrimmedString(phase.phaseId),
+        phaseNumber: integerOrZero(phase.phaseNumber) || phaseIndex + 1,
+        phaseWorkScope: phase.workScope ?? phase.sections ?? entry.workScope,
+      });
+    }
+  }
+
+  return response;
+}
+
 async function buildJobsCalendar(
   client: any,
   orgId: string,
@@ -6786,44 +7096,17 @@ async function buildJobsCalendar(
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
-  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
-  let rangeStart = `${normalizedMonth}-01`;
-  const lastDayOfMonth = new Date(
-    Number(normalizedMonth.slice(0, 4)),
-    Number(normalizedMonth.slice(5, 7)),
-    0
-  ).getDate();
-
-  let rangeEnd = `${normalizedMonth}-${String(lastDayOfMonth).padStart(2, "0")}`;
+  const entries = buildPhaseCalendarEntries(await buildJobsList(client, orgId, 0, lifecycleFilter));
   if (normalizedView === "week") {
-    rangeStart = getCalendarWeekStart(normalizedAnchorDate);
-    rangeEnd = shiftCalendarDate(rangeStart, 6);
-  }
-
-  const calendarMonths = Array.from(new Set([rangeStart.slice(0, 7), rangeEnd.slice(0, 7)]));
-  const monthHeaders = await Promise.all(
-    calendarMonths.map((calendarMonth) => listJobsCalendar(client, orgId, calendarMonth, lifecycleFilter)),
-  );
-  const candidateHeaders = monthHeaders
-    .flat()
-    .filter((job) => {
-      const installDate = asTrimmedString(job?.installDate);
-      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= rangeStart && installDate <= rangeEnd;
-    })
-    .slice(0, JOBS_CALENDAR_CANDIDATE_LIMIT);
-
-  if (!candidateHeaders.length) {
-    return [];
-  }
-
-  const entries = await buildJobsCalendarEntriesForHeaders(client, orgId, candidateHeaders, lifecycleFilter);
-  if (normalizedView === "week") {
+    const rangeStart = getCalendarWeekStart(normalizedAnchorDate);
+    const rangeEnd = shiftCalendarDate(rangeStart, 6);
     return entries.filter((entry) => {
       const installDate = asTrimmedString((entry as Record<string, unknown>).installDate);
       return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= rangeStart && installDate <= rangeEnd;
     });
   }
 
+  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
   return entries.filter((entry) => asTrimmedString((entry as Record<string, unknown>).installDate).slice(0, 7) === normalizedMonth);
 }
 
@@ -6868,6 +7151,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
   if (!header) {
     header = buildLegacyJobHeaderFromData(normalizedJobNumber, allocations, filmOrders);
   }
+  const phases = header?.id ? await listJobPhasesByJobId(client, orgId, header.id) : [];
   const filmOrderLinks = await listFilmOrderLinksByFilmOrderIds(
     orgId,
     filmOrders.map((entry) => asTrimmedString(entry?.filmOrderId))
@@ -6919,7 +7203,15 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
       caulkAllocations,
       caulkStockEntries: [],
       jobWarehouse: header?.warehouse || "",
+      phases,
     }),
+    phases: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      allBoxes: boxes,
+      caulkAllocations,
+      caulkStockEntries: [],
+      jobWarehouse: header?.warehouse || "",
+      phases,
+    }).phases || [],
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
@@ -6950,12 +7242,14 @@ export async function buildJobDetailById(client: any, orgId: string, jobId: unkn
   const [
     allocations,
     filmOrders,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
   ] = await Promise.all([
     listAllocationsByJobIdDirect(orgId, header.id),
     listFilmOrdersByJobIdDirect(orgId, header.id),
+    listJobPhasesByJobId(client, orgId, header.id),
     listJobRequirementsByJobIdDirect(orgId, header),
     listJobCaulkRequirementsByJobIdDirect(orgId, header),
     listCaulkJobAllocationsByJobIdDirect(orgId, header.id),
@@ -7000,7 +7294,15 @@ export async function buildJobDetailById(client: any, orgId: string, jobId: unkn
       caulkAllocations,
       caulkStockEntries: [],
       jobWarehouse: header?.warehouse || "",
+      phases,
     }),
+    phases: buildJobListEntry(header, publicRequirements, allocations, filmOrders, publicCaulkRequirements, boxById, {
+      allBoxes: boxes,
+      caulkAllocations,
+      caulkStockEntries: [],
+      jobWarehouse: header?.warehouse || "",
+      phases,
+    }).phases || [],
     requirements: publicRequirements,
     allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
@@ -8869,6 +9171,25 @@ export async function canonicalizeMutationPayloadForRoute(
 
   if (logicalPath === "/jobs/create" || logicalPath === "/jobs/update") {
     next.requirements = await canonicalizeRequirementPayloadEntries(client, orgId, next.requirements);
+    if (Array.isArray(next.phases)) {
+      const phases = [];
+      for (let index = 0; index < next.phases.length; index += 1) {
+        const phase = next.phases[index];
+        if (!phase || typeof phase !== "object") {
+          phases.push(phase);
+          continue;
+        }
+        phases.push({
+          ...(phase as Record<string, unknown>),
+          requirements: await canonicalizeRequirementPayloadEntries(
+            client,
+            orgId,
+            (phase as Record<string, unknown>).requirements,
+          ),
+        });
+      }
+      next.phases = phases;
+    }
     return next;
   }
 

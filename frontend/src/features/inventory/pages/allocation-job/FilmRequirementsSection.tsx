@@ -22,6 +22,9 @@ interface FilmRequirementsSectionProps {
   isRequirementStatePending: boolean;
   isResumeAutoPlanningPending: boolean;
   pendingDeleteFilmOrderIds: Set<string>;
+  title?: string;
+  embedded?: boolean;
+  hideOrderAll?: boolean;
   onOrderRequirement: (requirement: JobRequirementLine) => void;
   onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
@@ -40,6 +43,9 @@ export function FilmRequirementsSection({
   isRequirementStatePending,
   isResumeAutoPlanningPending,
   pendingDeleteFilmOrderIds,
+  title = 'Film Requirements',
+  embedded = false,
+  hideOrderAll = false,
   onOrderRequirement,
   onSetRequirementState,
   onResumeAutoPlanning,
@@ -172,21 +178,25 @@ export function FilmRequirementsSection({
     );
   }
 
+  const Wrapper = embedded ? 'div' : 'section';
+
   return (
-    <section className="panel">
+    <Wrapper className={embedded ? 'phase-requirements-block' : 'panel'}>
       <div className="panel-title-row">
-        <h2>Film Requirements</h2>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          disabled={!canOrderAll}
-          loading={isCreateFilmOrderPending}
-          loadingLabel="Ordering"
-          onClick={onOrderAll}
-        >
-          Order All
-        </Button>
+        <h2>{title}</h2>
+        {!hideOrderAll ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={!canOrderAll}
+            loading={isCreateFilmOrderPending}
+            loadingLabel="Ordering"
+            onClick={onOrderAll}
+          >
+            Order All
+          </Button>
+        ) : null}
       </div>
       {!requirements.length ? (
         <div className="empty-state">No film requirements added yet.</div>
@@ -261,6 +271,6 @@ export function FilmRequirementsSection({
           </table>
         </div>
       )}
-    </section>
+    </Wrapper>
   );
 }

@@ -313,6 +313,23 @@ function buildRequirementIdentityKey(
   )}|${Math.max(0, Number(requirement.widthIn || 0))}`;
 }
 
+function buildRequirementPhaseKey(
+  requirement: Pick<JobRequirementLine, 'phaseId' | 'phaseNumber'>
+) {
+  const phaseId = String(requirement.phaseId || '').trim();
+  if (phaseId) {
+    return phaseId;
+  }
+
+  return `number:${Math.max(1, Math.floor(Number(requirement.phaseNumber || 1)))}`;
+}
+
+function buildPhaseScopedRequirementIdentityKey(
+  requirement: Pick<JobRequirementLine, 'phaseId' | 'phaseNumber' | 'manufacturer' | 'filmName' | 'widthIn'>
+) {
+  return `${buildRequirementPhaseKey(requirement)}|${buildRequirementIdentityKey(requirement)}`;
+}
+
 function buildRequirementSuppressionSignature(
   requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn' | 'requiredFeet'>
 ) {
@@ -370,6 +387,12 @@ function addCaulkCoverageTubes(
 
 function buildCaulkFallbackRequirementGroupKey(productId: string, jobNumber: string) {
   return `${String(productId || '').trim()}|${normalizeJobNumberKey(jobNumber)}`;
+}
+
+function buildCaulkRequirementPhaseProductKey(
+  requirement: Pick<JobCaulkRequirementLine, 'phaseId' | 'phaseNumber' | 'productId'>
+) {
+  return `${buildRequirementPhaseKey(requirement)}|${String(requirement.productId || '').trim()}`;
 }
 
 function caulkAllocationMatchesJob(
@@ -538,7 +561,7 @@ function buildNextRequirementLines(
 
   for (let index = 0; index < currentRequirements.length; index += 1) {
     const requirement = currentRequirements[index];
-    const key = buildRequirementIdentityKey(requirement);
+    const key = buildPhaseScopedRequirementIdentityKey(requirement);
     const currentMatches = unusedCurrentByKey.get(key) || [];
     currentMatches.push(requirement);
     unusedCurrentByKey.set(key, currentMatches);
@@ -549,14 +572,16 @@ function buildNextRequirementLines(
     const matchedRequirement = explicitRequirementId
       ? currentRequirementById[explicitRequirementId]
       : (unusedCurrentByKey.get(
-          buildRequirementIdentityKey({
+          buildPhaseScopedRequirementIdentityKey({
+            phaseId: entry.phaseId,
+            phaseNumber: entry.phaseNumber,
             manufacturer: entry.manufacturer,
             filmName: entry.filmName,
             widthIn: entry.widthIn
           })
         ) || [])[0];
     if (!explicitRequirementId && matchedRequirement) {
-      const key = buildRequirementIdentityKey(matchedRequirement);
+      const key = buildPhaseScopedRequirementIdentityKey(matchedRequirement);
       const remainingMatches = (unusedCurrentByKey.get(key) || []).filter(
         (candidate) => candidate.requirementId !== matchedRequirement.requirementId
       );
@@ -568,6 +593,11 @@ function buildNextRequirementLines(
         explicitRequirementId ||
         matchedRequirement?.requirementId ||
         `pending-film-req-update-${index + 1}`,
+      phaseId: entry.phaseId || matchedRequirement?.phaseId,
+      phaseNumber: entry.phaseNumber || matchedRequirement?.phaseNumber,
+      phaseWorkScope: matchedRequirement?.phaseWorkScope,
+      phaseInstallDate: matchedRequirement?.phaseInstallDate,
+      phaseCrewLeader: matchedRequirement?.phaseCrewLeader,
       manufacturer: entry.manufacturer,
       filmName: entry.filmName,
       widthIn: entry.widthIn,
@@ -654,8 +684,8 @@ function buildNextCaulkRequirementLines(
   const currentRequirementById = Object.fromEntries(
     detail.caulkRequirements.map((entry) => [entry.requirementId, entry])
   ) as Record<string, JobCaulkRequirementLine>;
-  const currentRequirementByProductId = Object.fromEntries(
-    detail.caulkRequirements.map((entry) => [entry.productId, entry])
+  const currentRequirementByPhaseProduct = Object.fromEntries(
+    detail.caulkRequirements.map((entry) => [buildCaulkRequirementPhaseProductKey(entry), entry])
   ) as Record<string, JobCaulkRequirementLine>;
   const caulkMetadataByProductId = buildCaulkMetadataLookup(detail, caulkProducts);
   const coverageByRequirementId = buildCaulkCoverageByRequirementId(detail);
@@ -665,7 +695,7 @@ function buildNextCaulkRequirementLines(
       const explicitRequirementId = String(entry.requirementId || '').trim();
       const currentRequirement = explicitRequirementId
         ? currentRequirementById[explicitRequirementId]
-        : currentRequirementByProductId[entry.productId];
+        : currentRequirementByPhaseProduct[buildCaulkRequirementPhaseProductKey(entry)];
       const productMetadata = caulkMetadataByProductId[entry.productId];
       const requiredTubes = Math.max(0, Math.floor(Number(entry.requiredTubes || 0)));
       const allocatedTubes = Math.min(
@@ -679,6 +709,11 @@ function buildNextCaulkRequirementLines(
           currentRequirement?.requirementId ||
           `pending-caulk-req-update-${index + 1}`,
         jobNumber: detail.summary.jobNumber,
+        phaseId: entry.phaseId || currentRequirement?.phaseId,
+        phaseNumber: entry.phaseNumber || currentRequirement?.phaseNumber,
+        phaseWorkScope: currentRequirement?.phaseWorkScope,
+        phaseInstallDate: currentRequirement?.phaseInstallDate,
+        phaseCrewLeader: currentRequirement?.phaseCrewLeader,
         productId: entry.productId,
         manufacturerId: productMetadata?.manufacturerId || currentRequirement?.manufacturerId || '',
         manufacturer: productMetadata?.manufacturer || currentRequirement?.manufacturer || '',

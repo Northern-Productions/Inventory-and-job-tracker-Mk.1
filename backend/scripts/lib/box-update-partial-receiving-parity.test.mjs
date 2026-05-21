@@ -44,21 +44,20 @@ test('box update partial receiving parity repair precedes checkout and check-in 
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-6), '0137_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(backendMigrations.at(-5), '0138_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(backendMigrations.at(-4), '0139_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(backendMigrations.at(-3), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(backendMigrations.at(-2), '0141_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(backendMigrations.at(-1), '0142_requirement_actual_usage_state.sql');
-  assert.equal(supabaseMigrations.at(-6), '20260520010000_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(supabaseMigrations.at(-5), '20260520020000_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(supabaseMigrations.at(-4), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(supabaseMigrations.at(-3), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(
-    supabaseMigrations.at(-1),
-    '20260521010000_requirement_actual_usage_state.sql'
-  );
+  assert.equal(backendMigrations.at(-7), '0137_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(backendMigrations.at(-6), '0138_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(backendMigrations.at(-5), '0139_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(backendMigrations.at(-4), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(backendMigrations.at(-3), '0141_box_checkin_reconcile_same_job_allocations.sql');
+  assert.equal(backendMigrations.at(-2), '0142_requirement_actual_usage_state.sql');
+  assert.equal(backendMigrations.at(-1), '0143_multi_phase_jobs.sql');
+  assert.equal(supabaseMigrations.at(-7), '20260520010000_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(supabaseMigrations.at(-6), '20260520020000_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(supabaseMigrations.at(-5), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(supabaseMigrations.at(-4), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(supabaseMigrations.at(-3), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260521010000_requirement_actual_usage_state.sql');
+  assert.equal(supabaseMigrations.at(-1), '20260521020000_multi_phase_jobs.sql');
 });
 
 test('repair migration reasserts existing-box partial receiving metrics without app data updates', async () => {
@@ -95,7 +94,7 @@ test('schema latest guard catches stale box update partial receiving function dr
     schemaLatest.indexOf('const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [')
   );
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0142_requirement_actual_usage_state\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0143_multi_phase_jobs\.sql';/);
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);
   assert.match(

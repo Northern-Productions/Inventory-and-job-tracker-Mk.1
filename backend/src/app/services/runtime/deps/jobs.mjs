@@ -5,6 +5,8 @@ export {
   normalizeJobSections,
   normalizeJobLifecycleStatus,
   normalizeJobLifecycleFilter,
+  normalizeJobPhaseNumber,
+  normalizeJobPhaseLaborStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,

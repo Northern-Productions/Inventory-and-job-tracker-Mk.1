@@ -10,6 +10,7 @@ export {
   toPublicFilmOrder,
   mapDbFilmOrderLinkRow,
   mapDbJobRow,
+  mapDbJobPhaseRow,
   mapDbRequirementRow,
   mapDbCaulkJobRequirementRow,
   mapDbCaulkJobAllocationRow,

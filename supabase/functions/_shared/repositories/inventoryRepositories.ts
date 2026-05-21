@@ -462,6 +462,31 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     };
   }
 
+  function mapDbJobPhaseRow(row: any) {
+    if (!row) {
+      return null;
+    }
+    const laborStatus = deps.asTrimmedString(row.labor_status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
+    return {
+      phaseId: row.id,
+      id: row.id,
+      orgId: row.org_id,
+      jobId: row.job_id,
+      phaseNumber: deps.integerOrZero(row.phase_number),
+      workScope: deps.asTrimmedString(row.sections) || null,
+      sections: deps.asTrimmedString(row.sections) || null,
+      installDate: deps.formatDateValue(row.install_date),
+      crewLeader: deps.asTrimmedString(row.crew_leader),
+      laborStatus,
+      isComplete: laborStatus === "COMPLETE",
+      isPrimary: row.is_primary === true,
+      createdAt: deps.formatTimestamp(row.created_at),
+      createdBy: deps.asTrimmedString(row.created_by),
+      updatedAt: deps.formatTimestamp(row.updated_at),
+      updatedBy: deps.asTrimmedString(row.updated_by),
+    };
+  }
+
   function mapDbRequirementRow(row: any) {
     if (!row) {
       return null;
@@ -471,6 +496,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       id: row.id,
       orgId: row.org_id,
       jobId: row.job_id,
+      phaseId: deps.asTrimmedString(row.phase_id),
+      phaseNumber: deps.integerOrZero(row.phase_number),
+      phaseWorkScope: deps.asTrimmedString(row.phase_sections || row.phase_work_scope) || null,
+      phaseInstallDate: deps.formatDateValue(row.phase_install_date),
+      phaseCrewLeader: deps.asTrimmedString(row.phase_crew_leader),
       jobNumber: deps.asTrimmedString(row.job_number),
       manufacturer: deps.asTrimmedString(row.manufacturer),
       filmName: deps.asTrimmedString(row.film_name),
@@ -497,6 +527,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return {
       requirementId: deps.asTrimmedString(row.requirement_id),
       jobId: row.job_id || null,
+      phaseId: deps.asTrimmedString(row.phase_id),
+      phaseNumber: deps.integerOrZero(row.phase_number),
+      phaseWorkScope: deps.asTrimmedString(row.phase_sections || row.phase_work_scope) || null,
+      phaseInstallDate: deps.formatDateValue(row.phase_install_date),
+      phaseCrewLeader: deps.asTrimmedString(row.phase_crew_leader),
       jobNumber: deps.asTrimmedString(row.job_number),
       productId: deps.asTrimmedString(row.product_id),
       manufacturerId: deps.asTrimmedString(row.manufacturer_id),
@@ -766,6 +801,27 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapDbJobRow(row);
   }
 
+  async function listJobPhases(client: any, orgId: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_phases", { p_org_id: orgId });
+    return mapRows(rows, mapDbJobPhaseRow);
+  }
+
+  async function listJobPhasesByJob(client: any, orgId: string, jobNumber: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_phases_by_job", {
+      p_org_id: orgId,
+      p_job_number: jobNumber,
+    });
+    return mapRows(rows, mapDbJobPhaseRow);
+  }
+
+  async function listJobPhasesByJobId(client: any, orgId: string, jobId: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_phases_by_job_id", {
+      p_org_id: orgId,
+      p_job_id: jobId,
+    });
+    return mapRows(rows, mapDbJobPhaseRow);
+  }
+
   async function listJobRequirements(client: any, orgId: string) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_job_requirements", { p_org_id: orgId });
     return mapRows(rows, mapDbRequirementRow);
@@ -833,6 +889,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     mapDbFilmOrderRow,
     toPublicFilmOrder,
     mapDbJobRow,
+    mapDbJobPhaseRow,
     mapDbRequirementRow,
     mapDbCaulkJobRequirementRow,
     mapDbCaulkJobAllocationRow,
@@ -856,6 +913,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listJobsCalendar,
     findJobByNumber,
     findJobById,
+    listJobPhases,
+    listJobPhasesByJob,
+    listJobPhasesByJobId,
     listJobRequirements,
     listJobRequirementsByJob,
     listJobCaulkRequirementsByJob,

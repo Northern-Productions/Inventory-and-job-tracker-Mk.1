@@ -233,7 +233,8 @@ function buildJobRequirementsByLookupKey(entries) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    byKey[normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn)] = entry;
+    const phaseKey = asTrimmedString(entry.phaseId) || asTrimmedString(entry.phaseNumber) || 'default';
+    byKey[`${phaseKey}|${normalizeJobRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn)}`] = entry;
   }
 
   return byKey;
@@ -586,6 +587,11 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
 
     response.push({
       requirementId,
+      phaseId: asTrimmedString(requirement.phaseId),
+      phaseNumber: integerOrZero(requirement.phaseNumber),
+      phaseWorkScope: asTrimmedString(requirement.phaseWorkScope),
+      phaseInstallDate: asTrimmedString(requirement.phaseInstallDate),
+      phaseCrewLeader: asTrimmedString(requirement.phaseCrewLeader),
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
@@ -984,6 +990,11 @@ function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations,
     const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
     response.push({
       requirementId,
+      phaseId: asTrimmedString(entry.phaseId),
+      phaseNumber: integerOrZero(entry.phaseNumber),
+      phaseWorkScope: asTrimmedString(entry.phaseWorkScope),
+      phaseInstallDate: asTrimmedString(entry.phaseInstallDate),
+      phaseCrewLeader: asTrimmedString(entry.phaseCrewLeader),
       jobNumber: asTrimmedString(entry.jobNumber),
       productId: asTrimmedString(entry.productId),
       manufacturerId: asTrimmedString(entry.manufacturerId),

@@ -42,6 +42,15 @@ export function collectPreferredLinkedBoxIds(
     }
 
     if (
+      order.requirementId &&
+      requirement.requirementId &&
+      order.requirementId !== requirement.requirementId
+    ) {
+      continue;
+    }
+
+    if (
+      !order.requirementId &&
       !canJobPlanningFilmSatisfyRequirement(
         order.manufacturer,
         order.filmName,

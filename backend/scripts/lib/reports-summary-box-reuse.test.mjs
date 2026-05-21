@@ -152,6 +152,7 @@ function createFakeClient(options = {}) {
   const counts = {
     boxes: 0,
     jobs: 0,
+    phases: 0,
     allocations: 0,
     filmOrders: 0,
     requirements: 0,
@@ -182,6 +183,10 @@ function createFakeClient(options = {}) {
         if (normalized.includes('from app.job_requirements r')) {
           counts.requirements += 1;
           return { rows: requirements };
+        }
+        if (normalized.includes('from app.job_phases')) {
+          counts.phases += 1;
+          return { rows: [] };
         }
         if (normalized.includes('from app.job_caulk_requirements r')) {
           counts.caulkRequirements += 1;
@@ -232,8 +237,14 @@ test('buildJobsList only loads referenced allocation boxes when no preloaded box
     'jobNumber',
     'warehouse',
     'workScope',
+    'primaryWorkScope',
     'workScopeKey',
     'sections',
+    'phaseId',
+    'phaseNumber',
+    'phaseWorkScope',
+    'phaseCount',
+    'phases',
     'installDate',
     'crewLeader',
     'status',
@@ -256,6 +267,7 @@ test('buildJobsList only loads referenced allocation boxes when no preloaded box
     'updatedAt',
     'notes',
   ]);
+  assert.equal(entries.find((entry) => entry.jobNumber === '30003').phaseCount, 1);
   assert.equal(entries.find((entry) => entry.jobNumber === '30003').status, 'READY');
 });
 

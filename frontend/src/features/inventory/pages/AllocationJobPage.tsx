@@ -4,10 +4,9 @@ import { formatDate, formatDateTime } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { CaulkAllocationsSection } from './allocation-job/CaulkAllocationsSection';
 import { CaulkCheckoutCyclesSection } from './allocation-job/CaulkCheckoutCyclesSection';
-import { CaulkRequirementsSection } from './allocation-job/CaulkRequirementsSection';
 import { AllocatedBoxesSection } from './allocation-job/AllocatedBoxesSection';
 import { JobCompletionSection } from './allocation-job/JobCompletionSection';
-import { FilmRequirementsSection } from './allocation-job/FilmRequirementsSection';
+import { JobPhasesSection } from './allocation-job/JobPhasesSection';
 import { JobUsageHistorySection } from './allocation-job/JobUsageHistorySection';
 import { JobConfirmationDialogs } from './allocation-job/JobConfirmationDialogs';
 import { JobOverviewHeroSection } from './allocation-job/JobOverviewHeroSection';
@@ -23,6 +22,7 @@ export default function AllocationJobPage() {
     jobQuery,
     detail,
     summary,
+    phases,
     requirements,
     filmTransferAlerts,
     caulkTransferAlerts,
@@ -57,6 +57,7 @@ export default function AllocationJobPage() {
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending,
     isRequirementStatePending,
+    isPhaseStatePending,
     isResumeAutoPlanningPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
@@ -66,6 +67,7 @@ export default function AllocationJobPage() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleSetRequirementState,
+    handleSetPhaseState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
@@ -222,34 +224,30 @@ export default function AllocationJobPage() {
         onOpenTransferBox={openInventoryBox}
       />
 
-      <FilmRequirementsSection
+      <JobPhasesSection
+        phases={phases}
         requirements={requirements}
+        caulkRequirements={caulkRequirements}
         filmOrders={filmOrders}
         isPhoneLayout={isPhoneLayout}
         isReadOnlyJob={isReadOnlyJob}
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
+        canOrderAll={orderableFilmOrderGroups.length > 0 && !isReadOnlyJob && auth.isAuthenticated && auth.clientIdConfigured}
         isCreateFilmOrderPending={isCreateFilmOrderPending}
         isRequirementStatePending={isRequirementStatePending}
+        isPhaseStatePending={isPhaseStatePending}
         isResumeAutoPlanningPending={isResumeAutoPlanningPending}
         pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
         onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
         onSetRequirementState={(requirement, nextStatus) =>
           void handleSetRequirementState(requirement, nextStatus)
         }
+        onSetPhaseState={(phase, nextStatus) => void handleSetPhaseState(phase, nextStatus)}
         onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}
+        onResumeCaulkAutoPlanning={(requirement) => void handleResumeCaulkAutoPlanning(requirement)}
         onCancelRequirementOrder={handleCancelRequirementOrder}
         onOrderAll={() => setIsOrderAllConfirmOpen(true)}
-      />
-
-      <CaulkRequirementsSection
-        requirements={caulkRequirements}
-        isPhoneLayout={isPhoneLayout}
-        isReadOnlyJob={isReadOnlyJob}
-        isAuthenticated={auth.isAuthenticated}
-        clientIdConfigured={auth.clientIdConfigured}
-        isResumeAutoPlanningPending={isResumeAutoPlanningPending}
-        onResumeAutoPlanning={(requirement) => void handleResumeCaulkAutoPlanning(requirement)}
       />
 
       <AllocatedBoxesSection
@@ -458,6 +456,7 @@ export default function AllocationJobPage() {
         sections={summary.sections}
         installDate={summary.installDate}
         crewLeader={summary.crewLeader}
+        phases={phases}
         requirements={requirements}
         filmOrders={filmOrders}
         filmCatalogEntries={filmCatalogQuery.data}

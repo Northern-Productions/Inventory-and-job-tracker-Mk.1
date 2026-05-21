@@ -293,6 +293,11 @@ export interface JobUsageTimelineEntry {
 
 export interface JobRequirementLine {
   requirementId: string;
+  phaseId?: string;
+  phaseNumber?: number;
+  phaseWorkScope?: string | null;
+  phaseInstallDate?: string;
+  phaseCrewLeader?: string;
   manufacturer: string;
   filmName: string;
   widthIn: number;
@@ -310,14 +315,51 @@ export interface JobRequirementLine {
   autoPlanningSuppressed?: boolean;
 }
 
+export interface JobPhase {
+  phaseId: string;
+  id?: string;
+  jobId?: string;
+  phaseNumber: number;
+  workScope?: string | null;
+  sections?: string | null;
+  installDate: string;
+  crewLeader: string;
+  laborStatus: 'ACTIVE' | 'COMPLETE';
+  status: JobStatus | 'COMPLETED';
+  isComplete: boolean;
+  isPrimary?: boolean;
+  isNextRelevant?: boolean;
+  isExpandedByDefault?: boolean;
+  requiredFeet: number;
+  allocatedFeet: number;
+  allocatedWithInstallDateFeet?: number;
+  allocatedWithoutInstallDateFeet?: number;
+  remainingFeet: number;
+  requiredTubes: number;
+  allocatedTubes: number;
+  remainingTubes: number;
+  requirementCount: number;
+  caulkRequirementCount: number;
+  filmOrderCount: number;
+  allocationCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface JobListEntry {
   jobId?: string;
   jobNumber: string;
   routeTarget?: string;
   warehouse: Warehouse;
   workScope?: string | null;
+  primaryWorkScope?: string | null;
   workScopeKey?: string;
   sections: string | null;
+  phaseId?: string;
+  phaseNumber?: number;
+  phaseWorkScope?: string | null;
+  phaseCount?: number;
+  phases?: JobPhase[];
   installDate: string;
   crewLeader: string;
   status: JobStatus;
@@ -343,6 +385,7 @@ export interface JobListEntry {
 
 export interface JobDetail {
   summary: JobListEntry;
+  phases?: JobPhase[];
   requirements: JobRequirementLine[];
   allocations: AllocationJobDetailEntry[];
   usage: JobUsageEntry[];
@@ -357,6 +400,7 @@ export interface JobDetail {
 
 export interface AllocationJobDetail {
   summary: AllocationJobSummary;
+  phases?: JobPhase[];
   requirements?: JobRequirementLine[];
   allocations: AllocationJobDetailEntry[];
   usage: JobUsageEntry[];
@@ -381,6 +425,8 @@ export interface CreateJobPayload {
   notes?: string;
   requirements?: Array<{
     requirementId?: string;
+    phaseId?: string;
+    phaseNumber?: number;
     manufacturer: string;
     filmName: string;
     widthIn: number;
@@ -388,8 +434,22 @@ export interface CreateJobPayload {
   }>;
   caulkRequirements?: Array<{
     requirementId?: string;
+    phaseId?: string;
+    phaseNumber?: number;
     productId: string;
     requiredTubes: number;
+  }>;
+  phases?: Array<{
+    phaseId?: string;
+    phaseNumber: number;
+    workScope?: string | number | null;
+    sections?: string | number | null;
+    installDate?: string;
+    crewLeader?: string;
+    laborStatus?: 'ACTIVE' | 'COMPLETE';
+    isPrimary?: boolean;
+    requirements?: CreateJobPayload['requirements'];
+    caulkRequirements?: CreateJobPayload['caulkRequirements'];
   }>;
 }
 
@@ -406,6 +466,8 @@ export interface UpdateJobPayload {
   notes?: string;
   requirements?: Array<{
     requirementId?: string;
+    phaseId?: string;
+    phaseNumber?: number;
     manufacturer: string;
     filmName: string;
     widthIn: number;
@@ -413,8 +475,22 @@ export interface UpdateJobPayload {
   }>;
   caulkRequirements?: Array<{
     requirementId?: string;
+    phaseId?: string;
+    phaseNumber?: number;
     productId: string;
     requiredTubes: number;
+  }>;
+  phases?: Array<{
+    phaseId?: string;
+    phaseNumber: number;
+    workScope?: string | number | null;
+    sections?: string | number | null;
+    installDate?: string;
+    crewLeader?: string;
+    laborStatus?: 'ACTIVE' | 'COMPLETE';
+    isPrimary?: boolean;
+    requirements?: UpdateJobPayload['requirements'];
+    caulkRequirements?: UpdateJobPayload['caulkRequirements'];
   }>;
 }
 
@@ -429,6 +505,13 @@ export interface SetJobRequirementStatePayload {
   jobId?: string;
   jobNumber: string;
   requirementId: string;
+  status: 'ACTIVE' | 'COMPLETE';
+}
+
+export interface SetJobPhaseStatePayload {
+  jobId?: string;
+  jobNumber: string;
+  phaseId: string;
   status: 'ACTIVE' | 'COMPLETE';
 }
 

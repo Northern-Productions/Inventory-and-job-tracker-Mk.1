@@ -543,7 +543,8 @@ function dedupeNormalizedJobRequirements(requirements) {
 
   for (let index = 0; index < requirements.length; index += 1) {
     const entry = requirements[index];
-    const key = normalizeRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn);
+    const phaseKey = asTrimmedString(entry.phaseId) || asTrimmedString(entry.phaseNumber) || 'default';
+    const key = `${phaseKey}|${normalizeRequirementLookupKey(entry.manufacturer, entry.filmName, entry.widthIn)}`;
     if (!deduped[key]) {
       deduped[key] = { ...entry };
       continue;
@@ -638,6 +639,12 @@ function normalizeJobRequirementInput(entry, warnings, index) {
 
   return {
     requirementId: asTrimmedString(entry && entry.requirementId),
+    phaseId: asTrimmedString(entry && entry.phaseId),
+    phaseNumber: asTrimmedString(entry && entry.phaseNumber),
+    status: asTrimmedString(entry && entry.status),
+    actualUsedFeet: entry && entry.actualUsedFeet,
+    completedAt: asTrimmedString(entry && entry.completedAt),
+    completedBy: asTrimmedString(entry && entry.completedBy),
     manufacturer: canonicalizeManufacturerLabel(manufacturer),
     filmName: normalizeCollapsedCatalogLabel(filmName),
     widthIn,

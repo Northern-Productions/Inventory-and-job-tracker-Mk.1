@@ -28,6 +28,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
   '/jobs/create',
   '/jobs/update',
   '/jobs/requirement-state',
+  '/jobs/phase-state',
   '/jobs/set-staged-pickup',
   '/jobs/checkout-all',
   '/jobs/complete',
@@ -56,6 +57,7 @@ const JOB_DETAIL_RELOAD_ROUTES = new Set([
   '/jobs/create',
   '/jobs/update',
   '/jobs/requirement-state',
+  '/jobs/phase-state',
   '/jobs/set-staged-pickup',
   '/jobs/checkout-all',
   '/jobs/complete',
@@ -69,6 +71,7 @@ const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
   '/jobs/set-staged-pickup',
   '/jobs/update',
   '/jobs/requirement-state',
+  '/jobs/phase-state',
   '/jobs/reopen',
 ]);
 

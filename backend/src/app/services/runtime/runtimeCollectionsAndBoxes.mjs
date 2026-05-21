@@ -226,11 +226,12 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
 
   for (let index = 0; index < requirementEntries.length; index += 1) {
     const requirement = requirementEntries[index];
-    const key = normalizeJobRequirementLookupKey(
+    const phaseKey = asTrimmedString(requirement.phaseId) || asTrimmedString(requirement.phaseNumber) || 'default';
+    const key = `${phaseKey}|${normalizeJobRequirementLookupKey(
       requirement.manufacturer,
       requirement.filmName,
       requirement.widthIn
-    );
+    )}`;
     const requirementId = asTrimmedString(requirement.requirementId);
     const existingByRequirementId = requirementId
       ? existingRequirements.find((entry) => asTrimmedString(entry.id || entry.requirementId) === requirementId)
@@ -240,10 +241,16 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
     rows.push({
       id: existing ? existing.id : '',
       jobNumber,
+      phaseId: asTrimmedString(requirement.phaseId || existing?.phaseId),
+      phaseNumber: asTrimmedString(requirement.phaseNumber || existing?.phaseNumber),
       manufacturer: requirement.manufacturer,
       filmName: requirement.filmName,
       widthIn: requirement.widthIn,
       requiredFeet: requirement.requiredFeet,
+      status: requirement.status || existing?.status,
+      actualUsedFeet: requirement.actualUsedFeet ?? existing?.actualUsedFeet,
+      completedAt: requirement.completedAt || existing?.completedAt,
+      completedBy: requirement.completedBy || existing?.completedBy,
       createdAt: existing ? existing.createdAt : nowIso,
       createdBy: existing ? existing.createdBy : user,
       updatedAt: nowIso,

@@ -90,6 +90,8 @@ export function JobAllocateDialog({
     () => allocatableRequirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
     [allocatableRequirements, selectedRequirementId]
   );
+  const effectiveInstallDate = selectedRequirement?.phaseInstallDate || installDate || '';
+  const effectiveCrewLeader = selectedRequirement?.phaseCrewLeader || crewLeader || '';
   const warehouseRegistry = useWarehouseRegistry();
   const searchableWarehouses = useMemo(
     () => {
@@ -157,8 +159,8 @@ export function JobAllocateDialog({
             ...(jobId ? { jobId } : {}),
             boxId: selectedSourceBox.boxId,
             jobNumber,
-            installDate: installDate || '',
-            crewLeader: crewLeader || '',
+            installDate: effectiveInstallDate,
+            crewLeader: effectiveCrewLeader,
             requestedFeet: requestedFeetValue,
             requestedWidthIn: selectedRequirement.widthIn,
             requirementId: selectedRequirement.requirementId,
@@ -167,8 +169,8 @@ export function JobAllocateDialog({
           }
         : null,
     [
-      crewLeader,
-      installDate,
+      effectiveCrewLeader,
+      effectiveInstallDate,
       isExtraFilmMode,
       jobId,
       jobNumber,
@@ -406,7 +408,7 @@ export function JobAllocateDialog({
       return;
     }
 
-    if (installDate.trim() && !crewLeader.trim()) {
+    if (effectiveInstallDate.trim() && !effectiveCrewLeader.trim()) {
       setError('Crew Leader is required when Install Date is set.');
       return;
     }
@@ -444,8 +446,8 @@ export function JobAllocateDialog({
       ...(jobId ? { jobId } : {}),
       boxId: sourceBox.boxId,
       jobNumber,
-      installDate: installDate || '',
-      crewLeader: crewLeader || '',
+      installDate: effectiveInstallDate,
+      crewLeader: effectiveCrewLeader,
       requestedFeet: isExtraFilmMode ? 0 : requestedFeetValue,
       requestedWidthIn: selectedRequirement.widthIn,
       requirementId: selectedRequirement.requirementId,
@@ -610,8 +612,8 @@ export function JobAllocateDialog({
           hasTransferCandidates={hasTransferCandidates}
           showsRemainingUncoveredNotice={showsRemainingUncoveredNotice}
           remainingUncoveredFeet={plannedSelection.remainingFeet}
-          installDate={installDate}
-          crewLeader={crewLeader}
+          installDate={effectiveInstallDate}
+          crewLeader={effectiveCrewLeader}
           previewError={previewQuery.isError && previewQuery.error instanceof Error ? previewQuery.error : null}
           activePreviewLoaded={Boolean(activePreview)}
           error={error}

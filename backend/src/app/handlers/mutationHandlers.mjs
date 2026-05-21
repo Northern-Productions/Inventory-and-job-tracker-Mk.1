@@ -32,6 +32,7 @@ import {
   removeJobBoxAllocation,
   reopenJob,
   setJobRequirementState,
+  setJobPhaseLaborState,
   setJobStagedPickup,
   updateJob,
 } from '../services/jobs.mjs';
@@ -176,6 +177,8 @@ const mutationHandlers = {
     updateJob(client, orgId, normalizeLegacySchedulePayload('/jobs/update', params), authContext.actor),
   '/jobs/requirement-state': async ({ client, orgId, authContext, params }) =>
     setJobRequirementState(client, orgId, params, authContext.actor),
+  '/jobs/phase-state': async ({ client, orgId, authContext, params }) =>
+    setJobPhaseLaborState(client, orgId, params, authContext.actor),
   '/jobs/set-staged-pickup': async ({ client, orgId, authContext, params }) => {
     const jobNumber = requireString(params.jobNumber, 'JobNumber');
     const result = await setJobStagedPickup(

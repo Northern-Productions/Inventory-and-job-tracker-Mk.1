@@ -18,6 +18,14 @@ export function RequirementFields({
   onRequirementChange,
   onRequestedFeetChange
 }: RequirementFieldsProps) {
+  function buildRequirementLabel(entry: JobRequirementLine) {
+    const phasePrefix = entry.phaseNumber ? `Phase ${entry.phaseNumber} - ` : '';
+    const quantityLabel = isExtraFilmMode
+      ? `${entry.requiredFeet} LF required`
+      : `${entry.remainingFeet} LF remaining`;
+    return `${phasePrefix}${entry.manufacturer} ${entry.filmName} ${entry.widthIn}" (${quantityLabel})`;
+  }
+
   return (
     <div className="form-grid">
       <label className="field">
@@ -29,9 +37,7 @@ export function RequirementFields({
         >
           {allocatableRequirements.map((entry) => (
             <option key={entry.requirementId} value={entry.requirementId}>
-              {isExtraFilmMode
-                ? `${entry.manufacturer} ${entry.filmName} ${entry.widthIn}" (${entry.requiredFeet} LF required)`
-                : `${entry.manufacturer} ${entry.filmName} ${entry.widthIn}" (${entry.remainingFeet} LF remaining)`}
+              {buildRequirementLabel(entry)}
             </option>
           ))}
         </select>

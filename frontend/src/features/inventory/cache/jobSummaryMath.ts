@@ -7,6 +7,7 @@ import type {
   JobCaulkRequirementLine,
   JobDetail,
   JobListEntry,
+  JobPhase,
   JobRequirementLine
 } from '../../../domain';
 import { WAREHOUSE_CODES } from '../../../domain';
@@ -34,6 +35,8 @@ function buildOptimisticJobRequirements(
 ): JobRequirementLine[] {
   return (requirements || []).map((entry, index) => ({
     requirementId: `pending-film-req-${index + 1}`,
+    phaseId: entry.phaseId,
+    phaseNumber: entry.phaseNumber,
     manufacturer: entry.manufacturer,
     filmName: entry.filmName,
     widthIn: entry.widthIn,
@@ -67,6 +70,8 @@ function buildOptimisticJobCaulkRequirements(
     return {
       requirementId: entry.requirementId || `pending-caulk-req-${index + 1}`,
       jobNumber,
+      phaseId: entry.phaseId,
+      phaseNumber: entry.phaseNumber,
       productId: entry.productId,
       manufacturerId: product?.manufacturerId || '',
       manufacturer: product?.manufacturer || '',
@@ -82,39 +87,132 @@ function buildOptimisticJobCaulkRequirements(
   });
 }
 
+function getPayloadWorkScope(payload: Pick<CreateJobPayload, 'workScope' | 'sections'>) {
+  if (payload.workScope !== null && payload.workScope !== undefined && payload.workScope !== '') {
+    return String(payload.workScope);
+  }
+  if (payload.sections !== null && payload.sections !== undefined && payload.sections !== '') {
+    return String(payload.sections);
+  }
+  return null;
+}
+
+function getPayloadPhases(payload: CreateJobPayload) {
+  if (Array.isArray(payload.phases) && payload.phases.length) {
+    return payload.phases.map((phase, index) => ({
+      ...phase,
+      phaseId: phase.phaseId || `pending-phase-${index + 1}`,
+      phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1))),
+      workScope: getPayloadWorkScope(phase),
+      sections: getPayloadWorkScope(phase),
+      installDate: phase.installDate || '',
+      crewLeader: phase.crewLeader || '',
+      isPrimary: phase.isPrimary === true || index === 0,
+      requirements: (phase.requirements || []).map((entry) => ({
+        ...entry,
+        phaseId: phase.phaseId || `pending-phase-${index + 1}`,
+        phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1)))
+      })),
+      caulkRequirements: (phase.caulkRequirements || []).map((entry) => ({
+        ...entry,
+        phaseId: phase.phaseId || `pending-phase-${index + 1}`,
+        phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1)))
+      }))
+    }));
+  }
+
+  const workScope = getPayloadWorkScope(payload);
+  const topLevelPhaseNumber = Math.max(
+    1,
+    Math.floor(Number((payload as { phaseNumber?: unknown }).phaseNumber || 1))
+  );
+  return [
+    {
+      phaseId: 'pending-phase-1',
+      phaseNumber: topLevelPhaseNumber,
+      workScope,
+      sections: workScope,
+      installDate: payload.installDate || '',
+      crewLeader: payload.crewLeader || '',
+      laborStatus: 'ACTIVE' as const,
+      isPrimary: true,
+      requirements: (payload.requirements || []).map((entry) => ({
+        ...entry,
+        phaseId: 'pending-phase-1',
+        phaseNumber: topLevelPhaseNumber
+      })),
+      caulkRequirements: (payload.caulkRequirements || []).map((entry) => ({
+        ...entry,
+        phaseId: 'pending-phase-1',
+        phaseNumber: topLevelPhaseNumber
+      }))
+    }
+  ];
+}
+
 export function createOptimisticJobDetailFromCreatePayload(
   payload: CreateJobPayload,
   caulkProducts: CaulkProductEntry[] = []
 ): JobDetail {
   const createdAt = new Date().toISOString();
-  const requirements = buildOptimisticJobRequirements(payload.requirements);
+  const payloadPhases = getPayloadPhases(payload);
+  const requirements = buildOptimisticJobRequirements(payloadPhases.flatMap((phase) => phase.requirements || []));
   const caulkRequirements = buildOptimisticJobCaulkRequirements(
     payload.jobNumber,
-    payload.caulkRequirements,
+    payloadPhases.flatMap((phase) => phase.caulkRequirements || []),
     caulkProducts,
     createdAt
   );
+  const phases: JobPhase[] = payloadPhases.map((phase, index) => {
+    const phaseRequirements = requirements.filter((entry) => entry.phaseId === phase.phaseId);
+    const phaseCaulkRequirements = caulkRequirements.filter((entry) => entry.phaseId === phase.phaseId);
+    const phaseRequiredFeet = phaseRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
+    const phaseRequiredTubes = phaseCaulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0);
+    const status = computeOptimisticJobStatus(phaseRequiredFeet, phaseRequiredTubes, 0, !phaseRequiredFeet && !phaseRequiredTubes);
+    return {
+      phaseId: String(phase.phaseId || `pending-phase-${index + 1}`),
+      phaseNumber: phase.phaseNumber,
+      workScope: phase.workScope,
+      sections: phase.sections,
+      installDate: phase.installDate,
+      crewLeader: phase.crewLeader,
+      laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE',
+      status,
+      isComplete: false,
+      isPrimary: phase.isPrimary,
+      isNextRelevant: index === 0,
+      isExpandedByDefault: index === 0,
+      requiredFeet: phaseRequiredFeet,
+      allocatedFeet: 0,
+      remainingFeet: phaseRequiredFeet,
+      requiredTubes: phaseRequiredTubes,
+      allocatedTubes: 0,
+      remainingTubes: phaseRequiredTubes,
+      requirementCount: phaseRequirements.length,
+      caulkRequirementCount: phaseCaulkRequirements.length,
+      filmOrderCount: 0,
+      allocationCount: 0,
+      createdAt,
+      updatedAt: createdAt
+    };
+  });
   const requiredFeet = requirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
   const requiredTubes = caulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0);
+  const primaryPhase = phases.find((phase) => phase.isPrimary) || phases[0];
 
   return {
     summary: {
       jobNumber: payload.jobNumber,
       warehouse: payload.warehouse || WAREHOUSE_CODES[0],
-      workScope:
-        payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
-          ? payload.sections === null || payload.sections === undefined || payload.sections === ''
-            ? null
-            : String(payload.sections)
-          : String(payload.workScope),
-      sections:
-        payload.workScope === null || payload.workScope === undefined || payload.workScope === ''
-          ? payload.sections === null || payload.sections === undefined || payload.sections === ''
-            ? null
-            : String(payload.sections)
-          : String(payload.workScope),
-      installDate: payload.installDate || '',
-      crewLeader: payload.crewLeader || '',
+      workScope: primaryPhase?.workScope ?? getPayloadWorkScope(payload),
+      sections: primaryPhase?.sections ?? getPayloadWorkScope(payload),
+      phaseId: primaryPhase?.phaseId,
+      phaseNumber: primaryPhase?.phaseNumber,
+      phaseWorkScope: primaryPhase?.workScope,
+      phaseCount: phases.length,
+      phases,
+      installDate: primaryPhase?.installDate || payload.installDate || '',
+      crewLeader: primaryPhase?.crewLeader || payload.crewLeader || '',
       status: computeOptimisticJobStatus(requiredFeet, requiredTubes, 0, Boolean(payload.isLaborOnly)),
       lifecycleStatus: payload.lifecycleStatus || 'ACTIVE',
       isLaborOnly: Boolean(payload.isLaborOnly),
@@ -133,6 +231,7 @@ export function createOptimisticJobDetailFromCreatePayload(
       updatedAt: createdAt,
       notes: payload.notes || ''
     },
+    phases,
     requirements,
     allocations: [],
     usage: [],

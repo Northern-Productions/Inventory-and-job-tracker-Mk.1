@@ -38,6 +38,7 @@ import {
   useReopenJob,
   useRemoveJobBoxAllocations,
   useSetBoxStatus,
+  useSetJobPhaseState,
   useSetJobRequirementState,
   useSetJobStagedForPickup,
   useUpdateCaulkJobAllocation,
@@ -105,6 +106,7 @@ export function useAllocationJobPageModel() {
   const removeJobBoxAllocationsMutation = useRemoveJobBoxAllocations();
   const clearAutoPlanningSuppressionMutation = useClearAllocationPlannerSuppression();
   const setBoxStatusMutation = useSetBoxStatus();
+  const setJobPhaseStateMutation = useSetJobPhaseState();
   const setJobRequirementStateMutation = useSetJobRequirementState();
   const setJobStagedForPickupMutation = useSetJobStagedForPickup();
   const caulkProductsQuery = useCaulkProducts();
@@ -143,6 +145,7 @@ export function useAllocationJobPageModel() {
         }
       : null;
   const requirements = detail?.requirements || [];
+  const phases = detail?.phases || detail?.summary?.phases || [];
   const allocations = detail?.allocations || [];
   const filmTransferAlerts = detail?.filmTransferAlerts || [];
   const caulkTransferAlerts = detail?.caulkTransferAlerts || [];
@@ -628,6 +631,46 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleSetPhaseState(
+    phase: NonNullable<typeof phases>[number],
+    nextStatus: 'ACTIVE' | 'COMPLETE'
+  ) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'changing phase state',
+        feature: 'jobs',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      await setJobPhaseStateMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
+        jobNumber: summary.jobNumber,
+        phaseId: phase.phaseId,
+        status: nextStatus
+      });
+      toast.push({
+        title: nextStatus === 'COMPLETE' ? 'Phase completed' : 'Phase reactivated',
+        description:
+          nextStatus === 'COMPLETE'
+            ? `Phase ${phase.phaseNumber} is marked complete.`
+            : `Phase ${phase.phaseNumber} is active again.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update phase',
+        description: error instanceof Error ? error.message : 'The phase update failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleResumeCaulkAutoPlanning(requirement: JobCaulkRequirementLine) {
     if (
       isReadOnlyJob ||
@@ -712,6 +755,7 @@ export function useAllocationJobPageModel() {
     jobQuery,
     detail,
     summary,
+    phases,
     requirements,
     filmTransferAlerts,
     caulkTransferAlerts,
@@ -747,6 +791,7 @@ export function useAllocationJobPageModel() {
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending: createFilmOrderMutation.isPending,
     isRequirementStatePending: setJobRequirementStateMutation.isPending,
+    isPhaseStatePending: setJobPhaseStateMutation.isPending,
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
@@ -756,6 +801,7 @@ export function useAllocationJobPageModel() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleSetRequirementState,
+    handleSetPhaseState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,

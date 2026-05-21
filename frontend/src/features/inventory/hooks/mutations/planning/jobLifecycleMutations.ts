@@ -6,6 +6,7 @@ import {
   createJob,
   deleteJob,
   reopenJob,
+  setJobPhaseState,
   setJobRequirementState,
   updateJob
 } from '../../../../../api/features/jobsClient';
@@ -17,6 +18,7 @@ import type {
   CreateJobPayload,
   DeleteJobPayload,
   JobDetail,
+  SetJobPhaseStatePayload,
   SetJobRequirementStatePayload,
   UpdateJobPayload
 } from '../../../../../domain';
@@ -188,6 +190,57 @@ export function useSetJobRequirementState() {
             syncLegacyJobDetail: !jobId
           });
         }
+      );
+    },
+    onError: (_error, _variables, context) => {
+      restoreSnapshots(queryClient, context?.snapshots);
+    },
+    onSuccess: async ({ result }, variables) => {
+      const jobId = String(variables.jobId || '').trim();
+      syncJobDetailCaches(queryClient, result, {
+        syncAllocationJobDetail: !jobId,
+        syncLegacyJobDetail: !jobId
+      });
+      await Promise.all([
+        invalidateGlobalPlanningQueries(queryClient),
+        queryClient.invalidateQueries({
+          queryKey: jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(variables.jobNumber)
+        }),
+        ...(jobId ? [] : [queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })]),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+      ]);
+      void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useSetJobPhaseState() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.setJobPhaseStateMutation,
+    mutationFn: (payload: SetJobPhaseStatePayload) => setJobPhaseState(payload),
+    onMutate: async (payload) => {
+      const jobId = String(payload.jobId || '').trim();
+      const detailKey = jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber);
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.cancelQueries({ queryKey: detailKey }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
+        ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
+      ]);
+
+      return beginImmediateOptimisticMutation(
+        queryClient,
+        [
+          inventoryKeys.jobs,
+          detailKey,
+          inventoryKeys.allocationJobs,
+          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
+          inventoryKeys.filmOrders
+        ],
+        () => {}
       );
     },
     onError: (_error, _variables, context) => {
