@@ -1076,7 +1076,7 @@ begin
   select pg_get_functiondef('app_api.record_caulk_requirement_actual_usage_for_checkin(uuid, text, text, integer)'::regprocedure)
   into v_def;
   if position('v_match_count <> 1' in v_def) = 0
-     or position('job_number %s maps to %s jobs' in v_def) = 0
+     or position('job number %s maps to %s jobs' in v_def) = 0
      or position('actual_used_tubes = greatest(coalesce(actual_used_tubes, 0), 0) + v_used_tubes' in v_def) = 0 then
     raise exception 'record_caulk_requirement_actual_usage_for_checkin missing safe mapping or usage accumulation';
   end if;

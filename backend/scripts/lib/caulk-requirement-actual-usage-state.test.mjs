@@ -62,6 +62,8 @@ test('caulk legacy usage mapping only links unambiguous requirement matches', as
   const migration = await readFile(backendMigrationPath, 'utf8');
 
   assert.match(migration, /v_distinct_job_count <> 1/);
+  assert.match(migration, /job number %s maps to %s jobs/);
+  assert.doesNotMatch(migration, /job_number %s maps to %s jobs/);
   assert.match(migration, /v_match_count <> 1/);
   assert.match(migration, /set requirement_id = v_requirement_id/);
   assert.match(migration, /caulk_checkin_backfill_candidates/);
