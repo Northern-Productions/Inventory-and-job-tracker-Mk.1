@@ -521,17 +521,13 @@ begin
     v_next := replace(
       v_next,
       replace($old$
-      from app.job_requirements r
-      where r.org_id = p_org_id
         and r.job_id = v_job.job_id
-      order by r.updated_at, r.id
+      order by
 $old$, E'\r\n', E'\n'),
       replace($new$
-      from app.job_requirements r
-      where r.org_id = p_org_id
         and r.job_id = v_job.job_id
         and coalesce(r.status, 'ACTIVE') = 'ACTIVE'
-      order by r.updated_at, r.id
+      order by
 $new$, E'\r\n', E'\n')
     );
   end if;

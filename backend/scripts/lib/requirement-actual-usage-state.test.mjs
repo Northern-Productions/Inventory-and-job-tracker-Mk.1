@@ -62,6 +62,10 @@ test('requirement usage state migration is mirrored and guarded by schema latest
   assert.match(backendMigration, /Reactivate it before allocating film/);
   assert.match(backendMigration, /Reactivate it before ordering more film/);
   assert.match(backendMigration, /coalesce\(r\.status, 'ACTIVE'\) = 'ACTIVE'/);
+  assert.match(
+    backendMigration,
+    /and r\.job_id = v_job\.job_id\s+and coalesce\(r\.status, 'ACTIVE'\) = 'ACTIVE'\s+order by/
+  );
 });
 
 test('new requirement rows default to Active with no actual usage', () => {
