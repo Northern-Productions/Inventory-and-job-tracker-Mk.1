@@ -1612,6 +1612,10 @@ textarea {
   margin: 1rem 0;
 }
 
+.job-editor-basics-layout--job-only {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .job-editor-basics-primary-grid,
 .job-editor-basics-secondary-grid {
   display: grid;
@@ -1635,6 +1639,11 @@ textarea {
 
 .job-editor-basics-secondary-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.job-editor-basics-layout--job-only .job-editor-basics-primary-grid,
+.job-editor-basics-layout--job-only .job-editor-basics-secondary-grid {
+  grid-template-columns: 1fr;
 }
 
 .jobs-toolbar-grid {
@@ -3233,6 +3242,20 @@ td.col-available-linear-ft {
   min-width: 0;
 }
 
+.job-editor-phase-selector-row {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.job-editor-selected-phase-fields {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: minmax(6.5rem, 0.55fr) minmax(13rem, 1.45fr) minmax(9rem, 1fr) minmax(10rem, 1fr);
+  margin-top: 0.85rem;
+}
+
 .requirement-result {
   align-items: center;
   border-radius: 999px;
@@ -4715,6 +4738,9 @@ td.col-available-linear-ft {
 
   .job-editor-basics-primary-grid,
   .job-editor-basics-secondary-grid,
+  .job-editor-basics-layout--job-only,
+  .job-editor-phase-selector-row,
+  .job-editor-selected-phase-fields,
   .job-editor-phase-row {
     grid-template-columns: 1fr;
   }

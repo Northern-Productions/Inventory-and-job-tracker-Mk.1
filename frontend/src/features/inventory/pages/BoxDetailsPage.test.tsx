@@ -954,7 +954,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123 · Sections 4, 5' }));
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123 / Sections 4, 5' }));
 
     expect(navigateMock).toHaveBeenCalledWith(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'
@@ -1002,7 +1002,7 @@ describe('BoxDetailsPage', () => {
     const html = renderPage();
 
     expect(html).toContain('Ordered For Job');
-    expect(html).toContain('>IL1-4953 · Sections 4, 5</button>');
+    expect(html).toContain('>IL1-4953 / Sections 4, 5</button>');
     expect(html).toContain('>IL1-16242</button>');
   });
 
@@ -1027,7 +1027,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953 · Sections 4, 5' }));
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953 / Sections 4, 5' }));
 
     expect(navigateMock).toHaveBeenCalledWith(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'

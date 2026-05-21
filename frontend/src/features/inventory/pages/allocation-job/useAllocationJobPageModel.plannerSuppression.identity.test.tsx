@@ -84,6 +84,7 @@ vi.mock('../../hooks/useInventoryQueries', () => ({
   useRemoveJobBoxAllocations: () => buildMutationState(),
   useReopenJob: () => buildMutationState(),
   useSetBoxStatus: () => buildMutationState(),
+  useSetJobPhaseState: () => buildMutationState(),
   useSetJobRequirementState: () => buildMutationState(),
   useSetJobStagedForPickup: () => buildMutationState(),
   useUpdateCaulkJobAllocation: () => buildMutationState(),

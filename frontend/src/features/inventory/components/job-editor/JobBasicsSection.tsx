@@ -9,10 +9,11 @@ interface JobBasicsSectionProps {
   installDate: string;
   crewLeader: string;
   warehouse: Warehouse;
+  showPhaseFields?: boolean;
   onJobNumberChange: (value: string) => void;
-  onSectionsChange: (value: string) => void;
-  onInstallDateChange: (value: string) => void;
-  onCrewLeaderChange: (value: string) => void;
+  onSectionsChange?: (value: string) => void;
+  onInstallDateChange?: (value: string) => void;
+  onCrewLeaderChange?: (value: string) => void;
   onWarehouseChange: (value: Warehouse) => void;
   onClearError: () => void;
 }
@@ -24,6 +25,7 @@ export function JobBasicsSection({
   installDate,
   crewLeader,
   warehouse,
+  showPhaseFields = true,
   onJobNumberChange,
   onSectionsChange,
   onInstallDateChange,
@@ -38,11 +40,17 @@ export function JobBasicsSection({
       <div className="dialog-section-header">
         <h3>Job Basics</h3>
         <p className="muted-text">
-          Keep the current create and edit flow intact while making the first fields easier to scan.
+          {showPhaseFields
+            ? 'Set the job details the crew should pull against.'
+            : 'Set the job-level details shared by every phase.'}
         </p>
       </div>
 
-      <div className="job-editor-basics-layout">
+      <div
+        className={`job-editor-basics-layout ${
+          showPhaseFields ? '' : 'job-editor-basics-layout--job-only'
+        }`.trim()}
+      >
         <div className="job-editor-basics-primary-grid">
           <Input
             label="Job ID number"
@@ -59,36 +67,42 @@ export function JobBasicsSection({
             autoFocus={mode === 'create'}
             disabled={disableJobNumber}
           />
-          <Input
-            label="Work Scope"
-            value={sections}
-            hint="Optional. Examples: Section 1, Sections 4, 5, Lobby, Phase 2."
-            inputMode="text"
-            onChange={(event) => {
-              onSectionsChange(event.target.value);
-              onClearError();
-            }}
-          />
-          <Input
-            label="Install Date"
-            type="date"
-            value={installDate}
-            onChange={(event) => {
-              onInstallDateChange(event.target.value);
-              onClearError();
-            }}
-          />
+          {showPhaseFields ? (
+            <>
+              <Input
+                label="Work Scope"
+                value={sections}
+                hint="Optional. Examples: Section 1, Sections 4, 5, Lobby, Phase 2."
+                inputMode="text"
+                onChange={(event) => {
+                  onSectionsChange?.(event.target.value);
+                  onClearError();
+                }}
+              />
+              <Input
+                label="Install Date"
+                type="date"
+                value={installDate}
+                onChange={(event) => {
+                  onInstallDateChange?.(event.target.value);
+                  onClearError();
+                }}
+              />
+            </>
+          ) : null}
         </div>
 
         <div className="job-editor-basics-secondary-grid">
-          <Input
-            label="Crew Leader"
-            value={crewLeader}
-            onChange={(event) => {
-              onCrewLeaderChange(event.target.value);
-              onClearError();
-            }}
-          />
+          {showPhaseFields ? (
+            <Input
+              label="Crew Leader"
+              value={crewLeader}
+              onChange={(event) => {
+                onCrewLeaderChange?.(event.target.value);
+                onClearError();
+              }}
+            />
+          ) : null}
           <WarehouseSelectField
             label="Warehouse"
             value={warehouse}

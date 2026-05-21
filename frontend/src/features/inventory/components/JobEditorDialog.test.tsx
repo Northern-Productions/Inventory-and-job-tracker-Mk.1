@@ -354,4 +354,393 @@ describe('JobEditorDialog', () => {
 
     queryClient.clear();
   });
+
+  it('defaults edit mode to the closest active phase and hides the old phase grid', () => {
+    const queryClient = createQueryClient();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true,
+            isNextRelevant: false,
+            status: 'READY'
+          },
+          {
+            id: 'phase-2',
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            workScope: 'Sections 4, 5',
+            sections: 'Sections 4, 5',
+            installDate: '2026-05-21',
+            crewLeader: 'Alexis',
+            laborStatus: 'ACTIVE',
+            isPrimary: false,
+            isNextRelevant: true,
+            status: 'FILM_ORDER'
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: []
+      })
+    );
+
+    const phaseSelect = screen.getByRole('combobox', { name: /Phase to edit/i }) as HTMLSelectElement;
+    expect(phaseSelect.value).toBe('phase-2');
+    expect(screen.getByRole('option', { name: 'Phase 1 - Section 1' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Phase 2 - Sections 4, 5' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
+      'Sections 4, 5'
+    );
+    expect((screen.getByLabelText(/Install Date/i) as HTMLInputElement).value).toBe('2026-05-21');
+    expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
+      'Alexis'
+    );
+    expect(document.querySelector('.job-editor-phase-list')).toBeNull();
+    expect(screen.queryByText(/Add requirements to phase/i)).toBeNull();
+
+    queryClient.clear();
+  });
+
+  it('switches selected phase fields and keeps requirements scoped to that phase', () => {
+    const queryClient = createQueryClient();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true,
+            isNextRelevant: false
+          },
+          {
+            id: 'phase-2',
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            workScope: 'Section 7',
+            sections: 'Section 7',
+            installDate: '2026-06-01',
+            crewLeader: 'Alexis',
+            laborStatus: 'ACTIVE',
+            isPrimary: false,
+            isNextRelevant: true
+          }
+        ],
+        initialRequirements: [
+          {
+            requirementId: 'req-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            manufacturer: '3M Fasara',
+            filmName: 'First Phase Film',
+            widthIn: 60,
+            requiredFeet: 12
+          },
+          {
+            requirementId: 'req-2',
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            manufacturer: 'Llumar',
+            filmName: 'Second Phase Film',
+            widthIn: 48,
+            requiredFeet: 20
+          }
+        ],
+        initialCaulkRequirements: []
+      })
+    );
+
+    expect(screen.queryByDisplayValue('First Phase Film')).toBeNull();
+    expect(screen.getByDisplayValue('Second Phase Film')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('combobox', { name: /Phase to edit/i }), {
+      target: { value: 'phase-1' }
+    });
+
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
+      'Section 1'
+    );
+    expect((screen.getByLabelText(/Install Date/i) as HTMLInputElement).value).toBe('2026-05-01');
+    expect((screen.getByRole('textbox', { name: /Crew Leader/i }) as HTMLInputElement).value).toBe(
+      'Napo'
+    );
+    expect(screen.getByDisplayValue('First Phase Film')).toBeTruthy();
+    expect(screen.queryByDisplayValue('Second Phase Film')).toBeNull();
+
+    queryClient.clear();
+  });
+
+  it('adds and selects a new phase from the phase selector flow', () => {
+    const queryClient = createQueryClient();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true
+          },
+          {
+            id: 'phase-3',
+            phaseId: 'phase-3',
+            phaseNumber: 3,
+            workScope: 'Section 20',
+            sections: 'Section 20',
+            installDate: '',
+            crewLeader: '',
+            laborStatus: 'ACTIVE',
+            isPrimary: false
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: []
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Add New Phase/i }));
+
+    const phaseSelect = screen.getByRole('combobox', { name: /Phase to edit/i }) as HTMLSelectElement;
+    const phaseNumberInput = screen.getByRole('spinbutton', { name: /Phase Number/i }) as HTMLInputElement;
+    expect(phaseSelect.value).toMatch(/^job-phase-/);
+    expect(phaseNumberInput.value).toBe('4');
+    expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
+      ''
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps positive whole number phase validation in the selected phase flow', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Phase Number/i }), {
+      target: { value: '2.5' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/Phase number must be a positive whole number/i)).toBeTruthy();
+
+    queryClient.clear();
+  });
+
+  it('saves selected phase scope, date, leader, and requirement edits without changing non-primary uniqueness scope', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        submitLabel: 'Save Job',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true,
+            isNextRelevant: false
+          },
+          {
+            id: 'phase-2',
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            workScope: 'Section 7',
+            sections: 'Section 7',
+            installDate: '2026-06-01',
+            crewLeader: 'Alexis',
+            laborStatus: 'ACTIVE',
+            isPrimary: false,
+            isNextRelevant: true
+          }
+        ],
+        initialRequirements: [
+          {
+            requirementId: 'req-2',
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            manufacturer: 'Llumar',
+            filmName: 'Second Phase Film',
+            widthIn: 48,
+            requiredFeet: 20
+          }
+        ],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Work Scope/i }), {
+      target: { value: 'Section 7 Punch' }
+    });
+    fireEvent.change(screen.getByLabelText(/Install Date/i), {
+      target: { value: '2026-06-12' }
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /Crew Leader/i }), {
+      target: { value: 'Jamie' }
+    });
+    fireEvent.change(screen.getByDisplayValue('Second Phase Film'), {
+      target: { value: 'Updated Second Phase Film' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.workScope).toBe('Section 1');
+    expect(payload.sections).toBe('Section 1');
+    expect(payload.phases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phaseId: 'phase-2',
+          phaseNumber: 2,
+          workScope: 'Section 7 Punch',
+          sections: 'Section 7 Punch',
+          installDate: '2026-06-12',
+          crewLeader: 'Jamie',
+          requirements: [
+            expect.objectContaining({
+              requirementId: 'req-2',
+              phaseId: 'phase-2',
+              phaseNumber: 2,
+              filmName: 'Updated Second Phase Film'
+            })
+          ]
+        })
+      ])
+    );
+
+    queryClient.clear();
+  });
+
+  it('updates the primary phase summary fields when the selected primary phase is saved', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 4024',
+        submitLabel: 'Save Job',
+        initialJobNumber: '4024',
+        initialWarehouse: 'IL1',
+        initialSections: '1',
+        initialInstallDate: '2026-05-21',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: '1',
+            sections: '1',
+            installDate: '2026-05-21',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true,
+            isNextRelevant: true
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Work Scope/i }), {
+      target: { value: 'Section 1' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.workScope).toBe('Section 1');
+    expect(payload.sections).toBe('Section 1');
+    expect(payload.phases[0]).toEqual(
+      expect.objectContaining({
+        phaseId: 'phase-1',
+        phaseNumber: 1,
+        workScope: 'Section 1',
+        sections: 'Section 1',
+        isPrimary: true
+      })
+    );
+
+    queryClient.clear();
+  });
 });

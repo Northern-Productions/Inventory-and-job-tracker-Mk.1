@@ -40,6 +40,10 @@ export interface JobPhaseEditorLine {
   crewLeader: string;
   laborStatus?: 'ACTIVE' | 'COMPLETE';
   isPrimary?: boolean;
+  isComplete?: boolean;
+  isNextRelevant?: boolean;
+  isExpandedByDefault?: boolean;
+  status?: string;
   requirements?: JobRequirementEditorLine[];
   caulkRequirements?: JobCaulkRequirementEditorLine[];
 }

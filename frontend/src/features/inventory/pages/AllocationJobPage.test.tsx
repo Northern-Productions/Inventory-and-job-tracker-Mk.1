@@ -30,6 +30,7 @@ const usePendingRemoveJobBoxAllocationIdsMock = vi.fn();
 const useRemoveJobBoxAllocationsMock = vi.fn();
 const useClearAllocationPlannerSuppressionMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
+const useSetJobPhaseStateMock = vi.fn();
 const useSetJobStagedForPickupMock = vi.fn();
 const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
@@ -96,6 +97,7 @@ vi.mock('../hooks/useInventoryQueries', async (importOriginal) => {
     useRemoveJobBoxAllocations: () => useRemoveJobBoxAllocationsMock(),
     useClearAllocationPlannerSuppression: () => useClearAllocationPlannerSuppressionMock(),
     useSetBoxStatus: () => useSetBoxStatusMock(),
+    useSetJobPhaseState: () => useSetJobPhaseStateMock(),
     useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
     useBox: () => useBoxMock(),
     useAllocateBox: () => useAllocateBoxMock(),
@@ -384,6 +386,7 @@ describe('AllocationJobPage', () => {
     useRemoveJobBoxAllocationsMock.mockReturnValue(buildMutationState());
     useClearAllocationPlannerSuppressionMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
+    useSetJobPhaseStateMock.mockReturnValue(buildMutationState());
     useSetJobStagedForPickupMock.mockReturnValue(buildMutationState());
     useBoxMock.mockReturnValue({
       data: null,
@@ -644,7 +647,7 @@ describe('AllocationJobPage', () => {
 
     const html = renderPage(detail);
 
-    expect(html).toContain('Caulk Requirements');
+    expect(html).toContain('<h2>Caulk</h2>');
     expect(html).toContain('Caulk Allocations');
     expect(html).toContain('Job Material History');
     expect(html).toContain('Locked after checkout');

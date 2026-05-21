@@ -85,7 +85,7 @@ describe('RollHistoryPanel', () => {
 
     render(<RollHistoryPanel boxId="IL1-100" />);
 
-    expect(screen.getByText('IL1-000123 · Sections 4, 5')).toBeTruthy();
+    expect(screen.getByText('IL1-000123 / Sections 4, 5')).toBeTruthy();
     expect(screen.queryByRole('link')).toBeNull();
   });
 

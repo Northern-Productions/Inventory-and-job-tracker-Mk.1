@@ -75,7 +75,7 @@ describe('JobsResultsSection interactions', () => {
       />
     );
 
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'IL1-16961 · 260' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'IL1-16961 / 260' }));
 
     expect(onPrefetchJob).toHaveBeenCalledWith('16961', undefined);
   });

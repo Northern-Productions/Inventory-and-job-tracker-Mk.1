@@ -14,6 +14,18 @@ const supabaseMigrationPath = path.join(
   'migrations',
   '20260521020000_multi_phase_jobs.sql'
 );
+const backendHotfixMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0144_phase_edit_modal_work_scope_fix.sql'
+);
+const supabaseHotfixMigrationPath = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260521120000_phase_edit_modal_work_scope_fix.sql'
+);
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 
 function buildHeader(overrides = {}) {
@@ -74,7 +86,7 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
   const schemaCheck = readFileSync(schemaCheckPath, 'utf8');
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0143_multi_phase_jobs\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix\.sql';/);
   assert.match(backendMigration, /create table if not exists app\.job_phases/);
   assert.match(backendMigration, /add column phase_id uuid/);
   assert.match(backendMigration, /api_acl_job_phase_set_state/);
@@ -83,6 +95,20 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
   assert.doesNotMatch(backendMigration, /app_api\.can_read_feature/);
   assert.match(backendMigration, /app_api\.require_effective_feature_access\(p_org_id, 'jobs', 'read'\)/);
   assert.match(backendMigration, /\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{12\}/);
+});
+
+test('phase edit hotfix migration qualifies ordinality for phase payload parsing', () => {
+  const backendMigration = readFileSync(backendHotfixMigrationPath, 'utf8');
+  const supabaseMigration = readFileSync(supabaseHotfixMigrationPath, 'utf8');
+  const schemaCheck = readFileSync(schemaCheckPath, 'utf8');
+
+  assert.equal(supabaseMigration, backendMigration);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix\.sql';/);
+  assert.match(backendMigration, /with ordinality as phase\(value, phase_ordinality\)/);
+  assert.match(backendMigration, /coalesce\(phase\.value->>'phaseNumber', phase\.phase_ordinality::text\)/);
+  assert.match(backendMigration, /format\('Phases\[%s\]\.PhaseNumber', phase\.phase_ordinality\)/);
+  assert.doesNotMatch(backendMigration, /coalesce\(value->>'phaseNumber', ordinality::text\)/);
+  assert.match(schemaCheck, /phase_ordinality/);
 });
 
 test('job status follows the next incomplete phase instead of future worst status', () => {

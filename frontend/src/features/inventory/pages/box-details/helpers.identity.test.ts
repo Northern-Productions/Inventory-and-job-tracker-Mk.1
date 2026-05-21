@@ -53,13 +53,13 @@ describe('box detail checkout job options', () => {
 
     expect(options).toEqual([
       {
-        label: 'IL1-9327001 · Sections 1',
+        label: 'IL1-9327001 / Sections 1',
         value: 'job:11111111-1111-4111-8111-111111111111',
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '9327001'
       },
       {
-        label: 'IL1-9327001 · Sections 2',
+        label: 'IL1-9327001 / Sections 2',
         value: 'job:22222222-2222-4222-8222-222222222222',
         jobId: '22222222-2222-4222-8222-222222222222',
         jobNumber: '9327001'

@@ -1,5 +1,6 @@
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
+import { Input } from '../../../components/Input';
 import type { CaulkProductEntry, FilmCatalogEntry, Warehouse } from '../../../domain';
 import { JobBasicsSection } from './job-editor/JobBasicsSection';
 import { JobCaulkRequirementsSection } from './job-editor/JobCaulkRequirementsSection';
@@ -147,26 +148,27 @@ export function JobEditorDialog({
     value: phase.id,
     label: `Phase ${phase.phaseNumber}${phase.sections ? ` - ${phase.sections}` : ''}`
   }));
-  const primaryPhase = phases.find((phase) => phase.isPrimary) || phases[0];
 
-  function handleSectionsChange(value: string) {
-    setSections(value);
-    if (primaryPhase) {
-      updatePhaseLine(primaryPhase.id, { sections: value, workScope: value });
+  const selectedPhase = phases.find((phase) => phase.id === selectedPhaseKey) || phases[0] || null;
+  const selectedPhaseRequirements = requirements.filter((line) => line.phaseKey === selectedPhaseKey);
+  const selectedPhaseCaulkRequirements = caulkRequirements.filter((line) => line.phaseKey === selectedPhaseKey);
+
+  function updateSelectedPhase(patch: Partial<JobPhaseEditorLine>) {
+    if (!selectedPhase) {
+      return;
     }
-  }
-
-  function handleInstallDateChange(value: string) {
-    setInstallDate(value);
-    if (primaryPhase) {
-      updatePhaseLine(primaryPhase.id, { installDate: value });
-    }
-  }
-
-  function handleCrewLeaderChange(value: string) {
-    setCrewLeader(value);
-    if (primaryPhase) {
-      updatePhaseLine(primaryPhase.id, { crewLeader: value });
+    updatePhaseLine(selectedPhase.id, patch);
+    if (selectedPhase.isPrimary) {
+      if (typeof patch.sections === 'string' || typeof patch.workScope === 'string') {
+        const nextScope = String(patch.sections ?? patch.workScope ?? '');
+        setSections(nextScope);
+      }
+      if (typeof patch.installDate === 'string') {
+        setInstallDate(patch.installDate);
+      }
+      if (typeof patch.crewLeader === 'string') {
+        setCrewLeader(patch.crewLeader);
+      }
     }
   }
 
@@ -204,78 +206,85 @@ export function JobEditorDialog({
           installDate={installDate}
           crewLeader={crewLeader}
           warehouse={warehouse}
+          showPhaseFields={false}
           onJobNumberChange={setJobNumber}
-          onSectionsChange={handleSectionsChange}
-          onInstallDateChange={handleInstallDateChange}
-          onCrewLeaderChange={handleCrewLeaderChange}
           onWarehouseChange={setWarehouse}
           onClearError={clearError}
         />
 
         <section className="job-editor-section">
-          <div className="panel-title-row">
-            <h3>Phases</h3>
+          <div className="dialog-section-header">
+            <h3>Phase Details</h3>
+          </div>
+
+          <div className="job-editor-phase-selector-row">
+            <label className="field">
+              <span className="field-label">Phase to edit</span>
+              <select
+                className="field-input"
+                value={selectedPhaseKey}
+                onChange={(event) => {
+                  setSelectedPhaseKey(event.target.value);
+                  clearError();
+                }}
+              >
+                {phaseOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Button type="button" variant="secondary" size="sm" onClick={addPhaseLine}>
               Add New Phase
             </Button>
           </div>
-          <div className="job-editor-phase-list">
-            {phases.map((phase, index) => (
-              <div className="job-editor-phase-row" key={phase.id}>
-                <label>
-                  <span>Phase</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={phase.phaseNumber}
-                    onChange={(event) =>
-                      updatePhaseLine(phase.id, {
-                        phaseNumber: event.target.value
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>Work Scope</span>
-                  <input
-                    value={phase.sections}
-                    onChange={(event) =>
-                      updatePhaseLine(phase.id, {
-                        sections: event.target.value,
-                        workScope: event.target.value
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>Install Date</span>
-                  <input
-                    type="date"
-                    value={phase.installDate}
-                    onChange={(event) => updatePhaseLine(phase.id, { installDate: event.target.value })}
-                  />
-                </label>
-                <label>
-                  <span>Crew Leader</span>
-                  <input
-                    value={phase.crewLeader}
-                    onChange={(event) => updatePhaseLine(phase.id, { crewLeader: event.target.value })}
-                  />
-                </label>
-              </div>
-            ))}
-          </div>
-          <label className="field">
-            <span>Add requirements to phase</span>
-            <select value={selectedPhaseKey} onChange={(event) => setSelectedPhaseKey(event.target.value)}>
-              {phaseOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+
+          {selectedPhase ? (
+            <div className="job-editor-selected-phase-fields">
+              <Input
+                label="Phase Number"
+                type="number"
+                min="1"
+                step="1"
+                value={String(selectedPhase.phaseNumber)}
+                onChange={(event) => {
+                  updateSelectedPhase({ phaseNumber: event.target.value });
+                  clearError();
+                }}
+              />
+              <Input
+                label="Work Scope"
+                value={selectedPhase.sections}
+                hint="Optional. Examples: Section 1, Sections 4, 5, Lobby."
+                inputMode="text"
+                onChange={(event) => {
+                  updateSelectedPhase({
+                    sections: event.target.value,
+                    workScope: event.target.value
+                  });
+                  clearError();
+                }}
+              />
+              <Input
+                label="Install Date"
+                type="date"
+                value={selectedPhase.installDate}
+                onChange={(event) => {
+                  updateSelectedPhase({ installDate: event.target.value });
+                  clearError();
+                }}
+              />
+              <Input
+                label="Crew Leader"
+                value={selectedPhase.crewLeader}
+                onChange={(event) => {
+                  updateSelectedPhase({ crewLeader: event.target.value });
+                  clearError();
+                }}
+              />
+            </div>
+          ) : null}
         </section>
 
         <JobFilmRequirementsSection
@@ -284,7 +293,7 @@ export function JobEditorDialog({
           filmName={filmName}
           widthIn={widthIn}
           requiredFeet={requiredFeet}
-          requirements={requirements}
+          requirements={selectedPhaseRequirements}
           filmCatalogEntries={filmCatalogEntries}
           filmCatalogLoading={filmCatalogLoading}
           filmCatalogError={filmCatalogError}
@@ -305,7 +314,7 @@ export function JobEditorDialog({
           caulkProductLabelById={caulkProductLabelById}
           caulkProductId={caulkProductId}
           caulkRequiredTubes={caulkRequiredTubes}
-          caulkRequirements={caulkRequirements}
+          caulkRequirements={selectedPhaseCaulkRequirements}
           caulkProductLoading={caulkProductLoading}
           caulkProductError={caulkProductError}
           submitting={submitting}

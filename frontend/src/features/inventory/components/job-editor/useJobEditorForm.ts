@@ -121,30 +121,110 @@ export function useJobEditorForm({
     return `job-phase-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  function buildDefaultPhase(): JobPhaseEditorLine {
+  function getPhaseLineKey(phase: Partial<JobPhaseEditorLine>, fallbackIndex = 0) {
+    const phaseId = String(phase.phaseId || '').trim();
+    if (phaseId) {
+      return phaseId;
+    }
+
+    const phaseNumber = Math.max(1, Math.floor(Number(phase.phaseNumber || fallbackIndex + 1)));
+    return `number:${phaseNumber}`;
+  }
+
+  function isActivePhase(phase: JobPhaseEditorLine) {
+    return (
+      phase.isComplete !== true &&
+      String(phase.status || '').trim().toUpperCase() !== 'COMPLETED' &&
+      phase.laborStatus !== 'COMPLETE'
+    );
+  }
+
+  function comparePhaseNumbers(left: JobPhaseEditorLine, right: JobPhaseEditorLine) {
+    const leftNumber = Math.max(1, Math.floor(Number(left.phaseNumber || 1)));
+    const rightNumber = Math.max(1, Math.floor(Number(right.phaseNumber || 1)));
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  }
+
+  function chooseDefaultPhaseKey(sourcePhases: JobPhaseEditorLine[]) {
+    const ordered = sourcePhases.slice().sort(comparePhaseNumbers);
+    const active = ordered.filter(isActivePhase);
+    const nextRelevant = active.filter((phase) => phase.isNextRelevant).sort(comparePhaseNumbers);
+    if (nextRelevant.length) {
+      return nextRelevant[0].id;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const datedActive = active
+      .filter((phase) => phase.installDate)
+      .sort((left, right) => {
+        const leftDate = left.installDate || '';
+        const rightDate = right.installDate || '';
+        if (leftDate !== rightDate) {
+          return leftDate.localeCompare(rightDate);
+        }
+        return comparePhaseNumbers(left, right);
+      });
+    const currentDated = datedActive.filter((phase) => phase.installDate <= today);
+    if (currentDated.length) {
+      return currentDated[0].id;
+    }
+    if (datedActive.length) {
+      return datedActive[0].id;
+    }
+
+    if (active.length) {
+      return active[0].id;
+    }
+
+    return ordered.find((phase) => phase.isNextRelevant)?.id || ordered[0]?.id || 'primary';
+  }
+
+  function buildDefaultPhase({
+    sectionsValue = initialSections,
+    installDateValue = initialInstallDate,
+    crewLeaderValue = initialCrewLeader
+  }: {
+    sectionsValue?: string | number | null;
+    installDateValue?: string;
+    crewLeaderValue?: string;
+  } = {}): JobPhaseEditorLine {
     return {
       id: 'primary',
       phaseNumber: 1,
-      workScope: getSectionsInputValue(initialSections),
-      sections: getSectionsInputValue(initialSections),
-      installDate: initialInstallDate,
-      crewLeader: initialCrewLeader,
+      workScope: getSectionsInputValue(sectionsValue),
+      sections: getSectionsInputValue(sectionsValue),
+      installDate: installDateValue || '',
+      crewLeader: crewLeaderValue || '',
       laborStatus: 'ACTIVE',
       isPrimary: true
     };
   }
 
-  function normalizeInitialPhaseLines(source: JobPhaseEditorLine[]): JobPhaseEditorLine[] {
-    return (source.length ? source : [buildDefaultPhase()]).map((phase, index) => ({
+  function normalizeInitialPhaseLines(
+    source: JobPhaseEditorLine[],
+    fallbackPhase: {
+      sectionsValue?: string | number | null;
+      installDateValue?: string;
+      crewLeaderValue?: string;
+    } = {}
+  ): JobPhaseEditorLine[] {
+    return (source.length ? source : [buildDefaultPhase(fallbackPhase)]).map((phase, index) => ({
       ...phase,
-      id: phase.id || phase.phaseId || (index === 0 ? 'primary' : makePhaseLineId()),
+      id: phase.id || getPhaseLineKey(phase, index),
       phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1))),
       workScope: getSectionsInputValue(phase.workScope ?? phase.sections),
       sections: getSectionsInputValue(phase.sections ?? phase.workScope),
       installDate: phase.installDate || '',
       crewLeader: phase.crewLeader || '',
       laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' as const : 'ACTIVE' as const,
-      isPrimary: phase.isPrimary === true || index === 0
+      isPrimary: phase.isPrimary === true || index === 0,
+      isComplete: phase.isComplete === true,
+      isNextRelevant: phase.isNextRelevant === true,
+      isExpandedByDefault: phase.isExpandedByDefault === true,
+      status: phase.status || ''
     }));
   }
 
@@ -162,7 +242,11 @@ export function useJobEditorForm({
     const sourceSections = restoreDraft?.workScope ?? restoreDraft?.sections ?? initialSections;
     const sourceInstallDate = restoreDraft?.installDate ?? initialInstallDate;
     const sourceCrewLeader = restoreDraft?.crewLeader ?? initialCrewLeader;
-    const sourcePhases = normalizeInitialPhaseLines(restoreDraft?.phases ?? initialPhases);
+    const sourcePhases = normalizeInitialPhaseLines(restoreDraft?.phases ?? initialPhases, {
+      sectionsValue: sourceSections,
+      installDateValue: sourceInstallDate,
+      crewLeaderValue: sourceCrewLeader
+    });
     const sourceRequirements = restoreDraft?.requirements ?? initialRequirements;
     const sourceCaulkRequirements = restoreDraft?.caulkRequirements ?? initialCaulkRequirements;
 
@@ -172,7 +256,7 @@ export function useJobEditorForm({
     setInstallDate(sourceInstallDate);
     setCrewLeader(sourceCrewLeader);
     setPhases(sourcePhases);
-    setSelectedPhaseKey(sourcePhases[0]?.id || 'primary');
+    setSelectedPhaseKey(chooseDefaultPhaseKey(sourcePhases));
     setRequirements(sourceRequirements.map((entry) => createDraftLine(entry)));
     setCaulkRequirements(sourceCaulkRequirements.map((entry) => createCaulkDraftLine(entry)));
     setManufacturer(manufacturerOptions[0] || '');

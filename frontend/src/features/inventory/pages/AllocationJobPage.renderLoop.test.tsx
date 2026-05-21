@@ -32,6 +32,7 @@ const useRemoveJobBoxAllocationsMock = vi.fn();
 const useClearAllocationPlannerSuppressionMock = vi.fn();
 const useSetBoxStatusMock = vi.fn();
 const useSetJobRequirementStateMock = vi.fn();
+const useSetJobPhaseStateMock = vi.fn();
 const useSetJobStagedForPickupMock = vi.fn();
 const useBoxMock = vi.fn();
 const useAllocateBoxMock = vi.fn();
@@ -97,6 +98,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useClearAllocationPlannerSuppression: () => useClearAllocationPlannerSuppressionMock(),
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useSetJobRequirementState: () => useSetJobRequirementStateMock(),
+  useSetJobPhaseState: () => useSetJobPhaseStateMock(),
   useSetJobStagedForPickup: () => useSetJobStagedForPickupMock(),
   useBox: () => useBoxMock(),
   useAllocateBox: () => useAllocateBoxMock(),
@@ -277,6 +279,7 @@ describe('AllocationJobPage render loop regressions', () => {
     useClearAllocationPlannerSuppressionMock.mockReturnValue(buildMutationState());
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useSetJobRequirementStateMock.mockReturnValue(buildMutationState());
+    useSetJobPhaseStateMock.mockReturnValue(buildMutationState());
     useSetJobStagedForPickupMock.mockReturnValue(buildMutationState());
     useBoxMock.mockReturnValue({
       data: null,

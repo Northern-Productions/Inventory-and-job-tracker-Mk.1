@@ -117,17 +117,22 @@ export function JobPhasesSection({
   const fallbackPhaseId = getPhaseId(
     normalizedPhases.find((phase) => phase.isPrimary) || normalizedPhases[0]
   );
-  const [expandedPhaseIds, setExpandedPhaseIds] = useState<Set<string>>(() => new Set());
-
-  useEffect(() => {
-    setExpandedPhaseIds(
+  const defaultExpandedPhaseIds = useMemo(
+    () =>
       new Set(
         normalizedPhases
           .filter((phase) => phase.isExpandedByDefault || phase.isNextRelevant)
           .map((phase, index) => getPhaseId(phase) || `phase-${index}`)
-      )
-    );
-  }, [normalizedPhases]);
+      ),
+    [normalizedPhases]
+  );
+  const [expandedPhaseIds, setExpandedPhaseIds] = useState<Set<string>>(
+    () => new Set(defaultExpandedPhaseIds)
+  );
+
+  useEffect(() => {
+    setExpandedPhaseIds(new Set(defaultExpandedPhaseIds));
+  }, [defaultExpandedPhaseIds]);
 
   function togglePhase(phase: JobPhase, index: number) {
     const key = getPhaseId(phase) || `phase-${index}`;

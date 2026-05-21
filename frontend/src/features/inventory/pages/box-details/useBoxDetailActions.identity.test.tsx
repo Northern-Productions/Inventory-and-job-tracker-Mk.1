@@ -60,7 +60,7 @@ function renderActions(overrides: Partial<Parameters<typeof useBoxDetailActions>
     dealerEntries: [],
     checkoutJobOptions: [
       {
-        label: 'IL1-9327001 · Sections 1',
+        label: 'IL1-9327001 / Sections 1',
         value: 'job:11111111-1111-4111-8111-111111111111',
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '9327001'

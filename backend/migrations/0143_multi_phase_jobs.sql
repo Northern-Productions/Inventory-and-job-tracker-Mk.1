@@ -274,17 +274,20 @@ begin
   if v_has_phases then
     return query
     select
-      nullif(app_api.trim_text(value->>'phaseId'), '')::uuid as phase_id,
-      app_api.require_job_phase_number(coalesce(value->>'phaseNumber', ordinality::text), format('Phases[%s].PhaseNumber', ordinality)) as phase_number,
-      app_api.normalize_job_work_scope(coalesce(value->>'workScope', value->>'sections')) as sections,
-      nullif(app_api.trim_text(coalesce(value->>'installDate', value->>'dueDate')), '')::date as install_date,
-      app_api.trim_text(value->>'crewLeader') as crew_leader,
-      app_api.normalize_job_phase_labor_status(coalesce(value->>'laborStatus', value->>'status')) as labor_status,
-      coalesce((value->>'isPrimary')::boolean, ordinality = 1) as is_primary,
-      case when jsonb_typeof(value->'requirements') = 'array' then value->'requirements' else '[]'::jsonb end as requirements,
-      case when jsonb_typeof(value->'caulkRequirements') = 'array' then value->'caulkRequirements' else '[]'::jsonb end as caulk_requirements,
-      ordinality
-    from jsonb_array_elements(p_payload->'phases') with ordinality;
+      nullif(app_api.trim_text(phase.value->>'phaseId'), '')::uuid as phase_id,
+      app_api.require_job_phase_number(
+        coalesce(phase.value->>'phaseNumber', phase.phase_ordinality::text),
+        format('Phases[%s].PhaseNumber', phase.phase_ordinality)
+      ) as phase_number,
+      app_api.normalize_job_work_scope(coalesce(phase.value->>'workScope', phase.value->>'sections')) as sections,
+      nullif(app_api.trim_text(coalesce(phase.value->>'installDate', phase.value->>'dueDate')), '')::date as install_date,
+      app_api.trim_text(phase.value->>'crewLeader') as crew_leader,
+      app_api.normalize_job_phase_labor_status(coalesce(phase.value->>'laborStatus', phase.value->>'status')) as labor_status,
+      coalesce((phase.value->>'isPrimary')::boolean, phase.phase_ordinality = 1) as is_primary,
+      case when jsonb_typeof(phase.value->'requirements') = 'array' then phase.value->'requirements' else '[]'::jsonb end as requirements,
+      case when jsonb_typeof(phase.value->'caulkRequirements') = 'array' then phase.value->'caulkRequirements' else '[]'::jsonb end as caulk_requirements,
+      phase.phase_ordinality
+    from jsonb_array_elements(p_payload->'phases') with ordinality as phase(value, phase_ordinality);
     return;
   end if;
 

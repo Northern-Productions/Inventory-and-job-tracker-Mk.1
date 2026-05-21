@@ -32,24 +32,26 @@ test('final work scope duplicate enablement migration precedes box workflow foll
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-9), '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(backendMigrations.at(-8), '0136_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(backendMigrations.at(-7), '0137_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(backendMigrations.at(-6), '0138_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(backendMigrations.at(-5), '0139_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(backendMigrations.at(-4), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(backendMigrations.at(-3), '0141_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(backendMigrations.at(-2), '0142_requirement_actual_usage_state.sql');
-  assert.equal(backendMigrations.at(-1), '0143_multi_phase_jobs.sql');
-  assert.equal(supabaseMigrations.at(-9), '20260518010000_job_work_scope_key_groundwork.sql');
-  assert.equal(supabaseMigrations.at(-8), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(supabaseMigrations.at(-7), '20260520010000_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(supabaseMigrations.at(-6), '20260520020000_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(supabaseMigrations.at(-5), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(supabaseMigrations.at(-4), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(supabaseMigrations.at(-3), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260521010000_requirement_actual_usage_state.sql');
-  assert.equal(supabaseMigrations.at(-1), '20260521020000_multi_phase_jobs.sql');
+  assert.equal(backendMigrations.at(-10), '0135_job_work_scope_key_groundwork.sql');
+  assert.equal(backendMigrations.at(-9), '0136_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(backendMigrations.at(-8), '0137_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(backendMigrations.at(-7), '0138_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(backendMigrations.at(-6), '0139_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(backendMigrations.at(-5), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(backendMigrations.at(-4), '0141_box_checkin_reconcile_same_job_allocations.sql');
+  assert.equal(backendMigrations.at(-3), '0142_requirement_actual_usage_state.sql');
+  assert.equal(backendMigrations.at(-2), '0143_multi_phase_jobs.sql');
+  assert.equal(backendMigrations.at(-1), '0144_phase_edit_modal_work_scope_fix.sql');
+  assert.equal(supabaseMigrations.at(-10), '20260518010000_job_work_scope_key_groundwork.sql');
+  assert.equal(supabaseMigrations.at(-9), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
+  assert.equal(supabaseMigrations.at(-8), '20260520010000_repair_box_update_partial_receiving_parity.sql');
+  assert.equal(supabaseMigrations.at(-7), '20260520020000_preserve_partial_box_update_physical_feet.sql');
+  assert.equal(supabaseMigrations.at(-6), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
+  assert.equal(supabaseMigrations.at(-5), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
+  assert.equal(supabaseMigrations.at(-4), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
+  assert.equal(supabaseMigrations.at(-3), '20260521010000_requirement_actual_usage_state.sql');
+  assert.equal(supabaseMigrations.at(-2), '20260521020000_multi_phase_jobs.sql');
+  assert.equal(supabaseMigrations.at(-1), '20260521120000_phase_edit_modal_work_scope_fix.sql');
 });
 
 test('final uniqueness migration replaces only job-number uniqueness with work-scope uniqueness', async () => {
@@ -104,7 +106,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
     schemaLatest.indexOf('const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [')
   );
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0143_multi_phase_jobs\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix\.sql';/);
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);
   assert.match(schemaLatest, /columns: String\(row\.columns \|\| ''\)/);

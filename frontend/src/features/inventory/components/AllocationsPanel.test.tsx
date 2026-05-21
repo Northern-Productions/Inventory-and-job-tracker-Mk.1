@@ -65,7 +65,7 @@ describe('AllocationsPanel', () => {
 
     render(<AllocationsPanel boxId="IL1-100" feetAvailable={120} />);
 
-    expect(screen.getByText('IL1-4953 · Sections 4, 5')).toBeTruthy();
+    expect(screen.getByText('IL1-4953 / Sections 4, 5')).toBeTruthy();
     expect(screen.queryByRole('link')).toBeNull();
   });
 

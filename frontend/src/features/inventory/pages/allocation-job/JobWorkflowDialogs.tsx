@@ -175,7 +175,7 @@ export function JobWorkflowDialogs({
         initialInstallDate={installDate}
         initialCrewLeader={crewLeader}
         initialPhases={phases.map((phase) => ({
-          id: phase.phaseId || `phase-${phase.phaseNumber}`,
+          id: phase.phaseId || `number:${phase.phaseNumber}`,
           phaseId: phase.phaseId,
           phaseNumber: phase.phaseNumber,
           workScope: phase.workScope || phase.sections || '',
@@ -183,7 +183,11 @@ export function JobWorkflowDialogs({
           installDate: phase.installDate || '',
           crewLeader: phase.crewLeader || '',
           laborStatus: phase.laborStatus,
-          isPrimary: phase.isPrimary
+          isPrimary: phase.isPrimary,
+          isComplete: phase.isComplete,
+          isNextRelevant: phase.isNextRelevant,
+          isExpandedByDefault: phase.isExpandedByDefault,
+          status: phase.status
         }))}
         initialRequirements={requirements}
         initialCaulkRequirements={caulkRequirements.map((entry) => ({

@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0143_multi_phase_jobs.sql';
+const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -280,11 +280,13 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'app_api.job_phase_rows_from_payload(jsonb)',
     includes: [
       "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
-      "app_api.normalize_job_work_scope(coalesce(value->>'workScope', value->>'sections'))",
+      "jsonb_array_elements(p_payload->'phases') with ordinality as phase(value, phase_ordinality)",
+      "coalesce(phase.value->>'phaseNumber', phase.phase_ordinality::text)",
+      "app_api.normalize_job_work_scope(coalesce(phase.value->>'workScope', phase.value->>'sections'))",
       'app_api.require_job_phase_number(',
       'is_primary'
     ],
-    excludes: []
+    excludes: ["coalesce(value->>'phaseNumber', ordinality::text)"]
   },
   {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',
