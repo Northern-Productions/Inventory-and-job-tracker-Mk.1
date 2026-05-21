@@ -893,23 +893,29 @@ $$;
 
 create or replace function public.api_acl_list_job_phases(p_org_id uuid)
 returns setof app.job_phases
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select p.*
   from app.job_phases p
   where p.org_id = p_org_id
-    and app_api.can_read_feature(p_org_id, 'jobs')
   order by p.job_id asc, p.phase_number asc, p.created_at asc;
+end;
 $$;
 
 create or replace function public.api_acl_list_job_phases_by_job(p_org_id uuid, p_job_number text)
 returns setof app.job_phases
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select p.*
   from app.job_phases p
   join app.jobs j
@@ -917,22 +923,25 @@ as $$
    and j.id = p.job_id
   where p.org_id = p_org_id
     and upper(trim(j.job_number)) = upper(trim(p_job_number))
-    and app_api.can_read_feature(p_org_id, 'jobs')
   order by p.phase_number asc, p.created_at asc;
+end;
 $$;
 
 create or replace function public.api_acl_list_job_phases_by_job_id(p_org_id uuid, p_job_id uuid)
 returns setof app.job_phases
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select p.*
   from app.job_phases p
   where p.org_id = p_org_id
     and p.job_id = p_job_id
-    and app_api.can_read_feature(p_org_id, 'jobs')
   order by p.phase_number asc, p.created_at asc;
+end;
 $$;
 
 drop function if exists public.api_acl_list_job_requirements(uuid);
@@ -963,10 +972,13 @@ returns table (
   phase_crew_leader text,
   auto_planning_suppressed boolean
 )
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select
     r.id,
     r.org_id,
@@ -1009,8 +1021,8 @@ as $$
   join app.jobs j on j.id = r.job_id and j.org_id = r.org_id
   join app.job_phases p on p.id = r.phase_id and p.org_id = r.org_id
   where r.org_id = p_org_id
-    and app_api.can_read_feature(p_org_id, 'jobs')
   order by j.job_number asc, p.phase_number asc, r.manufacturer asc, r.film_name asc, r.width_in asc;
+end;
 $$;
 
 drop function if exists public.api_acl_list_job_requirements_by_job(uuid, text);
@@ -1041,13 +1053,17 @@ returns table (
   phase_crew_leader text,
   auto_planning_suppressed boolean
 )
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select *
   from public.api_acl_list_job_requirements(p_org_id) r
   where upper(trim(r.job_number)) = upper(trim(p_job_number));
+end;
 $$;
 
 drop function if exists public.api_acl_list_job_caulk_requirements_by_job(uuid, text);
@@ -1076,10 +1092,13 @@ returns table (
   updated_at timestamptz,
   auto_planning_suppressed boolean
 )
-language sql
+language plpgsql
 security definer
 set search_path = public, app, app_api
 as $$
+begin
+  perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');
+  return query
   select
     r.id as requirement_id,
     r.job_id,
@@ -1127,8 +1146,8 @@ as $$
    and m.org_id = p.org_id
   where r.org_id = p_org_id
     and upper(j.job_number) = upper(trim(p_job_number))
-    and app_api.can_read_feature(p_org_id, 'jobs')
   order by ph.phase_number asc, lower(m.name), lower(p.name), lower(p.code);
+end;
 $$;
 
 create or replace function public.api_jobs_create(

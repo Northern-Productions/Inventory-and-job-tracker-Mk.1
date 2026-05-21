@@ -80,6 +80,8 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
   assert.match(backendMigration, /api_acl_job_phase_set_state/);
   assert.match(backendMigration, /unique \(org_id, job_id, phase_number\) deferrable initially immediate/);
   assert.match(backendMigration, /set constraints job_phases_org_job_phase_number_unique deferred/);
+  assert.doesNotMatch(backendMigration, /app_api\.can_read_feature/);
+  assert.match(backendMigration, /app_api\.require_effective_feature_access\(p_org_id, 'jobs', 'read'\)/);
   assert.match(backendMigration, /\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{4\}-\[0-9a-f\]\{12\}/);
 });
 
