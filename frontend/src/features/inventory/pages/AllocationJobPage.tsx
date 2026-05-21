@@ -67,6 +67,7 @@ export default function AllocationJobPage() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleSetRequirementState,
+    handleSetCaulkRequirementState,
     handleSetPhaseState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
@@ -242,6 +243,9 @@ export default function AllocationJobPage() {
         onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
         onSetRequirementState={(requirement, nextStatus) =>
           void handleSetRequirementState(requirement, nextStatus)
+        }
+        onSetCaulkRequirementState={(requirement, nextStatus) =>
+          void handleSetCaulkRequirementState(requirement, nextStatus)
         }
         onSetPhaseState={(phase, nextStatus) => void handleSetPhaseState(phase, nextStatus)}
         onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}

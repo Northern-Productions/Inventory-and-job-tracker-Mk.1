@@ -44,6 +44,23 @@ function deriveCompletionResult(
     : 'OVERUSED';
 }
 
+function isCaulkRequirementComplete(requirement: Pick<JobCaulkRequirementLine, 'status'>) {
+  return normalizeRequirementStatus(requirement.status) === 'COMPLETE';
+}
+
+function deriveCaulkCompletionResult(
+  requirement: Pick<JobCaulkRequirementLine, 'status' | 'requiredTubes' | 'actualUsedTubes'>
+): JobCaulkRequirementLine['completionResult'] {
+  if (!isCaulkRequirementComplete(requirement)) {
+    return '' as const;
+  }
+
+  return Math.max(0, Number(requirement.actualUsedTubes || 0)) <=
+    Math.max(0, Number(requirement.requiredTubes || 0))
+    ? 'ON_TARGET'
+    : 'OVERUSED';
+}
+
 function shouldIgnoreOptimisticAllocationCoverage(allocation: AllocationJobDetailEntry) {
   return allocation.boxStatus === 'ZEROED' || allocation.boxStatus === 'RETIRED';
 }
@@ -200,7 +217,11 @@ function areFilmShortagesFullyOnTheWay(requirements: JobRequirementLine[], filmO
   });
 }
 
-function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements: JobRequirementLine[]) {
+function computeOptimisticExistingJobStatus(
+  detail: JobDetail,
+  nextRequirements: JobRequirementLine[],
+  nextCaulkRequirements: JobCaulkRequirementLine[] = detail.caulkRequirements
+) {
   const lifecycleStatus = detail.summary.lifecycleStatus;
   if (lifecycleStatus === 'CANCELLED') {
     return 'CANCELLED' as const;
@@ -212,13 +233,15 @@ function computeOptimisticExistingJobStatus(detail: JobDetail, nextRequirements:
 
   const hasMaterialRequirements =
     nextRequirements.some((entry) => !isRequirementComplete(entry) && entry.requiredFeet > 0) ||
-    detail.caulkRequirements.some((entry) => entry.requiredTubes > 0);
+    nextCaulkRequirements.some((entry) => !isCaulkRequirementComplete(entry) && entry.requiredTubes > 0);
   if (!hasMaterialRequirements) {
     return 'READY' as const;
   }
 
   const hasRemainingFilm = nextRequirements.some((entry) => entry.remainingFeet > 0);
-  const hasRemainingCaulk = detail.caulkRequirements.some((entry) => entry.remainingTubes > 0);
+  const hasRemainingCaulk = nextCaulkRequirements.some(
+    (entry) => !isCaulkRequirementComplete(entry) && entry.remainingTubes > 0
+  );
   if (!hasRemainingFilm && !hasRemainingCaulk) {
     return 'READY' as const;
   }
@@ -262,9 +285,43 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
 
 export function createOptimisticJobDetailAfterRequirementStateChange(
   detail: JobDetail,
-  payload: { requirementId: string; status: 'ACTIVE' | 'COMPLETE' }
+  payload: { requirementId: string; status: 'ACTIVE' | 'COMPLETE'; materialType?: 'FILM' | 'CAULK' }
 ) {
   const nextStatus = normalizeRequirementStatus(payload.status);
+  if (payload.materialType === 'CAULK') {
+    const nextCaulkRequirements = detail.caulkRequirements.map((entry) => {
+      if (entry.requirementId !== payload.requirementId) {
+        return entry;
+      }
+
+      const nextRequirement = {
+        ...entry,
+        status: nextStatus,
+        isComplete: nextStatus === 'COMPLETE',
+        completedAt: nextStatus === 'COMPLETE' ? entry.completedAt || new Date().toISOString() : '',
+        completedBy: nextStatus === 'COMPLETE' ? entry.completedBy || '' : '',
+        remainingTubes:
+          nextStatus === 'COMPLETE'
+            ? 0
+            : Math.max(0, Number(entry.requiredTubes || 0) - Math.max(0, Number(entry.allocatedTubes || 0)))
+      };
+
+      return {
+        ...nextRequirement,
+        completionResult: deriveCaulkCompletionResult(nextRequirement)
+      };
+    });
+
+    return reconcileJobDetailCaulkCoverage({
+      ...detail,
+      summary: {
+        ...detail.summary,
+        updatedAt: new Date().toISOString()
+      },
+      caulkRequirements: nextCaulkRequirements
+    });
+  }
+
   const nextRequirements = detail.requirements.map((entry) => {
     if (entry.requirementId !== payload.requirementId) {
       return entry;
@@ -453,6 +510,9 @@ function buildCaulkCoverageByRequirementId(detail: JobDetail) {
 
   for (let index = 0; index < detail.caulkRequirements.length; index += 1) {
     const requirement = detail.caulkRequirements[index];
+    if (isCaulkRequirementComplete(requirement)) {
+      continue;
+    }
     const requirementId = String(requirement.requirementId || '').trim();
     if (!requirementId) {
       continue;
@@ -698,12 +758,16 @@ function buildNextCaulkRequirementLines(
         : currentRequirementByPhaseProduct[buildCaulkRequirementPhaseProductKey(entry)];
       const productMetadata = caulkMetadataByProductId[entry.productId];
       const requiredTubes = Math.max(0, Math.floor(Number(entry.requiredTubes || 0)));
+      const status = normalizeRequirementStatus(currentRequirement?.status);
+      const actualUsedTubes = Math.max(0, Number(currentRequirement?.actualUsedTubes || 0));
       const allocatedTubes = Math.min(
         requiredTubes,
-        Math.max(0, Number(coverageByRequirementId[explicitRequirementId || currentRequirement?.requirementId || ''] || 0))
+        status === 'COMPLETE'
+          ? 0
+          : Math.max(0, Number(coverageByRequirementId[explicitRequirementId || currentRequirement?.requirementId || ''] || 0))
       );
 
-      return {
+      const nextRequirement = {
         requirementId:
           explicitRequirementId ||
           currentRequirement?.requirementId ||
@@ -721,10 +785,20 @@ function buildNextCaulkRequirementLines(
         productCode: productMetadata?.productCode || currentRequirement?.productCode || '',
         tubesPerCase: productMetadata?.tubesPerCase || currentRequirement?.tubesPerCase || 0,
         requiredTubes,
+        status,
+        isComplete: status === 'COMPLETE',
+        actualUsedTubes,
+        completedAt: currentRequirement?.completedAt || '',
+        completedBy: currentRequirement?.completedBy || '',
         allocatedTubes,
-        remainingTubes: Math.max(0, requiredTubes - allocatedTubes),
+        remainingTubes: status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - allocatedTubes),
         notes: currentRequirement?.notes || '',
         updatedAt: new Date().toISOString()
+      };
+
+      return {
+        ...nextRequirement,
+        completionResult: deriveCaulkCompletionResult(nextRequirement)
       };
     })
     .sort((left, right) => {
@@ -761,15 +835,18 @@ export function createOptimisticJobDetailAfterJobUpdate(
       )
     : detail.caulkRequirements;
   const nextRequiredTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.requiredTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.requiredTubes || 0)),
     0
   );
   const nextAllocatedTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.allocatedTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.allocatedTubes || 0)),
     0
   );
   const nextRemainingTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.remainingTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.remainingTubes || 0)),
     0
   );
   const nextInstallDate =
@@ -826,28 +903,43 @@ export function reconcileJobDetailCaulkCoverage(detail: JobDetail): JobDetail {
   const coverageByRequirementId = buildCaulkCoverageByRequirementId(detail);
   const nextCaulkRequirements = detail.caulkRequirements.map((requirement) => {
     const requiredTubes = Math.max(0, Number(requirement.requiredTubes || 0));
+    const status = normalizeRequirementStatus(requirement.status);
+    const actualUsedTubes = Math.max(0, Number(requirement.actualUsedTubes || 0));
     const allocatedTubes = Math.min(
       requiredTubes,
-      Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
+      status === 'COMPLETE'
+        ? 0
+        : Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
     );
 
-    return {
+    const nextRequirement = {
       ...requirement,
       requiredTubes,
+      status,
+      isComplete: status === 'COMPLETE',
+      actualUsedTubes,
       allocatedTubes,
-      remainingTubes: Math.max(0, requiredTubes - allocatedTubes)
+      remainingTubes: status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - allocatedTubes)
+    };
+
+    return {
+      ...nextRequirement,
+      completionResult: deriveCaulkCompletionResult(nextRequirement)
     };
   });
   const requiredTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.requiredTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.requiredTubes || 0)),
     0
   );
   const allocatedTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.allocatedTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.allocatedTubes || 0)),
     0
   );
   const remainingTubes = nextCaulkRequirements.reduce(
-    (sum, entry) => sum + Math.max(0, Number(entry.remainingTubes || 0)),
+    (sum, entry) =>
+      isCaulkRequirementComplete(entry) ? sum : sum + Math.max(0, Number(entry.remainingTubes || 0)),
     0
   );
 
@@ -862,7 +954,11 @@ export function reconcileJobDetailCaulkCoverage(detail: JobDetail): JobDetail {
     ...detailWithReconciledCaulk,
     summary: {
       ...detail.summary,
-      status: computeOptimisticExistingJobStatus(detailWithReconciledCaulk, detail.requirements),
+      status: computeOptimisticExistingJobStatus(
+        detailWithReconciledCaulk,
+        detail.requirements,
+        nextCaulkRequirements
+      ),
       requiredTubes,
       allocatedTubes,
       remainingTubes

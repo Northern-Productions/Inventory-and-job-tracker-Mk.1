@@ -2169,7 +2169,7 @@ async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any)
     serviceClient
       .schema("app")
       .from("job_caulk_requirements")
-      .select("id, phase_id, product_id, required_tubes, notes, updated_at")
+      .select("id, phase_id, product_id, required_tubes, status, actual_used_tubes, completed_at, completed_by, notes, updated_at")
       .eq("org_id", orgId)
       .eq("job_id", jobId)
       .order("updated_at", { ascending: false }),
@@ -2201,6 +2201,10 @@ async function listJobCaulkRequirementsByJobIdDirect(orgId: string, header: any)
         product_code: product.code,
         tubes_per_case: product.tubes_per_case,
         required_tubes: row.required_tubes,
+        status: row.status,
+        actual_used_tubes: row.actual_used_tubes,
+        completed_at: row.completed_at,
+        completed_by: row.completed_by,
         notes: row.notes,
         updated_at: row.updated_at,
         auto_planning_suppressed: hasPlannerSuppression(
@@ -2226,7 +2230,7 @@ async function listJobCaulkRequirementsByJobIdsDirect(orgId: string, headersByJo
     const { data, error } = await serviceClient
       .schema("app")
       .from("job_caulk_requirements")
-      .select("id, job_id, phase_id, product_id, required_tubes, notes, updated_at")
+      .select("id, job_id, phase_id, product_id, required_tubes, status, actual_used_tubes, completed_at, completed_by, notes, updated_at")
       .eq("org_id", orgId)
       .in("job_id", batchIds)
       .order("updated_at", { ascending: false });
@@ -2282,6 +2286,10 @@ async function listJobCaulkRequirementsByJobIdsDirect(orgId: string, headersByJo
         product_code: product.code,
         tubes_per_case: product.tubes_per_case,
         required_tubes: row.required_tubes,
+        status: row.status,
+        actual_used_tubes: row.actual_used_tubes,
+        completed_at: row.completed_at,
+        completed_by: row.completed_by,
         notes: row.notes,
         updated_at: row.updated_at,
         auto_planning_suppressed: hasPlannerSuppression(
@@ -3861,6 +3869,9 @@ export function buildCaulkCoverageByRequirementId(
   const requirements = Array.isArray(caulkRequirements) ? caulkRequirements : [];
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = { ...requirements[index], _coverageOrder: index };
+    if (isCaulkRequirementComplete(requirement)) {
+      continue;
+    }
     const requirementId = getCaulkRequirementId(requirement);
     if (!requirementId) {
       continue;
@@ -3992,8 +4003,14 @@ export function buildPublicCaulkRequirementEntries(
   const response = (Array.isArray(caulkRequirements) ? caulkRequirements : []).map((entry) => {
     const requirementId = asTrimmedString(entry.requirementId);
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
-    const allocatedTubes = Math.max(0, Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0)));
-    const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
+    const status = normalizeCaulkRequirementState(entry);
+    const isComplete = status === "COMPLETE";
+    const actualUsedTubes = Math.max(0, integerOrZero(entry.actualUsedTubes));
+    const allocatedTubes = Math.max(
+      0,
+      isComplete ? 0 : Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0)),
+    );
+    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - allocatedTubes);
     return {
       requirementId,
       phaseId: asTrimmedString(entry.phaseId),
@@ -4009,6 +4026,12 @@ export function buildPublicCaulkRequirementEntries(
       productCode: asTrimmedString(entry.productCode),
       tubesPerCase: integerOrZero(entry.tubesPerCase),
       requiredTubes,
+      status,
+      isComplete,
+      actualUsedTubes,
+      completedAt: asTrimmedString(entry.completedAt),
+      completedBy: asTrimmedString(entry.completedBy),
+      completionResult: deriveCaulkRequirementCompletionResult(entry, requiredTubes, actualUsedTubes),
       allocatedTubes,
       remainingTubes,
       notes: asTrimmedString(entry.notes),
@@ -4036,6 +4059,9 @@ function summarizeCaulkRequirementCoverage(caulkRequirements: any[]) {
   let remainingTubes = 0;
 
   for (const entry of Array.isArray(caulkRequirements) ? caulkRequirements : []) {
+    if (isCaulkRequirementComplete(entry)) {
+      continue;
+    }
     requiredTubes += Math.max(0, integerOrZero(entry.requiredTubes));
     allocatedTubes += Math.max(0, integerOrZero(entry.allocatedTubes));
     remainingTubes += Math.max(0, integerOrZero(entry.remainingTubes));
@@ -4629,6 +4655,22 @@ function deriveRequirementCompletionResult(requirement: any, requiredFeet: numbe
   return integerOrZero(actualUsedFeet) <= integerOrZero(requiredFeet) ? "ON_TARGET" : "OVERUSED";
 }
 
+function normalizeCaulkRequirementState(requirement: any): "ACTIVE" | "COMPLETE" {
+  return asTrimmedString(requirement?.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
+}
+
+function isCaulkRequirementComplete(requirement: any): boolean {
+  return normalizeCaulkRequirementState(requirement) === "COMPLETE";
+}
+
+function deriveCaulkRequirementCompletionResult(requirement: any, requiredTubes: number, actualUsedTubes: number): "" | "ON_TARGET" | "OVERUSED" {
+  if (!isCaulkRequirementComplete(requirement)) {
+    return "";
+  }
+
+  return integerOrZero(actualUsedTubes) <= integerOrZero(requiredTubes) ? "ON_TARGET" : "OVERUSED";
+}
+
 /**
  * PURPOSE:
  * Builds public film requirement coverage rows from stored allocations and
@@ -4838,7 +4880,7 @@ function deriveInStockReadinessStatus(params: {
   const filmOrders = Array.isArray(params.filmOrders) ? params.filmOrders : [];
   const hasMaterialRequirements =
     requirements.some((entry) => !isRequirementComplete(entry) && integerOrZero(entry?.requiredFeet) > 0) ||
-    caulkRequirements.some((entry) => integerOrZero(entry?.requiredTubes) > 0);
+    caulkRequirements.some((entry) => !isCaulkRequirementComplete(entry) && integerOrZero(entry?.requiredTubes) > 0);
 
   if (!hasMaterialRequirements) {
     if (params.isLaborOnly || requirements.length || caulkRequirements.length) {
@@ -4882,6 +4924,9 @@ function deriveInStockReadinessStatus(params: {
     return integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet) >= requiredFeet;
   });
   const caulkReady = caulkRequirements.every((requirement) => {
+    if (isCaulkRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredTubes = integerOrZero(requirement?.requiredTubes);
     if (requiredTubes <= 0) {
       return true;
@@ -5019,7 +5064,9 @@ function buildAllocationJobSummary(
     status = "COMPLETED";
   } else if (hasMaterialRequirements) {
     const hasRemainingFilm = requirements.some((entry) => Math.max(0, Number(entry.remainingFeet || 0)) > 0);
-    const hasRemainingCaulk = caulkRequirements.some((entry) => Math.max(0, Number(entry.remainingTubes || 0)) > 0);
+    const hasRemainingCaulk = caulkRequirements.some(
+      (entry) => !isCaulkRequirementComplete(entry) && Math.max(0, Number(entry.remainingTubes || 0)) > 0,
+    );
     if (!hasRemainingFilm && !hasRemainingCaulk) {
       status = "READY";
     } else if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(requirements, filmOrders)) {
@@ -5214,12 +5261,14 @@ function getJobStagingBlockingReason(
 ) {
   const hasMaterialRequirements =
     requirements.some((entry) => !isRequirementComplete(entry) && integerOrZero(entry.requiredFeet) > 0) ||
-    caulkRequirements.some((entry) => integerOrZero(entry.requiredTubes) > 0);
+    caulkRequirements.some((entry) => !isCaulkRequirementComplete(entry) && integerOrZero(entry.requiredTubes) > 0);
   if (!hasMaterialRequirements) {
     return "";
   }
   const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
-  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  const hasRemainingCaulk = caulkRequirements.some(
+    (entry) => !isCaulkRequirementComplete(entry) && integerOrZero(entry.remainingTubes) > 0,
+  );
   if (hasRemainingFilm || hasRemainingCaulk) {
     return "All required film and caulk must be fully allocated before staging this job.";
   }
@@ -5292,10 +5341,14 @@ function filterRequirementLinkedEntriesForPhase(
   });
 }
 
-function isPhaseCompleteFromRequirements(phase: any, requirements: any[]) {
+function isPhaseCompleteFromRequirements(phase: any, requirements: any[], caulkRequirements: any[] = []) {
   const filmRequirements = Array.isArray(requirements) ? requirements : [];
-  if (filmRequirements.length > 0) {
-    return filmRequirements.every((entry) => isRequirementComplete(entry));
+  const caulkEntries = Array.isArray(caulkRequirements) ? caulkRequirements : [];
+  if (filmRequirements.length > 0 || caulkEntries.length > 0) {
+    return (
+      filmRequirements.every((entry) => isRequirementComplete(entry)) &&
+      caulkEntries.every((entry) => isCaulkRequirementComplete(entry))
+    );
   }
   return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === "COMPLETE";
 }
@@ -5380,7 +5433,7 @@ function buildJobPhaseEntries(
       phaseRequirementIds,
       fallbackPhaseId,
     );
-    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements);
+    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements, phaseCaulkRequirements);
     const status = isComplete
       ? "COMPLETED"
       : deriveInStockReadinessStatus({

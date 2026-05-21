@@ -58,7 +58,7 @@ function normalizeWholeNumber(value: number) {
 }
 
 export function findFirstUnmetCaulkRequirement(requirements: JobCaulkRequirementLine[]) {
-  return requirements.find((entry) => entry.remainingTubes > 0) || null;
+  return requirements.find((entry) => entry.status !== 'COMPLETE' && entry.remainingTubes > 0) || null;
 }
 
 export function buildAddCaulkAllocationDefaults({

@@ -22,6 +22,7 @@ interface JobPhasesSectionProps {
   pendingDeleteFilmOrderIds: Set<string>;
   onOrderRequirement: (requirement: JobRequirementLine) => void;
   onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
+  onSetCaulkRequirementState: (requirement: JobCaulkRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetPhaseState: (phase: JobPhase, status: 'ACTIVE' | 'COMPLETE') => void;
   onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
   onResumeCaulkAutoPlanning: (requirement: JobCaulkRequirementLine) => void;
@@ -74,6 +75,7 @@ export function JobPhasesSection({
   pendingDeleteFilmOrderIds,
   onOrderRequirement,
   onSetRequirementState,
+  onSetCaulkRequirementState,
   onSetPhaseState,
   onResumeAutoPlanning,
   onResumeCaulkAutoPlanning,
@@ -170,7 +172,7 @@ export function JobPhasesSection({
           const phaseRequirements = filterForPhase(requirements, phase, fallbackPhaseId);
           const phaseCaulkRequirements = filterForPhase(caulkRequirements, phase, fallbackPhaseId);
           const isExpanded = expandedPhaseIds.has(key);
-          const isLaborOnlyPhase = !phaseRequirements.length;
+          const isLaborOnlyPhase = !phaseRequirements.length && !phaseCaulkRequirements.length;
           const phaseComplete = phase.isComplete || phase.laborStatus === 'COMPLETE' || phase.status === 'COMPLETED';
 
           return (
@@ -237,7 +239,9 @@ export function JobPhasesSection({
                     isReadOnlyJob={isReadOnlyJob}
                     isAuthenticated={isAuthenticated}
                     clientIdConfigured={clientIdConfigured}
+                    isRequirementStatePending={isRequirementStatePending}
                     isResumeAutoPlanningPending={isResumeAutoPlanningPending}
+                    onSetRequirementState={onSetCaulkRequirementState}
                     onResumeAutoPlanning={onResumeCaulkAutoPlanning}
                   />
                 </div>

@@ -287,14 +287,14 @@ function expectCaulkRequirementTableTotals(
   html: string,
   requirement: Pick<
     JobDetail['caulkRequirements'][number],
-    'requiredTubes' | 'allocatedTubes' | 'remainingTubes' | 'tubesPerCase'
+    'requiredTubes' | 'allocatedTubes' | 'actualUsedTubes' | 'remainingTubes' | 'tubesPerCase'
   >
 ) {
   expect(html).toContain(
     `<td>${requirement.requiredTubes}</td><td>${formatCaulkTubeBreakdown(
       requirement.requiredTubes,
       requirement.tubesPerCase
-    )}</td><td>${requirement.allocatedTubes}</td><td>${requirement.remainingTubes}</td><td>${formatCaulkTubeBreakdown(
+    )}</td><td>${requirement.allocatedTubes}</td><td>${requirement.actualUsedTubes ?? 0}</td><td>${requirement.remainingTubes}</td><td>${formatCaulkTubeBreakdown(
       requirement.remainingTubes,
       requirement.tubesPerCase
     )}</td>`

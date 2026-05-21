@@ -45,6 +45,10 @@ export function CaulkAllocationDialog({
 
     return caulkRequirements.find((entry) => entry.requirementId === editor.requirementId) || null;
   }, [editor?.requirementId, caulkRequirements]);
+  const activeCaulkRequirements = useMemo(
+    () => caulkRequirements.filter((entry) => entry.status !== 'COMPLETE'),
+    [caulkRequirements]
+  );
 
   const selectedAllocationRow = useMemo(() => {
     if (!editor || editor.mode !== 'edit') {
@@ -178,7 +182,7 @@ export function CaulkAllocationDialog({
               onChange={(event) => {
                 const nextRequirementId = event.target.value;
                 const requirement = nextRequirementId
-                  ? caulkRequirements.find((entry) => entry.requirementId === nextRequirementId) || null
+                  ? activeCaulkRequirements.find((entry) => entry.requirementId === nextRequirementId) || null
                   : null;
                 const nextValues = requirement ? buildCaulkAllocationValuesForRequirement(requirement) : null;
                 setEditor((current) =>
@@ -196,7 +200,7 @@ export function CaulkAllocationDialog({
               }}
             >
               <option value="">Ad-hoc allocation (no requirement link)</option>
-              {caulkRequirements.map((entry) => (
+              {activeCaulkRequirements.map((entry) => (
                 <option key={entry.requirementId} value={entry.requirementId}>
                   {buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode)} | Required{' '}
                   {entry.requiredTubes} | Remaining {entry.remainingTubes}

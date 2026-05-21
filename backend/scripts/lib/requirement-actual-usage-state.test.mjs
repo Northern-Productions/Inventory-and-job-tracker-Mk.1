@@ -54,7 +54,7 @@ test('requirement usage state migration is mirrored and guarded by schema latest
   const schemaCheck = readFileSync(schemaCheckPath, 'utf8');
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0145_legacy_checkin_requirement_reconciliation\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0146_caulk_requirement_actual_usage_state\.sql';/);
   assert.match(backendMigration, /actual_used_feet integer not null default 0/);
   assert.match(backendMigration, /status text not null default 'ACTIVE'/);
   assert.match(backendMigration, /record_requirement_actual_usage_for_checkin/);

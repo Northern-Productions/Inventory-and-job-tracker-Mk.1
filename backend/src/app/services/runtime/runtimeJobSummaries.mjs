@@ -199,6 +199,7 @@ import {
   buildCaulkCoverageByRequirementId,
   getFilmOnTheWayFeetForRequirement,
   getStoredAllocationCoveredFeet,
+  isCaulkRequirementComplete,
   isRequirementComplete,
   resolveAllocationJobMetadata,
   summarizeCaulkRequirementCoverage,
@@ -427,6 +428,9 @@ function deriveInStockReadinessStatus({
     return integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet) >= requiredFeet;
   });
   const caulkReady = normalizedCaulkRequirements.every((requirement) => {
+    if (isCaulkRequirementComplete(requirement)) {
+      return true;
+    }
     const requiredTubes = integerOrZero(requirement?.requiredTubes);
     if (requiredTubes <= 0) {
       return true;
@@ -550,7 +554,9 @@ function getJobStagingBlockingReason(
   }
 
   const hasRemainingFilm = requirements.some((entry) => integerOrZero(entry.remainingFeet) > 0);
-  const hasRemainingCaulk = caulkRequirements.some((entry) => integerOrZero(entry.remainingTubes) > 0);
+  const hasRemainingCaulk = caulkRequirements.some(
+    (entry) => !isCaulkRequirementComplete(entry) && integerOrZero(entry.remainingTubes) > 0
+  );
   if (hasRemainingFilm || hasRemainingCaulk) {
     return 'All required film and caulk must be fully allocated before staging this job.';
   }
@@ -660,10 +666,14 @@ function filterRequirementLinkedEntriesForPhase(entries, phase, requirementIds, 
   });
 }
 
-function isPhaseCompleteFromRequirements(phase, requirements) {
+function isPhaseCompleteFromRequirements(phase, requirements, caulkRequirements = []) {
   const filmRequirements = Array.isArray(requirements) ? requirements : [];
-  if (filmRequirements.length > 0) {
-    return filmRequirements.every((entry) => isRequirementComplete(entry));
+  const caulkEntries = Array.isArray(caulkRequirements) ? caulkRequirements : [];
+  if (filmRequirements.length > 0 || caulkEntries.length > 0) {
+    return (
+      filmRequirements.every((entry) => isRequirementComplete(entry)) &&
+      caulkEntries.every((entry) => isCaulkRequirementComplete(entry))
+    );
   }
 
   return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === 'COMPLETE';
@@ -775,7 +785,7 @@ function buildJobPhaseEntries(
       phaseRequirementIds,
       fallbackPhaseId
     );
-    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements);
+    const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements, phaseCaulkRequirements);
     const status = isComplete
       ? 'COMPLETED'
       : deriveInStockReadinessStatus({

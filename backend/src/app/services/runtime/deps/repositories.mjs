@@ -86,6 +86,7 @@ export {
   listPendingCaulkTransfersByWarehouseProduct,
   replaceJobRequirementsForJob,
   setJobRequirementState,
+  setJobCaulkRequirementState,
   recordRequirementActualUsageForCheckin,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,

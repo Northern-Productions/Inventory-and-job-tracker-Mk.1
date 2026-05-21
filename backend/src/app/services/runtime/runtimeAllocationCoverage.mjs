@@ -552,6 +552,22 @@ function deriveRequirementCompletionResult(requirement, requiredFeet, actualUsed
   return integerOrZero(actualUsedFeet) <= integerOrZero(requiredFeet) ? 'ON_TARGET' : 'OVERUSED';
 }
 
+function normalizeCaulkRequirementState(requirement) {
+  return asTrimmedString(requirement?.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+}
+
+function isCaulkRequirementComplete(requirement) {
+  return normalizeCaulkRequirementState(requirement) === 'COMPLETE';
+}
+
+function deriveCaulkRequirementCompletionResult(requirement, requiredTubes, actualUsedTubes) {
+  if (!isCaulkRequirementComplete(requirement)) {
+    return '';
+  }
+
+  return integerOrZero(actualUsedTubes) <= integerOrZero(requiredTubes) ? 'ON_TARGET' : 'OVERUSED';
+}
+
 /**
  * PURPOSE:
  * Builds public film requirement coverage rows from stored allocations and
@@ -831,6 +847,9 @@ function buildCaulkCoverageByRequirementId(caulkRequirements, caulkAllocations, 
 
   for (let index = 0; index < requirements.length; index += 1) {
     const requirement = { ...requirements[index], _coverageOrder: index };
+    if (isCaulkRequirementComplete(requirement)) {
+      continue;
+    }
     const requirementId = getCaulkRequirementId(requirement);
     if (!requirementId) {
       continue;
@@ -983,11 +1002,14 @@ function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations,
     const entry = source[index];
     const requirementId = asTrimmedString(entry.requirementId);
     const requiredTubes = Math.max(0, integerOrZero(entry.requiredTubes));
+    const status = normalizeCaulkRequirementState(entry);
+    const isComplete = status === 'COMPLETE';
+    const actualUsedTubes = Math.max(0, integerOrZero(entry.actualUsedTubes));
     const allocatedTubes = Math.max(
       0,
-      Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0))
+      isComplete ? 0 : Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0))
     );
-    const remainingTubes = Math.max(0, requiredTubes - allocatedTubes);
+    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - allocatedTubes);
     response.push({
       requirementId,
       phaseId: asTrimmedString(entry.phaseId),
@@ -1003,6 +1025,12 @@ function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations,
       productCode: asTrimmedString(entry.productCode),
       tubesPerCase: integerOrZero(entry.tubesPerCase),
       requiredTubes,
+      status,
+      isComplete,
+      actualUsedTubes,
+      completedAt: asTrimmedString(entry.completedAt),
+      completedBy: asTrimmedString(entry.completedBy),
+      completionResult: deriveCaulkRequirementCompletionResult(entry, requiredTubes, actualUsedTubes),
       allocatedTubes,
       remainingTubes,
       notes: asTrimmedString(entry.notes),
@@ -1035,6 +1063,9 @@ function summarizeCaulkRequirementCoverage(caulkRequirements) {
 
   for (let index = 0; index < source.length; index += 1) {
     const entry = source[index];
+    if (isCaulkRequirementComplete(entry)) {
+      continue;
+    }
     requiredTubes += Math.max(0, integerOrZero(entry.requiredTubes));
     allocatedTubes += Math.max(0, integerOrZero(entry.allocatedTubes));
     remainingTubes += Math.max(0, integerOrZero(entry.remainingTubes));
@@ -1294,6 +1325,9 @@ export {
   normalizeRequirementState,
   isRequirementComplete,
   deriveRequirementCompletionResult,
+  normalizeCaulkRequirementState,
+  isCaulkRequirementComplete,
+  deriveCaulkRequirementCompletionResult,
   buildPublicJobRequirementEntries,
   buildCaulkFallbackDebugLogEntry,
   buildCaulkCoverageByRequirementId,

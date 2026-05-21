@@ -524,6 +524,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     if (!row) {
       return null;
     }
+    const status = deps.asTrimmedString(row.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
     return {
       requirementId: deps.asTrimmedString(row.requirement_id),
       jobId: row.job_id || null,
@@ -540,6 +541,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       productCode: deps.asTrimmedString(row.product_code),
       tubesPerCase: deps.integerOrZero(row.tubes_per_case),
       requiredTubes: deps.integerOrZero(row.required_tubes),
+      status,
+      isComplete: status === "COMPLETE",
+      actualUsedTubes: deps.integerOrZero(row.actual_used_tubes),
+      completedAt: deps.formatTimestamp(row.completed_at),
+      completedBy: deps.asTrimmedString(row.completed_by),
       autoPlanningSuppressed: row.auto_planning_suppressed === true,
       notes: deps.asTrimmedString(row.notes),
       updatedAt: deps.formatTimestamp(row.updated_at),

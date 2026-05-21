@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import type { AllocationJobDetail, JobDetail } from '../../../domain';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
-import { applyCheckoutAllToCaches, updateCheckedOutBoxCaches } from './jobMaterialMutations';
+import { applyCheckoutAllToCaches, updateCaulkCheckinCaches, updateCheckedOutBoxCaches } from './jobMaterialMutations';
 
 function createQueryClient() {
   return new QueryClient({
@@ -138,6 +138,115 @@ function buildBox(boxId: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildCaulkJobDetail(): JobDetail {
+  return {
+    summary: {
+      jobNumber: '5143',
+      warehouse: 'IL1',
+      sections: 'Section 1',
+      installDate: '2026-05-21',
+      crewLeader: 'Crew',
+      status: 'READY',
+      lifecycleStatus: 'ACTIVE',
+      isLaborOnly: false,
+      isStagedForPickup: false,
+      requiredFeet: 0,
+      allocatedFeet: 0,
+      remainingFeet: 0,
+      requiredTubes: 8,
+      allocatedTubes: 8,
+      remainingTubes: 0,
+      requirementCount: 0,
+      allocationCount: 1,
+      filmOrderCount: 0,
+      hasOrderedAllocations: false,
+      createdAt: '',
+      updatedAt: '',
+      notes: ''
+    },
+    requirements: [],
+    allocations: [],
+    usage: [],
+    usageTimeline: [],
+    caulkRequirements: [
+      {
+        requirementId: 'caulk-req-1',
+        jobNumber: '5143',
+        productId: 'product-1',
+        manufacturerId: 'manufacturer-1',
+        manufacturer: '3M',
+        productName: 'IPA',
+        productCode: 'Black',
+        tubesPerCase: 12,
+        requiredTubes: 8,
+        status: 'ACTIVE',
+        isComplete: false,
+        actualUsedTubes: 0,
+        completionResult: '',
+        allocatedTubes: 8,
+        remainingTubes: 0,
+        notes: '',
+        updatedAt: ''
+      }
+    ],
+    caulkAllocations: [
+      {
+        caulkAllocationId: 'caulk-alloc-1',
+        requirementId: 'caulk-req-1',
+        productId: 'product-1',
+        manufacturerId: 'manufacturer-1',
+        manufacturer: '3M',
+        productName: 'IPA',
+        productCode: 'Black',
+        tubesPerCase: 12,
+        warehouse: 'IL1',
+        allocatedTubes: 8,
+        reservedTubesRemaining: 0,
+        checkedOutTubesTotal: 8,
+        returnedUnusedTubesTotal: 0,
+        usedTubesTotal: 0,
+        overageTubesTotal: 0,
+        outstandingCheckoutTubes: 8,
+        openCheckoutCount: 1,
+        status: 'ACTIVE',
+        allocationSource: 'MANUAL',
+        createdAt: '',
+        createdBy: '',
+        updatedAt: '',
+        updatedBy: '',
+        resolvedAt: '',
+        resolvedBy: '',
+        notes: '',
+        pendingTransfer: null
+      }
+    ],
+    caulkCheckouts: [
+      {
+        caulkCheckoutId: 'caulk-checkout-1',
+        caulkAllocationId: 'caulk-alloc-1',
+        productId: 'product-1',
+        manufacturerId: 'manufacturer-1',
+        manufacturer: '3M',
+        productName: 'IPA',
+        productCode: 'Black',
+        tubesPerCase: 12,
+        warehouse: 'IL1',
+        checkoutTubes: 8,
+        overageTubes: 0,
+        status: 'OPEN',
+        checkedOutAt: '',
+        checkedOutBy: '',
+        checkedInAt: '',
+        checkedInBy: '',
+        unusedTubes: 0,
+        usedTubes: 0,
+        notes: ''
+      }
+    ],
+    filmOrders: []
+  };
+}
+
 describe('jobMaterialMutations', () => {
   it('marks only unresolved current film rows as checked out during a single checkout', () => {
     const queryClient = createQueryClient();
@@ -262,6 +371,41 @@ describe('jobMaterialMutations', () => {
       status: 'CHECKED_OUT',
       hasEverBeenCheckedOut: true,
       lastCheckoutJob: '000123'
+    });
+  });
+
+  it('records checked-in caulk usage on the requirement and resolves the consumed allocation', () => {
+    const queryClient = createQueryClient();
+    const detail = buildCaulkJobDetail();
+    queryClient.setQueryData(inventoryKeys.job('5143'), detail);
+
+    updateCaulkCheckinCaches(queryClient, 'caulk-alloc-1', 'caulk-checkout-1', {
+      checkoutTubes: 8,
+      unusedLooseTubes: 0,
+      unusedCases: 0,
+      sourceCheckout: detail.caulkCheckouts[0]
+    });
+
+    const updatedJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job('5143'));
+    expect(updatedJob?.summary).toMatchObject({
+      allocatedTubes: 0,
+      remainingTubes: 8
+    });
+    expect(updatedJob?.caulkRequirements[0]).toMatchObject({
+      actualUsedTubes: 8,
+      allocatedTubes: 0,
+      remainingTubes: 8
+    });
+    expect(updatedJob?.caulkAllocations[0]).toMatchObject({
+      status: 'CANCELLED',
+      openCheckoutCount: 0,
+      outstandingCheckoutTubes: 0,
+      usedTubesTotal: 8
+    });
+    expect(updatedJob?.caulkCheckouts[0]).toMatchObject({
+      status: 'CLOSED',
+      unusedTubes: 0,
+      usedTubes: 8
     });
   });
 });

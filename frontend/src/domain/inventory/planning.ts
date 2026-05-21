@@ -505,6 +505,7 @@ export interface SetJobRequirementStatePayload {
   jobId?: string;
   jobNumber: string;
   requirementId: string;
+  materialType?: 'FILM' | 'CAULK';
   status: 'ACTIVE' | 'COMPLETE';
 }
 

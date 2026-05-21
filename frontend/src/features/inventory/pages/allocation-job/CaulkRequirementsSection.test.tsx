@@ -1,0 +1,115 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { JobCaulkRequirementLine } from '../../../../domain';
+import { CaulkRequirementsSection } from './CaulkRequirementsSection';
+
+function buildRequirement(overrides: Partial<JobCaulkRequirementLine> = {}): JobCaulkRequirementLine {
+  return {
+    requirementId: 'caulk-req-1',
+    jobNumber: '5143',
+    productId: 'product-1',
+    manufacturerId: 'manufacturer-1',
+    manufacturer: '3M',
+    productName: 'IPA',
+    productCode: 'Black',
+    tubesPerCase: 12,
+    requiredTubes: 8,
+    status: 'ACTIVE',
+    isComplete: false,
+    actualUsedTubes: 0,
+    completionResult: '',
+    allocatedTubes: 8,
+    remainingTubes: 0,
+    autoPlanningSuppressed: false,
+    notes: '',
+    updatedAt: '2026-05-21T00:00:00.000Z',
+    ...overrides
+  };
+}
+
+function renderSection(
+  requirement: JobCaulkRequirementLine,
+  overrides: Partial<Parameters<typeof CaulkRequirementsSection>[0]> = {}
+) {
+  return render(
+    <CaulkRequirementsSection
+      requirements={[requirement]}
+      isPhoneLayout={false}
+      isReadOnlyJob={false}
+      isAuthenticated
+      clientIdConfigured
+      isRequirementStatePending={false}
+      isResumeAutoPlanningPending={false}
+      onSetRequirementState={vi.fn()}
+      onResumeAutoPlanning={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
+describe('CaulkRequirementsSection actual usage state', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('shows actual used tubes and hides final judgment while active', () => {
+    renderSection(buildRequirement({ actualUsedTubes: 5 }));
+
+    expect(screen.getByText('Actual Used Tubes')).not.toBeNull();
+    expect(screen.getByText('5')).not.toBeNull();
+    expect(screen.queryByLabelText('On target')).toBeNull();
+    expect(screen.queryByLabelText('Overused')).toBeNull();
+  });
+
+  it('marks completed caulk requirements green when actual use is on target or equal', () => {
+    renderSection(
+      buildRequirement({
+        status: 'COMPLETE',
+        isComplete: true,
+        actualUsedTubes: 8,
+        completionResult: 'ON_TARGET'
+      })
+    );
+
+    expect(screen.getByLabelText('On target')).not.toBeNull();
+  });
+
+  it('marks completed caulk requirements red when actual use exceeds required tubes', () => {
+    renderSection(
+      buildRequirement({
+        status: 'COMPLETE',
+        isComplete: true,
+        actualUsedTubes: 9,
+        completionResult: 'OVERUSED'
+      })
+    );
+
+    expect(screen.getByLabelText('Overused')).not.toBeNull();
+  });
+
+  it('toggles caulk requirement state without changing actual used tubes', () => {
+    const setRequirementState = vi.fn();
+    const requirement = buildRequirement({ actualUsedTubes: 8 });
+
+    renderSection(requirement, { onSetRequirementState: setRequirementState });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Active' }));
+
+    expect(setRequirementState).toHaveBeenCalledWith(requirement, 'COMPLETE');
+    expect(screen.getAllByText('8').length).toBeGreaterThan(0);
+  });
+
+  it('keeps complete caulk rows out of resume auto-plan actions', () => {
+    renderSection(
+      buildRequirement({
+        status: 'COMPLETE',
+        isComplete: true,
+        autoPlanningSuppressed: true,
+        remainingTubes: 8
+      })
+    );
+
+    expect(screen.queryByRole('button', { name: 'Resume auto-plan' })).toBeNull();
+  });
+});

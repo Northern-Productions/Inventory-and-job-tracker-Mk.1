@@ -46,6 +46,10 @@ function buildCaulkRequirement(
     productCode: 'IPA-BLK',
     tubesPerCase: 12,
     requiredTubes: 20,
+    status: 'ACTIVE',
+    isComplete: false,
+    actualUsedTubes: 0,
+    completionResult: '',
     allocatedTubes: 0,
     remainingTubes: 20,
     notes: '',
@@ -302,6 +306,70 @@ describe('jobRequirementCoverage requirement usage state', () => {
       actualUsedFeet: 28,
       completionResult: '',
       remainingFeet: 25
+    });
+    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+  });
+
+  it('removes completed caulk requirements from material demand while preserving actual usage', () => {
+    const detail = buildJobDetail({
+      caulkRequirements: [
+        buildCaulkRequirement({
+          actualUsedTubes: 8,
+          allocatedTubes: 8,
+          remainingTubes: 0
+        })
+      ],
+      caulkAllocations: [buildCaulkAllocation({ requirementId: 'req-1', reservedTubesRemaining: 8 })]
+    });
+
+    const nextDetail = createOptimisticJobDetailAfterRequirementStateChange(detail, {
+      requirementId: 'req-1',
+      materialType: 'CAULK',
+      status: 'COMPLETE'
+    });
+
+    expect(nextDetail.caulkRequirements[0]).toMatchObject({
+      status: 'COMPLETE',
+      actualUsedTubes: 8,
+      allocatedTubes: 0,
+      remainingTubes: 0,
+      completionResult: 'ON_TARGET'
+    });
+    expect(nextDetail.summary).toMatchObject({
+      requiredTubes: 0,
+      allocatedTubes: 0,
+      remainingTubes: 0,
+      status: 'READY'
+    });
+  });
+
+  it('reactivates completed caulk requirements without clearing actual used tubes', () => {
+    const detail = buildJobDetail({
+      summary: buildSummary({ requiredTubes: 0, allocatedTubes: 0, remainingTubes: 0, status: 'READY' }),
+      caulkRequirements: [
+        buildCaulkRequirement({
+          status: 'COMPLETE',
+          isComplete: true,
+          actualUsedTubes: 9,
+          completionResult: 'OVERUSED',
+          allocatedTubes: 0,
+          remainingTubes: 0
+        })
+      ],
+      caulkAllocations: []
+    });
+
+    const nextDetail = createOptimisticJobDetailAfterRequirementStateChange(detail, {
+      requirementId: 'req-1',
+      materialType: 'CAULK',
+      status: 'ACTIVE'
+    });
+
+    expect(nextDetail.caulkRequirements[0]).toMatchObject({
+      status: 'ACTIVE',
+      actualUsedTubes: 9,
+      completionResult: '',
+      remainingTubes: 20
     });
     expect(nextDetail.summary.status).toBe('FILM_ORDER');
   });

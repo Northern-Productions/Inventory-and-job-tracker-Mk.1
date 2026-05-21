@@ -519,6 +519,7 @@ function mapDbCaulkJobRequirementRow(row) {
     return null;
   }
 
+  const status = asTrimmedString(row.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
   return {
     requirementId: asTrimmedString(row.requirement_id || row.id),
     jobId: row.job_id || null,
@@ -535,6 +536,11 @@ function mapDbCaulkJobRequirementRow(row) {
     productCode: asTrimmedString(row.product_code),
     tubesPerCase: integerOrZero(row.tubes_per_case),
     requiredTubes: integerOrZero(row.required_tubes),
+    status,
+    isComplete: status === 'COMPLETE',
+    actualUsedTubes: integerOrZero(row.actual_used_tubes),
+    completedAt: formatTimestamp(row.completed_at),
+    completedBy: asTrimmedString(row.completed_by),
     autoPlanningSuppressed: row.auto_planning_suppressed === true,
     notes: asTrimmedString(row.notes),
     updatedAt: formatTimestamp(row.updated_at),

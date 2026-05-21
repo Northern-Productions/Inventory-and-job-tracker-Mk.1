@@ -592,6 +592,10 @@ async function listJobCaulkRequirements(client, orgId) {
         p.code as product_code,
         p.tubes_per_case,
         r.required_tubes,
+        r.status,
+        r.actual_used_tubes,
+        r.completed_at,
+        r.completed_by,
         r.notes,
         r.updated_at,
         exists (
@@ -650,6 +654,10 @@ async function listJobCaulkRequirementsByJob(client, orgId, jobNumber) {
         p.code as product_code,
         p.tubes_per_case,
         r.required_tubes,
+        r.status,
+        r.actual_used_tubes,
+        r.completed_at,
+        r.completed_by,
         r.notes,
         r.updated_at,
         exists (
@@ -709,6 +717,10 @@ async function listJobCaulkRequirementsByJobId(client, orgId, jobId) {
         p.code as product_code,
         p.tubes_per_case,
         r.required_tubes,
+        r.status,
+        r.actual_used_tubes,
+        r.completed_at,
+        r.completed_by,
         r.notes,
         r.updated_at,
         exists (
@@ -1359,6 +1371,42 @@ async function setJobRequirementState(client, orgId, params, actor) {
   return mapDbRequirementRow(row);
 }
 
+async function setJobCaulkRequirementState(client, orgId, params, actor) {
+  const jobId = requireUuid(params.jobId, 'JobId');
+  const requirementId = requireUuid(params.requirementId, 'RequirementId');
+  const status = asTrimmedString(params.status).toUpperCase();
+  if (status !== 'ACTIVE' && status !== 'COMPLETE') {
+    throw new HttpError(400, 'Caulk requirement status must be ACTIVE or COMPLETE.');
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      update app.job_caulk_requirements r
+      set
+        status = $4,
+        completed_at = case when $4 = 'COMPLETE' then coalesce(r.completed_at, now()) else null end,
+        completed_by = case when $4 = 'COMPLETE' then $5 else '' end,
+        updated_at = now(),
+        updated_by = $5
+      from app.jobs j
+      where r.org_id = $1
+        and r.job_id = $2
+        and r.id = $3
+        and j.org_id = r.org_id
+        and j.id = r.job_id
+      returning r.*, j.job_number
+    `,
+    [orgId, jobId, requirementId, status, asTrimmedString(actor)]
+  );
+
+  if (!row) {
+    throw new HttpError(404, 'Job caulk requirement was not found.');
+  }
+
+  return mapDbCaulkJobRequirementRow(row);
+}
+
 async function recordRequirementActualUsageForCheckin(client, orgId, params, actor) {
   const boxId = asTrimmedString(params?.boxId).toUpperCase();
   const usedFeet = Math.max(0, Math.floor(Number(params?.usedFeet || 0)));
@@ -1561,13 +1609,29 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
     const mergeKey = `${phaseKey}|${productId}`;
 
     if (!mergedByProductId[mergeKey]) {
+      const status = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
       mergedByProductId[mergeKey] = {
         requirementId: asTrimmedString(entry.requirementId),
         phaseId: asTrimmedString(entry.phaseId),
         phaseNumber: asTrimmedString(entry.phaseNumber),
         productId,
         requiredTubes: 0,
+        status,
+        actualUsedTubes: Math.max(0, integerOrZero(entry.actualUsedTubes)),
+        completedAt: asTrimmedString(entry.completedAt),
+        completedBy: asTrimmedString(entry.completedBy),
       };
+    } else {
+      const status = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+      if (status === 'COMPLETE') {
+        mergedByProductId[mergeKey].status = 'COMPLETE';
+        mergedByProductId[mergeKey].completedAt ||= asTrimmedString(entry.completedAt);
+        mergedByProductId[mergeKey].completedBy ||= asTrimmedString(entry.completedBy);
+      }
+      mergedByProductId[mergeKey].actualUsedTubes = Math.max(
+        integerOrZero(mergedByProductId[mergeKey].actualUsedTubes),
+        integerOrZero(entry.actualUsedTubes)
+      );
     }
 
     mergedByProductId[mergeKey].requiredTubes += Math.floor(requiredTubes);
@@ -1601,20 +1665,29 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
 async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entries, actor, nowIso) {
   const defaultPhase = await ensureDefaultJobPhase(client, orgId, jobHeader, actor, nowIso);
   const phases = await listJobPhasesByJobId(client, orgId, jobHeader.id);
+  const existingRequirements = await listJobCaulkRequirementsByJobId(client, orgId, jobHeader.id);
   const phasesById = {};
   const phasesByNumber = {};
+  const existingById = {};
+  const existingByPhaseProduct = {};
   for (let index = 0; index < phases.length; index += 1) {
     phasesById[asTrimmedString(phases[index].phaseId)] = phases[index];
     phasesByNumber[String(phases[index].phaseNumber)] = phases[index];
   }
-  await client.query(
-    `
-      delete from app.job_caulk_requirements
-      where org_id = $1
-        and job_id = $2
-    `,
-    [orgId, jobHeader.id]
-  );
+  for (let index = 0; index < existingRequirements.length; index += 1) {
+    const existing = existingRequirements[index];
+    const existingId = asTrimmedString(existing.requirementId);
+    const phaseId = asTrimmedString(existing.phaseId);
+    const productId = asTrimmedString(existing.productId);
+    if (existingId) {
+      existingById[existingId] = existing;
+    }
+    if (phaseId && productId) {
+      existingByPhaseProduct[`${phaseId}|${productId}`] ||= existing;
+    }
+  }
+
+  const retainedIds = [];
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -1628,6 +1701,22 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
     if (!phase) {
       throw new HttpError(400, 'Caulk requirement phase does not belong to this job.');
     }
+    const explicitRequirementId = asTrimmedString(entry.requirementId);
+    const phaseId = asTrimmedString(phase.phaseId);
+    const matchedExisting = explicitRequirementId
+      ? existingById[explicitRequirementId]
+      : existingByPhaseProduct[`${phaseId}|${entry.productId}`];
+    const nextRequirementId = explicitRequirementId || matchedExisting?.requirementId || crypto.randomUUID();
+    const nextStatus = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE'
+      ? 'COMPLETE'
+      : asTrimmedString(matchedExisting?.status).toUpperCase() === 'COMPLETE'
+        ? 'COMPLETE'
+        : 'ACTIVE';
+    const nextActualUsedTubes = matchedExisting
+      ? Math.max(integerOrZero(matchedExisting.actualUsedTubes), integerOrZero(entry.actualUsedTubes))
+      : integerOrZero(entry.actualUsedTubes);
+    retainedIds.push(nextRequirementId);
+
     await client.query(
       `
         insert into app.job_caulk_requirements (
@@ -1637,6 +1726,10 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
           phase_id,
           product_id,
           required_tubes,
+          status,
+          actual_used_tubes,
+          completed_at,
+          completed_by,
           notes,
           created_at,
           created_by,
@@ -1644,26 +1737,58 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
           updated_by
         )
         values (
-          $1,$2,$3,$4,$5,$6,$7,
-          $8::timestamptz,$9,
-          $10::timestamptz,$11
+          $1,$2,$3,$4,$5,$6,
+          $7,$8::integer,
+          nullif($9, '')::timestamptz,
+          $10,
+          $11,
+          $12::timestamptz,$13,
+          $14::timestamptz,$15
         )
+        on conflict (id) do update set
+          phase_id = excluded.phase_id,
+          product_id = excluded.product_id,
+          required_tubes = excluded.required_tubes,
+          status = excluded.status,
+          actual_used_tubes = excluded.actual_used_tubes,
+          completed_at = excluded.completed_at,
+          completed_by = excluded.completed_by,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
       `,
       [
-        entry.requirementId || crypto.randomUUID(),
+        nextRequirementId,
         orgId,
         jobHeader.id,
-        asTrimmedString(phase.phaseId),
+        phaseId,
         entry.productId,
         entry.requiredTubes,
-        '',
-        nowIso,
-        actor,
+        nextStatus,
+        nextActualUsedTubes,
+        nextStatus === 'COMPLETE'
+          ? asTrimmedString(entry.completedAt || matchedExisting?.completedAt)
+          : '',
+        nextStatus === 'COMPLETE'
+          ? asTrimmedString(entry.completedBy || matchedExisting?.completedBy || actor)
+          : '',
+        matchedExisting?.notes || '',
+        matchedExisting?.createdAt || nowIso,
+        matchedExisting?.createdBy || actor,
         nowIso,
         actor,
       ]
     );
   }
+
+  await client.query(
+    `
+      delete from app.job_caulk_requirements
+      where org_id = $1
+        and job_id = $2
+        and not (id = any($3::uuid[]))
+    `,
+    [orgId, jobHeader.id, retainedIds]
+  );
 }
 
 function parseExplicitJobLaborOnlyValue(payload) {
@@ -1694,7 +1819,9 @@ function hasJobMaterialRequirements(requirements, caulkRequirements) {
         integerOrZero(entry && entry.requiredFeet) > 0
     ) ||
     (Array.isArray(caulkRequirements) ? caulkRequirements : []).some(
-      (entry) => integerOrZero(entry && entry.requiredTubes) > 0
+      (entry) =>
+        asTrimmedString(entry && entry.status).toUpperCase() !== 'COMPLETE' &&
+        integerOrZero(entry && entry.requiredTubes) > 0
     )
   );
 }
@@ -1795,6 +1922,7 @@ export {
   listPendingCaulkTransfersByWarehouseProduct,
   replaceJobRequirementsForJob,
   setJobRequirementState,
+  setJobCaulkRequirementState,
   recordRequirementActualUsageForCheckin,
   normalizeJobCaulkRequirementEntries,
   replaceJobCaulkRequirementsForJob,

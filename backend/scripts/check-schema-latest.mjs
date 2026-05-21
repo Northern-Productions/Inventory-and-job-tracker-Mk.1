@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0145_legacy_checkin_requirement_reconciliation.sql';
+const LATEST_MIGRATION = '0146_caulk_requirement_actual_usage_state.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -36,6 +36,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.job_phases.labor_status' },
   { kind: 'column', signature: 'app.job_requirements.phase_id' },
   { kind: 'column', signature: 'app.job_caulk_requirements.phase_id' },
+  { kind: 'column', signature: 'app.job_caulk_requirements.status' },
+  { kind: 'column', signature: 'app.job_caulk_requirements.actual_used_tubes' },
+  { kind: 'column', signature: 'app.job_caulk_requirements.completed_at' },
+  { kind: 'column', signature: 'app.job_caulk_requirements.completed_by' },
   { kind: 'column', signature: 'app.allocation_planner_suppressions.phase_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
@@ -98,6 +102,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.job_phase_requirements_payload(uuid, app.jobs, jsonb)' },
   { kind: 'function', signature: 'app_api.job_phase_caulk_requirements_payload(uuid, app.jobs, jsonb)' },
   { kind: 'function', signature: 'app_api.record_requirement_actual_usage_for_checkin(uuid, text, text, uuid, text, integer)' },
+  { kind: 'function', signature: 'app_api.record_caulk_requirement_actual_usage_for_checkin(uuid, text, text, integer)' },
   { kind: 'function', signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_job_phase_set_state(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_job_phases(uuid)' },
@@ -741,6 +746,29 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'app_api.record_caulk_requirement_actual_usage_for_checkin(uuid, text, text, integer)',
+    includes: [
+      'v_allocation app.caulk_job_allocations',
+      'v_distinct_job_count <> 1',
+      'v_match_count <> 1',
+      'update app.caulk_job_allocations',
+      'set requirement_id = v_requirement_id',
+      'actual_used_tubes = greatest(coalesce(actual_used_tubes, 0), 0) + v_used_tubes'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)',
+    includes: [
+      "v_material_type text := upper(coalesce(nullif(app_api.trim_text(p_payload->>'materialType'), ''), nullif(app_api.trim_text(p_payload->>'material_type'), ''), 'FILM'))",
+      "if v_material_type not in ('FILM', 'CAULK') then",
+      'from app.job_caulk_requirements r',
+      'actualUsedTubes',
+      'actualUsedFeet'
+    ],
+    excludes: []
+  },
+  {
     signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',
     includes: [
       'v_use_partial_receiving_metrics boolean := false;',
@@ -875,6 +903,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
       'app_api.plan_allocation_coverage(',
       "coalesce(r.status, 'ACTIVE') = 'ACTIVE'",
+      "from app.job_caulk_requirements r\n    join auto_planner_jobs j\n      on j.job_id = r.job_id\n    where coalesce(r.status, 'ACTIVE') = 'ACTIVE'",
       "'AUTO_PLANNED allocation created by planner reconciliation.'",
       'on conflict (box_id) do nothing;',
       'perform 1\n  from app.boxes b\n  join auto_planner_boxes bx',
@@ -1032,6 +1061,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'and j.id = v_allocation.job_id',
       'Job for caulk checkout %s was not found.',
       'format(\'Checked in unused caulk from job %s.\', v_job.job_number)',
+      'app_api.record_caulk_requirement_actual_usage_for_checkin',
+      'Resolved after caulk checkout check-in usage was recorded.',
+      "'caulkAllocationStatus'",
+      "'requirementUsage'",
       'app_api.reconcile_auto_planned_allocations(',
       "'jobIds', jsonb_build_array(v_job.id)",
       "'jobNumbers', jsonb_build_array(v_job.job_number)",

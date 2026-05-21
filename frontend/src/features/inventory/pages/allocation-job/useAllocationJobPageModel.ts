@@ -315,15 +315,27 @@ export function useAllocationJobPageModel() {
     ]
   );
   const totalRequiredCaulkTubes = useMemo(
-    () => caulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0),
+    () =>
+      caulkRequirements.reduce(
+        (sum, entry) => (entry.status === 'COMPLETE' ? sum : sum + entry.requiredTubes),
+        0
+      ),
     [caulkRequirements]
   );
   const totalAllocatedCaulkTubes = useMemo(
-    () => caulkRequirements.reduce((sum, entry) => sum + entry.allocatedTubes, 0),
+    () =>
+      caulkRequirements.reduce(
+        (sum, entry) => (entry.status === 'COMPLETE' ? sum : sum + entry.allocatedTubes),
+        0
+      ),
     [caulkRequirements]
   );
   const totalRemainingCaulkTubes = useMemo(
-    () => caulkRequirements.reduce((sum, entry) => sum + entry.remainingTubes, 0),
+    () =>
+      caulkRequirements.reduce(
+        (sum, entry) => (entry.status === 'COMPLETE' ? sum : sum + entry.remainingTubes),
+        0
+      ),
     [caulkRequirements]
   );
   const canDeleteJob = auth.clientIdConfigured && auth.isAuthenticated && (auth.isOwner || auth.isAdmin);
@@ -631,6 +643,47 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleSetCaulkRequirementState(
+    requirement: JobCaulkRequirementLine,
+    nextStatus: 'ACTIVE' | 'COMPLETE'
+  ) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'changing caulk requirement state',
+        feature: 'jobs',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      await setJobRequirementStateMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
+        jobNumber: summary.jobNumber,
+        requirementId: requirement.requirementId,
+        materialType: 'CAULK',
+        status: nextStatus
+      });
+      toast.push({
+        title: nextStatus === 'COMPLETE' ? 'Caulk requirement completed' : 'Caulk requirement reactivated',
+        description:
+          nextStatus === 'COMPLETE'
+            ? `${requirement.productName || requirement.productCode || 'Caulk'} is marked complete.`
+            : `${requirement.productName || requirement.productCode || 'Caulk'} is active again for punch list work.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update caulk requirement',
+        description: error instanceof Error ? error.message : 'The caulk requirement update failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleSetPhaseState(
     phase: NonNullable<typeof phases>[number],
     nextStatus: 'ACTIVE' | 'COMPLETE'
@@ -801,6 +854,7 @@ export function useAllocationJobPageModel() {
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
     handleSetRequirementState,
+    handleSetCaulkRequirementState,
     handleSetPhaseState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,

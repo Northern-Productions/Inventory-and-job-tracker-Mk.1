@@ -145,6 +145,9 @@ function normalizeJobRequirementLine(entry: JobRequirementLine): JobRequirementL
 }
 
 function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulkRequirementLine {
+  const status = String(entry.status || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+  const actualUsedTubes = Math.max(0, Number(entry.actualUsedTubes || 0));
+  const requiredTubes = Math.max(0, Number(entry.requiredTubes || 0));
   return {
     ...entry,
     phaseId: String(entry.phaseId || '').trim() || undefined,
@@ -152,9 +155,15 @@ function normalizeCaulkRequirementLine(entry: JobCaulkRequirementLine): JobCaulk
     phaseWorkScope: String(entry.phaseWorkScope ?? '').trim() || null,
     phaseInstallDate: String(entry.phaseInstallDate || '').trim(),
     phaseCrewLeader: String(entry.phaseCrewLeader || '').trim(),
-    requiredTubes: Math.max(0, Number(entry.requiredTubes || 0)),
+    requiredTubes,
+    status,
+    isComplete: status === 'COMPLETE',
+    actualUsedTubes,
+    completedAt: String(entry.completedAt || '').trim(),
+    completedBy: String(entry.completedBy || '').trim(),
+    completionResult: status === 'COMPLETE' ? (actualUsedTubes <= requiredTubes ? 'ON_TARGET' : 'OVERUSED') : '',
     allocatedTubes: Math.max(0, Number(entry.allocatedTubes || 0)),
-    remainingTubes: Math.max(0, Number(entry.remainingTubes || 0)),
+    remainingTubes: status === 'COMPLETE' ? 0 : Math.max(0, Number(entry.remainingTubes || 0)),
     autoPlanningSuppressed: Boolean(entry.autoPlanningSuppressed)
   };
 }

@@ -11,6 +11,7 @@ import { WAREHOUSE_CODES } from '../../../domain';
 import { todayDateString } from '../../../lib/date';
 import { updateBoxCaches } from './boxes';
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
+import { reconcileJobDetailCaulkCoverage } from './jobRequirementCoverage';
 
 function updateJobDetailQueries<T>(
   queryClient: QueryClient,
@@ -177,61 +178,71 @@ export function updateCaulkCheckinCaches(
   const returnedTubes = details.unusedLooseTubes + details.unusedCases * tubesPerCase;
   const usedTubes = Math.max(details.checkoutTubes - returnedTubes, 0);
 
-  updateJobDetailQueries<JobDetail>(queryClient, inventoryKeys.jobRoot, (current) => ({
-    ...current,
-    caulkAllocations: current.caulkAllocations.map((entry) =>
-      entry.caulkAllocationId === caulkAllocationId
-        ? {
-            ...entry,
-            openCheckoutCount: Math.max(entry.openCheckoutCount - 1, 0),
-            outstandingCheckoutTubes: Math.max(entry.outstandingCheckoutTubes - details.checkoutTubes, 0),
-            returnedUnusedTubesTotal: entry.returnedUnusedTubesTotal + returnedTubes,
-            usedTubesTotal: entry.usedTubesTotal + usedTubes
-          }
-        : entry
-    ),
-    caulkCheckouts: current.caulkCheckouts.map((entry) =>
-      entry.caulkCheckoutId === caulkCheckoutId
-        ? {
-            ...entry,
-            status: 'CLOSED',
-            checkedInAt: now,
-            checkedInBy: 'Pending...',
-            unusedTubes: returnedTubes,
-            usedTubes,
-            notes: details.notes || entry.notes
-          }
-        : entry
-    )
-  }));
+  function patchDetail<T extends JobDetail | AllocationJobDetail>(current: T): T {
+    const sourceAllocation = current.caulkAllocations.find(
+      (entry) => entry.caulkAllocationId === caulkAllocationId
+    );
+    const requirementId = String(sourceAllocation?.requirementId || '').trim();
+    const nextAllocations = current.caulkAllocations.map((entry) => {
+      if (entry.caulkAllocationId !== caulkAllocationId) {
+        return entry;
+      }
 
-  updateJobDetailQueries<AllocationJobDetail>(queryClient, inventoryKeys.allocationJobRoot, (current) => ({
-    ...current,
-    caulkAllocations: current.caulkAllocations.map((entry) =>
-      entry.caulkAllocationId === caulkAllocationId
-        ? {
-            ...entry,
-            openCheckoutCount: Math.max(entry.openCheckoutCount - 1, 0),
-            outstandingCheckoutTubes: Math.max(entry.outstandingCheckoutTubes - details.checkoutTubes, 0),
-            returnedUnusedTubesTotal: entry.returnedUnusedTubesTotal + returnedTubes,
-            usedTubesTotal: entry.usedTubesTotal + usedTubes
-          }
-        : entry
-    ),
-    caulkCheckouts: current.caulkCheckouts.map((entry) =>
-      entry.caulkCheckoutId === caulkCheckoutId
-        ? {
-            ...entry,
-            status: 'CLOSED',
-            checkedInAt: now,
-            checkedInBy: 'Pending...',
-            unusedTubes: returnedTubes,
-            usedTubes,
-            notes: details.notes || entry.notes
-          }
-        : entry
-    )
-  }));
+      const openCheckoutCount = Math.max(entry.openCheckoutCount - 1, 0);
+      const outstandingCheckoutTubes = Math.max(entry.outstandingCheckoutTubes - details.checkoutTubes, 0);
+      const shouldResolve = openCheckoutCount === 0 && entry.reservedTubesRemaining <= 0;
+      return {
+        ...entry,
+        status: shouldResolve ? 'CANCELLED' : entry.status,
+        resolvedAt: shouldResolve ? entry.resolvedAt || now : entry.resolvedAt,
+        resolvedBy: shouldResolve ? entry.resolvedBy || 'Pending...' : entry.resolvedBy,
+        openCheckoutCount,
+        outstandingCheckoutTubes,
+        returnedUnusedTubesTotal: entry.returnedUnusedTubesTotal + returnedTubes,
+        usedTubesTotal: entry.usedTubesTotal + usedTubes
+      };
+    });
+    const nextRequirements = current.caulkRequirements.map((entry) => {
+      if (!requirementId || entry.requirementId !== requirementId || usedTubes <= 0) {
+        return entry;
+      }
+      const actualUsedTubes = Math.max(0, Number(entry.actualUsedTubes || 0)) + usedTubes;
+      const completionResult =
+        entry.status === 'COMPLETE'
+          ? actualUsedTubes <= Math.max(0, Number(entry.requiredTubes || 0))
+            ? 'ON_TARGET'
+            : 'OVERUSED'
+          : '';
+      return {
+        ...entry,
+        actualUsedTubes,
+        completionResult
+      };
+    });
+    const patched = {
+      ...current,
+      caulkAllocations: nextAllocations,
+      caulkRequirements: nextRequirements,
+      caulkCheckouts: current.caulkCheckouts.map((entry) =>
+        entry.caulkCheckoutId === caulkCheckoutId
+          ? {
+              ...entry,
+              status: 'CLOSED',
+              checkedInAt: now,
+              checkedInBy: 'Pending...',
+              unusedTubes: returnedTubes,
+              usedTubes,
+              notes: details.notes || entry.notes
+            }
+          : entry
+      )
+    } as T;
+
+    return reconcileJobDetailCaulkCoverage(patched as JobDetail) as T;
+  }
+
+  updateJobDetailQueries<JobDetail>(queryClient, inventoryKeys.jobRoot, patchDetail);
+  updateJobDetailQueries<AllocationJobDetail>(queryClient, inventoryKeys.allocationJobRoot, patchDetail);
 }
 
 function buildPendingCaulkCheckoutFromAllocation(

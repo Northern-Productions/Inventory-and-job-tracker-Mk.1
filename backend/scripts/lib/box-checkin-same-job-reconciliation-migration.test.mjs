@@ -43,7 +43,7 @@ test('same-job check-in reconciliation migration removes pre-reconciliation plan
 test('latest schema check requires same-job check-in reconciliation semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0145_legacy_checkin_requirement_reconciliation\.sql/);
+  assert.match(schemaCheck, /0146_caulk_requirement_actual_usage_state\.sql/);
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(
     schemaCheck,

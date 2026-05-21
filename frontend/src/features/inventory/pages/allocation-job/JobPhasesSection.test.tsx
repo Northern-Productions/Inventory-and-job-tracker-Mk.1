@@ -77,6 +77,7 @@ function renderPhases({
     pendingDeleteFilmOrderIds: new Set<string>(),
     onOrderRequirement: vi.fn(),
     onSetRequirementState: vi.fn(),
+    onSetCaulkRequirementState: vi.fn(),
     onSetPhaseState,
     onResumeAutoPlanning: vi.fn(),
     onResumeCaulkAutoPlanning: vi.fn(),
@@ -165,6 +166,7 @@ describe('JobPhasesSection', () => {
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
         onSetRequirementState={vi.fn()}
+        onSetCaulkRequirementState={vi.fn()}
         onSetPhaseState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onResumeCaulkAutoPlanning={vi.fn()}

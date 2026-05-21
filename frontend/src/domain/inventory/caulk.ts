@@ -56,6 +56,12 @@ export interface JobCaulkRequirementLine {
   productCode: string;
   tubesPerCase: number;
   requiredTubes: number;
+  status?: 'ACTIVE' | 'COMPLETE';
+  isComplete?: boolean;
+  actualUsedTubes?: number;
+  completedAt?: string;
+  completedBy?: string;
+  completionResult?: '' | 'ON_TARGET' | 'OVERUSED';
   allocatedTubes: number;
   remainingTubes: number;
   autoPlanningSuppressed?: boolean;

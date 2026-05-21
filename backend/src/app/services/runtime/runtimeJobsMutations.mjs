@@ -52,6 +52,7 @@ import {
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
   setJobRequirementState as saveJobRequirementState,
+  setJobCaulkRequirementState as saveJobCaulkRequirementState,
   listJobCaulkRequirementsByJob,
   listJobCaulkRequirementsByJobId,
   listCaulkJobCheckoutsByJob,
@@ -90,6 +91,7 @@ import {
 import {
   getOrResolveJobId,
 } from './runtimeAllocationPlanning.mjs';
+import { reconcileAutoPlannedAllocations } from './runtimeAutoAllocationPlanner.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 import {
   buildJobDuplicateCheckResult,
@@ -1122,6 +1124,9 @@ async function setJobRequirementState(client, orgId, payload, actor) {
   }
   const requirementId = requireUuid(payload.requirementId, 'RequirementId');
   const nextStatus = asTrimmedString(payload.status).toUpperCase();
+  const materialType = asTrimmedString(payload.materialType || payload.material_type).toUpperCase() === 'CAULK'
+    ? 'CAULK'
+    : 'FILM';
   if (nextStatus !== 'ACTIVE' && nextStatus !== 'COMPLETE') {
     throw new HttpError(400, 'Requirement status must be ACTIVE or COMPLETE.');
   }
@@ -1151,16 +1156,34 @@ async function setJobRequirementState(client, orgId, payload, actor) {
     throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before changing requirement state.`);
   }
 
-  await saveJobRequirementState(
-    client,
-    orgId,
-    {
-      jobId,
-      requirementId,
-      status: nextStatus,
-    },
-    actor
-  );
+  if (materialType === 'CAULK') {
+    await saveJobCaulkRequirementState(
+      client,
+      orgId,
+      {
+        jobId,
+        requirementId,
+        status: nextStatus,
+      },
+      actor
+    );
+  } else {
+    await saveJobRequirementState(
+      client,
+      orgId,
+      {
+        jobId,
+        requirementId,
+        status: nextStatus,
+      },
+      actor
+    );
+  }
+
+  await reconcileAutoPlannedAllocations(client, orgId, actor, {
+    jobIds: [jobId],
+    jobNumbers: [jobNumber],
+  });
 
   return ok(await buildJobDetailById(client, orgId, jobId), warnings);
 }
