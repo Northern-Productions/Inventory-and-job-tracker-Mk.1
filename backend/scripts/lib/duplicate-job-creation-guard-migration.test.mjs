@@ -47,5 +47,6 @@ test('schema guard tracks duplicate job creation guard semantics', () => {
   assert.match(schemaCheck, /const LATEST_MIGRATION = '0143_multi_phase_jobs\.sql';/);
   assert.match(schemaCheck, /signature: 'public\.api_jobs_create\(uuid, text, jsonb\)'/);
   assert.match(schemaCheck, /perform app_api\.raise_http\(409, format\('Job %s already exists\.', v_job_number\)\);/);
-  assert.match(schemaCheck, /if not found then/);
+  assert.match(schemaCheck, /and j\.work_scope_key = v_work_scope_key/);
+  assert.match(schemaCheck, /from app_api\.job_phase_rows_from_payload\(p_payload\)/);
 });

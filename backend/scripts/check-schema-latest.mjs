@@ -277,19 +277,31 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: ['app_api.normalize_job_work_scope(p_value)', 'update app.jobs']
   },
   {
+    signature: 'app_api.job_phase_rows_from_payload(jsonb)',
+    includes: [
+      "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
+      "app_api.normalize_job_work_scope(coalesce(value->>'workScope', value->>'sections'))",
+      'app_api.require_job_phase_number(',
+      'is_primary'
+    ],
+    excludes: []
+  },
+  {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',
     includes: [
       "v_job_number text := app_api.require_job_number_digits(p_payload->>'jobNumber', 'Job ID number');",
-      'v_work_scope_key text := app_api.normalize_job_work_scope_key(v_sections);',
+      'v_primary_phase record;',
+      'from app_api.job_phase_rows_from_payload(p_payload)',
+      'where is_primary',
+      'v_sections := v_primary_phase.sections;',
+      'v_work_scope_key := app_api.normalize_job_work_scope_key(v_sections);',
       'and j.work_scope_key = v_work_scope_key',
       "perform app_api.raise_http(409, format('Job %s already exists.', v_job_number));",
-      "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
-      'app_api.normalize_job_work_scope(',
+      'perform app_api.replace_job_phases(p_org_id, v_job, p_payload, p_actor, v_now);',
       "'jobId', v_job.id::text"
     ],
     excludes: [
-      "app_api.normalize_job_sections(p_payload->>'sections')",
-      'if not found then'
+      "app_api.normalize_job_sections(p_payload->>'sections')"
     ]
   },
   {
@@ -309,11 +321,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_jobs_update(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
-      'where j.org_id = p_org_id\n      and j.id = v_job_id\n    for update;',
+      'where j.org_id = p_org_id and j.id = v_job_id for update;',
       'Job identity mismatch: selected job does not match jobNumber.',
-      "if p_payload ? 'workScope' or p_payload ? 'sections' then",
-      "case when p_payload ? 'workScope' then p_payload->>'workScope' else p_payload->>'sections' end",
-      'app_api.normalize_job_work_scope('
+      'from app_api.job_phase_rows_from_payload(p_payload)',
+      'v_job.sections := v_primary_phase.sections;',
+      'v_job.due_date := v_primary_phase.install_date;',
+      'perform app_api.replace_job_phases(p_org_id, v_job, p_payload, p_actor, v_now);',
+      "v_retained_phase_requirements jsonb := '[]'::jsonb;",
+      "v_phase_requirements := coalesce(v_phase_requirements, '[]'::jsonb) || v_retained_phase_requirements;"
     ],
     excludes: ["if p_payload ? 'sections' then\n    v_job.sections := app_api.normalize_job_sections"]
   },
@@ -583,13 +598,27 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
-      'perform app_api.sync_active_job_schedule_allocations_by_job_id(',
-      'perform app_api.sync_active_job_schedule_allocations(',
+      'perform app_api.sync_active_job_phase_schedules(p_org_id, v_updated_job.id);',
       'perform app_api.reconcile_auto_planned_allocations(',
       "'jobIds', jsonb_build_array(v_updated_job.id)",
       "'jobNumbers', jsonb_build_array(v_updated_job.job_number)"
     ],
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
+  },
+  {
+    signature: 'app_api.sync_active_job_phase_schedules(uuid, uuid)',
+    includes: [
+      'a.job_id = p_job_id',
+      'f.job_id = p_job_id',
+      'left join app.job_requirements r',
+      'left join app.job_phases rp',
+      'coalesce(rp.install_date, pp.install_date) as install_date',
+      'perform app_api.recalculate_physical_box_allocatable_now('
+    ],
+    excludes: [
+      'upper(trim(a.job_number)) = upper(trim(app_api.trim_text(p_job_number)))',
+      'upper(trim(f.job_number)) = upper(trim(app_api.trim_text(p_job_number)))'
+    ]
   },
   {
     signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)',
@@ -606,9 +635,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.requirement_rows_from_payload_with_ids(jsonb)',
     includes: [
-      "v_requirement_id := nullif(app_api.trim_text(v_value->>'requirementId'), '')::uuid;",
+      "nullif(app_api.trim_text(value->>'phaseId'), '')::uuid as phase_id",
       "nullif(app_api.trim_text(value->>'requirementId'), '')::uuid as requirement_id",
-      '(array_agg(n.requirement_id order by n.ordinality) filter (where n.requirement_id is not null))[1] as requirement_id'
+      "app_api.normalize_requirement_status(value->>'status') as status",
+      '(array_agg(n.requirement_id order by n.ordinality) filter (where n.requirement_id is not null))[1],'
     ],
     excludes: []
   },
