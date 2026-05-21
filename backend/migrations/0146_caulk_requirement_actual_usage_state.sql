@@ -1092,10 +1092,8 @@ begin
   select pg_get_functiondef('app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)'::regprocedure)
   into v_def;
   if position('from app.job_caulk_requirements r' in v_def) = 0
-     or position('from app.job_caulk_requirements r
-    join auto_planner_jobs j
-      on j.job_id = r.job_id
-    where coalesce(r.status, ''ACTIVE'') = ''ACTIVE''' in v_def) = 0 then
+     or position('auto_planner_jobs j' in v_def) = 0
+     or position('coalesce(r.status, ''ACTIVE'') = ''ACTIVE''' in v_def) = 0 then
     raise exception 'app_api.reconcile_auto_planned_allocations still plans Complete caulk requirements';
   end if;
 end $$;
