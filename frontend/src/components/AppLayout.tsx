@@ -33,6 +33,7 @@ export function AppLayout() {
   const desktopCompactEnterThresholdRef = useRef(DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
+  const [isDesktopHeaderPinned, setIsDesktopHeaderPinned] = useState(false);
   const [isDesktopHeaderCompact, setIsDesktopHeaderCompact] = useState(false);
   const mobileMoreButtonRef = useRef<HTMLButtonElement>(null);
   const desktopMoreRef = useRef<HTMLDivElement>(null);
@@ -45,16 +46,14 @@ export function AppLayout() {
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
   const syncDesktopHeaderCompact = useCallback(() => {
     if (isPhoneLayout) {
+      setIsDesktopHeaderPinned(false);
       setIsDesktopHeaderCompact(false);
       return;
     }
 
     if (window.scrollY <= DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX) {
+      setIsDesktopHeaderPinned(false);
       setIsDesktopHeaderCompact(false);
-      return;
-    }
-
-    if (isDesktopHeaderCompact) {
       return;
     }
 
@@ -63,8 +62,17 @@ export function AppLayout() {
       return;
     }
 
+    const shouldPinHeader = isDesktopHeaderPinned || navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX;
+    if (shouldPinHeader) {
+      setIsDesktopHeaderPinned(true);
+    }
+
+    if (isDesktopHeaderCompact) {
+      return;
+    }
+
     const headerRect = headerRef.current?.getBoundingClientRect();
-    if (headerRect && headerRect.height > navRect.height) {
+    if (!isDesktopHeaderPinned && headerRect && headerRect.height > navRect.height) {
       desktopCompactEnterThresholdRef.current = Math.max(
         headerRect.height - navRect.height + DESKTOP_HEADER_COMPACT_ENTER_BUFFER_PX,
         DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX
@@ -77,7 +85,7 @@ export function AppLayout() {
     ) {
       setIsDesktopHeaderCompact(true);
     }
-  }, [isDesktopHeaderCompact, isPhoneLayout]);
+  }, [isDesktopHeaderCompact, isDesktopHeaderPinned, isPhoneLayout]);
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -94,6 +102,7 @@ export function AppLayout() {
 
   useEffect(() => {
     if (isPhoneLayout) {
+      setIsDesktopHeaderPinned(false);
       setIsDesktopHeaderCompact(false);
       return;
     }
@@ -149,6 +158,8 @@ export function AppLayout() {
       <header
         ref={headerRef}
         className={`app-header ${!isPhoneLayout ? 'app-header-desktop' : ''} ${
+          isDesktopHeaderPinned ? 'app-header-pinned' : ''
+        } ${
           isDesktopHeaderCompact ? 'app-header-compact' : ''
         }`.trim()}
       >

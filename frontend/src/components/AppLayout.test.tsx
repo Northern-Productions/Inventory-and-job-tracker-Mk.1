@@ -281,6 +281,7 @@ describe('AppLayout', () => {
     }
 
     expect(header.classList.contains('app-header-desktop')).toBe(true);
+    expect(header.classList.contains('app-header-pinned')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
     expect(within(topline).getByRole('heading', { name: 'Window Film Inventory' })).toBeTruthy();
     expect(within(topline).getByRole('button', { name: 'Share' })).toBeTruthy();
@@ -303,10 +304,11 @@ describe('AppLayout', () => {
     window.scrollY = 128;
     fireEvent.scroll(window);
 
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
   });
 
-  it('does not compact before the desktop scroll-distance enter threshold even when the nav reaches the sticky offset', () => {
+  it('pins the desktop header when the nav reaches the sticky offset before compacting', () => {
     const view = renderLayout('/');
     const header = view.container.querySelector('.app-header');
     if (!(header instanceof HTMLElement)) {
@@ -321,11 +323,13 @@ describe('AppLayout', () => {
     window.scrollY = 96;
     fireEvent.scroll(window);
 
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(false);
 
     window.scrollY = 128;
     fireEvent.scroll(window);
 
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
   });
 
@@ -343,16 +347,19 @@ describe('AppLayout', () => {
     navRect.setTop(0);
     window.scrollY = 128;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
     navRect.setTop(28);
     window.scrollY = 32;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
     navRect.setTop(72);
     window.scrollY = 0;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
   });
 
@@ -369,12 +376,14 @@ describe('AppLayout', () => {
 
     window.scrollY = 128;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
     navRect.setTop(36);
     window.scrollY = 2;
     fireEvent.scroll(window);
 
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
   });
 
@@ -391,15 +400,18 @@ describe('AppLayout', () => {
 
     window.scrollY = 128;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(true);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
     window.scrollY = 1;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-pinned')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
 
     navRect.setTop(12);
     fireEvent.scroll(window);
 
+    expect(header.classList.contains('app-header-pinned')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
   });
 
@@ -416,6 +428,7 @@ describe('AppLayout', () => {
     fireEvent.scroll(window);
 
     expect(header.classList.contains('app-header-desktop')).toBe(false);
+    expect(header.classList.contains('app-header-pinned')).toBe(false);
     expect(header.classList.contains('app-header-compact')).toBe(false);
     expect(view.container.querySelector('.app-header-nav-wrap')).toBeNull();
   });

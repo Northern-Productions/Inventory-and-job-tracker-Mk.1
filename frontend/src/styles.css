@@ -1067,6 +1067,7 @@ textarea {
     transform 180ms ease;
 }
 
+.app-header-desktop.app-header-pinned,
 .app-header-desktop.app-header-compact {
   position: sticky;
   top: 0.75rem;
@@ -1074,6 +1075,7 @@ textarea {
   gap: 0;
 }
 
+.app-header-desktop.app-header-pinned .app-header-band,
 .app-header-desktop.app-header-compact .app-header-band {
   background: linear-gradient(
     180deg,
@@ -1085,12 +1087,18 @@ textarea {
     0 1px 0 rgba(18, 52, 59, 0.06);
 }
 
+.app-header-desktop.app-header-pinned .app-header-band-inner {
+  gap: 0;
+  padding-top: 0.45rem;
+}
+
 .app-header-desktop.app-header-compact .app-header-band-inner {
   gap: 0;
   padding-top: 0.45rem;
   padding-bottom: 0.45rem;
 }
 
+.app-header-desktop.app-header-pinned .app-header-topline,
 .app-header-desktop.app-header-compact .app-header-topline {
   max-height: 0;
   visibility: hidden;
