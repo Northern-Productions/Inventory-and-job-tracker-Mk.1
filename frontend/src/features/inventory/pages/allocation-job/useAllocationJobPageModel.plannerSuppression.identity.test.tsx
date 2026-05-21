@@ -54,6 +54,7 @@ function buildMutationState(overrides: Record<string, unknown> = {}) {
 
 vi.mock('../../hooks/useInventoryQueries', () => ({
   useAddCaulkJobAllocation: () => buildMutationState(),
+  useAllocateBox: () => buildMutationState(),
   useCancelCaulkTransfer: () => buildMutationState(),
   useCheckinCaulkJobAllocation: () => buildMutationState(),
   useClearAllocationPlannerSuppression: () =>

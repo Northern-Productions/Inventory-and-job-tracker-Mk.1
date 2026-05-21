@@ -42,6 +42,7 @@ function renderSection(
       isRequirementStatePending={false}
       isResumeAutoPlanningPending={false}
       onSetRequirementState={vi.fn()}
+      onAutoAllocateRequirement={vi.fn()}
       onResumeAutoPlanning={vi.fn()}
       {...overrides}
     />
@@ -60,6 +61,19 @@ describe('CaulkRequirementsSection actual usage state', () => {
     expect(screen.getByText('5')).not.toBeNull();
     expect(screen.queryByLabelText('On target')).toBeNull();
     expect(screen.queryByLabelText('Overused')).toBeNull();
+  });
+
+  it('hides planning-only caulk columns from the visible table', () => {
+    renderSection(buildRequirement({ requiredTubes: 8, allocatedTubes: 3, remainingTubes: 5 }));
+
+    expect(screen.queryByText('Code')).toBeNull();
+    expect(screen.queryByText('Tubes/Case')).toBeNull();
+    expect(screen.queryByText('Required Tubes')).toBeNull();
+    expect(screen.queryByText('Required Breakdown')).toBeNull();
+    expect(screen.queryByText('Remaining Breakdown')).toBeNull();
+    expect(screen.getByText('Allocated Tubes')).not.toBeNull();
+    expect(screen.getByText('Actual Used Tubes')).not.toBeNull();
+    expect(screen.getByText('Remaining Tubes')).not.toBeNull();
   });
 
   it('marks completed caulk requirements green when actual use is on target or equal', () => {
@@ -111,5 +125,35 @@ describe('CaulkRequirementsSection actual usage state', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Resume auto-plan' })).toBeNull();
+  });
+
+  it('auto-allocates active caulk rows from the action column', () => {
+    const autoAllocateRequirement = vi.fn();
+    const requirement = buildRequirement({ allocatedTubes: 0, remainingTubes: 8 });
+
+    renderSection(requirement, { onAutoAllocateRequirement: autoAllocateRequirement });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
+
+    expect(autoAllocateRequirement).toHaveBeenCalledWith(requirement);
+  });
+
+  it('keeps Auto Allocate visible but disabled for completed caulk rows', () => {
+    const autoAllocateRequirement = vi.fn();
+
+    renderSection(
+      buildRequirement({
+        status: 'COMPLETE',
+        isComplete: true,
+        allocatedTubes: 0,
+        remainingTubes: 8
+      }),
+      { onAutoAllocateRequirement: autoAllocateRequirement }
+    );
+
+    const autoAllocateButton = screen.getByRole('button', { name: 'Auto Allocate' });
+    expect((autoAllocateButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(autoAllocateButton);
+    expect(autoAllocateRequirement).not.toHaveBeenCalled();
   });
 });

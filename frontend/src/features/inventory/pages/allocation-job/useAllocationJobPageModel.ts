@@ -14,8 +14,11 @@ import type {
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
+import { listCaulkStock } from '../../../../api/features/caulkClient';
+import { searchBoxes } from '../../../../api/features/inventoryClient';
 import {
   useAddCaulkJobAllocation,
+  useAllocateBox,
   useCancelCaulkTransfer,
   useCheckinCaulkJobAllocation,
   useClearAllocationPlannerSuppression,
@@ -59,11 +62,14 @@ import { useCaulkWorkflow } from './useCaulkWorkflow';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 import { useJobLifecycleWorkflow } from './useJobLifecycleWorkflow';
 import { buildAddBoxTarget } from './helpers';
+import { collectPreferredLinkedBoxIds } from '../../components/job-allocate-dialog/helpers';
 import {
   findUnresolvedOrderForRequirement,
   getOrderableFilmRequirements,
   normalizeFilmRequirementOrderKey
 } from './filmRequirementOrders';
+import { findMatchingBoxesForRequirement } from '../../utils/jobAllocationMatching';
+import { prioritizeCandidateBoxes } from '../../utils/jobAllocationSelection';
 import {
   buildStaleFilmOrderPromptKey,
   createFilmOrderCoverageSnapshot,
@@ -87,6 +93,7 @@ export function useAllocationJobPageModel() {
   const jobQuery = routeJobId ? jobByIdQuery : jobByNumberQuery;
   const updateJobMutation = useUpdateJob();
   const createFilmOrderMutation = useCreateFilmOrder();
+  const allocateBoxMutation = useAllocateBox();
   const addCaulkAllocationMutation = useAddCaulkJobAllocation();
   const updateCaulkAllocationMutation = useUpdateCaulkJobAllocation();
   const checkoutCaulkAllocationMutation = useCheckoutCaulkJobAllocation();
@@ -112,6 +119,8 @@ export function useAllocationJobPageModel() {
   const caulkProductsQuery = useCaulkProducts();
   const [isOrderAllConfirmOpen, setIsOrderAllConfirmOpen] = useState(false);
   const [staleFilmOrderPromptOrders, setStaleFilmOrderPromptOrders] = useState<FilmOrderEntry[]>([]);
+  const [filmAutoAllocateRequirementId, setFilmAutoAllocateRequirementId] = useState('');
+  const [caulkAutoAllocateRequirementId, setCaulkAutoAllocateRequirementId] = useState('');
   const [dismissedStaleFilmOrderPromptKeys, setDismissedStaleFilmOrderPromptKeys] = useState<
     Set<string>
   >(() => new Set());
@@ -568,6 +577,231 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleAutoAllocateFilmRequirement(requirement: JobRequirementLine) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'auto-allocating film',
+        feature: 'allocations',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    if (requirement.status === 'COMPLETE') {
+      toast.push({
+        title: 'Requirement is complete',
+        description: 'Reactivate this requirement before allocating more film.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const remainingFeet = Math.max(0, Math.floor(Number(requirement.remainingFeet || 0)));
+    if (remainingFeet <= 0) {
+      toast.push({
+        title: 'No film to allocate',
+        description: 'This requirement is already fully covered.',
+        variant: 'warning'
+      });
+      return;
+    }
+
+    const effectiveInstallDate = requirement.phaseInstallDate || summary.installDate || '';
+    const effectiveCrewLeader = requirement.phaseCrewLeader || summary.crewLeader || '';
+    if (effectiveInstallDate.trim() && !effectiveCrewLeader.trim()) {
+      toast.push({
+        title: 'Crew leader required',
+        description: 'Add a crew leader before allocating film to a scheduled phase.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const warehouseCodes = warehouseRegistry.entries.map((entry) => entry.code).filter(Boolean);
+    const searchableWarehouses =
+      summary.warehouse && warehouseCodes.includes(summary.warehouse)
+        ? [summary.warehouse, ...warehouseCodes.filter((code) => code !== summary.warehouse)]
+        : warehouseCodes;
+    const previousSnapshot = createFilmOrderCoverageSnapshot(detail);
+    setFilmAutoAllocateRequirementId(requirement.requirementId);
+
+    try {
+      const searchableBoxes = await searchBoxes({
+        warehouses: searchableWarehouses,
+        manufacturer: requirement.manufacturer.trim(),
+        q: requirement.filmName.trim(),
+        showRetired: false
+      });
+      const matchingBoxes = findMatchingBoxesForRequirement(
+        searchableBoxes,
+        requirement,
+        summary.warehouse
+      );
+      const prioritizedBoxes = prioritizeCandidateBoxes(
+        matchingBoxes,
+        collectPreferredLinkedBoxIds(requirement, filmOrders),
+        summary.warehouse
+      );
+      const sourceBox = prioritizedBoxes[0];
+      if (!sourceBox) {
+        toast.push({
+          title: 'No matching film available',
+          description: `${requirement.manufacturer} ${requirement.filmName} has no allocatable boxes for this requirement.`,
+          variant: 'warning'
+        });
+        return;
+      }
+
+      const { result, warnings } = await allocateBoxMutation.mutateAsync({
+        ...((routeJobId || summary.jobId) ? { jobId: routeJobId || summary.jobId } : {}),
+        boxId: sourceBox.boxId,
+        jobNumber: summary.jobNumber,
+        installDate: effectiveInstallDate,
+        crewLeader: effectiveCrewLeader,
+        requestedFeet: remainingFeet,
+        requestedWidthIn: requirement.widthIn,
+        requirementId: requirement.requirementId,
+        crossWarehouse: true,
+        jobWarehouse: summary.warehouse
+      });
+      const coveredFeet = result.allocations.reduce(
+        (sum, entry) => sum + Number(entry.coveredFeet ?? entry.allocatedFeet ?? 0),
+        0
+      );
+      const remainingSuffix =
+        result.remainingUncoveredFeet > 0
+          ? ` ${result.remainingUncoveredFeet} LF still remains for this requirement.`
+          : '';
+      const warningSuffix = warnings.length ? ` ${warnings.join(' ')}` : '';
+      toast.push({
+        title: coveredFeet > 0 ? 'Film auto allocated' : 'No film allocated',
+        description: `${coveredFeet} LF was allocated to ${requirement.filmName}.${remainingSuffix}${warningSuffix}`,
+        variant: coveredFeet > 0 ? 'success' : 'warning'
+      });
+      await maybeOpenStaleFilmOrderPromptAfterUserChange(previousSnapshot);
+    } catch (error) {
+      toast.push({
+        title: 'Unable to auto allocate film',
+        description: error instanceof Error ? error.message : 'The allocation request failed.',
+        variant: 'error'
+      });
+    } finally {
+      setFilmAutoAllocateRequirementId((current) =>
+        current === requirement.requirementId ? '' : current
+      );
+    }
+  }
+
+  async function handleAutoAllocateCaulkRequirement(requirement: JobCaulkRequirementLine) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'auto-allocating caulk',
+        feature: 'allocations',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    if (requirement.status === 'COMPLETE') {
+      toast.push({
+        title: 'Requirement is complete',
+        description: 'Reactivate this requirement before allocating more caulk.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const remainingTubes = Math.max(0, Math.floor(Number(requirement.remainingTubes || 0)));
+    if (remainingTubes <= 0) {
+      toast.push({
+        title: 'No caulk to allocate',
+        description: 'This requirement is already fully covered.',
+        variant: 'warning'
+      });
+      return;
+    }
+
+    if (!summary.warehouse) {
+      toast.push({
+        title: 'Warehouse required',
+        description: 'Add a job warehouse before allocating caulk.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (!requirement.productId) {
+      toast.push({
+        title: 'Caulk product required',
+        description: 'This caulk requirement is missing a product identity.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    setCaulkAutoAllocateRequirementId(requirement.requirementId);
+
+    try {
+      const stockRows = await listCaulkStock({
+        warehouse: summary.warehouse,
+        productId: requirement.productId
+      });
+      const warehouseKey = summary.warehouse.trim().toUpperCase();
+      const stockRow =
+        stockRows.find(
+          (entry) =>
+            entry.productId === requirement.productId &&
+            String(entry.warehouse || '').trim().toUpperCase() === warehouseKey
+        ) || null;
+      const availableTubes = Math.max(0, Math.floor(Number(stockRow?.tubesOnHand || 0)));
+      const allocatedTubes = Math.min(remainingTubes, availableTubes);
+      if (allocatedTubes <= 0) {
+        toast.push({
+          title: 'No caulk stock available',
+          description: `${requirement.productName || requirement.productCode || 'Caulk'} has no tubes available in ${summary.warehouse}.`,
+          variant: 'warning'
+        });
+        return;
+      }
+
+      const { warnings } = await addCaulkAllocationMutation.mutateAsync({
+        ...((routeJobId || summary.jobId) ? { jobId: routeJobId || summary.jobId } : {}),
+        jobNumber: summary.jobNumber,
+        requirementId: requirement.requirementId,
+        productId: requirement.productId,
+        warehouse: summary.warehouse,
+        allocatedTubes,
+        notes: 'Auto allocated from requirement row.'
+      });
+      const remainingSuffix =
+        allocatedTubes < remainingTubes
+          ? ` ${remainingTubes - allocatedTubes} tube${remainingTubes - allocatedTubes === 1 ? '' : 's'} still remain for this requirement.`
+          : '';
+      const warningSuffix = warnings.length ? ` ${warnings.join(' ')}` : '';
+      toast.push({
+        title: 'Caulk auto allocated',
+        description: `${allocatedTubes} tube${allocatedTubes === 1 ? '' : 's'} of ${requirement.productName || requirement.productCode || 'caulk'} were allocated.${remainingSuffix}${warningSuffix}`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to auto allocate caulk',
+        description: error instanceof Error ? error.message : 'The allocation request failed.',
+        variant: 'error'
+      });
+    } finally {
+      setCaulkAutoAllocateRequirementId((current) =>
+        current === requirement.requirementId ? '' : current
+      );
+    }
+  }
+
   async function handleResumeAutoPlanning(requirement: (typeof requirements)[number]) {
     if (
       isReadOnlyJob ||
@@ -846,6 +1080,8 @@ export function useAllocationJobPageModel() {
     isRequirementStatePending: setJobRequirementStateMutation.isPending,
     isPhaseStatePending: setJobPhaseStateMutation.isPending,
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
+    filmAutoAllocatePendingRequirementId: filmAutoAllocateRequirementId,
+    caulkAutoAllocatePendingRequirementId: caulkAutoAllocateRequirementId,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     staleFilmOrderPromptOrders,
@@ -853,6 +1089,8 @@ export function useAllocationJobPageModel() {
     handleCancelStaleFilmOrders,
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
+    handleAutoAllocateFilmRequirement,
+    handleAutoAllocateCaulkRequirement,
     handleSetRequirementState,
     handleSetCaulkRequirementState,
     handleSetPhaseState,

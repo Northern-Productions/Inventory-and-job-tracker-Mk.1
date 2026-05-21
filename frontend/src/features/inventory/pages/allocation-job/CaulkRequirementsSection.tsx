@@ -7,7 +7,6 @@ import {
 } from '../../../../components/MobileRecordCard';
 import type { JobCaulkRequirementLine } from '../../../../domain';
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
-import { formatCaulkTubeBreakdown } from '../../utils/caulkAllocationPlanning';
 
 interface CaulkRequirementsSectionProps {
   requirements: JobCaulkRequirementLine[];
@@ -17,9 +16,11 @@ interface CaulkRequirementsSectionProps {
   clientIdConfigured: boolean;
   isRequirementStatePending: boolean;
   isResumeAutoPlanningPending: boolean;
+  autoAllocatePendingRequirementId?: string;
   title?: string;
   embedded?: boolean;
   onSetRequirementState: (requirement: JobCaulkRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
+  onAutoAllocateRequirement: (requirement: JobCaulkRequirementLine) => void;
   onResumeAutoPlanning: (requirement: JobCaulkRequirementLine) => void;
 }
 
@@ -31,9 +32,11 @@ export function CaulkRequirementsSection({
   clientIdConfigured,
   isRequirementStatePending,
   isResumeAutoPlanningPending,
+  autoAllocatePendingRequirementId = '',
   title = 'Caulk Requirements',
   embedded = false,
   onSetRequirementState,
+  onAutoAllocateRequirement,
   onResumeAutoPlanning
 }: CaulkRequirementsSectionProps) {
   function renderCompletionResult(entry: JobCaulkRequirementLine) {
@@ -83,8 +86,29 @@ export function CaulkRequirementsSection({
   function renderRequirementAction(entry: JobCaulkRequirementLine) {
     const remainingTubes = Math.max(0, Number(entry.remainingTubes || 0));
     const isComplete = entry.status === 'COMPLETE';
+    const canMutateRequirement =
+      !isReadOnlyJob &&
+      !isComplete &&
+      remainingTubes > 0 &&
+      isAuthenticated &&
+      clientIdConfigured;
+    const autoAllocateButton = (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={!canMutateRequirement}
+        loading={autoAllocatePendingRequirementId === entry.requirementId}
+        loadingLabel="Allocating"
+        title={isComplete ? 'Reactivate requirement to allocate more material.' : undefined}
+        onClick={() => onAutoAllocateRequirement(entry)}
+      >
+        Auto Allocate
+      </Button>
+    );
+
     if (isComplete || !entry.autoPlanningSuppressed || remainingTubes <= 0) {
-      return <span className="muted-text">--</span>;
+      return autoAllocateButton;
     }
 
     if (isReadOnlyJob) {
@@ -94,6 +118,7 @@ export function CaulkRequirementsSection({
     return (
       <div className="film-order-actions film-order-actions--stacked">
         <span className="muted-text">Auto planning paused</span>
+        {autoAllocateButton}
         <Button
           type="button"
           variant="ghost"
@@ -124,21 +149,12 @@ export function CaulkRequirementsSection({
             <MobileRecordCard key={entry.requirementId}>
               <MobileRecordHeader
                 title={buildCaulkProductLabel(entry.manufacturer, entry.productName, entry.productCode)}
-                subtitle={`Tubes/Case ${entry.tubesPerCase}`}
+                subtitle={`${entry.remainingTubes} remaining`}
               />
               <MobileFieldList>
-                <MobileField label="Required Tubes" value={entry.requiredTubes} />
-                <MobileField
-                  label="Required Breakdown"
-                  value={formatCaulkTubeBreakdown(entry.requiredTubes, entry.tubesPerCase)}
-                />
                 <MobileField label="Allocated Tubes" value={entry.allocatedTubes} />
                 <MobileField label="Actual Used Tubes" value={entry.actualUsedTubes ?? 0} />
                 <MobileField label="Remaining Tubes" value={entry.remainingTubes} />
-                <MobileField
-                  label="Remaining Breakdown"
-                  value={formatCaulkTubeBreakdown(entry.remainingTubes, entry.tubesPerCase)}
-                />
               </MobileFieldList>
               {renderStateToggle(entry)}
               <div className="film-order-actions">
@@ -154,14 +170,9 @@ export function CaulkRequirementsSection({
               <tr>
                 <th>Manufacturer</th>
                 <th>Product</th>
-                <th>Code</th>
-                <th>Tubes/Case</th>
-                <th>Required Tubes</th>
-                <th>Required Breakdown</th>
                 <th>Allocated Tubes</th>
                 <th>Actual Used Tubes</th>
                 <th>Remaining Tubes</th>
-                <th>Remaining Breakdown</th>
                 <th>State</th>
                 <th>Actions</th>
               </tr>
@@ -171,14 +182,9 @@ export function CaulkRequirementsSection({
                 <tr key={entry.requirementId}>
                   <td>{entry.manufacturer}</td>
                   <td>{entry.productName}</td>
-                  <td>{entry.productCode || '--'}</td>
-                  <td>{entry.tubesPerCase}</td>
-                  <td>{entry.requiredTubes}</td>
-                  <td>{formatCaulkTubeBreakdown(entry.requiredTubes, entry.tubesPerCase)}</td>
                   <td>{entry.allocatedTubes}</td>
                   <td>{entry.actualUsedTubes ?? 0}</td>
                   <td>{entry.remainingTubes}</td>
-                  <td>{formatCaulkTubeBreakdown(entry.remainingTubes, entry.tubesPerCase)}</td>
                   <td>{renderStateToggle(entry)}</td>
                   <td>{renderRequirementAction(entry)}</td>
                 </tr>

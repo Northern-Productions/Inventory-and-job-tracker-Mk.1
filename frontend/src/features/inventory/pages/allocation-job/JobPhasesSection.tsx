@@ -19,8 +19,12 @@ interface JobPhasesSectionProps {
   isRequirementStatePending: boolean;
   isPhaseStatePending: boolean;
   isResumeAutoPlanningPending: boolean;
+  filmAutoAllocatePendingRequirementId?: string;
+  caulkAutoAllocatePendingRequirementId?: string;
   pendingDeleteFilmOrderIds: Set<string>;
   onOrderRequirement: (requirement: JobRequirementLine) => void;
+  onAutoAllocateRequirement: (requirement: JobRequirementLine) => void;
+  onAutoAllocateCaulkRequirement: (requirement: JobCaulkRequirementLine) => void;
   onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetCaulkRequirementState: (requirement: JobCaulkRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetPhaseState: (phase: JobPhase, status: 'ACTIVE' | 'COMPLETE') => void;
@@ -72,8 +76,12 @@ export function JobPhasesSection({
   isRequirementStatePending,
   isPhaseStatePending,
   isResumeAutoPlanningPending,
+  filmAutoAllocatePendingRequirementId = '',
+  caulkAutoAllocatePendingRequirementId = '',
   pendingDeleteFilmOrderIds,
   onOrderRequirement,
+  onAutoAllocateRequirement,
+  onAutoAllocateCaulkRequirement,
   onSetRequirementState,
   onSetCaulkRequirementState,
   onSetPhaseState,
@@ -224,8 +232,10 @@ export function JobPhasesSection({
                     isCreateFilmOrderPending={isCreateFilmOrderPending}
                     isRequirementStatePending={isRequirementStatePending}
                     isResumeAutoPlanningPending={isResumeAutoPlanningPending}
+                    autoAllocatePendingRequirementId={filmAutoAllocatePendingRequirementId}
                     pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
                     onOrderRequirement={onOrderRequirement}
+                    onAutoAllocateRequirement={onAutoAllocateRequirement}
                     onSetRequirementState={onSetRequirementState}
                     onResumeAutoPlanning={onResumeAutoPlanning}
                     onCancelRequirementOrder={onCancelRequirementOrder}
@@ -241,7 +251,9 @@ export function JobPhasesSection({
                     clientIdConfigured={clientIdConfigured}
                     isRequirementStatePending={isRequirementStatePending}
                     isResumeAutoPlanningPending={isResumeAutoPlanningPending}
+                    autoAllocatePendingRequirementId={caulkAutoAllocatePendingRequirementId}
                     onSetRequirementState={onSetCaulkRequirementState}
+                    onAutoAllocateRequirement={onAutoAllocateCaulkRequirement}
                     onResumeAutoPlanning={onResumeCaulkAutoPlanning}
                   />
                 </div>

@@ -59,6 +59,8 @@ export default function AllocationJobPage() {
     isRequirementStatePending,
     isPhaseStatePending,
     isResumeAutoPlanningPending,
+    filmAutoAllocatePendingRequirementId,
+    caulkAutoAllocatePendingRequirementId,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     staleFilmOrderPromptOrders,
@@ -66,6 +68,8 @@ export default function AllocationJobPage() {
     handleCancelStaleFilmOrders,
     maybeOpenStaleFilmOrderPromptAfterUserChange,
     handleOrderFilmRequirement,
+    handleAutoAllocateFilmRequirement,
+    handleAutoAllocateCaulkRequirement,
     handleSetRequirementState,
     handleSetCaulkRequirementState,
     handleSetPhaseState,
@@ -239,8 +243,12 @@ export default function AllocationJobPage() {
         isRequirementStatePending={isRequirementStatePending}
         isPhaseStatePending={isPhaseStatePending}
         isResumeAutoPlanningPending={isResumeAutoPlanningPending}
+        filmAutoAllocatePendingRequirementId={filmAutoAllocatePendingRequirementId}
+        caulkAutoAllocatePendingRequirementId={caulkAutoAllocatePendingRequirementId}
         pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
         onOrderRequirement={(requirement) => void handleOrderFilmRequirement(requirement)}
+        onAutoAllocateRequirement={(requirement) => void handleAutoAllocateFilmRequirement(requirement)}
+        onAutoAllocateCaulkRequirement={(requirement) => void handleAutoAllocateCaulkRequirement(requirement)}
         onSetRequirementState={(requirement, nextStatus) =>
           void handleSetRequirementState(requirement, nextStatus)
         }

@@ -55,6 +55,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
 
   it('keeps Order available and exposes Resume auto-plan for suppressed unmet requirements', () => {
     const orderRequirement = vi.fn();
+    const autoAllocateRequirement = vi.fn();
     const resumeAutoPlanning = vi.fn();
     const requirement = buildRequirement({ autoPlanningSuppressed: true });
 
@@ -71,6 +72,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={orderRequirement}
+        onAutoAllocateRequirement={autoAllocateRequirement}
         onSetRequirementState={vi.fn()}
         onResumeAutoPlanning={resumeAutoPlanning}
         onCancelRequirementOrder={vi.fn()}
@@ -80,9 +82,11 @@ describe('FilmRequirementsSection planner suppression actions', () => {
 
     expect(screen.getByText('Auto planning paused')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
     fireEvent.click(screen.getByRole('button', { name: 'Resume auto-plan' }));
 
     expect(orderRequirement).toHaveBeenCalledWith(requirement);
+    expect(autoAllocateRequirement).toHaveBeenCalledWith(requirement);
     expect(resumeAutoPlanning).toHaveBeenCalledWith(requirement);
   });
 
@@ -104,6 +108,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
         onSetRequirementState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onCancelRequirementOrder={cancelRequirementOrder}
@@ -131,6 +136,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
         onSetRequirementState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onCancelRequirementOrder={vi.fn()}
@@ -142,6 +148,42 @@ describe('FilmRequirementsSection planner suppression actions', () => {
     expect(screen.getByText('20')).not.toBeNull();
     expect(screen.queryByLabelText('On target')).toBeNull();
     expect(screen.queryByLabelText('Overused')).toBeNull();
+  });
+
+  it('hides planning-only LF columns from the visible table', () => {
+    render(
+      <FilmRequirementsSection
+        requirements={[
+          buildRequirement({
+            requiredFeet: 100,
+            allocatedFeet: 60,
+            remainingFeet: 40
+          })
+        ]}
+        filmOrders={[]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        isRequirementStatePending={false}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
+        onSetRequirementState={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={vi.fn()}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Planned LF')).toBeNull();
+    expect(screen.queryByText('Locked LF')).toBeNull();
+    expect(screen.queryByText('Placeholder LF')).toBeNull();
+    expect(screen.getByText('Allocated LF')).not.toBeNull();
+    expect(screen.getByText('Actual Used LF')).not.toBeNull();
+    expect(screen.getByText('Remaining LF')).not.toBeNull();
   });
 
   it('marks completed requirements green when actual use is on target', () => {
@@ -158,6 +200,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
         onSetRequirementState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onCancelRequirementOrder={vi.fn()}
@@ -182,6 +225,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
         onSetRequirementState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onCancelRequirementOrder={vi.fn()}
@@ -209,6 +253,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
         onSetRequirementState={setRequirementState}
         onResumeAutoPlanning={vi.fn()}
         onCancelRequirementOrder={vi.fn()}
@@ -220,5 +265,45 @@ describe('FilmRequirementsSection planner suppression actions', () => {
 
     expect(setRequirementState).toHaveBeenCalledWith(requirement, 'COMPLETE');
     expect(screen.getByText('28')).not.toBeNull();
+  });
+
+  it('keeps Order and Auto Allocate visible but disabled for completed requirements', () => {
+    const orderRequirement = vi.fn();
+    const autoAllocateRequirement = vi.fn();
+    render(
+      <FilmRequirementsSection
+        requirements={[
+          buildRequirement({
+            status: 'COMPLETE',
+            isComplete: true,
+            remainingFeet: 40
+          })
+        ]}
+        filmOrders={[]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        isRequirementStatePending={false}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={orderRequirement}
+        onAutoAllocateRequirement={autoAllocateRequirement}
+        onSetRequirementState={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={vi.fn()}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    const orderButton = screen.getByRole('button', { name: 'Order' });
+    const autoAllocateButton = screen.getByRole('button', { name: 'Auto Allocate' });
+    expect((orderButton as HTMLButtonElement).disabled).toBe(true);
+    expect((autoAllocateButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(orderButton);
+    fireEvent.click(autoAllocateButton);
+    expect(orderRequirement).not.toHaveBeenCalled();
+    expect(autoAllocateRequirement).not.toHaveBeenCalled();
   });
 });

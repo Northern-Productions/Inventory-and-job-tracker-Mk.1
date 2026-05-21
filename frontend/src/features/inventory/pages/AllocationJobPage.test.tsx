@@ -5,11 +5,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobDetail } from '../../../domain';
-import { formatCaulkTubeBreakdown } from '../utils/caulkAllocationPlanning';
 import AllocationJobPage from './AllocationJobPage';
 
 const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
+const searchBoxesMock = vi.fn();
+const listCaulkStockMock = vi.fn();
 const useParamsMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
@@ -64,6 +65,24 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
     ]
   })
 }));
+
+vi.mock('../../../api/features/inventoryClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/features/inventoryClient')>();
+
+  return {
+    ...actual,
+    searchBoxes: (...args: unknown[]) => searchBoxesMock(...args)
+  };
+});
+
+vi.mock('../../../api/features/caulkClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/features/caulkClient')>();
+
+  return {
+    ...actual,
+    listCaulkStock: (...args: unknown[]) => listCaulkStockMock(...args)
+  };
+});
 
 vi.mock('../hooks/useInventoryQueries', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../hooks/useInventoryQueries')>();
@@ -287,17 +306,11 @@ function expectCaulkRequirementTableTotals(
   html: string,
   requirement: Pick<
     JobDetail['caulkRequirements'][number],
-    'requiredTubes' | 'allocatedTubes' | 'actualUsedTubes' | 'remainingTubes' | 'tubesPerCase'
+    'allocatedTubes' | 'actualUsedTubes' | 'remainingTubes'
   >
 ) {
   expect(html).toContain(
-    `<td>${requirement.requiredTubes}</td><td>${formatCaulkTubeBreakdown(
-      requirement.requiredTubes,
-      requirement.tubesPerCase
-    )}</td><td>${requirement.allocatedTubes}</td><td>${requirement.actualUsedTubes ?? 0}</td><td>${requirement.remainingTubes}</td><td>${formatCaulkTubeBreakdown(
-      requirement.remainingTubes,
-      requirement.tubesPerCase
-    )}</td>`
+    `<td>${requirement.allocatedTubes}</td><td>${requirement.actualUsedTubes ?? 0}</td><td>${requirement.remainingTubes}</td>`
   );
 }
 
@@ -347,6 +360,8 @@ describe('AllocationJobPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
+    searchBoxesMock.mockReset();
+    listCaulkStockMock.mockReset();
     useParamsMock.mockReset();
     useJobMock.mockReset();
     useJobByIdMock.mockReset();
@@ -362,14 +377,18 @@ describe('AllocationJobPage', () => {
       isLoading: false,
       isError: false,
       data: baseDetail,
-      error: null
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: baseDetail })
     });
     useJobByIdMock.mockReturnValue({
       isLoading: false,
       isError: false,
       data: undefined,
-      error: null
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: undefined })
     });
+    searchBoxesMock.mockResolvedValue([]);
+    listCaulkStockMock.mockResolvedValue([]);
     useUpdateJobMock.mockReturnValue(buildMutationState());
     useAddCaulkJobAllocationMock.mockReturnValue(buildMutationState());
     useUpdateCaulkJobAllocationMock.mockReturnValue(buildMutationState());
@@ -656,8 +675,6 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('CAULK');
     expect(html).toContain('125 LF');
     expect(html).toContain('10 TUBES');
-    expect(html).toContain('30 tubes | 2 full cases | 6 loose tubes');
-    expect(html).toContain('6 tubes | 0 full cases | 6 loose tubes');
     expect(html).toContain('24 tubes | 2 full cases | 0 loose tubes');
   });
 
@@ -699,6 +716,183 @@ describe('AllocationJobPage', () => {
       remainingTubes: 0
     });
     expectCaulkRequirementTableTotals(html, requirement);
+  });
+
+  it('row-level film Auto Allocate allocates only the selected requirement by jobId and requirementId', async () => {
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    const requirement = {
+      requirementId: 'film-req-1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requiredFeet: 80,
+      status: 'ACTIVE' as const,
+      isComplete: false,
+      actualUsedFeet: 0,
+      completionResult: '' as const,
+      allocatedFeet: 40,
+      remainingFeet: 40,
+      autoPlanningSuppressed: false
+    };
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        jobId,
+        status: 'FILM_ORDER',
+        requiredFeet: 80,
+        allocatedFeet: 40,
+        remainingFeet: 40
+      }) as JobDetail['summary'],
+      requirements: [requirement],
+      caulkRequirements: []
+    };
+    const allocateBoxMutation = {
+      mutateAsync: vi.fn().mockResolvedValue({
+        result: {
+          allocations: [
+            {
+              boxId: 'IL1-100',
+              allocatedFeet: 40,
+              coveredFeet: 40
+            }
+          ],
+          filmOrder: null,
+          remainingUncoveredFeet: 0
+        },
+        warnings: []
+      }),
+      isPending: false
+    };
+    useParamsMock.mockReturnValue({ jobId });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+    useAllocateBoxMock.mockReturnValue(allocateBoxMutation);
+    searchBoxesMock.mockResolvedValue([
+      {
+        boxId: 'IL1-100',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 35',
+        widthIn: 60,
+        feetAvailable: 100,
+        allocatableNowFeet: 100,
+        allocationPlanningFeet: 100,
+        status: 'IN_STOCK',
+        orderDate: '',
+        receivedDate: '2026-03-20'
+      }
+    ]);
+
+    const view = renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
+
+    await waitFor(() => expect(allocateBoxMutation.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(searchBoxesMock).toHaveBeenCalledWith({
+      warehouses: ['IL1', 'MS1'],
+      manufacturer: '3M',
+      q: 'Night Vision 35',
+      showRetired: false
+    });
+    expect(allocateBoxMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        jobNumber: '000123',
+        boxId: 'IL1-100',
+        requestedFeet: 40,
+        requestedWidthIn: 60,
+        requirementId: 'film-req-1',
+        crossWarehouse: true,
+        jobWarehouse: 'IL1'
+      })
+    );
+    view.queryClient.clear();
+    view.unmount();
+  });
+
+  it('row-level caulk Auto Allocate caps the allocation to available stock for the selected requirement', async () => {
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    const requirement = buildCaulkRequirement({
+      requirementId: 'caulk-req-1',
+      allocatedTubes: 0,
+      remainingTubes: 8
+    });
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        jobId,
+        status: 'FILM_ORDER',
+        requiredTubes: 8,
+        allocatedTubes: 0,
+        remainingTubes: 8
+      }) as JobDetail['summary'],
+      requirements: [],
+      caulkRequirements: [requirement],
+      caulkAllocations: []
+    };
+    const addCaulkAllocationMutation = {
+      mutateAsync: vi.fn().mockResolvedValue({
+        result: {
+          jobId,
+          jobNumber: '000123',
+          caulkAllocationId: 'caulk-alloc-1',
+          warnings: []
+        },
+        warnings: []
+      }),
+      isPending: false
+    };
+    useParamsMock.mockReturnValue({ jobId });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+    useAddCaulkJobAllocationMock.mockReturnValue(addCaulkAllocationMutation);
+    listCaulkStockMock.mockResolvedValue([
+      {
+        warehouse: 'IL1',
+        productId: 'p1',
+        manufacturerId: 'm1',
+        manufacturer: 'DOW',
+        productName: '790 Black',
+        productCode: '790-BLK',
+        tubesPerCase: 20,
+        tubesOnHand: 5,
+        casesOnHand: 0,
+        looseTubes: 5,
+        updatedAt: '2026-03-20T00:00:00Z',
+        updatedBy: 'tester'
+      }
+    ]);
+
+    const view = renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
+
+    await waitFor(() => expect(addCaulkAllocationMutation.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(listCaulkStockMock).toHaveBeenCalledWith({
+      warehouse: 'IL1',
+      productId: 'p1'
+    });
+    expect(addCaulkAllocationMutation.mutateAsync).toHaveBeenCalledWith({
+      jobId,
+      jobNumber: '000123',
+      requirementId: 'caulk-req-1',
+      productId: 'p1',
+      warehouse: 'IL1',
+      allocatedTubes: 5,
+      notes: 'Auto allocated from requirement row.'
+    });
+    view.queryClient.clear();
+    view.unmount();
   });
 
   it('renders fallback caulk coverage from canonical requirement totals when allocation is unbound', () => {
