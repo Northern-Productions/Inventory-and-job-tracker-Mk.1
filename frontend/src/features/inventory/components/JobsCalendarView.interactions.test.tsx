@@ -137,11 +137,24 @@ describe('JobsCalendarView interactions', () => {
     const containedLayer = container.querySelector('.job-calendar-week-days > .job-calendar-week-segment-layer');
     const floatingLayer = container.querySelector('.job-calendar-week-row > .job-calendar-week-segment-layer');
     const firstDayCard = weekDays?.querySelector('.job-calendar-day');
+    const dayCards = Array.from(
+      weekDays?.querySelectorAll(':scope > .job-calendar-day') || []
+    ) as HTMLElement[];
 
     expect(weekDays).not.toBeNull();
     expect(containedLayer).not.toBeNull();
     expect(floatingLayer).toBeNull();
     expect(firstDayCard).not.toBeNull();
+    expect(dayCards).toHaveLength(7);
+    expect(dayCards.map((card) => card.style.gridColumn)).toEqual([
+      '1 / span 1',
+      '2 / span 1',
+      '3 / span 1',
+      '4 / span 1',
+      '5 / span 1',
+      '6 / span 1',
+      '7 / span 1'
+    ]);
     expect(weekDays?.contains(containedLayer)).toBe(true);
     expect(Array.from(weekDays?.children || []).indexOf(containedLayer as Element)).toBeGreaterThan(
       Array.from(weekDays?.children || []).indexOf(firstDayCard as Element)

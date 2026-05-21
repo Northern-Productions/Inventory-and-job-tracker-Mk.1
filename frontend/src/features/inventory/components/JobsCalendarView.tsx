@@ -286,7 +286,10 @@ export function JobsCalendarView({
     dayRefs.current.set(dateKey, node);
   }
 
-  function renderCalendarDay(day: JobCalendarDay, options: { mobileGrid?: boolean; weekCard?: boolean; hideJobStack?: boolean } = {}) {
+  function renderCalendarDay(
+    day: JobCalendarDay,
+    options: { mobileGrid?: boolean; weekCard?: boolean; hideJobStack?: boolean; gridColumnIndex?: number } = {}
+  ) {
     const sortedJobs = sortCalendarJobsWithinDay(day.jobs, highlightJobNumbers);
     const hiddenJobCount = Math.max(sortedJobs.length - maxVisibleJobsPerDay, 0);
 
@@ -355,6 +358,7 @@ export function JobsCalendarView({
           .filter(Boolean)
           .join(' ')}
         role="gridcell"
+        style={options.gridColumnIndex ? { gridColumn: `${options.gridColumnIndex} / span 1` } : undefined}
       >
         <div className="job-calendar-day-header">
           {options.mobileGrid ? (
@@ -498,10 +502,11 @@ export function JobsCalendarView({
                 {calendar.weeks.map((week, weekIndex) => (
                   <div className="job-calendar-week-row" role="row" key={week[0]?.dateKey || weekIndex}>
                     <div className="job-calendar-week-days">
-                      {week.map((day) =>
+                      {week.map((day, dayIndex) =>
                         renderCalendarDay(day, {
                           mobileGrid: isPhoneLayout && view === 'month',
-                          hideJobStack: true
+                          hideJobStack: true,
+                          gridColumnIndex: dayIndex + 1
                         })
                       )}
                       {calendar.weekSegments[weekIndex]?.length ? (
