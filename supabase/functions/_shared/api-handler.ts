@@ -1737,7 +1737,15 @@ function filterRollHistoryForJobAllocations(entries: any[], allocations: any[]) 
     const boxId = asTrimmedString(entry?.boxId).toUpperCase();
     const windows = windowsByBox[boxId] || [];
     const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
-    if (!boxId || !windows.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window))) {
+    const checkoutTimestampMs = toTimestampMs(entry?.checkedOutAt);
+    if (
+      !boxId ||
+      !windows.some(
+        (window) =>
+          isTimestampInAllocationWindow(activityTimestampMs, window) ||
+          isTimestampInAllocationWindow(checkoutTimestampMs, window),
+      )
+    ) {
       continue;
     }
     const dedupeKey = `${asTrimmedString(entry?.logId)}|${boxId}`;

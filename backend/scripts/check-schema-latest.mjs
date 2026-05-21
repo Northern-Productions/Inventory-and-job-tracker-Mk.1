@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix.sql';
+const LATEST_MIGRATION = '0145_legacy_checkin_requirement_reconciliation.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -651,6 +651,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'and r.id = v_requirement.requirement_id',
       'and not (r.id = any(v_retained_ids))',
       'v_next_id := coalesce(v_existing.id, gen_random_uuid());',
+      'greatest(coalesce(v_existing.actual_used_feet, 0), coalesce(v_requirement.actual_used_feet, 0))',
       'and not (id = any(v_retained_ids));'
     ],
     excludes: [
@@ -699,6 +700,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_reconciliation_result jsonb',
       'v_requirement_usage_result jsonb',
       'app_api.record_requirement_actual_usage_for_checkin',
+      'Consumed during film box check-in after actual LF was recorded.',
+      'Resolved %s checked-out allocation%s totaling %s LF for job %s.',
       'v_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_box.last_checkout_job_id := null;',
       'v_checkout_job_id,',
@@ -725,6 +728,17 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'warnings'"
     ],
     excludes: ['order by a.created_at asc, a.allocation_id asc', 'due_date', 'install date']
+  },
+  {
+    signature: 'app_api.record_requirement_actual_usage_for_checkin(uuid, text, text, uuid, text, integer)',
+    includes: [
+      'a.requirement_id is null',
+      'legacy_match.requirement_match_count = 1',
+      'box_match.box_match_count = 1',
+      'app_api.normalize_requirement_film_key',
+      'p_job_id is null and v_distinct_job_count > 1'
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.build_box_from_payload(uuid, jsonb, text)',

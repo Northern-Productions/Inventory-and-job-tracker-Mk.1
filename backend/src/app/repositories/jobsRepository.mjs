@@ -1304,7 +1304,9 @@ async function replaceJobRequirementsForJob(client, orgId, jobHeader, entries) {
         entry.widthIn,
         entry.requiredFeet,
         nextStatus,
-        integerOrZero(entry.actualUsedFeet ?? matchedExisting?.actualUsedFeet),
+        matchedExisting
+          ? Math.max(integerOrZero(matchedExisting.actualUsedFeet), integerOrZero(entry.actualUsedFeet))
+          : integerOrZero(entry.actualUsedFeet),
         nextStatus === 'COMPLETE'
           ? asTrimmedString(entry.completedAt || matchedExisting?.completedAt)
           : '',
@@ -1371,29 +1373,104 @@ async function recordRequirementActualUsageForCheckin(client, orgId, params, act
   const allocationRows = await queryRows(
     client,
     `
+      with active_allocations as (
+        select a.*
+        from app.allocations a
+        where a.org_id = $1
+          and upper(trim(a.box_id)) = upper(trim($2))
+          and a.status = 'ACTIVE'
+          and coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
+          and (
+            (
+              nullif($3, '')::uuid is not null
+              and (
+                a.job_id = nullif($3, '')::uuid
+                or (
+                  a.job_id is null
+                  and upper(trim(a.job_number)) = upper(trim($4))
+                )
+              )
+            )
+            or (
+              nullif($3, '')::uuid is null
+              and upper(trim(a.job_number)) = upper(trim($4))
+            )
+          )
+      ),
+      candidate_requirements as (
+        select
+          a.allocation_id,
+          a.requirement_id,
+          a.created_at
+        from active_allocations a
+        join app.job_requirements r
+          on r.org_id = a.org_id
+         and r.id = a.requirement_id
+        where a.requirement_id is not null
+          and (
+            nullif($3, '')::uuid is null
+            or r.job_id = nullif($3, '')::uuid
+          )
+        union all
+        select
+          a.allocation_id,
+          legacy_match.requirement_id,
+          a.created_at
+        from active_allocations a
+        left join lateral (
+          select
+            count(*)::integer as box_match_count,
+            (array_agg(b.manufacturer order by b.updated_at desc, b.id))[1] as manufacturer,
+            (array_agg(b.film_name order by b.updated_at desc, b.id))[1] as film_name,
+            (array_agg(b.width_in order by b.updated_at desc, b.id))[1] as width_in
+          from app.boxes b
+          where b.org_id = a.org_id
+            and upper(trim(b.box_id)) = upper(trim(a.box_id))
+            and (
+              upper(coalesce(b.status::text, '')) = 'CHECKED_OUT'
+              or (
+                nullif($3, '')::uuid is not null
+                and b.last_checkout_job_id = nullif($3, '')::uuid
+              )
+              or (
+                nullif($3, '')::uuid is null
+                and upper(trim(coalesce(b.last_checkout_job, ''))) = upper(trim($4))
+              )
+            )
+        ) box_match on true
+        left join lateral (
+          select
+            count(*)::integer as requirement_match_count,
+            (array_agg(r.id order by r.created_at, r.id))[1] as requirement_id
+          from app.job_requirements r
+          where r.org_id = a.org_id
+            and r.job_id = coalesce(a.job_id, nullif($3, '')::uuid)
+            and box_match.box_match_count = 1
+            and r.width_in = box_match.width_in
+            and app_api.normalize_requirement_film_key(r.org_id, r.manufacturer, r.film_name) =
+              app_api.normalize_requirement_film_key(a.org_id, box_match.manufacturer, box_match.film_name)
+        ) legacy_match on true
+        where a.requirement_id is null
+          and box_match.box_match_count = 1
+          and legacy_match.requirement_match_count = 1
+      )
       select
         a.allocation_id,
-        a.requirement_id,
+        cr.requirement_id,
         greatest(coalesce(nullif(a.covered_feet, 0), a.allocated_feet, 0), 0)::integer as usage_basis_feet,
         a.created_at,
         r.job_id,
         j.job_number
-      from app.allocations a
+      from candidate_requirements cr
+      join app.allocations a
+        on a.org_id = $1
+       and a.allocation_id = cr.allocation_id
       join app.job_requirements r
         on r.org_id = a.org_id
-       and r.id = a.requirement_id
+       and r.id = cr.requirement_id
       join app.jobs j
         on j.org_id = r.org_id
        and j.id = r.job_id
-      where a.org_id = $1
-        and upper(trim(a.box_id)) = upper(trim($2))
-        and a.status = 'ACTIVE'
-        and coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'
-        and a.requirement_id is not null
-        and case
-          when nullif($3, '')::uuid is not null then r.job_id = nullif($3, '')::uuid
-          else upper(trim(j.job_number)) = upper(trim($4))
-        end
       order by a.created_at asc, a.allocation_id asc
     `,
     [orgId, boxId, jobId, jobNumber]

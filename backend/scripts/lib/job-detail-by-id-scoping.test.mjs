@@ -251,3 +251,24 @@ test('filterRollHistoryForJobAllocations does not include rows solely because jo
 
   assert.deepEqual(filtered.map((entry) => entry.logId), ['ROLL-A']);
 });
+
+test('filterRollHistoryForJobAllocations keeps check-in rows whose checkout started in the allocation window', () => {
+  const filtered = filterRollHistoryForJobAllocations([
+    {
+      logId: 'ROLL-CHECKIN',
+      boxId: 'IL1-6637',
+      jobNumber: '5143',
+      checkedOutAt: '2026-05-21T00:00:00Z',
+      checkedInAt: '2026-05-21T14:22:22Z',
+    },
+  ], [
+    {
+      allocationId: 'ALLOC-CHECKOUT',
+      boxId: 'IL1-6637',
+      createdAt: '2026-05-15T14:42:57Z',
+      resolvedAt: '2026-05-21T14:22:01Z',
+    },
+  ]);
+
+  assert.deepEqual(filtered.map((entry) => entry.logId), ['ROLL-CHECKIN']);
+});

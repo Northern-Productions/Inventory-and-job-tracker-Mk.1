@@ -134,7 +134,7 @@ test('box checkout jobId identity migration adds nullable durable identity witho
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0144_phase_edit_modal_work_scope_fix\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0145_legacy_checkin_requirement_reconciliation\.sql';/);
   assert.match(schemaCheck, /app\.boxes\.last_checkout_job_id/);
   assert.match(schemaCheck, /app\.roll_weight_log\.job_id/);
 });
@@ -232,7 +232,7 @@ test('box status duplicate checkout guard requires jobId for ambiguous checkout 
   assert.match(localBoxStatus, /planBoxCheckIn\(existing, payload, existingAllocations, checkoutJob, \{\s+jobId: checkoutJobId\s+\}\)/s);
   assert.match(localBoxStatus, /jobId: checkoutJobId/);
 
-  assert.match(schemaCheck, /0144_phase_edit_modal_work_scope_fix\.sql/);
+  assert.match(schemaCheck, /0145_legacy_checkin_requirement_reconciliation\.sql/);
   assert.match(schemaCheck, /app_api\.cancel_active_allocations_for_box_job\(uuid, text, text, text, text, uuid\)/);
 });
 

@@ -38,7 +38,7 @@ test('auto planner reservation-order migration removes install-date film priorit
 test('latest schema check requires reservation-order planner semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0144_phase_edit_modal_work_scope_fix\.sql/);
+  assert.match(schemaCheck, /0145_legacy_checkin_requirement_reconciliation\.sql/);
   assert.match(schemaCheck, /select min\(a\.created_at\)/);
   assert.match(schemaCheck, /select min\(a\.allocation_id\)/);
   assert.match(schemaCheck, /app_api\.film_allocation_reserves_capacity\(a, b\.status::text\)/);

@@ -95,7 +95,10 @@ function createRecordingClient() {
         return { rows: state.allocations.filter((entry) => entry.box_id === params[1]) };
       }
 
-      if (sql.includes('from app.allocations a join app.job_requirements r')) {
+      if (
+        sql.includes('from app.allocations a join app.job_requirements r') ||
+        (sql.includes('with active_allocations as') && sql.includes('candidate_requirements as'))
+      ) {
         const boxId = String(params[1] || '').trim().toUpperCase();
         const jobId = String(params[2] || '').trim();
         const jobNumber = String(params[3] || '').trim().toUpperCase();
@@ -120,6 +123,38 @@ function createRecordingClient() {
               job_number: entry.job_number,
             })),
         };
+      }
+
+      if (sql.includes('insert into app.allocations') && sql.includes('on conflict (org_id, allocation_id)')) {
+        const updated = {
+          org_id: params[0],
+          allocation_id: params[1],
+          box_id: params[2],
+          job_id: params[3],
+          job_number: params[4],
+          warehouse: params[5],
+          job_date: params[6] || null,
+          allocated_feet: params[7],
+          covered_feet: params[8],
+          requirement_id: params[9],
+          status: params[10],
+          created_at: params[11] || '2026-04-23T09:00:00Z',
+          created_by: params[12],
+          resolved_at: params[13] || null,
+          resolved_by: params[14],
+          notes: params[15],
+          crew_leader: params[16],
+          film_order_id: params[17],
+          allocation_kind: params[18],
+          allocation_source: params[19],
+        };
+        const existingIndex = state.allocations.findIndex((entry) => entry.allocation_id === updated.allocation_id);
+        if (existingIndex >= 0) {
+          state.allocations[existingIndex] = updated;
+        } else {
+          state.allocations.push(updated);
+        }
+        return { rows: [updated] };
       }
 
       if (sql.includes('select * from app.audit_log') && sql.includes('and box_id = $2')) {
@@ -328,7 +363,7 @@ test('setBoxStatus delegates check-in overuse reconciliation and surfaces affect
   assert.match(response.warnings.join(' '), /manual reservations no longer fit this box/);
 });
 
-test('setBoxStatus lets reconciliation reduce same-job active allocations during check-in', async () => {
+test('setBoxStatus records usage before resolving same-job active allocations during check-in', async () => {
   const client = createRecordingClient();
   client.state.box = createBoxRow({
     box_id: 'IL1-DTS-3',
@@ -363,11 +398,9 @@ test('setBoxStatus lets reconciliation reduce same-job active allocations during
     },
   ];
   client.state.reconciliationResult = {
-    warnings: [
-      'Reduced allocation alloc-same-job for job 5555 from 8 LF to 5 LF because box IL1-DTS-3 physically returned with less LF.',
-    ],
+    warnings: [],
     affectedJobNumbers: ['5555'],
-    reducedAllocationIds: ['alloc-same-job'],
+    reducedAllocationIds: [],
     cancelledAllocationIds: [],
     updatedFilmOrderIds: [],
     feetAvailable: 0,
@@ -392,9 +425,12 @@ test('setBoxStatus lets reconciliation reduce same-job active allocations during
   );
 
   assert.equal(response.ok, true);
-  assert.ok(reconcileCall, 'expected check-in flow to delegate same-job shortages to reconciliation RPC');
+  assert.ok(reconcileCall, 'expected check-in flow to reconcile remaining box capacity after same-job release');
   assert.equal(reconcileCall.params[2], 'IL1-DTS-3');
   assert.equal(reconcileCall.params[3], 5);
-  assert.match(response.warnings.join(' '), /Reduced allocation alloc-same-job/);
+  assert.equal(client.state.requirementUsageEntries[0].requirement_id, '22222222-2222-4222-8222-222222222222');
+  assert.equal(client.state.requirementUsageEntries[0].applied_feet, 95);
+  assert.equal(client.state.allocations[0].status, 'CANCELLED');
+  assert.match(response.warnings.join(' '), /Resolved 1 checked-out allocation/);
   assert.doesNotMatch(response.warnings.join(' '), /Released 1 active planning allocation/);
 });

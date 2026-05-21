@@ -36,6 +36,7 @@ import {
   findLatestCheckoutAuditEntryByBoxId,
   getCheckoutJobNumberFromAuditNotes,
 } from '../checkout/audit.mjs';
+import { cancelActiveAllocationsForCheckInJob } from '../checkout/cancellations.mjs';
 import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
@@ -283,6 +284,23 @@ async function setBoxStatus(client, orgId, payload, actor) {
       );
       if (Array.isArray(requirementUsageResult.warnings) && requirementUsageResult.warnings.length > 0) {
         warnings.push(...requirementUsageResult.warnings);
+      }
+
+      const sameJobRelease = await cancelActiveAllocationsForCheckInJob(
+        client,
+        orgId,
+        updatedBox.boxId,
+        checkoutJob,
+        actor,
+        'Consumed during film box check-in after actual LF was recorded.',
+        { jobId: checkoutJobId }
+      );
+      if (sameJobRelease.cancelledCount > 0) {
+        warnings.push(
+          `Resolved ${sameJobRelease.cancelledCount} checked-out allocation${
+            sameJobRelease.cancelledCount === 1 ? '' : 's'
+          } totaling ${sameJobRelease.cancelledFeet} LF for job ${checkoutJob}.`
+        );
       }
     }
 

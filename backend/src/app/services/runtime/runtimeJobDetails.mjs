@@ -173,7 +173,12 @@ function isRollHistoryEntryInAllocationWindow(entry, windows) {
   }
 
   const activityTimestampMs = toTimestampMs(getRollHistoryActivityTimestamp(entry));
-  return source.some((window) => isTimestampInAllocationWindow(activityTimestampMs, window));
+  const checkoutTimestampMs = toTimestampMs(entry?.checkedOutAt);
+  return source.some(
+    (window) =>
+      isTimestampInAllocationWindow(activityTimestampMs, window) ||
+      isTimestampInAllocationWindow(checkoutTimestampMs, window)
+  );
 }
 
 function buildRollHistoryEntryDedupeKey(entry) {

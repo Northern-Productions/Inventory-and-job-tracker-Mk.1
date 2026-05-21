@@ -43,11 +43,11 @@ test('same-job check-in reconciliation migration removes pre-reconciliation plan
 test('latest schema check requires same-job check-in reconciliation semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0144_phase_edit_modal_work_scope_fix\.sql/);
+  assert.match(schemaCheck, /0145_legacy_checkin_requirement_reconciliation\.sql/);
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(
     schemaCheck,
-    /Released %s active planning allocation%s totaling %s LF for job %s during check-in\./
+    /Consumed during film box check-in after actual LF was recorded\./
   );
 });
 
