@@ -103,6 +103,25 @@ function mockDesktopNavRect(container: HTMLElement, initialTop: number, height =
   };
 }
 
+function mockHeaderRect(container: HTMLElement, height = 144) {
+  const header = container.querySelector('.app-header');
+  if (!(header instanceof HTMLElement)) {
+    throw new Error('Expected header to render.');
+  }
+
+  vi.spyOn(header, 'getBoundingClientRect').mockImplementation(() => ({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 640,
+    bottom: height,
+    width: 640,
+    height,
+    toJSON: () => ({})
+  }));
+}
+
 describe('AppLayout', () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue(buildAuth());
@@ -276,11 +295,35 @@ describe('AppLayout', () => {
     }
 
     const navRect = mockDesktopNavRect(view.container, 72);
+    mockHeaderRect(view.container);
     fireEvent(window, new Event('resize'));
     expect(header.classList.contains('app-header-compact')).toBe(false);
 
     navRect.setTop(12);
+    window.scrollY = 128;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+  });
+
+  it('does not compact before the desktop scroll-distance enter threshold even when the nav reaches the sticky offset', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    const navRect = mockDesktopNavRect(view.container, 12);
+    mockHeaderRect(view.container);
+    fireEvent(window, new Event('resize'));
+
+    navRect.setTop(12);
     window.scrollY = 96;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+
+    window.scrollY = 128;
     fireEvent.scroll(window);
 
     expect(header.classList.contains('app-header-compact')).toBe(true);
@@ -294,10 +337,11 @@ describe('AppLayout', () => {
     }
 
     const navRect = mockDesktopNavRect(view.container, 72);
+    mockHeaderRect(view.container);
     fireEvent(window, new Event('resize'));
 
     navRect.setTop(0);
-    window.scrollY = 96;
+    window.scrollY = 128;
     fireEvent.scroll(window);
     expect(header.classList.contains('app-header-compact')).toBe(true);
 
@@ -309,6 +353,53 @@ describe('AppLayout', () => {
     navRect.setTop(72);
     window.scrollY = 0;
     fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+  });
+
+  it('stays compact when the layout shift leaves the page just above the top threshold', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    const navRect = mockDesktopNavRect(view.container, 0);
+    mockHeaderRect(view.container);
+    fireEvent(window, new Event('resize'));
+
+    window.scrollY = 128;
+    fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+
+    navRect.setTop(36);
+    window.scrollY = 2;
+    fireEvent.scroll(window);
+
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+  });
+
+  it('does not immediately re-enter compact mode after a layout shift returns the page to the top', () => {
+    const view = renderLayout('/');
+    const header = view.container.querySelector('.app-header');
+    if (!(header instanceof HTMLElement)) {
+      throw new Error('Expected header to render.');
+    }
+
+    const navRect = mockDesktopNavRect(view.container, 0);
+    mockHeaderRect(view.container);
+    fireEvent(window, new Event('resize'));
+
+    window.scrollY = 128;
+    fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(true);
+
+    window.scrollY = 1;
+    fireEvent.scroll(window);
+    expect(header.classList.contains('app-header-compact')).toBe(false);
+
+    navRect.setTop(12);
+    fireEvent.scroll(window);
+
     expect(header.classList.contains('app-header-compact')).toBe(false);
   });
 

@@ -8,6 +8,9 @@ import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
 import { ShareCurrentPageButton } from './ShareCurrentPageButton';
 
 const DESKTOP_HEADER_STICKY_OFFSET_PX = 12;
+const DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX = 1;
+const DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX = 72;
+const DESKTOP_HEADER_COMPACT_ENTER_BUFFER_PX = 24;
 
 export function AppLayout() {
   const location = useLocation();
@@ -25,7 +28,9 @@ export function AppLayout() {
     mobileMoreAttentionAriaLabel
   } = useAppLayoutNavigation(location.pathname);
   const hasMountedRef = useRef(false);
+  const headerRef = useRef<HTMLElement>(null);
   const desktopNavRef = useRef<HTMLDivElement>(null);
+  const desktopCompactEnterThresholdRef = useRef(DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
   const [isDesktopHeaderCompact, setIsDesktopHeaderCompact] = useState(false);
@@ -44,7 +49,7 @@ export function AppLayout() {
       return;
     }
 
-    if (window.scrollY <= 1) {
+    if (window.scrollY <= DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX) {
       setIsDesktopHeaderCompact(false);
       return;
     }
@@ -58,7 +63,18 @@ export function AppLayout() {
       return;
     }
 
-    if (navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX) {
+    const headerRect = headerRef.current?.getBoundingClientRect();
+    if (headerRect && headerRect.height > navRect.height) {
+      desktopCompactEnterThresholdRef.current = Math.max(
+        headerRect.height - navRect.height + DESKTOP_HEADER_COMPACT_ENTER_BUFFER_PX,
+        DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX
+      );
+    }
+
+    if (
+      window.scrollY > desktopCompactEnterThresholdRef.current &&
+      navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX
+    ) {
       setIsDesktopHeaderCompact(true);
     }
   }, [isDesktopHeaderCompact, isPhoneLayout]);
@@ -131,6 +147,7 @@ export function AppLayout() {
       }`.trim()}
     >
       <header
+        ref={headerRef}
         className={`app-header ${!isPhoneLayout ? 'app-header-desktop' : ''} ${
           isDesktopHeaderCompact ? 'app-header-compact' : ''
         }`.trim()}
