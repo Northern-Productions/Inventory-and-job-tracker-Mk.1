@@ -78,8 +78,9 @@ export function buildJobEditorSubmitPayload({
   const seenPhaseNumbers = new Set<number>();
   for (let index = 0; index < phases.length; index += 1) {
     const phase = phases[index];
-    const phaseNumber = Math.floor(Number(phase.phaseNumber));
-    if (!Number.isFinite(phaseNumber) || phaseNumber <= 0 || String(phase.phaseNumber).includes('.')) {
+    const rawPhaseNumber = String(phase.phaseNumber ?? '').trim();
+    const phaseNumber = Number(rawPhaseNumber);
+    if (!/^\d+$/.test(rawPhaseNumber) || !Number.isSafeInteger(phaseNumber) || phaseNumber <= 0) {
       return {
         error: `Phase ${index + 1}: Phase number must be a positive whole number.`,
         payload: null

@@ -581,13 +581,16 @@ describe('JobEditorDialog', () => {
       })
     );
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: /Phase Number/i }), {
-      target: { value: '2.5' }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+    const phaseNumberInput = screen.getByRole('spinbutton', { name: /Phase Number/i });
+    for (const invalidPhaseNumber of ['0', '-1', '', '2.5', '1e2']) {
+      fireEvent.change(phaseNumberInput, {
+        target: { value: invalidPhaseNumber }
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
 
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByText(/Phase number must be a positive whole number/i)).toBeTruthy();
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.getByText(/Phase number must be a positive whole number/i)).toBeTruthy();
+    }
 
     queryClient.clear();
   });
