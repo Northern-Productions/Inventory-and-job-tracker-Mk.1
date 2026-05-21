@@ -294,14 +294,7 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Sort Jobs');
     expect(html).toContain('matching completed jobs');
     expect(html).toContain('2345');
-    expect(useJobsSearchMock).toHaveBeenCalledWith('2345', 1, {
-      enabled: false,
-      lifecycleStatus: 'ACTIVE'
-    });
-    expect(useJobsSearchMock).toHaveBeenCalledWith('2345', 1, {
-      enabled: false,
-      lifecycleStatus: 'COMPLETED'
-    });
+    expect(useJobsSearchMock).not.toHaveBeenCalled();
   });
 
   it('keeps the closest job-number match first while searching in list mode', () => {
@@ -429,7 +422,7 @@ describe('AllocationsPage', () => {
     expect(html).toContain('1003');
   });
 
-  it('renders calendar week mode with an explicit search button and cross-workflow search queries', () => {
+  it('renders calendar week mode without calendar search controls', () => {
     const html = renderPage({
       initialJobsViewMode: 'calendar',
       initialCalendarGranularity: 'week',
@@ -439,23 +432,17 @@ describe('AllocationsPage', () => {
 
     expect(html).toContain('aria-pressed="true">Calendar</button>');
     expect(html).toContain('option value="week" selected=""');
-    expect(html).toContain('>Search</button>');
+    expect(html).not.toContain('Search Job ID Number');
+    expect(html).not.toContain('>Search</button>');
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
       enabled: true,
       lifecycleStatus: 'ACTIVE',
       view: 'week'
     });
-    expect(useJobsSearchMock).toHaveBeenCalledWith('12345', 1, {
-      enabled: true,
-      lifecycleStatus: 'ACTIVE'
-    });
-    expect(useJobsSearchMock).toHaveBeenCalledWith('12345', 1, {
-      enabled: true,
-      lifecycleStatus: 'COMPLETED'
-    });
+    expect(useJobsSearchMock).not.toHaveBeenCalled();
   });
 
-  it('supports month calendar mode and keeps the explicit search button in completed workflow too', () => {
+  it('supports month calendar mode and keeps calendar search removed in completed workflow too', () => {
     const html = renderPage({
       initialWorkflowView: 'completed',
       initialJobsViewMode: 'calendar',
@@ -467,19 +454,13 @@ describe('AllocationsPage', () => {
     expect(html).toContain('option value="month" selected=""');
     expect(html).toContain('March 2026');
     expect(html).toContain('Browse completed install dates by month.');
-    expect(html).toContain('>Search</button>');
+    expect(html).not.toContain('Search Job ID Number');
+    expect(html).not.toContain('>Search</button>');
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
       enabled: true,
       lifecycleStatus: 'COMPLETED',
       view: 'month'
     });
-    expect(useJobsSearchMock).toHaveBeenCalledWith('22345', 1, {
-      enabled: true,
-      lifecycleStatus: 'ACTIVE'
-    });
-    expect(useJobsSearchMock).toHaveBeenCalledWith('22345', 1, {
-      enabled: true,
-      lifecycleStatus: 'COMPLETED'
-    });
+    expect(useJobsSearchMock).not.toHaveBeenCalled();
   });
 });

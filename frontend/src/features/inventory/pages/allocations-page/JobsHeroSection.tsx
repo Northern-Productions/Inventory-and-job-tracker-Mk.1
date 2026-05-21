@@ -10,7 +10,6 @@ interface JobsHeroSectionProps {
   jobSearchInput: string;
   isCalendarView: boolean;
   jobSort: JobSortOption;
-  isCalendarSearchPending: boolean;
   calendarVisibleCount: number;
   listJobsLength: number;
   calendarSummaryCopy: string;
@@ -19,7 +18,6 @@ interface JobsHeroSectionProps {
   onSetJobsViewMode: (view: 'list' | 'calendar') => void;
   onSetWorkflowView: (view: 'active' | 'completed') => void;
   onJobSearchInputChange: (value: string) => void;
-  onSubmitCalendarSearch: () => void;
   onSetJobSort: (sort: JobSortOption) => void;
   onOpenNewJob: () => void;
 }
@@ -31,7 +29,6 @@ export function JobsHeroSection({
   jobSearchInput,
   isCalendarView,
   jobSort,
-  isCalendarSearchPending,
   calendarVisibleCount,
   listJobsLength,
   calendarSummaryCopy,
@@ -40,7 +37,6 @@ export function JobsHeroSection({
   onSetJobsViewMode,
   onSetWorkflowView,
   onJobSearchInputChange,
-  onSubmitCalendarSearch,
   onSetJobSort,
   onOpenNewJob
 }: JobsHeroSectionProps) {
@@ -93,26 +89,20 @@ export function JobsHeroSection({
         <div className="page-hero-copy">
           <h2>Jobs</h2>
           <p className="muted-text">{workflowDescription}</p>
-          <div className="jobs-toolbar-grid">
-            <label className="field jobs-search-field">
-              <span className="field-label">Search Job ID Number</span>
-              <input
-                className="field-input"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={jobSearchInput}
-                onChange={(event) => onJobSearchInputChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && isCalendarView) {
-                    event.preventDefault();
-                    onSubmitCalendarSearch();
-                  }
-                }}
-                placeholder="Enter job number"
-              />
-            </label>
-            {!isCalendarView ? (
+          {!isCalendarView ? (
+            <div className="jobs-toolbar-grid">
+              <label className="field jobs-search-field">
+                <span className="field-label">Search Job ID Number</span>
+                <input
+                  className="field-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={jobSearchInput}
+                  onChange={(event) => onJobSearchInputChange(event.target.value)}
+                  placeholder="Enter job number"
+                />
+              </label>
               <Select
                 label="Sort Jobs"
                 className="jobs-sort-select"
@@ -120,20 +110,8 @@ export function JobsHeroSection({
                 value={jobSort}
                 onChange={(event) => onSetJobSort(event.target.value as JobSortOption)}
               />
-            ) : (
-              <div className="jobs-calendar-search-actions">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="jobs-calendar-search-button"
-                  onClick={onSubmitCalendarSearch}
-                  disabled={!jobSearchInput.trim() || isCalendarSearchPending}
-                >
-                  {isCalendarSearchPending ? 'Searching...' : 'Search'}
-                </Button>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
         <div className="page-hero-actions">
           <Button type="button" className="button-job-new" size="lg" onClick={onOpenNewJob}>

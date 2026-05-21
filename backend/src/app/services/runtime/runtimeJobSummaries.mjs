@@ -826,6 +826,7 @@ function buildJobPhaseEntries(
       workScope: getPhaseDisplayWorkScope(phase, jobHeader.workScope ?? jobHeader.sections ?? null),
       sections: getPhaseDisplayWorkScope(phase, jobHeader.sections ?? jobHeader.workScope ?? null),
       installDate: asTrimmedString(phase.installDate),
+      installEndDate: asTrimmedString(phase.installEndDate),
       crewLeader: asTrimmedString(phase.crewLeader),
       laborStatus: asTrimmedString(phase.laborStatus || phase.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE',
       status,
@@ -885,6 +886,7 @@ function buildJobListEntry(
   if (!installDate) {
     installDate = metadata.installDate;
   }
+  const installEndDate = asTrimmedString(currentPhase?.installEndDate);
   const crewLeader = asTrimmedString(currentPhase?.crewLeader) || asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
 
   let requiredFeet = 0;
@@ -963,6 +965,7 @@ function buildJobListEntry(
     phaseCount: phaseEntries.length,
     phases: phaseEntries,
     installDate,
+    installEndDate,
     crewLeader,
     status,
     lifecycleStatus,

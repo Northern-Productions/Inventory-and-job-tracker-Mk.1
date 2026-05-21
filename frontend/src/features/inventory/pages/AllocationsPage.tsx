@@ -46,7 +46,6 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
     calendarAnchorDate,
     setJobsWorkflowView,
     handleJobSearchInputChange,
-    handleCalendarSearchSubmit,
     handlePrefetchJob,
     handleOpenJob
   } = useAllocationsPageModel(props);
@@ -60,7 +59,6 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         jobSearchInput={jobSearchInput}
         isCalendarView={isCalendarView}
         jobSort={jobSort}
-        isCalendarSearchPending={calendarWorkflow.isCalendarSearchPending}
         calendarVisibleCount={calendarWorkflow.calendarVisibleCount}
         listJobsLength={listJobs.length}
         calendarSummaryCopy={calendarSummaryCopy}
@@ -69,7 +67,6 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         onSetJobsViewMode={setJobsViewMode}
         onSetWorkflowView={setJobsWorkflowView}
         onJobSearchInputChange={handleJobSearchInputChange}
-        onSubmitCalendarSearch={handleCalendarSearchSubmit}
         onSetJobSort={setJobSort}
         onOpenNewJob={() => jobCreationWorkflow.setIsNewJobOpen(true)}
       />

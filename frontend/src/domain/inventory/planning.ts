@@ -206,6 +206,7 @@ export interface AllocationJobSummary {
   workScope?: string | null;
   sections?: string | null;
   installDate: string;
+  installEndDate?: string;
   crewLeader: string;
   status: AllocationJobStatus;
   activeAllocatedFeet: number;
@@ -323,6 +324,7 @@ export interface JobPhase {
   workScope?: string | null;
   sections?: string | null;
   installDate: string;
+  installEndDate?: string;
   crewLeader: string;
   laborStatus: 'ACTIVE' | 'COMPLETE';
   status: JobStatus | 'COMPLETED';
@@ -361,6 +363,7 @@ export interface JobListEntry {
   phaseCount?: number;
   phases?: JobPhase[];
   installDate: string;
+  installEndDate?: string;
   crewLeader: string;
   status: JobStatus;
   lifecycleStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -445,6 +448,7 @@ export interface CreateJobPayload {
     workScope?: string | number | null;
     sections?: string | number | null;
     installDate?: string;
+    installEndDate?: string;
     crewLeader?: string;
     laborStatus?: 'ACTIVE' | 'COMPLETE';
     isPrimary?: boolean;
@@ -486,6 +490,7 @@ export interface UpdateJobPayload {
     workScope?: string | number | null;
     sections?: string | number | null;
     installDate?: string;
+    installEndDate?: string;
     crewLeader?: string;
     laborStatus?: 'ACTIVE' | 'COMPLETE';
     isPrimary?: boolean;

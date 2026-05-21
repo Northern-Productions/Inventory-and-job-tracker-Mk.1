@@ -45,7 +45,7 @@ function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber
 }
 
 describe('jobCalendar', () => {
-  it('builds a 6-week month calendar and groups jobs by date', () => {
+  it('builds a 6-week month calendar and groups scheduled phase jobs by date', () => {
     const month = buildMonthCalendar('2026-03', [
       buildJob({ jobNumber: '10001', installDate: '2026-03-01' }),
       buildJob({ jobNumber: '10002', installDate: '2026-03-24' }),
@@ -59,7 +59,37 @@ describe('jobCalendar', () => {
     expect(month.days.find((day) => day.dateKey === '2026-03-24')?.jobs.map((job) => job.jobNumber)).toEqual([
       '10002'
     ]);
-    expect(month.unscheduledJobs.map((job) => job.jobNumber)).toEqual(['10003']);
+    expect(month.unscheduledJobs).toEqual([]);
+    expect(month.weekSegments.flat().map((segment) => segment.job.jobNumber)).toEqual(['10001', '10002']);
+  });
+
+  it('expands multi-day phase ranges inclusively and splits at week rows', () => {
+    const month = buildMonthCalendar('2026-03', [
+      buildJob({
+        jobNumber: '20001',
+        installDate: '2026-03-06',
+        installEndDate: '2026-03-10'
+      })
+    ]);
+
+    expect(month.days.find((day) => day.dateKey === '2026-03-06')?.jobs.map((job) => job.jobNumber)).toEqual([
+      '20001'
+    ]);
+    expect(month.days.find((day) => day.dateKey === '2026-03-10')?.jobs.map((job) => job.jobNumber)).toEqual([
+      '20001'
+    ]);
+    expect(month.days.find((day) => day.dateKey === '2026-03-11')?.jobs).toEqual([]);
+
+    const segments = month.weekSegments.flat();
+    expect(segments).toHaveLength(2);
+    expect(segments.map((segment) => `${segment.startDate}:${segment.endDate}:${segment.spanDays}`)).toEqual([
+      '2026-03-06:2026-03-07:2',
+      '2026-03-08:2026-03-10:3'
+    ]);
+    expect(segments[0].isRangeStart).toBe(true);
+    expect(segments[0].isRangeEnd).toBe(false);
+    expect(segments[1].isRangeStart).toBe(false);
+    expect(segments[1].isRangeEnd).toBe(true);
   });
 
   it('builds a Sunday-start week range and keeps cross-month jobs visible', () => {
@@ -132,7 +162,7 @@ describe('jobCalendar', () => {
       getCalendarJobStatusClass(
         buildJob({ jobNumber: '60000', status: 'ORDERED' })
       )
-    ).toBe('job-calendar-job-link-status-ordered');
+    ).toBe('job-calendar-job-link-status-ready');
   });
 
   it('prefers the current workflow when cross-workflow search results tie', () => {

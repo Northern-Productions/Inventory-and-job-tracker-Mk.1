@@ -16,6 +16,7 @@ export interface JobEditorSubmitPayload {
   workScope: string;
   sections: string;
   installDate: string;
+  installEndDate?: string;
   crewLeader: string;
   requirements: JobRequirementEditorLine[];
   caulkRequirements: JobCaulkRequirementEditorLine[];
@@ -37,6 +38,7 @@ export interface JobPhaseEditorLine {
   workScope: string;
   sections: string;
   installDate: string;
+  installEndDate?: string;
   crewLeader: string;
   laborStatus?: 'ACTIVE' | 'COMPLETE';
   isPrimary?: boolean;

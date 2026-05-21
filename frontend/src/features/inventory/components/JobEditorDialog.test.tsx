@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -63,7 +63,6 @@ function buildDialogTree(
 afterEach(() => {
   cleanup();
 });
-
 describe('JobEditorDialog', () => {
   it('uses the shared sticky footer action class for the final save row', () => {
     const queryClient = createQueryClient();
@@ -401,8 +400,8 @@ describe('JobEditorDialog', () => {
 
     const phaseSelect = screen.getByRole('combobox', { name: /Phase to edit/i }) as HTMLSelectElement;
     expect(phaseSelect.value).toBe('phase-2');
-    expect(screen.getByRole('option', { name: 'Phase 1 - Section 1' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'Phase 2 - Sections 4, 5' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Phase 1 — Section 1' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Phase 2 — Sections 4, 5' })).toBeTruthy();
     expect((screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement).value).toBe(
       'Sections 4, 5'
     );
@@ -412,6 +411,72 @@ describe('JobEditorDialog', () => {
     );
     expect(document.querySelector('.job-editor-phase-list')).toBeNull();
     expect(screen.queryByText(/Add requirements to phase/i)).toBeNull();
+
+    queryClient.clear();
+  });
+
+  it('validates and submits the selected phase install end date', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 000123',
+        submitLabel: 'Save Job',
+        initialJobNumber: '000123',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-05-01',
+        initialCrewLeader: 'Napo',
+        initialPhases: [
+          {
+            id: 'phase-1',
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-05-01',
+            installEndDate: '2026-05-03',
+            crewLeader: 'Napo',
+            laborStatus: 'ACTIVE',
+            isPrimary: true
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    const endDateInput = screen.getByLabelText(/Install End Date/i) as HTMLInputElement;
+    expect(endDateInput.value).toBe('2026-05-03');
+
+    fireEvent.change(endDateInput, { target: { value: '2026-04-30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Job' }));
+    expect(screen.getByText(/Install End Date must be the same day as or later than Install Date/i)).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    const installDateInput = screen.getByLabelText(/^Install Date$/i) as HTMLInputElement;
+    fireEvent.change(installDateInput, { target: { value: '' } });
+    fireEvent.change(endDateInput, { target: { value: '2026-05-04' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Job' }));
+    expect(screen.getByText(/Install End Date requires an Install Date/i)).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.change(installDateInput, { target: { value: '2026-05-01' } });
+    fireEvent.change(endDateInput, { target: { value: '2026-05-04' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Job' }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phases: [
+          expect.objectContaining({
+            phaseId: 'phase-1',
+            installDate: '2026-05-01',
+            installEndDate: '2026-05-04'
+          })
+        ]
+      })
+    );
 
     queryClient.clear();
   });

@@ -663,16 +663,33 @@ function buildPhaseCalendarEntries(entries) {
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const phases = Array.isArray(entry?.phases) ? entry.phases : [];
-    if (phases.length <= 1) {
-      response.push(entry);
-      continue;
-    }
+    const phaseSource = phases.length
+      ? phases
+      : [{
+          phaseId: entry.phaseId,
+          phaseNumber: entry.phaseNumber || 1,
+          installDate: entry.installDate,
+          installEndDate: entry.installEndDate,
+          crewLeader: entry.crewLeader,
+          status: entry.status,
+          workScope: entry.workScope ?? entry.sections,
+          sections: entry.sections ?? entry.workScope,
+        }];
 
-    for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
-      const phase = phases[phaseIndex];
+    for (let phaseIndex = 0; phaseIndex < phaseSource.length; phaseIndex += 1) {
+      const phase = phaseSource[phaseIndex];
+      const installDate = asTrimmedString(phase.installDate);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(installDate)) {
+        continue;
+      }
+      const rawEndDate = asTrimmedString(phase.installEndDate);
+      const installEndDate = /^\d{4}-\d{2}-\d{2}$/.test(rawEndDate) && rawEndDate >= installDate
+        ? rawEndDate
+        : '';
       response.push({
         ...entry,
-        installDate: asTrimmedString(phase.installDate),
+        installDate,
+        installEndDate,
         crewLeader: asTrimmedString(phase.crewLeader),
         status: asTrimmedString(phase.status) || entry.status,
         workScope: phase.workScope ?? phase.sections ?? entry.workScope,
@@ -687,6 +704,32 @@ function buildPhaseCalendarEntries(entries) {
   return response;
 }
 
+function calendarEntryOverlapsRange(entry, rangeStart, rangeEnd) {
+  const installDate = asTrimmedString(entry.installDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(installDate)) {
+    return false;
+  }
+  const rawEndDate = asTrimmedString(entry.installEndDate);
+  const installEndDate = /^\d{4}-\d{2}-\d{2}$/.test(rawEndDate) && rawEndDate >= installDate
+    ? rawEndDate
+    : installDate;
+  return installDate <= rangeEnd && installEndDate >= rangeStart;
+}
+
+function getCalendarMonthRange(anchorDate) {
+  const year = Number(anchorDate.slice(0, 4));
+  const monthIndex = Number(anchorDate.slice(5, 7)) - 1;
+  const startDate = `${anchorDate.slice(0, 7)}-01`;
+  if (!Number.isInteger(year) || !Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    return { startDate, endDate: startDate };
+  }
+
+  return {
+    startDate,
+    endDate: formatCalendarDate(new Date(year, monthIndex + 1, 0)),
+  };
+}
+
 async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecycleStatus) {
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
@@ -695,14 +738,11 @@ async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecyc
   if (normalizedView === 'week') {
     const weekStart = getCalendarWeekStart(normalizedAnchorDate);
     const weekEnd = shiftCalendarDate(weekStart, 6);
-    return entries.filter((entry) => {
-      const installDate = asTrimmedString(entry.installDate);
-      return /^\d{4}-\d{2}-\d{2}$/.test(installDate) && installDate >= weekStart && installDate <= weekEnd;
-    });
+    return entries.filter((entry) => calendarEntryOverlapsRange(entry, weekStart, weekEnd));
   }
 
-  const normalizedMonth = normalizedAnchorDate.slice(0, 7);
-  return entries.filter((entry) => asTrimmedString(entry.installDate).slice(0, 7) === normalizedMonth);
+  const monthRange = getCalendarMonthRange(normalizedAnchorDate);
+  return entries.filter((entry) => calendarEntryOverlapsRange(entry, monthRange.startDate, monthRange.endDate));
 }
 
 async function buildJobDetail(client, orgId, jobNumber) {

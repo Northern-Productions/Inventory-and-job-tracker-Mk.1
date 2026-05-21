@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  buildJobsCalendar,
   buildJobsList,
   buildJobsSearchResults,
 } from '../../src/app/services/runtime/runtimeJobsRead.mjs';
@@ -144,6 +145,7 @@ function buildRequirementRows() {
 
 function createFakeClient(options = {}) {
   const jobs = Array.isArray(options.jobs) ? options.jobs : buildJobRows();
+  const phases = Array.isArray(options.phases) ? options.phases : [];
   const allocations = Array.isArray(options.allocations) ? options.allocations : [];
   const requirements = Array.isArray(options.requirements) ? options.requirements : [];
   const caulkRequirements = Array.isArray(options.caulkRequirements) ? options.caulkRequirements : [];
@@ -186,7 +188,7 @@ function createFakeClient(options = {}) {
         }
         if (normalized.includes('from app.job_phases')) {
           counts.phases += 1;
-          return { rows: [] };
+          return { rows: phases };
         }
         if (normalized.includes('from app.job_caulk_requirements r')) {
           counts.caulkRequirements += 1;
@@ -246,6 +248,7 @@ test('buildJobsList only loads referenced allocation boxes when no preloaded box
     'phaseCount',
     'phases',
     'installDate',
+    'installEndDate',
     'crewLeader',
     'status',
     'lifecycleStatus',
@@ -496,6 +499,87 @@ test('buildJobsList preserves duplicate job-number rows by canonical jobId', asy
         allocatedTubes: 2,
       },
     ]
+  );
+});
+
+test('buildJobsCalendar emits scheduled phase entries and filters inclusive date ranges', async () => {
+  const client = createFakeClient({
+    jobs: [
+      {
+        id: 'job-active',
+        org_id: ORG_ID,
+        job_number: '30003',
+        warehouse: 'IL1',
+        sections: 'Primary Scope',
+        due_date: '2026-03-08',
+        crew_leader: 'Active Lead',
+        lifecycle_status: 'ACTIVE',
+        is_labor_only: false,
+        is_staged_for_pickup: true,
+        created_at: NOW,
+        updated_at: NOW,
+      },
+    ],
+    phases: [
+      {
+        id: 'phase-unscheduled',
+        org_id: ORG_ID,
+        job_id: 'job-active',
+        phase_number: 1,
+        sections: 'No Date',
+        install_date: null,
+        install_end_date: null,
+        crew_leader: '',
+        labor_status: 'ACTIVE',
+        is_primary: true,
+        created_at: NOW,
+        updated_at: NOW,
+      },
+      {
+        id: 'phase-range',
+        org_id: ORG_ID,
+        job_id: 'job-active',
+        phase_number: 2,
+        sections: 'Sections 7',
+        install_date: '2026-03-08',
+        install_end_date: '2026-03-10',
+        crew_leader: 'Napo',
+        labor_status: 'ACTIVE',
+        is_primary: false,
+        created_at: NOW,
+        updated_at: NOW,
+      },
+      {
+        id: 'phase-next-week',
+        org_id: ORG_ID,
+        job_id: 'job-active',
+        phase_number: 3,
+        sections: 'Next Week',
+        install_date: '2026-03-15',
+        install_end_date: null,
+        crew_leader: 'Napo',
+        labor_status: 'ACTIVE',
+        is_primary: false,
+        created_at: NOW,
+        updated_at: NOW,
+      },
+    ],
+  });
+
+  const weekEntries = await buildJobsCalendar(client, ORG_ID, 'week', '2026-03-10', '', 'ACTIVE');
+
+  assert.deepEqual(weekEntries.map((entry) => entry.phaseId), ['phase-range']);
+  assert.equal(weekEntries[0].phaseNumber, 2);
+  assert.equal(weekEntries[0].installDate, '2026-03-08');
+  assert.equal(weekEntries[0].installEndDate, '2026-03-10');
+  assert.equal(weekEntries[0].phaseWorkScope, 'Sections 7');
+  assert.equal(weekEntries[0].isStagedForPickup, true);
+
+  const monthEntries = await buildJobsCalendar(client, ORG_ID, 'month', '2026-03-01', '', 'ACTIVE');
+
+  assert.deepEqual(
+    monthEntries.map((entry) => entry.phaseId),
+    ['phase-range', 'phase-next-week']
   );
 });
 

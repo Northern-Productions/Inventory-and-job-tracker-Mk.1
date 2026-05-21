@@ -476,6 +476,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       workScope: deps.asTrimmedString(row.sections) || null,
       sections: deps.asTrimmedString(row.sections) || null,
       installDate: deps.formatDateValue(row.install_date),
+      installEndDate: deps.formatDateValue(row.install_end_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       laborStatus,
       isComplete: laborStatus === "COMPLETE",

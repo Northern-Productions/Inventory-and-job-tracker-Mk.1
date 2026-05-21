@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -112,8 +112,8 @@ describe('JobPhasesSection', () => {
       ],
     });
 
-    expect(screen.getByText('Phase 1 - Sections 1, 2, 3')).not.toBeNull();
-    expect(screen.getByText('Phase 2 - Section 7')).not.toBeNull();
+    expect(screen.getByText('Phase 1 — Sections 1, 2, 3')).not.toBeNull();
+    expect(screen.getByText('Phase 2 — Section 7')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Collapse phase' })).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Expand phase' })).not.toBeNull();
   });

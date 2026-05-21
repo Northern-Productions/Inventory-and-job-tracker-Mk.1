@@ -31,7 +31,7 @@ export function formatJobDisplayLabel(job: {
   const phaseNumber = Number(job.phaseNumber || 0);
   const showPhase = phaseNumber > 0 && (Number(job.phaseCount || 0) > 1 || phaseNumber !== 1);
   const workScope = showPhase
-    ? `Phase ${phaseNumber}${rawWorkScope ? ` - ${rawWorkScope}` : ''}`
+    ? `Phase ${phaseNumber}${rawWorkScope ? ` — ${rawWorkScope}` : ''}`
     : rawWorkScope;
 
   if (!displayJobNumber) {

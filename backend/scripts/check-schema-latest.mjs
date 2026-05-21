@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0146_caulk_requirement_actual_usage_state.sql';
+const LATEST_MIGRATION = '0147_phase_calendar_install_end_date.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -34,6 +34,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.job_phases' },
   { kind: 'column', signature: 'app.job_phases.phase_number' },
   { kind: 'column', signature: 'app.job_phases.labor_status' },
+  { kind: 'column', signature: 'app.job_phases.install_end_date' },
   { kind: 'column', signature: 'app.job_requirements.phase_id' },
   { kind: 'column', signature: 'app.job_caulk_requirements.phase_id' },
   { kind: 'column', signature: 'app.job_caulk_requirements.status' },
@@ -292,6 +293,17 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'is_primary'
     ],
     excludes: ["coalesce(value->>'phaseNumber', ordinality::text)"]
+  },
+  {
+    signature: 'app_api.replace_job_phases(uuid, app.jobs, jsonb, text, timestamp with time zone)',
+    includes: [
+      'install_end_date',
+      "phase.value->>'installEndDate'",
+      'Install End Date requires an Install Date.',
+      'Install End Date must be the same day as or later than Install Date.',
+      'install_end_date = excluded.install_end_date'
+    ],
+    excludes: []
   },
   {
     signature: 'public.api_jobs_create(uuid, text, jsonb)',

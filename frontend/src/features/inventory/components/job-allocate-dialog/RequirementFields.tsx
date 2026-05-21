@@ -19,7 +19,7 @@ export function RequirementFields({
   onRequestedFeetChange
 }: RequirementFieldsProps) {
   function buildRequirementLabel(entry: JobRequirementLine) {
-    const phasePrefix = entry.phaseNumber ? `Phase ${entry.phaseNumber} - ` : '';
+    const phasePrefix = entry.phaseNumber ? `Phase ${entry.phaseNumber} — ` : '';
     const quantityLabel = isExtraFilmMode
       ? `${entry.requiredFeet} LF required`
       : `${entry.remainingFeet} LF remaining`;

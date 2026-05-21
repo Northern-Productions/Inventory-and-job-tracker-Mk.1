@@ -14,18 +14,21 @@ import {
   shiftCalendarAnchorDate,
   sortCalendarJobsWithinDay,
   type JobCalendarDay,
+  type JobCalendarEventSegment,
   type JobCalendarView
 } from '../utils/jobCalendar';
 
 function getCalendarJobKey(job: JobListEntry) {
   const jobId = String(job.jobId || '').trim();
+  const phaseId = String(job.phaseId || '').trim();
   if (jobId) {
-    return `job:${jobId}`;
+    return phaseId ? `job:${jobId}:phase:${phaseId}` : `job:${jobId}`;
   }
 
   return [
     'legacy-job',
     job.jobNumber,
+    phaseId,
     job.workScopeKey || job.workScope || job.sections || '',
     job.warehouse || ''
   ].join(':');
@@ -136,6 +139,52 @@ function renderJobLink(
   );
 }
 
+function renderCalendarEventSegment(
+  segment: JobCalendarEventSegment,
+  options: {
+    highlightJobNumbers: Set<string>;
+    onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
+    registerRef?: (job: JobListEntry, node: HTMLAnchorElement | null) => void;
+  }
+) {
+  const job = segment.job;
+  const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
+  const displayJobLabel = formatJobDisplayLabel(job);
+  const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber, job.jobId);
+  const handleClick = () => handlePrefetch();
+
+  return (
+    <Link
+      key={`${getCalendarJobKey(job)}:${segment.startDate}:${segment.endDate}`}
+      ref={(node) => options.registerRef?.(job, node)}
+      to={buildAllocationJobRoute(job)}
+      className={[
+        'job-calendar-event-bar',
+        segment.isMultiDay ? 'job-calendar-event-bar-multi-day' : 'job-calendar-event-bar-single-day',
+        segment.isRangeStart ? 'job-calendar-event-bar-range-start' : 'job-calendar-event-bar-range-middle',
+        segment.isRangeEnd ? 'job-calendar-event-bar-range-end' : 'job-calendar-event-bar-range-middle',
+        job.isStagedForPickup ? 'job-calendar-event-bar-staged' : '',
+        isHighlighted ? 'job-calendar-job-link-highlight' : '',
+        getCalendarJobStatusClass(job)
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={{ gridColumn: `${segment.startIndex + 1} / span ${segment.spanDays}` }}
+      onClick={handleClick}
+      onMouseEnter={handlePrefetch}
+      onFocus={handlePrefetch}
+      title={displayJobLabel}
+    >
+      <span className="job-calendar-event-label">{displayJobLabel}</span>
+      {job.isStagedForPickup ? (
+        <span className="job-calendar-stage-mark" aria-label="Staged for pickup" title="Staged for pickup">
+          {'\u2713'}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
 export function JobsCalendarView({
   view,
   anchorDate,
@@ -237,7 +286,7 @@ export function JobsCalendarView({
     dayRefs.current.set(dateKey, node);
   }
 
-  function renderCalendarDay(day: JobCalendarDay, options: { mobileGrid?: boolean; weekCard?: boolean } = {}) {
+  function renderCalendarDay(day: JobCalendarDay, options: { mobileGrid?: boolean; weekCard?: boolean; hideJobStack?: boolean } = {}) {
     const sortedJobs = sortCalendarJobsWithinDay(day.jobs, highlightJobNumbers);
     const hiddenJobCount = Math.max(sortedJobs.length - maxVisibleJobsPerDay, 0);
 
@@ -332,7 +381,7 @@ export function JobsCalendarView({
           )}
         </div>
 
-        {!options.mobileGrid ? (
+        {!options.mobileGrid && !options.hideJobStack ? (
           <div className="job-calendar-job-stack job-calendar-job-stack-compact">
             {sortedJobs.slice(0, maxVisibleJobsPerDay).map((job) =>
               renderJobLink(job, {
@@ -446,11 +495,29 @@ export function JobsCalendarView({
                 role="grid"
                 aria-label={calendar.periodLabel}
               >
-                {calendar.days.map((day) =>
-                  renderCalendarDay(day, {
-                    mobileGrid: isPhoneLayout && view === 'month'
-                  })
-                )}
+                {calendar.weeks.map((week, weekIndex) => (
+                  <div className="job-calendar-week-row" role="row" key={week[0]?.dateKey || weekIndex}>
+                    {calendar.weekSegments[weekIndex]?.length ? (
+                      <div className="job-calendar-week-segment-layer">
+                        {calendar.weekSegments[weekIndex].map((segment) =>
+                          renderCalendarEventSegment(segment, {
+                            highlightJobNumbers: highlightSet,
+                            onPrefetchJob,
+                            registerRef: registerJobLinkRef
+                          })
+                        )}
+                      </div>
+                    ) : null}
+                    <div className="job-calendar-week-days">
+                      {week.map((day) =>
+                        renderCalendarDay(day, {
+                          mobileGrid: isPhoneLayout && view === 'month',
+                          hideJobStack: true
+                        })
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </>
           ) : (

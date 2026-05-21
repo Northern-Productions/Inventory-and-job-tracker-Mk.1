@@ -181,6 +181,7 @@ export function JobWorkflowDialogs({
           workScope: phase.workScope || phase.sections || '',
           sections: phase.sections || phase.workScope || '',
           installDate: phase.installDate || '',
+          installEndDate: phase.installEndDate || '',
           crewLeader: phase.crewLeader || '',
           laborStatus: phase.laborStatus,
           isPrimary: phase.isPrimary,

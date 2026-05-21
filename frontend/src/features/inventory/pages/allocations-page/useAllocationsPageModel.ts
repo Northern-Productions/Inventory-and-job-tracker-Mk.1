@@ -11,8 +11,7 @@ import {
   useCaulkProducts,
   useFilmCatalog,
   useJobsCalendarEntries,
-  useJobsList,
-  useJobsSearch
+  useJobsList
 } from '../../hooks/useInventoryQueries';
 import { prefetchJobDetail, prefetchJobDetailById } from '../jobDetailPrefetch';
 import {
@@ -73,14 +72,6 @@ export function useAllocationsPageModel({
     enabled: !isCalendarView,
     lifecycleStatus: selectedLifecycleStatus
   });
-  const activeCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
-    enabled: isCalendarView && Boolean(jobSearchInput.trim()),
-    lifecycleStatus: 'ACTIVE'
-  });
-  const completedCalendarSearchQuery = useJobsSearch(jobSearchInput, 1, {
-    enabled: isCalendarView && Boolean(jobSearchInput.trim()),
-    lifecycleStatus: 'COMPLETED'
-  });
   const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
     enabled: isCalendarView,
     view: calendarGranularity,
@@ -100,18 +91,12 @@ export function useAllocationsPageModel({
     enabled: jobCreationWorkflow.isNewJobOpen
   });
   const calendarWorkflow = useJobsCalendarWorkflow({
-    initialJobsViewMode,
-    initialJobSearchInput,
     isCalendarView,
     selectedLifecycleStatus,
     calendarGranularity,
     calendarAnchorDate,
     jobsCalendarQuery,
-    activeCalendarSearchQuery,
-    completedCalendarSearchQuery,
     queryClient,
-    toast,
-    onWorkflowViewChange: setJobsWorkflowView,
     onCalendarAnchorDateChange: setCalendarAnchorDate,
     onCalendarGranularityChange: setCalendarGranularity
   });
@@ -169,19 +154,6 @@ export function useAllocationsPageModel({
   function handleJobSearchInputChange(rawValue: string) {
     const nextValue = rawValue.replace(/[^0-9]/g, '');
     setJobSearchInput(nextValue);
-
-    if (isCalendarView && !nextValue) {
-      calendarWorkflow.clearCalendarSearch();
-    }
-  }
-
-  function handleCalendarSearchSubmit() {
-    const normalizedQuery = jobSearchInput.trim();
-    if (!normalizedQuery) {
-      return;
-    }
-
-    calendarWorkflow.submitCalendarSearch(normalizedQuery);
   }
 
   function handlePrefetchJob(jobNumber: string, jobId?: string) {
@@ -228,7 +200,6 @@ export function useAllocationsPageModel({
     calendarAnchorDate,
     setJobsWorkflowView,
     handleJobSearchInputChange,
-    handleCalendarSearchSubmit,
     handlePrefetchJob,
     handleOpenJob
   };

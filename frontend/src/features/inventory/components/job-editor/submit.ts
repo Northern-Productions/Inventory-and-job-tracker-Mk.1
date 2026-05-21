@@ -93,12 +93,27 @@ export function buildJobEditorSubmitPayload({
       };
     }
     seenPhaseNumbers.add(phaseNumber);
+    const normalizedInstallDate = phase.installDate.trim();
+    const normalizedInstallEndDate = String(phase.installEndDate || '').trim();
+    if (normalizedInstallEndDate && !normalizedInstallDate) {
+      return {
+        error: `Phase ${phaseNumber}: Install End Date requires an Install Date.`,
+        payload: null
+      };
+    }
+    if (normalizedInstallEndDate && normalizedInstallEndDate < normalizedInstallDate) {
+      return {
+        error: `Phase ${phaseNumber}: Install End Date must be the same day as or later than Install Date.`,
+        payload: null
+      };
+    }
     normalizedPhases.push({
       ...phase,
       phaseNumber,
       workScope: phase.workScope.trim(),
       sections: phase.sections.trim(),
-      installDate: phase.installDate.trim(),
+      installDate: normalizedInstallDate,
+      installEndDate: normalizedInstallEndDate,
       crewLeader: phase.crewLeader.trim(),
       isPrimary: phase.isPrimary === true || index === 0
     });

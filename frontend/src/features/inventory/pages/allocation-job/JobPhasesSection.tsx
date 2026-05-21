@@ -55,7 +55,7 @@ function filterForPhase<T extends JobRequirementLine | JobCaulkRequirementLine>(
 
 function buildPhaseTitle(phase: JobPhase) {
   const workScope = String(phase.workScope ?? phase.sections ?? '').trim();
-  return `Phase ${phase.phaseNumber}${workScope ? ` - ${workScope}` : ''}`;
+  return `Phase ${phase.phaseNumber}${workScope ? ` — ${workScope}` : ''}`;
 }
 
 export function JobPhasesSection({

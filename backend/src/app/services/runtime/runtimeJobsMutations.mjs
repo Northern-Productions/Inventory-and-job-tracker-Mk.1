@@ -130,19 +130,42 @@ function getPayloadPhaseEntries(payload) {
   return Array.isArray(payload?.phases) ? payload.phases : [];
 }
 
+function normalizePhaseInstallEndDate(value, installDate, fieldName) {
+  const normalizedEndDate = normalizeDateString(value, fieldName, true);
+  if (!normalizedEndDate) {
+    return '';
+  }
+
+  if (!installDate) {
+    throw new HttpError(400, `${fieldName} requires an Install Date.`);
+  }
+
+  if (normalizedEndDate < installDate) {
+    throw new HttpError(400, `${fieldName} must be the same day as or later than Install Date.`);
+  }
+
+  return normalizedEndDate;
+}
+
 function buildDefaultPhaseInputFromJobPayload(payload, fallbackPhase = {}) {
+  const installDate = normalizeDateString(
+    payload.installDate !== undefined || payload.dueDate !== undefined
+      ? payload.installDate !== undefined ? payload.installDate : payload.dueDate
+      : fallbackPhase.installDate,
+    'Install Date',
+    true
+  );
   return {
     phaseId: asTrimmedString(fallbackPhase.phaseId || fallbackPhase.id),
     phaseNumber: normalizeJobPhaseNumber(payload.phaseNumber || fallbackPhase.phaseNumber || 1, 'PhaseNumber'),
     sections: hasWorkScopeInput(payload)
       ? normalizeJobWorkScope(getWorkScopeInput(payload))
       : fallbackPhase.sections ?? fallbackPhase.workScope ?? null,
-    installDate: normalizeDateString(
-      payload.installDate !== undefined || payload.dueDate !== undefined
-        ? payload.installDate !== undefined ? payload.installDate : payload.dueDate
-        : fallbackPhase.installDate,
-      'Install Date',
-      true
+    installDate,
+    installEndDate: normalizePhaseInstallEndDate(
+      payload.installEndDate ?? payload.install_end_date ?? fallbackPhase.installEndDate,
+      installDate,
+      'Install End Date'
     ),
     crewLeader: payload.crewLeader !== undefined
       ? asTrimmedString(payload.crewLeader)
@@ -165,11 +188,17 @@ function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
       throw new HttpError(400, `Phase ${phaseNumber} already exists on this job.`);
     }
     seenPhaseNumbers.add(phaseNumber);
+    const installDate = normalizeDateString(entry?.installDate ?? entry?.dueDate, `Phases[${index + 1}].InstallDate`, true);
     return {
       phaseId: asTrimmedString(entry?.phaseId || entry?.id),
       phaseNumber,
       sections: normalizeJobWorkScope(entry?.workScope ?? entry?.sections ?? ''),
-      installDate: normalizeDateString(entry?.installDate ?? entry?.dueDate, `Phases[${index + 1}].InstallDate`, true),
+      installDate,
+      installEndDate: normalizePhaseInstallEndDate(
+        entry?.installEndDate ?? entry?.install_end_date ?? entry?.endDate,
+        installDate,
+        `Phases[${index + 1}].InstallEndDate`
+      ),
       crewLeader: asTrimmedString(entry?.crewLeader),
       laborStatus: normalizeJobPhaseLaborStatus(entry?.laborStatus || entry?.status),
       isPrimary: entry?.isPrimary === true || index === 0,

@@ -3639,12 +3639,36 @@ td.col-available-linear-ft {
 
 .job-calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
-.job-calendar-grid-week .job-calendar-day {
+.job-calendar-week-row {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.job-calendar-week-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.job-calendar-week-segment-layer {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(2rem, auto);
+  gap: 0.22rem 0;
+  min-width: 0;
+}
+
+.job-calendar-grid-week .job-calendar-week-days .job-calendar-day {
   min-height: 11rem;
+}
+
+.job-calendar-grid-month .job-calendar-week-days .job-calendar-day {
+  min-height: 8.25rem;
 }
 
 .job-calendar-day {
@@ -3771,6 +3795,57 @@ td.col-available-linear-ft {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.job-calendar-event-bar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.42rem;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2rem;
+  padding: 0.34rem 0.52rem;
+  border: 1px solid rgba(18, 52, 59, 0.08);
+  border-radius: 0.62rem;
+  background: rgba(255, 255, 255, 0.94);
+  color: #2f8f61;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(18, 52, 59, 0.05);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.job-calendar-event-bar:hover,
+.job-calendar-event-bar:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(19, 96, 100, 0.24);
+  box-shadow: 0 10px 20px rgba(18, 52, 59, 0.1);
+  outline: none;
+}
+
+.job-calendar-event-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-calendar-event-bar-range-middle:not(.job-calendar-event-bar-range-start) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.job-calendar-event-bar-range-middle:not(.job-calendar-event-bar-range-end) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .job-calendar-stage-mark {
@@ -4644,6 +4719,16 @@ td.col-available-linear-ft {
 
   .job-calendar-grid {
     gap: 0.38rem;
+  }
+
+  .job-calendar-week-days {
+    gap: 0.38rem;
+  }
+
+  .job-calendar-event-bar {
+    min-height: 1.85rem;
+    padding: 0.28rem 0.42rem;
+    font-size: 0.72rem;
   }
 
   .job-calendar-day {

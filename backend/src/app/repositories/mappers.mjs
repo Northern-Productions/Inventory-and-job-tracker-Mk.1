@@ -469,6 +469,7 @@ function mapDbJobPhaseRow(row) {
     workScope: asTrimmedString(row.sections) || null,
     sections: asTrimmedString(row.sections) || null,
     installDate: formatDateValue(row.install_date),
+    installEndDate: formatDateValue(row.install_end_date),
     crewLeader: asTrimmedString(row.crew_leader),
     laborStatus,
     isComplete: laborStatus === 'COMPLETE',

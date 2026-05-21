@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { CalendarJob } from '../utils/jobCalendar';
@@ -88,18 +88,26 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('X');
   });
 
-  it('shows a +N more affordance for crowded desktop month days', () => {
+  it('renders single-day labels as contained phase bars and multi-day ranges as week-row segments', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <JobsCalendarView
           view="month"
           anchorDate="2026-03-01"
           jobs={[
-            buildJob({ jobNumber: '10001', installDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10002', installDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10003', installDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10004', installDate: '2026-03-24' }),
-            buildJob({ jobNumber: '10005', installDate: '2026-03-24' })
+            buildJob({
+              jobNumber: '10001',
+              workScope: 'A very long single-day scope that should clip inside the event bar',
+              installDate: '2026-03-24'
+            }),
+            buildJob({
+              jobNumber: '10002',
+              installDate: '2026-03-06',
+              installEndDate: '2026-03-10',
+              phaseNumber: 2,
+              phaseCount: 2,
+              workScope: 'Sections 7'
+            })
           ]}
           onViewChange={() => {}}
           onAnchorDateChange={() => {}}
@@ -110,7 +118,14 @@ describe('JobsCalendarView', () => {
     );
 
     expect(html).toContain('job-calendar-grid-month');
-    expect(html).toContain('+2 more');
+    expect(html).toContain('job-calendar-week-segment-layer');
+    expect(html).toContain('job-calendar-event-bar-single-day');
+    expect(html).toContain('job-calendar-event-label');
+    expect(html).toContain('A very long single-day scope');
+    expect(html).toContain('job-calendar-event-bar-multi-day');
+    expect(html).toContain('grid-column:6 / span 2');
+    expect(html).toContain('grid-column:1 / span 3');
+    expect(html).toContain('IL1-10002 / Phase 2 — Sections 7');
   });
 
   it('renders stacked phone cards in week mode', () => {

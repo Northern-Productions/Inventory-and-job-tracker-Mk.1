@@ -15,6 +15,18 @@ export interface JobCalendarDay {
   jobs: CalendarJob[];
 }
 
+export interface JobCalendarEventSegment {
+  job: CalendarJob;
+  weekIndex: number;
+  startDate: string;
+  endDate: string;
+  startIndex: number;
+  spanDays: number;
+  isRangeStart: boolean;
+  isRangeEnd: boolean;
+  isMultiDay: boolean;
+}
+
 export interface JobCalendarPeriod {
   view: JobCalendarView;
   anchorDate: string;
@@ -23,6 +35,7 @@ export interface JobCalendarPeriod {
   monthLabel: string;
   days: JobCalendarDay[];
   weeks: JobCalendarDay[][];
+  weekSegments: JobCalendarEventSegment[][];
   unscheduledJobs: CalendarJob[];
   rangeStart: string;
   rangeEnd: string;
@@ -159,6 +172,21 @@ function chunkDays(days: JobCalendarDay[]) {
   return weeks;
 }
 
+function isValidDateKey(value: string) {
+  return Boolean(parseDateKey(value));
+}
+
+function getCalendarJobDateRange(job: CalendarJob) {
+  const startDate = String(job.installDate || '').trim().slice(0, 10);
+  if (!isValidDateKey(startDate)) {
+    return null;
+  }
+
+  const rawEndDate = String(job.installEndDate || '').trim().slice(0, 10);
+  const endDate = isValidDateKey(rawEndDate) && rawEndDate >= startDate ? rawEndDate : startDate;
+  return { startDate, endDate };
+}
+
 function formatWeekRangeSegment(date: Date) {
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -176,30 +204,98 @@ function formatWeekRangeFull(date: Date) {
 
 function buildJobsByDate(jobs: CalendarJob[], rangeStart: string, rangeEnd: string) {
   const jobsByDate = new Map<string, CalendarJob[]>();
-  const unscheduledJobs: CalendarJob[] = [];
 
   for (let index = 0; index < jobs.length; index += 1) {
     const job = jobs[index];
-    const installDate = String(job.installDate || '').trim().slice(0, 10);
-    if (!installDate) {
-      unscheduledJobs.push(job);
+    const range = getCalendarJobDateRange(job);
+    if (!range) {
       continue;
     }
 
-    if (installDate < rangeStart || installDate > rangeEnd) {
+    if (range.startDate > rangeEnd || range.endDate < rangeStart) {
       continue;
     }
 
-    if (!jobsByDate.has(installDate)) {
-      jobsByDate.set(installDate, []);
+    const startDate = range.startDate > rangeStart ? range.startDate : rangeStart;
+    const endDate = range.endDate < rangeEnd ? range.endDate : rangeEnd;
+    for (
+      let cursor = createDateFromKey(startDate);
+      formatDateKey(cursor) <= endDate;
+      cursor = addDays(cursor, 1)
+    ) {
+      const dateKey = formatDateKey(cursor);
+      if (!jobsByDate.has(dateKey)) {
+        jobsByDate.set(dateKey, []);
+      }
+      jobsByDate.get(dateKey)?.push(job);
     }
-    jobsByDate.get(installDate)?.push(job);
   }
 
   return {
     jobsByDate,
-    unscheduledJobs: sortCalendarJobsWithinDay(unscheduledJobs)
+    unscheduledJobs: [] as CalendarJob[]
   };
+}
+
+function buildCalendarWeekSegments(
+  weeks: JobCalendarDay[][],
+  jobs: CalendarJob[],
+  rangeStart: string,
+  rangeEnd: string,
+) {
+  const weekSegments = weeks.map(() => [] as JobCalendarEventSegment[]);
+  for (let jobIndex = 0; jobIndex < jobs.length; jobIndex += 1) {
+    const job = jobs[jobIndex];
+    const jobRange = getCalendarJobDateRange(job);
+    if (!jobRange || jobRange.startDate > rangeEnd || jobRange.endDate < rangeStart) {
+      continue;
+    }
+
+    for (let weekIndex = 0; weekIndex < weeks.length; weekIndex += 1) {
+      const week = weeks[weekIndex];
+      const weekStart = week[0]?.dateKey || '';
+      const weekEnd = week[week.length - 1]?.dateKey || '';
+      if (!weekStart || !weekEnd || jobRange.startDate > weekEnd || jobRange.endDate < weekStart) {
+        continue;
+      }
+
+      const startDate = [jobRange.startDate, weekStart, rangeStart].sort()[2];
+      const endDate = [jobRange.endDate, weekEnd, rangeEnd].sort()[0];
+      if (startDate > endDate) {
+        continue;
+      }
+
+      const startIndex = week.findIndex((day) => day.dateKey === startDate);
+      const endIndex = week.findIndex((day) => day.dateKey === endDate);
+      if (startIndex < 0 || endIndex < startIndex) {
+        continue;
+      }
+
+      weekSegments[weekIndex].push({
+        job,
+        weekIndex,
+        startDate,
+        endDate,
+        startIndex,
+        spanDays: endIndex - startIndex + 1,
+        isRangeStart: startDate === jobRange.startDate,
+        isRangeEnd: endDate === jobRange.endDate,
+        isMultiDay: jobRange.endDate > jobRange.startDate
+      });
+    }
+  }
+
+  return weekSegments.map((segments) =>
+    segments.sort((left, right) => {
+      if (left.startIndex !== right.startIndex) {
+        return left.startIndex - right.startIndex;
+      }
+      if (left.spanDays !== right.spanDays) {
+        return right.spanDays - left.spanDays;
+      }
+      return compareJobNumbers(left.job, right.job);
+    })
+  );
 }
 
 export function getCurrentMonthKey(today = todayDateString()) {
@@ -318,22 +414,11 @@ export function getCalendarJobStatusClass(
     return 'job-calendar-job-link-status-completed';
   }
 
-  if (entry.isStagedForPickup) {
-    return 'job-calendar-job-link-status-ready';
+  if (getJobListDisplayStatus(entry.status, entry.filmOrderCount) === 'CANCELLED') {
+    return 'job-calendar-job-link-status-cancelled';
   }
 
-  switch (getJobListDisplayStatus(entry.status, entry.filmOrderCount)) {
-    case 'READY':
-      return 'job-calendar-job-link-status-ready';
-    case 'ORDERED':
-      return 'job-calendar-job-link-status-ordered';
-    case 'FILM_ORDER':
-      return 'job-calendar-job-link-status-film-order';
-    case 'CANCELLED':
-      return 'job-calendar-job-link-status-cancelled';
-    default:
-      return 'job-calendar-job-link-status-film-order';
-  }
+  return 'job-calendar-job-link-status-ready';
 }
 
 export const getJobCalendarStatusClassName = getCalendarJobStatusClass;
@@ -534,6 +619,8 @@ export function buildCalendarPeriod(
     }
   }
 
+  const weeks = chunkDays(days);
+
   return {
     view: normalizedView,
     anchorDate: normalizedAnchorDate,
@@ -541,7 +628,8 @@ export function buildCalendarPeriod(
     monthKey,
     monthLabel,
     days,
-    weeks: chunkDays(days),
+    weeks,
+    weekSegments: buildCalendarWeekSegments(weeks, jobs, range.startDate, range.endDate),
     unscheduledJobs,
     rangeStart: range.startDate,
     rangeEnd: range.endDate

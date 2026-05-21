@@ -146,7 +146,7 @@ export function JobEditorDialog({
 
   const phaseOptions = phases.map((phase) => ({
     value: phase.id,
-    label: `Phase ${phase.phaseNumber}${phase.sections ? ` - ${phase.sections}` : ''}`
+    label: `Phase ${phase.phaseNumber}${phase.sections ? ` — ${phase.sections}` : ''}`
   }));
 
   const selectedPhase = phases.find((phase) => phase.id === selectedPhaseKey) || phases[0] || null;
@@ -272,6 +272,15 @@ export function JobEditorDialog({
                 value={selectedPhase.installDate}
                 onChange={(event) => {
                   updateSelectedPhase({ installDate: event.target.value });
+                  clearError();
+                }}
+              />
+              <Input
+                label="Install End Date"
+                type="date"
+                value={selectedPhase.installEndDate || ''}
+                onChange={(event) => {
+                  updateSelectedPhase({ installEndDate: event.target.value });
                   clearError();
                 }}
               />

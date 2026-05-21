@@ -197,6 +197,7 @@ export function useJobEditorForm({
       workScope: getSectionsInputValue(sectionsValue),
       sections: getSectionsInputValue(sectionsValue),
       installDate: installDateValue || '',
+      installEndDate: '',
       crewLeader: crewLeaderValue || '',
       laborStatus: 'ACTIVE',
       isPrimary: true
@@ -218,6 +219,7 @@ export function useJobEditorForm({
       workScope: getSectionsInputValue(phase.workScope ?? phase.sections),
       sections: getSectionsInputValue(phase.sections ?? phase.workScope),
       installDate: phase.installDate || '',
+      installEndDate: phase.installEndDate || '',
       crewLeader: phase.crewLeader || '',
       laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' as const : 'ACTIVE' as const,
       isPrimary: phase.isPrimary === true || index === 0,
@@ -359,6 +361,7 @@ export function useJobEditorForm({
         workScope: '',
         sections: '',
         installDate: '',
+        installEndDate: '',
         crewLeader: '',
         laborStatus: 'ACTIVE',
         isPrimary: false
