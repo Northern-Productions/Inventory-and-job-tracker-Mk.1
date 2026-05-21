@@ -1069,7 +1069,7 @@ textarea {
 
 .app-header-desktop.app-header-compact {
   position: sticky;
-  top: 1.5 rem;
+  top: 1.5rem;
   z-index: 1000;
   gap: 0;
 }
