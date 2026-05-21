@@ -96,4 +96,61 @@ describe('JobsCalendarView interactions', () => {
 
     expect(onPrefetchJob).toHaveBeenCalledWith('12345', undefined);
   });
+
+  it('renders event bars inside the week day-card grid instead of a floating row above cards', () => {
+    const { container } = render(
+      <JobsCalendarView
+        view="week"
+        anchorDate="2026-05-21"
+        jobs={[
+          buildJob({
+            jobNumber: '4024',
+            installDate: '2026-05-21',
+            workScope: 'A very long scope label that needs to stay clipped inside the Thursday card'
+          }),
+          buildJob({
+            jobNumber: '4316',
+            installDate: '2026-05-22',
+            isStagedForPickup: true
+          }),
+          buildJob({
+            jobNumber: '5143',
+            installDate: '2026-05-20',
+            installEndDate: '2026-05-22',
+            phaseNumber: 2,
+            phaseCount: 2,
+            workScope: 'Sections 1, 2, 3'
+          }),
+          buildJob({
+            jobNumber: '19066',
+            installDate: '2026-05-18',
+            status: 'COMPLETED',
+            lifecycleStatus: 'COMPLETED'
+          })
+        ]}
+        onViewChange={() => {}}
+        onAnchorDateChange={() => {}}
+      />
+    );
+
+    const weekDays = container.querySelector('.job-calendar-week-days');
+    const containedLayer = container.querySelector('.job-calendar-week-days > .job-calendar-week-segment-layer');
+    const floatingLayer = container.querySelector('.job-calendar-week-row > .job-calendar-week-segment-layer');
+    const firstDayCard = weekDays?.querySelector('.job-calendar-day');
+
+    expect(weekDays).not.toBeNull();
+    expect(containedLayer).not.toBeNull();
+    expect(floatingLayer).toBeNull();
+    expect(firstDayCard).not.toBeNull();
+    expect(weekDays?.contains(containedLayer)).toBe(true);
+    expect(Array.from(weekDays?.children || []).indexOf(containedLayer as Element)).toBeGreaterThan(
+      Array.from(weekDays?.children || []).indexOf(firstDayCard as Element)
+    );
+    expect(containedLayer?.querySelector('.job-calendar-event-bar-single-day')).not.toBeNull();
+    expect(containedLayer?.querySelector('.job-calendar-event-bar-multi-day')).not.toBeNull();
+    expect(containedLayer?.querySelector('.job-calendar-event-label')?.textContent).toContain('IL1-');
+    expect(containedLayer?.querySelectorAll('.job-calendar-stage-mark')).toHaveLength(1);
+    expect(containedLayer?.querySelector('.job-calendar-job-link-status-completed')).not.toBeNull();
+    expect(containedLayer?.querySelector('.job-calendar-job-link-status-ready')).not.toBeNull();
+  });
 });

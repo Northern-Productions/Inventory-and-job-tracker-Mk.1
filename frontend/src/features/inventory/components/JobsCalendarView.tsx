@@ -497,17 +497,6 @@ export function JobsCalendarView({
               >
                 {calendar.weeks.map((week, weekIndex) => (
                   <div className="job-calendar-week-row" role="row" key={week[0]?.dateKey || weekIndex}>
-                    {calendar.weekSegments[weekIndex]?.length ? (
-                      <div className="job-calendar-week-segment-layer">
-                        {calendar.weekSegments[weekIndex].map((segment) =>
-                          renderCalendarEventSegment(segment, {
-                            highlightJobNumbers: highlightSet,
-                            onPrefetchJob,
-                            registerRef: registerJobLinkRef
-                          })
-                        )}
-                      </div>
-                    ) : null}
                     <div className="job-calendar-week-days">
                       {week.map((day) =>
                         renderCalendarDay(day, {
@@ -515,6 +504,17 @@ export function JobsCalendarView({
                           hideJobStack: true
                         })
                       )}
+                      {calendar.weekSegments[weekIndex]?.length ? (
+                        <div className="job-calendar-week-segment-layer">
+                          {calendar.weekSegments[weekIndex].map((segment) =>
+                            renderCalendarEventSegment(segment, {
+                              highlightJobNumbers: highlightSet,
+                              onPrefetchJob,
+                              registerRef: registerJobLinkRef
+                            })
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}

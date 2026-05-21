@@ -3652,15 +3652,26 @@ td.col-available-linear-ft {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.55rem;
+  position: relative;
   min-width: 0;
 }
 
+.job-calendar-week-days > .job-calendar-day {
+  grid-row: 1;
+}
+
 .job-calendar-week-segment-layer {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-self: start;
+  margin-top: 3.25rem;
+  z-index: 2;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: minmax(2rem, auto);
-  gap: 0.22rem 0;
+  gap: 0.22rem 0.55rem;
   min-width: 0;
+  pointer-events: none;
 }
 
 .job-calendar-grid-week .job-calendar-week-days .job-calendar-day {
@@ -3815,6 +3826,7 @@ td.col-available-linear-ft {
   line-height: 1.2;
   text-decoration: none;
   box-shadow: 0 4px 12px rgba(18, 52, 59, 0.05);
+  pointer-events: auto;
   transition:
     transform 120ms ease,
     box-shadow 120ms ease,
@@ -4723,6 +4735,11 @@ td.col-available-linear-ft {
 
   .job-calendar-week-days {
     gap: 0.38rem;
+  }
+
+  .job-calendar-week-segment-layer {
+    margin-top: 2.85rem;
+    gap: 0.18rem 0.38rem;
   }
 
   .job-calendar-event-bar {
