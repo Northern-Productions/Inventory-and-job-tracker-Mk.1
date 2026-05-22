@@ -389,12 +389,12 @@ describe('jobMaterialMutations', () => {
     const updatedJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job('5143'));
     expect(updatedJob?.summary).toMatchObject({
       allocatedTubes: 0,
-      remainingTubes: 8
+      remainingTubes: 0
     });
     expect(updatedJob?.caulkRequirements[0]).toMatchObject({
       actualUsedTubes: 8,
       allocatedTubes: 0,
-      remainingTubes: 8
+      remainingTubes: 0
     });
     expect(updatedJob?.caulkAllocations[0]).toMatchObject({
       status: 'CANCELLED',
@@ -406,6 +406,54 @@ describe('jobMaterialMutations', () => {
       status: 'CLOSED',
       unusedTubes: 0,
       usedTubes: 8
+    });
+  });
+
+  it('resolves partial caulk check-ins and releases the remaining active reservation from coverage', () => {
+    const queryClient = createQueryClient();
+    const detail = buildCaulkJobDetail();
+    const partialDetail: JobDetail = {
+      ...detail,
+      caulkAllocations: [
+        {
+          ...detail.caulkAllocations[0],
+          reservedTubesRemaining: 3,
+          checkedOutTubesTotal: 5,
+          outstandingCheckoutTubes: 5
+        }
+      ],
+      caulkCheckouts: [
+        {
+          ...detail.caulkCheckouts[0],
+          checkoutTubes: 5
+        }
+      ]
+    };
+    queryClient.setQueryData(inventoryKeys.job('5143'), partialDetail);
+
+    updateCaulkCheckinCaches(queryClient, 'caulk-alloc-1', 'caulk-checkout-1', {
+      checkoutTubes: 5,
+      unusedLooseTubes: 0,
+      unusedCases: 0,
+      sourceCheckout: partialDetail.caulkCheckouts[0]
+    });
+
+    const updatedJob = queryClient.getQueryData<JobDetail>(inventoryKeys.job('5143'));
+    expect(updatedJob?.summary).toMatchObject({
+      allocatedTubes: 0,
+      remainingTubes: 3
+    });
+    expect(updatedJob?.caulkRequirements[0]).toMatchObject({
+      actualUsedTubes: 5,
+      allocatedTubes: 0,
+      remainingTubes: 3
+    });
+    expect(updatedJob?.caulkAllocations[0]).toMatchObject({
+      status: 'CANCELLED',
+      reservedTubesRemaining: 0,
+      openCheckoutCount: 0,
+      outstandingCheckoutTubes: 0,
+      usedTubesTotal: 5
     });
   });
 });

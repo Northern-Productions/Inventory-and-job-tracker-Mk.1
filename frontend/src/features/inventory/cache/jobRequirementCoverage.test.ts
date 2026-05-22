@@ -305,9 +305,9 @@ describe('jobRequirementCoverage requirement usage state', () => {
       status: 'ACTIVE',
       actualUsedFeet: 28,
       completionResult: '',
-      remainingFeet: 25
+      remainingFeet: 0
     });
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('READY');
   });
 
   it('removes completed caulk requirements from material demand while preserving actual usage', () => {
@@ -369,7 +369,7 @@ describe('jobRequirementCoverage requirement usage state', () => {
       status: 'ACTIVE',
       actualUsedTubes: 9,
       completionResult: '',
-      remainingTubes: 20
+      remainingTubes: 11
     });
     expect(nextDetail.summary.status).toBe('FILM_ORDER');
   });

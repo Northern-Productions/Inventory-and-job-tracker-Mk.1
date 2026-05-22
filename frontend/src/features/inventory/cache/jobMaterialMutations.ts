@@ -190,12 +190,13 @@ export function updateCaulkCheckinCaches(
 
       const openCheckoutCount = Math.max(entry.openCheckoutCount - 1, 0);
       const outstandingCheckoutTubes = Math.max(entry.outstandingCheckoutTubes - details.checkoutTubes, 0);
-      const shouldResolve = openCheckoutCount === 0 && entry.reservedTubesRemaining <= 0;
+      const shouldResolve = openCheckoutCount === 0;
       return {
         ...entry,
         status: shouldResolve ? 'CANCELLED' : entry.status,
         resolvedAt: shouldResolve ? entry.resolvedAt || now : entry.resolvedAt,
         resolvedBy: shouldResolve ? entry.resolvedBy || 'Pending...' : entry.resolvedBy,
+        reservedTubesRemaining: shouldResolve ? 0 : entry.reservedTubesRemaining,
         openCheckoutCount,
         outstandingCheckoutTubes,
         returnedUnusedTubesTotal: entry.returnedUnusedTubesTotal + returnedTubes,

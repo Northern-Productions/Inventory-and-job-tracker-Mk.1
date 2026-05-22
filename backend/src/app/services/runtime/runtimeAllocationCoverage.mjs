@@ -598,7 +598,7 @@ function buildPublicJobRequirementEntries(requirements, allocations, boxById) {
     const status = normalizeRequirementState(requirement);
     const isComplete = status === 'COMPLETE';
     const actualUsedFeet = Math.max(0, integerOrZero(requirement.actualUsedFeet));
-    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - allocatedFeet);
+    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - actualUsedFeet - allocatedFeet);
     const cappedAllocatedFeet = Math.min(requiredFeet, allocatedFeet);
 
     response.push({
@@ -1009,7 +1009,7 @@ function buildPublicCaulkRequirementEntries(caulkRequirements, caulkAllocations,
       0,
       isComplete ? 0 : Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0))
     );
-    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - allocatedTubes);
+    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - actualUsedTubes - allocatedTubes);
     response.push({
       requirementId,
       phaseId: asTrimmedString(entry.phaseId),
@@ -1155,7 +1155,8 @@ function areFilmShortagesFullyOnTheWay(requirements, filmOrders) {
     }
     const requiredFeet = integerOrZero(requirement.requiredFeet);
     const allocatedFeet = integerOrZero(requirement.allocatedFeet);
-    const missingFeet = Math.max(0, requiredFeet - allocatedFeet);
+    const actualUsedFeet = integerOrZero(requirement.actualUsedFeet);
+    const missingFeet = Math.max(0, requiredFeet - actualUsedFeet - allocatedFeet);
     if (missingFeet <= 0) {
       continue;
     }

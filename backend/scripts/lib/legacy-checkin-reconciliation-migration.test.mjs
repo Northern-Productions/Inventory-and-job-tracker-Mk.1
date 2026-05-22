@@ -27,7 +27,7 @@ test('legacy check-in reconciliation migration is mirrored and schema-guarded', 
   ]);
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /0147_phase_calendar_install_end_date\.sql/);
+  assert.match(schemaCheck, /0148_close_checked_in_allocations\.sql/);
   assert.match(schemaCheck, /legacy_match\.requirement_match_count = 1/);
   assert.match(schemaCheck, /Consumed during film box check-in after actual LF was recorded\./);
 });

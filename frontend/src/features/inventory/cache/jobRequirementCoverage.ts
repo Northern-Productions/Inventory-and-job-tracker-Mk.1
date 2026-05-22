@@ -156,6 +156,7 @@ function rebuildRequirementCoverage(
 
   return requirements.map((requirement) => {
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
+    const actualUsedFeet = Math.max(0, Number(requirement.actualUsedFeet || 0));
     const allocatedFeet = Math.min(
       requiredFeet,
       Math.max(0, Number(coverageByRequirementId[requirement.requirementId] || 0))
@@ -165,9 +166,10 @@ function rebuildRequirementCoverage(
       ...requirement,
       status,
       isComplete: status === 'COMPLETE',
-      actualUsedFeet: Math.max(0, Number(requirement.actualUsedFeet || 0)),
+      actualUsedFeet,
       allocatedFeet,
-      remainingFeet: status === 'COMPLETE' ? 0 : Math.max(0, requiredFeet - allocatedFeet)
+      remainingFeet:
+        status === 'COMPLETE' ? 0 : Math.max(0, requiredFeet - actualUsedFeet - allocatedFeet)
     };
 
     return {
@@ -211,8 +213,9 @@ function areFilmShortagesFullyOnTheWay(requirements: JobRequirementLine[], filmO
       return true;
     }
     const requiredFeet = Math.max(0, Number(requirement.requiredFeet || 0));
+    const actualUsedFeet = Math.max(0, Number(requirement.actualUsedFeet || 0));
     const allocatedFeet = Math.max(0, Number(requirement.allocatedFeet || 0));
-    const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
+    const missingFeet = Math.max(0, requiredFeet - actualUsedFeet - Math.min(allocatedFeet, requiredFeet));
     return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
   });
 }
@@ -303,7 +306,12 @@ export function createOptimisticJobDetailAfterRequirementStateChange(
         remainingTubes:
           nextStatus === 'COMPLETE'
             ? 0
-            : Math.max(0, Number(entry.requiredTubes || 0) - Math.max(0, Number(entry.allocatedTubes || 0)))
+            : Math.max(
+                0,
+                Number(entry.requiredTubes || 0) -
+                  Math.max(0, Number(entry.actualUsedTubes || 0)) -
+                  Math.max(0, Number(entry.allocatedTubes || 0))
+              )
       };
 
       return {
@@ -336,7 +344,12 @@ export function createOptimisticJobDetailAfterRequirementStateChange(
       remainingFeet:
         nextStatus === 'COMPLETE'
           ? 0
-          : Math.max(0, Number(entry.requiredFeet || 0) - Math.max(0, Number(entry.allocatedFeet || 0)))
+          : Math.max(
+              0,
+              Number(entry.requiredFeet || 0) -
+                Math.max(0, Number(entry.actualUsedFeet || 0)) -
+                Math.max(0, Number(entry.allocatedFeet || 0))
+            )
     };
 
     return {
@@ -682,7 +695,10 @@ function buildNextRequirementLines(
             widthIn: entry.widthIn,
             requiredFeet: entry.requiredFeet
           }),
-      remainingFeet: entry.requiredFeet
+      remainingFeet: Math.max(
+        0,
+        Number(entry.requiredFeet || 0) - Math.max(0, Number(matchedRequirement?.actualUsedFeet || 0))
+      )
     };
   });
 }
@@ -791,7 +807,8 @@ function buildNextCaulkRequirementLines(
         completedAt: currentRequirement?.completedAt || '',
         completedBy: currentRequirement?.completedBy || '',
         allocatedTubes,
-        remainingTubes: status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - allocatedTubes),
+        remainingTubes:
+          status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - actualUsedTubes - allocatedTubes),
         notes: currentRequirement?.notes || '',
         updatedAt: new Date().toISOString()
       };
@@ -919,7 +936,8 @@ export function reconcileJobDetailCaulkCoverage(detail: JobDetail): JobDetail {
       isComplete: status === 'COMPLETE',
       actualUsedTubes,
       allocatedTubes,
-      remainingTubes: status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - allocatedTubes)
+      remainingTubes:
+        status === 'COMPLETE' ? 0 : Math.max(0, requiredTubes - actualUsedTubes - allocatedTubes)
     };
 
     return {

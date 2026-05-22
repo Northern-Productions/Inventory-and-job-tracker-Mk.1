@@ -12,7 +12,13 @@ import { recalculateFilmOrder } from '../runtimeAllocationPlanning.mjs';
 function allocationMatchesCheckInJob(entry, jobNumber, jobId = '') {
   const normalizedJobId = asTrimmedString(jobId).toLowerCase();
   if (normalizedJobId) {
-    return asTrimmedString(entry?.jobId).toLowerCase() === normalizedJobId;
+    return (
+      asTrimmedString(entry?.jobId).toLowerCase() === normalizedJobId ||
+      (
+        !asTrimmedString(entry?.jobId) &&
+        normalizeJobNumberKey(entry?.jobNumber) === normalizeJobNumberKey(jobNumber)
+      )
+    );
   }
 
   return normalizeJobNumberKey(entry?.jobNumber) === normalizeJobNumberKey(jobNumber);

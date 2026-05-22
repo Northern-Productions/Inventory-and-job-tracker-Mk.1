@@ -1077,6 +1077,76 @@ describe('AllocationJobPage', () => {
     expectCaulkRequirementTableTotals(html, staleRequirement);
   });
 
+  it('does not render closed consumed caulk allocations in the active caulk allocation section', () => {
+    const detail: JobDetail = buildMaterialJobDetail({
+      summary: buildSummary({
+        status: 'READY',
+        requiredFeet: 8,
+        allocatedFeet: 8,
+        remainingFeet: 0,
+        requiredTubes: 20,
+        allocatedTubes: 0,
+        remainingTubes: 12
+      }) as JobDetail['summary'],
+      caulkRequirements: [
+        buildCaulkRequirement({
+          actualUsedTubes: 8,
+          allocatedTubes: 0,
+          remainingTubes: 12
+        })
+      ],
+      caulkAllocations: [
+        buildCaulkAllocation({
+          allocatedTubes: 8,
+          reservedTubesRemaining: 0,
+          checkedOutTubesTotal: 8,
+          usedTubesTotal: 8,
+          status: 'CANCELLED',
+          resolvedAt: '2026-03-20T11:00:00Z',
+          resolvedBy: 'tester'
+        })
+      ],
+      caulkCheckouts: [
+        {
+          caulkCheckoutId: 'checkout1',
+          caulkAllocationId: 'alloc1',
+          productId: 'p1',
+          manufacturerId: 'm1',
+          manufacturer: 'DOW',
+          productName: '790 Black',
+          productCode: '790-BLK',
+          tubesPerCase: 20,
+          warehouse: 'IL1',
+          checkoutTubes: 8,
+          overageTubes: 0,
+          status: 'CLOSED',
+          checkedOutAt: '2026-03-20T10:00:00Z',
+          checkedOutBy: 'crew',
+          checkedInAt: '2026-03-20T11:00:00Z',
+          checkedInBy: 'tester',
+          unusedTubes: 0,
+          usedTubes: 8,
+          notes: ''
+        }
+      ]
+    });
+
+    useJobMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null
+    });
+
+    const html = renderPage(detail);
+
+    expect(html).toContain('Caulk Allocations');
+    expect(html).toContain('No caulk allocations are tied to this job yet.');
+    expect(html).not.toContain('badge-CANCELLED');
+    expect(html).toContain('Caulk Checkout Cycles');
+    expect(html).toContain('<td>0</td><td>8</td><td>12</td>');
+  });
+
   it('keeps mixed detail in FILM_ORDER when caulk coverage is partial', () => {
     const staleRequirement = buildCaulkRequirement({
       allocatedTubes: 0,

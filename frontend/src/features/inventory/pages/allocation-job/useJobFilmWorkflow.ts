@@ -283,6 +283,10 @@ export function useJobFilmWorkflow({
 
     const entry = filmCheckinEntryState;
     const payload = buildFilmCheckinPayload(box, draft);
+    if (canonicalJobId) {
+      payload.jobId = canonicalJobId;
+      payload.jobNumber = summary?.jobNumber || entry.jobNumber;
+    }
     const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
       currentFeetOnRoll: payload.currentFeetOnRoll,
       coreType: payload.coreType || box.coreType || undefined

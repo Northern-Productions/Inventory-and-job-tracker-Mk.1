@@ -91,6 +91,31 @@ function createRecordingClient() {
         };
       }
 
+      if (sql.includes('select * from app.jobs') && sql.includes('where org_id = $1') && sql.includes('and id = $2')) {
+        return {
+          rows: [
+            {
+              id: params[1],
+              org_id: params[0],
+              job_number: state.box?.last_checkout_job || '5555',
+              warehouse: state.box?.warehouse || 'IL1',
+              sections: 'Section 1',
+              work_scope_key: 'section 1',
+              due_date: '2026-04-25',
+              crew_leader: '',
+              lifecycle_status: 'ACTIVE',
+              is_labor_only: false,
+              is_staged_for_pickup: false,
+              notes: '',
+              created_at: '2026-04-23T09:00:00Z',
+              created_by: 'planner',
+              updated_at: '2026-04-23T09:00:00Z',
+              updated_by: 'planner',
+            },
+          ],
+        };
+      }
+
       if (sql.includes('select * from app.allocations') && sql.includes('and box_id = $2')) {
         return { rows: state.allocations.filter((entry) => entry.box_id === params[1]) };
       }
@@ -111,7 +136,9 @@ function createRecordingClient() {
                 String(entry.allocation_kind || 'REQUIREMENT').trim().toUpperCase() === 'REQUIREMENT' &&
                 String(entry.requirement_id || '').trim() &&
                 (jobId
-                  ? String(entry.job_id || '').trim() === jobId
+                  ? String(entry.job_id || '').trim() === jobId ||
+                    (!String(entry.job_id || '').trim() &&
+                      String(entry.job_number || '').trim().toUpperCase() === jobNumber)
                   : String(entry.job_number || '').trim().toUpperCase() === jobNumber)
             )
             .map((entry) => ({
@@ -368,6 +395,7 @@ test('setBoxStatus records usage before resolving same-job active allocations du
   client.state.box = createBoxRow({
     box_id: 'IL1-DTS-3',
     core_type: 'Red plastic',
+    last_checkout_job_id: '33333333-3333-4333-8333-333333333333',
     last_checkout_job: '5555',
   });
   client.state.allocations = [

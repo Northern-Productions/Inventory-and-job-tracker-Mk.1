@@ -270,25 +270,15 @@ export function useAllocationJobPageModel() {
       ) as Record<string, CaulkJobCheckoutEntry>,
     [caulkCheckouts]
   );
-  const caulkCheckoutsByAllocationId = useMemo(() => {
-    const grouped: Record<string, CaulkJobCheckoutEntry[]> = {};
-    for (const checkout of caulkCheckouts) {
-      if (!grouped[checkout.caulkAllocationId]) {
-        grouped[checkout.caulkAllocationId] = [];
-      }
-      grouped[checkout.caulkAllocationId].push(checkout);
-    }
-    return grouped;
-  }, [caulkCheckouts]);
   const visibleCaulkAllocations = useMemo(
     () =>
       caulkAllocations.filter((entry) => {
         if (entry.status === 'ACTIVE') {
           return true;
         }
-        return Boolean(caulkCheckoutsByAllocationId[entry.caulkAllocationId]?.length);
+        return Boolean(openCaulkCheckoutByAllocationId[entry.caulkAllocationId]);
       }),
-    [caulkAllocations, caulkCheckoutsByAllocationId]
+    [caulkAllocations, openCaulkCheckoutByAllocationId]
   );
   const pendingCaulkTransferByAllocationId = useMemo(
     () =>

@@ -64,7 +64,7 @@ test('access requests RPC service-role restriction keeps the final callable surf
 test('latest schema check guards access requests RPC execute permission', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0147_phase_calendar_install_end_date\.sql/);
+  assert.match(schemaCheck, /0148_close_checked_in_allocations\.sql/);
   assert.match(schemaCheck, /public\.api_list_access_requests\(uuid, text\)/);
   assert.match(schemaCheck, /'api_list_access_requests'/);
   assert.match(schemaCheck, /authenticated_access_requests_execute/);

@@ -4011,7 +4011,7 @@ export function buildPublicCaulkRequirementEntries(
       0,
       isComplete ? 0 : Math.min(requiredTubes, integerOrZero(coverageByRequirementId[requirementId] || 0)),
     );
-    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - allocatedTubes);
+    const remainingTubes = isComplete ? 0 : Math.max(0, requiredTubes - actualUsedTubes - allocatedTubes);
     return {
       requirementId,
       phaseId: asTrimmedString(entry.phaseId),
@@ -4699,7 +4699,7 @@ export function buildPublicJobRequirementEntries(requirements: any[], allocation
     const status = normalizeRequirementState(requirement);
     const isComplete = status === "COMPLETE";
     const actualUsedFeet = Math.max(0, integerOrZero(requirement.actualUsedFeet));
-    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - allocatedFeet);
+    const remainingFeet = isComplete ? 0 : Math.max(0, requiredFeet - actualUsedFeet - allocatedFeet);
     const cappedAllocatedFeet = Math.min(requiredFeet, allocatedFeet);
     return {
       requirementId,
@@ -4825,7 +4825,9 @@ function areFilmShortagesFullyOnTheWay(requirements: any[], filmOrders: any[]): 
     }
     const missingFeet = Math.max(
       0,
-      integerOrZero(requirement?.requiredFeet) - integerOrZero(requirement?.allocatedFeet),
+      integerOrZero(requirement?.requiredFeet) -
+        integerOrZero(requirement?.actualUsedFeet) -
+        integerOrZero(requirement?.allocatedFeet),
     );
     if (missingFeet > 0 && getFilmOnTheWayFeetForRequirement(filmOrders, requirement) < missingFeet) {
       return false;
@@ -4957,8 +4959,9 @@ function deriveInStockReadinessStatus(params: {
     if (!requirementId) {
       return false;
     }
+    const actualUsedFeet = integerOrZero(requirement?.actualUsedFeet);
     const allocatedFeet = integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet);
-    const missingFeet = Math.max(0, requiredFeet - Math.min(allocatedFeet, requiredFeet));
+    const missingFeet = Math.max(0, requiredFeet - actualUsedFeet - Math.min(allocatedFeet, requiredFeet));
     return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
   });
 

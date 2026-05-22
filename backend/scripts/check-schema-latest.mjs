@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0147_phase_calendar_install_end_date.sql';
+const LATEST_MIGRATION = '0148_close_checked_in_allocations.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -607,6 +607,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'p_job_id uuid',
       'p_job_id is not null and a.job_id = p_job_id',
+      'a.job_id is null',
       'p_job_id is null',
       "upper(coalesce(a.job_number, '')) = upper(app_api.trim_text(p_job_number))",
       'perform app_api.recalculate_film_order(p_org_id, v_film_order_id, p_actor);'
@@ -713,6 +714,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_checkout_job_id := v_selected_job.id;',
       'v_checkout_job := v_selected_job.job_number;',
       'v_checkout_job_id is not null and a.job_id = v_checkout_job_id',
+      'a.job_id is null',
       'v_checkout_job_id is null',
       'v_reconciliation_result jsonb',
       'v_requirement_usage_result jsonb',
@@ -1076,6 +1078,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'format(\'Checked in unused caulk from job %s.\', v_job.job_number)',
       'app_api.record_caulk_requirement_actual_usage_for_checkin',
       'Resolved after caulk checkout check-in usage was recorded.',
+      'if v_open_checkout_count = 0 then',
+      'JOB_ALLOCATION_CANCEL_RETURN',
+      'reserved_tubes_remaining = 0',
       "'caulkAllocationStatus'",
       "'requirementUsage'",
       'app_api.reconcile_auto_planned_allocations(',
@@ -1088,7 +1093,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ],
     excludes: [
       'app_api.require_active_job_for_caulk(p_org_id, v_allocation.job_number)',
-      'Job %s is closed and cannot receive caulk allocations.'
+      'Job %s is closed and cannot receive caulk allocations.',
+      'v_open_checkout_count = 0 and coalesce(v_allocation.reserved_tubes_remaining, 0) = 0'
     ]
   },
   {

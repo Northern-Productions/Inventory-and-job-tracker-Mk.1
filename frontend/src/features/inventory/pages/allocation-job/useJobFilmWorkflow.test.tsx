@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AllocationJobDetailEntry, JobListEntry } from '../../../../domain';
 import { useJobFilmWorkflow } from './useJobFilmWorkflow';
 
-vi.mock('../../hooks/useInventoryQueries', () => ({
-  useBox: () => ({
-    data: null,
+const boxQueryState = vi.hoisted(() => ({
+  current: {
+    data: null as unknown,
     isLoading: false,
     isError: false,
     error: null
-  }),
+  }
+}));
+
+vi.mock('../../hooks/useInventoryQueries', () => ({
+  useBox: () => boxQueryState.current,
   usePendingSetBoxStatusBoxIds: () => new Set<string>()
 }));
 
@@ -96,6 +100,21 @@ function renderWorkflow({
     },
     warnings: []
   });
+  const setBoxStatus = vi.fn().mockResolvedValue({
+    result: {
+      box: {
+        boxId: 'IL1-100',
+        status: 'IN_STOCK',
+        lastRollWeightLbs: 10,
+        feetAvailable: 40,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.1,
+        initialFeet: 100,
+        coreType: ''
+      }
+    },
+    warnings: []
+  });
 
   const result = renderHook(() =>
     useJobFilmWorkflow({
@@ -111,19 +130,26 @@ function renderWorkflow({
       onUserDrivenFilmCoverageChange: vi.fn(),
       pushToast: vi.fn(),
       removeJobBoxAllocations,
-      setBoxStatus: vi.fn()
+      setBoxStatus
     })
   );
 
   return {
     ...result,
-    removeJobBoxAllocations
+    removeJobBoxAllocations,
+    setBoxStatus
   };
 }
 
 describe('useJobFilmWorkflow remove allocation identity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    boxQueryState.current = {
+      data: null,
+      isLoading: false,
+      isError: false,
+      error: null
+    };
   });
 
   it('sends jobId, jobNumber, and allocationId from canonical job route context', async () => {
@@ -153,5 +179,53 @@ describe('useJobFilmWorkflow remove allocation identity', () => {
       allocationId: 'alloc-1',
       reason: 'Remove legacy row.'
     });
+  });
+
+  it('sends canonical job identity with film check-in payloads for cache invalidation', async () => {
+    boxQueryState.current = {
+      data: {
+        boxId: 'IL1-100',
+        status: 'CHECKED_OUT',
+        receivedDate: '2026-04-01',
+        directToJobSite: false,
+        lastRollWeightLbs: 15,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.1,
+        coreType: '',
+        widthIn: 60,
+        initialFeet: 100
+      },
+      isLoading: false,
+      isError: false,
+      error: null
+    };
+    const workflow = renderWorkflow({ canonicalJobId: JOB_ID });
+
+    await act(async () => {
+      workflow.result.current.setFilmCheckinEntry(
+        buildAllocation({
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        })
+      );
+    });
+    await act(async () => {
+      workflow.result.current.handleFilmCheckinConfirm({
+        lastRollWeightLbs: '10',
+        currentFeetOnRoll: '',
+        coreType: ''
+      });
+    });
+
+    await waitFor(() => expect(workflow.setBoxStatus).toHaveBeenCalled());
+    expect(workflow.setBoxStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boxId: 'IL1-100',
+        status: 'IN_STOCK',
+        jobId: JOB_ID,
+        jobNumber: '000123',
+        lastRollWeightLbs: 10
+      })
+    );
   });
 });
