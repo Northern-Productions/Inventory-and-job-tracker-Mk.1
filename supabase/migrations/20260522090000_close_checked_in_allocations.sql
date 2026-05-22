@@ -359,7 +359,7 @@ end $$;
 
 drop table if exists pg_temp.checked_in_film_allocation_close_candidates;
 
-create temporary table checked_in_film_allocation_close_candidates on commit drop as
+create temporary table checked_in_film_allocation_close_candidates as
 with candidate_pairs as (
   select
     a.org_id,
@@ -431,7 +431,7 @@ end $$;
 
 drop table if exists pg_temp.checked_in_caulk_allocation_close_candidates;
 
-create temporary table checked_in_caulk_allocation_close_candidates on commit drop as
+create temporary table checked_in_caulk_allocation_close_candidates as
 with base_allocations as (
   select
     a.org_id,

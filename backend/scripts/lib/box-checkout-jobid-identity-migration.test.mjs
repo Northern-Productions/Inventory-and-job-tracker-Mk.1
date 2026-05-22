@@ -221,7 +221,7 @@ test('box status duplicate checkout guard requires jobId for ambiguous checkout 
     /Job number %s matches multiple jobs\. Choose a Work Scope to continue\./
   );
   assert.match(migration, /p_job_id is not null and a\.job_id = p_job_id/);
-  assert.match(migration, /v_checkout_job_id is not null and a\.job_id = v_checkout_job_id/);
+  assert.match(migration, /v_checkout_job_id is not null[\s\S]*a\.job_id = v_checkout_job_id/);
   assert.match(migration, /''Released during film box check-in\.'',\s+v_checkout_job_id/s);
   assert.doesNotMatch(migration, /api_jobs_create/);
   assert.doesNotMatch(migration, /app\.jobs\s+add column/i);

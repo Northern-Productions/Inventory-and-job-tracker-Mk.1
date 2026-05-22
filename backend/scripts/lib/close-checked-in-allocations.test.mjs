@@ -59,9 +59,11 @@ test('historical cleanup is deterministic and does not guess requirement usage',
   const migration = await readFile(backendMigrationPath, 'utf8');
 
   assert.match(migration, /checked_in_film_allocation_close_candidates/);
+  assert.doesNotMatch(migration, /checked_in_film_allocation_close_candidates on commit drop/);
   assert.match(migration, /l\.job_id is not null/);
   assert.match(migration, /r\.job_id = l\.job_id/);
   assert.match(migration, /checked_in_caulk_allocation_close_candidates/);
+  assert.doesNotMatch(migration, /checked_in_caulk_allocation_close_candidates on commit drop/);
   assert.match(migration, /open_checkout_count = 0/);
   assert.match(migration, /coalesce\(a\.checked_out_tubes_total, 0\) =\s+coalesce\(a\.returned_unused_tubes_total, 0\) \+ coalesce\(a\.used_tubes_total, 0\)/);
   assert.doesNotMatch(migration, /update app\.job_requirements\s+set actual_used_feet/i);
