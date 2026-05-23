@@ -97,6 +97,32 @@ describe('JobsCalendarView interactions', () => {
     expect(onPrefetchJob).toHaveBeenCalledWith('12345', undefined);
   });
 
+  it('navigates calendar phase links with jobId and phaseId identity', () => {
+    render(
+      <JobsCalendarView
+        view="week"
+        anchorDate="2026-03-24"
+        jobs={[
+          buildJob({
+            jobId: '11111111-1111-4111-8111-111111111111',
+            phaseId: '22222222-2222-4222-8222-222222222222',
+            jobNumber: '12345',
+            installDate: '2026-03-24',
+            phaseNumber: 2,
+            phaseCount: 2,
+            workScope: 'Section 7'
+          })
+        ]}
+        onViewChange={() => {}}
+        onAnchorDateChange={() => {}}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: /IL1-12345/i }).getAttribute('href')).toBe(
+      '/allocations/jobs/11111111-1111-4111-8111-111111111111?phaseId=22222222-2222-4222-8222-222222222222'
+    );
+  });
+
   it('renders event bars inside the week day-card grid instead of a floating row above cards', () => {
     const { container } = render(
       <JobsCalendarView

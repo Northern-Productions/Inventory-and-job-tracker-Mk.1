@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobDetail } from '../../../domain';
 import AllocationJobPage from './AllocationJobPage';
@@ -12,6 +12,7 @@ const toastPushMock = vi.fn();
 const searchBoxesMock = vi.fn();
 const listCaulkStockMock = vi.fn();
 const useParamsMock = vi.fn();
+const useSearchParamsMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
 const useJobByIdMock = vi.fn();
@@ -42,7 +43,8 @@ const useAllocationPreviewMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => useParamsMock()
+  useParams: () => useParamsMock(),
+  useSearchParams: () => useSearchParamsMock()
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({
@@ -293,6 +295,38 @@ function buildCaulkAllocation(
   };
 }
 
+function buildPhase(
+  overrides: Partial<NonNullable<JobDetail['phases']>[number]> = {}
+): NonNullable<JobDetail['phases']>[number] {
+  return {
+    phaseId: 'phase-1',
+    phaseNumber: 1,
+    workScope: 'Section 1',
+    sections: 'Section 1',
+    installDate: '2026-03-20',
+    crewLeader: 'Crew',
+    laborStatus: 'ACTIVE',
+    status: 'READY',
+    isComplete: false,
+    isPrimary: true,
+    isNextRelevant: true,
+    isExpandedByDefault: true,
+    requiredFeet: 0,
+    allocatedFeet: 0,
+    remainingFeet: 0,
+    requiredTubes: 0,
+    allocatedTubes: 0,
+    remainingTubes: 0,
+    requirementCount: 0,
+    caulkRequirementCount: 0,
+    filmOrderCount: 0,
+    allocationCount: 0,
+    createdAt: '2026-03-20T00:00:00Z',
+    updatedAt: '2026-03-20T00:00:00Z',
+    ...overrides
+  };
+}
+
 function expectOverviewCaulkTotals(
   html: string,
   expected: { requiredTubes: number; allocatedTubes: number; remainingTubes: number }
@@ -363,9 +397,11 @@ describe('AllocationJobPage', () => {
     searchBoxesMock.mockReset();
     listCaulkStockMock.mockReset();
     useParamsMock.mockReset();
+    useSearchParamsMock.mockReset();
     useJobMock.mockReset();
     useJobByIdMock.mockReset();
     useParamsMock.mockReturnValue({ jobNumber: '000123' });
+    useSearchParamsMock.mockReturnValue([new URLSearchParams()]);
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -455,6 +491,81 @@ describe('AllocationJobPage', () => {
     expect(useJobMock).toHaveBeenCalledWith('');
     expect(useJobByIdMock).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
     expect(html).toContain('IL1-000123');
+  });
+
+  it('uses the route phaseId query target to focus the matching phase', async () => {
+    vi.useFakeTimers();
+    const scrollIntoViewMock = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    useParamsMock.mockReturnValue({ jobId: '11111111-1111-4111-8111-111111111111' });
+    useSearchParamsMock.mockReturnValue([
+      new URLSearchParams('phaseId=22222222-2222-4222-8222-222222222222')
+    ]);
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '000123'
+      }) as JobDetail['summary'],
+      phases: [
+        buildPhase(),
+        buildPhase({
+          phaseId: '22222222-2222-4222-8222-222222222222',
+          phaseNumber: 2,
+          workScope: 'Section 7',
+          sections: 'Section 7',
+          installDate: '2026-06-01',
+          isNextRelevant: false,
+          isExpandedByDefault: false,
+          isPrimary: false
+        })
+      ]
+    };
+    useJobByIdMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+
+    const view = renderInteractivePage();
+
+    await act(async () => {});
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    const targetPhase = view.container.querySelector(
+      '[data-phase-id="22222222-2222-4222-8222-222222222222"]'
+    );
+    expect(targetPhase?.className).toContain('job-phase-card-targeted');
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    expect(screen.getByText('Phase 2 — Section 7')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(2400);
+    });
+
+    view.queryClient.clear();
+    view.unmount();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView
+      });
+    } else {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   it('replace-navigates a legacy allocation route to the canonical jobId route when unambiguous', async () => {

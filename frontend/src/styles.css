@@ -3239,6 +3239,21 @@ td.col-available-linear-ft {
   padding: 0.9rem;
 }
 
+.job-phase-card:focus {
+  outline: none;
+}
+
+.job-phase-card:focus-visible {
+  box-shadow: 0 0 0 0.2rem rgba(21, 87, 89, 0.18);
+}
+
+.job-phase-card-targeted {
+  animation: jobPhaseTargetPulse 1.8s ease-out;
+  box-shadow:
+    0 0 0 0.2rem rgba(35, 148, 99, 0.22),
+    0 14px 28px rgba(18, 52, 59, 0.12);
+}
+
 .job-phase-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3262,6 +3277,32 @@ td.col-available-linear-ft {
 
 .job-phase-body {
   margin-top: 0.85rem;
+}
+
+@keyframes jobPhaseTargetPulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(35, 148, 99, 0.36),
+      0 10px 20px rgba(18, 52, 59, 0.08);
+  }
+
+  45% {
+    box-shadow:
+      0 0 0 0.36rem rgba(35, 148, 99, 0.18),
+      0 14px 28px rgba(18, 52, 59, 0.12);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 0.2rem rgba(35, 148, 99, 0.22),
+      0 14px 28px rgba(18, 52, 59, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-phase-card-targeted {
+    animation: none;
+  }
 }
 
 .phase-collapse-button {

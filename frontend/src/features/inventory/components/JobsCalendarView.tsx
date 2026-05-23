@@ -115,7 +115,7 @@ function renderJobLink(
     <Link
       key={getCalendarJobKey(job)}
       ref={(node) => options.registerRef?.(job, node)}
-      to={buildAllocationJobRoute(job)}
+      to={buildAllocationJobRoute(job, { includePhaseTarget: true })}
       className={[
         'job-calendar-job-link',
         options.compact ? 'job-calendar-job-link-compact' : '',
@@ -157,7 +157,7 @@ function renderCalendarEventSegment(
     <Link
       key={`${getCalendarJobKey(job)}:${segment.startDate}:${segment.endDate}`}
       ref={(node) => options.registerRef?.(job, node)}
-      to={buildAllocationJobRoute(job)}
+      to={buildAllocationJobRoute(job, { includePhaseTarget: true })}
       className={[
         'job-calendar-event-bar',
         segment.isMultiDay ? 'job-calendar-event-bar-multi-day' : 'job-calendar-event-bar-single-day',

@@ -15,7 +15,8 @@ const useJobLifecycleWorkflowMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => ({ jobNumber: '000123' })
+  useParams: () => ({ jobNumber: '000123' }),
+  useSearchParams: () => [new URLSearchParams()]
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({

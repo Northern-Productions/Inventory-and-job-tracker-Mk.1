@@ -1,6 +1,6 @@
 ﻿// @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FilmOrderEntry, JobPhase, JobRequirementLine } from '../../../../domain';
 import { JobPhasesSection } from './JobPhasesSection';
@@ -57,11 +57,13 @@ function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequi
 
 function renderPhases({
   phases = [buildPhase()],
+  focusedPhaseId = '',
   requirements = [] as JobRequirementLine[],
   onSetPhaseState = vi.fn(),
 } = {}) {
   const props = {
     phases,
+    focusedPhaseId,
     requirements,
     caulkRequirements: [],
     filmOrders: [] as FilmOrderEntry[],
@@ -96,6 +98,8 @@ function renderPhases({
 describe('JobPhasesSection', () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('renders phase cards and expands the next relevant phase by default', () => {
@@ -127,6 +131,65 @@ describe('JobPhasesSection', () => {
     fireEvent.click(screen.getAllByRole('checkbox', { name: 'Active' })[0]);
 
     expect(onSetPhaseState).toHaveBeenCalledWith(expect.objectContaining({ phaseId: 'phase-1' }), 'COMPLETE');
+  });
+
+  it('expands, scrolls, focuses, and highlights a targeted phase', async () => {
+    vi.useFakeTimers();
+    const scrollIntoViewMock = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    const { container } = renderPhases({
+      focusedPhaseId: 'phase-2',
+      phases: [
+        buildPhase(),
+        buildPhase({
+          phaseId: 'phase-2',
+          phaseNumber: 2,
+          workScope: 'Section 7',
+          sections: 'Section 7',
+          installDate: '2026-06-01',
+          isNextRelevant: false,
+          isExpandedByDefault: false,
+        }),
+      ],
+    });
+
+    await act(async () => {});
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+
+    const targetPhase = container.querySelector('[data-phase-id="phase-2"]');
+    expect(targetPhase?.className).toContain('job-phase-card-targeted');
+    expect(targetPhase?.getAttribute('id')).toBe('job-phase-phase-2');
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    expect(screen.getAllByRole('button', { name: 'Collapse phase' })).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(2400);
+    });
+
+    expect(targetPhase?.className).not.toContain('job-phase-card-targeted');
+  });
+
+  it('falls back without scrolling when a targeted phase is missing', () => {
+    const scrollIntoViewMock = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+
+    renderPhases({ focusedPhaseId: 'missing-phase' });
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Phase 1 — Sections 1, 2, 3')).not.toBeNull();
   });
 
   it('shows the completion result only for completed film requirements', () => {

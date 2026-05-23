@@ -128,6 +128,32 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('IL1-10002 / Phase 2 — Sections 7');
   });
 
+  it('links phase calendar entries to the canonical job route with a phase target', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <JobsCalendarView
+          view="week"
+          anchorDate="2026-03-24"
+          jobs={[
+            buildJob({
+              jobId: '11111111-1111-4111-8111-111111111111',
+              phaseId: '22222222-2222-4222-8222-222222222222',
+              jobNumber: '10001',
+              workScope: 'Phase 2',
+              installDate: '2026-03-24'
+            })
+          ]}
+          onViewChange={() => {}}
+          onAnchorDateChange={() => {}}
+        />
+      </MemoryRouter>
+    );
+
+    expect(html).toContain(
+      'href="/allocations/jobs/11111111-1111-4111-8111-111111111111?phaseId=22222222-2222-4222-8222-222222222222"'
+    );
+  });
+
   it('renders stacked phone cards in week mode', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>

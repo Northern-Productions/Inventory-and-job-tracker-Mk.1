@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { formatDate, formatDateTime } from '../../../lib/date';
@@ -15,6 +16,8 @@ import { RelatedFilmOrdersSection } from './allocation-job/RelatedFilmOrdersSect
 import { useAllocationJobPageModel } from './allocation-job/useAllocationJobPageModel';
 
 export default function AllocationJobPage() {
+  const [searchParams] = useSearchParams();
+  const focusedPhaseId = searchParams.get('phaseId') || '';
   const {
     auth,
     canonicalJobId,
@@ -231,6 +234,7 @@ export default function AllocationJobPage() {
 
       <JobPhasesSection
         phases={phases}
+        focusedPhaseId={focusedPhaseId}
         requirements={requirements}
         caulkRequirements={caulkRequirements}
         filmOrders={filmOrders}

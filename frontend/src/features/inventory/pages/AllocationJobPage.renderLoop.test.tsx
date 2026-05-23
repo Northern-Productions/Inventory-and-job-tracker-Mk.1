@@ -44,7 +44,8 @@ const useSearchBoxesWithOptionsMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigateMock,
-  useParams: () => ({ jobNumber: '9874651321' })
+  useParams: () => ({ jobNumber: '9874651321' }),
+  useSearchParams: () => [new URLSearchParams()]
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({

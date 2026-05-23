@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../../components/Button';
 import type { FilmOrderEntry, JobCaulkRequirementLine, JobPhase, JobRequirementLine } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
@@ -7,6 +7,7 @@ import { FilmRequirementsSection } from './FilmRequirementsSection';
 
 interface JobPhasesSectionProps {
   phases: JobPhase[];
+  focusedPhaseId?: string;
   requirements: JobRequirementLine[];
   caulkRequirements: JobCaulkRequirementLine[];
   filmOrders: FilmOrderEntry[];
@@ -62,8 +63,22 @@ function buildPhaseTitle(phase: JobPhase) {
   return `Phase ${phase.phaseNumber}${workScope ? ` — ${workScope}` : ''}`;
 }
 
+function buildPhaseDomId(phaseId: string) {
+  const safePhaseId = phaseId.replace(/[^A-Za-z0-9_-]/g, '-');
+  return safePhaseId ? `job-phase-${safePhaseId}` : undefined;
+}
+
+function shouldReduceMotion() {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 export function JobPhasesSection({
   phases,
+  focusedPhaseId = '',
   requirements,
   caulkRequirements,
   filmOrders,
@@ -139,10 +154,82 @@ export function JobPhasesSection({
   const [expandedPhaseIds, setExpandedPhaseIds] = useState<Set<string>>(
     () => new Set(defaultExpandedPhaseIds)
   );
+  const phaseCardRefs = useRef(new Map<string, HTMLElement>());
+  const lastHandledFocusedPhaseIdRef = useRef('');
+  const highlightTimerRef = useRef<number | null>(null);
+  const [highlightedPhaseId, setHighlightedPhaseId] = useState('');
+  const normalizedFocusedPhaseId = String(focusedPhaseId || '').trim();
 
   useEffect(() => {
     setExpandedPhaseIds(new Set(defaultExpandedPhaseIds));
   }, [defaultExpandedPhaseIds]);
+
+  useEffect(() => {
+    if (!normalizedFocusedPhaseId) {
+      lastHandledFocusedPhaseIdRef.current = '';
+      return undefined;
+    }
+
+    if (lastHandledFocusedPhaseIdRef.current === normalizedFocusedPhaseId) {
+      return undefined;
+    }
+
+    const targetPhase = normalizedPhases.find(
+      (phase) => getPhaseId(phase) === normalizedFocusedPhaseId
+    );
+    if (!targetPhase) {
+      return undefined;
+    }
+
+    const targetKey = getPhaseId(targetPhase);
+    if (!targetKey) {
+      return undefined;
+    }
+
+    lastHandledFocusedPhaseIdRef.current = normalizedFocusedPhaseId;
+    setExpandedPhaseIds((current) => {
+      if (current.has(targetKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(targetKey);
+      return next;
+    });
+    setHighlightedPhaseId(targetKey);
+
+    const frameId = window.requestAnimationFrame(() => {
+      const node = phaseCardRefs.current.get(targetKey);
+      if (!node) {
+        return;
+      }
+      node.scrollIntoView?.({
+        block: 'center',
+        behavior: shouldReduceMotion() ? 'auto' : 'smooth'
+      });
+      node.focus?.({ preventScroll: true });
+    });
+
+    if (highlightTimerRef.current !== null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedPhaseId((current) => (current === targetKey ? '' : current));
+      highlightTimerRef.current = null;
+    }, 2400);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [normalizedFocusedPhaseId, normalizedPhases]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    []
+  );
 
   function togglePhase(phase: JobPhase, index: number) {
     const key = getPhaseId(phase) || `phase-${index}`;
@@ -177,6 +264,7 @@ export function JobPhasesSection({
       <div className="job-phase-list">
         {normalizedPhases.map((phase, index) => {
           const key = getPhaseId(phase) || `phase-${index}`;
+          const phaseId = getPhaseId(phase);
           const phaseRequirements = filterForPhase(requirements, phase, fallbackPhaseId);
           const phaseCaulkRequirements = filterForPhase(caulkRequirements, phase, fallbackPhaseId);
           const isExpanded = expandedPhaseIds.has(key);
@@ -184,7 +272,25 @@ export function JobPhasesSection({
           const phaseComplete = phase.isComplete || phase.laborStatus === 'COMPLETE' || phase.status === 'COMPLETED';
 
           return (
-            <article className="job-phase-card" key={key}>
+            <article
+              className={[
+                'job-phase-card',
+                highlightedPhaseId === key ? 'job-phase-card-targeted' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              data-phase-id={phaseId || undefined}
+              id={phaseId ? buildPhaseDomId(phaseId) : undefined}
+              key={key}
+              ref={(node) => {
+                if (node) {
+                  phaseCardRefs.current.set(key, node);
+                } else {
+                  phaseCardRefs.current.delete(key);
+                }
+              }}
+              tabIndex={-1}
+            >
               <div className="job-phase-header">
                 <Button
                   type="button"
