@@ -166,6 +166,7 @@ import {
   findJobById,
   saveJobRecord,
   listJobPhases,
+  listJobPhasesByJobId,
   listJobRequirements,
   listJobRequirementsByJob,
   listJobRequirementsByJobId,
@@ -204,7 +205,7 @@ import {
 } from '../runtimeDeps.mjs';
 import { buildPublicJobRequirementEntries, buildPublicCaulkRequirementEntries } from './runtimeAllocationCoverage.mjs';
 import { buildJobListEntry, buildLegacyJobHeaderFromData, deriveJobStatusFromLegacyAllocationData } from './runtimeJobSummaries.mjs';
-import { checkoutAllJobMaterials, loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
+import { loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
 import {
   buildJobDuplicateCheckResult,
   getJobDuplicateWorkScopeInput,
@@ -775,11 +776,11 @@ async function executeSetJobStagedPickup(
   const trimString = deps.asTrimmedString || asTrimmedString;
   const resolveJobHeader = deps.resolveExistingOrLegacyJobHeader || resolveExistingOrLegacyJobHeader;
   const normalizeLifecycleStatus = deps.normalizeJobLifecycleStatus || normalizeJobLifecycleStatus;
-  const runCheckoutAllJobMaterials = deps.checkoutAllJobMaterials || checkoutAllJobMaterials;
   const loadStagingValidationState = deps.loadJobStagingValidationState || loadJobStagingValidationState;
   const loadJobById = deps.findJobById || findJobById;
   const loadAllocationsByJobId = deps.listAllocationsByJobId || listAllocationsByJobId;
   const loadFilmOrdersByJobId = deps.listFilmOrdersByJobId || listFilmOrdersByJobId;
+  const loadJobPhasesByJobId = deps.listJobPhasesByJobId || listJobPhasesByJobId;
   const loadJobRequirementsByJobId = deps.listJobRequirementsByJobId || listJobRequirementsByJobId;
   const loadJobCaulkRequirementsByJobId = deps.listJobCaulkRequirementsByJobId || listJobCaulkRequirementsByJobId;
   const loadCaulkJobAllocationsByJobId = deps.listCaulkJobAllocationsByJobId || listCaulkJobAllocationsByJobId;
@@ -847,41 +848,20 @@ async function executeSetJobStagedPickup(
 
   if (nextIsStaged) {
     let stagingState = null;
-    const autoCheckoutRemaining = payload.autoCheckoutRemaining === true || String(payload.autoCheckoutRemaining) === 'true';
-
-    if (autoCheckoutRemaining) {
-      const checkoutResult = await runCheckoutAllJobMaterials(
-        client,
-        orgId,
-        selectedJobId
-          ? {
-              jobId: selectedJobId,
-              jobNumber: normalizedJobNumber
-            }
-          : normalizedJobNumber,
-        actor
-      );
-      if (checkoutResult && Array.isArray(checkoutResult.warnings)) {
-        for (let index = 0; index < checkoutResult.warnings.length; index += 1) {
-          const warning = trimString(checkoutResult.warnings[index]);
-          if (warning) {
-            warnings.push(warning);
-          }
-        }
-      }
-      stagingState = checkoutResult?.stagingState || null;
-    }
 
     if (!stagingState) {
       const seedData = selectedJobId
         ? {
+            jobId: selectedJobId,
             allocations: await loadAllocationsByJobId(client, orgId, selectedJobId),
             filmOrders: await loadFilmOrdersByJobId(client, orgId, selectedJobId),
+            phases: await loadJobPhasesByJobId(client, orgId, selectedJobId),
             requirements: await loadJobRequirementsByJobId(client, orgId, selectedJobId),
             caulkRequirements: await loadJobCaulkRequirementsByJobId(client, orgId, selectedJobId),
             caulkAllocations: await loadCaulkJobAllocationsByJobId(client, orgId, selectedJobId)
           }
         : {
+            jobId: existingJob.id,
             allocations: resolvedContext.allocations || undefined,
             filmOrders: resolvedContext.filmOrders || undefined
           };

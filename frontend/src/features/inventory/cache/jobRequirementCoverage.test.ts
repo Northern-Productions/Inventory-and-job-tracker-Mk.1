@@ -310,6 +310,140 @@ describe('jobRequirementCoverage requirement usage state', () => {
     expect(nextDetail.summary.status).toBe('READY');
   });
 
+  it('keeps placeholder-only film pressure out of optimistic job summary badges', () => {
+    const detail = buildJobDetail({
+      summary: buildSummary({
+        phases: [
+          {
+            phaseId: 'phase-active',
+            phaseNumber: 1,
+            installDate: '',
+            crewLeader: '',
+            laborStatus: 'ACTIVE',
+            workflowStatus: 'ACTIVE',
+            status: 'READY',
+            isComplete: false,
+            isPrimary: true,
+            requiredFeet: 0,
+            allocatedFeet: 0,
+            remainingFeet: 0,
+            requiredTubes: 0,
+            allocatedTubes: 0,
+            remainingTubes: 0,
+            requirementCount: 0,
+            caulkRequirementCount: 0,
+            filmOrderCount: 0,
+            allocationCount: 0,
+            createdAt: '',
+            updatedAt: ''
+          },
+          {
+            phaseId: 'phase-placeholder',
+            phaseNumber: 2,
+            installDate: '',
+            crewLeader: '',
+            laborStatus: 'ACTIVE',
+            workflowStatus: 'PLACEHOLDER',
+            isPlaceholder: true,
+            status: 'FILM_ORDER',
+            isComplete: false,
+            requiredFeet: 20,
+            allocatedFeet: 0,
+            remainingFeet: 20,
+            requiredTubes: 0,
+            allocatedTubes: 0,
+            remainingTubes: 0,
+            requirementCount: 1,
+            caulkRequirementCount: 0,
+            filmOrderCount: 1,
+            allocationCount: 1,
+            createdAt: '',
+            updatedAt: ''
+          }
+        ],
+        requiredFeet: 0,
+        remainingFeet: 0,
+        status: 'READY',
+        requiredTubes: 0,
+        remainingTubes: 0
+      }),
+      requirements: [
+        buildFilmRequirement({
+          requirementId: 'film-placeholder',
+          phaseId: 'phase-placeholder',
+          requiredFeet: 20,
+          remainingFeet: 20
+        })
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-placeholder',
+          boxId: 'IL1-ORDERED',
+          warehouse: 'IL1',
+          jobNumber: '19413',
+          installDate: '',
+          crewLeader: '',
+          allocatedFeet: 20,
+          coveredFeet: 20,
+          requirementId: 'film-placeholder',
+          allocationKind: 'REQUIREMENT',
+          allocationSource: 'MANUAL',
+          status: 'ACTIVE',
+          createdAt: '',
+          createdBy: '',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Night Vision 15',
+          widthIn: 36,
+          boxStatus: 'ORDERED',
+          checkedOutOnThisJob: false
+        }
+      ],
+      caulkRequirements: [],
+      filmOrders: [
+        {
+          filmOrderId: 'fo-placeholder',
+          requirementId: 'film-placeholder',
+          jobNumber: '19413',
+          warehouse: 'IL1',
+          manufacturer: '3M',
+          filmName: 'Night Vision 15',
+          widthIn: 36,
+          requestedFeet: 20,
+          coveredFeet: 0,
+          orderedFeet: 0,
+          remainingToOrderFeet: 20,
+          installDate: '',
+          crewLeader: '',
+          status: 'FILM_ORDER',
+          sourceBoxId: '',
+          createdAt: '',
+          createdBy: '',
+          resolvedAt: '',
+          resolvedBy: '',
+          notes: '',
+          linkedBoxes: []
+        }
+      ]
+    });
+
+    const nextDetail = createOptimisticJobDetailAfterRequirementStateChange(detail, {
+      requirementId: 'film-placeholder',
+      status: 'ACTIVE'
+    });
+
+    expect(nextDetail.summary).toMatchObject({
+      status: 'READY',
+      requiredFeet: 0,
+      remainingFeet: 0,
+      filmOrderCount: 0,
+      hasOrderedAllocations: false
+    });
+  });
+
   it('removes completed caulk requirements from material demand while preserving actual usage', () => {
     const detail = buildJobDetail({
       caulkRequirements: [

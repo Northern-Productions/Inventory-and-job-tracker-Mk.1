@@ -49,7 +49,7 @@ import {
 } from '../../hooks/useInventoryQueries';
 import { summarizeReturnedMaterials } from '../../utils/jobReturnedMaterials';
 import {
-  canMarkJobStagedForPickupWithAutoCheckout,
+  canMarkJobStagedForPickup,
   getJobStagingBlockingMessageWithOptions,
   isLaborOnlyJob
 } from '../../utils/jobStaging';
@@ -175,7 +175,7 @@ export function useAllocationJobPageModel() {
   const isReadOnlyJob = isClosedJob;
   const isLaborOnlyDisplayJob = useMemo(() => isLaborOnlyJob(detail), [detail]);
   const stagingBlockingMessage = useMemo(
-    () => getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true }),
+    () => getJobStagingBlockingMessageWithOptions(detail),
     [detail]
   );
 
@@ -193,8 +193,72 @@ export function useAllocationJobPageModel() {
     );
   }, [navigate, routeJobId, summary?.jobId, summary?.jobNumber]);
   const canMarkStagedPickup = useMemo(
-    () => canMarkJobStagedForPickupWithAutoCheckout(detail),
+    () => canMarkJobStagedForPickup(detail),
     [detail]
+  );
+  const activePhaseScope = useMemo(() => {
+    if (!phases.length) {
+      return {
+        hasPhaseScope: false,
+        activePhaseIds: new Set<string>(),
+        fallbackPhaseId: ''
+      };
+    }
+    const activePhases = phases.filter(
+      (phase) => String(phase.workflowStatus || '').trim().toUpperCase() !== 'PLACEHOLDER'
+    );
+    return {
+      hasPhaseScope: true,
+      activePhaseIds: new Set(activePhases.map((phase) => String(phase.phaseId || '').trim()).filter(Boolean)),
+      fallbackPhaseId: String((phases.find((phase) => phase.isPrimary) || phases[0])?.phaseId || '').trim()
+    };
+  }, [phases]);
+  const isActivePhaseEntry = useCallback(
+    (entry: { phaseId?: string | null } | unknown) => {
+      if (!activePhaseScope.hasPhaseScope) {
+        return true;
+      }
+      const phaseId = String((entry as { phaseId?: string | null })?.phaseId || '').trim();
+      if (phaseId) {
+        return activePhaseScope.activePhaseIds.has(phaseId);
+      }
+      return Boolean(activePhaseScope.fallbackPhaseId && activePhaseScope.activePhaseIds.has(activePhaseScope.fallbackPhaseId));
+    },
+    [activePhaseScope]
+  );
+  const activeFilmRequirementIds = useMemo(
+    () =>
+      new Set(
+        requirements
+          .filter(isActivePhaseEntry)
+          .map((entry) => String(entry.requirementId || '').trim())
+          .filter(Boolean)
+      ),
+    [isActivePhaseEntry, requirements]
+  );
+  const activeCaulkRequirementIds = useMemo(
+    () =>
+      new Set(
+        caulkRequirements
+          .filter(isActivePhaseEntry)
+          .map((entry) => String(entry.requirementId || '').trim())
+          .filter(Boolean)
+      ),
+    [caulkRequirements, isActivePhaseEntry]
+  );
+  const isActiveFilmAllocationEntry = useCallback(
+    (entry: { requirementId?: string | null; phaseId?: string | null }) => {
+      const requirementId = String(entry.requirementId || '').trim();
+      return requirementId ? activeFilmRequirementIds.has(requirementId) : isActivePhaseEntry(entry);
+    },
+    [activeFilmRequirementIds, isActivePhaseEntry]
+  );
+  const isActiveCaulkAllocationEntry = useCallback(
+    (entry: { requirementId?: string | null; phaseId?: string | null }) => {
+      const requirementId = String(entry.requirementId || '').trim();
+      return requirementId ? activeCaulkRequirementIds.has(requirementId) : isActivePhaseEntry(entry);
+    },
+    [activeCaulkRequirementIds, isActivePhaseEntry]
   );
   const visibleAllocations = useMemo(
     () =>
@@ -294,6 +358,7 @@ export function useAllocationJobPageModel() {
       visibleAllocations.some(
         (entry) =>
           entry.status === 'ACTIVE' &&
+          isActiveFilmAllocationEntry(entry) &&
           entry.boxStatus === 'IN_STOCK' &&
           !entry.checkedOutOnThisJob &&
           !filmTransferAlertsByBoxId[entry.boxId]
@@ -301,6 +366,7 @@ export function useAllocationJobPageModel() {
       visibleCaulkAllocations.some(
         (entry) =>
           entry.status === 'ACTIVE' &&
+          isActiveCaulkAllocationEntry(entry) &&
           !entry.pendingTransfer &&
           entry.reservedTubesRemaining > 0 &&
           !openCaulkCheckoutByAllocationId[entry.caulkAllocationId]
@@ -308,6 +374,8 @@ export function useAllocationJobPageModel() {
     [
       caulkTransferAlerts,
       filmTransferAlertsByBoxId,
+      isActiveCaulkAllocationEntry,
+      isActiveFilmAllocationEntry,
       openCaulkCheckoutByAllocationId,
       visibleAllocations,
       visibleCaulkAllocations
@@ -948,6 +1016,47 @@ export function useAllocationJobPageModel() {
     }
   }
 
+  async function handleSetPhaseWorkflowState(
+    phase: NonNullable<typeof phases>[number],
+    nextWorkflowStatus: 'ACTIVE' | 'PLACEHOLDER'
+  ) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'changing phase workflow state',
+        feature: 'jobs',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    try {
+      const { warnings } = await setJobPhaseStateMutation.mutateAsync({
+        ...(routeJobId ? { jobId: routeJobId } : {}),
+        jobNumber: summary.jobNumber,
+        phaseId: phase.phaseId,
+        workflowStatus: nextWorkflowStatus
+      });
+      toast.push({
+        title: nextWorkflowStatus === 'ACTIVE' ? 'Phase activated' : 'Phase set as placeholder',
+        description:
+          warnings?.[0] ||
+          (nextWorkflowStatus === 'ACTIVE'
+            ? `Phase ${phase.phaseNumber} is part of the current workflow.`
+            : `Phase ${phase.phaseNumber} is planning-only until activated.`),
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update phase',
+        description: error instanceof Error ? error.message : 'The phase update failed.',
+        variant: 'error'
+      });
+    }
+  }
+
   async function handleResumeCaulkAutoPlanning(requirement: JobCaulkRequirementLine) {
     if (
       isReadOnlyJob ||
@@ -1052,8 +1161,10 @@ export function useAllocationJobPageModel() {
     stagingBlockingMessage,
     canMarkStagedPickup,
     visibleAllocations,
+    isActiveFilmAllocationEntry,
     openCaulkCheckoutByAllocationId,
     visibleCaulkAllocations,
+    isActiveCaulkAllocationEntry,
     hasCheckoutableMaterials,
     totalRequiredCaulkTubes,
     totalAllocatedCaulkTubes,
@@ -1084,6 +1195,7 @@ export function useAllocationJobPageModel() {
     handleSetRequirementState,
     handleSetCaulkRequirementState,
     handleSetPhaseState,
+    handleSetPhaseWorkflowState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,

@@ -468,6 +468,9 @@ function mapDbJobPhaseRow(row) {
   const laborStatus = asTrimmedString(row.labor_status).toUpperCase() === 'COMPLETE'
     ? 'COMPLETE'
     : 'ACTIVE';
+  const workflowStatus = asTrimmedString(row.workflow_status).toUpperCase() === 'PLACEHOLDER'
+    ? 'PLACEHOLDER'
+    : 'ACTIVE';
   return {
     phaseId: row.id,
     id: row.id,
@@ -480,6 +483,8 @@ function mapDbJobPhaseRow(row) {
     installEndDate: formatDateValue(row.install_end_date),
     crewLeader: asTrimmedString(row.crew_leader),
     laborStatus,
+    workflowStatus,
+    isPlaceholder: workflowStatus === 'PLACEHOLDER',
     isComplete: laborStatus === 'COMPLETE',
     isPrimary: row.is_primary === true,
     createdAt: formatTimestamp(row.created_at),

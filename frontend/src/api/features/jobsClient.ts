@@ -66,6 +66,7 @@ function normalizeOptionalText(value: unknown): string | null {
 function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
   const workScope = normalizeOptionalText(entry.workScope ?? entry.sections);
   const phases = (entry.phases || []).map(normalizeJobPhase);
+  const workflowStatus = String(entry.workflowStatus || '').trim().toUpperCase() === 'PLACEHOLDER' ? 'PLACEHOLDER' : 'ACTIVE';
   return {
     ...entry,
     jobId: String(entry.jobId || '').trim() || undefined,
@@ -77,6 +78,8 @@ function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
     phaseId: String(entry.phaseId || '').trim() || undefined,
     phaseNumber: Number.isFinite(Number(entry.phaseNumber)) ? Math.max(1, Math.floor(Number(entry.phaseNumber))) : undefined,
     phaseWorkScope: normalizeOptionalText(entry.phaseWorkScope),
+    workflowStatus,
+    isPlaceholder: workflowStatus === 'PLACEHOLDER',
     phaseCount: Math.max(phases.length || 0, Number(entry.phaseCount || 0)),
     phases,
     isLaborOnly: Boolean(entry.isLaborOnly),
@@ -97,6 +100,7 @@ function normalizeJobListEntry<T extends JobListEntry>(entry: T): T {
 function normalizeJobPhase(entry: JobPhase): JobPhase {
   const status = String(entry.status || '').trim().toUpperCase();
   const laborStatus = String(entry.laborStatus || '').trim().toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+  const workflowStatus = String(entry.workflowStatus || '').trim().toUpperCase() === 'PLACEHOLDER' ? 'PLACEHOLDER' : 'ACTIVE';
   return {
     ...entry,
     phaseId: String(entry.phaseId || entry.id || '').trim(),
@@ -109,6 +113,9 @@ function normalizeJobPhase(entry: JobPhase): JobPhase {
     installEndDate: String(entry.installEndDate || '').trim(),
     crewLeader: String(entry.crewLeader || '').trim(),
     laborStatus,
+    workflowStatus,
+    isPlaceholder: workflowStatus === 'PLACEHOLDER',
+    isWorkflowActive: workflowStatus === 'ACTIVE',
     status: (status || 'READY') as JobPhase['status'],
     isComplete: Boolean(entry.isComplete || status === 'COMPLETED' || laborStatus === 'COMPLETE'),
     isPrimary: Boolean(entry.isPrimary),

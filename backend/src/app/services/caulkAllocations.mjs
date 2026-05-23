@@ -225,6 +225,41 @@ async function requireCaulkRequirementForJob(client, orgId, requirementId, jobId
   return row;
 }
 
+async function clearStagedPickupForActiveCaulkRequirement(client, orgId, actor, jobId, requirementId) {
+  const normalizedRequirementId = asTrimmedString(requirementId);
+  if (!normalizedRequirementId) {
+    return [];
+  }
+
+  const row = await queryRow(
+    client,
+    `
+      update app.jobs j
+      set is_staged_for_pickup = false,
+          updated_at = now(),
+          updated_by = $4::text
+      from app.job_caulk_requirements r
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.job_id = r.job_id
+       and p.id = r.phase_id
+      where j.org_id = $1::uuid
+        and j.id = $2::uuid
+        and j.is_staged_for_pickup = true
+        and r.org_id = j.org_id
+        and r.job_id = j.id
+        and r.id = $3::uuid
+        and coalesce(p.workflow_status, 'ACTIVE') = 'ACTIVE'
+      returning j.job_number
+    `,
+    [orgId, jobId, normalizedRequirementId, asTrimmedString(actor)]
+  );
+
+  return row
+    ? ['Staged pickup was cleared because active caulk material was added.']
+    : [];
+}
+
 async function requireLockedAllocation(client, orgId, caulkAllocationId) {
   const row = await queryRow(
     client,
@@ -948,7 +983,14 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     jobNumbers: [asTrimmedString(job.job_number)],
     caulkProductWarehousePairs: [{ productId, warehouse }],
   });
-  const warnings = [...transferStart.warnings, ...normalizePlannerWarnings(plannerResult)];
+  const stagedWarnings = await clearStagedPickupForActiveCaulkRequirement(
+    client,
+    orgId,
+    normalizedActor,
+    job.id,
+    requirementIdRaw
+  );
+  const warnings = [...transferStart.warnings, ...stagedWarnings, ...normalizePlannerWarnings(plannerResult)];
 
   return buildMutationResponse(job.job_number, allocationId, warnings, {
     jobId: asTrimmedString(job.id),

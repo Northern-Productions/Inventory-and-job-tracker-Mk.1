@@ -182,7 +182,7 @@ describe('jobStaging', () => {
     expect(canMarkJobStagedForPickup(detail)).toBe(false);
   });
 
-  it('allows staging when the remaining film is allocated from in-stock boxes', () => {
+  it('blocks staging until in-stock allocated film is checked out', () => {
     const detail = buildDetail({
       allocations: [
         buildFilmAllocation({
@@ -194,10 +194,117 @@ describe('jobStaging', () => {
       ]
     });
 
+    expect(getJobStagingBlockingMessage(detail)).toBe('Check out the allocated film before staging this job.');
+    expect(getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true })).toBe(
+      'Check out the allocated film before staging this job.'
+    );
+    expect(canMarkJobStagedForPickup(detail)).toBe(false);
+    expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(false);
+  });
+
+  it('ignores placeholder phase material for staged pickup readiness', () => {
+    const detail = buildDetail({
+      summary: {
+        ...buildDetail().summary,
+        phases: [
+          {
+            phaseId: 'phase-1',
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            installDate: '2026-04-01',
+            crewLeader: 'Crew',
+            laborStatus: 'ACTIVE',
+            status: 'READY',
+            workflowStatus: 'ACTIVE',
+            isPlaceholder: false,
+            isComplete: false,
+            isPrimary: true,
+            isNextRelevant: true,
+            isExpandedByDefault: true,
+            requiredFeet: 8,
+            allocatedFeet: 8,
+            remainingFeet: 0,
+            requiredTubes: 0,
+            allocatedTubes: 0,
+            remainingTubes: 0,
+            requirementCount: 1,
+            caulkRequirementCount: 0,
+            filmOrderCount: 0,
+            allocationCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+          {
+            phaseId: 'phase-2',
+            phaseNumber: 2,
+            workScope: 'Section 2',
+            installDate: '2026-05-01',
+            crewLeader: 'Crew',
+            laborStatus: 'ACTIVE',
+            status: 'FILM_ORDER',
+            workflowStatus: 'PLACEHOLDER',
+            isPlaceholder: true,
+            isComplete: false,
+            isPrimary: false,
+            isNextRelevant: false,
+            isExpandedByDefault: false,
+            requiredFeet: 20,
+            allocatedFeet: 20,
+            remainingFeet: 0,
+            requiredTubes: 0,
+            allocatedTubes: 0,
+            remainingTubes: 0,
+            requirementCount: 1,
+            caulkRequirementCount: 0,
+            filmOrderCount: 0,
+            allocationCount: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ]
+      },
+      requirements: [
+        {
+          ...buildDetail().requirements[0],
+          requirementId: 'req-active',
+          phaseId: 'phase-1',
+          requiredFeet: 8,
+          allocatedFeet: 8,
+          remainingFeet: 0
+        },
+        {
+          ...buildDetail().requirements[0],
+          requirementId: 'req-placeholder',
+          phaseId: 'phase-2',
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0
+        }
+      ],
+      allocations: [
+        buildFilmAllocation({
+          allocationId: 'alloc-active',
+          requirementId: 'req-active',
+          phaseId: 'phase-1',
+          status: 'ACTIVE',
+          resolvedAt: '2026-04-01T12:00:00Z',
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }),
+        buildFilmAllocation({
+          allocationId: 'alloc-placeholder',
+          requirementId: 'req-placeholder',
+          phaseId: 'phase-2',
+          status: 'ACTIVE',
+          resolvedAt: '',
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false
+        })
+      ]
+    });
+
     expect(getJobStagingBlockingMessage(detail)).toBe('');
-    expect(getJobStagingBlockingMessageWithOptions(detail, { allowAutoCheckout: true })).toBe('');
     expect(canMarkJobStagedForPickup(detail)).toBe(true);
-    expect(canMarkJobStagedForPickupWithAutoCheckout(detail)).toBe(true);
   });
 
   it('blocks staging while cross-warehouse film is still waiting on transfer', () => {

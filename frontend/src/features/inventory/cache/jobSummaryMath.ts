@@ -114,6 +114,7 @@ function getPayloadPhases(payload: CreateJobPayload) {
       installDate: phase.installDate || '',
       installEndDate: phase.installEndDate || '',
       crewLeader: phase.crewLeader || '',
+      workflowStatus: phase.workflowStatus || (index === 0 ? 'ACTIVE' : 'PLACEHOLDER'),
       isPrimary: phase.isPrimary === true || index === 0,
       requirements: (phase.requirements || []).map((entry) => ({
         ...entry,
@@ -143,6 +144,7 @@ function getPayloadPhases(payload: CreateJobPayload) {
       installEndDate: '',
       crewLeader: payload.crewLeader || '',
       laborStatus: 'ACTIVE' as const,
+      workflowStatus: 'ACTIVE' as const,
       isPrimary: true,
       requirements: (payload.requirements || []).map((entry) => ({
         ...entry,
@@ -177,6 +179,7 @@ export function createOptimisticJobDetailFromCreatePayload(
     const phaseRequiredFeet = phaseRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
     const phaseRequiredTubes = phaseCaulkRequirements.reduce((sum, entry) => sum + entry.requiredTubes, 0);
     const status = computeOptimisticJobStatus(phaseRequiredFeet, phaseRequiredTubes, 0, !phaseRequiredFeet && !phaseRequiredTubes);
+    const workflowStatus = phase.workflowStatus === 'PLACEHOLDER' ? 'PLACEHOLDER' : 'ACTIVE';
     return {
       phaseId: String(phase.phaseId || `pending-phase-${index + 1}`),
       phaseNumber: phase.phaseNumber,
@@ -186,6 +189,9 @@ export function createOptimisticJobDetailFromCreatePayload(
       installEndDate: phase.installEndDate || '',
       crewLeader: phase.crewLeader,
       laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE',
+      workflowStatus,
+      isPlaceholder: workflowStatus === 'PLACEHOLDER',
+      isWorkflowActive: workflowStatus === 'ACTIVE',
       status,
       isComplete: false,
       isPrimary: phase.isPrimary,
@@ -218,6 +224,8 @@ export function createOptimisticJobDetailFromCreatePayload(
       phaseId: primaryPhase?.phaseId,
       phaseNumber: primaryPhase?.phaseNumber,
       phaseWorkScope: primaryPhase?.workScope,
+      workflowStatus: primaryPhase?.workflowStatus,
+      isPlaceholder: primaryPhase?.isPlaceholder,
       phaseCount: phases.length,
       phases,
       installDate: primaryPhase?.installDate || payload.installDate || '',

@@ -386,6 +386,8 @@ export interface JobRequirementLine {
   autoPlanningSuppressed?: boolean;
 }
 
+export type PhaseWorkflowStatus = 'ACTIVE' | 'PLACEHOLDER';
+
 export interface JobPhase {
   phaseId: string;
   id?: string;
@@ -397,6 +399,9 @@ export interface JobPhase {
   installEndDate?: string;
   crewLeader: string;
   laborStatus: 'ACTIVE' | 'COMPLETE';
+  workflowStatus?: PhaseWorkflowStatus;
+  isPlaceholder?: boolean;
+  isWorkflowActive?: boolean;
   status: JobStatus | 'COMPLETED';
   isComplete: boolean;
   isPrimary?: boolean;
@@ -430,6 +435,8 @@ export interface JobListEntry {
   phaseId?: string;
   phaseNumber?: number;
   phaseWorkScope?: string | null;
+  workflowStatus?: PhaseWorkflowStatus;
+  isPlaceholder?: boolean;
   phaseCount?: number;
   phases?: JobPhase[];
   installDate: string;
@@ -521,6 +528,7 @@ export interface CreateJobPayload {
     installEndDate?: string;
     crewLeader?: string;
     laborStatus?: 'ACTIVE' | 'COMPLETE';
+    workflowStatus?: PhaseWorkflowStatus;
     isPrimary?: boolean;
     requirements?: CreateJobPayload['requirements'];
     caulkRequirements?: CreateJobPayload['caulkRequirements'];
@@ -563,6 +571,7 @@ export interface UpdateJobPayload {
     installEndDate?: string;
     crewLeader?: string;
     laborStatus?: 'ACTIVE' | 'COMPLETE';
+    workflowStatus?: PhaseWorkflowStatus;
     isPrimary?: boolean;
     requirements?: UpdateJobPayload['requirements'];
     caulkRequirements?: UpdateJobPayload['caulkRequirements'];
@@ -588,7 +597,8 @@ export interface SetJobPhaseStatePayload {
   jobId?: string;
   jobNumber: string;
   phaseId: string;
-  status: 'ACTIVE' | 'COMPLETE';
+  status?: 'ACTIVE' | 'COMPLETE';
+  workflowStatus?: PhaseWorkflowStatus;
 }
 
 export interface DeleteJobPayload {

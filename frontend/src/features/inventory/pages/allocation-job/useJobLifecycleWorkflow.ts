@@ -23,7 +23,6 @@ import {
   didFilmRequirementDemandChange,
   type FilmOrderCoverageSnapshot
 } from './filmOrderCoveragePrompt';
-import { getMaterialTransferBulkCheckoutMessage, getOrderedReceiptBulkCheckoutMessage } from './helpers';
 
 type PushToast = ReturnType<typeof useToast>['push'];
 type MutationFn<Payload, Result> = (payload: Payload) => Promise<Result>;
@@ -81,8 +80,6 @@ export function useJobLifecycleWorkflow({
   summary,
   isReadOnlyJob,
   stagingBlockingMessage,
-  filmTransferAlerts,
-  caulkTransferAlerts,
   isOwner,
   isAdmin,
   ensureSignedIn,
@@ -322,29 +319,6 @@ export function useJobLifecycleWorkflow({
       return;
     }
 
-    const transferBlockingMessage = getMaterialTransferBulkCheckoutMessage(
-      filmTransferAlerts,
-      caulkTransferAlerts
-    );
-    if (transferBlockingMessage) {
-      pushToast({
-        title: 'Receive transfer first',
-        description: transferBlockingMessage,
-        variant: 'error'
-      });
-      return;
-    }
-
-    const orderedReceiptMessage = getOrderedReceiptBulkCheckoutMessage(detail);
-    if (orderedReceiptMessage) {
-      pushToast({
-        title: 'Receive ordered film first',
-        description: orderedReceiptMessage,
-        variant: 'error'
-      });
-      return;
-    }
-
     try {
       const { warnings } = await checkoutAllJobMaterials({
         ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
@@ -480,8 +454,7 @@ export function useJobLifecycleWorkflow({
       const { warnings } = await setJobStagedForPickup({
         ...(canonicalJobId ? { jobId: canonicalJobId } : {}),
         jobNumber: summary.jobNumber,
-        isStagedForPickup: nextIsStaged,
-        ...(nextIsStaged ? { autoCheckoutRemaining: true } : {})
+        isStagedForPickup: nextIsStaged
       });
       pushToast({
         title: nextIsStaged ? 'Marked staged for pickup' : 'Cleared staged pickup',

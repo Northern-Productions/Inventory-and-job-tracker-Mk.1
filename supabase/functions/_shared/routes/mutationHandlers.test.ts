@@ -73,6 +73,7 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     buildJobDetailById: async () => ({}),
     setJobStagedPickup: async () => ({}),
     checkoutAllJobMaterials: async () => ({}),
+    loadJobStagingValidationState: async () => ({ blockingReason: "" }),
     completeJob: async () => ({}),
     reopenJob: async () => ({}),
     deleteJob: async () => ({}),
@@ -323,6 +324,107 @@ Deno.test("/jobs/update validates jobId identity before calling the guarded job 
       warnings: ["SQL update completed."],
     },
     "Expected canonical update response to preserve the job detail envelope.",
+  );
+});
+
+Deno.test("/jobs/update clears staged pickup when the refreshed active-phase staging state is blocked", async () => {
+  const stagedPayloads: Array<Record<string, unknown>> = [];
+  const stagingLookups: Array<Record<string, unknown>> = [];
+  let detailCallCount = 0;
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/jobs/update",
+    {
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      requirements: [],
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, _orgId: string, jobId: string) => ({
+        id: jobId,
+        jobNumber: "81234",
+        warehouse: "IL1",
+        lifecycleStatus: "ACTIVE",
+      }),
+      callMutationRpc: async () => ({
+        jobNumber: "81234",
+        warnings: ["SQL update completed."],
+      }),
+      buildJobDetailById: async (_client: unknown, orgId: string, jobId: unknown) => {
+        detailCallCount += 1;
+        return {
+          summary: {
+            jobId,
+            jobNumber: "81234",
+            warehouse: "IL1",
+            isStagedForPickup: detailCallCount === 1,
+          },
+          marker: detailCallCount === 1 ? "before-clear" : "after-clear",
+        };
+      },
+      loadJobStagingValidationState: async (
+        _client: unknown,
+        orgId: string,
+        jobNumber: string,
+        warehouse: string,
+        seedData: Record<string, unknown> = {},
+      ) => {
+        stagingLookups.push({ orgId, jobNumber, warehouse, seedData });
+        return { blockingReason: "Check out the allocated film before staging this job." };
+      },
+      setJobStagedPickup: async (_client: unknown, identity: Record<string, unknown>, payload: Record<string, unknown>) => {
+        stagedPayloads.push({ orgId: identity.orgId, ...payload });
+        return { warnings: [] };
+      },
+    }),
+  );
+
+  assertEquals(
+    stagingLookups,
+    [
+      {
+        orgId: "org-from-auth",
+        jobNumber: "81234",
+        warehouse: "IL1",
+        seedData: { jobId: "11111111-1111-4111-8111-111111111111" },
+      },
+    ],
+    "Expected update to validate staged readiness after reloading the edited job.",
+  );
+  assertEquals(
+    stagedPayloads,
+    [
+      {
+        orgId: "org-from-auth",
+        jobId: "11111111-1111-4111-8111-111111111111",
+        jobNumber: "81234",
+        isStagedForPickup: false,
+      },
+    ],
+    "Expected blocked active material to clear staged pickup by canonical jobId.",
+  );
+  assertEquals(detailCallCount, 2, "Expected detail to be reloaded after staged pickup is cleared.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        summary: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          warehouse: "IL1",
+          isStagedForPickup: false,
+        },
+        marker: "after-clear",
+      },
+      warnings: [
+        "SQL update completed.",
+        "Staged pickup was cleared because active phase material is no longer fully checked out.",
+      ],
+    },
+    "Expected update response to include the refreshed unstaged detail and warning.",
   );
 });
 
@@ -1484,8 +1586,17 @@ Deno.test("caulk add canonical jobId is validated before SQL RPC and request org
           notes: "Canonical add.",
         },
       },
+      {
+        fn: "api_acl_jobs_clear_staged_for_active_requirement",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          requirementId: "req-caulk-1",
+          materialType: "CAULK",
+        },
+      },
     ],
-    "Expected canonical caulk add payload to be stripped and validated before SQL RPC.",
+    "Expected canonical caulk add payload to be stripped and staged state to be invalidated by requirement.",
   );
   assertEquals(plannerCallCount, 0, "Expected caulk add to leave planner ownership with SQL.");
 });

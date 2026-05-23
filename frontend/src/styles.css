@@ -2259,6 +2259,11 @@ textarea {
   color: #52636a;
 }
 
+.badge-muted {
+  background: #eceff1;
+  color: #52636a;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -3239,6 +3244,11 @@ td.col-available-linear-ft {
   padding: 0.9rem;
 }
 
+.job-phase-card-placeholder {
+  border-style: dashed;
+  background: rgba(248, 250, 250, 0.84);
+}
+
 .job-phase-card:focus {
   outline: none;
 }
@@ -3259,6 +3269,12 @@ td.col-available-linear-ft {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 0.75rem;
+}
+
+.job-phase-leading-actions {
+  align-items: flex-start;
+  display: grid;
+  gap: 0.55rem;
 }
 
 .job-phase-header h3 {
@@ -3311,6 +3327,10 @@ td.col-available-linear-ft {
 
 .phase-labor-toggle {
   align-self: center;
+}
+
+.phase-workflow-toggle {
+  font-size: 0.8rem;
 }
 
 .job-editor-phase-row {

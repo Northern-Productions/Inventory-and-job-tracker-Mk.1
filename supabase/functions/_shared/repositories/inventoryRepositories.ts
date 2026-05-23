@@ -475,6 +475,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       return null;
     }
     const laborStatus = deps.asTrimmedString(row.labor_status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE";
+    const workflowStatus = deps.asTrimmedString(row.workflow_status).toUpperCase() === "PLACEHOLDER" ? "PLACEHOLDER" : "ACTIVE";
     return {
       phaseId: row.id,
       id: row.id,
@@ -487,6 +488,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       installEndDate: deps.formatDateValue(row.install_end_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       laborStatus,
+      workflowStatus,
+      isPlaceholder: workflowStatus === "PLACEHOLDER",
+      isWorkflowActive: workflowStatus === "ACTIVE",
       isComplete: laborStatus === "COMPLETE",
       isPrimary: row.is_primary === true,
       createdAt: deps.formatTimestamp(row.created_at),

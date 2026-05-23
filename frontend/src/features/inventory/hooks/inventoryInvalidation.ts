@@ -103,6 +103,7 @@ export async function invalidateGlobalPlanningQueries(queryClient: QueryClient) 
     inventoryKeys.allocationJobRoot,
     inventoryKeys.filmOrders,
     inventoryKeys.filmOrderRoot,
+    inventoryKeys.appAttentionSummary,
     inventoryKeys.reportsRoot
   ]);
 }

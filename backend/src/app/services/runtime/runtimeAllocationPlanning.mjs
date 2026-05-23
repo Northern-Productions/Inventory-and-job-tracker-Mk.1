@@ -680,6 +680,38 @@ function buildManualRequirementAllocationMergePlan(existingAllocations, addition
   };
 }
 
+async function clearStagedPickupForActiveFilmRequirementAllocation(client, orgId, allocation, actor) {
+  const jobId = asTrimmedString(allocation?.jobId);
+  const requirementId = asTrimmedString(allocation?.requirementId);
+  if (!jobId || !requirementId) {
+    return;
+  }
+
+  await queryRow(
+    client,
+    `
+      update app.jobs j
+      set is_staged_for_pickup = false,
+          updated_at = now(),
+          updated_by = $4::text
+      from app.job_requirements r
+      left join app.job_phases p
+        on p.org_id = r.org_id
+       and p.job_id = r.job_id
+       and p.id = r.phase_id
+      where j.org_id = $1::uuid
+        and j.id = $2::uuid
+        and j.is_staged_for_pickup = true
+        and r.org_id = j.org_id
+        and r.job_id = j.id
+        and r.id = $3::uuid
+        and coalesce(p.workflow_status, 'ACTIVE') = 'ACTIVE'
+      returning j.id
+    `,
+    [orgId, jobId, requirementId, asTrimmedString(actor)]
+  );
+}
+
 async function createAllocationRecord(
   client,
   orgId,
@@ -734,11 +766,15 @@ async function createAllocationRecord(
         await saveAllocationRecord(client, orgId, mergePlan.supersededAllocations[index]);
       }
 
-      return saveAllocationRecord(client, orgId, mergePlan.mergedAllocation);
+      const savedAllocation = await saveAllocationRecord(client, orgId, mergePlan.mergedAllocation);
+      await clearStagedPickupForActiveFilmRequirementAllocation(client, orgId, savedAllocation, user);
+      return savedAllocation;
     }
   }
 
-  return saveAllocationRecord(client, orgId, entry);
+  const savedAllocation = await saveAllocationRecord(client, orgId, entry);
+  await clearStagedPickupForActiveFilmRequirementAllocation(client, orgId, savedAllocation, user);
+  return savedAllocation;
 }
 
 async function sumFilmOrderCoveredFeet(client, orgId, filmOrderId) {

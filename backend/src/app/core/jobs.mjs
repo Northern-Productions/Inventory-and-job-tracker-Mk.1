@@ -81,6 +81,11 @@ function normalizeJobPhaseLaborStatus(value) {
   return normalized === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
 }
 
+function normalizeJobPhaseWorkflowStatus(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  return normalized === 'PLACEHOLDER' ? 'PLACEHOLDER' : 'ACTIVE';
+}
+
 function normalizeJobRequirementLookupKey(manufacturer, filmName, widthIn) {
   const canonical = normalizeCanonicalManufacturerAndFilm(manufacturer, filmName);
   return [
@@ -243,6 +248,7 @@ export {
   normalizeJobLifecycleFilter,
   normalizeJobPhaseNumber,
   normalizeJobPhaseLaborStatus,
+  normalizeJobPhaseWorkflowStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,

@@ -62,7 +62,7 @@ test('backend staged pickup validates canonical jobId before side effects', asyn
   assert.match(runtimeSource, /const selectedJobId = suppliedJobId \? requireUuid\(suppliedJobId, 'jobId'\) : '';/);
   assert.match(runtimeSource, /existingJob = await loadJobById\(client, orgId, selectedJobId\);/);
   assert.match(runtimeSource, /Job identity mismatch: jobId/);
-  assert.match(runtimeSource, /jobId: selectedJobId,\s+jobNumber: normalizedJobNumber/);
+  assert.match(runtimeSource, /jobId: selectedJobId,\s+allocations: await loadAllocationsByJobId/);
   assert.match(runtimeSource, /loadAllocationsByJobId\(client, orgId, selectedJobId\)/);
   assert.match(runtimeSource, /\(\$2::uuid is not null and id = \$2::uuid\)/);
   assert.match(runtimeSource, /return \{\s+\.\.\.\(selectedJobId \? \{ jobId: selectedJobId \} : \{\}\),/);
@@ -82,9 +82,9 @@ test('Edge staged pickup validates canonical jobId and reloads by id without pla
 
   assert.match(edgeSource, /const target = await resolveEdgeJobMutationTargetById\(client, orgId, payload,/);
   assert.match(edgeSource, /const targetJobId = target\.usedJobId \? requireString\(target\.jobId, "jobId"\) : "";/);
-  assert.match(edgeSource, /target\.usedJobId \? \{ \.\.\.payload, jobId: targetJobId, jobNumber \} : payload/);
+  assert.match(edgeSource, /effectiveJobId\s+\?\s+\{\s+jobId: effectiveJobId,/);
   assert.match(edgeSource, /listAllocationsByJobIdDirect\(orgId, targetJobId\)/);
-  assert.match(edgeSource, /\.eq\("id", target\.usedJobId \? targetJobId : \(jobRow as Record<string, unknown>\)\.id\)/);
+  assert.match(edgeSource, /\.eq\("id", effectiveJobId\)/);
   assert.match(edgeSource, /\.\.\.\(target\.usedJobId \? \{ jobId: targetJobId \} : \{\}\),/);
   assert.match(routeSource, /const SQL_PLANNER_HANDLED_ROUTES = new Set\(\[[\s\S]*"\/jobs\/set-staged-pickup"/);
   assert.match(routeBody, /const jobId = deps\.asTrimmedString\(result\.jobId\);/);

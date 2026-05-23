@@ -513,6 +513,7 @@ function hasUncheckedOutFilmRequirementAllocations(allocations) {
     const entry = allocations[index];
     if (
       asTrimmedString(entry.status).toUpperCase() === 'ACTIVE' &&
+      !asTrimmedString(entry.resolvedAt || entry.resolved_at) &&
       normalizeAllocationKind(entry.allocationKind) !== 'EXTRA' &&
       integerOrZero(entry.allocatedFeet) > 0
     ) {
@@ -582,6 +583,10 @@ function getJobStagingBlockingReason(
     return buildOrderedAllocationReceiptMessage('staging');
   }
 
+  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
+    return 'All required film must be checked out before staging this job.';
+  }
+
   if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
     return 'All required caulk must be checked out before staging this job.';
   }
@@ -616,6 +621,16 @@ function getEntryPhaseId(entry) {
   return asTrimmedString(entry?.phaseId || entry?.phase_id);
 }
 
+function getPhaseWorkflowStatus(phase) {
+  return asTrimmedString(phase?.workflowStatus || phase?.workflow_status).toUpperCase() === 'PLACEHOLDER'
+    ? 'PLACEHOLDER'
+    : 'ACTIVE';
+}
+
+function isPhaseWorkflowActive(phase) {
+  return getPhaseWorkflowStatus(phase) === 'ACTIVE';
+}
+
 function getPhaseDisplayWorkScope(phase, fallback = null) {
   return phase?.workScope ?? phase?.sections ?? fallback ?? null;
 }
@@ -629,6 +644,8 @@ function buildFallbackJobPhase(jobHeader) {
     installDate: jobHeader.installDate || '',
     crewLeader: jobHeader.crewLeader || '',
     laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+    workflowStatus: 'ACTIVE',
+    isPlaceholder: false,
     isPrimary: true,
     createdAt: jobHeader.createdAt || '',
     updatedAt: jobHeader.updatedAt || '',
@@ -691,7 +708,7 @@ function comparePhasesByNumber(left, right) {
 
 function chooseNextRelevantPhaseGroup(phases) {
   const incomplete = (Array.isArray(phases) ? phases : [])
-    .filter((phase) => !phase.isComplete)
+    .filter((phase) => !phase.isComplete && isPhaseWorkflowActive(phase))
     .slice();
   if (!incomplete.length) {
     return [];
@@ -786,6 +803,7 @@ function buildJobPhaseEntries(
       fallbackPhaseId
     );
     const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements, phaseCaulkRequirements);
+    const workflowStatus = getPhaseWorkflowStatus(phase);
     const status = isComplete
       ? 'COMPLETED'
       : deriveInStockReadinessStatus({
@@ -829,6 +847,9 @@ function buildJobPhaseEntries(
       installEndDate: asTrimmedString(phase.installEndDate),
       crewLeader: asTrimmedString(phase.crewLeader),
       laborStatus: asTrimmedString(phase.laborStatus || phase.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE',
+      workflowStatus,
+      isPlaceholder: workflowStatus === 'PLACEHOLDER',
+      isWorkflowActive: workflowStatus === 'ACTIVE',
       status,
       isComplete,
       isPrimary: phase.isPrimary === true || (!phase.isPrimary && index === 0),
@@ -854,7 +875,9 @@ function buildJobPhaseEntries(
   return entries.map((entry) => ({
     ...entry,
     isNextRelevant: currentIds.has(asTrimmedString(entry.phaseId)),
-    isExpandedByDefault: currentIds.has(asTrimmedString(entry.phaseId)) || (!entry.isComplete && !entry.installDate)
+    isExpandedByDefault:
+      currentIds.has(asTrimmedString(entry.phaseId)) ||
+      (entry.isWorkflowActive && !entry.isComplete && !entry.installDate)
   }));
 }
 
@@ -881,7 +904,8 @@ function buildJobListEntry(
     options
   );
   const nextPhaseGroup = chooseNextRelevantPhaseGroup(phaseEntries);
-  const currentPhase = nextPhaseGroup[0] || phaseEntries[0] || null;
+  const activePhaseEntries = phaseEntries.filter(isPhaseWorkflowActive);
+  const currentPhase = nextPhaseGroup[0] || activePhaseEntries[0] || phaseEntries[0] || null;
   let installDate = asTrimmedString(currentPhase?.installDate) || jobHeader.installDate;
   if (!installDate) {
     installDate = metadata.installDate;
@@ -894,19 +918,27 @@ function buildJobListEntry(
   let allocatedWithInstallDateFeet = 0;
   let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
-  const summaryRequirements = nextPhaseGroup.length
-    ? requirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
-    : requirements;
-  const summaryCaulkRequirements = nextPhaseGroup.length
-    ? caulkRequirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
-    : caulkRequirements;
-  const caulkTotals = nextPhaseGroup.length
+  const summaryPhaseGroup = nextPhaseGroup.length ? nextPhaseGroup : activePhaseEntries;
+  const entryBelongsToSummaryPhase = (entry) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    return summaryPhaseGroup.some((phase) => {
+      const phaseId = asTrimmedString(phase.phaseId);
+      return phaseId ? entryPhaseId === phaseId : !entryPhaseId;
+    });
+  };
+  const summaryRequirements = summaryPhaseGroup.length
+    ? requirements.filter(entryBelongsToSummaryPhase)
+    : [];
+  const summaryCaulkRequirements = summaryPhaseGroup.length
+    ? caulkRequirements.filter(entryBelongsToSummaryPhase)
+    : [];
+  const caulkTotals = summaryPhaseGroup.length
     ? {
-        requiredTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
-        allocatedTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
-        remainingTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
+        requiredTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
+        allocatedTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
+        remainingTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
       }
-    : summarizeCaulkRequirementCoverage(caulkRequirements);
+    : { requiredTubes: 0, allocatedTubes: 0, remainingTubes: 0 };
 
   for (let index = 0; index < summaryRequirements.length; index += 1) {
     if (isRequirementComplete(summaryRequirements[index])) {
@@ -923,19 +955,32 @@ function buildJobListEntry(
     jobHeader && jobHeader.id
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
+  const summaryRequirementIds = new Set(summaryRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const summaryCaulkRequirementIds = new Set(summaryCaulkRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const scopedAllocations = summaryPhaseGroup.length
+    ? allocations.filter((entry) => summaryRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry))
+    : [];
+  const scopedFilmOrders = summaryPhaseGroup.length
+    ? filmOrders.filter((entry) => summaryRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry))
+    : [];
+  const scopedCaulkAllocations = summaryPhaseGroup.length
+    ? (options.caulkAllocations || []).filter((entry) =>
+        summaryCaulkRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry)
+      )
+    : [];
   const baseStatus = nextPhaseGroup.length
     ? combinePhaseGroupStatus(nextPhaseGroup)
     : computeJobStatusFromRequirements(
     lifecycleStatus,
-    Boolean(jobHeader.isLaborOnly),
+    !summaryRequirements.length && !summaryCaulkRequirements.length,
     Boolean(jobHeader.isStagedForPickup),
     summaryRequirements,
     summaryCaulkRequirements,
-    allocations,
-    filmOrders,
+    scopedAllocations,
+    scopedFilmOrders,
     {
       allBoxes: options.allBoxes || Object.values(boxById || {}),
-      caulkAllocations: options.caulkAllocations || [],
+      caulkAllocations: scopedCaulkAllocations,
       caulkStockEntries: options.caulkStockEntries || [],
       jobWarehouse: jobHeader.warehouse || '',
       jobNumber: jobHeader.jobNumber || '',
@@ -962,6 +1007,8 @@ function buildJobListEntry(
     phaseId: asTrimmedString(currentPhase?.phaseId),
     phaseNumber: integerOrZero(currentPhase?.phaseNumber) || undefined,
     phaseWorkScope: workScope,
+    workflowStatus: getPhaseWorkflowStatus(currentPhase),
+    isPlaceholder: getPhaseWorkflowStatus(currentPhase) === 'PLACEHOLDER',
     phaseCount: phaseEntries.length,
     phases: phaseEntries,
     installDate,
@@ -981,8 +1028,8 @@ function buildJobListEntry(
     remainingTubes: caulkTotals.remainingTubes,
     requirementCount: requirements.length,
     allocationCount: allocations.length,
-    filmOrderCount: countUnresolvedFilmOrders(filmOrders),
-    hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
+    filmOrderCount: countUnresolvedFilmOrders(scopedFilmOrders),
+    hasOrderedAllocations: hasActiveOrderedAllocations(scopedAllocations, boxById),
     createdAt: jobHeader.createdAt || '',
     updatedAt: jobHeader.updatedAt || '',
     notes: jobHeader.notes || ''
@@ -1172,6 +1219,8 @@ export {
   hasUncheckedOutFilmRequirementAllocations,
   hasUncheckedOutCaulkAllocations,
   getJobStagingBlockingReason,
+  getPhaseWorkflowStatus,
+  isPhaseWorkflowActive,
   hasSharedActiveBoxConflict,
   buildJobPhaseEntries,
   chooseNextRelevantPhaseGroup,

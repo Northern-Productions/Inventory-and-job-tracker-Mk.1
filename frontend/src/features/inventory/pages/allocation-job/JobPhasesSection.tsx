@@ -29,6 +29,7 @@ interface JobPhasesSectionProps {
   onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetCaulkRequirementState: (requirement: JobCaulkRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetPhaseState: (phase: JobPhase, status: 'ACTIVE' | 'COMPLETE') => void;
+  onSetPhaseWorkflowState: (phase: JobPhase, status: 'ACTIVE' | 'PLACEHOLDER') => void;
   onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
   onResumeCaulkAutoPlanning: (requirement: JobCaulkRequirementLine) => void;
   onCancelRequirementOrder: (order: FilmOrderEntry) => void;
@@ -100,6 +101,7 @@ export function JobPhasesSection({
   onSetRequirementState,
   onSetCaulkRequirementState,
   onSetPhaseState,
+  onSetPhaseWorkflowState,
   onResumeAutoPlanning,
   onResumeCaulkAutoPlanning,
   onCancelRequirementOrder,
@@ -118,6 +120,9 @@ export function JobPhasesSection({
               installDate: '',
               crewLeader: '',
               laborStatus: 'ACTIVE',
+              workflowStatus: 'ACTIVE',
+              isPlaceholder: false,
+              isWorkflowActive: true,
               status: 'READY',
               isComplete: false,
               isPrimary: true,
@@ -270,11 +275,17 @@ export function JobPhasesSection({
           const isExpanded = expandedPhaseIds.has(key);
           const isLaborOnlyPhase = !phaseRequirements.length && !phaseCaulkRequirements.length;
           const phaseComplete = phase.isComplete || phase.laborStatus === 'COMPLETE' || phase.status === 'COMPLETED';
+          const workflowStatus =
+            String(phase.workflowStatus || '').trim().toUpperCase() === 'PLACEHOLDER'
+              ? 'PLACEHOLDER'
+              : 'ACTIVE';
+          const isPlaceholderPhase = workflowStatus === 'PLACEHOLDER';
 
           return (
             <article
               className={[
                 'job-phase-card',
+                isPlaceholderPhase ? 'job-phase-card-placeholder' : '',
                 highlightedPhaseId === key ? 'job-phase-card-targeted' : ''
               ]
                 .filter(Boolean)
@@ -292,21 +303,35 @@ export function JobPhasesSection({
               tabIndex={-1}
             >
               <div className="job-phase-header">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="phase-collapse-button"
-                  aria-label={isExpanded ? 'Collapse phase' : 'Expand phase'}
-                  onClick={() => togglePhase(phase, index)}
-                >
-                  {isExpanded ? '-' : '+'}
-                </Button>
+                <div className="job-phase-leading-actions">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="phase-collapse-button"
+                    aria-label={isExpanded ? 'Collapse phase' : 'Expand phase'}
+                    onClick={() => togglePhase(phase, index)}
+                  >
+                    {isExpanded ? '-' : '+'}
+                  </Button>
+                  <label className="requirement-state-toggle phase-workflow-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!isPlaceholderPhase}
+                      disabled={isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending}
+                      onChange={() =>
+                        onSetPhaseWorkflowState(phase, isPlaceholderPhase ? 'ACTIVE' : 'PLACEHOLDER')
+                      }
+                    />
+                    <span>{isPlaceholderPhase ? 'Placeholder' : 'Active'}</span>
+                  </label>
+                </div>
                 <div>
                   <h3>{buildPhaseTitle(phase)}</h3>
                   <div className="job-phase-meta">
                     <span>{formatDate(phase.installDate || '')}</span>
                     <span>{phase.crewLeader || 'No crew leader'}</span>
+                    {isPlaceholderPhase ? <span className="badge badge-muted">Placeholder</span> : null}
                     <span className={`badge badge-${phase.status}`}>{phase.status}</span>
                   </div>
                 </div>

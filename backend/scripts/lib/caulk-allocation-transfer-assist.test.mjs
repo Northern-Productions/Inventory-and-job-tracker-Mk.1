@@ -232,6 +232,14 @@ class FakeCaulkClient {
       };
     }
 
+    if (
+      sql.includes('update app.jobs j') &&
+      sql.includes('from app.job_caulk_requirements r') &&
+      sql.includes("coalesce(p.workflow_status, 'active') = 'active'")
+    ) {
+      return { rows: [] };
+    }
+
     throw new Error(`Unhandled SQL in fake caulk client: ${sql}`);
   }
 }

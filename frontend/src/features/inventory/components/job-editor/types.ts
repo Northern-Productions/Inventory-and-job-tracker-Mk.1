@@ -1,4 +1,4 @@
-import type { Warehouse } from '../../../../domain';
+import type { PhaseWorkflowStatus, Warehouse } from '../../../../domain';
 
 export interface JobRequirementEditorLine {
   requirementId?: string;
@@ -41,6 +41,7 @@ export interface JobPhaseEditorLine {
   installEndDate?: string;
   crewLeader: string;
   laborStatus?: 'ACTIVE' | 'COMPLETE';
+  workflowStatus?: PhaseWorkflowStatus;
   isPrimary?: boolean;
   isComplete?: boolean;
   isNextRelevant?: boolean;

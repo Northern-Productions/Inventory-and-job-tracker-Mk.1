@@ -48,6 +48,85 @@ function isCaulkRequirementComplete(requirement: Pick<JobCaulkRequirementLine, '
   return normalizeRequirementStatus(requirement.status) === 'COMPLETE';
 }
 
+function getPhaseId(entry: { phaseId?: string | null } | null | undefined) {
+  return String(entry?.phaseId || '').trim();
+}
+
+function getRequirementId(entry: { requirementId?: string | null } | null | undefined) {
+  return String(entry?.requirementId || '').trim();
+}
+
+function isWorkflowActivePhase(phase: { workflowStatus?: string | null }) {
+  return String(phase.workflowStatus || '').trim().toUpperCase() !== 'PLACEHOLDER';
+}
+
+function getActivePhaseScope(detail: JobDetail) {
+  const phases = detail.summary.phases || detail.phases || [];
+  if (!phases.length) {
+    return {
+      hasPhaseScope: false,
+      activePhaseIds: new Set<string>(),
+      fallbackPhaseId: ''
+    };
+  }
+
+  return {
+    hasPhaseScope: true,
+    activePhaseIds: new Set(phases.filter(isWorkflowActivePhase).map(getPhaseId).filter(Boolean)),
+    fallbackPhaseId: getPhaseId(phases.find((phase) => phase.isPrimary) || phases[0])
+  };
+}
+
+function isEntryInActivePhase(
+  entry: { phaseId?: string | null } | null | undefined,
+  scope: ReturnType<typeof getActivePhaseScope>
+) {
+  if (!scope.hasPhaseScope) {
+    return true;
+  }
+  const phaseId = getPhaseId(entry);
+  if (phaseId) {
+    return scope.activePhaseIds.has(phaseId);
+  }
+  return Boolean(scope.fallbackPhaseId && scope.activePhaseIds.has(scope.fallbackPhaseId));
+}
+
+function getActiveScopedRequirements(detail: JobDetail, requirements: JobRequirementLine[]) {
+  const scope = getActivePhaseScope(detail);
+  return requirements.filter((entry) => isEntryInActivePhase(entry, scope));
+}
+
+function getActiveScopedCaulkRequirements(detail: JobDetail, requirements: JobCaulkRequirementLine[]) {
+  const scope = getActivePhaseScope(detail);
+  return requirements.filter((entry) => isEntryInActivePhase(entry, scope));
+}
+
+function getActiveScopedAllocations(
+  detail: JobDetail,
+  allocations: AllocationJobDetailEntry[],
+  activeRequirements: JobRequirementLine[]
+) {
+  const scope = getActivePhaseScope(detail);
+  const requirementIds = new Set(activeRequirements.map(getRequirementId).filter(Boolean));
+  return allocations.filter((entry) => {
+    const requirementId = getRequirementId(entry);
+    return requirementId ? requirementIds.has(requirementId) : isEntryInActivePhase(entry as { phaseId?: string }, scope);
+  });
+}
+
+function getActiveScopedFilmOrders(
+  detail: JobDetail,
+  filmOrders: FilmOrderEntry[],
+  activeRequirements: JobRequirementLine[]
+) {
+  const scope = getActivePhaseScope(detail);
+  const requirementIds = new Set(activeRequirements.map(getRequirementId).filter(Boolean));
+  return filmOrders.filter((entry) => {
+    const requirementId = getRequirementId(entry);
+    return requirementId ? requirementIds.has(requirementId) : isEntryInActivePhase(entry as { phaseId?: string }, scope);
+  });
+}
+
 function deriveCaulkCompletionResult(
   requirement: Pick<JobCaulkRequirementLine, 'status' | 'requiredTubes' | 'actualUsedTubes'>
 ): JobCaulkRequirementLine['completionResult'] {
@@ -234,22 +313,25 @@ function computeOptimisticExistingJobStatus(
     return 'COMPLETED' as const;
   }
 
+  const activeScopedRequirements = getActiveScopedRequirements(detail, nextRequirements);
+  const activeScopedCaulkRequirements = getActiveScopedCaulkRequirements(detail, nextCaulkRequirements);
+  const activeScopedFilmOrders = getActiveScopedFilmOrders(detail, detail.filmOrders, activeScopedRequirements);
   const hasMaterialRequirements =
-    nextRequirements.some((entry) => !isRequirementComplete(entry) && entry.requiredFeet > 0) ||
-    nextCaulkRequirements.some((entry) => !isCaulkRequirementComplete(entry) && entry.requiredTubes > 0);
+    activeScopedRequirements.some((entry) => !isRequirementComplete(entry) && entry.requiredFeet > 0) ||
+    activeScopedCaulkRequirements.some((entry) => !isCaulkRequirementComplete(entry) && entry.requiredTubes > 0);
   if (!hasMaterialRequirements) {
     return 'READY' as const;
   }
 
-  const hasRemainingFilm = nextRequirements.some((entry) => entry.remainingFeet > 0);
-  const hasRemainingCaulk = nextCaulkRequirements.some(
+  const hasRemainingFilm = activeScopedRequirements.some((entry) => entry.remainingFeet > 0);
+  const hasRemainingCaulk = activeScopedCaulkRequirements.some(
     (entry) => !isCaulkRequirementComplete(entry) && entry.remainingTubes > 0
   );
   if (!hasRemainingFilm && !hasRemainingCaulk) {
     return 'READY' as const;
   }
 
-  if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(nextRequirements, detail.filmOrders)) {
+  if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(activeScopedRequirements, activeScopedFilmOrders)) {
     return 'ORDERED' as const;
   }
 
@@ -262,11 +344,13 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
     detail.allocations,
     detail.summary.jobNumber
   );
-  const activeRequirements = nextRequirements.filter((entry) => !isRequirementComplete(entry));
+  const activeRequirements = getActiveScopedRequirements(detail, nextRequirements).filter((entry) => !isRequirementComplete(entry));
+  const activeAllocations = getActiveScopedAllocations(detail, detail.allocations, activeRequirements);
+  const activeFilmOrders = getActiveScopedFilmOrders(detail, detail.filmOrders, activeRequirements);
   const requiredFeet = activeRequirements.reduce((sum, entry) => sum + entry.requiredFeet, 0);
   const allocatedFeet = activeRequirements.reduce((sum, entry) => sum + entry.allocatedFeet, 0);
   const remainingFeet = activeRequirements.reduce((sum, entry) => sum + entry.remainingFeet, 0);
-  const hasOrderedAllocations = detail.allocations.some(
+  const hasOrderedAllocations = activeAllocations.some(
     (entry) => entry.status === 'ACTIVE' && entry.boxStatus === 'ORDERED'
   );
 
@@ -279,7 +363,7 @@ function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {
       allocatedFeet,
       remainingFeet,
       allocationCount: detail.allocations.length,
-      filmOrderCount: countUnresolvedFilmOrders(detail.filmOrders),
+      filmOrderCount: countUnresolvedFilmOrders(activeFilmOrders),
       hasOrderedAllocations
     },
     requirements: nextRequirements

@@ -245,6 +245,8 @@ test('buildJobsList only loads referenced allocation boxes when no preloaded box
     'phaseId',
     'phaseNumber',
     'phaseWorkScope',
+    'workflowStatus',
+    'isPlaceholder',
     'phaseCount',
     'phases',
     'installDate',

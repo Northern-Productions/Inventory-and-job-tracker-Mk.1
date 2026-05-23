@@ -68,9 +68,69 @@ test('loadJobStagingValidationState only loads boxes linked to the job allocatio
   assert.equal(state.boxById['IL1-100'].status, 'IN_STOCK');
 });
 
-test('executeSetJobStagedPickup reuses refreshed checkout state after auto checkout', async () => {
+test('loadJobStagingValidationState ignores placeholder phase allocations for staging', async () => {
+  const state = await loadJobStagingValidationState(
+    {},
+    'org-1',
+    '18722',
+    'IL1',
+    {
+      jobId: 'job-1',
+      phases: [
+        {
+          phaseId: 'phase-active',
+          phaseNumber: 1,
+          workflowStatus: 'ACTIVE',
+          isPrimary: true,
+        },
+        {
+          phaseId: 'phase-placeholder',
+          phaseNumber: 2,
+          workflowStatus: 'PLACEHOLDER',
+        },
+      ],
+      requirements: [
+        {
+          requirementId: 'req-placeholder',
+          phaseId: 'phase-placeholder',
+          requiredFeet: 20,
+          allocatedFeet: 20,
+          remainingFeet: 0,
+        },
+      ],
+      allocations: [
+        {
+          allocationId: 'alloc-placeholder',
+          requirementId: 'req-placeholder',
+          boxId: 'IL1-200',
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          allocatedFeet: 20,
+        },
+      ],
+      filmOrders: [],
+      caulkRequirements: [],
+      caulkAllocations: [],
+      boxes: [
+        { id: 'box-2', boxId: 'IL1-200', status: 'IN_STOCK' },
+      ],
+      pendingTransfersByBoxRecordId: {},
+    },
+    {
+      listPendingBoxTransfersByBoxRecordIds: async () => [],
+      indexPendingBoxTransfersByBoxRecordId: () => ({}),
+    },
+  );
+
+  assert.deepEqual(state.requirements.map((entry) => entry.requirementId), []);
+  assert.deepEqual(state.allocations.map((entry) => entry.allocationId), []);
+  assert.equal(state.blockingReason, '');
+});
+
+test('executeSetJobStagedPickup validates staged readiness without auto checkout', async () => {
   let loadCount = 0;
   let updateCount = 0;
+  let checkoutCalled = false;
 
   const result = await executeSetJobStagedPickup(
     {},
@@ -93,10 +153,10 @@ test('executeSetJobStagedPickup reuses refreshed checkout state after auto check
         filmOrders: null,
       }),
       normalizeJobLifecycleStatus: () => 'ACTIVE',
-      checkoutAllJobMaterials: async () => ({
-        warnings: ['Checked out 1 film box and 0 caulk allocations for job 18722.'],
-        stagingState: { blockingReason: '' },
-      }),
+      checkoutAllJobMaterials: async () => {
+        checkoutCalled = true;
+        return {};
+      },
       loadJobStagingValidationState: async () => {
         loadCount += 1;
         return { blockingReason: '' };
@@ -117,17 +177,19 @@ test('executeSetJobStagedPickup reuses refreshed checkout state after auto check
     },
   );
 
-  assert.equal(loadCount, 0);
+  assert.equal(checkoutCalled, false);
+  assert.equal(loadCount, 1);
   assert.equal(updateCount, 1);
   assert.equal(result.isStagedForPickup, true);
   assert.equal(result.updatedAt, '2026-04-15T12:00:00Z');
-  assert.deepEqual(result.warnings, ['Checked out 1 film box and 0 caulk allocations for job 18722.']);
+  assert.deepEqual(result.warnings, []);
 });
 
-test('executeSetJobStagedPickup passes canonical jobId payload into auto checkout', async () => {
+test('executeSetJobStagedPickup validates canonical jobId before staging without checkout-all', async () => {
   const jobId = '11111111-1111-4111-8111-111111111111';
   let checkoutPayload = null;
   let updateParams = null;
+  let loadStatePayload = null;
 
   const result = await executeSetJobStagedPickup(
     {},
@@ -155,6 +217,16 @@ test('executeSetJobStagedPickup passes canonical jobId payload into auto checkou
           stagingState: { blockingReason: '' },
         };
       },
+      loadJobStagingValidationState: async (_client, _orgId, _jobNumber, _warehouse, seedData) => {
+        loadStatePayload = seedData;
+        return { blockingReason: '' };
+      },
+      listAllocationsByJobId: async () => [],
+      listFilmOrdersByJobId: async () => [],
+      listJobPhasesByJobId: async () => [],
+      listJobRequirementsByJobId: async () => [],
+      listJobCaulkRequirementsByJobId: async () => [],
+      listCaulkJobAllocationsByJobId: async () => [],
       queryRow: async (_client, _sql, params) => {
         updateParams = params;
         return {
@@ -171,7 +243,8 @@ test('executeSetJobStagedPickup passes canonical jobId payload into auto checkou
     },
   );
 
-  assert.deepEqual(checkoutPayload, { jobId, jobNumber: '18722' });
+  assert.equal(checkoutPayload, null);
+  assert.equal(loadStatePayload?.jobId, jobId);
   assert.deepEqual(updateParams?.slice(0, 4), ['org-1', jobId, '18722', true]);
   assert.equal(result.jobId, jobId);
   assert.equal(result.isStagedForPickup, true);

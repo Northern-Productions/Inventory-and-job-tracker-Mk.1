@@ -175,7 +175,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.doesNotMatch(checkoutHistoryPage, /<Link|navigate\(`\/allocations\/jobs/);
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
-  assert.match(schemaLatest, /0149_film_order_traceability\.sql/);
+  assert.match(schemaLatest, /0150_phase_workflow_status\.sql/);
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
@@ -183,9 +183,9 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   const latestSupabaseMigration = readdir(supabaseMigrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
-  assert.equal(await latestBackendMigration, '0149_film_order_traceability.sql');
+  assert.equal(await latestBackendMigration, '0150_phase_workflow_status.sql');
   assert.equal(
     await latestSupabaseMigration,
-    '20260523100000_film_order_traceability.sql'
+    '20260523110000_phase_workflow_status.sql'
   );
 });

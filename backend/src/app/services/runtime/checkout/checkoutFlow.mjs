@@ -9,8 +9,6 @@ import {
   cloneValue,
   todayDateString,
   normalizeJobLifecycleStatus,
-  hasActiveOrderedRequirementAllocations,
-  buildOrderedAllocationReceiptMessage,
   boxUsesOrderedPlanning,
   assertCanCheckoutBoxFromWarehouse,
   assertLegalBoxWeightState,
@@ -19,6 +17,7 @@ import {
   listAllocationsByBox,
   listAllocationsByJobId,
   listFilmOrdersByJobId,
+  listJobPhasesByJobId,
   listJobRequirementsByJobId,
   listJobCaulkRequirementsByJobId,
   listCaulkJobAllocationsByJobId,
@@ -29,7 +28,6 @@ import {
   requireUuid,
 } from '../../runtimeDeps.mjs';
 import { autoLinkRemainingJobFeetToCheckedOutBox } from '../runtimeAllocationLinks.mjs';
-import { buildCaulkTransferAlertMessage, buildFilmTransferAlertMessage } from '../runtimeTransferUsage.mjs';
 import {
   loadJobStagingValidationState,
   resolveExistingOrLegacyJobHeader,
@@ -352,6 +350,7 @@ async function loadCheckoutAllStagingState(client, orgId, target) {
       target.jobNumber,
       target.existingJob.warehouse,
       {
+        jobId: target.existingJob.id,
         allocations: target.resolvedContext.allocations || undefined,
         filmOrders: target.resolvedContext.filmOrders || undefined
       }
@@ -361,12 +360,14 @@ async function loadCheckoutAllStagingState(client, orgId, target) {
   const [
     allocations,
     filmOrders,
+    phases,
     requirements,
     caulkRequirements,
     caulkAllocations,
   ] = await Promise.all([
     listAllocationsByJobId(client, orgId, target.jobId),
     listFilmOrdersByJobId(client, orgId, target.jobId),
+    listJobPhasesByJobId(client, orgId, target.jobId),
     listJobRequirementsByJobId(client, orgId, target.jobId),
     listJobCaulkRequirementsByJobId(client, orgId, target.jobId),
     listCaulkJobAllocationsByJobId(client, orgId, target.jobId),
@@ -378,8 +379,10 @@ async function loadCheckoutAllStagingState(client, orgId, target) {
     target.jobNumber,
     target.existingJob.warehouse,
     {
+      jobId: target.jobId,
       allocations,
       filmOrders,
+      phases,
       requirements,
       caulkRequirements,
       caulkAllocations,
@@ -404,26 +407,19 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
   const warnings = [];
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
-
-  if (
-    preCheckoutState.filmTransferAlerts.length > 0 &&
-    Array.isArray(preCheckoutState.caulkTransferAlerts) &&
-    preCheckoutState.caulkTransferAlerts.length > 0
-  ) {
-    throw new HttpError(400, 'Receive transferred film and caulk before checking out this job.');
-  }
-
-  if (preCheckoutState.filmTransferAlerts.length > 0) {
-    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutState.filmTransferAlerts, 'checkout'));
-  }
-
-  if (Array.isArray(preCheckoutState.caulkTransferAlerts) && preCheckoutState.caulkTransferAlerts.length > 0) {
-    throw new HttpError(400, buildCaulkTransferAlertMessage(preCheckoutState.caulkTransferAlerts, 'checkout'));
-  }
-
-  if (hasActiveOrderedRequirementAllocations(preCheckoutState.allocations, boxById)) {
-    throw new HttpError(400, buildOrderedAllocationReceiptMessage('checkout'));
-  }
+  let skippedFilmTransferCount = 0;
+  let skippedOrderedFilmCount = 0;
+  let skippedUnavailableFilmCount = 0;
+  let skippedCaulkTransferCount = 0;
+  let skippedOpenCaulkCheckoutCount = 0;
+  const filmTransferBoxIds = new Set(
+    (preCheckoutState.filmTransferAlerts || []).map((entry) => asTrimmedString(entry.boxId).toUpperCase()).filter(Boolean)
+  );
+  const caulkTransferAllocationIds = new Set(
+    (preCheckoutState.caulkTransferAlerts || [])
+      .map((entry) => asTrimmedString(entry.caulkAllocationId))
+      .filter(Boolean)
+  );
 
   const checkoutPlan = buildFilmCheckoutActionPlan(
     preCheckoutState.allocations,
@@ -435,6 +431,17 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
     const step = checkoutPlan[index];
     const currentBox = boxById[step.boxId];
     if (boxUsesOrderedPlanning(currentBox)) {
+      skippedOrderedFilmCount += 1;
+      continue;
+    }
+
+    if (filmTransferBoxIds.has(asTrimmedString(step.boxId).toUpperCase())) {
+      skippedFilmTransferCount += 1;
+      continue;
+    }
+
+    if (step.action === 'CHECK_OUT' && (!currentBox || currentBox.status !== 'IN_STOCK')) {
+      skippedUnavailableFilmCount += 1;
       continue;
     }
 
@@ -471,11 +478,14 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
       continue;
     }
 
+    if (caulkTransferAllocationIds.has(asTrimmedString(allocation.caulkAllocationId))) {
+      skippedCaulkTransferCount += 1;
+      continue;
+    }
+
     if (openCount > 0) {
-      throw new HttpError(
-        400,
-        `Caulk allocation ${allocation.caulkAllocationId} already has an open checkout and cannot be bulk checked out again until that cycle is closed.`
-      );
+      skippedOpenCaulkCheckoutCount += 1;
+      continue;
     }
 
     const checkoutResult = await checkoutCaulkAllocationForJob(
@@ -492,14 +502,36 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
   }
 
   const refreshedState = await loadCheckoutAllStagingState(client, orgId, target);
-  if (refreshedState.blockingReason) {
-    throw new HttpError(400, refreshedState.blockingReason);
+  const skippedCount =
+    skippedFilmTransferCount +
+    skippedOrderedFilmCount +
+    skippedUnavailableFilmCount +
+    skippedCaulkTransferCount +
+    skippedOpenCaulkCheckoutCount;
+  const checkedOutCount = checkedOutBoxCount + checkedOutCaulkCount;
+  if (checkedOutCount > 0) {
+    warnings.push(`Checked out ${checkedOutCount} item${checkedOutCount === 1 ? '' : 's'} for job ${normalizedJobNumber}.`);
   }
-
-  if (checkedOutBoxCount > 0 || checkedOutCaulkCount > 0) {
-    warnings.push(
-      `Checked out ${checkedOutBoxCount} film box${checkedOutBoxCount === 1 ? '' : 'es'} and ${checkedOutCaulkCount} caulk allocation${checkedOutCaulkCount === 1 ? '' : 's'} for job ${normalizedJobNumber}.`
-    );
+  if (skippedOrderedFilmCount > 0) {
+    warnings.push(`Skipped ${skippedOrderedFilmCount} film box${skippedOrderedFilmCount === 1 ? '' : 'es'} waiting for receipt.`);
+  }
+  if (skippedFilmTransferCount > 0) {
+    warnings.push(`Skipped ${skippedFilmTransferCount} film box${skippedFilmTransferCount === 1 ? '' : 'es'} waiting for transfer.`);
+  }
+  if (skippedUnavailableFilmCount > 0) {
+    warnings.push(`Skipped ${skippedUnavailableFilmCount} unavailable film box${skippedUnavailableFilmCount === 1 ? '' : 'es'}.`);
+  }
+  if (skippedCaulkTransferCount > 0) {
+    warnings.push(`Skipped ${skippedCaulkTransferCount} caulk allocation${skippedCaulkTransferCount === 1 ? '' : 's'} waiting for transfer.`);
+  }
+  if (skippedOpenCaulkCheckoutCount > 0) {
+    warnings.push(`Skipped ${skippedOpenCaulkCheckoutCount} caulk allocation${skippedOpenCaulkCheckoutCount === 1 ? '' : 's'} with an open checkout.`);
+  }
+  if (checkedOutCount === 0 && skippedCount === 0) {
+    warnings.push('No eligible material was available to check out.');
+  }
+  if (refreshedState.blockingReason) {
+    warnings.push(refreshedState.blockingReason);
   }
 
   return {

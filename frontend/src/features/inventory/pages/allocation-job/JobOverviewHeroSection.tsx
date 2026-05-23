@@ -164,7 +164,7 @@ export function JobOverviewHeroSection({
               : isLaborOnlyDisplayJob
                 ? 'Labor-only jobs do not require staging or checkout. They are tracked by crew leader and install date only.'
                 : stagingBlockingMessage ||
-                  'Mark this once the film and caulk are ready. Staging will check out all allocated material first.'}
+                  'Check out active phase material first, then mark the job staged for pickup.'}
           </p>
         </div>
         <div className="detail-actions job-detail-staged-actions">
@@ -177,8 +177,6 @@ export function JobOverviewHeroSection({
                 variant="secondary"
                 onClick={onCheckoutAll}
                 disabled={
-                  filmTransferAlerts.length > 0 ||
-                  caulkTransferAlerts.length > 0 ||
                   !hasCheckoutableMaterials ||
                   checkoutAllPending ||
                   stagedPickupPending ||

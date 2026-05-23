@@ -75,6 +75,13 @@ export type MutationHandlerDeps = {
   buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   setJobStagedPickup: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   checkoutAllJobMaterials: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  loadJobStagingValidationState: (
+    client: any,
+    orgId: string,
+    jobNumber: string,
+    warehouse: string,
+    seedData?: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
   completeJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   reopenJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
   deleteJob: (client: any, identity: AuthIdentity, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -266,6 +273,74 @@ async function buildPublicAllocationsWithReservationMetrics(
         : (deps.asTrimmedString(entry?.installDate) ? "WITH_INSTALL_DATE" : "WITHOUT_INSTALL_DATE"),
     };
   });
+}
+
+async function clearStagedPickupForActiveRequirements(
+  client: any,
+  orgId: string,
+  actor: string,
+  materialType: "FILM" | "CAULK",
+  requirementIds: string[],
+  deps: MutationHandlerDeps,
+) {
+  const warnings: string[] = [];
+  const seen = new Set(requirementIds.map((value) => deps.asTrimmedString(value)).filter(Boolean));
+  for (const requirementId of seen) {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_jobs_clear_staged_for_active_requirement",
+      orgId,
+      actor,
+      { requirementId, materialType },
+    );
+    if (Array.isArray(result.warnings)) {
+      warnings.push(...result.warnings.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean));
+    }
+  }
+  return warnings;
+}
+
+async function clearStagedPickupIfUpdatedJobBlocked(
+  client: any,
+  identity: AuthIdentity,
+  detail: Record<string, unknown>,
+  deps: MutationHandlerDeps,
+) {
+  const summary = asRecord(detail.summary);
+  if (summary.isStagedForPickup !== true) {
+    return { detail, warnings: [] as string[] };
+  }
+
+  const jobNumber = deps.asTrimmedString(summary.jobNumber);
+  const jobId = deps.asTrimmedString(summary.jobId);
+  const warehouse = deps.asTrimmedString(summary.warehouse);
+  if (!jobNumber) {
+    return { detail, warnings: [] as string[] };
+  }
+
+  const stagingState = await deps.loadJobStagingValidationState(
+    client,
+    identity.orgId,
+    jobNumber,
+    warehouse,
+    jobId ? { jobId } : {},
+  );
+  if (!deps.asTrimmedString(stagingState.blockingReason)) {
+    return { detail, warnings: [] as string[] };
+  }
+
+  await deps.setJobStagedPickup(client, identity, {
+    jobId,
+    jobNumber,
+    isStagedForPickup: false,
+  });
+
+  return {
+    detail: jobId
+      ? await deps.buildJobDetailById(client, identity.orgId, jobId)
+      : await deps.buildJobDetail(client, identity.orgId, jobNumber),
+    warnings: ["Staged pickup was cleared because active phase material is no longer fully checked out."],
+  };
 }
 
 type MutationHandler = (
@@ -544,11 +619,19 @@ const mutationHandlers: Record<string, MutationHandler> = {
         filmOrder = deps.toPublicFilmOrder(found, await deps.buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId));
       }
     }
+    const stagedWarnings = await clearStagedPickupForActiveRequirements(
+      client,
+      orgId,
+      actor,
+      "FILM",
+      allocations.map((entry) => deps.asTrimmedString(asRecord(entry).requirementId)),
+      deps,
+    );
     return ok({
       allocations,
       filmOrder,
       remainingUncoveredFeet: deps.integerOrZero(result.remainingUncoveredFeet),
-    }, result.warnings || []);
+    }, [...(result.warnings || []), ...stagedWarnings]);
   },
   "/allocations/apply": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
@@ -587,11 +670,19 @@ const mutationHandlers: Record<string, MutationHandler> = {
         filmOrder = deps.toPublicFilmOrder(found, await deps.buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId));
       }
     }
+    const stagedWarnings = await clearStagedPickupForActiveRequirements(
+      client,
+      orgId,
+      actor,
+      "FILM",
+      allocations.map((entry) => deps.asTrimmedString(asRecord(entry).requirementId)),
+      deps,
+    );
     return ok({
       allocations,
       filmOrder,
       remainingUncoveredFeet: deps.integerOrZero(result.remainingUncoveredFeet),
-    }, result.warnings || []);
+    }, [...(result.warnings || []), ...stagedWarnings]);
   },
   "/allocations/remove-box": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
@@ -719,7 +810,15 @@ const mutationHandlers: Record<string, MutationHandler> = {
       actor,
       rpcPayload,
     );
-    return ok(result, result.warnings || []);
+    const stagedWarnings = await clearStagedPickupForActiveRequirements(
+      client,
+      orgId,
+      actor,
+      "CAULK",
+      [deps.asTrimmedString(rpcPayload.requirementId)],
+      deps,
+    );
+    return ok(result, [...(result.warnings || []), ...stagedWarnings]);
   },
   "/allocations/caulk/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
@@ -821,7 +920,7 @@ const mutationHandlers: Record<string, MutationHandler> = {
       result.warnings || []
     );
   },
-  "/jobs/update": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+  "/jobs/update": async ({ client, identity, orgId, actor, normalizedPayload }, deps) => {
     const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
       findJobById: deps.findJobById,
       normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
@@ -845,11 +944,13 @@ const mutationHandlers: Record<string, MutationHandler> = {
     // Guarded transition only: api_acl_jobs_update targets exact jobId only
     // after this Edge guard has validated canonical identity.
     const result = await deps.callMutationRpc(client, "api_acl_jobs_update", orgId, actor, rpcPayload);
+    const detail = target.usedJobId
+      ? await deps.buildJobDetailById(client, orgId, target.jobId)
+      : await deps.buildJobDetail(client, orgId, result.jobNumber);
+    const stagedClearResult = await clearStagedPickupIfUpdatedJobBlocked(client, identity, detail, deps);
     return ok(
-      target.usedJobId
-        ? await deps.buildJobDetailById(client, orgId, target.jobId)
-        : await deps.buildJobDetail(client, orgId, result.jobNumber),
-      result.warnings || []
+      stagedClearResult.detail,
+      [...(result.warnings || []), ...stagedClearResult.warnings]
     );
   },
   "/jobs/requirement-state": async ({ client, orgId, actor, normalizedPayload }, deps) => {
@@ -862,13 +963,28 @@ const mutationHandlers: Record<string, MutationHandler> = {
       ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber }
       : payloadWithoutRequestOrg;
     const result = await deps.callMutationRpc(client, "api_acl_job_requirement_set_state", orgId, actor, rpcPayload);
+    const rpcPayloadRecord = rpcPayload as Record<string, unknown>;
+    const nextStatus = deps.asTrimmedString(rpcPayloadRecord.status).toUpperCase();
+    const materialType = deps.asTrimmedString(rpcPayloadRecord.materialType || rpcPayloadRecord.material_type).toUpperCase() === "CAULK"
+      ? "CAULK"
+      : "FILM";
+    const stagedWarnings = nextStatus === "ACTIVE"
+      ? await clearStagedPickupForActiveRequirements(
+        client,
+        orgId,
+        actor,
+        materialType,
+        [deps.asTrimmedString(rpcPayloadRecord.requirementId)],
+        deps,
+      )
+      : [];
     const jobId = target.usedJobId ? target.jobId : deps.asTrimmedString(result.jobId);
     const jobNumber = target.usedJobId ? target.jobNumber : deps.asTrimmedString(result.jobNumber || rpcPayload.jobNumber);
     return ok(
       jobId
         ? await deps.buildJobDetailById(client, orgId, jobId)
         : await deps.buildJobDetail(client, orgId, jobNumber),
-      result.warnings || []
+      [...(result.warnings || []), ...stagedWarnings]
     );
   },
   "/jobs/phase-state": async ({ client, orgId, actor, normalizedPayload }, deps) => {

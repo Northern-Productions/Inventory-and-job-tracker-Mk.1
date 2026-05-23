@@ -20,6 +20,7 @@ interface CaulkAllocationsSectionProps {
   clientIdConfigured: boolean;
   openCaulkCheckoutByAllocationId: Record<string, CaulkJobCheckoutEntry>;
   productsErrorMessage: string;
+  isWorkflowActiveAllocation?: (entry: CaulkJobAllocationEntry) => boolean;
   isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
   isCaulkCheckoutPending: (caulkCheckoutId: string, caulkAllocationId?: string) => boolean;
   isCaulkTransferPending: (transferId: string) => boolean;
@@ -35,6 +36,7 @@ interface CaulkAllocationsSectionProps {
 function renderCaulkAllocationActions({
   entry,
   openCheckoutEntry,
+  isWorkflowActive,
   isReadOnlyJob,
   canManageTransfers,
   isCaulkAllocationPending,
@@ -49,6 +51,7 @@ function renderCaulkAllocationActions({
 }: {
   entry: CaulkJobAllocationEntry;
   openCheckoutEntry?: CaulkJobCheckoutEntry;
+  isWorkflowActive: boolean;
   isReadOnlyJob: boolean;
   canManageTransfers: boolean;
   isCaulkAllocationPending: (caulkAllocationId: string) => boolean;
@@ -151,12 +154,16 @@ function renderCaulkAllocationActions({
       <Button
         type="button"
         variant="secondary"
-        onClick={() =>
-          hasOpenCheckout && openCheckoutEntry ? onOpenCheckin(openCheckoutEntry) : onOpenCheckout(entry)
-        }
-        disabled={allocationPending || checkoutPending}
+        onClick={() => {
+          if (hasOpenCheckout && openCheckoutEntry) {
+            onOpenCheckin(openCheckoutEntry);
+          } else if (isWorkflowActive) {
+            onOpenCheckout(entry);
+          }
+        }}
+        disabled={allocationPending || checkoutPending || (!hasOpenCheckout && !isWorkflowActive)}
       >
-        {hasOpenCheckout ? 'Check In' : 'Check Out'}
+        {hasOpenCheckout ? 'Check In' : isWorkflowActive ? 'Check Out' : 'Placeholder phase'}
       </Button>
       <Button
         type="button"
@@ -180,6 +187,7 @@ export function CaulkAllocationsSection({
   clientIdConfigured,
   openCaulkCheckoutByAllocationId,
   productsErrorMessage,
+  isWorkflowActiveAllocation = () => true,
   isCaulkAllocationPending,
   isCaulkCheckoutPending,
   isCaulkTransferPending,
@@ -256,6 +264,7 @@ export function CaulkAllocationsSection({
                 {renderCaulkAllocationActions({
                   entry,
                   openCheckoutEntry,
+                  isWorkflowActive: isWorkflowActiveAllocation(entry),
                   isReadOnlyJob,
                   canManageTransfers,
                   isCaulkAllocationPending,
@@ -350,6 +359,7 @@ export function CaulkAllocationsSection({
                       {renderCaulkAllocationActions({
                         entry,
                         openCheckoutEntry,
+                        isWorkflowActive: isWorkflowActiveAllocation(entry),
                         isReadOnlyJob,
                         canManageTransfers,
                         isCaulkAllocationPending,

@@ -1386,7 +1386,7 @@ describe('AllocationJobPage', () => {
     expect(activeHtml).toContain('Waiting on warehouse staging');
     expect(activeHtml).toContain('Checkout All');
     expect(activeHtml).toContain('Mark Staged for Pickup');
-    expect(activeHtml).toContain('Staging will check out all allocated material first.');
+    expect(activeHtml).toContain('Check out the allocated film before staging this job.');
 
     useJobMock.mockReturnValueOnce({
       isLoading: false,
@@ -1487,7 +1487,7 @@ describe('AllocationJobPage', () => {
     expect(html).not.toContain('Checkout All');
   });
 
-  it('keeps staged pickup available when checkout-all can clear allocated material', () => {
+  it('keeps Checkout All available while staged pickup waits for checked-out material', () => {
     const detail = buildMaterialJobDetail({
       summary: buildSummary({
         status: 'READY',
@@ -1508,8 +1508,8 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Checkout All');
     expect(html).toContain('Mark Staged for Pickup');
-    expect(html).toContain('Staging will check out all allocated material first.');
-    expect(html).not.toContain('Check out the allocated film before staging this job.');
+    expect(html).toContain('Check out the allocated film before staging this job.');
+    expect(html).toContain('disabled="" type="button">Mark Staged for Pickup</button>');
   });
 
   it('labels the film allocation action as extra when all film requirements are fulfilled', () => {

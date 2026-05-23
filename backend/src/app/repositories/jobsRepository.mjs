@@ -12,6 +12,7 @@ import { resolveCatalogWriteFilmEntry } from '../core/catalog.mjs';
 import {
   normalizeJobPhaseLaborStatus,
   normalizeJobPhaseNumber,
+  normalizeJobPhaseWorkflowStatus,
   normalizeJobRequirementLookupKey,
 } from '../core/jobs.mjs';
 import {
@@ -252,6 +253,7 @@ async function saveJobPhaseRecord(client, orgId, jobId, phase) {
         install_end_date,
         crew_leader,
         labor_status,
+        workflow_status,
         is_primary,
         created_at,
         created_by,
@@ -264,10 +266,11 @@ async function saveJobPhaseRecord(client, orgId, jobId, phase) {
         nullif($6, '')::date,
         nullif($7, '')::date,
         $8,$9,$10,
-        coalesce($11::timestamptz, now()),
-        $12,
-        coalesce($13::timestamptz, now()),
-        $14
+        $11,
+        coalesce($12::timestamptz, now()),
+        $13,
+        coalesce($14::timestamptz, now()),
+        $15
       )
       on conflict (id) do update set
         phase_number = excluded.phase_number,
@@ -276,6 +279,7 @@ async function saveJobPhaseRecord(client, orgId, jobId, phase) {
         install_end_date = excluded.install_end_date,
         crew_leader = excluded.crew_leader,
         labor_status = excluded.labor_status,
+        workflow_status = excluded.workflow_status,
         is_primary = excluded.is_primary,
         updated_at = excluded.updated_at,
         updated_by = excluded.updated_by
@@ -291,6 +295,7 @@ async function saveJobPhaseRecord(client, orgId, jobId, phase) {
       phase.installEndDate || '',
       asTrimmedString(phase.crewLeader),
       normalizeJobPhaseLaborStatus(phase.laborStatus || phase.status),
+      normalizeJobPhaseWorkflowStatus(phase.workflowStatus || phase.workflow_status),
       phase.isPrimary === true,
       phase.createdAt || '',
       asTrimmedString(phase.createdBy),
@@ -314,6 +319,7 @@ async function ensureDefaultJobPhase(client, orgId, jobHeader, actor = '', nowIs
     installDate: jobHeader.installDate || '',
     crewLeader: jobHeader.crewLeader || '',
     laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+    workflowStatus: 'ACTIVE',
     isPrimary: true,
     createdAt: jobHeader.createdAt || nowIso || new Date().toISOString(),
     createdBy: jobHeader.createdBy || actor || '',
@@ -331,6 +337,7 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
         installDate: jobHeader.installDate || '',
         crewLeader: jobHeader.crewLeader || '',
         laborStatus: jobHeader.isLaborOnly ? 'ACTIVE' : 'ACTIVE',
+        workflowStatus: 'ACTIVE',
         isPrimary: true,
       }];
   const seenPhaseNumbers = new Set();
@@ -362,6 +369,7 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
       phaseNumber,
       sections: entry.sections ?? entry.workScope ?? null,
       laborStatus: entry.laborStatus || entry.status,
+      workflowStatus: entry.workflowStatus || entry.workflow_status || (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER'),
       isPrimary: index === 0 || entry.isPrimary === true,
       updatedAt: nowIso,
       updatedBy: actor,
@@ -385,16 +393,31 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
 async function setJobPhaseLaborState(client, orgId, params, actor) {
   const jobId = requireUuid(params.jobId, 'JobId');
   const phaseId = requireUuid(params.phaseId, 'PhaseId');
-  const status = normalizeJobPhaseLaborStatus(params.status);
+  const hasLaborStatus =
+    Object.prototype.hasOwnProperty.call(params || {}, 'status') ||
+    Object.prototype.hasOwnProperty.call(params || {}, 'laborStatus') ||
+    Object.prototype.hasOwnProperty.call(params || {}, 'labor_status');
+  const hasWorkflowStatus =
+    Object.prototype.hasOwnProperty.call(params || {}, 'workflowStatus') ||
+    Object.prototype.hasOwnProperty.call(params || {}, 'workflow_status') ||
+    Object.prototype.hasOwnProperty.call(params || {}, 'phaseWorkflowStatus');
+  if (!hasLaborStatus && !hasWorkflowStatus) {
+    throw new HttpError(400, 'Phase state update requires a status or workflowStatus.');
+  }
+  const status = normalizeJobPhaseLaborStatus(params.status || params.laborStatus || params.labor_status);
+  const workflowStatus = normalizeJobPhaseWorkflowStatus(
+    params.workflowStatus || params.workflow_status || params.phaseWorkflowStatus
+  );
 
   const row = await queryRow(
     client,
     `
       update app.job_phases p
       set
-        labor_status = $4,
+        labor_status = case when $4::boolean then $5 else p.labor_status end,
+        workflow_status = case when $6::boolean then $7 else p.workflow_status end,
         updated_at = now(),
-        updated_by = $5
+        updated_by = $8
       from app.jobs j
       where p.org_id = $1
         and p.job_id = $2
@@ -403,7 +426,16 @@ async function setJobPhaseLaborState(client, orgId, params, actor) {
         and j.id = p.job_id
       returning p.*, j.job_number
     `,
-    [orgId, jobId, phaseId, status, asTrimmedString(actor)]
+    [
+      orgId,
+      jobId,
+      phaseId,
+      hasLaborStatus,
+      status,
+      hasWorkflowStatus,
+      workflowStatus,
+      asTrimmedString(actor)
+    ]
   );
 
   if (!row) {

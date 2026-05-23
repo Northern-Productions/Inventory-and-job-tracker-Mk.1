@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0149_film_order_traceability.sql';
+const LATEST_MIGRATION = '0150_phase_workflow_status.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -34,6 +34,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.job_phases' },
   { kind: 'column', signature: 'app.job_phases.phase_number' },
   { kind: 'column', signature: 'app.job_phases.labor_status' },
+  { kind: 'column', signature: 'app.job_phases.workflow_status' },
   { kind: 'column', signature: 'app.job_phases.install_end_date' },
   { kind: 'column', signature: 'app.job_requirements.phase_id' },
   { kind: 'column', signature: 'app.job_caulk_requirements.phase_id' },
@@ -104,11 +105,13 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.require_job_phase_number(text, text)' },
   { kind: 'function', signature: 'app_api.job_phase_rows_from_payload(jsonb)' },
   { kind: 'function', signature: 'app_api.replace_job_phases(uuid, app.jobs, jsonb, text, timestamp with time zone)' },
+  { kind: 'function', signature: 'app_api.normalize_job_phase_workflow_status(text)' },
   { kind: 'function', signature: 'app_api.job_phase_requirements_payload(uuid, app.jobs, jsonb)' },
   { kind: 'function', signature: 'app_api.job_phase_caulk_requirements_payload(uuid, app.jobs, jsonb)' },
   { kind: 'function', signature: 'app_api.record_requirement_actual_usage_for_checkin(uuid, text, text, uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.record_caulk_requirement_actual_usage_for_checkin(uuid, text, text, integer)' },
   { kind: 'function', signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_jobs_clear_staged_for_active_requirement(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_job_phase_set_state(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_job_phases(uuid)' },
   { kind: 'function', signature: 'public.api_acl_list_job_phases_by_job(uuid, text)' },

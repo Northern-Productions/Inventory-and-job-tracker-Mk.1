@@ -19,6 +19,7 @@ interface AllocatedBoxesSectionProps {
   clientIdConfigured: boolean;
   isStatusMutationPending: (boxId: string) => boolean;
   filmTransferAlertsByBoxId: Partial<Record<string, JobFilmTransferAlert>>;
+  isWorkflowActiveAllocation?: (entry: AllocationJobDetailEntry) => boolean;
   onOpenAllocateDialog: () => void;
   onOpenBox: (boxId: string) => void;
   onOpenFilmCheckin: (entry: AllocationJobDetailEntry) => void;
@@ -145,6 +146,7 @@ function renderAllocationActions({
   isReadOnlyJob,
   isStatusMutationPending,
   transferAlert,
+  isWorkflowActive,
   onOpenFilmCheckin,
   onCheckoutAllocation,
   onRemoveAllocation,
@@ -156,6 +158,7 @@ function renderAllocationActions({
   isReadOnlyJob: boolean;
   isStatusMutationPending: (boxId: string) => boolean;
   transferAlert?: JobFilmTransferAlert;
+  isWorkflowActive: boolean;
   onOpenFilmCheckin: (entry: AllocationJobDetailEntry) => void;
   onCheckoutAllocation: (entry: AllocationJobDetailEntry) => void;
   onRemoveAllocation: (entry: AllocationJobDetailEntry) => void;
@@ -184,6 +187,8 @@ function renderAllocationActions({
         <span className="muted-text">{formatFilmTransferStateLabel(transferAlert)}</span>
       ) : entry.boxStatus === 'ORDERED' ? (
         <span className="muted-text">Waiting for receipt</span>
+      ) : !isWorkflowActive ? (
+        <span className="muted-text">Placeholder phase</span>
       ) : entry.boxStatus === 'IN_STOCK' ? (
         <Button
           type="button"
@@ -254,6 +259,7 @@ export function AllocatedBoxesSection({
   clientIdConfigured,
   isStatusMutationPending,
   filmTransferAlertsByBoxId,
+  isWorkflowActiveAllocation = () => true,
   onOpenAllocateDialog,
   onOpenBox,
   onOpenFilmCheckin,
@@ -293,6 +299,8 @@ export function AllocatedBoxesSection({
         <div className="mobile-record-list">
           {groups.map((group) => {
             const entry = group.representativeEntry;
+            const actionEntry =
+              group.entries.find((detailEntry) => isWorkflowActiveAllocation(detailEntry)) || entry;
             const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
             const isExpanded = Boolean(expandedGroups[group.groupKey]);
             const canExpand = group.entries.length > 1;
@@ -375,10 +383,11 @@ export function AllocatedBoxesSection({
                   </div>
                 ) : null}
                 {renderAllocationActions({
-                  entry,
+                  entry: actionEntry,
                   isReadOnlyJob,
                   isStatusMutationPending,
                   transferAlert,
+                  isWorkflowActive: isWorkflowActiveAllocation(actionEntry),
                   onOpenFilmCheckin,
                   onCheckoutAllocation,
                   onRemoveAllocation,
@@ -411,6 +420,8 @@ export function AllocatedBoxesSection({
             <tbody>
               {groups.map((group) => {
                 const entry = group.representativeEntry;
+                const actionEntry =
+                  group.entries.find((detailEntry) => isWorkflowActiveAllocation(detailEntry)) || entry;
                 const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
                 const isExpanded = Boolean(expandedGroups[group.groupKey]);
                 const canExpand = group.entries.length > 1;
@@ -453,10 +464,11 @@ export function AllocatedBoxesSection({
                       <td>{formatGroupDate(group.entries, 'resolvedAt')}</td>
                       <td>
                         {renderAllocationActions({
-                          entry,
+                          entry: actionEntry,
                           isReadOnlyJob,
                           isStatusMutationPending,
                           transferAlert,
+                          isWorkflowActive: isWorkflowActiveAllocation(actionEntry),
                           onOpenFilmCheckin,
                           onCheckoutAllocation,
                           onRemoveAllocation,

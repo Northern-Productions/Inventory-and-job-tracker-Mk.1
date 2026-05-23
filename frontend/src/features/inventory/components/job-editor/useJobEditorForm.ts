@@ -200,6 +200,7 @@ export function useJobEditorForm({
       installEndDate: '',
       crewLeader: crewLeaderValue || '',
       laborStatus: 'ACTIVE',
+      workflowStatus: 'ACTIVE',
       isPrimary: true
     };
   }
@@ -222,6 +223,10 @@ export function useJobEditorForm({
       installEndDate: phase.installEndDate || '',
       crewLeader: phase.crewLeader || '',
       laborStatus: phase.laborStatus === 'COMPLETE' ? 'COMPLETE' as const : 'ACTIVE' as const,
+      workflowStatus:
+        String(phase.workflowStatus || '').trim().toUpperCase() === 'PLACEHOLDER'
+          ? 'PLACEHOLDER' as const
+          : 'ACTIVE' as const,
       isPrimary: phase.isPrimary === true || index === 0,
       isComplete: phase.isComplete === true,
       isNextRelevant: phase.isNextRelevant === true,
@@ -364,6 +369,7 @@ export function useJobEditorForm({
         installEndDate: '',
         crewLeader: '',
         laborStatus: 'ACTIVE',
+        workflowStatus: nextNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER',
         isPrimary: false
       };
       setSelectedPhaseKey(nextPhase.id);

@@ -44,8 +44,10 @@ export default function AllocationJobPage() {
     stagingBlockingMessage,
     canMarkStagedPickup,
     visibleAllocations,
+    isActiveFilmAllocationEntry,
     openCaulkCheckoutByAllocationId,
     visibleCaulkAllocations,
+    isActiveCaulkAllocationEntry,
     hasCheckoutableMaterials,
     totalRequiredCaulkTubes,
     totalAllocatedCaulkTubes,
@@ -76,6 +78,7 @@ export default function AllocationJobPage() {
     handleSetRequirementState,
     handleSetCaulkRequirementState,
     handleSetPhaseState,
+    handleSetPhaseWorkflowState,
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
@@ -260,6 +263,9 @@ export default function AllocationJobPage() {
           void handleSetCaulkRequirementState(requirement, nextStatus)
         }
         onSetPhaseState={(phase, nextStatus) => void handleSetPhaseState(phase, nextStatus)}
+        onSetPhaseWorkflowState={(phase, nextWorkflowStatus) =>
+          void handleSetPhaseWorkflowState(phase, nextWorkflowStatus)
+        }
         onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}
         onResumeCaulkAutoPlanning={(requirement) => void handleResumeCaulkAutoPlanning(requirement)}
         onCancelRequirementOrder={handleCancelRequirementOrder}
@@ -276,6 +282,7 @@ export default function AllocationJobPage() {
         clientIdConfigured={auth.clientIdConfigured}
         isStatusMutationPending={filmWorkflow.isBoxStatusPending}
         filmTransferAlertsByBoxId={filmTransferAlertsByBoxId}
+        isWorkflowActiveAllocation={isActiveFilmAllocationEntry}
         onOpenAllocateDialog={filmWorkflow.openAllocateDialog}
         onOpenBox={openInventoryBox}
         onOpenFilmCheckin={filmWorkflow.openFilmCheckinDialog}
@@ -293,6 +300,7 @@ export default function AllocationJobPage() {
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         openCaulkCheckoutByAllocationId={openCaulkCheckoutByAllocationId}
+        isWorkflowActiveAllocation={isActiveCaulkAllocationEntry}
         productsErrorMessage={
           caulkProductsQuery.isError
             ? caulkProductsQuery.error instanceof Error

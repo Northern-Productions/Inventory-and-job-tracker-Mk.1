@@ -235,6 +235,25 @@ describe('AllocatedBoxesSection', () => {
     );
   });
 
+  it('does not offer film checkout for placeholder-phase allocations', () => {
+    renderSection(
+      [
+        buildEntry({
+          allocationId: 'alloc-placeholder',
+          boxId: 'IL1-PLACEHOLDER',
+          boxStatus: 'IN_STOCK'
+        })
+      ],
+      {
+        isWorkflowActiveAllocation: () => false
+      }
+    );
+
+    expect(screen.getByText('Placeholder phase')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+  });
+
   it('shows one check-in action for duplicate checked-out same-box allocations', () => {
     const onOpenFilmCheckin = vi.fn();
     const entries = [

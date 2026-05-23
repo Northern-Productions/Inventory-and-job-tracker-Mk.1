@@ -34,6 +34,18 @@ function getCalendarJobKey(job: JobListEntry) {
   ].join(':');
 }
 
+function shouldShowCalendarStagedMark(job: JobListEntry) {
+  return (
+    job.lifecycleStatus === 'ACTIVE' &&
+    job.isStagedForPickup === true &&
+    String(
+      job.workflowStatus ||
+      job.phases?.find((phase) => phase.phaseId === job.phaseId)?.workflowStatus ||
+      ''
+    ).trim().toUpperCase() !== 'PLACEHOLDER'
+  );
+}
+
 interface JobsCalendarViewProps {
   view: JobCalendarView;
   anchorDate: string;
@@ -105,6 +117,7 @@ function renderJobLink(
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
   const displayJobLabel = formatJobDisplayLabel(job);
+  const showStagedMark = shouldShowCalendarStagedMark(job);
   const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber, job.jobId);
   const handleClick = () => {
     handlePrefetch();
@@ -119,7 +132,7 @@ function renderJobLink(
       className={[
         'job-calendar-job-link',
         options.compact ? 'job-calendar-job-link-compact' : '',
-        job.isStagedForPickup ? 'job-calendar-job-link-staged' : '',
+        showStagedMark ? 'job-calendar-job-link-staged' : '',
         isHighlighted ? 'job-calendar-job-link-highlight' : '',
         getCalendarJobStatusClass(job)
       ]
@@ -130,7 +143,7 @@ function renderJobLink(
       onFocus={handlePrefetch}
     >
       <span className="job-calendar-job-link-number">{displayJobLabel}</span>
-      {job.isStagedForPickup ? (
+      {showStagedMark ? (
         <span className="job-calendar-stage-mark" aria-label="Staged for pickup" title="Staged for pickup">
           {'\u2713'}
         </span>
@@ -150,6 +163,7 @@ function renderCalendarEventSegment(
   const job = segment.job;
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
   const displayJobLabel = formatJobDisplayLabel(job);
+  const showStagedMark = shouldShowCalendarStagedMark(job);
   const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber, job.jobId);
   const handleClick = () => handlePrefetch();
 
@@ -163,7 +177,7 @@ function renderCalendarEventSegment(
         segment.isMultiDay ? 'job-calendar-event-bar-multi-day' : 'job-calendar-event-bar-single-day',
         segment.isRangeStart ? 'job-calendar-event-bar-range-start' : 'job-calendar-event-bar-range-middle',
         segment.isRangeEnd ? 'job-calendar-event-bar-range-end' : 'job-calendar-event-bar-range-middle',
-        job.isStagedForPickup ? 'job-calendar-event-bar-staged' : '',
+        showStagedMark ? 'job-calendar-event-bar-staged' : '',
         isHighlighted ? 'job-calendar-job-link-highlight' : '',
         getCalendarJobStatusClass(job)
       ]
@@ -176,7 +190,7 @@ function renderCalendarEventSegment(
       title={displayJobLabel}
     >
       <span className="job-calendar-event-label">{displayJobLabel}</span>
-      {job.isStagedForPickup ? (
+      {showStagedMark ? (
         <span className="job-calendar-stage-mark" aria-label="Staged for pickup" title="Staged for pickup">
           {'\u2713'}
         </span>

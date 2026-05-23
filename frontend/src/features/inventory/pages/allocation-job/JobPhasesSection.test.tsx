@@ -14,6 +14,9 @@ function buildPhase(overrides: Partial<JobPhase> = {}): JobPhase {
     installDate: '2026-05-21',
     crewLeader: 'Alexis',
     laborStatus: 'ACTIVE',
+    workflowStatus: 'ACTIVE',
+    isPlaceholder: false,
+    isWorkflowActive: true,
     status: 'READY',
     isComplete: false,
     isPrimary: true,
@@ -60,6 +63,7 @@ function renderPhases({
   focusedPhaseId = '',
   requirements = [] as JobRequirementLine[],
   onSetPhaseState = vi.fn(),
+  onSetPhaseWorkflowState = vi.fn(),
 } = {}) {
   const props = {
     phases,
@@ -83,6 +87,7 @@ function renderPhases({
     onSetRequirementState: vi.fn(),
     onSetCaulkRequirementState: vi.fn(),
     onSetPhaseState,
+    onSetPhaseWorkflowState,
     onResumeAutoPlanning: vi.fn(),
     onResumeCaulkAutoPlanning: vi.fn(),
     onCancelRequirementOrder: vi.fn(),
@@ -92,6 +97,7 @@ function renderPhases({
   return {
     ...render(<JobPhasesSection {...props} />),
     onSetPhaseState,
+    onSetPhaseWorkflowState,
   };
 }
 
@@ -126,11 +132,37 @@ describe('JobPhasesSection', () => {
 
   it('toggles labor-only phase state without requiring a film requirement', () => {
     const onSetPhaseState = vi.fn();
-    renderPhases({ onSetPhaseState });
+    const { container } = renderPhases({ onSetPhaseState });
 
-    fireEvent.click(screen.getAllByRole('checkbox', { name: 'Active' })[0]);
+    const laborToggle = container.querySelector('.phase-labor-toggle input');
+    expect(laborToggle).not.toBeNull();
+    fireEvent.click(laborToggle as HTMLInputElement);
 
     expect(onSetPhaseState).toHaveBeenCalledWith(expect.objectContaining({ phaseId: 'phase-1' }), 'COMPLETE');
+  });
+
+  it('toggles phase workflow state between Active and Placeholder', () => {
+    const onSetPhaseWorkflowState = vi.fn();
+    renderPhases({
+      onSetPhaseWorkflowState,
+      phases: [
+        buildPhase({
+          phaseId: 'phase-2',
+          phaseNumber: 2,
+          workflowStatus: 'PLACEHOLDER',
+          isPlaceholder: true,
+          isWorkflowActive: false,
+          isExpandedByDefault: true,
+        }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Placeholder' }));
+
+    expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
+      expect.objectContaining({ phaseId: 'phase-2' }),
+      'ACTIVE'
+    );
   });
 
   it('expands, scrolls, focuses, and highlights a targeted phase', async () => {
@@ -235,6 +267,7 @@ describe('JobPhasesSection', () => {
         onSetRequirementState={vi.fn()}
         onSetCaulkRequirementState={vi.fn()}
         onSetPhaseState={vi.fn()}
+        onSetPhaseWorkflowState={vi.fn()}
         onResumeAutoPlanning={vi.fn()}
         onResumeCaulkAutoPlanning={vi.fn()}
         onCancelRequirementOrder={vi.fn()}

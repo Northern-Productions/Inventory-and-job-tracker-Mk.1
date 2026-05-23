@@ -2628,6 +2628,7 @@ async function listCaulkJobCheckoutsByJobIdDirect(orgId: string, jobId: string) 
 function buildJobStagingValidationState(params: {
   jobNumber: string;
   warehouse: string;
+  phases?: any[];
   allocations: any[];
   filmOrders: any[];
   requirements: any[];
@@ -2636,15 +2637,49 @@ function buildJobStagingValidationState(params: {
   boxes: any[];
   pendingTransfersByBoxRecordId: Record<string, any>;
 }) {
+  const phaseEntries = Array.isArray(params.phases) ? params.phases : [];
+  const fallbackPhaseId = asTrimmedString(phaseEntries.find((entry) => entry?.isPrimary)?.phaseId || phaseEntries[0]?.phaseId);
+  const activePhaseIds = new Set(
+    phaseEntries
+      .filter(isPhaseWorkflowActive)
+      .map((entry) => asTrimmedString(entry.phaseId || entry.id))
+      .filter(Boolean),
+  );
+  const isActivePhaseEntry = (entry: any) => {
+    if (!phaseEntries.length) {
+      return true;
+    }
+    const phaseId = getEntryPhaseId(entry);
+    if (phaseId) {
+      return activePhaseIds.has(phaseId);
+    }
+    return Boolean(fallbackPhaseId && activePhaseIds.has(fallbackPhaseId));
+  };
+  const activeRequirements = params.requirements.filter(isActivePhaseEntry);
+  const activeCaulkRequirements = params.caulkRequirements.filter(isActivePhaseEntry);
+  const activeRequirementIds = new Set(activeRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const activeCaulkRequirementIds = new Set(activeCaulkRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const activeAllocations = params.allocations.filter((entry) => {
+    const requirementId = getRequirementId(entry);
+    return requirementId ? activeRequirementIds.has(requirementId) : isActivePhaseEntry(entry);
+  });
+  const activeFilmOrders = params.filmOrders.filter((entry) => {
+    const requirementId = getRequirementId(entry);
+    return requirementId ? activeRequirementIds.has(requirementId) : isActivePhaseEntry(entry);
+  });
+  const activeCaulkAllocations = params.caulkAllocations.filter((entry) => {
+    const requirementId = getRequirementId(entry);
+    return requirementId ? activeCaulkRequirementIds.has(requirementId) : isActivePhaseEntry(entry);
+  });
   const boxById = indexBoxesById(params.boxes);
   const publicRequirements = buildPublicJobRequirementEntries(
-    params.requirements,
-    params.allocations,
+    activeRequirements,
+    activeAllocations,
     boxById,
   );
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
-    params.caulkRequirements,
-    params.caulkAllocations,
+    activeCaulkRequirements,
+    activeCaulkAllocations,
     {
       jobNumber: params.jobNumber,
       jobWarehouse: params.warehouse,
@@ -2652,23 +2687,24 @@ function buildJobStagingValidationState(params: {
   );
   const filmTransferAlerts = buildJobFilmTransferAlerts(
     params.warehouse,
-    params.allocations,
+    activeAllocations,
     boxById,
     params.pendingTransfersByBoxRecordId,
   );
   const caulkTransferAlerts = buildJobCaulkTransferAlerts(
     params.warehouse,
-    params.caulkAllocations,
+    activeCaulkAllocations,
   );
 
   return {
     jobNumber: params.jobNumber,
     warehouse: params.warehouse,
-    allocations: params.allocations,
-    filmOrders: params.filmOrders,
-    requirements: params.requirements,
-    caulkRequirements: params.caulkRequirements,
-    caulkAllocations: params.caulkAllocations,
+    phases: phaseEntries,
+    allocations: activeAllocations,
+    filmOrders: activeFilmOrders,
+    requirements: activeRequirements,
+    caulkRequirements: activeCaulkRequirements,
+    caulkAllocations: activeCaulkAllocations,
     boxes: params.boxes,
     boxById,
     pendingTransfersByBoxRecordId: params.pendingTransfersByBoxRecordId,
@@ -2679,9 +2715,9 @@ function buildJobStagingValidationState(params: {
     blockingReason: getJobStagingBlockingReason(
       publicRequirements,
       publicCaulkRequirements,
-      params.allocations,
-      params.filmOrders,
-      params.caulkAllocations,
+      activeAllocations,
+      activeFilmOrders,
+      activeCaulkAllocations,
       filmTransferAlerts,
       caulkTransferAlerts,
       boxById,
@@ -2696,13 +2732,18 @@ async function loadJobStagingValidationState(
   warehouse: string,
   seedData: Record<string, any> = {},
 ) {
-  const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
+  const [allocations, filmOrders, phases, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
     Array.isArray(seedData.allocations)
       ? seedData.allocations
       : listAllocationsByJob(client, orgId, jobNumber),
     Array.isArray(seedData.filmOrders)
       ? seedData.filmOrders
       : listFilmOrdersByJob(client, orgId, jobNumber),
+    Array.isArray(seedData.phases)
+      ? seedData.phases
+      : seedData.jobId
+        ? listJobPhasesByJobId(client, orgId, asTrimmedString(seedData.jobId))
+        : Promise.resolve([]),
     Array.isArray(seedData.requirements)
       ? seedData.requirements
       : listJobRequirementsByJob(client, orgId, jobNumber),
@@ -2713,9 +2754,35 @@ async function loadJobStagingValidationState(
       ? seedData.caulkAllocations
       : listCaulkJobAllocationsByJob(client, orgId, jobNumber),
   ]);
+  const fallbackPhaseId = asTrimmedString(phases.find((entry: any) => entry?.isPrimary)?.phaseId || phases[0]?.phaseId);
+  const activePhaseIds = new Set(
+    (Array.isArray(phases) ? phases : [])
+      .filter(isPhaseWorkflowActive)
+      .map((entry: any) => asTrimmedString(entry.phaseId || entry.id))
+      .filter(Boolean),
+  );
+  const activeRequirements = (Array.isArray(requirements) ? requirements : []).filter((entry: any) => {
+    if (!phases.length) {
+      return true;
+    }
+    const phaseId = getEntryPhaseId(entry);
+    return phaseId ? activePhaseIds.has(phaseId) : Boolean(fallbackPhaseId && activePhaseIds.has(fallbackPhaseId));
+  });
+  const activeRequirementIds = new Set(activeRequirements.map((entry: any) => getRequirementId(entry)).filter(Boolean));
+  const activeAllocations = (Array.isArray(allocations) ? allocations : []).filter((entry: any) => {
+    const requirementId = getRequirementId(entry);
+    if (requirementId) {
+      return activeRequirementIds.has(requirementId);
+    }
+    if (!phases.length) {
+      return true;
+    }
+    const phaseId = getEntryPhaseId(entry);
+    return phaseId ? activePhaseIds.has(phaseId) : Boolean(fallbackPhaseId && activePhaseIds.has(fallbackPhaseId));
+  });
   const boxes = Array.isArray(seedData.boxes)
     ? seedData.boxes
-    : await listBoxesByIds(orgId, collectAllocationBoxIds(allocations));
+    : await listBoxesByIds(orgId, collectAllocationBoxIds(activeAllocations));
   const pendingTransfersByBoxRecordId =
     seedData.pendingTransfersByBoxRecordId ??
     (boxes.length
@@ -2731,6 +2798,7 @@ async function loadJobStagingValidationState(
   return buildJobStagingValidationState({
     jobNumber,
     warehouse,
+    phases,
     allocations,
     filmOrders,
     requirements,
@@ -5239,6 +5307,7 @@ function hasUncheckedOutFilmRequirementAllocations(allocations: any[]) {
   return allocations.some(
     (entry) =>
       asTrimmedString(entry.status).toUpperCase() === "ACTIVE" &&
+      !asTrimmedString(entry.resolvedAt || entry.resolved_at) &&
       normalizeAllocationKind(entry.allocationKind) !== "EXTRA" &&
       integerOrZero(entry.allocatedFeet) > 0,
   );
@@ -5288,6 +5357,9 @@ function getJobStagingBlockingReason(
   if (hasActiveOrderedRequirementAllocations(allocations, boxById)) {
     return buildOrderedAllocationReceiptMessage("staging");
   }
+  if (hasUncheckedOutFilmRequirementAllocations(allocations)) {
+    return "All required film must be checked out before staging this job.";
+  }
   if (hasUncheckedOutCaulkAllocations(caulkAllocations)) {
     return "All required caulk must be checked out before staging this job.";
   }
@@ -5303,6 +5375,9 @@ function buildFallbackJobPhase(jobHeader: any) {
     installDate: jobHeader.installDate || "",
     crewLeader: jobHeader.crewLeader || "",
     laborStatus: "ACTIVE",
+    workflowStatus: "ACTIVE",
+    isPlaceholder: false,
+    isWorkflowActive: true,
     isPrimary: true,
     createdAt: jobHeader.createdAt || "",
     updatedAt: jobHeader.updatedAt || "",
@@ -5366,8 +5441,20 @@ function comparePhasesByNumber(left: any, right: any): number {
   return compareCatalogStrings(left?.phaseId, right?.phaseId);
 }
 
+function getPhaseWorkflowStatus(phase: any) {
+  return asTrimmedString(phase?.workflowStatus || phase?.workflow_status).toUpperCase() === "PLACEHOLDER"
+    ? "PLACEHOLDER"
+    : "ACTIVE";
+}
+
+function isPhaseWorkflowActive(phase: any) {
+  return getPhaseWorkflowStatus(phase) === "ACTIVE";
+}
+
 function chooseNextRelevantPhaseGroup(phases: any[]) {
-  const incomplete = (Array.isArray(phases) ? phases : []).filter((phase) => !phase.isComplete).slice();
+  const incomplete = (Array.isArray(phases) ? phases : [])
+    .filter((phase) => !phase.isComplete && isPhaseWorkflowActive(phase))
+    .slice();
   if (!incomplete.length) {
     return [];
   }
@@ -5438,6 +5525,7 @@ function buildJobPhaseEntries(
       fallbackPhaseId,
     );
     const isComplete = isPhaseCompleteFromRequirements(phase, phaseRequirements, phaseCaulkRequirements);
+    const workflowStatus = getPhaseWorkflowStatus(phase);
     const status = isComplete
       ? "COMPLETED"
       : deriveInStockReadinessStatus({
@@ -5479,6 +5567,9 @@ function buildJobPhaseEntries(
       installEndDate: asTrimmedString(phase.installEndDate),
       crewLeader: asTrimmedString(phase.crewLeader),
       laborStatus: asTrimmedString(phase.laborStatus || phase.status).toUpperCase() === "COMPLETE" ? "COMPLETE" : "ACTIVE",
+      workflowStatus,
+      isPlaceholder: workflowStatus === "PLACEHOLDER",
+      isWorkflowActive: workflowStatus === "ACTIVE",
       status,
       isComplete,
       isPrimary: phase.isPrimary === true || (!phase.isPrimary && index === 0),
@@ -5503,7 +5594,9 @@ function buildJobPhaseEntries(
   return entries.map((entry) => ({
     ...entry,
     isNextRelevant: currentIds.has(asTrimmedString(entry.phaseId)),
-    isExpandedByDefault: currentIds.has(asTrimmedString(entry.phaseId)) || (!entry.isComplete && !entry.installDate),
+    isExpandedByDefault:
+      currentIds.has(asTrimmedString(entry.phaseId)) ||
+      (entry.isWorkflowActive && !entry.isComplete && !entry.installDate),
   }));
 }
 
@@ -5536,7 +5629,8 @@ function buildJobListEntry(
     options,
   );
   const nextPhaseGroup = chooseNextRelevantPhaseGroup(phaseEntries);
-  const currentPhase = nextPhaseGroup[0] || phaseEntries[0] || null;
+  const activePhaseEntries = phaseEntries.filter(isPhaseWorkflowActive);
+  const currentPhase = nextPhaseGroup[0] || activePhaseEntries[0] || phaseEntries[0] || null;
   let installDate = asTrimmedString(currentPhase?.installDate) || jobHeader.installDate;
   if (!installDate) {
     installDate = metadata.installDate;
@@ -5548,21 +5642,27 @@ function buildJobListEntry(
   let allocatedWithInstallDateFeet = 0;
   let allocatedWithoutInstallDateFeet = 0;
   let remainingFeet = 0;
-  const summaryRequirements = nextPhaseGroup.length
-    ? requirements.filter((entry) => nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)))
-    : requirements;
-  const summaryCaulkRequirements = nextPhaseGroup.length
-    ? caulkRequirements.filter((entry) =>
-        nextPhaseGroup.some((phase) => asTrimmedString(phase.phaseId) === getEntryPhaseId(entry)),
-      )
-    : caulkRequirements;
-  const caulkTotals = nextPhaseGroup.length
+  const summaryPhaseGroup = nextPhaseGroup.length ? nextPhaseGroup : activePhaseEntries;
+  const entryBelongsToSummaryPhase = (entry: any) => {
+    const entryPhaseId = getEntryPhaseId(entry);
+    return summaryPhaseGroup.some((phase) => {
+      const phaseId = asTrimmedString(phase.phaseId);
+      return phaseId ? entryPhaseId === phaseId : !entryPhaseId;
+    });
+  };
+  const summaryRequirements = summaryPhaseGroup.length
+    ? requirements.filter(entryBelongsToSummaryPhase)
+    : [];
+  const summaryCaulkRequirements = summaryPhaseGroup.length
+    ? caulkRequirements.filter(entryBelongsToSummaryPhase)
+    : [];
+  const caulkTotals = summaryPhaseGroup.length
     ? {
-        requiredTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
-        allocatedTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
-        remainingTubes: nextPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
+        requiredTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.requiredTubes), 0),
+        allocatedTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.allocatedTubes), 0),
+        remainingTubes: summaryPhaseGroup.reduce((sum, phase) => sum + integerOrZero(phase.remainingTubes), 0),
       }
-    : summarizeCaulkRequirementCoverage(caulkRequirements);
+    : { requiredTubes: 0, allocatedTubes: 0, remainingTubes: 0 };
   for (const requirement of summaryRequirements) {
     if (isRequirementComplete(requirement)) {
       continue;
@@ -5577,20 +5677,33 @@ function buildJobListEntry(
     jobHeader && jobHeader.id
       ? resolveEffectiveJobLifecycleStatus(jobHeader.lifecycleStatus, allocations, filmOrders)
       : deriveLegacyLifecycleStatus(allocations, filmOrders);
+  const summaryRequirementIds = new Set(summaryRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const summaryCaulkRequirementIds = new Set(summaryCaulkRequirements.map((entry) => getRequirementId(entry)).filter(Boolean));
+  const scopedAllocations = summaryPhaseGroup.length
+    ? allocations.filter((entry) => summaryRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry))
+    : [];
+  const scopedFilmOrders = summaryPhaseGroup.length
+    ? filmOrders.filter((entry) => summaryRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry))
+    : [];
+  const scopedCaulkAllocations = summaryPhaseGroup.length
+    ? (options.caulkAllocations || []).filter((entry) =>
+        summaryCaulkRequirementIds.has(getRequirementId(entry)) || entryBelongsToSummaryPhase(entry)
+      )
+    : [];
   const status = nextPhaseGroup.length
     ? combinePhaseGroupStatus(nextPhaseGroup)
     : computeJobStatusFromRequirements(
         effectiveLifecycleStatus,
-        Boolean(jobHeader.isLaborOnly),
+        !summaryRequirements.length && !summaryCaulkRequirements.length,
         Boolean(jobHeader.isStagedForPickup),
         summaryRequirements,
         summaryCaulkRequirements,
-        allocations,
-        filmOrders,
+        scopedAllocations,
+        scopedFilmOrders,
         {
           allBoxes: options.allBoxes || Object.values(boxById || {}),
           boxById: options.boxById || boxById,
-          caulkAllocations: options.caulkAllocations || [],
+          caulkAllocations: scopedCaulkAllocations,
           caulkStockEntries: options.caulkStockEntries || [],
           jobNumber: jobHeader.jobNumber || "",
           jobWarehouse: options.jobWarehouse || jobHeader.warehouse || "",
@@ -5610,6 +5723,8 @@ function buildJobListEntry(
     phaseId: asTrimmedString(currentPhase?.phaseId),
     phaseNumber: integerOrZero(currentPhase?.phaseNumber) || undefined,
     phaseWorkScope: workScope,
+    workflowStatus: getPhaseWorkflowStatus(currentPhase),
+    isPlaceholder: getPhaseWorkflowStatus(currentPhase) === "PLACEHOLDER",
     phaseCount: phaseEntries.length,
     phases: phaseEntries,
     installDate,
@@ -5629,8 +5744,8 @@ function buildJobListEntry(
     remainingTubes: caulkTotals.remainingTubes,
     requirementCount: requirements.length,
     allocationCount: allocations.length,
-    filmOrderCount: countUnresolvedFilmOrders(filmOrders),
-    hasOrderedAllocations: hasActiveOrderedAllocations(allocations, boxById),
+    filmOrderCount: countUnresolvedFilmOrders(scopedFilmOrders),
+    hasOrderedAllocations: hasActiveOrderedAllocations(scopedAllocations, boxById),
     createdAt: jobHeader.createdAt || "",
     updatedAt: jobHeader.updatedAt || "",
     notes: jobHeader.notes || "",
@@ -7041,6 +7156,7 @@ async function buildJobsCalendarEntriesForHeaders(
     allocations: any[];
     filmOrders: any[];
     requirements: any[];
+    phases: any[];
     caulkRequirements: any[];
     caulkAllocations: any[];
   }> = [];
@@ -7054,9 +7170,10 @@ async function buildJobsCalendarEntriesForHeaders(
         }
 
         const jobId = getEntryJobId(header);
-        const [allocations, filmOrders, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
+        const [allocations, filmOrders, phases, requirements, caulkRequirements, caulkAllocations] = await Promise.all([
           listAllocationsByJob(client, orgId, jobNumber),
           listFilmOrdersByJob(client, orgId, jobNumber),
+          jobId ? listJobPhasesByJobId(client, orgId, jobId) : Promise.resolve([]),
           listJobRequirementsByJob(client, orgId, jobNumber),
           jobId
             ? listJobCaulkRequirementsByJobIdDirect(orgId, header)
@@ -7070,6 +7187,7 @@ async function buildJobsCalendarEntriesForHeaders(
           header,
           allocations,
           filmOrders,
+          phases,
           requirements,
           caulkRequirements,
           caulkAllocations,
@@ -7106,6 +7224,7 @@ async function buildJobsCalendarEntriesForHeaders(
       {
         allBoxes,
         caulkAllocations: row.caulkAllocations,
+        phases: row.phases,
         caulkStockEntries: [],
         jobWarehouse: row.header?.warehouse || "",
       },
@@ -7138,6 +7257,9 @@ function buildPhaseCalendarEntries(entries: any[]) {
           installEndDate: entry.installEndDate,
           crewLeader: entry.crewLeader,
           status: entry.status,
+          workflowStatus: entry.workflowStatus,
+          isPlaceholder: entry.isPlaceholder,
+          isWorkflowActive: !entry.isPlaceholder,
           workScope: entry.workScope ?? entry.sections,
           sections: entry.sections ?? entry.workScope,
         }];
@@ -7158,6 +7280,9 @@ function buildPhaseCalendarEntries(entries: any[]) {
         installEndDate,
         crewLeader: asTrimmedString(phase.crewLeader),
         status: asTrimmedString(phase.status) || entry.status,
+        workflowStatus: getPhaseWorkflowStatus(phase),
+        isPlaceholder: getPhaseWorkflowStatus(phase) === "PLACEHOLDER",
+        isWorkflowActive: getPhaseWorkflowStatus(phase) === "ACTIVE",
         workScope: phase.workScope ?? phase.sections ?? entry.workScope,
         sections: phase.sections ?? phase.workScope ?? entry.sections,
         phaseId: asTrimmedString(phase.phaseId),
@@ -7831,16 +7956,19 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   }
 
   const jobWarehouse = asTrimmedString((jobRow as Record<string, unknown>).warehouse);
-  const canonicalHeader = target.usedJobId
-    ? { ...(jobRow as Record<string, unknown>), id: targetJobId, jobNumber, warehouse: jobWarehouse }
+  const effectiveJobId = target.usedJobId ? targetJobId : asTrimmedString((jobRow as Record<string, unknown>).id);
+  const canonicalHeader = effectiveJobId
+    ? { ...(jobRow as Record<string, unknown>), id: effectiveJobId, jobNumber, warehouse: jobWarehouse }
     : null;
-  const canonicalSeedData = target.usedJobId
+  const canonicalSeedData = effectiveJobId
     ? {
-      allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
-      filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+      jobId: effectiveJobId,
+      allocations: await listAllocationsByJobIdDirect(orgId, effectiveJobId),
+      filmOrders: await listFilmOrdersByJobIdDirect(orgId, effectiveJobId),
+      phases: await listJobPhasesByJobId(client, orgId, effectiveJobId),
       requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
       caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
-      caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+      caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, effectiveJobId),
     }
     : {};
   const preCheckoutState = await loadJobStagingValidationState(
@@ -7850,18 +7978,6 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     jobWarehouse,
     canonicalSeedData,
   );
-  if (preCheckoutState.filmTransferAlerts.length > 0 && preCheckoutState.caulkTransferAlerts.length > 0) {
-    throw new HttpError(400, "Receive transferred film and caulk before checking out this job.");
-  }
-  if (preCheckoutState.filmTransferAlerts.length > 0) {
-    throw new HttpError(400, buildFilmTransferAlertMessage(preCheckoutState.filmTransferAlerts, "checkout"));
-  }
-  if (preCheckoutState.caulkTransferAlerts.length > 0) {
-    throw new HttpError(400, buildCaulkTransferAlertMessage(preCheckoutState.caulkTransferAlerts, "checkout"));
-  }
-  if (hasActiveOrderedRequirementAllocations(preCheckoutState.allocations, preCheckoutState.boxById)) {
-    throw new HttpError(400, buildOrderedAllocationReceiptMessage("checkout"));
-  }
   const checkoutPlan = buildFilmCheckoutActionPlan(
     preCheckoutState.allocations,
     preCheckoutState.boxById,
@@ -7869,14 +7985,32 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   );
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
+  let skippedFilmTransferCount = 0;
+  let skippedOrderedFilmCount = 0;
+  let skippedUnavailableFilmCount = 0;
+  let skippedCaulkTransferCount = 0;
+  let skippedOpenCaulkCheckoutCount = 0;
+  const filmTransferBoxIds = new Set(
+    preCheckoutState.filmTransferAlerts.map((entry: any) => asTrimmedString(entry.boxId).toUpperCase()).filter(Boolean),
+  );
+  const caulkTransferAllocationIds = new Set(
+    preCheckoutState.caulkTransferAlerts.map((entry: any) => asTrimmedString(entry.caulkAllocationId)).filter(Boolean),
+  );
 
   for (const step of checkoutPlan) {
     const box = preCheckoutState.boxById[step.boxId];
     if (!box) {
-      throw new HttpError(404, `Box ${step.boxId} was not found.`);
+      skippedUnavailableFilmCount += 1;
+      continue;
     }
 
     if (boxUsesOrderedPlanning(box)) {
+      skippedOrderedFilmCount += 1;
+      continue;
+    }
+
+    if (filmTransferBoxIds.has(asTrimmedString(step.boxId).toUpperCase())) {
+      skippedFilmTransferCount += 1;
       continue;
     }
 
@@ -7890,10 +8024,8 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
         : normalizeJobNumberKey(box.lastCheckoutJob) === normalizeJobNumberKey(jobNumber));
 
     if (!sameJobCheckedOut && normalizedBoxStatus !== "IN_STOCK") {
-      throw new HttpError(
-        400,
-        `Box ${box.boxId} is ${normalizedBoxStatus || "not in stock"} and cannot be checked out from this view.`,
-      );
+      skippedUnavailableFilmCount += 1;
+      continue;
     }
 
     if (step.action === "RESOLVE_ONLY" || sameJobCheckedOut) {
@@ -7944,11 +8076,14 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
+    if (caulkTransferAllocationIds.has(asTrimmedString(allocation.caulkAllocationId))) {
+      skippedCaulkTransferCount += 1;
+      continue;
+    }
+
     if (openCount > 0) {
-      throw new HttpError(
-        400,
-        `Caulk allocation ${allocation.caulkAllocationId} already has an open checkout and cannot be bulk checked out again until that cycle is closed.`,
-      );
+      skippedOpenCaulkCheckoutCount += 1;
+      continue;
     }
 
     const result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
@@ -7973,24 +8108,48 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     orgId,
     jobNumber,
     jobWarehouse,
-    target.usedJobId
+    effectiveJobId
       ? {
-        allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
-        filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+        jobId: effectiveJobId,
+        allocations: await listAllocationsByJobIdDirect(orgId, effectiveJobId),
+        filmOrders: await listFilmOrdersByJobIdDirect(orgId, effectiveJobId),
+        phases: await listJobPhasesByJobId(client, orgId, effectiveJobId),
         requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
         caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
-        caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+        caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, effectiveJobId),
       }
       : {},
   );
-  if (refreshedState.blockingReason) {
-    throw new HttpError(400, refreshedState.blockingReason);
+  const skippedCount =
+    skippedFilmTransferCount +
+    skippedOrderedFilmCount +
+    skippedUnavailableFilmCount +
+    skippedCaulkTransferCount +
+    skippedOpenCaulkCheckoutCount;
+  const checkedOutCount = checkedOutBoxCount + checkedOutCaulkCount;
+  if (checkedOutCount > 0) {
+    warnings.push(`Checked out ${checkedOutCount} item${checkedOutCount === 1 ? "" : "s"} for job ${jobNumber}.`);
   }
-
-  if (checkedOutBoxCount > 0 || checkedOutCaulkCount > 0) {
-    warnings.push(
-      `Checked out ${checkedOutBoxCount} film box${checkedOutBoxCount === 1 ? "" : "es"} and ${checkedOutCaulkCount} caulk allocation${checkedOutCaulkCount === 1 ? "" : "s"} for job ${jobNumber}.`,
-    );
+  if (skippedOrderedFilmCount > 0) {
+    warnings.push(`Skipped ${skippedOrderedFilmCount} film box${skippedOrderedFilmCount === 1 ? "" : "es"} waiting for receipt.`);
+  }
+  if (skippedFilmTransferCount > 0) {
+    warnings.push(`Skipped ${skippedFilmTransferCount} film box${skippedFilmTransferCount === 1 ? "" : "es"} waiting for transfer.`);
+  }
+  if (skippedUnavailableFilmCount > 0) {
+    warnings.push(`Skipped ${skippedUnavailableFilmCount} unavailable film box${skippedUnavailableFilmCount === 1 ? "" : "es"}.`);
+  }
+  if (skippedCaulkTransferCount > 0) {
+    warnings.push(`Skipped ${skippedCaulkTransferCount} caulk allocation${skippedCaulkTransferCount === 1 ? "" : "s"} waiting for transfer.`);
+  }
+  if (skippedOpenCaulkCheckoutCount > 0) {
+    warnings.push(`Skipped ${skippedOpenCaulkCheckoutCount} caulk allocation${skippedOpenCaulkCheckoutCount === 1 ? "" : "s"} with an open checkout.`);
+  }
+  if (checkedOutCount === 0 && skippedCount === 0) {
+    warnings.push("No eligible material was available to check out.");
+  }
+  if (refreshedState.blockingReason) {
+    warnings.push(refreshedState.blockingReason);
   }
 
   return {
@@ -8057,23 +8216,12 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
 
   const warnings: string[] = [];
   const jobWarehouse = asTrimmedString((jobRow as Record<string, unknown>).warehouse);
-  const canonicalHeader = target.usedJobId
-    ? { ...(jobRow as Record<string, unknown>), id: targetJobId, jobNumber, warehouse: jobWarehouse }
+  const effectiveJobId = target.usedJobId ? targetJobId : asTrimmedString((jobRow as Record<string, unknown>).id);
+  const canonicalHeader = effectiveJobId
+    ? { ...(jobRow as Record<string, unknown>), id: effectiveJobId, jobNumber, warehouse: jobWarehouse }
     : null;
   if (nextIsStaged) {
     let stagingState: Record<string, unknown> | null = null;
-    const autoCheckoutRemaining =
-      payload.autoCheckoutRemaining === true || asTrimmedString(payload.autoCheckoutRemaining).toLowerCase() === "true";
-
-    if (autoCheckoutRemaining) {
-      const checkoutResult = await executeCheckoutAllJobMaterials(
-        client,
-        identity,
-        target.usedJobId ? { ...payload, jobId: targetJobId, jobNumber } : payload,
-      );
-      warnings.push(...(checkoutResult.warnings || []));
-      stagingState = checkoutResult.stagingState || null;
-    }
 
     if (!stagingState) {
       stagingState = await loadJobStagingValidationState(
@@ -8081,13 +8229,15 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
         orgId,
         jobNumber,
         jobWarehouse,
-        target.usedJobId
+        effectiveJobId
           ? {
-            allocations: await listAllocationsByJobIdDirect(orgId, targetJobId),
-            filmOrders: await listFilmOrdersByJobIdDirect(orgId, targetJobId),
+            jobId: effectiveJobId,
+            allocations: await listAllocationsByJobIdDirect(orgId, effectiveJobId),
+            filmOrders: await listFilmOrdersByJobIdDirect(orgId, effectiveJobId),
+            phases: await listJobPhasesByJobId(client, orgId, effectiveJobId),
             requirements: await listJobRequirementsByJobIdDirect(orgId, canonicalHeader),
             caulkRequirements: await listJobCaulkRequirementsByJobIdDirect(orgId, canonicalHeader),
-            caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, targetJobId),
+            caulkAllocations: await listCaulkJobAllocationsByJobIdDirect(orgId, effectiveJobId),
           }
           : {},
       );
@@ -8107,7 +8257,7 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
       updated_by: actor,
     })
     .eq("org_id", orgId)
-    .eq("id", target.usedJobId ? targetJobId : (jobRow as Record<string, unknown>).id);
+    .eq("id", effectiveJobId);
   throwOnSupabaseError(updateError, "Unable to update staged pickup");
 
   return {
@@ -9452,6 +9602,7 @@ async function dispatchMutation(
     buildJobDetailById,
     setJobStagedPickup,
     checkoutAllJobMaterials,
+    loadJobStagingValidationState,
     completeJob,
     reopenJob,
     deleteJob,

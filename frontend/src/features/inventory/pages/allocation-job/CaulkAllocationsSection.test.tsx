@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaulkJobAllocationEntry, CaulkJobCheckoutEntry } from '../../../../domain';
 import { CaulkAllocationsSection } from './CaulkAllocationsSection';
@@ -197,5 +197,38 @@ describe('CaulkAllocationsSection', () => {
     expect(
       within(secondDataRow).getByRole('button', { name: 'Check In' }).hasAttribute('disabled')
     ).toBe(false);
+  });
+
+  it('keeps caulk checkout disabled for placeholder-phase allocations', () => {
+    const onOpenCheckout = vi.fn();
+    render(
+      <CaulkAllocationsSection
+        entries={[buildAllocation()]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        canManageTransfers={true}
+        canOpenAllocateDialog={true}
+        isAuthenticated={true}
+        clientIdConfigured={true}
+        openCaulkCheckoutByAllocationId={{}}
+        productsErrorMessage=""
+        isWorkflowActiveAllocation={() => false}
+        isCaulkAllocationPending={() => false}
+        isCaulkCheckoutPending={() => false}
+        isCaulkTransferPending={() => false}
+        onOpenAllocateDialog={vi.fn()}
+        onOpenEdit={vi.fn()}
+        onOpenCheckout={onOpenCheckout}
+        onOpenCheckin={vi.fn()}
+        onReceiveTransfer={vi.fn()}
+        onCancelTransfer={vi.fn()}
+        onRemove={vi.fn()}
+      />
+    );
+
+    const button = screen.getByRole('button', { name: 'Placeholder phase' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(button);
+    expect(onOpenCheckout).not.toHaveBeenCalled();
   });
 });

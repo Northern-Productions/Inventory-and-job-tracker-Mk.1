@@ -23,6 +23,7 @@ import {
   normalizeJobLifecycleStatus,
   normalizeJobPhaseNumber,
   normalizeJobPhaseLaborStatus,
+  normalizeJobPhaseWorkflowStatus,
   normalizeJobRequirementLookupKey,
   dedupeJobRequirements,
   normalizeJobNumberKey,
@@ -72,6 +73,7 @@ import {
   ensureJobHeaderForUpdate,
   resolveExistingOrLegacyJobHeader,
 } from './runtimeJobsRead.mjs';
+import { loadJobStagingValidationState } from './runtimeCheckoutOperations.mjs';
 import {
   buildJobRequirementsByLookupKey,
   isRequirementComplete,
@@ -171,8 +173,53 @@ function buildDefaultPhaseInputFromJobPayload(payload, fallbackPhase = {}) {
       ? asTrimmedString(payload.crewLeader)
       : asTrimmedString(fallbackPhase.crewLeader),
     laborStatus: normalizeJobPhaseLaborStatus(fallbackPhase.laborStatus || fallbackPhase.status),
+    workflowStatus: normalizeJobPhaseWorkflowStatus(
+      payload.workflowStatus ??
+      payload.workflow_status ??
+      fallbackPhase.workflowStatus ??
+      fallbackPhase.workflow_status ??
+      (Number(payload.phaseNumber || fallbackPhase.phaseNumber || 1) === 1 ? 'ACTIVE' : 'PLACEHOLDER')
+    ),
     isPrimary: true,
   };
+}
+
+async function clearStagedPickupIfActiveMaterialBlocked(
+  client,
+  orgId,
+  jobHeader,
+  actor,
+  warnings,
+  reason = 'Staged pickup was cleared because active phase material is no longer fully checked out.'
+) {
+  if (!jobHeader?.isStagedForPickup) {
+    return jobHeader;
+  }
+
+  const jobId = asTrimmedString(jobHeader.id || jobHeader.jobId);
+  const jobNumber = asTrimmedString(jobHeader.jobNumber);
+  if (!jobId || !jobNumber) {
+    return jobHeader;
+  }
+
+  const stagingState = await loadJobStagingValidationState(
+    client,
+    orgId,
+    jobNumber,
+    jobHeader.warehouse,
+    { jobId }
+  );
+  if (!stagingState.blockingReason) {
+    return jobHeader;
+  }
+
+  const nextJob = cloneValue(jobHeader);
+  nextJob.isStagedForPickup = false;
+  nextJob.updatedAt = new Date().toISOString();
+  nextJob.updatedBy = actor;
+  const savedJob = await saveJobRecordById(client, orgId, nextJob);
+  warnings.push(reason);
+  return savedJob;
 }
 
 function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
@@ -201,6 +248,9 @@ function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
       ),
       crewLeader: asTrimmedString(entry?.crewLeader),
       laborStatus: normalizeJobPhaseLaborStatus(entry?.laborStatus || entry?.status),
+      workflowStatus: normalizeJobPhaseWorkflowStatus(
+        entry?.workflowStatus ?? entry?.workflow_status ?? entry?.phaseWorkflowStatus ?? (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER')
+      ),
       isPrimary: entry?.isPrimary === true || index === 0,
       requirements: Array.isArray(entry?.requirements) ? entry.requirements : [],
       caulkRequirements: Array.isArray(entry?.caulkRequirements) ? entry.caulkRequirements : [],
@@ -708,6 +758,14 @@ async function updateJob(client, orgId, payload, actor) {
     }
   }
 
+  savedHeader = await clearStagedPickupIfActiveMaterialBlocked(
+    client,
+    orgId,
+    savedHeader,
+    actor,
+    warnings
+  );
+
   return ok(
     target.usedJobId
       ? await buildJobDetailById(client, orgId, target.jobId)
@@ -1214,6 +1272,17 @@ async function setJobRequirementState(client, orgId, payload, actor) {
     jobNumbers: [jobNumber],
   });
 
+  if (nextStatus === 'ACTIVE') {
+    await clearStagedPickupIfActiveMaterialBlocked(
+      client,
+      orgId,
+      existingJob,
+      actor,
+      warnings,
+      'Staged pickup was cleared because an active requirement now has material that is not fully checked out.'
+    );
+  }
+
   return ok(await buildJobDetailById(client, orgId, jobId), warnings);
 }
 
@@ -1224,7 +1293,21 @@ async function setJobPhaseLaborState(client, orgId, payload, actor) {
     requireUuid(suppliedJobId, 'jobId');
   }
   const phaseId = requireUuid(payload.phaseId, 'PhaseId');
-  const nextStatus = normalizeJobPhaseLaborStatus(payload.status);
+  const hasLaborStatus =
+    Object.prototype.hasOwnProperty.call(payload || {}, 'status') ||
+    Object.prototype.hasOwnProperty.call(payload || {}, 'laborStatus') ||
+    Object.prototype.hasOwnProperty.call(payload || {}, 'labor_status');
+  const hasWorkflowStatus =
+    Object.prototype.hasOwnProperty.call(payload || {}, 'workflowStatus') ||
+    Object.prototype.hasOwnProperty.call(payload || {}, 'workflow_status') ||
+    Object.prototype.hasOwnProperty.call(payload || {}, 'phaseWorkflowStatus');
+  if (!hasLaborStatus && !hasWorkflowStatus) {
+    throw new HttpError(400, 'Phase state update requires a status or workflowStatus.');
+  }
+  const nextStatus = normalizeJobPhaseLaborStatus(payload.status || payload.laborStatus || payload.labor_status);
+  const nextWorkflowStatus = normalizeJobPhaseWorkflowStatus(
+    payload.workflowStatus || payload.workflow_status || payload.phaseWorkflowStatus
+  );
 
   let jobId = '';
   let jobNumber = '';
@@ -1251,7 +1334,27 @@ async function setJobPhaseLaborState(client, orgId, payload, actor) {
     throw new HttpError(400, `Job ${jobNumber} is closed. Reopen it before changing phase state.`);
   }
 
-  await saveJobPhaseLaborState(client, orgId, { jobId, phaseId, status: nextStatus }, actor);
+  await saveJobPhaseLaborState(
+    client,
+    orgId,
+    {
+      jobId,
+      phaseId,
+      ...(hasLaborStatus ? { status: nextStatus } : {}),
+      ...(hasWorkflowStatus ? { workflowStatus: nextWorkflowStatus } : {})
+    },
+    actor
+  );
+  if (hasWorkflowStatus && nextWorkflowStatus === 'ACTIVE') {
+    await clearStagedPickupIfActiveMaterialBlocked(
+      client,
+      orgId,
+      existingJob,
+      actor,
+      warnings,
+      'Staged pickup was cleared because an active phase has material that is not fully checked out.'
+    );
+  }
   return ok(await buildJobDetailById(client, orgId, jobId), warnings);
 }
 
