@@ -14,6 +14,7 @@ const BoxDetailsPage = lazy(() => import('../features/inventory/pages/BoxDetails
 const QrScanPage = lazy(() => import('../features/inventory/pages/QrScanPage'));
 const ActivityPage = lazy(() => import('../features/inventory/pages/ActivityPage'));
 const FilmOrdersPage = lazy(() => import('../features/inventory/pages/FilmOrdersPage'));
+const FilmOrderDetailsPage = lazy(() => import('../features/inventory/pages/FilmOrderDetailsPage'));
 const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage'));
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
@@ -77,6 +78,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: '/film-orders',
         element: withFeatureRoute(<FilmOrdersPage />, 'film_orders', 'read')
+      },
+      {
+        path: '/film-orders/:filmOrderId',
+        element: withFeatureRoute(<FilmOrderDetailsPage />, 'film_orders', 'read')
       },
       {
         path: '/activity',

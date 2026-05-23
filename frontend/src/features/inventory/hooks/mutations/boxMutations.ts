@@ -104,7 +104,8 @@ export function useAddBox() {
             inventoryKeys.jobsListRoot,
             inventoryKeys.jobsCalendarRoot,
             inventoryKeys.allocationJobRoot,
-            inventoryKeys.allocationJobs
+            inventoryKeys.allocationJobs,
+            inventoryKeys.filmOrderRoot
           ]
         : [];
 
@@ -141,6 +142,7 @@ export function useAddBox() {
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog })
         ]);
@@ -151,6 +153,7 @@ export function useAddBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog })
       ]);
       void persistOfflineInventoryBox(queryClient, result.box);
@@ -202,6 +205,7 @@ export function useUpdateBox() {
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
@@ -220,6 +224,7 @@ export function useUpdateBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmCatalog }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
@@ -361,6 +366,7 @@ export function useSetBoxStatus() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })
@@ -386,6 +392,7 @@ export function useReceiveOrderedBox() {
         queryClient.cancelQueries({ queryKey: inventoryKeys.box(payload.boxId) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
@@ -402,6 +409,7 @@ export function useReceiveOrderedBox() {
           inventoryKeys.box(payload.boxId),
           inventoryKeys.listRoot,
           inventoryKeys.filmOrders,
+          inventoryKeys.filmOrderRoot,
           inventoryKeys.jobs,
           inventoryKeys.jobRoot,
           inventoryKeys.allocationJobs,
@@ -448,6 +456,7 @@ export function useReceiveOrderedBox() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.history(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.allocations(result.box.boxId) }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.activityRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
         queryClient.invalidateQueries({ queryKey: inventoryKeys.ownerReportsRoot })

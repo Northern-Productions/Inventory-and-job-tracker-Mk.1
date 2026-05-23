@@ -7694,6 +7694,25 @@ async function buildFilmOrdersList(client: any, orgId: string) {
   );
 }
 
+async function buildFilmOrderDetail(client: any, orgId: string, filmOrderId: unknown) {
+  const result = await rpcOrThrow<Record<string, unknown> | null>(client, "api_acl_film_orders_get", {
+    p_org_id: orgId,
+    p_film_order_id: requireString(filmOrderId, "filmOrderId"),
+  });
+  if (!result) {
+    throw new HttpError(404, "Film order not found.");
+  }
+  return result;
+}
+
+async function buildBoxFilmOrderOrigins(client: any, orgId: string, boxId: string) {
+  const result = await rpcOrThrow<any[] | null>(client, "api_acl_box_film_order_origins", {
+    p_org_id: orgId,
+    p_box_id: requireString(boxId, "boxId"),
+  });
+  return Array.isArray(result) ? result : [];
+}
+
 async function buildFilmCatalog(client: any, orgId: string) {
   const entries = await listFilmCatalog(client, orgId);
   const dedupedByKey: Record<string, any> = {};
@@ -9387,6 +9406,8 @@ async function dispatchRead(
     buildJobDetail,
     buildJobDetailById,
     buildFilmOrdersList,
+    buildFilmOrderDetail,
+    buildBoxFilmOrderOrigins,
     buildFilmCatalog,
     listRollHistoryByBox,
     buildReportsSummary,

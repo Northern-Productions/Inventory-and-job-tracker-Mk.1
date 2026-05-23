@@ -90,6 +90,7 @@ export {
   createFilmOrder,
   deleteFilmOrder,
   getFilmCatalog,
+  getFilmOrderDetail,
   getFilmOrders
 } from './features/filmOrdersClient';
 export { getAuditByBox, getRollHistoryByBox, listAudit, undoAudit } from './features/auditClient';

@@ -87,6 +87,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/jobs/reopen': 'jobs',
 
   '/film-orders/list': 'film_orders',
+  '/film-orders/get': 'film_orders',
   '/film-orders/create': 'film_orders',
   '/film-orders/cancel': 'film_orders',
   '/film-orders/delete': 'film_orders',
@@ -132,6 +133,7 @@ export const READ_PATHS = Object.freeze([
   '/jobs/get',
   '/jobs/get-by-id',
   '/film-orders/list',
+  '/film-orders/get',
   '/film-data/catalog',
   '/roll-history/by-box',
   '/reports/summary',

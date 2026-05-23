@@ -14,6 +14,7 @@ export {
   useBoxAllocations,
   useBoxHistory,
   useFilmCatalog,
+  useFilmOrderDetail,
   useFilmOrders,
   useIsAddBoxPending,
   useJob,

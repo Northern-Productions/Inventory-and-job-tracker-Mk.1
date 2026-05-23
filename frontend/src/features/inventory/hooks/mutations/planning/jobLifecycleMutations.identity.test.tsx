@@ -22,6 +22,7 @@ vi.mock('../../../../../api/features/jobsClient', () => ({
 }));
 
 vi.mock('../../../../../api/features/filmOrdersClient', () => ({
+  getFilmOrderDetail: vi.fn(),
   cancelJob: (...args: unknown[]) => cancelJobMock(...args)
 }));
 

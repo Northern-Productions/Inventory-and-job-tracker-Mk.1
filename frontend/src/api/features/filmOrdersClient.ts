@@ -6,6 +6,7 @@ import type {
   DeleteFilmOrderPayload,
   FilmCatalogEntry,
   FilmCatalogResponse,
+  FilmOrderDetail,
   FilmOrderEntry,
   FilmOrderListResponse
 } from '../../domain';
@@ -16,6 +17,11 @@ export async function getFilmOrders(): Promise<FilmOrderEntry[]> {
   assertFeatureAccess('film_orders', 'read');
   const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', {}, {});
   return data.entries;
+}
+
+export async function getFilmOrderDetail(filmOrderId: string): Promise<FilmOrderDetail> {
+  assertFeatureAccess('film_orders', 'read');
+  return requestReadWithFallback<FilmOrderDetail>('/film-orders/get', { filmOrderId }, {});
 }
 
 export async function getFilmCatalog(): Promise<FilmCatalogEntry[]> {

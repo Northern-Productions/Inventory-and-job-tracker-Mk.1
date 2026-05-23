@@ -117,6 +117,10 @@ function toPublicBox(box) {
           const jobNumber = asTrimmedString(entry?.jobNumber);
           const workScope = asTrimmedString(entry?.workScope || entry?.sections);
           const sections = asTrimmedString(entry?.sections || entry?.workScope);
+          const phaseId = asTrimmedString(entry?.phaseId);
+          const phaseNumber = integerOrNull(entry?.phaseNumber);
+          const orderedDate = formatDateValue(entry?.orderedDate);
+          const receivedDate = formatDateValue(entry?.receivedDate);
           if (!jobNumber) {
             return null;
           }
@@ -130,8 +134,12 @@ function toPublicBox(box) {
             jobNumber,
             ...(workScope ? { workScope } : {}),
             ...(sections ? { sections } : {}),
+            ...(phaseId ? { phaseId } : {}),
+            ...(phaseNumber !== null ? { phaseNumber } : {}),
             filmOrderId: asTrimmedString(entry?.filmOrderId),
             orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+            ...(orderedDate ? { orderedDate } : {}),
+            ...(receivedDate ? { receivedDate } : {}),
           };
         })
         .filter(Boolean)

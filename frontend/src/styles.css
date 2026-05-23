@@ -2234,6 +2234,21 @@ textarea {
   color: #1b6b45;
 }
 
+.badge-FULFILLED_COVERED {
+  background: #d9efe2;
+  color: #1b6b45;
+}
+
+.badge-INCOMPLETE {
+  background: #fff4dc;
+  color: #8c5a12;
+}
+
+.badge-NO_LONGER_NEEDED {
+  background: #eceff1;
+  color: #52636a;
+}
+
 .badge-COMPLETED {
   background: #edf6ef;
   color: #2f6f48;
@@ -3320,6 +3335,7 @@ td.col-available-linear-ft {
 }
 
 .film-orders-job-link,
+.film-orders-detail-link,
 .film-order-linked-box-link {
   color: #1d62c4;
   font-weight: 700;
@@ -3333,6 +3349,8 @@ td.col-available-linear-ft {
 
 .film-orders-job-link:hover,
 .film-orders-job-link:focus-visible,
+.film-orders-detail-link:hover,
+.film-orders-detail-link:focus-visible,
 .film-order-linked-box-link:hover,
 .film-order-linked-box-link:focus-visible {
   color: #154c9d;
@@ -3398,6 +3416,68 @@ td.col-available-linear-ft {
   color: #1b8a55;
   font-weight: 800;
   line-height: 1;
+}
+
+.film-order-detail-link {
+  display: inline-flex;
+  margin-bottom: 0.25rem;
+}
+
+.film-order-detail-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.film-order-detail-summary,
+.film-order-detail-metrics,
+.box-origin-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.film-order-detail-summary,
+.film-order-detail-metrics,
+.box-origin-card,
+.notice-card {
+  border: 1px solid rgba(18, 52, 59, 0.1);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 0.9rem;
+}
+
+.film-order-detail-summary > div,
+.film-order-detail-metrics > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.detail-subsection,
+.box-origin-section {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.box-origin-card {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.film-order-detail-table {
+  min-width: 42rem;
+}
+
+.film-order-history-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.film-order-history-change {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .scanner-frame {

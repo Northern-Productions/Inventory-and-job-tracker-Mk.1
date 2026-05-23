@@ -49,6 +49,7 @@ Deno.test("Edge response cache bypasses mutation-sensitive operational reads", (
     "/jobs/check-duplicate",
     "/allocations/by-job",
     "/allocations/jobs",
+    "/film-orders/get",
     "/app/attention-summary",
   ];
 
@@ -1226,14 +1227,19 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
         lastCheckoutJob: "16242",
       }),
       listAllocationsByBox: async () => [],
-      listFilmOrderLinksByBoxId: async () => [
-        { filmOrderId: "FO-1", orderedFeet: 120 },
+      buildBoxFilmOrderOrigins: async () => [
+        {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "4953",
+          workScope: "Sections 4, 5",
+          sections: "Sections 4, 5",
+          filmOrderId: "FO-1",
+          phaseNumber: 1,
+          orderedFeet: 120,
+          orderedDate: "2026-05-18",
+          receivedDate: "2026-05-20",
+        },
       ],
-      findFilmOrderById: async () => ({
-        filmOrderId: "FO-1",
-        jobId: "11111111-1111-4111-8111-111111111111",
-        jobNumber: "4953",
-      }),
       findJobById: async (_client: unknown, _orgId: string, jobId: string) =>
         jobId === "11111111-1111-4111-8111-111111111111"
           ? {
@@ -1264,12 +1270,54 @@ Deno.test("/boxes/get includes ordered-for job data from linked film orders", as
         workScope: "Sections 4, 5",
         sections: "Sections 4, 5",
         filmOrderId: "FO-1",
+        phaseNumber: 1,
         orderedFeet: 120,
+        orderedDate: "2026-05-18",
+        receivedDate: "2026-05-20",
       },
     ],
     lastCheckoutWorkScope: "Lobby Phase",
     lastCheckoutSections: "Lobby Phase",
   }, "Expected /boxes/get to include structured ordered-for job data.");
+});
+
+Deno.test("/film-orders/get returns scoped film order detail", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/film-orders/get",
+    { filmOrderId: "FO-1" },
+    {} as any,
+    {
+      buildFilmOrderDetail: async (_client: unknown, orgId: string, filmOrderId: unknown) => ({
+        filmOrderId,
+        orgId,
+        neededFeet: 230,
+        fulfilledFeet: 100,
+        remainingFeet: 130,
+        overageFeet: 0,
+        displayStatus: "INCOMPLETE",
+        linkedBoxes: [{ boxId: "IL1-100", initialFeet: 100 }],
+        history: [{ eventId: "event-1", eventType: "BOX_LINKED" }],
+      }),
+    } as any,
+  );
+
+  assertEquals(
+    response.data,
+    {
+      filmOrderId: "FO-1",
+      orgId: "org-1",
+      neededFeet: 230,
+      fulfilledFeet: 100,
+      remainingFeet: 130,
+      overageFeet: 0,
+      displayStatus: "INCOMPLETE",
+      linkedBoxes: [{ boxId: "IL1-100", initialFeet: 100 }],
+      history: [{ eventId: "event-1", eventType: "BOX_LINKED" }],
+    },
+    "Expected /film-orders/get to return the scoped detail payload.",
+  );
 });
 
 Deno.test("/boxes/get reports checked-out physical LF from stored current feet, not initial feet", async () => {
@@ -1310,7 +1358,7 @@ Deno.test("/boxes/get reports checked-out physical LF from stored current feet, 
           allocationSource: "AUTO_PLANNED",
         },
       ],
-      listFilmOrderLinksByBoxId: async () => [],
+      buildBoxFilmOrderOrigins: async () => [],
       findJobById: async () => ({
         jobNumber: "9327001",
         workScope: "Sections 2",

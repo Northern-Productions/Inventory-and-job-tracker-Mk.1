@@ -2,6 +2,7 @@ const ROUTE_TIMING_TARGETS = new Set([
   "POST /film-orders/delete",
   "POST /film-orders/cancel",
   "GET /film-orders/list",
+  "GET /film-orders/get",
   "POST /jobs/create",
   "POST /jobs/update",
   "GET /jobs/get",

@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Box, BoxMutationResult, BoxTransferMutationResult, BoxStatus, UpdateBoxPayload } from '../../../domain';
@@ -35,11 +36,15 @@ const qrCodeToDataUrlMock = vi.fn();
 let nextBoxFormSubmitDraft: unknown = { dealer: '' };
 let currentSearchParams = 'showQr=1';
 
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => navigateMock,
-  useParams: () => ({ boxId: 'IL1-1234' }),
-  useSearchParams: () => [new URLSearchParams(currentSearchParams), setSearchParamsMock]
-}));
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+    useParams: () => ({ boxId: 'IL1-1234' }),
+    useSearchParams: () => [new URLSearchParams(currentSearchParams), setSearchParamsMock]
+  };
+});
 
 vi.mock('qrcode', () => ({
   default: {
@@ -191,7 +196,9 @@ function renderPage() {
 
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <BoxDetailsPage />
+      <MemoryRouter>
+        <BoxDetailsPage />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 
@@ -211,7 +218,9 @@ function renderInteractivePage() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <BoxDetailsPage />
+      <MemoryRouter>
+        <BoxDetailsPage />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -979,7 +988,7 @@ describe('BoxDetailsPage', () => {
     expect(navigateMock).toHaveBeenCalledWith('/allocations/000123');
   });
 
-  it('renders structured ordered-for jobs as clickable box metadata', () => {
+  it('renders structured film order origins as read-only metadata', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -990,8 +999,11 @@ describe('BoxDetailsPage', () => {
             jobNumber: '4953',
             workScope: 'Sections 4, 5',
             sections: 'Sections 4, 5',
+            phaseNumber: 1,
             filmOrderId: 'FO-1',
-            orderedFeet: 120
+            orderedFeet: 120,
+            orderedDate: '2026-05-18',
+            receivedDate: '2026-05-20'
           },
           { jobNumber: '16242', filmOrderId: 'FO-2', orderedFeet: 48 }
         ]
@@ -1001,12 +1013,15 @@ describe('BoxDetailsPage', () => {
 
     const html = renderPage();
 
-    expect(html).toContain('Ordered For Job');
-    expect(html).toContain('>IL1-4953 / Sections 4, 5</button>');
-    expect(html).toContain('>IL1-16242</button>');
+    expect(html).toContain('Origin');
+    expect(html).toContain('Job Ordered For');
+    expect(html).toContain('/allocations/jobs/11111111-1111-4111-8111-111111111111');
+    expect(html).toContain('/film-orders/FO-1');
+    expect(html).toContain('Phase 1 - Sections 4, 5');
+    expect(html).toContain('May 18, 2026');
   });
 
-  it('opens ordered-for job detail with the canonical job id route when available', () => {
+  it('links ordered-for job and film order details when real ids exist', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -1027,14 +1042,13 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953 / Sections 4, 5' }));
-
-    expect(navigateMock).toHaveBeenCalledWith(
+    expect(screen.getByRole('link', { name: 'IL1-4953 / Sections 4, 5' }).getAttribute('href')).toBe(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'
     );
+    expect(screen.getByRole('link', { name: 'FO-1' }).getAttribute('href')).toBe('/film-orders/FO-1');
   });
 
-  it('falls back to the ordered-for job number route when job id is absent', () => {
+  it('does not fake an ordered-for job link when job id is absent', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -1046,9 +1060,28 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-4953' }));
+    expect(screen.queryByRole('link', { name: 'IL1-4953' })).toBeNull();
+    expect(screen.getByText('IL1-4953')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'FO-1' }).getAttribute('href')).toBe('/film-orders/FO-1');
+  });
 
-    expect(navigateMock).toHaveBeenCalledWith('/allocations/4953');
+  it('renders a film order origin even when the job summary is missing', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        orderedForJobs: [{ jobNumber: '', filmOrderId: 'FO-legacy', orderedFeet: 48 }]
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    expect(screen.getByText('Origin')).toBeTruthy();
+    expect(screen.queryByText('No origin recorded.')).toBeNull();
+    expect(screen.getByRole('link', { name: 'FO-legacy' }).getAttribute('href')).toBe(
+      '/film-orders/FO-legacy'
+    );
   });
 
   it('does not parse ordered-for job details from legacy notes', () => {
@@ -1064,7 +1097,7 @@ describe('BoxDetailsPage', () => {
 
     const html = renderPage();
 
-    expect(html).not.toContain('Ordered For Job');
+    expect(html).toContain('No origin recorded.');
     expect(html).toContain('Ordered for job 4953 via FO-1');
   });
 

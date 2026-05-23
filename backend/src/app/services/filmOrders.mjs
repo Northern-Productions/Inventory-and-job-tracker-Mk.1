@@ -1,5 +1,10 @@
 // Purpose: Film-order service surface for backend handlers and box workflows.
-export { buildFilmOrdersList, buildFilmCatalog } from './runtime/runtimeAuditFilmReads.mjs';
+export {
+  buildFilmOrdersList,
+  buildFilmOrderDetail,
+  buildBoxFilmOrderOrigins,
+  buildFilmCatalog,
+} from './runtime/runtimeAuditFilmReads.mjs';
 export { createFilmOrder, deleteFilmOrder } from './runtime/runtimeJobsMutations.mjs';
 export {
   cancelFilmOrderAndReleaseAllocations,

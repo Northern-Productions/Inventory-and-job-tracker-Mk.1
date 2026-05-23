@@ -13,9 +13,11 @@ describe('normalizeOrderedForJobs', () => {
         {
           jobNumber: ' 4953 ',
           workScope: ' Sections 4, 5 ',
-          sections: ' Sections 4, 5 ',
-          filmOrderId: ' FO-1 ',
-          orderedFeet: '120.9'
+        sections: ' Sections 4, 5 ',
+        filmOrderId: ' FO-1 ',
+        orderedFeet: '120.9',
+        orderedDate: ' 2026-05-18 ',
+        receivedDate: ' 2026-05-20 '
         },
         {
           jobId: ' 11111111-1111-4111-8111-111111111111 ',
@@ -30,19 +32,35 @@ describe('normalizeOrderedForJobs', () => {
         workScope: 'Sections 4, 5',
         sections: 'Sections 4, 5',
         filmOrderId: 'FO-1',
-        orderedFeet: 120
+        orderedFeet: 120,
+        orderedDate: '2026-05-18',
+        receivedDate: '2026-05-20'
       },
       {
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '16242',
         filmOrderId: undefined,
-        orderedFeet: null
+        orderedFeet: null,
+        orderedDate: null,
+        receivedDate: null
       },
     ]);
   });
 
   it('ignores legacy note-only or malformed entries without a structured job number', () => {
     expect(normalizeOrderedForJobs([{ notes: 'Ordered for job 4953 via FO-1' }, null])).toEqual([]);
+  });
+
+  it('preserves film order origin links even when the job summary is missing', () => {
+    expect(normalizeOrderedForJobs([{ filmOrderId: ' FO-legacy ', orderedFeet: '48' }])).toEqual([
+      {
+        jobNumber: '',
+        filmOrderId: 'FO-legacy',
+        orderedFeet: 48,
+        orderedDate: null,
+        receivedDate: null
+      }
+    ]);
   });
 });
 

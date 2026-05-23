@@ -13,8 +13,12 @@ export interface BoxOrderedForJob {
   jobNumber: string;
   workScope?: string | null;
   sections?: string | null;
+  phaseId?: string;
+  phaseNumber?: number | null;
   filmOrderId?: string;
   orderedFeet?: number | null;
+  orderedDate?: string | null;
+  receivedDate?: string | null;
 }
 
 export interface Box {

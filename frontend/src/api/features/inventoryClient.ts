@@ -74,11 +74,15 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
     const jobNumber = String(record.jobNumber || '').trim();
     const workScope = String(record.workScope ?? record.sections ?? '').trim();
     const sections = String(record.sections ?? record.workScope ?? '').trim();
-    if (!jobNumber) {
+    const filmOrderId = String(record.filmOrderId || '').trim();
+    if (!jobNumber && !filmOrderId) {
       continue;
     }
 
-    const filmOrderId = String(record.filmOrderId || '').trim();
+    const phaseId = String(record.phaseId || '').trim();
+    const phaseNumber = Number(record.phaseNumber);
+    const orderedDate = String(record.orderedDate || '').trim();
+    const receivedDate = String(record.receivedDate || '').trim();
     const orderedFeet =
       record.orderedFeet === null || record.orderedFeet === undefined || record.orderedFeet === ''
         ? NaN
@@ -88,8 +92,12 @@ export function normalizeOrderedForJobs(value: unknown): Box['orderedForJobs'] {
       jobNumber,
       ...(workScope ? { workScope } : {}),
       ...(sections ? { sections } : {}),
+      ...(phaseId ? { phaseId } : {}),
+      ...(Number.isFinite(phaseNumber) ? { phaseNumber } : {}),
       filmOrderId: filmOrderId || undefined,
-      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null
+      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+      orderedDate: orderedDate || null,
+      receivedDate: receivedDate || null
     });
   }
 

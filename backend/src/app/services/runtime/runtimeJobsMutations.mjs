@@ -1481,24 +1481,9 @@ async function deleteBox(client, orgId, payload, actor) {
     );
   }
 
-  const linkedFilmOrderRow = await queryRow(
-    client,
-    `
-      select count(*)::integer as count
-      from app.film_order_box_links
-      where org_id = $1
-        and box_id = $2
-    `,
-    [orgId, current.boxId]
-  );
-
-  if (integerOrZero(linkedFilmOrderRow?.count) > 0) {
-    throw new HttpError(
-      400,
-      'Boxes linked to film orders cannot be deleted. Resolve the linked film order first.'
-    );
-  }
-
+  await queryRow(client, `select set_config('app.actor', $1, true)`, [
+    asTrimmedString(actor) || 'system',
+  ]);
   await deleteBoxRecord(client, orgId, current.boxId);
   const logId = await appendAuditEntry(
     client,

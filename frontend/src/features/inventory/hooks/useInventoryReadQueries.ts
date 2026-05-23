@@ -27,6 +27,7 @@ export {
   useBoxDealers,
   useCaulkProducts,
   useFilmCatalog,
+  useFilmOrderDetail,
   useFilmOrders
 } from './queries/planningQueries';
 export {

@@ -55,6 +55,7 @@ vi.mock('../../../api/features/inventoryClient', () => ({
 vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmCatalog: () => getFilmCatalogMock(),
   getFilmOrders: () => getFilmOrdersMock(),
+  getFilmOrderDetail: () => Promise.reject(new Error('not used')),
   createFilmOrder: vi.fn(),
   cancelJob: vi.fn(),
   deleteFilmOrder: vi.fn()

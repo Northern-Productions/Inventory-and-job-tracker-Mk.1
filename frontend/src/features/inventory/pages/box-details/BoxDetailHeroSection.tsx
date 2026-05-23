@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
@@ -173,7 +174,7 @@ export function BoxDetailHeroSection({
   const lockedFeet = box.allocatedWithInstallDateFeet ?? 0;
   const placeholderFeet = box.allocatedWithoutInstallDateFeet ?? Math.max(displayedAllocatedFeet - lockedFeet, 0);
   const orderedForJobs = Array.isArray(box.orderedForJobs)
-    ? box.orderedForJobs.filter((entry) => entry.jobNumber)
+    ? box.orderedForJobs.filter((entry) => entry.jobNumber || entry.filmOrderId)
     : [];
   const lastCheckoutJobLabel = formatJobDisplayLabel({
     jobNumber: box.lastCheckoutJob,
@@ -258,25 +259,6 @@ export function BoxDetailHeroSection({
         <DetailField label="Lot Run" value={box.lotRun} />
         <DetailField label="Order Date" value={formatDate(box.orderDate)} />
         <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
-        {orderedForJobs.length ? (
-          <DetailField
-            label="Ordered For Job"
-            value={
-              <span className="detail-link-list">
-                {orderedForJobs.map((entry) => (
-                  <button
-                    type="button"
-                    className="row-button detail-link-button"
-                    key={`${entry.filmOrderId || 'film-order'}-${entry.jobNumber}`}
-                    onClick={() => onOpenJob(entry)}
-                  >
-                    {formatJobDisplayLabel({ ...entry, warehouse: box.warehouse })}
-                  </button>
-                ))}
-              </span>
-            }
-          />
-        ) : null}
         <DetailField label="Initial Weight" value={box.initialWeightLbs} />
         <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
         <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
@@ -312,6 +294,61 @@ export function BoxDetailHeroSection({
         <DetailField label="Zeroed By" value={box.zeroedBy} />
         <DetailField label="Notes" value={box.notes} />
       </div>
+
+      <section className="box-origin-section">
+        <div className="panel-title-row">
+          <h3>Origin</h3>
+          <span className="muted-text">Read-only</span>
+        </div>
+        {orderedForJobs.length ? (
+          <div className="box-origin-grid">
+            {orderedForJobs.map((entry) => {
+              const jobLabel = entry.jobNumber
+                ? formatJobDisplayLabel({ ...entry, warehouse: box.warehouse })
+                : entry.jobId
+                  ? 'Open job'
+                  : '--';
+              const phaseLabel = entry.phaseNumber
+                ? `Phase ${entry.phaseNumber}${entry.workScope ? ` - ${entry.workScope}` : ''}`
+                : entry.workScope || entry.sections || '--';
+              return (
+                <article
+                  key={`${entry.filmOrderId || 'film-order'}-${entry.jobNumber || entry.jobId || 'unknown'}-${entry.orderedFeet ?? ''}`}
+                  className="box-origin-card"
+                >
+                  <DetailField
+                    label="Job Ordered For"
+                    value={
+                      entry.jobId ? (
+                        <Link to={`/allocations/jobs/${encodeURIComponent(entry.jobId)}`}>{jobLabel}</Link>
+                      ) : (
+                        jobLabel
+                      )
+                    }
+                  />
+                  <DetailField
+                    label="Film Order"
+                    value={
+                      entry.filmOrderId ? (
+                        <Link to={`/film-orders/${encodeURIComponent(entry.filmOrderId)}`}>
+                          {entry.filmOrderId}
+                        </Link>
+                      ) : (
+                        '--'
+                      )
+                    }
+                  />
+                  <DetailField label="Phase / Work Scope" value={phaseLabel} />
+                  <DetailField label="Ordered Date" value={formatDate(entry.orderedDate || box.orderDate)} />
+                  <DetailField label="Received Date" value={formatDate(entry.receivedDate || box.receivedDate)} />
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-state">No origin recorded.</div>
+        )}
+      </section>
 
       {pendingTransfer ? (
         <div className="transfer-status-card">

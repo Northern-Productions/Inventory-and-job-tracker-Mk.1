@@ -40,7 +40,8 @@ export async function invalidateJobAndFilmOrderQueries(
     ...(jobNumber ? [inventoryKeys.job(jobNumber)] : []),
     inventoryKeys.jobsCalendarRoot,
     inventoryKeys.allocationJobs,
-    inventoryKeys.filmOrders
+    inventoryKeys.filmOrders,
+    inventoryKeys.filmOrderRoot
   ]);
 }
 
@@ -57,6 +58,7 @@ export async function invalidateJobLifecycleQueries(
     inventoryKeys.allocationJobs,
     ...(jobNumber ? [inventoryKeys.allocationJob(jobNumber)] : []),
     inventoryKeys.filmOrders,
+    inventoryKeys.filmOrderRoot,
     inventoryKeys.reportsRoot
   ]);
 }
@@ -100,6 +102,7 @@ export async function invalidateGlobalPlanningQueries(queryClient: QueryClient) 
     inventoryKeys.allocationJobs,
     inventoryKeys.allocationJobRoot,
     inventoryKeys.filmOrders,
+    inventoryKeys.filmOrderRoot,
     inventoryKeys.reportsRoot
   ]);
 }

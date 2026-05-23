@@ -17,6 +17,7 @@ const createFilmOrderMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
 
 vi.mock('../../../../../api/features/filmOrdersClient', () => ({
+  getFilmOrderDetail: vi.fn(),
   createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
   deleteFilmOrder: (...args: unknown[]) => deleteFilmOrderMock(...args)
 }));

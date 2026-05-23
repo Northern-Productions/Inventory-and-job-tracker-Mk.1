@@ -188,6 +188,10 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
             const jobNumber = deps.asTrimmedString(entry?.jobNumber);
             const workScope = deps.asTrimmedString(entry?.workScope || entry?.sections);
             const sections = deps.asTrimmedString(entry?.sections || entry?.workScope);
+            const phaseId = deps.asTrimmedString(entry?.phaseId);
+            const phaseNumber = Number(entry?.phaseNumber);
+            const orderedDate = deps.asTrimmedString(entry?.orderedDate);
+            const receivedDate = deps.asTrimmedString(entry?.receivedDate);
             if (!jobNumber) {
               return null;
             }
@@ -201,8 +205,12 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
               jobNumber,
               ...(workScope ? { workScope } : {}),
               ...(sections ? { sections } : {}),
+              ...(phaseId ? { phaseId } : {}),
+              ...(Number.isFinite(phaseNumber) ? { phaseNumber: Math.trunc(phaseNumber) } : {}),
               filmOrderId: deps.asTrimmedString(entry?.filmOrderId),
               orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : null,
+              ...(orderedDate ? { orderedDate } : {}),
+              ...(receivedDate ? { receivedDate } : {}),
             };
           })
           .filter(Boolean)

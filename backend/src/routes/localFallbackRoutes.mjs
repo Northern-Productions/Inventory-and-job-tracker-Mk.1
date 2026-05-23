@@ -62,6 +62,7 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/allocations/jobs",
   "/allocations/preview",
   "/film-orders/list",
+  "/film-orders/get",
   "/film-data/catalog",
   "/owner/reports/asset-total-cost",
   "/reports/summary",

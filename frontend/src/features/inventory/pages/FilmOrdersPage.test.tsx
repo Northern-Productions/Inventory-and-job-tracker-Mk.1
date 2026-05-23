@@ -41,6 +41,7 @@ vi.mock('../../../hooks/useIsPhoneLayout', () => ({
 
 vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmOrders: () => getFilmOrdersMock(),
+  getFilmOrderDetail: () => Promise.reject(new Error('not used')),
   getFilmCatalog: () => getFilmCatalogMock(),
   createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
   cancelJob: (...args: unknown[]) => cancelJobMock(...args),
@@ -290,6 +291,14 @@ describe('FilmOrdersPage', () => {
 
     expect(screen.getByRole('link', { name: 'IL1-2941' }).getAttribute('href')).toBe(
       `/allocations/jobs/${JOB_ID}`
+    );
+  });
+
+  it('links compact film order rows to the detail page', () => {
+    renderPage([buildFilmOrderEntry({ filmOrderId: 'FO-DETAIL' })]);
+
+    expect(screen.getByRole('link', { name: 'FO-DETAIL' }).getAttribute('href')).toBe(
+      '/film-orders/FO-DETAIL'
     );
   });
 

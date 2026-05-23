@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0148_close_checked_in_allocations.sql';
+const LATEST_MIGRATION = '0149_film_order_traceability.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -43,6 +43,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.job_caulk_requirements.completed_by' },
   { kind: 'column', signature: 'app.allocation_planner_suppressions.phase_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
+  { kind: 'table', signature: 'app.film_order_events' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_list_access_requests(uuid, text)' },
@@ -84,6 +85,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_film_orders_cancel(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
+  { kind: 'function', signature: 'public.api_acl_box_film_order_origins(uuid, text)' },
+  { kind: 'function', signature: 'app_api.append_film_order_event(uuid, text, text, text, uuid, jsonb, jsonb, text, timestamp with time zone, text, text)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_update(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)' },

@@ -132,6 +132,15 @@ export interface FilmOrderLinkedBox {
 
 export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';
 
+export type FilmOrderDisplayStatus =
+  | 'FILM_ORDER'
+  | 'INCOMPLETE'
+  | 'FULFILLED_COVERED'
+  | 'CANCELLED'
+  | 'NO_LONGER_NEEDED';
+
+export type FilmOrderNeedSource = 'CURRENT_REQUIREMENT' | 'LEGACY_SNAPSHOT' | 'NO_LONGER_NEEDED';
+
 export interface FilmOrderEntry {
   filmOrderId: string;
   jobId?: string;
@@ -162,6 +171,67 @@ export interface FilmOrderEntry {
 
 export interface FilmOrderListResponse {
   entries: FilmOrderEntry[];
+}
+
+export interface FilmOrderDetailLinkedBox extends FilmOrderLinkedBox {
+  linkId?: string;
+  initialFeet: number;
+  feetAvailable: number;
+  status: string;
+  orderDate?: string | null;
+  receivedDate?: string | null;
+}
+
+export interface FilmOrderHistoryEvent {
+  eventId: string;
+  eventType: string;
+  filmOrderId: string;
+  relatedBoxId?: string | null;
+  relatedRequirementId?: string | null;
+  actor: string;
+  note: string;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface FilmOrderDetail extends FilmOrderEntry {
+  storedStatus: FilmOrderStatus;
+  displayStatus: FilmOrderDisplayStatus;
+  needSource: FilmOrderNeedSource;
+  neededFeet: number;
+  fulfilledFeet: number;
+  remainingFeet: number;
+  overageFeet: number;
+  orderedDate?: string | null;
+  receivedDate?: string | null;
+  job?: {
+    jobId?: string;
+    jobNumber: string;
+    warehouse?: Warehouse;
+    workScope?: string | null;
+    sections?: string | null;
+  } | null;
+  phase?: {
+    phaseId: string;
+    phaseNumber: number;
+    workScope?: string | null;
+    sections?: string | null;
+    installDate?: string | null;
+    crewLeader?: string | null;
+  } | null;
+  requirement?: {
+    requirementId: string;
+    phaseId?: string;
+    manufacturer: string;
+    filmName: string;
+    widthIn: number;
+    requiredFeet: number;
+    status: string;
+    matchesFilmOrder: boolean;
+  } | null;
+  linkedBoxes: FilmOrderDetailLinkedBox[];
+  history: FilmOrderHistoryEvent[];
 }
 
 export interface FilmCatalogEntry {

@@ -37,6 +37,7 @@ export function useCreateFilmOrder() {
       const jobId = String(payload.jobId || '').trim();
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrderRoot }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         ...(jobId
           ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
@@ -53,6 +54,7 @@ export function useCreateFilmOrder() {
         queryClient,
         [
           inventoryKeys.filmOrders,
+          inventoryKeys.filmOrderRoot,
           inventoryKeys.jobs,
           ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.job(payload.jobNumber)]),
           inventoryKeys.allocationJobs,
@@ -205,11 +207,13 @@ export function useCreateFilmOrder() {
           queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
         ]);
       } else {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
         ]);
@@ -232,6 +236,8 @@ export function useDeleteFilmOrder() {
           ? [queryClient.cancelQueries({ queryKey: inventoryKeys.jobById(jobId) })]
           : [queryClient.cancelQueries({ queryKey: inventoryKeys.jobRoot })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrderRoot }),
+        queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrder(payload.filmOrderId) }),
         queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobs }),
         ...(jobId ? [] : [queryClient.cancelQueries({ queryKey: inventoryKeys.allocationJobRoot })]),
         queryClient.cancelQueries({ queryKey: inventoryKeys.listRoot }),
@@ -247,6 +253,8 @@ export function useDeleteFilmOrder() {
           inventoryKeys.jobs,
           ...(jobId ? [inventoryKeys.jobById(jobId)] : [inventoryKeys.jobRoot]),
           inventoryKeys.filmOrders,
+          inventoryKeys.filmOrderRoot,
+          inventoryKeys.filmOrder(payload.filmOrderId),
           inventoryKeys.allocationJobs,
           ...(jobId ? [] : [inventoryKeys.allocationJobRoot]),
           inventoryKeys.listRoot,
@@ -281,11 +289,14 @@ export function useDeleteFilmOrder() {
           queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+          queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
           queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot })
         ]);
       } else {
         await Promise.all([invalidateGlobalPlanningQueries(queryClient)]);
       }
+
+      queryClient.removeQueries({ queryKey: inventoryKeys.filmOrder(variables.filmOrderId), exact: true });
 
       if (!jobId && variables.jobNumber) {
         await Promise.all([

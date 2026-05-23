@@ -48,6 +48,10 @@ function buildJobHref(order: Pick<FilmOrderEntry, 'jobId' | 'jobNumber'>) {
     : `/allocations/${encodeURIComponent(order.jobNumber)}`;
 }
 
+function buildFilmOrderHref(order: Pick<FilmOrderEntry, 'filmOrderId'>) {
+  return `/film-orders/${encodeURIComponent(order.filmOrderId)}`;
+}
+
 function buildDeleteFilmOrderPayload(order: FilmOrderEntry, reason: string): DeleteFilmOrderPayload {
   const jobId = getFilmOrderJobId(order);
 
@@ -306,6 +310,10 @@ export default function FilmOrdersPage() {
                     />
                     <MobileFieldList>
                       <MobileField label="Warehouse" value={order.warehouse} />
+                      <MobileField
+                        label="Film Order"
+                        value={<Link to={buildFilmOrderHref(order)}>{order.filmOrderId}</Link>}
+                      />
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
@@ -371,6 +379,9 @@ export default function FilmOrdersPage() {
                     return (
                       <tr key={order.filmOrderId}>
                         <td>
+                          <Link to={buildFilmOrderHref(order)} className="film-orders-detail-link">
+                            {order.filmOrderId}
+                          </Link>
                           <span className={`badge badge-${order.status}`}>
                             {formatBadgeLabel(order.status)}
                           </span>

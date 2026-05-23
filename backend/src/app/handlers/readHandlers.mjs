@@ -28,7 +28,12 @@ import {
   listCaulkStock,
   listCaulkTransactions,
 } from '../services/caulk.mjs';
-import { buildFilmOrdersList, buildFilmCatalog } from '../services/filmOrders.mjs';
+import {
+  buildFilmOrdersList,
+  buildFilmOrderDetail,
+  buildBoxFilmOrderOrigins,
+  buildFilmCatalog,
+} from '../services/filmOrders.mjs';
 import {
   buildJobsCalendar,
   buildJobsList,
@@ -226,7 +231,7 @@ const readHandlers = {
       throw new HttpError(404, 'Box not found.');
     }
     const allocations = await listAllocationsByBox(client, orgId, found.boxId);
-    const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId);
+    const orderedForJobs = await buildBoxFilmOrderOrigins(client, orgId, found.boxId);
     const lastCheckoutScope = await buildLastCheckoutScopeForBox(client, orgId, found);
     return ok(
       toPublicBox(
@@ -318,6 +323,8 @@ const readHandlers = {
   '/jobs/get': async ({ orgId, params }) => ok(await buildReadJobDetail(orgId, params.jobNumber)),
   '/jobs/get-by-id': async ({ orgId, params }) => ok(await buildReadJobDetailById(orgId, params.jobId)),
   '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),
+  '/film-orders/get': async ({ client, orgId, params }) =>
+    ok(await buildFilmOrderDetail(client, orgId, params.filmOrderId)),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),
   '/roll-history/by-box': async ({ client, orgId, params }) => {
     const entries = await listRollHistoryByBox(client, orgId, requireString(params.boxId, 'boxId'));

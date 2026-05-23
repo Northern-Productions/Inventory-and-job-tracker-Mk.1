@@ -126,6 +126,8 @@ export type ReadHandlerDeps = {
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
   buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
+  buildFilmOrderDetail: (client: any, orgId: string, filmOrderId: unknown) => Promise<Record<string, unknown>>;
+  buildBoxFilmOrderOrigins: (client: any, orgId: string, boxId: string) => Promise<any[]>;
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
   listRollHistoryByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
   buildReportsSummary: (client: any, orgId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -660,7 +662,7 @@ const readHandlers: Record<string, ReadHandler> = {
     }
     const allocations = await deps.listAllocationsByBox(client, orgId, found.boxId);
     const reservationSnapshot = buildBoxReservationSnapshot(found, allocations);
-    const orderedForJobs = await buildOrderedForJobsForBox(client, orgId, found.boxId, deps);
+    const orderedForJobs = await deps.buildBoxFilmOrderOrigins(client, orgId, found.boxId);
     const lastCheckoutScope = await buildLastCheckoutScopeForBox(client, orgId, found, deps);
     return ok(
       deps.toPublicBox({
@@ -854,6 +856,9 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/film-orders/list": async ({ client, orgId }, deps) => {
     return ok({ entries: await deps.buildFilmOrdersList(client, orgId) });
+  },
+  "/film-orders/get": async ({ client, orgId, params }, deps) => {
+    return ok(await deps.buildFilmOrderDetail(client, orgId, params.filmOrderId));
   },
   "/film-data/catalog": async ({ client, orgId }, deps) => {
     return ok({ entries: await deps.buildFilmCatalog(client, orgId) });

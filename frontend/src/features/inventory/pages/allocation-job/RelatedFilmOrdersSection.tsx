@@ -1,4 +1,5 @@
 import { Button } from '../../../../components/Button';
+import { Link } from 'react-router-dom';
 import {
   MobileField,
   MobileFieldList,
@@ -61,6 +62,10 @@ function renderFilmOrderActions({
   );
 }
 
+function buildFilmOrderHref(order: Pick<FilmOrderEntry, 'filmOrderId'>) {
+  return `/film-orders/${encodeURIComponent(order.filmOrderId)}`;
+}
+
 export function RelatedFilmOrdersSection({
   orders,
   isPhoneLayout,
@@ -94,6 +99,10 @@ export function RelatedFilmOrdersSection({
                 }
               />
               <MobileFieldList>
+                <MobileField
+                  label="Film Order"
+                  value={<Link to={buildFilmOrderHref(order)}>{order.filmOrderId}</Link>}
+                />
                 <MobileField label="Ordered Box IDs" value={<FilmOrderLinkedBoxes order={order} />} />
                 <MobileField label="Width" value={order.widthIn} />
                 <MobileField label="Requested LF" value={order.requestedFeet} />
@@ -136,6 +145,9 @@ export function RelatedFilmOrdersSection({
                     <span className={`badge badge-${order.status}`}>
                       {formatFilmOrderStatusLabel(order.status)}
                     </span>
+                    <Link to={buildFilmOrderHref(order)} className="film-orders-detail-link">
+                      {order.filmOrderId}
+                    </Link>
                   </td>
                   <td>
                     {order.manufacturer} {order.filmName}

@@ -4,7 +4,11 @@ import {
   getAllocationJobs
 } from '../../../../api/features/allocationsClient';
 import { listCaulkProducts } from '../../../../api/features/caulkClient';
-import { getFilmCatalog, getFilmOrders } from '../../../../api/features/filmOrdersClient';
+import {
+  getFilmCatalog,
+  getFilmOrderDetail,
+  getFilmOrders
+} from '../../../../api/features/filmOrdersClient';
 import { listBoxDealers } from '../../../../api/features/inventoryClient';
 import type { AppAttentionSummary } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
@@ -37,6 +41,21 @@ export function useFilmOrders(options: { enabled?: boolean; refetchOnWindowFocus
     queryFn: () => getFilmOrders(),
     enabled: options.enabled ?? true,
     refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
+  });
+}
+
+export function useFilmOrderDetail(
+  filmOrderId: string,
+  options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}
+) {
+  const normalizedFilmOrderId = String(filmOrderId || '').trim();
+  return useCachedInventoryReadQuery({
+    queryKey: inventoryKeys.filmOrder(normalizedFilmOrderId),
+    queryFn: () => getFilmOrderDetail(normalizedFilmOrderId),
+    enabled: (options.enabled ?? true) && Boolean(normalizedFilmOrderId),
+    staleTime: 30 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true
   });
 }
 

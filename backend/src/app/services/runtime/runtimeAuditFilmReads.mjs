@@ -388,6 +388,37 @@ async function buildFilmOrdersList(client, orgId) {
   return response;
 }
 
+async function buildFilmOrderDetail(client, orgId, filmOrderId) {
+  const normalizedFilmOrderId = requireString(filmOrderId, 'filmOrderId');
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_film_orders_get($1::uuid, $2::text) as result
+    `,
+    [orgId, normalizedFilmOrderId]
+  );
+  const result = row?.result || null;
+
+  if (!result) {
+    throw new HttpError(404, 'Film order not found.');
+  }
+
+  return result;
+}
+
+async function buildBoxFilmOrderOrigins(client, orgId, boxId) {
+  const normalizedBoxId = requireString(boxId, 'boxId');
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_box_film_order_origins($1::uuid, $2::text) as result
+    `,
+    [orgId, normalizedBoxId]
+  );
+
+  return Array.isArray(row?.result) ? row.result : [];
+}
+
 async function buildFilmCatalog(client, orgId) {
   const entries = await listFilmCatalog(client, orgId);
   const dedupedByKey = {};
@@ -434,5 +465,7 @@ export {
   listAudit,
   undoAudit,
   buildFilmOrdersList,
+  buildFilmOrderDetail,
+  buildBoxFilmOrderOrigins,
   buildFilmCatalog,
 };
