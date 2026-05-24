@@ -1,6 +1,6 @@
 ﻿// @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FilmOrderEntry, JobPhase, JobRequirementLine } from '../../../../domain';
 import { JobPhasesSection } from './JobPhasesSection';
@@ -155,13 +155,39 @@ describe('JobPhasesSection', () => {
           isExpandedByDefault: true,
         }),
       ],
+      requirements: [buildRequirement({ phaseId: 'phase-2', phaseNumber: 2 })],
     });
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Placeholder' }));
+    const toggle = screen.getByRole('group', { name: 'Phase 2 workflow state' });
+    expect(within(toggle).getByRole('button', { name: 'Placeholder' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+
+    fireEvent.click(within(toggle).getByRole('button', { name: 'Active' }));
 
     expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
       expect.objectContaining({ phaseId: 'phase-2' }),
       'ACTIVE'
+    );
+  });
+
+  it('allows phase 1 to switch from Active to Placeholder', () => {
+    const onSetPhaseWorkflowState = vi.fn();
+    renderPhases({
+      onSetPhaseWorkflowState,
+      requirements: [buildRequirement()],
+    });
+
+    const toggle = screen.getByRole('group', { name: 'Phase 1 workflow state' });
+    expect(within(toggle).getByRole('button', { name: 'Active' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+
+    fireEvent.click(within(toggle).getByRole('button', { name: 'Placeholder' }));
+
+    expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
+      expect.objectContaining({ phaseId: 'phase-1' }),
+      'PLACEHOLDER'
     );
   });
 

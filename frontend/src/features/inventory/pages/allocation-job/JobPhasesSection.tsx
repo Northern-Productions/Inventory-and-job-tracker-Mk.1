@@ -69,6 +69,12 @@ function buildPhaseDomId(phaseId: string) {
   return safePhaseId ? `job-phase-${safePhaseId}` : undefined;
 }
 
+function getPhaseWorkflowToggleButtonClass(isSelected: boolean) {
+  return `inventory-view-toggle-button phase-workflow-toggle-button ${
+    isSelected ? 'inventory-view-toggle-button-active' : ''
+  }`.trim();
+}
+
 function shouldReduceMotion() {
   return (
     typeof window !== 'undefined' &&
@@ -280,6 +286,8 @@ export function JobPhasesSection({
               ? 'PLACEHOLDER'
               : 'ACTIVE';
           const isPlaceholderPhase = workflowStatus === 'PLACEHOLDER';
+          const workflowToggleDisabled =
+            isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending;
 
           return (
             <article
@@ -314,19 +322,8 @@ export function JobPhasesSection({
                   >
                     {isExpanded ? '-' : '+'}
                   </Button>
-                  <label className="requirement-state-toggle phase-workflow-toggle">
-                    <input
-                      type="checkbox"
-                      checked={!isPlaceholderPhase}
-                      disabled={isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending}
-                      onChange={() =>
-                        onSetPhaseWorkflowState(phase, isPlaceholderPhase ? 'ACTIVE' : 'PLACEHOLDER')
-                      }
-                    />
-                    <span>{isPlaceholderPhase ? 'Placeholder' : 'Active'}</span>
-                  </label>
                 </div>
-                <div>
+                <div className="job-phase-heading">
                   <h3>{buildPhaseTitle(phase)}</h3>
                   <div className="job-phase-meta">
                     <span>{formatDate(phase.installDate || '')}</span>
@@ -335,17 +332,51 @@ export function JobPhasesSection({
                     <span className={`badge badge-${phase.status}`}>{phase.status}</span>
                   </div>
                 </div>
-                {isLaborOnlyPhase ? (
-                  <label className="requirement-state-toggle phase-labor-toggle">
-                    <input
-                      type="checkbox"
-                      checked={phaseComplete}
-                      disabled={isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending}
-                      onChange={() => onSetPhaseState(phase, phaseComplete ? 'ACTIVE' : 'COMPLETE')}
-                    />
-                    <span>{phaseComplete ? 'Complete' : 'Active'}</span>
-                  </label>
-                ) : null}
+                <div className="job-phase-header-actions">
+                  <div
+                    className="inventory-view-toggle phase-workflow-toggle"
+                    role="group"
+                    aria-label={`Phase ${phase.phaseNumber} workflow state`}
+                  >
+                    <button
+                      type="button"
+                      className={getPhaseWorkflowToggleButtonClass(isPlaceholderPhase)}
+                      disabled={workflowToggleDisabled}
+                      onClick={() => {
+                        if (!isPlaceholderPhase) {
+                          onSetPhaseWorkflowState(phase, 'PLACEHOLDER');
+                        }
+                      }}
+                      aria-pressed={isPlaceholderPhase}
+                    >
+                      Placeholder
+                    </button>
+                    <button
+                      type="button"
+                      className={getPhaseWorkflowToggleButtonClass(!isPlaceholderPhase)}
+                      disabled={workflowToggleDisabled}
+                      onClick={() => {
+                        if (isPlaceholderPhase) {
+                          onSetPhaseWorkflowState(phase, 'ACTIVE');
+                        }
+                      }}
+                      aria-pressed={!isPlaceholderPhase}
+                    >
+                      Active
+                    </button>
+                  </div>
+                  {isLaborOnlyPhase ? (
+                    <label className="requirement-state-toggle phase-labor-toggle">
+                      <input
+                        type="checkbox"
+                        checked={phaseComplete}
+                        disabled={workflowToggleDisabled}
+                        onChange={() => onSetPhaseState(phase, phaseComplete ? 'ACTIVE' : 'COMPLETE')}
+                      />
+                      <span>{phaseComplete ? 'Complete' : 'Active'}</span>
+                    </label>
+                  ) : null}
+                </div>
               </div>
 
               {isExpanded ? (
