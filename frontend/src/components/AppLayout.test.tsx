@@ -11,6 +11,7 @@ import { APP_THEME_STORAGE_KEY } from '../features/theme/themeStorage';
 const useAuthMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
 const useAppAttentionSummaryMock = vi.fn();
+const usePwaInstallMock = vi.fn();
 
 vi.mock('../features/auth/AuthContext', () => ({
   useAuth: () => useAuthMock()
@@ -24,8 +25,8 @@ vi.mock('../features/inventory/hooks/useInventoryQueries', () => ({
   useAppAttentionSummary: (...args: unknown[]) => useAppAttentionSummaryMock(...args)
 }));
 
-vi.mock('../features/auth/AccountControl', () => ({
-  AccountMenuTrigger: () => <button type="button">Account</button>
+vi.mock('../features/pwa/PwaInstallContext', () => ({
+  usePwaInstall: () => usePwaInstallMock()
 }));
 
 function buildAuth(overrides: Record<string, unknown> = {}) {
@@ -40,12 +41,22 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
 
   return {
     accessContext: {
-      pendingCount: 0
+      pendingCount: 0,
+      role: 'Owner'
     },
     canAccessAdminConsole: true,
     hasFeatureAccess: (feature: string, mode: 'read' | 'write' = 'read') =>
       permissions[feature]?.[mode] ?? false,
+    isAuthenticated: true,
     isOwner: true,
+    requestUsernameChange: vi.fn(),
+    session: {
+      user: {
+        email: 'rob@example.com',
+        name: 'Rob'
+      }
+    },
+    signOut: vi.fn(),
     ...overrides
   };
 }
@@ -78,6 +89,11 @@ function buildLayoutTree(pathname: string) {
 
 function renderLayout(pathname = '/') {
   return render(buildLayoutTree(pathname));
+}
+
+function openAccountMenu() {
+  fireEvent.click(screen.getByRole('button', { name: 'Account actions' }));
+  return screen.getByRole('menu', { name: 'Account actions' });
 }
 
 function mockDesktopNavRect(container: HTMLElement, initialTop: number, height = 48) {
@@ -137,6 +153,16 @@ describe('AppLayout', () => {
         pendingAccessRequests: false
       })
     );
+    usePwaInstallMock.mockReturnValue({
+      install: vi.fn(),
+      installAvailability: 'manual_only',
+      isAndroid: false,
+      isInstalled: false,
+      isIos: false,
+      isSafari: false,
+      isInstallStatusReady: false,
+      manualInstallMode: 'desktop'
+    });
     Object.defineProperty(window, 'scrollY', {
       configurable: true,
       writable: true,
@@ -154,16 +180,27 @@ describe('AppLayout', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the theme control in the app header and defaults to light when no preference is saved', () => {
-    renderLayout('/');
+  it('renders the theme control in the account menu and defaults to light when no preference is saved', () => {
+    const view = renderLayout('/');
 
-    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    const headerCorner = view.container.querySelector('.app-header-corner');
+    if (!(headerCorner instanceof HTMLElement)) {
+      throw new Error('Expected app header corner to render.');
+    }
+
+    expect(within(headerCorner).getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(within(headerCorner).getByRole('button', { name: 'Account actions' })).toBeTruthy();
+    expect(within(headerCorner).queryByRole('group', { name: 'Theme' })).toBeNull();
+
+    const menu = openAccountMenu();
+    const themeControl = within(menu).getByRole('group', { name: 'Theme' });
     expect(within(themeControl).getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe(
       'true'
     );
     expect(within(themeControl).getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe(
       'false'
     );
+    expect(within(menu).getByRole('menuitem', { name: 'Sign Out' })).toBeTruthy();
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
@@ -172,17 +209,17 @@ describe('AppLayout', () => {
 
     renderLayout('/');
 
-    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    const themeControl = within(openAccountMenu()).getByRole('group', { name: 'Theme' });
     expect(within(themeControl).getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe(
       'true'
     );
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
-  it('updates the root theme and persists the selected theme when clicked', () => {
+  it('updates the root theme and persists the selected theme when clicked from the account menu', () => {
     renderLayout('/');
 
-    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    const themeControl = within(openAccountMenu()).getByRole('group', { name: 'Theme' });
     fireEvent.click(within(themeControl).getByRole('button', { name: 'Dark' }));
 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
@@ -205,12 +242,25 @@ describe('AppLayout', () => {
 
     renderLayout('/');
 
-    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    const themeControl = within(openAccountMenu()).getByRole('group', { name: 'Theme' });
     expect(within(themeControl).getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe(
       'true'
     );
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     expect(window.localStorage.getItem(APP_THEME_STORAGE_KEY)).toBeNull();
+  });
+
+  it('places the theme control directly above Sign Out in the account menu', () => {
+    renderLayout('/');
+
+    const menu = openAccountMenu();
+    const menuChildren = Array.from(menu.children);
+    const themeIndex = menuChildren.findIndex((child) => child.classList.contains('account-menu-theme'));
+    const signOutIndex = menuChildren.findIndex((child) => child.textContent === 'Sign Out');
+
+    expect(themeIndex).toBeGreaterThan(-1);
+    expect(signOutIndex).toBeGreaterThan(-1);
+    expect(themeIndex).toBeLessThan(signOutIndex);
   });
 
   it('shows the Film Orders attention dot on desktop when film still needs ordering', () => {

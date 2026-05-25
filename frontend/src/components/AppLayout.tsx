@@ -6,7 +6,6 @@ import { DesktopNavigation } from './app-layout/DesktopNavigation';
 import { MobileNavigation } from './app-layout/MobileNavigation';
 import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
 import { ShareCurrentPageButton } from './ShareCurrentPageButton';
-import { ThemeToggle } from '../features/theme/ThemeToggle';
 
 const DESKTOP_HEADER_STICKY_OFFSET_PX = 12;
 const DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX = 1;
@@ -171,7 +170,6 @@ export function AppLayout() {
                 <h1>Window Film Inventory</h1>
               </div>
               <div className="app-header-corner">
-                <ThemeToggle />
                 <ShareCurrentPageButton />
                 <AccountMenuTrigger />
               </div>

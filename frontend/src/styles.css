@@ -1339,6 +1339,35 @@ textarea {
   font-weight: 600;
 }
 
+.account-menu-theme {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  padding: 0.55rem 0.35rem 0.65rem;
+  border-top: 1px solid rgba(18, 52, 59, 0.1);
+}
+
+.account-menu-theme-label {
+  padding-inline: 0.2rem;
+  color: #587177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.account-menu-theme .theme-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  border-radius: 0.85rem;
+}
+
+.account-menu-theme .theme-toggle-button {
+  width: 100%;
+  min-height: 2.1rem;
+  padding: 0.34rem 0.5rem;
+  text-align: center;
+}
+
 .nav-link {
   display: inline-flex;
   align-items: center;
@@ -5396,15 +5425,6 @@ td.col-available-linear-ft {
   white-space: nowrap;
 }
 
-.app-header-corner .theme-toggle {
-  display: inline-flex;
-  width: auto;
-}
-
-.app-header-corner .theme-toggle-button {
-  width: auto;
-}
-
 .nav-link,
 .mobile-nav-link,
 .mobile-more-link,
@@ -5579,6 +5599,14 @@ th {
   border-bottom-color: var(--color-border-soft);
 }
 
+.account-menu-theme {
+  border-top-color: var(--color-border-soft);
+}
+
+.account-menu-theme-label {
+  color: var(--color-text-2);
+}
+
 .account-menu-meta-installed,
 .toast-symbol,
 .nav-more-item-active {
@@ -5696,20 +5724,4 @@ th {
 :root[data-theme="dark"] .button-ghost .button-spinner {
   border-color: rgba(255, 248, 232, 0.28);
   border-top-color: currentColor;
-}
-
-@media (max-width: 720px) {
-  .app-header-corner .theme-toggle {
-    display: inline-flex;
-    width: auto;
-    grid-template-columns: none;
-    border-radius: 999px;
-  }
-
-  .app-header-corner .theme-toggle-button {
-    width: auto;
-    min-height: 2rem;
-    padding-inline: 0.55rem;
-    font-size: 0.78rem;
-  }
 }
