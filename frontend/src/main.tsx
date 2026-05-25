@@ -6,7 +6,11 @@ import { OptimisticQueueProvider } from './components/OptimisticQueue';
 import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './features/auth/AuthContext';
 import { PwaInstallProvider } from './features/pwa/PwaInstallContext';
+import { AppThemeProvider } from './features/theme/AppThemeProvider';
+import { initializeAppTheme } from './features/theme/themeStorage';
 import './styles.css';
+
+initializeAppTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,9 +28,11 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ToastProvider>
         <OptimisticQueueProvider>
           <PwaInstallProvider>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
+            <AppThemeProvider>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </AppThemeProvider>
           </PwaInstallProvider>
         </OptimisticQueueProvider>
       </ToastProvider>

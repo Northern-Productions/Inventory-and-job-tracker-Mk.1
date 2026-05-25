@@ -8,14 +8,8 @@
     -apple-system,
     BlinkMacSystemFont,
     sans-serif;
-  color: #10242a;
-  background:
-    radial-gradient(
-      circle at top right,
-      rgba(211, 127, 74, 0.16),
-      transparent 34%
-    ),
-    linear-gradient(180deg, #eef3f4 0%, #f7f8fa 100%);
+  color: var(--color-text-1);
+  background: var(--color-app-bg);
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light;
@@ -30,6 +24,20 @@
   --font-display:
     "Aptos Display", "Segoe UI Semibold", "Trebuchet MS", sans-serif;
   --font-mono: "Consolas", "Courier New", monospace;
+  --color-primary: #12343b;
+  --color-primary-strong: #173b43;
+  --color-primary-hover: #0f2c33;
+  --color-primary-soft: rgba(18, 52, 59, 0.08);
+  --color-primary-contrast: #fff;
+  --color-selected-bg: var(--color-primary);
+  --color-selected-border: var(--color-primary);
+  --color-selected-text: var(--color-primary-contrast);
+  --color-app-bg: radial-gradient(
+      circle at top right,
+      rgba(211, 127, 74, 0.16),
+      transparent 34%
+    ),
+    linear-gradient(180deg, #eef3f4 0%, #f7f8fa 100%);
   --color-text-1: #10242a;
   --color-text-2: #3d565d;
   --color-text-3: #61787e;
@@ -38,6 +46,31 @@
   --color-surface-1: rgba(255, 255, 255, 0.9);
   --color-surface-2: rgba(255, 255, 255, 0.76);
   --color-surface-3: rgba(243, 247, 248, 0.86);
+  --color-surface-raised: rgba(255, 255, 255, 0.98);
+  --color-surface-solid: #fff;
+  --color-surface-muted: rgba(248, 250, 250, 0.84);
+  --color-control-bg: rgba(255, 255, 255, 0.88);
+  --color-control-bg-hover: rgba(18, 52, 59, 0.06);
+  --color-control-border: #c6d2d6;
+  --color-control-text: #2e4b53;
+  --color-field-bg: rgba(255, 255, 255, 0.92);
+  --color-field-border: rgba(18, 52, 59, 0.12);
+  --color-field-placeholder: #81949a;
+  --color-header-bg: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.88) 0%,
+    rgba(252, 251, 249, 0.72) 100%
+  );
+  --color-header-pinned-bg: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(248, 246, 242, 0.95) 100%
+  );
+  --color-menu-bg: rgba(255, 255, 255, 0.98);
+  --color-table-bg: rgba(255, 255, 255, 0.74);
+  --color-backdrop: rgba(8, 20, 24, 0.45);
+  --color-link: #1565d8;
+  --color-link-hover: #0f4aa3;
   --shadow-sm: 0 10px 26px rgba(18, 52, 59, 0.08);
   --shadow-md: 0 20px 48px rgba(18, 52, 59, 0.11);
   --shadow-lg: 0 28px 72px rgba(18, 52, 59, 0.14);
@@ -45,6 +78,61 @@
   --radius-md: 0.9rem;
   --radius-lg: 1.2rem;
   --radius-xl: 1.6rem;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-primary: #12343b;
+  --color-primary-strong: #0b242a;
+  --color-primary-hover: #16414a;
+  --color-primary-soft: rgba(255, 250, 240, 0.1);
+  --color-primary-contrast: #fff8e8;
+  --color-selected-bg: #fff0d3;
+  --color-selected-border: #fff0d3;
+  --color-selected-text: #12343b;
+  --color-app-bg: radial-gradient(
+      circle at top right,
+      rgba(255, 240, 211, 0.12),
+      transparent 34%
+    ),
+    linear-gradient(180deg, #071d22 0%, #12343b 100%);
+  --color-text-1: #fff8e8;
+  --color-text-2: #d8e5e6;
+  --color-text-3: #afc3c7;
+  --color-border-soft: rgba(255, 250, 240, 0.14);
+  --color-border-strong: rgba(255, 250, 240, 0.28);
+  --color-surface-1: rgba(18, 52, 59, 0.9);
+  --color-surface-2: rgba(15, 45, 52, 0.84);
+  --color-surface-3: rgba(10, 35, 42, 0.78);
+  --color-surface-raised: rgba(10, 34, 40, 0.96);
+  --color-surface-solid: #0d2b32;
+  --color-surface-muted: rgba(255, 250, 240, 0.08);
+  --color-control-bg: rgba(255, 250, 240, 0.11);
+  --color-control-bg-hover: rgba(255, 250, 240, 0.16);
+  --color-control-border: rgba(255, 250, 240, 0.24);
+  --color-control-text: #fff8e8;
+  --color-field-bg: rgba(255, 250, 240, 0.1);
+  --color-field-border: rgba(255, 250, 240, 0.22);
+  --color-field-placeholder: rgba(255, 248, 232, 0.58);
+  --color-header-bg: linear-gradient(
+    180deg,
+    rgba(10, 37, 43, 0.96) 0%,
+    rgba(18, 52, 59, 0.88) 100%
+  );
+  --color-header-pinned-bg: linear-gradient(
+    180deg,
+    rgba(7, 29, 34, 0.98) 0%,
+    rgba(18, 52, 59, 0.95) 100%
+  );
+  --color-menu-bg: rgba(10, 34, 40, 0.98);
+  --color-table-bg: rgba(255, 250, 240, 0.08);
+  --color-backdrop: rgba(2, 8, 10, 0.62);
+  --color-link: #9fd7ff;
+  --color-link-hover: #d5ecff;
+  --shadow-sm: 0 10px 26px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 20px 48px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 28px 72px rgba(0, 0, 0, 0.38);
+  --focus-ring: 0 0 0 3px rgba(255, 240, 211, 0.3);
 }
 
 body {
@@ -375,7 +463,7 @@ th,
 }
 
 .button-primary {
-  background: linear-gradient(180deg, #173b43 0%, #12343b 100%);
+  background: linear-gradient(180deg, var(--color-primary-strong) 0%, var(--color-primary) 100%);
 }
 
 .button-secondary {
@@ -1151,9 +1239,9 @@ textarea {
 
 .account-menu-button-active,
 .account-menu-trigger-active {
-  border-color: #12343b;
-  background: #12343b;
-  color: #fff;
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
 }
 
 .account-menu-dots {
@@ -1251,6 +1339,35 @@ textarea {
   font-weight: 600;
 }
 
+.account-menu-theme {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  padding: 0.55rem 0.35rem 0.65rem;
+  border-top: 1px solid rgba(18, 52, 59, 0.1);
+}
+
+.account-menu-theme-label {
+  padding-inline: 0.2rem;
+  color: #587177;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.account-menu-theme .theme-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  border-radius: 0.85rem;
+}
+
+.account-menu-theme .theme-toggle-button {
+  width: 100%;
+  min-height: 2.1rem;
+  padding: 0.34rem 0.5rem;
+  text-align: center;
+}
+
 .nav-link {
   display: inline-flex;
   align-items: center;
@@ -1294,7 +1411,7 @@ textarea {
 
 .nav-link-active .nav-attention-dot,
 .mobile-nav-link-active .nav-attention-dot {
-  box-shadow: 0 0 0 2px #12343b;
+  box-shadow: 0 0 0 2px var(--color-selected-bg);
 }
 
 .app-nav-more-wrap {
@@ -1340,9 +1457,9 @@ textarea {
 }
 
 .nav-link-active {
-  background: #12343b;
-  border-color: #12343b;
-  color: #fff;
+  background: var(--color-selected-bg);
+  border-color: var(--color-selected-border);
+  color: var(--color-selected-text);
 }
 
 .inventory-view-toggle-wrap {
@@ -1370,9 +1487,9 @@ textarea {
 }
 
 .inventory-view-toggle-button-active {
-  border-color: #12343b;
-  background: #12343b;
-  color: #fff;
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
 }
 
 .app-main {
@@ -2083,9 +2200,9 @@ textarea {
 }
 
 .width-chip-active {
-  background: #12343b;
-  border-color: #12343b;
-  color: #fff;
+  background: var(--color-selected-bg);
+  border-color: var(--color-selected-border);
+  color: var(--color-selected-text);
 }
 
 .width-clear-button {
@@ -2131,8 +2248,8 @@ textarea {
 }
 
 .button-primary {
-  background: #12343b;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
 }
 
 .button-secondary {
@@ -2152,8 +2269,8 @@ textarea {
 
 .button-ghost {
   background: transparent;
-  color: #12343b;
-  border: 1px solid #c6d2d6;
+  color: var(--color-primary);
+  border: 1px solid var(--color-control-border);
 }
 
 .badge {
@@ -2739,8 +2856,8 @@ td.col-available-linear-ft {
   width: 1.9rem;
   height: 1.9rem;
   border-radius: 999px;
-  background: linear-gradient(180deg, #173b43 0%, #12343b 100%);
-  color: #fff;
+  background: linear-gradient(180deg, var(--color-primary-strong) 0%, var(--color-primary) 100%);
+  color: var(--color-primary-contrast);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2830,9 +2947,9 @@ td.col-available-linear-ft {
 }
 
 .mobile-nav-link-active {
-  border-color: #12343b;
-  background: #12343b;
-  color: #fff;
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
 }
 
 .mobile-more-sheet-backdrop {
@@ -3277,6 +3394,10 @@ td.col-available-linear-ft {
   gap: 0.55rem;
 }
 
+.job-phase-heading {
+  min-width: 0;
+}
+
 .job-phase-header h3 {
   margin: 0;
   overflow-wrap: anywhere;
@@ -3326,11 +3447,58 @@ td.col-available-linear-ft {
 }
 
 .phase-labor-toggle {
-  align-self: center;
+  align-self: flex-end;
 }
 
 .phase-workflow-toggle {
   font-size: 0.8rem;
+  justify-self: end;
+  max-width: 100%;
+  box-shadow: none;
+}
+
+.phase-workflow-toggle-button {
+  min-height: 2rem;
+  padding: 0.34rem 0.72rem;
+}
+
+.phase-workflow-toggle-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+.phase-workflow-toggle-button:disabled.inventory-view-toggle-button-active {
+  opacity: 0.76;
+}
+
+.job-phase-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  gap: 0.5rem;
+  max-width: 100%;
+}
+
+@media (max-width: 720px) {
+  .job-phase-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .job-phase-header-actions {
+    grid-column: 1 / -1;
+    align-items: stretch;
+    justify-self: stretch;
+  }
+
+  .phase-workflow-toggle {
+    width: 100%;
+  }
+
+  .phase-labor-toggle {
+    align-self: flex-start;
+  }
 }
 
 .job-editor-phase-row {
@@ -4374,15 +4542,15 @@ td.col-available-linear-ft {
 }
 
 .label-result-button-selected {
-  border-color: #12343b !important;
-  background: #12343b !important;
-  color: #fff !important;
+  border-color: var(--color-selected-border) !important;
+  background: var(--color-selected-bg) !important;
+  color: var(--color-selected-text) !important;
 }
 
 .label-result-button-selected:hover,
 .label-result-button-selected:focus-visible {
-  background: #0d2830 !important;
-  color: #fff !important;
+  background: var(--color-selected-bg) !important;
+  color: var(--color-selected-text) !important;
 }
 
 .label-slot-grid {
@@ -5195,4 +5363,365 @@ td.col-available-linear-ft {
   .feature-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Theme tokens for shared shell surfaces and controls. */
+.app-shell {
+  color: var(--color-text-1);
+}
+
+.app-header-band {
+  background: var(--color-header-bg);
+  border-bottom-color: var(--color-border-soft);
+}
+
+.app-header-desktop.app-header-pinned .app-header-band,
+.app-header-desktop.app-header-compact .app-header-band {
+  background: var(--color-header-pinned-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.app-nav-shell,
+.panel,
+.mobile-record-card,
+.empty-state,
+.job-calendar-week-card,
+.job-calendar-day,
+.label-preview-panel,
+.label-slot-panel {
+  border-color: var(--color-border-soft);
+  background: var(--color-surface-1);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--color-surface-1) 0%, var(--color-surface-2) 100%);
+}
+
+.panel-subtle,
+.job-phase-card-placeholder {
+  background: var(--color-surface-muted);
+}
+
+.app-nav-shell,
+.inventory-view-toggle,
+.theme-toggle,
+.job-calendar-view-select {
+  border-color: var(--color-control-border);
+  background: var(--color-control-bg);
+  color: var(--color-control-text);
+}
+
+.theme-toggle {
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  box-shadow: none;
+}
+
+.theme-toggle-button {
+  min-height: 2.1rem;
+  padding: 0.34rem 0.68rem;
+  white-space: nowrap;
+}
+
+.nav-link,
+.mobile-nav-link,
+.mobile-more-link,
+.account-menu-button,
+.account-menu-trigger,
+.dialog-close,
+.toast-close,
+.button-ghost {
+  border-color: var(--color-control-border);
+  background: var(--color-control-bg);
+  color: var(--color-control-text);
+}
+
+.nav-link:hover,
+.mobile-nav-link:hover,
+.mobile-more-link:hover,
+.nav-more-item:hover,
+.account-menu-action:hover:not(:disabled),
+.account-menu-item:hover:not(:disabled),
+.button-ghost:hover:not(:disabled),
+.inventory-view-toggle-button:hover:not(:disabled) {
+  background: var(--color-control-bg-hover);
+}
+
+.button-primary,
+.nav-link-active,
+.mobile-nav-link-active,
+.account-menu-button-active,
+.account-menu-trigger-active,
+.inventory-view-toggle-button-active,
+.width-chip-active,
+.label-result-button-selected {
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
+}
+
+.nav-link-active:hover,
+.mobile-nav-link-active:hover,
+.inventory-view-toggle-button-active:hover:not(:disabled),
+.account-menu-button-active:hover,
+.account-menu-trigger-active:hover {
+  border-color: var(--color-selected-border);
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
+}
+
+.button-primary {
+  background: linear-gradient(180deg, var(--color-primary-strong) 0%, var(--color-primary) 100%);
+  color: var(--color-primary-contrast);
+}
+
+:root[data-theme="dark"] .button-primary {
+  background: var(--color-selected-bg);
+  color: var(--color-selected-text);
+}
+
+.button-ghost {
+  border: 1px solid var(--color-control-border);
+}
+
+.field-label,
+.job-editor-phase-row label,
+.mobile-field-label,
+.key-value dt,
+.dialog-section-header p,
+.job-calendar-view-select,
+.job-calendar-view-select-input,
+.job-calendar-month-label,
+.job-calendar-week-card-title,
+.job-calendar-week-card-date,
+.account-menu-profile-name {
+  color: var(--color-text-1);
+}
+
+.eyebrow,
+.app-header-copy,
+.auth-note,
+.auth-email,
+.auth-role-line,
+.muted-text,
+.mobile-field-value,
+.job-phase-meta,
+.job-calendar-nav-status,
+.job-calendar-period-year,
+.job-calendar-week-card-weekday,
+.job-calendar-week-card-count,
+.job-calendar-week-card-more,
+.account-menu-profile-email,
+.account-menu-profile-meta,
+.account-menu-meta,
+.dialog-copy,
+.dialog-message {
+  color: var(--color-text-2);
+}
+
+.field-input,
+.jobs-sort-select,
+.job-calendar-view-select-input,
+select,
+textarea {
+  border-color: var(--color-field-border);
+  background: var(--color-field-bg);
+  color: var(--color-text-1);
+}
+
+.field-input::placeholder,
+textarea::placeholder {
+  color: var(--color-field-placeholder);
+}
+
+.field-input:focus,
+.jobs-sort-select:focus,
+.job-calendar-view-select-input:focus {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--focus-ring);
+}
+
+.table-wrap,
+.dialog-section,
+.install-dialog-intro-card,
+.install-steps li {
+  border-color: var(--color-border-soft);
+  background: var(--color-table-bg);
+  color: var(--color-text-1);
+}
+
+th,
+td {
+  border-bottom-color: var(--color-border-soft);
+}
+
+th {
+  color: var(--color-text-2);
+}
+
+.row-button,
+.detail-link-button,
+.job-calendar-more-button {
+  color: var(--color-link);
+}
+
+.row-button:hover,
+.row-button:focus-visible,
+.job-calendar-more-button:hover,
+.job-calendar-more-button:focus-visible {
+  color: var(--color-link-hover);
+}
+
+.dialog-backdrop {
+  background: var(--color-backdrop);
+}
+
+.dialog,
+.install-dialog,
+.account-menu,
+.nav-more-menu,
+.job-calendar-dialog,
+.delete-dialog {
+  border-color: var(--color-border-soft);
+  background: var(--color-menu-bg);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog-actions-sticky-footer {
+  border-top-color: var(--color-border-soft);
+  background: var(--color-menu-bg);
+}
+
+.account-menu-profile {
+  border-bottom-color: var(--color-border-soft);
+}
+
+.account-menu-theme {
+  border-top-color: var(--color-border-soft);
+}
+
+.account-menu-theme-label {
+  color: var(--color-text-2);
+}
+
+.account-menu-meta-installed,
+.toast-symbol,
+.nav-more-item-active {
+  border-color: var(--color-border-strong);
+  background: var(--color-primary-soft);
+  color: var(--color-text-1);
+}
+
+.nav-more-item {
+  color: var(--color-text-1);
+}
+
+.mobile-bottom-nav {
+  border-color: var(--color-border-soft);
+  background: var(--color-header-pinned-bg);
+}
+
+.job-phase-card,
+.job-editor-phase-row,
+.job-calendar-job-link,
+.job-calendar-event-bar,
+.job-calendar-job-preview {
+  border-color: var(--color-border-soft);
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+}
+
+.job-phase-card:focus-visible,
+.job-phase-card-targeted,
+.job-calendar-job-link-highlight {
+  box-shadow: var(--focus-ring), var(--shadow-sm);
+}
+
+.requirement-state-toggle {
+  color: var(--color-text-1);
+}
+
+.requirement-state-toggle input {
+  accent-color: var(--color-primary);
+}
+
+.toast {
+  border-color: var(--color-border-soft);
+  background: var(--color-surface-raised);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-lg);
+}
+
+.toast p {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="dark"] .app-shell,
+:root[data-theme="dark"] .app-shell-theme-inventory,
+:root[data-theme="dark"] .app-shell-theme-jobs,
+:root[data-theme="dark"] .app-shell-theme-add-box,
+:root[data-theme="dark"] .app-shell-theme-scan,
+:root[data-theme="dark"] .app-shell-theme-film-orders,
+:root[data-theme="dark"] .app-shell-theme-more {
+  --app-shell-bg-start: #071d22;
+  --app-shell-bg-end: #12343b;
+  --app-shell-glow-primary: rgba(255, 240, 211, 0.1);
+  --app-shell-glow-secondary: rgba(255, 250, 240, 0.08);
+}
+
+:root[data-theme="dark"] .badge-muted,
+:root[data-theme="dark"] .badge-NO_LONGER_NEEDED,
+:root[data-theme="dark"] .badge-CANCELLED {
+  background: rgba(255, 250, 240, 0.14);
+  color: var(--color-text-1);
+}
+
+:root[data-theme="dark"] .badge-READY,
+:root[data-theme="dark"] .badge-ACTIVE,
+:root[data-theme="dark"] .badge-FULFILLED,
+:root[data-theme="dark"] .badge-FULFILLED_COVERED,
+:root[data-theme="dark"] .badge-IN_STOCK,
+:root[data-theme="dark"] .badge-COMPLETED {
+  background: rgba(104, 211, 145, 0.18);
+  color: #d9ffe8;
+}
+
+:root[data-theme="dark"] .badge-ORDERED,
+:root[data-theme="dark"] .badge-ON_ORDER,
+:root[data-theme="dark"] .badge-FILM_ON_THE_WAY {
+  background: rgba(138, 188, 255, 0.2);
+  color: #dbeaff;
+}
+
+:root[data-theme="dark"] .badge-INCOMPLETE,
+:root[data-theme="dark"] .badge-CHECKED_OUT {
+  background: rgba(255, 203, 117, 0.18);
+  color: #ffe1a8;
+}
+
+:root[data-theme="dark"] .badge-CONFLICT,
+:root[data-theme="dark"] .badge-FILM_ORDER,
+:root[data-theme="dark"] .badge-RETIRED,
+:root[data-theme="dark"] .badge-ZEROED {
+  background: rgba(255, 137, 120, 0.18);
+  color: #ffd3cb;
+}
+
+:root[data-theme="dark"] .badge-TRANSFER {
+  background: rgba(190, 164, 255, 0.18);
+  color: #e9deff;
+}
+
+:root[data-theme="dark"] .button-spinner,
+:root[data-theme="dark"] .loading-spinner {
+  border-color: rgba(255, 248, 232, 0.28);
+  border-top-color: currentColor;
+}
+
+:root[data-theme="dark"] .button-ghost .button-spinner {
+  border-color: rgba(255, 248, 232, 0.28);
+  border-top-color: currentColor;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '../../components/Button';
 import { DialogSurface } from '../../components/DialogSurface';
+import { ThemeToggle } from '../theme/ThemeToggle';
 import { usePwaInstall } from '../pwa/PwaInstallContext';
 import type { ManualInstallMode } from '../pwa/installUtils';
 import { useAuth } from './AuthContext';
@@ -173,6 +174,10 @@ export function AccountMenuTrigger() {
           Install Help
         </Button>
       ) : null}
+      <div className="account-menu-theme" role="presentation">
+        <span className="account-menu-theme-label">Theme</span>
+        <ThemeToggle />
+      </div>
       <Button
         type="button"
         variant="ghost"

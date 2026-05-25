@@ -29,15 +29,30 @@ interface JobPhasesSectionProps {
   onSetRequirementState: (requirement: JobRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetCaulkRequirementState: (requirement: JobCaulkRequirementLine, status: 'ACTIVE' | 'COMPLETE') => void;
   onSetPhaseState: (phase: JobPhase, status: 'ACTIVE' | 'COMPLETE') => void;
-  onSetPhaseWorkflowState: (phase: JobPhase, status: 'ACTIVE' | 'PLACEHOLDER') => void;
+  onSetPhaseWorkflowState: (
+    phase: JobPhase,
+    status: 'ACTIVE' | 'PLACEHOLDER'
+  ) => boolean | void | Promise<boolean | void>;
   onResumeAutoPlanning: (requirement: JobRequirementLine) => void;
   onResumeCaulkAutoPlanning: (requirement: JobCaulkRequirementLine) => void;
   onCancelRequirementOrder: (order: FilmOrderEntry) => void;
   onOrderAll: () => void;
 }
 
+type PhaseWorkflowStatus = 'ACTIVE' | 'PLACEHOLDER';
+
+interface PhaseWorkflowOverride {
+  pending: boolean;
+  previousStatus: PhaseWorkflowStatus;
+  status: PhaseWorkflowStatus;
+}
+
 function getPhaseId(phase: JobPhase) {
   return String(phase.phaseId || phase.id || '').trim();
+}
+
+function getPhaseKey(phase: JobPhase, index: number) {
+  return getPhaseId(phase) || `phase-${index}`;
 }
 
 function getRequirementPhaseId(entry: JobRequirementLine | JobCaulkRequirementLine) {
@@ -67,6 +82,16 @@ function buildPhaseTitle(phase: JobPhase) {
 function buildPhaseDomId(phaseId: string) {
   const safePhaseId = phaseId.replace(/[^A-Za-z0-9_-]/g, '-');
   return safePhaseId ? `job-phase-${safePhaseId}` : undefined;
+}
+
+function normalizePhaseWorkflowStatus(value: unknown): PhaseWorkflowStatus {
+  return String(value || '').trim().toUpperCase() === 'PLACEHOLDER' ? 'PLACEHOLDER' : 'ACTIVE';
+}
+
+function getPhaseWorkflowToggleButtonClass(isSelected: boolean) {
+  return `inventory-view-toggle-button phase-workflow-toggle-button ${
+    isSelected ? 'inventory-view-toggle-button-active' : ''
+  }`.trim();
 }
 
 function shouldReduceMotion() {
@@ -162,12 +187,48 @@ export function JobPhasesSection({
   const phaseCardRefs = useRef(new Map<string, HTMLElement>());
   const lastHandledFocusedPhaseIdRef = useRef('');
   const highlightTimerRef = useRef<number | null>(null);
+  const pendingWorkflowPhaseKeysRef = useRef(new Set<string>());
   const [highlightedPhaseId, setHighlightedPhaseId] = useState('');
+  const [workflowOverrides, setWorkflowOverrides] = useState<Record<string, PhaseWorkflowOverride>>({});
   const normalizedFocusedPhaseId = String(focusedPhaseId || '').trim();
+  const phaseServerWorkflowStatuses = useMemo(() => {
+    const entries = normalizedPhases.map((phase, index) => [
+      getPhaseKey(phase, index),
+      normalizePhaseWorkflowStatus(phase.workflowStatus)
+    ]);
+    return Object.fromEntries(entries) as Record<string, PhaseWorkflowStatus>;
+  }, [normalizedPhases]);
 
   useEffect(() => {
     setExpandedPhaseIds(new Set(defaultExpandedPhaseIds));
   }, [defaultExpandedPhaseIds]);
+
+  useEffect(() => {
+    setWorkflowOverrides((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      Object.entries(current).forEach(([key, override]) => {
+        const serverStatus = phaseServerWorkflowStatuses[key];
+        if (!serverStatus) {
+          delete next[key];
+          changed = true;
+          return;
+        }
+
+        if (override.pending) {
+          return;
+        }
+
+        if (serverStatus === override.status || serverStatus !== override.previousStatus) {
+          delete next[key];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [phaseServerWorkflowStatuses]);
 
   useEffect(() => {
     if (!normalizedFocusedPhaseId) {
@@ -237,7 +298,7 @@ export function JobPhasesSection({
   );
 
   function togglePhase(phase: JobPhase, index: number) {
-    const key = getPhaseId(phase) || `phase-${index}`;
+    const key = getPhaseKey(phase, index);
     setExpandedPhaseIds((current) => {
       const next = new Set(current);
       if (next.has(key)) {
@@ -247,6 +308,69 @@ export function JobPhasesSection({
       }
       return next;
     });
+  }
+
+  function getVisibleWorkflowStatus(phase: JobPhase, index: number) {
+    const key = getPhaseKey(phase, index);
+    return workflowOverrides[key]?.status || normalizePhaseWorkflowStatus(phase.workflowStatus);
+  }
+
+  function rollbackPhaseWorkflowState(key: string, previousStatus: PhaseWorkflowStatus) {
+    pendingWorkflowPhaseKeysRef.current.delete(key);
+    setWorkflowOverrides((current) => ({
+      ...current,
+      [key]: {
+        pending: false,
+        previousStatus,
+        status: previousStatus
+      }
+    }));
+  }
+
+  function setPhaseWorkflowState(phase: JobPhase, index: number, nextStatus: PhaseWorkflowStatus) {
+    const key = getPhaseKey(phase, index);
+    const currentStatus = getVisibleWorkflowStatus(phase, index);
+    const currentOverride = workflowOverrides[key];
+
+    if (currentStatus === nextStatus || currentOverride?.pending || pendingWorkflowPhaseKeysRef.current.has(key)) {
+      return;
+    }
+
+    pendingWorkflowPhaseKeysRef.current.add(key);
+    setWorkflowOverrides((current) => ({
+      ...current,
+      [key]: {
+        pending: true,
+        previousStatus: currentStatus,
+        status: nextStatus
+      }
+    }));
+
+    void Promise.resolve(onSetPhaseWorkflowState(phase, nextStatus))
+      .then((result) => {
+        if (result === false) {
+          rollbackPhaseWorkflowState(key, currentStatus);
+          return;
+        }
+
+        pendingWorkflowPhaseKeysRef.current.delete(key);
+        setWorkflowOverrides((current) => {
+          const activeOverride = current[key];
+          if (!activeOverride || activeOverride.status !== nextStatus) {
+            return current;
+          }
+          return {
+            ...current,
+            [key]: {
+              ...activeOverride,
+              pending: false
+            }
+          };
+        });
+      })
+      .catch(() => {
+        rollbackPhaseWorkflowState(key, currentStatus);
+      });
   }
 
   return (
@@ -268,18 +392,20 @@ export function JobPhasesSection({
 
       <div className="job-phase-list">
         {normalizedPhases.map((phase, index) => {
-          const key = getPhaseId(phase) || `phase-${index}`;
+          const key = getPhaseKey(phase, index);
           const phaseId = getPhaseId(phase);
           const phaseRequirements = filterForPhase(requirements, phase, fallbackPhaseId);
           const phaseCaulkRequirements = filterForPhase(caulkRequirements, phase, fallbackPhaseId);
           const isExpanded = expandedPhaseIds.has(key);
           const isLaborOnlyPhase = !phaseRequirements.length && !phaseCaulkRequirements.length;
           const phaseComplete = phase.isComplete || phase.laborStatus === 'COMPLETE' || phase.status === 'COMPLETED';
-          const workflowStatus =
-            String(phase.workflowStatus || '').trim().toUpperCase() === 'PLACEHOLDER'
-              ? 'PLACEHOLDER'
-              : 'ACTIVE';
+          const workflowStatus = getVisibleWorkflowStatus(phase, index);
           const isPlaceholderPhase = workflowStatus === 'PLACEHOLDER';
+          const phaseWorkflowPending = workflowOverrides[key]?.pending === true;
+          const workflowToggleDisabled =
+            isReadOnlyJob || !isAuthenticated || !clientIdConfigured || phaseWorkflowPending;
+          const phaseLaborToggleDisabled =
+            isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending;
 
           return (
             <article
@@ -314,19 +440,8 @@ export function JobPhasesSection({
                   >
                     {isExpanded ? '-' : '+'}
                   </Button>
-                  <label className="requirement-state-toggle phase-workflow-toggle">
-                    <input
-                      type="checkbox"
-                      checked={!isPlaceholderPhase}
-                      disabled={isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending}
-                      onChange={() =>
-                        onSetPhaseWorkflowState(phase, isPlaceholderPhase ? 'ACTIVE' : 'PLACEHOLDER')
-                      }
-                    />
-                    <span>{isPlaceholderPhase ? 'Placeholder' : 'Active'}</span>
-                  </label>
                 </div>
-                <div>
+                <div className="job-phase-heading">
                   <h3>{buildPhaseTitle(phase)}</h3>
                   <div className="job-phase-meta">
                     <span>{formatDate(phase.installDate || '')}</span>
@@ -335,17 +450,47 @@ export function JobPhasesSection({
                     <span className={`badge badge-${phase.status}`}>{phase.status}</span>
                   </div>
                 </div>
-                {isLaborOnlyPhase ? (
-                  <label className="requirement-state-toggle phase-labor-toggle">
-                    <input
-                      type="checkbox"
-                      checked={phaseComplete}
-                      disabled={isReadOnlyJob || !isAuthenticated || !clientIdConfigured || isPhaseStatePending}
-                      onChange={() => onSetPhaseState(phase, phaseComplete ? 'ACTIVE' : 'COMPLETE')}
-                    />
-                    <span>{phaseComplete ? 'Complete' : 'Active'}</span>
-                  </label>
-                ) : null}
+                <div className="job-phase-header-actions">
+                  <div
+                    className="inventory-view-toggle phase-workflow-toggle"
+                    role="group"
+                    aria-label={`Phase ${phase.phaseNumber} workflow state`}
+                  >
+                    <button
+                      type="button"
+                      className={getPhaseWorkflowToggleButtonClass(isPlaceholderPhase)}
+                      disabled={workflowToggleDisabled}
+                      onClick={() => {
+                        setPhaseWorkflowState(phase, index, 'PLACEHOLDER');
+                      }}
+                      aria-pressed={isPlaceholderPhase}
+                    >
+                      Placeholder
+                    </button>
+                    <button
+                      type="button"
+                      className={getPhaseWorkflowToggleButtonClass(!isPlaceholderPhase)}
+                      disabled={workflowToggleDisabled}
+                      onClick={() => {
+                        setPhaseWorkflowState(phase, index, 'ACTIVE');
+                      }}
+                      aria-pressed={!isPlaceholderPhase}
+                    >
+                      Active
+                    </button>
+                  </div>
+                  {isLaborOnlyPhase ? (
+                    <label className="requirement-state-toggle phase-labor-toggle">
+                      <input
+                        type="checkbox"
+                        checked={phaseComplete}
+                        disabled={phaseLaborToggleDisabled}
+                        onChange={() => onSetPhaseState(phase, phaseComplete ? 'ACTIVE' : 'COMPLETE')}
+                      />
+                      <span>{phaseComplete ? 'Complete' : 'Active'}</span>
+                    </label>
+                  ) : null}
+                </div>
               </div>
 
               {isExpanded ? (

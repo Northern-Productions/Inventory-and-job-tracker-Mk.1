@@ -264,7 +264,7 @@ export default function AllocationJobPage() {
         }
         onSetPhaseState={(phase, nextStatus) => void handleSetPhaseState(phase, nextStatus)}
         onSetPhaseWorkflowState={(phase, nextWorkflowStatus) =>
-          void handleSetPhaseWorkflowState(phase, nextWorkflowStatus)
+          handleSetPhaseWorkflowState(phase, nextWorkflowStatus)
         }
         onResumeAutoPlanning={(requirement) => void handleResumeAutoPlanning(requirement)}
         onResumeCaulkAutoPlanning={(requirement) => void handleResumeCaulkAutoPlanning(requirement)}

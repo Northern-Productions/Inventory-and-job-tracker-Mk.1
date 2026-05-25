@@ -1029,7 +1029,7 @@ export function useAllocationJobPageModel() {
         requireWriteAccess: true
       })
     ) {
-      return;
+      return false;
     }
 
     try {
@@ -1054,7 +1054,10 @@ export function useAllocationJobPageModel() {
         description: error instanceof Error ? error.message : 'The phase update failed.',
         variant: 'error'
       });
+      return false;
     }
+
+    return true;
   }
 
   async function handleResumeCaulkAutoPlanning(requirement: JobCaulkRequirementLine) {
