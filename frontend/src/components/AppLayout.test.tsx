@@ -5,6 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLayout } from './AppLayout';
 import { ToastProvider } from './Toast';
+import { AppThemeProvider } from '../features/theme/AppThemeProvider';
+import { APP_THEME_STORAGE_KEY } from '../features/theme/themeStorage';
 
 const useAuthMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
@@ -60,14 +62,16 @@ function buildQueryState<T>(data: T) {
 function buildLayoutTree(pathname: string) {
   return (
     <ToastProvider>
-      <MemoryRouter initialEntries={[pathname]}>
-        <Routes>
-          <Route path="/" element={<AppLayout />}>
-            <Route index element={<div>Inventory page</div>} />
-            <Route path="*" element={<div>Nested page</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <AppThemeProvider>
+        <MemoryRouter initialEntries={[pathname]}>
+          <Routes>
+            <Route path="/" element={<AppLayout />}>
+              <Route index element={<div>Inventory page</div>} />
+              <Route path="*" element={<div>Nested page</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AppThemeProvider>
     </ToastProvider>
   );
 }
@@ -138,12 +142,75 @@ describe('AppLayout', () => {
       writable: true,
       value: 0
     });
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
   });
 
   afterEach(() => {
     cleanup();
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-theme');
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it('renders the theme control in the app header and defaults to light when no preference is saved', () => {
+    renderLayout('/');
+
+    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    expect(within(themeControl).getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect(within(themeControl).getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe(
+      'false'
+    );
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('applies a saved dark theme from localStorage', () => {
+    window.localStorage.setItem(APP_THEME_STORAGE_KEY, 'dark');
+
+    renderLayout('/');
+
+    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    expect(within(themeControl).getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+  });
+
+  it('updates the root theme and persists the selected theme when clicked', () => {
+    renderLayout('/');
+
+    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    fireEvent.click(within(themeControl).getByRole('button', { name: 'Dark' }));
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(window.localStorage.getItem(APP_THEME_STORAGE_KEY)).toBe('dark');
+    expect(within(themeControl).getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+
+    fireEvent.click(within(themeControl).getByRole('button', { name: 'Light' }));
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(window.localStorage.getItem(APP_THEME_STORAGE_KEY)).toBe('light');
+    expect(within(themeControl).getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+  });
+
+  it('falls back to light and clears invalid stored theme values', () => {
+    window.localStorage.setItem(APP_THEME_STORAGE_KEY, 'system');
+
+    renderLayout('/');
+
+    const themeControl = screen.getByRole('group', { name: 'Theme' });
+    expect(within(themeControl).getByRole('button', { name: 'Light' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(window.localStorage.getItem(APP_THEME_STORAGE_KEY)).toBeNull();
   });
 
   it('shows the Film Orders attention dot on desktop when film still needs ordering', () => {
