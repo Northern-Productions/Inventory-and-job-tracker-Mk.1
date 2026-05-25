@@ -58,6 +58,32 @@ function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequi
   };
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
+function getWorkflowToggle(phaseNumber: number) {
+  return screen.getByRole('group', { name: `Phase ${phaseNumber} workflow state` });
+}
+
+function expectWorkflowSelection(phaseNumber: number, selectedLabel: 'Active' | 'Placeholder') {
+  const toggle = getWorkflowToggle(phaseNumber);
+  const unselectedLabel = selectedLabel === 'Active' ? 'Placeholder' : 'Active';
+
+  expect(within(toggle).getByRole('button', { name: selectedLabel }).getAttribute('aria-pressed')).toBe(
+    'true'
+  );
+  expect(within(toggle).getByRole('button', { name: unselectedLabel }).getAttribute('aria-pressed')).toBe(
+    'false'
+  );
+}
+
 function renderPhases({
   phases = [buildPhase()],
   focusedPhaseId = '',
@@ -141,7 +167,34 @@ describe('JobPhasesSection', () => {
     expect(onSetPhaseState).toHaveBeenCalledWith(expect.objectContaining({ phaseId: 'phase-1' }), 'COMPLETE');
   });
 
-  it('toggles phase workflow state between Active and Placeholder', () => {
+  it('optimistically selects Placeholder before the phase 1 save resolves and keeps it after success', async () => {
+    const save = createDeferred<boolean>();
+    const onSetPhaseWorkflowState = vi.fn(() => save.promise);
+
+    renderPhases({
+      onSetPhaseWorkflowState,
+      requirements: [buildRequirement()],
+    });
+
+    expectWorkflowSelection(1, 'Active');
+
+    fireEvent.click(within(getWorkflowToggle(1)).getByRole('button', { name: 'Placeholder' }));
+
+    expectWorkflowSelection(1, 'Placeholder');
+    expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
+      expect.objectContaining({ phaseId: 'phase-1' }),
+      'PLACEHOLDER'
+    );
+
+    await act(async () => {
+      save.resolve(true);
+      await save.promise;
+    });
+
+    expectWorkflowSelection(1, 'Placeholder');
+  });
+
+  it('optimistically selects Active for a placeholder phase before the save resolves', () => {
     const onSetPhaseWorkflowState = vi.fn();
     renderPhases({
       onSetPhaseWorkflowState,
@@ -158,37 +211,65 @@ describe('JobPhasesSection', () => {
       requirements: [buildRequirement({ phaseId: 'phase-2', phaseNumber: 2 })],
     });
 
-    const toggle = screen.getByRole('group', { name: 'Phase 2 workflow state' });
-    expect(within(toggle).getByRole('button', { name: 'Placeholder' }).getAttribute('aria-pressed')).toBe(
-      'true'
-    );
+    expectWorkflowSelection(2, 'Placeholder');
 
-    fireEvent.click(within(toggle).getByRole('button', { name: 'Active' }));
+    fireEvent.click(within(getWorkflowToggle(2)).getByRole('button', { name: 'Active' }));
 
     expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
       expect.objectContaining({ phaseId: 'phase-2' }),
       'ACTIVE'
     );
+    expectWorkflowSelection(2, 'Active');
   });
 
-  it('allows phase 1 to switch from Active to Placeholder', () => {
-    const onSetPhaseWorkflowState = vi.fn();
+  it('rolls back to the previous workflow state when the save fails', async () => {
+    const save = createDeferred<boolean>();
+    const onSetPhaseWorkflowState = vi.fn(() => save.promise);
+
     renderPhases({
       onSetPhaseWorkflowState,
       requirements: [buildRequirement()],
     });
 
-    const toggle = screen.getByRole('group', { name: 'Phase 1 workflow state' });
-    expect(within(toggle).getByRole('button', { name: 'Active' }).getAttribute('aria-pressed')).toBe(
-      'true'
-    );
+    expectWorkflowSelection(1, 'Active');
 
-    fireEvent.click(within(toggle).getByRole('button', { name: 'Placeholder' }));
+    fireEvent.click(within(getWorkflowToggle(1)).getByRole('button', { name: 'Placeholder' }));
+
+    expectWorkflowSelection(1, 'Placeholder');
 
     expect(onSetPhaseWorkflowState).toHaveBeenCalledWith(
       expect.objectContaining({ phaseId: 'phase-1' }),
       'PLACEHOLDER'
     );
+
+    await act(async () => {
+      save.resolve(false);
+      await save.promise;
+    });
+
+    expectWorkflowSelection(1, 'Active');
+  });
+
+  it('does not start another workflow save for the same phase while one is pending', async () => {
+    const save = createDeferred<boolean>();
+    const onSetPhaseWorkflowState = vi.fn(() => save.promise);
+
+    renderPhases({
+      onSetPhaseWorkflowState,
+      requirements: [buildRequirement()],
+    });
+
+    const placeholderButton = within(getWorkflowToggle(1)).getByRole('button', { name: 'Placeholder' });
+    fireEvent.click(placeholderButton);
+    fireEvent.click(placeholderButton);
+
+    expect(onSetPhaseWorkflowState).toHaveBeenCalledTimes(1);
+    expectWorkflowSelection(1, 'Placeholder');
+
+    await act(async () => {
+      save.resolve(true);
+      await save.promise;
+    });
   });
 
   it('expands, scrolls, focuses, and highlights a targeted phase', async () => {
