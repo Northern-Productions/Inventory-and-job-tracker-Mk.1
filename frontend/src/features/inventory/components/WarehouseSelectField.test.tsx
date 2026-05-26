@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { readFileSync } from 'node:fs';
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WarehouseSelectField } from './WarehouseSelectField';
@@ -79,5 +80,14 @@ describe('WarehouseSelectField', () => {
       'Ridgeland MS1'
     ]);
     expect(html).not.toContain('Add New Warehouse...');
+  });
+
+  it('keeps native select options readable in dark theme', () => {
+    const css = readFileSync(new URL('../../../styles.css', import.meta.url), 'utf8');
+
+    expect(css).toMatch(/select option\s*{/);
+    expect(css).toMatch(/background-color:\s*var\(--color-surface-solid\)/);
+    expect(css).toMatch(/:root\[data-theme="dark"\] select\s*{/);
+    expect(css).toMatch(/color-scheme:\s*dark/);
   });
 });

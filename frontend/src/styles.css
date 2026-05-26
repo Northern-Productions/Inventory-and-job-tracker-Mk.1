@@ -5541,6 +5541,30 @@ textarea {
   color: var(--color-text-1);
 }
 
+select {
+  color-scheme: light;
+}
+
+select option {
+  background-color: var(--color-surface-solid);
+  color: var(--color-text-1);
+}
+
+select option:hover,
+select option:focus {
+  background-color: var(--color-control-bg-hover);
+  color: var(--color-text-1);
+}
+
+select option:checked {
+  background-color: var(--color-selected-bg);
+  color: var(--color-selected-text);
+}
+
+:root[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
 .field-input::placeholder,
 textarea::placeholder {
   color: var(--color-field-placeholder);
