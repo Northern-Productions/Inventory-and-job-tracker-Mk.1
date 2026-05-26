@@ -1324,14 +1324,16 @@ function mapBackendBootstrapError(message: string): string {
     normalized.includes('relation "app.admin_feature_permissions" does not exist') ||
     normalized.includes('relation "app.access_requests" does not exist') ||
     normalized.includes('relation "app.username_change_requests" does not exist') ||
+    normalized.includes('relation "app.user_preferences" does not exist') ||
     normalized.includes('column "requested_by_name" does not exist') ||
     (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_request_username_change') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_update_user_default_warehouse') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_get_user_feature_permissions') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.member_permissions_for_user_json') && normalized.includes('does not exist'))
   ) {
-    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql are required. Run all six, then retry.';
+    return 'Database migrations 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, 0028_member_permission_persistence_guardrails.sql, and 0151_user_default_warehouse_preferences.sql are required. Run all seven, then retry.';
   }
   if (
     normalized.includes('relation "app.caulk_transfers" does not exist') ||
@@ -5884,6 +5886,15 @@ function normalizeOptionalWarehouse(value: unknown, fieldName = "Warehouse"): st
   return normalized;
 }
 
+function normalizeWarehouseFilter(value: unknown): string {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized || normalized === "ALL") {
+    return "";
+  }
+
+  return normalizeOptionalWarehouse(normalized, "Warehouse");
+}
+
 function getDateConflictJobsForBox(
   boxId: string,
   jobContext: { jobNumber: string; installDate: string; crewLeader: string },
@@ -6987,13 +6998,14 @@ export async function buildJobsList(
   limit: number,
   lifecycleStatus?: unknown,
   jobNumbers: unknown = [],
-  options: { preloadedBoxes?: any[]; snapshotConcurrency?: number } = {},
+  options: { preloadedBoxes?: any[]; snapshotConcurrency?: number; warehouse?: unknown } = {},
 ) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
   const jobNumberFilterSet = new Set(normalizeStringArrayParam(jobNumbers));
   const hasPreloadedBoxes = Array.isArray(options.preloadedBoxes);
   const snapshotTasks: Array<() => Promise<any>> = [
-    () => listJobs(client, orgId),
+    () => listJobs(client, orgId, { warehouse: warehouseFilter }),
     () => listAllocations(client, orgId),
     () => listFilmOrders(client, orgId),
     () => listJobPhases(client, orgId),
@@ -7090,6 +7102,9 @@ export async function buildJobsList(
     if (lifecycleFilter === "COMPLETED" && entry.status !== "COMPLETED") {
       return entries;
     }
+    if (warehouseFilter && asTrimmedString(entry.warehouse).toUpperCase() !== warehouseFilter) {
+      return entries;
+    }
     entries.push(entry);
     return entries;
   }, []);
@@ -7103,7 +7118,8 @@ async function buildJobsSearchResults(
   orgId: string,
   query: unknown,
   limit: number,
-  lifecycleStatus?: unknown
+  lifecycleStatus?: unknown,
+  options: { warehouse?: unknown } = {},
 ) {
   const normalizedQueryDigits = normalizeJobNumberDigits(query);
   if (!normalizedQueryDigits) {
@@ -7112,7 +7128,9 @@ async function buildJobsSearchResults(
 
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter, [], {
+    warehouse: options.warehouse,
+  });
   return rankJobNumberSearchCandidates(entries, normalizedQueryDigits, {
     compareWithinMatch: compareJobsListEntries,
     limit: normalizedLimit,
@@ -7327,12 +7345,15 @@ async function buildJobsCalendar(
   view: unknown,
   anchorDate: unknown,
   month: unknown,
-  lifecycleStatus?: unknown
+  lifecycleStatus?: unknown,
+  options: { warehouse?: unknown } = {},
 ) {
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
-  const entries = buildPhaseCalendarEntries(await buildJobsList(client, orgId, 0, lifecycleFilter));
+  const entries = buildPhaseCalendarEntries(
+    await buildJobsList(client, orgId, 0, lifecycleFilter, [], { warehouse: options.warehouse })
+  );
   if (normalizedView === "week") {
     const rangeStart = getCalendarWeekStart(normalizedAnchorDate);
     const rangeEnd = shiftCalendarDate(rangeStart, 6);
@@ -7794,8 +7815,13 @@ async function listAudit(client: any, orgId: string, params: Record<string, unkn
   });
 }
 
-async function buildFilmOrdersList(client: any, orgId: string) {
-  const entries = await enrichOpenFilmOrdersWithJobSchedule(client, orgId, await listFilmOrders(client, orgId));
+async function buildFilmOrdersList(client: any, orgId: string, options: { warehouse?: unknown } = {}) {
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
+  const entries = await enrichOpenFilmOrdersWithJobSchedule(
+    client,
+    orgId,
+    await listFilmOrders(client, orgId, { warehouse: warehouseFilter }),
+  );
   const sorted = entries.slice().sort((left, right) => {
     const leftOpen = isUnresolvedFilmOrderStatus(left.status);
     const rightOpen = isUnresolvedFilmOrderStatus(right.status);
@@ -7814,9 +7840,11 @@ async function buildFilmOrdersList(client: any, orgId: string) {
     sorted.map((entry) => asTrimmedString(entry.filmOrderId)),
   );
 
-  return sorted.map((entry) =>
-    toPublicFilmOrder(entry, linkedBoxesByFilmOrderId[asTrimmedString(entry.filmOrderId)] || [])
-  );
+  return sorted
+    .filter((entry) => !warehouseFilter || asTrimmedString(entry.warehouse).toUpperCase() === warehouseFilter)
+    .map((entry) =>
+      toPublicFilmOrder(entry, linkedBoxesByFilmOrderId[asTrimmedString(entry.filmOrderId)] || [])
+    );
 }
 
 async function buildFilmOrderDetail(client: any, orgId: string, filmOrderId: unknown) {
@@ -9694,6 +9722,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
         isAdminConsoleAllowed: identity.isAdminConsoleAllowed,
         pendingCount: identity.pendingCount,
         receivesInAppNotifications: identity.receivesInAppNotifications,
+        defaultWarehouse: identity.defaultWarehouse || "",
       });
       const responseBody = JSON.stringify(payload);
       const headers = buildCorsHeaders(request);

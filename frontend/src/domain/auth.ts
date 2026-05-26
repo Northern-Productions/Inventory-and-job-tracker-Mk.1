@@ -42,6 +42,7 @@ export interface EffectiveAccessContext {
   isAdminConsoleAllowed: boolean;
   pendingCount: number;
   receivesInAppNotifications: boolean;
+  defaultWarehouse: string;
 }
 
 export type AccessRequestStatus = 'pending' | 'approved' | 'denied';
@@ -90,6 +91,10 @@ export interface UsernameChangeResult {
   status: 'approved' | 'pending';
   requiresApproval: boolean;
   username: string;
+}
+
+export interface DefaultWarehouseUpdateResult {
+  defaultWarehouse: string;
 }
 
 export const FEATURE_AREAS: FeatureArea[] = [...RUNTIME_FEATURE_AREAS] as FeatureArea[];

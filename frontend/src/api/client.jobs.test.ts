@@ -105,6 +105,20 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('passes warehouse to GET /jobs/list when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123', warehouse: 'MS1' })] },
+      warnings: []
+    });
+
+    const entries = await getJobs(25, { lifecycleStatus: 'ACTIVE', warehouse: 'MS1' });
+
+    expect(entries.map((entry) => entry.warehouse)).toEqual(['MS1']);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/list', {
+      query: { limit: 25, lifecycleStatus: 'ACTIVE', warehouse: 'MS1' }
+    });
+  });
+
   it('passes jobNumbers through GET /jobs/list as repeated query params', async () => {
     requestMock.mockResolvedValueOnce({
       data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
@@ -229,6 +243,29 @@ describe('jobs API client canonical routes', () => {
     });
   });
 
+  it('passes warehouse to GET /jobs/calendar when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123', warehouse: 'MS1' })] },
+      warnings: []
+    });
+
+    await getJobsCalendarEntries({
+      view: 'month',
+      anchorDate: '2026-04-01',
+      lifecycleStatus: 'ACTIVE',
+      warehouse: 'MS1'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/calendar', {
+      query: {
+        view: 'month',
+        anchorDate: '2026-04-01',
+        lifecycleStatus: 'ACTIVE',
+        warehouse: 'MS1'
+      }
+    });
+  });
+
   it('keeps the month helper aligned with the new anchorDate calendar contract', async () => {
     requestMock.mockResolvedValueOnce({
       data: { entries: [buildJobListEntry({ jobNumber: '000123' })] },
@@ -254,6 +291,19 @@ describe('jobs API client canonical routes', () => {
     expect(entries.map((entry) => entry.jobNumber)).toEqual(['000123']);
     expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
       query: { query: '00123', limit: 25, lifecycleStatus: 'COMPLETED' }
+    });
+  });
+
+  it('passes warehouse to GET /jobs/search when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: { entries: [buildJobListEntry({ jobNumber: '000123', warehouse: 'MS1' })] },
+      warnings: []
+    });
+
+    await searchJobsByNumber('00123', 25, { lifecycleStatus: 'ACTIVE', warehouse: 'MS1' });
+
+    expect(requestMock).toHaveBeenCalledWith('GET', '/jobs/search', {
+      query: { query: '00123', limit: 25, lifecycleStatus: 'ACTIVE', warehouse: 'MS1' }
     });
   });
 

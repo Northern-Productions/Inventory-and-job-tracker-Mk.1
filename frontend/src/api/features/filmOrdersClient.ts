@@ -13,9 +13,11 @@ import type {
 import { request } from '../http';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
-export async function getFilmOrders(): Promise<FilmOrderEntry[]> {
+export async function getFilmOrders(options: { warehouse?: string } = {}): Promise<FilmOrderEntry[]> {
   assertFeatureAccess('film_orders', 'read');
-  const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', {}, {});
+  const normalizedWarehouse = String(options.warehouse || '').trim().toUpperCase();
+  const params = normalizedWarehouse ? { warehouse: normalizedWarehouse } : {};
+  const data = await requestReadWithFallback<FilmOrderListResponse>('/film-orders/list', params, params);
   return data.entries;
 }
 

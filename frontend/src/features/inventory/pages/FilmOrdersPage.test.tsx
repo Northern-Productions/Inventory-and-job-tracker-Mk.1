@@ -17,6 +17,7 @@ const createFilmOrderMock = vi.fn();
 const cancelJobMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
+const useWarehouseRegistryMock = vi.fn();
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
 
 vi.mock('react-router-dom', async () => {
@@ -39,8 +40,12 @@ vi.mock('../../../hooks/useIsPhoneLayout', () => ({
   useIsPhoneLayout: () => useIsPhoneLayoutMock()
 }));
 
+vi.mock('../hooks/useWarehouseRegistry', () => ({
+  useWarehouseRegistry: () => useWarehouseRegistryMock()
+}));
+
 vi.mock('../../../api/features/filmOrdersClient', () => ({
-  getFilmOrders: () => getFilmOrdersMock(),
+  getFilmOrders: (...args: unknown[]) => getFilmOrdersMock(...args),
   getFilmOrderDetail: () => Promise.reject(new Error('not used')),
   getFilmCatalog: () => getFilmCatalogMock(),
   createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
@@ -131,10 +136,20 @@ describe('FilmOrdersPage', () => {
     cancelJobMock.mockReset();
     deleteFilmOrderMock.mockReset();
     useIsPhoneLayoutMock.mockReset();
+    useWarehouseRegistryMock.mockReset();
     getFilmOrdersMock.mockResolvedValue([]);
     getFilmCatalogMock.mockResolvedValue([]);
     useIsPhoneLayoutMock.mockReturnValue(false);
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [
+        { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+      ]
+    });
     useAuthMock.mockReturnValue({
+      accessContext: {
+        defaultWarehouse: ''
+      },
       clientIdConfigured: true,
       isAuthenticated: true
     });
@@ -200,6 +215,25 @@ describe('FilmOrdersPage', () => {
           variant: 'success'
         })
       );
+    });
+  });
+
+  it('initializes the film orders warehouse filter from the saved default warehouse', async () => {
+    useAuthMock.mockReturnValue({
+      accessContext: {
+        defaultWarehouse: 'MS1'
+      },
+      clientIdConfigured: true,
+      isAuthenticated: true
+    });
+
+    renderPage([]);
+
+    expect((screen.getByRole('combobox', { name: 'Warehouse' }) as HTMLSelectElement).value).toBe(
+      'MS1'
+    );
+    await waitFor(() => {
+      expect(getFilmOrdersMock).toHaveBeenCalledWith({ warehouse: 'MS1' });
     });
   });
 

@@ -23,6 +23,8 @@ import { formatMutationWarningDescription } from '../../../lib/mutationWarnings'
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
 import { FilmOrderLinkedBoxes } from '../components/FilmOrderLinkedBoxes';
+import { WarehouseSelectField } from '../components/WarehouseSelectField';
+import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
 import {
   useCreateFilmOrder,
   useDeleteFilmOrder,
@@ -169,7 +171,9 @@ export default function FilmOrdersPage() {
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
-  const filmOrdersQuery = useFilmOrders();
+  const defaultWarehouse = useDefaultWarehouse();
+  const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
+  const filmOrdersQuery = useFilmOrders({ warehouse: warehouseFilter });
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
@@ -273,6 +277,13 @@ export default function FilmOrdersPage() {
           Film orders are created from explicit order actions in Film Orders before incoming boxes
           are added or received for the job.
         </p>
+        <div className="toolbar-grid reports-filters">
+          <WarehouseSelectField
+            value={warehouseFilter}
+            onChange={setWarehouseFilter}
+            allowAll
+          />
+        </div>
         <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
         {!showFilmOrdersLoading && !filmOrdersQuery.isError && !orderedEntries.length ? (

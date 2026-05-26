@@ -94,13 +94,14 @@ export type ReadHandlerDeps = {
   ) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
-  listJobs: (client: any, orgId: string) => Promise<any[]>;
+  listJobs: (client: any, orgId: string, options?: { warehouse?: unknown }) => Promise<any[]>;
   buildJobsList: (
     client: any,
     orgId: string,
     limit: number,
     lifecycleStatus?: unknown,
     jobNumbers?: unknown,
+    options?: { warehouse?: unknown },
   ) => Promise<unknown[]>;
   buildJobsCalendar: (
     client: any,
@@ -108,14 +109,16 @@ export type ReadHandlerDeps = {
     view: unknown,
     anchorDate: unknown,
     month: unknown,
-    lifecycleStatus?: unknown
+    lifecycleStatus?: unknown,
+    options?: { warehouse?: unknown },
   ) => Promise<unknown[]>;
   buildJobsSearchResults: (
     client: any,
     orgId: string,
     query: unknown,
     limit: number,
-    lifecycleStatus?: unknown
+    lifecycleStatus?: unknown,
+    options?: { warehouse?: unknown },
   ) => Promise<unknown[]>;
   findJobByNumber: (client: any, orgId: string, jobNumber: string) => Promise<any>;
   findJobById: (client: any, orgId: string, jobId: string) => Promise<any>;
@@ -125,7 +128,7 @@ export type ReadHandlerDeps = {
   normalizeCrewLeaderKey: (value: unknown) => string;
   buildJobDetail: (client: any, orgId: string, jobNumber: unknown) => Promise<Record<string, unknown>>;
   buildJobDetailById: (client: any, orgId: string, jobId: unknown) => Promise<Record<string, unknown>>;
-  buildFilmOrdersList: (client: any, orgId: string) => Promise<unknown[]>;
+  buildFilmOrdersList: (client: any, orgId: string, options?: { warehouse?: unknown }) => Promise<unknown[]>;
   buildFilmOrderDetail: (client: any, orgId: string, filmOrderId: unknown) => Promise<Record<string, unknown>>;
   buildBoxFilmOrderOrigins: (client: any, orgId: string, boxId: string) => Promise<any[]>;
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
@@ -794,7 +797,11 @@ const readHandlers: Record<string, ReadHandler> = {
       : typeof params.jobNumbers === "string"
       ? [params.jobNumbers]
       : [];
-    return ok({ entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus, jobNumbers) });
+    return ok({
+      entries: await deps.buildJobsList(client, orgId, limit, params.lifecycleStatus, jobNumbers, {
+        warehouse: params.warehouse,
+      }),
+    });
   },
   "/jobs/calendar": async ({ client, orgId, params }, deps) => {
     const start = Date.now();
@@ -807,7 +814,8 @@ const readHandlers: Record<string, ReadHandler> = {
         params.view,
         params.anchorDate,
         params.month,
-        params.lifecycleStatus
+        params.lifecycleStatus,
+        { warehouse: params.warehouse },
       );
       console.log("DB TIME:", Date.now() - dbStart, "ms");
 
@@ -825,7 +833,8 @@ const readHandlers: Record<string, ReadHandler> = {
         orgId,
         params.query,
         limit,
-        params.lifecycleStatus
+        params.lifecycleStatus,
+        { warehouse: params.warehouse },
       )
     });
   },
@@ -854,8 +863,8 @@ const readHandlers: Record<string, ReadHandler> = {
   "/jobs/get-by-id": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildJobDetailById(client, orgId, requireUuid(params.jobId, "jobId")));
   },
-  "/film-orders/list": async ({ client, orgId }, deps) => {
-    return ok({ entries: await deps.buildFilmOrdersList(client, orgId) });
+  "/film-orders/list": async ({ client, orgId, params }, deps) => {
+    return ok({ entries: await deps.buildFilmOrdersList(client, orgId, { warehouse: params.warehouse }) });
   },
   "/film-orders/get": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildFilmOrderDetail(client, orgId, params.filmOrderId));

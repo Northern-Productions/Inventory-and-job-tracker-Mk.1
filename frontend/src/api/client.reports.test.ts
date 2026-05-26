@@ -33,6 +33,7 @@ function buildAccessContext(role: EffectiveAccessContext['role']): EffectiveAcce
     orgId: 'org-1',
     accessStatus: 'approved',
     role,
+    defaultWarehouse: '',
     permissions: createDefaultFeatureAccessMap(),
     isAdminConsoleAllowed: false,
     pendingCount: 0,

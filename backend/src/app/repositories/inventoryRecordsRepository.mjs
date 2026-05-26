@@ -451,16 +451,19 @@ async function saveAllocationRecord(client, orgId, entry) {
   return mapDbAllocationRow(row);
 }
 
-async function listFilmOrders(client, orgId) {
+async function listFilmOrders(client, orgId, options = {}) {
+  const warehouse = asTrimmedString(options.warehouse).toUpperCase();
+  const params = warehouse ? [orgId, warehouse] : [orgId];
   const rows = await queryRows(
     client,
     `
       select *
       from app.film_orders
       where org_id = $1
+        ${warehouse ? 'and upper(trim(warehouse::text)) = $2' : ''}
       order by created_at desc, film_order_id desc
     `,
-    [orgId]
+    params
   );
 
   return rows.map(mapDbFilmOrderRow);

@@ -17,7 +17,7 @@ vi.mock('./http', () => {
   };
 });
 
-import { cancelJob, createFilmOrder, deleteFilmOrder } from './client';
+import { cancelJob, createFilmOrder, deleteFilmOrder, getFilmOrders } from './client';
 import { request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -59,6 +59,29 @@ describe('film orders API client identity payloads', () => {
         widthIn: 60,
         requestedFeet: 40
       }
+    });
+  });
+
+  it('passes warehouse to GET /film-orders/list when provided', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          {
+            filmOrderId: 'FO-1',
+            jobNumber: '1234',
+            warehouse: 'MS1',
+            linkedBoxes: []
+          }
+        ]
+      },
+      warnings: []
+    });
+
+    const entries = await getFilmOrders({ warehouse: 'MS1' });
+
+    expect(entries[0]?.warehouse).toBe('MS1');
+    expect(requestMock).toHaveBeenCalledWith('GET', '/film-orders/list', {
+      query: { warehouse: 'MS1' }
     });
   });
 

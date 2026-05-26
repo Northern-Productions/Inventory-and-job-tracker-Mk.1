@@ -1,5 +1,10 @@
 // Purpose: Auth and identity API surface for UI auth flows.
-import type { EffectiveAccessContext, HealthResponse, UsernameChangeResult } from '../../domain';
+import type {
+  DefaultWarehouseUpdateResult,
+  EffectiveAccessContext,
+  HealthResponse,
+  UsernameChangeResult
+} from '../../domain';
 import { request } from '../http';
 import {
   __resetJobsApiAvailabilityForTests,
@@ -25,6 +30,7 @@ export async function getAuthContext(): Promise<EffectiveAccessContext> {
     isAdminConsoleAllowed: unknown;
     pendingCount: unknown;
     receivesInAppNotifications: unknown;
+    defaultWarehouse: unknown;
   }>('GET', '/auth/context');
 
   return {
@@ -38,7 +44,8 @@ export async function getAuthContext(): Promise<EffectiveAccessContext> {
     pendingCount: Number(data.pendingCount || 0) || 0,
     receivesInAppNotifications:
       data.receivesInAppNotifications === true ||
-      String(data.receivesInAppNotifications).toLowerCase() === 'true'
+      String(data.receivesInAppNotifications).toLowerCase() === 'true',
+    defaultWarehouse: String(data.defaultWarehouse || '').trim().toUpperCase()
   };
 }
 
@@ -48,5 +55,16 @@ export async function requestUsernameChange(payload: { username: string }): Prom
     status: data.status === 'approved' ? 'approved' : 'pending',
     requiresApproval: Boolean(data.requiresApproval),
     username: String(data.username || '').trim()
+  };
+}
+
+export async function updateDefaultWarehouse(payload: {
+  defaultWarehouse: string;
+}): Promise<DefaultWarehouseUpdateResult> {
+  const { data } = await request<DefaultWarehouseUpdateResult>('POST', '/profile/default-warehouse', {
+    body: payload
+  });
+  return {
+    defaultWarehouse: String(data.defaultWarehouse || '').trim().toUpperCase()
   };
 }

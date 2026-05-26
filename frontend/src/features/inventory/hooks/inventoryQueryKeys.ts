@@ -30,21 +30,23 @@ export const inventoryKeys = {
   allocations: (boxId: string) => ['inventory', 'allocations', boxId] as const,
   jobs: ['inventory', 'jobs'] as const,
   jobsListRoot: ['inventory', 'jobs', 'list'] as const,
-  jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[] }) =>
+  jobsList: (params: { limit: number; lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[]; warehouse?: string }) =>
     ['inventory', 'jobs', 'list', params] as const,
   jobsCalendarRoot: ['inventory', 'jobs', 'calendar'] as const,
   jobsCalendarPeriod: (params: {
     view: JobsCalendarView;
     anchorDate: string;
     lifecycleStatus?: JobLifecycleFilter;
+    warehouse?: string;
   }) => ['inventory', 'jobs', 'calendar', params] as const,
-  jobsCalendarMonth: (params: { month: string; lifecycleStatus?: JobLifecycleFilter }) =>
+  jobsCalendarMonth: (params: { month: string; lifecycleStatus?: JobLifecycleFilter; warehouse?: string }) =>
     ['inventory', 'jobs', 'calendar', params] as const,
   jobsSearch: ['inventory', 'jobs', 'search'] as const,
   jobsSearchResults: (params: {
     query: string;
     limit: number;
     lifecycleStatus?: JobLifecycleFilter;
+    warehouse?: string;
   }) => ['inventory', 'jobs', 'search', params] as const,
   jobRoot: ['inventory', 'job'] as const,
   job: (jobNumber: string) => ['inventory', 'job', jobNumber] as const,
@@ -76,7 +78,9 @@ export const inventoryKeys = {
   deleteFilmOrderMutation: ['inventory', 'mutation', 'delete-film-order'] as const,
   filmOrderRoot: ['inventory', 'film-order'] as const,
   filmOrder: (filmOrderId: string) => ['inventory', 'film-order', filmOrderId] as const,
+  filmOrdersRoot: ['inventory', 'film-orders'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
+  filmOrdersList: (params: { warehouse?: string } = {}) => ['inventory', 'film-orders', params] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,
   caulkProducts: ['caulk', 'products'] as const,
   caulkTransfersRoot: ['caulk', 'transfers'] as const,

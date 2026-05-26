@@ -23,6 +23,8 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
     calendarWorkflow,
     jobsViewMode,
     setJobsViewMode,
+    warehouseFilter,
+    setWarehouseFilter,
     isCompletedWorkflow,
     isCalendarView,
     jobSearchInput,
@@ -54,6 +56,7 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
     <>
       <JobsHeroSection
         jobsViewMode={jobsViewMode}
+        warehouseFilter={warehouseFilter}
         isCompletedWorkflow={isCompletedWorkflow}
         workflowDescription={workflowDescription}
         jobSearchInput={jobSearchInput}
@@ -65,6 +68,7 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         isSearchingListJobs={isSearchingListJobs}
         workflowSummaryLabel={workflowSummaryLabel}
         onSetJobsViewMode={setJobsViewMode}
+        onWarehouseFilterChange={setWarehouseFilter}
         onSetWorkflowView={setJobsWorkflowView}
         onJobSearchInputChange={handleJobSearchInputChange}
         onSetJobSort={setJobSort}

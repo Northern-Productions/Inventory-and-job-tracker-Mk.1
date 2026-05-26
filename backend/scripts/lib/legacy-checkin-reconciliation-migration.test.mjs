@@ -27,7 +27,7 @@ test('legacy check-in reconciliation migration is mirrored and schema-guarded', 
   ]);
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /0150_phase_workflow_status\.sql/);
+  assert.match(schemaCheck, /0151_user_default_warehouse_preferences\.sql/);
   assert.match(schemaCheck, /legacy_match\.requirement_match_count = 1/);
   assert.match(schemaCheck, /Consumed during film box check-in after actual LF was recorded\./);
 });

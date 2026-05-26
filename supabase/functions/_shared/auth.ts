@@ -122,6 +122,7 @@ export async function resolveAuthContext(
     receivesInAppNotifications:
       accessContext.receivesInAppNotifications === true ||
       String(accessContext.receivesInAppNotifications).toLowerCase() === "true",
+    defaultWarehouse: deps.asTrimmedString(accessContext.defaultWarehouse).toUpperCase(),
     pendingRequestCreated:
       accessContext.pendingRequestCreated === true ||
       String(accessContext.pendingRequestCreated).toLowerCase() === "true",

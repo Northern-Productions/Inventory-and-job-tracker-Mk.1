@@ -141,6 +141,9 @@ describe('AllocationsPage', () => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
     useAuthMock.mockReturnValue({
+      accessContext: {
+        defaultWarehouse: ''
+      },
       clientIdConfigured: true,
       isAuthenticated: true
     });
@@ -202,10 +205,15 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Browse active install dates by week.');
     expect(html).toContain('Install Calendar');
     expect(html).toContain('Mar 22 - Mar 28, 2026');
-    expect(useJobsListMock).toHaveBeenCalledWith(0, { enabled: false, lifecycleStatus: 'ACTIVE' });
+    expect(useJobsListMock).toHaveBeenCalledWith(0, {
+      enabled: false,
+      lifecycleStatus: 'ACTIVE',
+      warehouse: ''
+    });
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-26', {
       enabled: true,
       lifecycleStatus: 'ACTIVE',
+      warehouse: '',
       view: 'week'
     });
     expect(useFilmCatalogMock).toHaveBeenCalledWith({ enabled: false });
@@ -220,7 +228,11 @@ describe('AllocationsPage', () => {
     expect(html).toContain('Install Date Descending');
     expect(html).toContain('Allocate');
     expect(html).toContain('Film Order');
-    expect(useJobsListMock).toHaveBeenCalledWith(0, { enabled: true, lifecycleStatus: 'ACTIVE' });
+    expect(useJobsListMock).toHaveBeenCalledWith(0, {
+      enabled: true,
+      lifecycleStatus: 'ACTIVE',
+      warehouse: ''
+    });
     expect(useFilmCatalogMock).toHaveBeenCalledWith({ enabled: false });
     expect(useCaulkProductsMock).toHaveBeenCalledWith({ enabled: false });
   });
@@ -265,7 +277,33 @@ describe('AllocationsPage', () => {
     expect(html).toContain('aria-pressed="true">Completed jobs</button>');
     expect(useJobsListMock).toHaveBeenCalledWith(0, {
       enabled: true,
-      lifecycleStatus: 'COMPLETED'
+      lifecycleStatus: 'COMPLETED',
+      warehouse: ''
+    });
+  });
+
+  it('initializes job list and calendar filters from the saved default warehouse', () => {
+    useAuthMock.mockReturnValue({
+      accessContext: {
+        defaultWarehouse: 'MS1'
+      },
+      clientIdConfigured: true,
+      isAuthenticated: true
+    });
+
+    const html = renderPage({ initialJobsViewMode: 'list' });
+
+    expect(html).toContain('value="MS1" selected=""');
+    expect(useJobsListMock).toHaveBeenCalledWith(0, {
+      enabled: true,
+      lifecycleStatus: 'ACTIVE',
+      warehouse: 'MS1'
+    });
+    expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-26', {
+      enabled: false,
+      lifecycleStatus: 'ACTIVE',
+      warehouse: 'MS1',
+      view: 'week'
     });
   });
 
@@ -437,6 +475,7 @@ describe('AllocationsPage', () => {
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
       enabled: true,
       lifecycleStatus: 'ACTIVE',
+      warehouse: '',
       view: 'week'
     });
     expect(useJobsSearchMock).not.toHaveBeenCalled();
@@ -459,6 +498,7 @@ describe('AllocationsPage', () => {
     expect(useJobsCalendarEntriesMock).toHaveBeenCalledWith('2026-03-24', {
       enabled: true,
       lifecycleStatus: 'COMPLETED',
+      warehouse: '',
       view: 'month'
     });
     expect(useJobsSearchMock).not.toHaveBeenCalled();

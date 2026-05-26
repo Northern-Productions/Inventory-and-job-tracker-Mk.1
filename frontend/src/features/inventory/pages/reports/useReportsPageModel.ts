@@ -5,6 +5,7 @@ import type { ClosedJobReportRow, ReportsSummaryFilters } from '../../../../doma
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { searchOfflineBoxes } from '../../../../lib/offlineInventory';
 import { useAuth } from '../../../auth/AuthContext';
+import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
 import {
   useFilmCatalog,
   useOwnerAssetTotalCostReport,
@@ -47,10 +48,6 @@ export const REPORT_TYPE_TITLES: Record<ReportType, string> = {
   asset_total_cost: 'Asset Total Cost'
 };
 
-const EMPTY_FILTERS: ReportsSummaryFilters = {
-  warehouse: ''
-};
-
 const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
   manufacturer: '',
   q: '',
@@ -60,8 +57,11 @@ const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
 export function useReportsPageModel() {
   const navigate = useNavigate();
   const auth = useAuth();
+  const defaultWarehouse = useDefaultWarehouse();
   const isPhoneLayout = useIsPhoneLayout();
-  const [filters, setFilters] = useState<ReportsSummaryFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<ReportsSummaryFilters>(() => ({
+    warehouse: defaultWarehouse
+  }));
   const [reportType, setReportType] = useState<ReportType>(
     auth.isOwner ? 'asset_total_cost' : 'never_checked_out'
   );

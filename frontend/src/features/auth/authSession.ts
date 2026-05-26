@@ -17,7 +17,8 @@ export function buildAuthScopeSignature(
     return '';
   }
 
-  return `${userId}:${orgId}`;
+  const defaultWarehouse = String(nextContext?.defaultWarehouse || '').trim().toUpperCase();
+  return `${userId}:${orgId}:${defaultWarehouse}`;
 }
 
 export function mapSupabaseSession(session: Session | null): AuthSession | null {

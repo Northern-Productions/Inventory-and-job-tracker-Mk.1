@@ -351,11 +351,21 @@ async function undoAudit(client, orgId, payload, actor) {
   return ok({ box: null, logId: newLogId }, warnings);
 }
 
-async function buildFilmOrdersList(client, orgId) {
+function normalizeWarehouseFilter(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized || normalized === 'ALL') {
+    return '';
+  }
+
+  return normalizeWarehouseCodeFormat(normalized, 'Warehouse');
+}
+
+async function buildFilmOrdersList(client, orgId, options = {}) {
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
   const entries = await enrichOpenFilmOrdersWithJobSchedule(
     client,
     orgId,
-    await listFilmOrders(client, orgId)
+    await listFilmOrders(client, orgId, { warehouse: warehouseFilter })
   );
   const sorted = entries.slice().sort((left, right) => {
     const leftOpen = isUnresolvedFilmOrderStatus(left.status);
@@ -377,6 +387,9 @@ async function buildFilmOrdersList(client, orgId) {
 
   for (let index = 0; index < sorted.length; index += 1) {
     const entry = sorted[index];
+    if (warehouseFilter && asTrimmedString(entry.warehouse).toUpperCase() !== warehouseFilter) {
+      continue;
+    }
     response.push(
       toPublicFilmOrder(
         entry,

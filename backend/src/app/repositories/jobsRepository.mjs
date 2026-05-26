@@ -25,16 +25,23 @@ import {
   mapDbRequirementRow,
 } from './mappers.mjs';
 
-async function listJobs(client, orgId) {
+async function listJobs(client, orgId, options = {}) {
+  return listJobsInternal(client, orgId, options);
+}
+
+async function listJobsInternal(client, orgId, options = {}) {
+  const warehouse = asTrimmedString(options.warehouse).toUpperCase();
+  const params = warehouse ? [orgId, warehouse] : [orgId];
   const rows = await queryRows(
     client,
     `
       select *
       from app.jobs
       where org_id = $1
+        ${warehouse ? 'and upper(trim(warehouse::text)) = $2' : ''}
       order by due_date desc nulls last, updated_at desc, job_number desc
     `,
-    [orgId]
+    params
   );
 
   return rows.map(mapDbJobRow);

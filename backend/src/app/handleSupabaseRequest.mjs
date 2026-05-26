@@ -56,6 +56,7 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           isAdminConsoleAllowed: Boolean(authContext.isAdminConsoleAllowed),
           pendingCount: integerOrZero(authContext.pendingCount),
           receivesInAppNotifications: Boolean(authContext.receivesInAppNotifications),
+          defaultWarehouse: authContext.defaultWarehouse || '',
         }),
       };
       return response;

@@ -24,12 +24,14 @@ type CalendarDisplaySnapshot = {
   anchorDate: string;
   view: 'week' | 'month';
   lifecycleStatus: JobLifecycleFilter;
+  warehouse: string;
   jobs: JobListEntry[];
 };
 
 interface UseJobsCalendarWorkflowOptions {
   isCalendarView: boolean;
   selectedLifecycleStatus: JobLifecycleFilter;
+  selectedWarehouse: string;
   calendarGranularity: 'week' | 'month';
   calendarAnchorDate: string;
   jobsCalendarQuery: JobsCalendarQueryLike;
@@ -39,14 +41,15 @@ interface UseJobsCalendarWorkflowOptions {
 }
 
 function buildCalendarDisplaySnapshotKey(
-  snapshot: Pick<CalendarDisplaySnapshot, 'anchorDate' | 'view' | 'lifecycleStatus'>
+  snapshot: Pick<CalendarDisplaySnapshot, 'anchorDate' | 'view' | 'lifecycleStatus' | 'warehouse'>
 ) {
-  return `${snapshot.lifecycleStatus}:${snapshot.view}:${snapshot.anchorDate}`;
+  return `${snapshot.lifecycleStatus}:${snapshot.warehouse || 'ALL'}:${snapshot.view}:${snapshot.anchorDate}`;
 }
 
 export function useJobsCalendarWorkflow({
   isCalendarView,
   selectedLifecycleStatus,
+  selectedWarehouse,
   calendarGranularity,
   calendarAnchorDate,
   jobsCalendarQuery,
@@ -63,6 +66,7 @@ export function useJobsCalendarWorkflow({
             anchorDate: calendarAnchorDate,
             view: calendarGranularity,
             lifecycleStatus: selectedLifecycleStatus,
+            warehouse: selectedWarehouse,
             jobs: jobsCalendarQuery.data || []
           }
         : null
@@ -75,6 +79,7 @@ export function useJobsCalendarWorkflow({
             anchorDate: calendarAnchorDate,
             view: calendarGranularity,
             lifecycleStatus: selectedLifecycleStatus,
+            warehouse: selectedWarehouse,
             jobs: jobsCalendarQuery.data || []
           }
         : null,
@@ -84,12 +89,14 @@ export function useJobsCalendarWorkflow({
       jobsCalendarQuery.data,
       jobsCalendarQuery.isFetching,
       jobsCalendarQuery.isSuccess,
-      selectedLifecycleStatus
+      selectedLifecycleStatus,
+      selectedWarehouse
     ]
   );
   const displayedCalendarSnapshot =
     displayedCalendarSnapshotState &&
-    displayedCalendarSnapshotState.lifecycleStatus === selectedLifecycleStatus
+    displayedCalendarSnapshotState.lifecycleStatus === selectedLifecycleStatus &&
+    displayedCalendarSnapshotState.warehouse === selectedWarehouse
       ? displayedCalendarSnapshotState
       : requestedCalendarSnapshot;
   const displayedCalendarGranularity = displayedCalendarSnapshot?.view || calendarGranularity;
@@ -102,7 +109,8 @@ export function useJobsCalendarWorkflow({
   const requestedCalendarKey = buildCalendarDisplaySnapshotKey({
     anchorDate: calendarAnchorDate,
     view: calendarGranularity,
-    lifecycleStatus: selectedLifecycleStatus
+    lifecycleStatus: selectedLifecycleStatus,
+    warehouse: selectedWarehouse
   });
   const hasDisplayedCalendarSnapshot = Boolean(displayedCalendarSnapshot);
   const showCalendarTransitionError =
@@ -229,7 +237,8 @@ export function useJobsCalendarWorkflow({
       const params = {
         view: displayedCalendarSnapshot.view,
         anchorDate: anchorDateToPrefetch,
-        lifecycleStatus: displayedCalendarSnapshot.lifecycleStatus
+        lifecycleStatus: displayedCalendarSnapshot.lifecycleStatus,
+        ...(displayedCalendarSnapshot.warehouse ? { warehouse: displayedCalendarSnapshot.warehouse } : {})
       };
 
       void queryClient

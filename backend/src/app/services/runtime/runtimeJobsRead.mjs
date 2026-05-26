@@ -344,6 +344,15 @@ async function runSummarySnapshotReads(client, taskFactories, maxConcurrency = S
   return runBoundedTasksOnClient(client, taskFactories, maxConcurrency);
 }
 
+function normalizeWarehouseFilter(value) {
+  const normalized = asTrimmedString(value).toUpperCase();
+  if (!normalized || normalized === 'ALL') {
+    return '';
+  }
+
+  return normalizeWarehouseCodeFormat(normalized, 'Warehouse');
+}
+
 /**
  * PURPOSE:
  * Builds public job-list summaries from org-scoped job, allocation, order,
@@ -363,6 +372,7 @@ async function runSummarySnapshotReads(client, taskFactories, maxConcurrency = S
  */
 async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers = [], options = {}) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
   const normalizedJobNumberFilters = normalizeStringArrayParam(jobNumbers);
   const jobNumberFilterSet = normalizedJobNumberFilters.length
     ? new Set(normalizedJobNumberFilters)
@@ -370,7 +380,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   const hasPreloadedBoxes = Array.isArray(options.preloadedBoxes);
   const snapshotConcurrency = normalizeSummarySnapshotConcurrency(options.snapshotConcurrency);
   const readTasks = [
-    (readClient) => listJobs(readClient, orgId),
+    (readClient) => listJobs(readClient, orgId, { warehouse: warehouseFilter }),
     (readClient) => listAllocations(readClient, orgId),
     (readClient) => listFilmOrders(readClient, orgId),
     (readClient) => listJobPhases(readClient, orgId),
@@ -522,6 +532,9 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
     if (lifecycleFilter === 'COMPLETED' && entry.status !== 'COMPLETED') {
       continue;
     }
+    if (warehouseFilter && asTrimmedString(entry.warehouse).toUpperCase() !== warehouseFilter) {
+      continue;
+    }
 
     response.push(entry);
   }
@@ -535,7 +548,7 @@ async function buildJobsList(client, orgId, limit, lifecycleStatus, jobNumbers =
   return response;
 }
 
-async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStatus) {
+async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStatus, options = {}) {
   const normalizedQueryDigits = extractJobNumberDigitsForSearch(query);
   if (!normalizedQueryDigits) {
     return [];
@@ -543,7 +556,9 @@ async function buildJobsSearchResults(client, orgId, query, limit, lifecycleStat
 
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter);
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter, [], {
+    warehouse: options.warehouse,
+  });
   return rankJobNumberSearchCandidates(entries, normalizedQueryDigits, {
     compareWithinMatch: compareJobsListEntries,
     limit: normalizedLimit
@@ -731,11 +746,13 @@ function getCalendarMonthRange(anchorDate) {
   };
 }
 
-async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecycleStatus) {
+async function buildJobsCalendar(client, orgId, view, anchorDate, month, lifecycleStatus, options = {}) {
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || 'ACTIVE';
-  const entries = buildPhaseCalendarEntries(await buildJobsList(client, orgId, 0, lifecycleFilter));
+  const entries = buildPhaseCalendarEntries(
+    await buildJobsList(client, orgId, 0, lifecycleFilter, [], { warehouse: options.warehouse })
+  );
   if (normalizedView === 'week') {
     const weekStart = getCalendarWeekStart(normalizedAnchorDate);
     const weekEnd = shiftCalendarDate(weekStart, 6);

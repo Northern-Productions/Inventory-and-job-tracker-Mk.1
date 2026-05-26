@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0150_phase_workflow_status.sql';
+const LATEST_MIGRATION = '0151_user_default_warehouse_preferences.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -13,6 +13,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.general_feature_permissions' },
   { kind: 'table', signature: 'app.admin_feature_permissions' },
   { kind: 'table', signature: 'app.owner_notification_preferences' },
+  { kind: 'table', signature: 'app.user_preferences' },
+  { kind: 'column', signature: 'app.user_preferences.default_warehouse' },
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'column', signature: 'app.jobs.work_scope_key' },
@@ -122,6 +124,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transfers(uuid, text, uuid)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transactions(uuid, text, uuid, integer)' },
+  { kind: 'function', signature: 'public.api_acl_list_film_orders(uuid, text)' },
+  { kind: 'function', signature: 'public.api_acl_list_jobs(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_caulk_upsert_product(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_add(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_update(uuid, text, jsonb)' },
@@ -184,6 +188,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.sync_active_job_phase_schedules(uuid, uuid)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_job(uuid, text, text, boolean)' },
   { kind: 'function', signature: 'app_api.reconcile_auto_shortage_film_orders_for_box(uuid, text, text, boolean)' },
+  { kind: 'function', signature: 'app_api.get_user_default_warehouse(uuid, uuid)' },
+  { kind: 'function', signature: 'public.api_update_user_default_warehouse(uuid, text, jsonb)' },
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
@@ -1174,6 +1180,7 @@ const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
   'api_promote_member_to_admin',
   'api_demote_admin_to_member',
   'api_promote_admin_to_owner',
+  'api_update_user_default_warehouse',
 ];
 
 const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
@@ -1194,6 +1201,9 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_promote_member_to_admin(uuid, text, jsonb)',
   'public.api_demote_admin_to_member(uuid, text, jsonb)',
   'public.api_promote_admin_to_owner(uuid, text, jsonb)',
+  'public.api_update_user_default_warehouse(uuid, text, jsonb)',
+  'public.api_acl_list_film_orders(uuid, text)',
+  'public.api_acl_list_jobs(uuid, text)',
 ];
 
 function sqlLiteral(value) {

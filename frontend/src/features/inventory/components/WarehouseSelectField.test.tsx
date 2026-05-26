@@ -58,7 +58,7 @@ describe('WarehouseSelectField', () => {
     });
 
     expect(optionLabels(html)).toEqual([
-      'All',
+      'All Warehouses',
       'Wauconda IL1',
       'Ridgeland MS1',
       'Add New Warehouse...'
@@ -74,7 +74,7 @@ describe('WarehouseSelectField', () => {
     });
 
     expect(optionLabels(html)).toEqual([
-      'All',
+      'All Warehouses',
       'Wauconda IL1',
       'Ridgeland MS1'
     ]);

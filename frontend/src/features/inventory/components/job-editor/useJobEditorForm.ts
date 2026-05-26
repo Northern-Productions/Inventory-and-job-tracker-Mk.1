@@ -12,6 +12,7 @@ import {
 import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
 import { getPreferredCaulkProductId } from '../../utils/caulkProductPreferences';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
+import { useDefaultSpecificWarehouse } from '../../hooks/useDefaultWarehouse';
 import {
   buildRequirementLineKey,
   createCaulkDraftLine,
@@ -65,7 +66,8 @@ export function useJobEditorForm({
   onSubmit
 }: UseJobEditorFormOptions) {
   const warehouseRegistry = useWarehouseRegistry();
-  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
+  const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
+  const defaultWarehouse = defaultSpecificWarehouse || warehouseRegistry.entries[0]?.code || '';
   const resetTargetKey = mode === 'edit' ? `edit:${initialJobNumber}` : 'create';
   const manufacturerOptions = useMemo(
     () => getManufacturerOptionsWithCatalog(filmCatalogEntries),

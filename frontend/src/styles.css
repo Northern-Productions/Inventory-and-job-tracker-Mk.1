@@ -1124,6 +1124,16 @@ textarea {
   z-index: 45;
 }
 
+.app-header-warehouse {
+  max-width: min(32vw, 18rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #425861;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .app-header h1 {
   margin: 0;
   font-size: clamp(1.35rem, 2.6vw, 2.05rem);

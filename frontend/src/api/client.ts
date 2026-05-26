@@ -4,6 +4,7 @@ export {
   getAuthContext,
   getHealth,
   requestUsernameChange,
+  updateDefaultWarehouse,
   setClientAccessContext
 } from './features/authClient';
 export { getAppAttentionSummary } from './features/appClient';

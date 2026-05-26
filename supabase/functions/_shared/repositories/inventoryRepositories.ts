@@ -762,8 +762,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapRows(rows, mapDbAllocationRow);
   }
 
-  async function listFilmOrders(client: any, orgId: string) {
-    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_film_orders", { p_org_id: orgId });
+  async function listFilmOrders(client: any, orgId: string, options: { warehouse?: unknown } = {}) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_film_orders", {
+      p_org_id: orgId,
+      p_warehouse: deps.asTrimmedString(options.warehouse) || null,
+    });
     return mapRows(rows, mapDbFilmOrderRow);
   }
 
@@ -790,8 +793,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     });
   }
 
-  async function listJobs(client: any, orgId: string) {
-    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs", { p_org_id: orgId });
+  async function listJobs(client: any, orgId: string, options: { warehouse?: unknown } = {}) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs", {
+      p_org_id: orgId,
+      p_warehouse: deps.asTrimmedString(options.warehouse) || null,
+    });
     return mapRows(rows, mapDbJobRow);
   }
 
