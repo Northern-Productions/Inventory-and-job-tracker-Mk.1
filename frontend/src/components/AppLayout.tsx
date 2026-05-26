@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountMenuTrigger } from '../features/auth/AccountControl';
+import { useDefaultWarehouseLabel } from '../features/inventory/hooks/useDefaultWarehouse';
 import { DesktopNavigation } from './app-layout/DesktopNavigation';
 import { MobileNavigation } from './app-layout/MobileNavigation';
 import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
@@ -27,6 +28,7 @@ export function AppLayout() {
     mobileMoreHasAttention,
     mobileMoreAttentionAriaLabel
   } = useAppLayoutNavigation(location.pathname);
+  const defaultWarehouseLabel = useDefaultWarehouseLabel();
   const hasMountedRef = useRef(false);
   const headerRef = useRef<HTMLElement>(null);
   const desktopNavRef = useRef<HTMLDivElement>(null);
@@ -170,6 +172,9 @@ export function AppLayout() {
                 <h1>Window Film Inventory</h1>
               </div>
               <div className="app-header-corner">
+                <span className="app-header-warehouse" title={`Warehouse: ${defaultWarehouseLabel}`}>
+                  Warehouse: {defaultWarehouseLabel}
+                </span>
                 <ShareCurrentPageButton />
                 <AccountMenuTrigger />
               </div>

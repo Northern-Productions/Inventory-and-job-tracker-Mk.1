@@ -25,7 +25,9 @@ function extractRoutesFromEdgeHandler(text) {
 
 function extractRoutesFromFrontendClient(text) {
   const routes = new Set();
-  const direct = text.matchAll(/request(?:ReadWithFallback)?<[^>]*>\(\s*['\"](\/[^'\"]+)['\"]/g);
+  const direct = text.matchAll(
+    /request(?:ReadWithFallback)?(?:<[^>]*>)?\(\s*['\"](?:GET|POST)['\"]\s*,\s*['\"](\/[^'\"]+)['\"]/g
+  );
   for (const match of direct) {
     routes.add(match[1]);
   }
@@ -36,13 +38,29 @@ function extractRoutesFromFrontendClient(text) {
   return routes;
 }
 
+function collectFrontendApiClientFiles(rootDir) {
+  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectFrontendApiClientFiles(entryPath));
+      continue;
+    }
+
+    if (/\.tsx?$/.test(entry.name)) {
+      files.push(entryPath);
+    }
+  }
+  return files;
+}
+
 const edgePaths = [
   path.resolve('..', 'supabase/functions/_shared/api-handler.ts'),
   path.resolve('..', 'supabase/functions/_shared/routes/readHandlers.ts'),
   path.resolve('..', 'supabase/functions/_shared/routes/mutationHandlers.ts')
 ];
-const frontendPath = path.resolve('..', 'frontend/src/api/client.ts');
-const clientSource = fs.readFileSync(frontendPath, 'utf8');
+const frontendApiPaths = collectFrontendApiClientFiles(path.resolve('..', 'frontend/src/api'));
 
 const contractRoutes = new Set([
   ...Object.keys(ROUTE_FEATURE_MAP),
@@ -50,7 +68,8 @@ const contractRoutes = new Set([
   ...OWNER_ONLY_ROUTES,
   '/health',
   '/auth/context',
-  '/profile/username'
+  '/profile/username',
+  '/profile/default-warehouse'
 ]);
 
 const edgeRoutes = new Set();
@@ -61,7 +80,14 @@ for (const edgePath of edgePaths) {
     edgeRoutes.add(route);
   }
 }
-const clientRoutes = extractRoutesFromFrontendClient(clientSource);
+const clientRoutes = new Set();
+for (const frontendPath of frontendApiPaths) {
+  const clientSource = fs.readFileSync(frontendPath, 'utf8');
+  const discovered = extractRoutesFromFrontendClient(clientSource);
+  for (const route of discovered) {
+    clientRoutes.add(route);
+  }
+}
 
 const missingInEdge = [...contractRoutes].filter((route) => !edgeRoutes.has(route)).sort();
 const missingInClient = [...contractRoutes].filter((route) => !edgeRoutes.has(route) && clientRoutes.has(route)).sort();

@@ -267,7 +267,8 @@ describe('AllocationsPage interactions', () => {
 
     expect(useJobsListMock).toHaveBeenLastCalledWith(0, {
       enabled: false,
-      lifecycleStatus: 'ACTIVE'
+      lifecycleStatus: 'ACTIVE',
+      warehouse: ''
     });
     expect(screen.getByRole('button', { name: 'Calendar' }).getAttribute('aria-pressed')).toBe('true');
 
@@ -275,7 +276,8 @@ describe('AllocationsPage interactions', () => {
 
     expect(useJobsListMock).toHaveBeenLastCalledWith(0, {
       enabled: true,
-      lifecycleStatus: 'ACTIVE'
+      lifecycleStatus: 'ACTIVE',
+      warehouse: ''
     });
     expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true');
     expect(Boolean(screen.getByRole('button', { name: 'IL1-16961 / 260' }))).toBe(true);

@@ -13,6 +13,7 @@ import {
 
 const getAuthContextMock = vi.fn();
 const requestUsernameChangeApiMock = vi.fn();
+const updateDefaultWarehouseApiMock = vi.fn();
 const setClientAccessContextMock = vi.fn();
 const getStoredAuthSessionMock = vi.fn();
 const setStoredAuthSessionMock = vi.fn();
@@ -31,6 +32,7 @@ let signUpMock: ReturnType<typeof vi.fn>;
 vi.mock('../../api/features/authClient', () => ({
   getAuthContext: (...args: unknown[]) => getAuthContextMock(...args),
   requestUsernameChange: (...args: unknown[]) => requestUsernameChangeApiMock(...args),
+  updateDefaultWarehouse: (...args: unknown[]) => updateDefaultWarehouseApiMock(...args),
   setClientAccessContext: (...args: unknown[]) => setClientAccessContextMock(...args)
 }));
 
@@ -71,6 +73,7 @@ function createAccessContext(overrides: Record<string, unknown> = {}) {
     orgId: 'org-1',
     accessStatus: 'approved',
     role: 'owner',
+    defaultWarehouse: '',
     permissions: {},
     isAdminConsoleAllowed: true,
     pendingCount: 0,
@@ -186,6 +189,7 @@ describe('AuthContext', () => {
     setStoredAuthSessionMock.mockReset();
     setClientAccessContextMock.mockReset();
     requestUsernameChangeApiMock.mockReset();
+    updateDefaultWarehouseApiMock.mockReset();
     window.history.replaceState({}, '', '/');
   });
 

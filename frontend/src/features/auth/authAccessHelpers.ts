@@ -7,6 +7,7 @@ export function normalizeAccessContext(
 ): EffectiveAccessContext {
   return {
     ...nextContext,
+    defaultWarehouse: String(nextContext.defaultWarehouse || '').trim().toUpperCase(),
     permissions: {
       ...createDefaultFeatureAccessMap(),
       ...nextContext.permissions

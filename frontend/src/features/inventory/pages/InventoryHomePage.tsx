@@ -7,6 +7,7 @@ import { filterOfflineBoxes } from '../../../lib/offlineInventory';
 import { CaulkInventoryContent } from '../../caulk/components/CaulkInventoryContent';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
+import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
 import { useFilmCatalog } from '../hooks/useInventoryQueries';
 import { InventoryTable } from '../components/InventoryTable';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
@@ -28,9 +29,12 @@ import {
 
 type InventoryView = 'film' | 'caulk';
 
-function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
+function readFilters(searchParams: URLSearchParams, defaultWarehouse = ''): InventoryFilterValues {
+  const hasWarehouseParam = searchParams.has('warehouse');
   return {
-    warehouse: parseWarehouseFilterValue(searchParams.get('warehouse')),
+    warehouse: hasWarehouseParam
+      ? parseWarehouseFilterValue(searchParams.get('warehouse'))
+      : parseWarehouseFilterValue(defaultWarehouse),
     manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
@@ -44,7 +48,8 @@ export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const hasMountedRef = useRef(false);
-  const filters = readFilters(searchParams);
+  const defaultWarehouse = useDefaultWarehouse();
+  const filters = readFilters(searchParams, defaultWarehouse);
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)
   );
@@ -98,9 +103,9 @@ export default function InventoryHomePage() {
     }
 
     const nextParams = new URLSearchParams(searchParams);
-    nextParams.set('warehouse', toWarehouseFilterOptionValue(filters.warehouse));
+    nextParams.set('warehouse', toWarehouseFilterOptionValue(defaultWarehouse));
     setSearchParams(nextParams, { replace: true });
-  }, [filters.warehouse, searchParams, setSearchParams]);
+  }, [defaultWarehouse, searchParams, setSearchParams]);
 
   useEffect(() => {
     const rawInventoryView = searchParams.get('inventoryView');
@@ -267,7 +272,7 @@ export default function InventoryHomePage() {
 
   const inventoryViewContent =
     inventoryView === 'caulk' ? (
-      <CaulkInventoryContent headerActions={inventoryViewToggle} />
+      <CaulkInventoryContent headerActions={inventoryViewToggle} initialWarehouse={filters.warehouse} />
     ) : (
       filmInventoryContent
     );

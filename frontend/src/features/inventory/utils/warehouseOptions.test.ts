@@ -33,7 +33,7 @@ describe('warehouseOptions', () => {
     ]);
 
     expect(toWarehouseFilterSelectOptions(entries)).toEqual([
-      { label: 'All', value: ALL_WAREHOUSES_OPTION_VALUE },
+      { label: 'All Warehouses', value: ALL_WAREHOUSES_OPTION_VALUE },
       { label: 'Wauconda IL1', value: 'IL1' },
       { label: 'California #1', value: 'CA1' }
     ]);

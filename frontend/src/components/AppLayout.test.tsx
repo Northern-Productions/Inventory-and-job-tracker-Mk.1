@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLayout } from './AppLayout';
@@ -12,6 +13,8 @@ const useAuthMock = vi.fn();
 const useIsPhoneLayoutMock = vi.fn();
 const useAppAttentionSummaryMock = vi.fn();
 const usePwaInstallMock = vi.fn();
+const useWarehouseRegistryMock = vi.fn();
+const reloadPageMock = vi.fn();
 
 vi.mock('../features/auth/AuthContext', () => ({
   useAuth: () => useAuthMock()
@@ -25,8 +28,16 @@ vi.mock('../features/inventory/hooks/useInventoryQueries', () => ({
   useAppAttentionSummary: (...args: unknown[]) => useAppAttentionSummaryMock(...args)
 }));
 
+vi.mock('../features/inventory/hooks/useWarehouseRegistry', () => ({
+  useWarehouseRegistry: () => useWarehouseRegistryMock()
+}));
+
 vi.mock('../features/pwa/PwaInstallContext', () => ({
   usePwaInstall: () => usePwaInstallMock()
+}));
+
+vi.mock('../lib/pageReload', () => ({
+  reloadPage: () => reloadPageMock()
 }));
 
 function buildAuth(overrides: Record<string, unknown> = {}) {
@@ -41,6 +52,7 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
 
   return {
     accessContext: {
+      defaultWarehouse: '',
       pendingCount: 0,
       role: 'Owner'
     },
@@ -57,6 +69,7 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
       }
     },
     signOut: vi.fn(),
+    updateDefaultWarehouse: vi.fn(),
     ...overrides
   };
 }
@@ -70,20 +83,31 @@ function buildQueryState<T>(data: T) {
   };
 }
 
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false }
+    }
+  });
+}
+
 function buildLayoutTree(pathname: string) {
   return (
-    <ToastProvider>
-      <AppThemeProvider>
-        <MemoryRouter initialEntries={[pathname]}>
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
-              <Route index element={<div>Inventory page</div>} />
-              <Route path="*" element={<div>Nested page</div>} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
-      </AppThemeProvider>
-    </ToastProvider>
+    <QueryClientProvider client={createQueryClient()}>
+      <ToastProvider>
+        <AppThemeProvider>
+          <MemoryRouter initialEntries={[pathname]}>
+            <Routes>
+              <Route path="/" element={<AppLayout />}>
+                <Route index element={<div>Inventory page</div>} />
+                <Route path="*" element={<div>Nested page</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </AppThemeProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -146,6 +170,13 @@ describe('AppLayout', () => {
   beforeEach(() => {
     useAuthMock.mockReturnValue(buildAuth());
     useIsPhoneLayoutMock.mockReturnValue(false);
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [
+        { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+      ]
+    });
+    reloadPageMock.mockReset();
     useAppAttentionSummaryMock.mockReturnValue(
       buildQueryState({
         hasJobsNeedingAllocation: false,
@@ -189,6 +220,7 @@ describe('AppLayout', () => {
     }
 
     expect(within(headerCorner).getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(within(headerCorner).getByText('Warehouse: All Warehouses')).toBeTruthy();
     expect(within(headerCorner).getByRole('button', { name: 'Account actions' })).toBeTruthy();
     expect(within(headerCorner).queryByRole('group', { name: 'Theme' })).toBeNull();
 
@@ -202,6 +234,26 @@ describe('AppLayout', () => {
     );
     expect(within(menu).getByRole('menuitem', { name: 'Sign Out' })).toBeTruthy();
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('displays the saved default warehouse name in the header', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: {
+          defaultWarehouse: 'MS1',
+          pendingCount: 0,
+          role: 'Owner'
+        }
+      })
+    );
+
+    const view = renderLayout('/');
+    const headerCorner = view.container.querySelector('.app-header-corner');
+    if (!(headerCorner instanceof HTMLElement)) {
+      throw new Error('Expected app header corner to render.');
+    }
+
+    expect(within(headerCorner).getByText('Warehouse: Ridgeland MS1')).toBeTruthy();
   });
 
   it('applies a saved dark theme from localStorage', () => {
@@ -261,6 +313,71 @@ describe('AppLayout', () => {
     expect(themeIndex).toBeGreaterThan(-1);
     expect(signOutIndex).toBeGreaterThan(-1);
     expect(themeIndex).toBeLessThan(signOutIndex);
+  });
+
+  it('places Change warehouse directly under Change Username and opens the warehouse modal', () => {
+    renderLayout('/');
+
+    const menu = openAccountMenu();
+    const menuChildren = Array.from(menu.children);
+    const usernameIndex = menuChildren.findIndex((child) => child.textContent === 'Change Username');
+    const warehouseIndex = menuChildren.findIndex((child) => child.textContent === 'Change warehouse');
+
+    expect(usernameIndex).toBeGreaterThan(-1);
+    expect(warehouseIndex).toBe(usernameIndex + 1);
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Change warehouse' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Change warehouse' });
+    expect(
+      within(dialog).getByText(
+        'Select the warehouse you usually work from. This will be used as your default filter across the app.'
+      )
+    ).toBeTruthy();
+    expect(within(dialog).getByRole('combobox', { name: 'Warehouse' })).toBeTruthy();
+  });
+
+  it('saves the selected default warehouse and reloads only after the save succeeds', async () => {
+    const updateDefaultWarehouse = vi.fn().mockResolvedValue({ defaultWarehouse: 'MS1' });
+    useAuthMock.mockReturnValue(buildAuth({ updateDefaultWarehouse }));
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Account actions' }));
+    const menu = screen.getByRole('menu', { name: 'Account actions' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Change warehouse' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Change warehouse' });
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Warehouse' }), {
+      target: { value: 'MS1' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(updateDefaultWarehouse).toHaveBeenCalledWith('MS1');
+    });
+    await waitFor(() => {
+      expect(reloadPageMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not reload and shows an error when default warehouse save fails', async () => {
+    const updateDefaultWarehouse = vi.fn().mockRejectedValue(new Error('Save failed'));
+    useAuthMock.mockReturnValue(buildAuth({ updateDefaultWarehouse }));
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Account actions' }));
+    const menu = screen.getByRole('menu', { name: 'Account actions' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Change warehouse' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change warehouse' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(updateDefaultWarehouse).toHaveBeenCalledWith('');
+    });
+    expect(reloadPageMock).not.toHaveBeenCalled();
+    expect(await screen.findByText('Unable to update warehouse')).toBeTruthy();
+    expect(screen.getAllByText('Save failed').length).toBeGreaterThan(0);
   });
 
   it('shows the Film Orders attention dot on desktop when film still needs ordering', () => {

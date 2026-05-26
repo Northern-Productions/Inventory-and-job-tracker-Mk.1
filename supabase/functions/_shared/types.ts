@@ -12,5 +12,6 @@ export type AuthIdentity = {
   isAdminConsoleAllowed: boolean;
   pendingCount: number;
   receivesInAppNotifications: boolean;
+  defaultWarehouse: string;
   pendingRequestCreated: boolean;
 };

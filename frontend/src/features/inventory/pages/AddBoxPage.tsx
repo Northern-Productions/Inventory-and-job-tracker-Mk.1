@@ -19,6 +19,7 @@ import {
   useUpsertBoxDealer
 } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
+import { useDefaultSpecificWarehouse } from '../hooks/useDefaultWarehouse';
 import { parseAddBoxDraft } from '../schemas/boxSchemas';
 import { confirmWarnings, getAddOrEditWarnings } from '../utils/boxWarnings';
 import {
@@ -65,13 +66,14 @@ export default function AddBoxPage() {
   });
   const upsertBoxDealerMutation = useUpsertBoxDealer();
   const warehouseRegistry = useWarehouseRegistry();
+  const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
   const prefillToken = searchParams.toString();
   const retryState = useMemo(() => readRetryState(location.state), [location.state]);
   const filmOrderPrefill = useMemo(
     () => buildFilmOrderPrefill(new URLSearchParams(prefillToken)),
     [prefillToken]
   );
-  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
+  const defaultWarehouse = defaultSpecificWarehouse || warehouseRegistry.entries[0]?.code || '';
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
   );

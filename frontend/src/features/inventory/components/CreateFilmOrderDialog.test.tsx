@@ -8,6 +8,10 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
   })
 }));
 
+vi.mock('../hooks/useDefaultWarehouse', () => ({
+  useDefaultSpecificWarehouse: () => 'IL1'
+}));
+
 vi.mock('./WarehouseSelectField', () => ({
   WarehouseSelectField: ({ label }: { label: string }) => (
     <label className="field">

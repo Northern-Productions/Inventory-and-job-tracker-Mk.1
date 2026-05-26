@@ -1,6 +1,7 @@
 // Purpose: Centralize rollback-host routes that should run through the local parity handler.
 
 export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
+  "/profile/default-warehouse",
   "/admin/member-permissions",
   "/admin/user-permissions",
   "/owner/admin-permissions",

@@ -6,6 +6,7 @@ import { ThemeToggle } from '../theme/ThemeToggle';
 import { usePwaInstall } from '../pwa/PwaInstallContext';
 import type { ManualInstallMode } from '../pwa/installUtils';
 import { useAuth } from './AuthContext';
+import { DefaultWarehouseControl } from './DefaultWarehouseControl';
 import { UsernameChangeControl } from './UsernameChangeControl';
 
 function buildAccountRoleLine(role: string | null | undefined, pendingCount: number, showPending: boolean) {
@@ -141,7 +142,11 @@ export function AccountMenuTrigger() {
       <UsernameChangeControl
         buttonVariant="ghost"
         buttonClassName="account-menu-item"
-        onOpen={closeMenu}
+        buttonProps={{ role: 'menuitem' }}
+      />
+      <DefaultWarehouseControl
+        buttonVariant="ghost"
+        buttonClassName="account-menu-item"
         buttonProps={{ role: 'menuitem' }}
       />
       {installState.installAvailability === 'already_installed' ? (

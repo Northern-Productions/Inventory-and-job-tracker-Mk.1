@@ -24,6 +24,7 @@ export interface JobsCalendarEntriesOptions {
   view: JobsCalendarView;
   anchorDate: string;
   lifecycleStatus?: JobLifecycleFilter;
+  warehouse?: string;
 }
 
 export interface JobDuplicateCheckResult {
@@ -206,20 +207,24 @@ function normalizeJobDetail(detail: JobDetail): JobDetail {
   };
 }
 
-function buildJobsQuery(limit: number, lifecycleStatus?: JobLifecycleFilter) {
-  const params: Record<string, number | JobLifecycleFilter | string[]> = { limit };
+function buildJobsQuery(limit: number, lifecycleStatus?: JobLifecycleFilter, warehouse?: string) {
+  const params: Record<string, number | JobLifecycleFilter | string | string[]> = { limit };
   if (lifecycleStatus) {
     params.lifecycleStatus = lifecycleStatus;
+  }
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase();
+  if (normalizedWarehouse) {
+    params.warehouse = normalizedWarehouse;
   }
   return params;
 }
 
 export async function getJobs(
   limit = 25,
-  options: { lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[] } = {}
+  options: { lifecycleStatus?: JobLifecycleFilter; jobNumbers?: string[]; warehouse?: string } = {}
 ): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
-  const params = buildJobsQuery(limit, options.lifecycleStatus);
+  const params = buildJobsQuery(limit, options.lifecycleStatus, options.warehouse);
   const normalizedJobNumbers = Array.from(
     new Set(
       (options.jobNumbers || [])
@@ -242,6 +247,7 @@ export async function getJobsCalendarEntries(
     view: JobsCalendarView;
     anchorDate: string;
     lifecycleStatus?: JobLifecycleFilter;
+    warehouse?: string;
   } = {
     view: options.view,
     anchorDate: options.anchorDate
@@ -249,25 +255,30 @@ export async function getJobsCalendarEntries(
   if (options.lifecycleStatus) {
     params.lifecycleStatus = options.lifecycleStatus;
   }
+  const normalizedWarehouse = String(options.warehouse || '').trim().toUpperCase();
+  if (normalizedWarehouse) {
+    params.warehouse = normalizedWarehouse;
+  }
   const data = await requestReadWithFallback<JobListResponse>('/jobs/calendar', params, params);
   return (data.entries || []).map(normalizeJobListEntry);
 }
 
 export async function getJobsCalendarMonth(
   month: string,
-  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+  options: { lifecycleStatus?: JobLifecycleFilter; warehouse?: string } = {}
 ): Promise<JobListEntry[]> {
   return getJobsCalendarEntries({
     view: 'month',
     anchorDate: `${String(month || '').trim()}-01`,
-    lifecycleStatus: options.lifecycleStatus
+    lifecycleStatus: options.lifecycleStatus,
+    warehouse: options.warehouse
   });
 }
 
 export async function searchJobsByNumber(
   query: string,
   limit = 25,
-  options: { lifecycleStatus?: JobLifecycleFilter } = {}
+  options: { lifecycleStatus?: JobLifecycleFilter; warehouse?: string } = {}
 ): Promise<JobListEntry[]> {
   assertFeatureAccess('jobs', 'read');
   const normalizedQuery = String(query || '').replace(/[^0-9]/g, '');
@@ -278,7 +289,7 @@ export async function searchJobsByNumber(
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const params = {
     query: normalizedQuery,
-    ...buildJobsQuery(normalizedLimit, options.lifecycleStatus)
+    ...buildJobsQuery(normalizedLimit, options.lifecycleStatus, options.warehouse)
   };
   const data = await requestReadWithFallback<JobListResponse>('/jobs/search', params, params);
   return (data.entries || []).map(normalizeJobListEntry);

@@ -1,6 +1,7 @@
 import { isWarehouse, type Warehouse, type WarehouseEntry } from '../../../domain';
 
 export const ALL_WAREHOUSES_OPTION_VALUE = 'ALL';
+export const ALL_WAREHOUSES_LABEL = 'All Warehouses';
 export const ADD_WAREHOUSE_OPTION_VALUE = '__add_warehouse__';
 export type WarehouseFilterValue = Warehouse | '';
 
@@ -34,9 +35,19 @@ export function toWarehouseSelectOptions(entries: WarehouseEntry[]) {
 
 export function toWarehouseFilterSelectOptions(entries: WarehouseEntry[]) {
   return [
-    { label: 'All', value: ALL_WAREHOUSES_OPTION_VALUE },
+    { label: ALL_WAREHOUSES_LABEL, value: ALL_WAREHOUSES_OPTION_VALUE },
     ...toWarehouseSelectOptions(entries)
   ];
+}
+
+export function getWarehouseDisplayLabel(entries: WarehouseEntry[], code: Warehouse | ''): string {
+  const normalized = normalizeWarehouseCode(code);
+  if (!normalized) {
+    return ALL_WAREHOUSES_LABEL;
+  }
+
+  const match = entries.find((entry) => entry.code === normalized);
+  return match?.name || normalized;
 }
 
 export function normalizeWarehouseCode(value: string | null | undefined): Warehouse | '' {

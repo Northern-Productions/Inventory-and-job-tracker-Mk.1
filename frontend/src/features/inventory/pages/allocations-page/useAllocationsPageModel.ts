@@ -6,6 +6,7 @@ import { type JobLifecycleFilter } from '../../../../api/features/jobsClient';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { todayDateString } from '../../../../lib/date';
 import { useAuth } from '../../../auth/AuthContext';
+import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
 import {
   useCreateJob,
   useCaulkProducts,
@@ -47,9 +48,11 @@ export function useAllocationsPageModel({
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
+  const defaultWarehouse = useDefaultWarehouse();
   const [jobsWorkflowView, setJobsWorkflowView] = useState<'active' | 'completed'>(
     initialWorkflowView
   );
+  const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
   const [jobsViewMode, setJobsViewMode] = useState<'list' | 'calendar'>(initialJobsViewMode);
   const [calendarGranularity, setCalendarGranularity] = useState<'week' | 'month'>(
     initialCalendarGranularity
@@ -70,12 +73,14 @@ export function useAllocationsPageModel({
 
   const jobsQuery = useJobsList(0, {
     enabled: !isCalendarView,
-    lifecycleStatus: selectedLifecycleStatus
+    lifecycleStatus: selectedLifecycleStatus,
+    warehouse: warehouseFilter
   });
   const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
     enabled: isCalendarView,
     view: calendarGranularity,
-    lifecycleStatus: selectedLifecycleStatus
+    lifecycleStatus: selectedLifecycleStatus,
+    warehouse: warehouseFilter
   });
   const createJobMutation = useCreateJob();
   const jobCreationWorkflow = useJobCreationWorkflow({
@@ -93,6 +98,7 @@ export function useAllocationsPageModel({
   const calendarWorkflow = useJobsCalendarWorkflow({
     isCalendarView,
     selectedLifecycleStatus,
+    selectedWarehouse: warehouseFilter,
     calendarGranularity,
     calendarAnchorDate,
     jobsCalendarQuery,
@@ -177,6 +183,8 @@ export function useAllocationsPageModel({
     calendarWorkflow,
     jobsViewMode,
     setJobsViewMode,
+    warehouseFilter,
+    setWarehouseFilter,
     isCompletedWorkflow,
     isCalendarView,
     jobSearchInput,

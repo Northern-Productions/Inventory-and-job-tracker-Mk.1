@@ -47,6 +47,7 @@ interface AuthContextValue {
   requestUsernameChange: (
     username: string
   ) => Promise<{ status: 'approved' | 'pending'; requiresApproval: boolean; username: string }>;
+  updateDefaultWarehouse: (defaultWarehouse: string) => Promise<{ defaultWarehouse: string }>;
   session: AuthSession | null;
   signInWithPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -253,6 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     exitPasswordRecovery,
     requestPasswordReset,
     requestUsernameChange,
+    updateDefaultWarehouse,
     signInWithPassword,
     signOut,
     signUpWithPassword
@@ -318,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshAccessContext,
         requestPasswordReset,
         requestUsernameChange,
+        updateDefaultWarehouse,
         session,
         signInWithPassword,
         signOut,

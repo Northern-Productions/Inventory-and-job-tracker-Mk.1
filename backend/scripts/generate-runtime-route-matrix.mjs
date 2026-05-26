@@ -17,7 +17,8 @@ const allRoutes = new Set([
   ...OWNER_ONLY_ROUTES,
   '/health',
   '/auth/context',
-  '/profile/username'
+  '/profile/username',
+  '/profile/default-warehouse'
 ]);
 
 const routes = [...allRoutes]

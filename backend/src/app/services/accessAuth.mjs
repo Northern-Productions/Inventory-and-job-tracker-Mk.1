@@ -8,6 +8,7 @@ import {
 import { queryRow, queryRows, withReadClient } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
 import { authIdentityCache } from '../../state/authIdentityCache.mjs';
+import { getUserDefaultWarehouse } from './userPreferences.mjs';
 import {
   inferAccessModeForRoute as inferAccessModeForRouteContract,
   inferFeatureForRoute as inferFeatureForRouteContract,
@@ -251,13 +252,15 @@ function mapDatabaseBootstrapError(message) {
     normalized.includes('relation "app.admin_feature_permissions" does not exist') ||
     normalized.includes('relation "app.access_requests" does not exist') ||
     normalized.includes('relation "app.username_change_requests" does not exist') ||
+    normalized.includes('relation "app.user_preferences" does not exist') ||
     normalized.includes('column "requested_by_name" does not exist') ||
     (normalized.includes('function public.api_get_auth_context') && normalized.includes('does not exist')) ||
+    (normalized.includes('function public.api_update_user_default_warehouse') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_get_user_feature_permissions') && normalized.includes('does not exist')) ||
     (normalized.includes('function public.api_update_user_feature_permissions') && normalized.includes('does not exist')) ||
     (normalized.includes('function app_api.member_permissions_for_user_json') && normalized.includes('does not exist'))
   ) {
-    return 'Database migrations 0006, 0007, 0008, 0009, 0027, and 0028 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, and 0028_member_permission_persistence_guardrails.sql, then retry.';
+    return 'Database migrations 0006, 0007, 0008, 0009, 0027, 0028, and 0151 are required. Run 0006_access_control_and_approvals.sql, 0007_access_request_display_name.sql, 0008_username_change_requests.sql, 0009_user_feature_overrides.sql, 0027_member_read_only_permissions.sql, 0028_member_permission_persistence_guardrails.sql, and 0151_user_default_warehouse_preferences.sql, then retry.';
   }
   if (
     normalized.includes('relation "app.caulk_transfers" does not exist') ||
@@ -313,6 +316,10 @@ function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
         ? 'Your access request was denied. Contact an owner for help.'
         : 'Your account is awaiting approval from an admin or owner.'
     );
+  }
+
+  if (logicalPath === '/profile/default-warehouse') {
+    return;
   }
 
   if (isOwnerOnlyRoute(logicalPath) && authContext.role !== 'owner') {
@@ -487,6 +494,7 @@ async function resolveAuthContext(headers, bodyJson) {
           isAdminConsoleAllowed: false,
           pendingCount: 0,
           receivesInAppNotifications: false,
+          defaultWarehouse: '',
           pendingRequestCreated: false,
         };
       }
@@ -517,6 +525,7 @@ async function resolveAuthContext(headers, bodyJson) {
         isAdminConsoleAllowed: false,
         pendingCount: 0,
         receivesInAppNotifications: false,
+        defaultWarehouse: '',
         pendingRequestCreated: inserted.rowCount > 0,
       };
     }
@@ -563,6 +572,7 @@ async function resolveAuthContext(headers, bodyJson) {
     let permissions = createDeniedFeaturePermissions();
     let isAdminConsoleAllowed = false;
     let receivesInAppNotifications = false;
+    const defaultWarehouse = await getUserDefaultWarehouse(client, orgId, identity.userId);
 
     if (normalizedRole === 'owner') {
       await ensureOwnerNotificationPreference(client, orgId, identity.userId, actor);
@@ -615,6 +625,7 @@ async function resolveAuthContext(headers, bodyJson) {
       isAdminConsoleAllowed,
       pendingCount,
       receivesInAppNotifications,
+      defaultWarehouse,
       pendingRequestCreated: false,
     };
   });

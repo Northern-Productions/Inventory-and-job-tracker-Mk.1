@@ -10,6 +10,7 @@ import {
   hasManufacturerOption
 } from '../utils/boxHelpers';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
+import { useDefaultSpecificWarehouse } from '../hooks/useDefaultWarehouse';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
@@ -40,7 +41,8 @@ export function CreateFilmOrderDialog({
     [filmCatalogEntries]
   );
   const warehouseRegistry = useWarehouseRegistry();
-  const defaultWarehouse = warehouseRegistry.entries[0]?.code || '';
+  const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
+  const defaultWarehouse = defaultSpecificWarehouse || warehouseRegistry.entries[0]?.code || '';
   const [warehouse, setWarehouse] = useState<Warehouse>(defaultWarehouse);
   const [jobNumber, setJobNumber] = useState('');
   const [manufacturer, setManufacturer] = useState<string>(manufacturerOptions[0] || '');

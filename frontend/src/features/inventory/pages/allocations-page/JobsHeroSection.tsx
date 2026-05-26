@@ -1,10 +1,13 @@
 import { Button } from '../../../../components/Button';
 import { Select } from '../../../../components/Select';
+import type { Warehouse } from '../../../../domain';
+import { WarehouseSelectField } from '../../components/WarehouseSelectField';
 import type { JobSortOption } from '../../utils/jobSorts';
 import { JOB_SORT_OPTIONS } from '../../utils/jobSorts';
 
 interface JobsHeroSectionProps {
   jobsViewMode: 'list' | 'calendar';
+  warehouseFilter: Warehouse | '';
   isCompletedWorkflow: boolean;
   workflowDescription: string;
   jobSearchInput: string;
@@ -16,6 +19,7 @@ interface JobsHeroSectionProps {
   isSearchingListJobs: boolean;
   workflowSummaryLabel: string;
   onSetJobsViewMode: (view: 'list' | 'calendar') => void;
+  onWarehouseFilterChange: (warehouse: Warehouse | '') => void;
   onSetWorkflowView: (view: 'active' | 'completed') => void;
   onJobSearchInputChange: (value: string) => void;
   onSetJobSort: (sort: JobSortOption) => void;
@@ -24,6 +28,7 @@ interface JobsHeroSectionProps {
 
 export function JobsHeroSection({
   jobsViewMode,
+  warehouseFilter,
   isCompletedWorkflow,
   workflowDescription,
   jobSearchInput,
@@ -35,6 +40,7 @@ export function JobsHeroSection({
   isSearchingListJobs,
   workflowSummaryLabel,
   onSetJobsViewMode,
+  onWarehouseFilterChange,
   onSetWorkflowView,
   onJobSearchInputChange,
   onSetJobSort,
@@ -89,8 +95,14 @@ export function JobsHeroSection({
         <div className="page-hero-copy">
           <h2>Jobs</h2>
           <p className="muted-text">{workflowDescription}</p>
-          {!isCalendarView ? (
-            <div className="jobs-toolbar-grid">
+          <div className="jobs-toolbar-grid">
+            <WarehouseSelectField
+              value={warehouseFilter}
+              onChange={onWarehouseFilterChange}
+              allowAll
+            />
+            {!isCalendarView ? (
+              <>
               <label className="field jobs-search-field">
                 <span className="field-label">Search Job ID Number</span>
                 <input
@@ -110,8 +122,9 @@ export function JobsHeroSection({
                 value={jobSort}
                 onChange={(event) => onSetJobSort(event.target.value as JobSortOption)}
               />
-            </div>
-          ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
         <div className="page-hero-actions">
           <Button type="button" className="button-job-new" size="lg" onClick={onOpenNewJob}>

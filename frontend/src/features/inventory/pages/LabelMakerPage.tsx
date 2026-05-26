@@ -16,6 +16,7 @@ import {
   type PrintableLabel
 } from '../components/labels/PrintableLabelSheet';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
+import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
 import { useFilmCatalog, useMarkLabelsPrinted } from '../hooks/useInventoryQueries';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
 import {
@@ -68,9 +69,12 @@ const EMPTY_SLOT_QR: SlotQrState = {
   B: { dataUrl: '', payload: '', pending: false, error: '' }
 };
 
-function readFilters(searchParams: URLSearchParams): InventoryFilterValues {
+function readFilters(searchParams: URLSearchParams, defaultWarehouse = ''): InventoryFilterValues {
+  const hasWarehouseParam = searchParams.has('warehouse');
   return {
-    warehouse: parseWarehouseFilterValue(searchParams.get('warehouse')),
+    warehouse: hasWarehouseParam
+      ? parseWarehouseFilterValue(searchParams.get('warehouse'))
+      : parseWarehouseFilterValue(defaultWarehouse),
     manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
     q: searchParams.get('q') || '',
     status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
@@ -109,8 +113,11 @@ function getUniqueSelectedBoxIds(selectedBoxesBySlot: SlotBoxState): string[] {
 
 export default function LabelMakerPage() {
   const [searchParams] = useSearchParams();
+  const defaultWarehouse = useDefaultWarehouse();
   const hasMountedRef = useRef(false);
-  const [filters, setFilters] = useState<InventoryFilterValues>(() => readFilters(searchParams));
+  const [filters, setFilters] = useState<InventoryFilterValues>(() =>
+    readFilters(searchParams, defaultWarehouse)
+  );
   const [debouncedQuery, setDebouncedQuery] = useState(filters.q);
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)

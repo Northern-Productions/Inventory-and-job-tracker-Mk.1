@@ -61,6 +61,7 @@ import {
   updateMemberFeaturePermissionsInternal,
   updateOwnerNotificationPreferencesInternal,
   updateUserFeaturePermissionsInternal,
+  updateUserDefaultWarehouse,
 } from '../services/access.mjs';
 import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
@@ -75,6 +76,11 @@ import {
 const mutationHandlers = {
   '/profile/username': async ({ client, orgId, authContext, params }) =>
     ok(await requestUsernameChange(client, orgId, authContext, params)),
+  '/profile/default-warehouse': async ({ client, orgId, authContext, params }) => {
+    const result = await updateUserDefaultWarehouse(client, orgId, authContext, params);
+    authContext.defaultWarehouse = result.defaultWarehouse || '';
+    return ok(result);
+  },
   '/admin/access/requests/approve': async ({ client, orgId, authContext, params }) =>
     ok(await approveAccessRequestByUserId(client, orgId, authContext.actor, params, authContext.userId)),
   '/admin/access/requests/deny': async ({ client, orgId, authContext, params }) =>

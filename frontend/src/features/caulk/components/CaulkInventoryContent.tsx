@@ -14,14 +14,20 @@ import {
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
+import {
+  ALL_WAREHOUSES_LABEL,
+  ALL_WAREHOUSES_OPTION_VALUE,
+  toWarehouseFilterOptionValue
+} from '../../inventory/utils/warehouseOptions';
 import { toFullCasesFromTubes } from '../utils/stockMath';
 import { NewCaulkProductDialog } from './NewCaulkProductDialog';
 
 interface CaulkInventoryContentProps {
   headerActions?: ReactNode;
+  initialWarehouse?: Warehouse | '';
 }
 
-export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentProps) {
+export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: CaulkInventoryContentProps) {
   const auth = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
@@ -30,7 +36,9 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
   const warehouseEntries = warehouseRegistry.entries;
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
 
-  const [warehouseFilter, setWarehouseFilter] = useState<string>('ALL');
+  const [warehouseFilter, setWarehouseFilter] = useState<string>(() =>
+    toWarehouseFilterOptionValue(initialWarehouse)
+  );
   const [manufacturerFilter, setManufacturerFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isNewProductDialogOpen, setIsNewProductDialogOpen] = useState(false);
@@ -54,7 +62,7 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
   const manufacturers = manufacturersQuery.data || [];
   const stockRows = stockQuery.data || [];
   const selectedWarehouseForNewProduct =
-    warehouseFilter && warehouseFilter !== 'ALL' ? (warehouseFilter as Warehouse) : '';
+    warehouseFilter && warehouseFilter !== ALL_WAREHOUSES_OPTION_VALUE ? (warehouseFilter as Warehouse) : '';
 
   const manufacturerOptions = useMemo(() => {
     return manufacturers
@@ -137,7 +145,7 @@ export function CaulkInventoryContent({ headerActions }: CaulkInventoryContentPr
             value={warehouseFilter}
             onChange={(event) => setWarehouseFilter(event.target.value)}
             options={[
-              { value: 'ALL', label: 'All' },
+              { value: ALL_WAREHOUSES_OPTION_VALUE, label: ALL_WAREHOUSES_LABEL },
               ...warehouseEntries.map((entry) => ({
                 value: entry.code,
                 label: entry.name || entry.code

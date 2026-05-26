@@ -35,3 +35,9 @@ export {
   getOwnerNotificationPreferencesInternal,
   updateOwnerNotificationPreferencesInternal,
 } from './accessPermissions.mjs';
+
+export {
+  getUserDefaultWarehouse,
+  normalizeDefaultWarehouseInput,
+  updateUserDefaultWarehouse,
+} from './userPreferences.mjs';

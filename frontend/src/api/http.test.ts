@@ -303,6 +303,18 @@ describe('resolveApiBaseUrlFromConfig', () => {
     ).toBe('/api');
   });
 
+  it('keeps the local proxy path on dev LAN hosts when a proxy target is configured', () => {
+    expect(
+      resolveApiBaseUrlFromConfig({
+        configuredApiBaseUrl: 'https://example.supabase.co/functions/v1/api',
+        proxyTarget: 'http://localhost:3000',
+        supabaseUrl: 'https://example.supabase.co',
+        hostname: '192.168.1.20',
+        isDev: true
+      })
+    ).toBe('/api');
+  });
+
   it('falls back to the Supabase edge function on non-local hosts when api base is blank', () => {
     expect(
       resolveApiBaseUrlFromConfig({

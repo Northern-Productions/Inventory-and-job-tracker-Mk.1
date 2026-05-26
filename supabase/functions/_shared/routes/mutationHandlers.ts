@@ -353,6 +353,17 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const result = await deps.callMutationRpc(client, "api_request_username_change", orgId, actor, normalizedPayload);
     return ok(result);
   },
+  "/profile/default-warehouse": async ({ client, identity, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_update_user_default_warehouse",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    identity.defaultWarehouse = deps.asTrimmedString(result.defaultWarehouse).toUpperCase();
+    return ok(result);
+  },
   "/admin/access/requests/approve": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_approve_access_request", orgId, actor, normalizedPayload);
     return ok(result);

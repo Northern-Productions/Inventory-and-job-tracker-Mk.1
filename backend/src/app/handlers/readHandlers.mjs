@@ -297,7 +297,9 @@ const readHandlers = {
         ? [params.jobNumbers]
         : [];
     return ok({
-      entries: await buildJobsList(client, orgId, limit, params && params.lifecycleStatus, jobNumbers),
+      entries: await buildJobsList(client, orgId, limit, params && params.lifecycleStatus, jobNumbers, {
+        warehouse: params && params.warehouse,
+      }),
     });
   },
   '/jobs/calendar': async ({ client, orgId, params }) =>
@@ -308,21 +310,30 @@ const readHandlers = {
         params && params.view,
         params && params.anchorDate,
         params && params.month,
-        params && params.lifecycleStatus
+        params && params.lifecycleStatus,
+        { warehouse: params && params.warehouse }
       ),
     }),
   '/jobs/search': async ({ client, orgId, params }) => {
     const limitValue = Number(params && params.limit);
     const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 25;
     return ok({
-      entries: await buildJobsSearchResults(client, orgId, params && params.query, limit, params && params.lifecycleStatus),
+      entries: await buildJobsSearchResults(
+        client,
+        orgId,
+        params && params.query,
+        limit,
+        params && params.lifecycleStatus,
+        { warehouse: params && params.warehouse }
+      ),
     });
   },
   '/jobs/check-duplicate': async ({ client, orgId, params }) =>
     ok(await checkJobDuplicate(client, orgId, params || {})),
   '/jobs/get': async ({ orgId, params }) => ok(await buildReadJobDetail(orgId, params.jobNumber)),
   '/jobs/get-by-id': async ({ orgId, params }) => ok(await buildReadJobDetailById(orgId, params.jobId)),
-  '/film-orders/list': async ({ client, orgId }) => ok({ entries: await buildFilmOrdersList(client, orgId) }),
+  '/film-orders/list': async ({ client, orgId, params }) =>
+    ok({ entries: await buildFilmOrdersList(client, orgId, { warehouse: params && params.warehouse }) }),
   '/film-orders/get': async ({ client, orgId, params }) =>
     ok(await buildFilmOrderDetail(client, orgId, params.filmOrderId)),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),

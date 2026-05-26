@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthSession, EffectiveAccessContext } from '../../domain';
-import { requestUsernameChange as requestUsernameChangeApi } from '../../api/features/authClient';
+import {
+  requestUsernameChange as requestUsernameChangeApi,
+  updateDefaultWarehouse as updateDefaultWarehouseApi
+} from '../../api/features/authClient';
 import { setStoredAuthSession } from '../../lib/storage';
 import {
   PASSWORD_RESET_REQUEST_MESSAGE,
@@ -270,6 +273,29 @@ export function buildAuthProviderActions({
     }
   }
 
+  async function updateDefaultWarehouse(defaultWarehouse: string) {
+    if (!authConfigured || !supabase) {
+      throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable profile updates.');
+    }
+
+    prepareAuthAction({
+      setAccessRefreshError,
+      setErrorMessage,
+      setIsBusy,
+      setPasswordResetMessage
+    });
+
+    try {
+      return await updateDefaultWarehouseApi({ defaultWarehouse });
+    } catch (error) {
+      const message = resolveAuthErrorMessage(error, 'Warehouse update failed.');
+      setErrorMessage(message);
+      throw new Error(message);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function signOut() {
     await performSignOut();
   }
@@ -284,6 +310,7 @@ export function buildAuthProviderActions({
     completePasswordReset,
     exitPasswordRecovery,
     requestPasswordReset,
+    updateDefaultWarehouse,
     requestUsernameChange,
     signInWithPassword,
     signOut,

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoutes.mjs';
 
 test('uses local fallback for localhost inventory, job, film-order, and caulk write paths used by the safe test environment', () => {
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/profile/default-warehouse'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/owner/caulk/manufacturers/upsert'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/caulk/products/upsert'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/caulk/mutate'), true);

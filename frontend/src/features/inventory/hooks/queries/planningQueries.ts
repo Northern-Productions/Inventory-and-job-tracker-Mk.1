@@ -35,10 +35,13 @@ export function useAllocationJob(jobNumber: string) {
   });
 }
 
-export function useFilmOrders(options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
+export function useFilmOrders(options: { enabled?: boolean; refetchOnWindowFocus?: boolean; warehouse?: string } = {}) {
+  const normalizedWarehouse = String(options.warehouse || '').trim().toUpperCase();
   return useCachedInventoryReadQuery({
-    queryKey: inventoryKeys.filmOrders,
-    queryFn: () => getFilmOrders(),
+    queryKey: normalizedWarehouse
+      ? inventoryKeys.filmOrdersList({ warehouse: normalizedWarehouse })
+      : inventoryKeys.filmOrders,
+    queryFn: () => getFilmOrders({ warehouse: normalizedWarehouse }),
     enabled: options.enabled ?? true,
     refetchOnWindowFocus: options.refetchOnWindowFocus ?? false
   });
