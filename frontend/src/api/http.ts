@@ -30,9 +30,10 @@ export function resolveApiBaseUrlFromConfig(options: {
   proxyTarget?: string;
   supabaseUrl?: string;
   hostname?: string;
+  isDev?: boolean;
 }): string {
   const hostname = String(options.hostname || '').trim().toLowerCase();
-  if (options.proxyTarget?.trim() && LOCAL_PROXY_HOSTS.has(hostname)) {
+  if (options.proxyTarget?.trim() && (options.isDev || LOCAL_PROXY_HOSTS.has(hostname))) {
     return '/api';
   }
 
@@ -54,7 +55,8 @@ function resolveApiBaseUrl(): string {
     configuredApiBaseUrl: CONFIGURED_API_BASE_URL,
     proxyTarget: PROXY_TARGET,
     supabaseUrl: SUPABASE_URL,
-    hostname: window.location.hostname
+    hostname: window.location.hostname,
+    isDev: import.meta.env.DEV
   });
 }
 
