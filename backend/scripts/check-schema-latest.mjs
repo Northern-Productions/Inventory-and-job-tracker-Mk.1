@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0151_user_default_warehouse_preferences.sql';
+const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -433,6 +433,18 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'return public.api_allocations_remove_box(p_org_id, p_actor, p_payload);'
     ],
     excludes: []
+  },
+  {
+    signature: 'app_api.record_auto_planned_allocation_suppression(uuid, text, text, text)',
+    includes: [
+      'insert into app.allocation_planner_suppressions',
+      "(coalesce(phase_id, '00000000-0000-0000-0000-000000000000'::uuid))",
+      'where cleared_at is null',
+      'sourceAllocationId'
+    ],
+    excludes: [
+      'on conflict (org_id, job_id, material_type, requirement_signature)'
+    ]
   },
   {
     signature: 'public.api_film_orders_create(uuid, text, jsonb)',
@@ -1015,6 +1027,18 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: [
       'app_api.require_active_job_for_caulk(p_org_id, v_allocation.job_number)',
       'Job %s is closed and cannot receive caulk allocations.'
+    ]
+  },
+  {
+    signature: 'app_api.record_auto_planned_caulk_allocation_suppression(uuid, text, text, text)',
+    includes: [
+      'insert into app.allocation_planner_suppressions',
+      "(coalesce(phase_id, '00000000-0000-0000-0000-000000000000'::uuid))",
+      'where cleared_at is null',
+      'sourceAllocationId'
+    ],
+    excludes: [
+      'on conflict (org_id, job_id, material_type, requirement_signature)'
     ]
   },
   {
