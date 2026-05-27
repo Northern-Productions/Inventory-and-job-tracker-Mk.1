@@ -89,6 +89,7 @@ function renderWorkflow({
   canonicalJobId?: string;
   summary?: JobListEntry;
 } = {}) {
+  const pushToast = vi.fn();
   const removeJobBoxAllocations = vi.fn().mockResolvedValue({
     result: {
       jobId: canonicalJobId,
@@ -128,7 +129,7 @@ function renderWorkflow({
       ensureSignedIn: () => true,
       maybeOpenReturnCompletionPrompt: vi.fn(),
       onUserDrivenFilmCoverageChange: vi.fn(),
-      pushToast: vi.fn(),
+      pushToast,
       removeJobBoxAllocations,
       setBoxStatus
     })
@@ -136,6 +137,7 @@ function renderWorkflow({
 
   return {
     ...result,
+    pushToast,
     removeJobBoxAllocations,
     setBoxStatus
   };
@@ -179,6 +181,29 @@ describe('useJobFilmWorkflow remove allocation identity', () => {
       allocationId: 'alloc-1',
       reason: 'Remove legacy row.'
     });
+  });
+
+  it('blocks checked-out allocation removal with a business-level toast before calling the API', async () => {
+    const workflow = renderWorkflow({ canonicalJobId: JOB_ID });
+
+    await act(async () => {
+      await workflow.result.current.handleRemoveAllocation(
+        buildAllocation({
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }),
+        'Remove checked-out row.'
+      );
+    });
+
+    expect(workflow.removeJobBoxAllocations).not.toHaveBeenCalled();
+    expect(workflow.pushToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Cannot remove checked-out allocation',
+        description: expect.stringContaining('Check it in first.'),
+        variant: 'error'
+      })
+    );
   });
 
   it('sends canonical job identity with film check-in payloads for cache invalidation', async () => {
