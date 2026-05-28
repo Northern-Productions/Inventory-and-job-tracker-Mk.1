@@ -27,6 +27,7 @@ const supabaseHotfixMigrationPath = path.join(
   '20260521120000_phase_edit_modal_work_scope_fix.sql'
 );
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
+const jobsRepositoryPath = path.join(repoRoot, 'backend', 'src', 'app', 'repositories', 'jobsRepository.mjs');
 
 function buildHeader(overrides = {}) {
   return {
@@ -86,7 +87,7 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
   const schemaCheck = readFileSync(schemaCheckPath, 'utf8');
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
   assert.match(backendMigration, /create table if not exists app\.job_phases/);
   assert.match(backendMigration, /add column phase_id uuid/);
   assert.match(backendMigration, /api_acl_job_phase_set_state/);
@@ -103,12 +104,19 @@ test('phase edit hotfix migration qualifies ordinality for phase payload parsing
   const schemaCheck = readFileSync(schemaCheckPath, 'utf8');
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
   assert.match(backendMigration, /with ordinality as phase\(value, phase_ordinality\)/);
   assert.match(backendMigration, /coalesce\(phase\.value->>'phaseNumber', phase\.phase_ordinality::text\)/);
   assert.match(backendMigration, /format\('Phases\[%s\]\.PhaseNumber', phase\.phase_ordinality\)/);
   assert.doesNotMatch(backendMigration, /coalesce\(value->>'phaseNumber', ordinality::text\)/);
   assert.match(schemaCheck, /phase_ordinality/);
+});
+
+test('local job phase replace defers the schema-qualified phase number constraint', () => {
+  const repositorySource = readFileSync(jobsRepositoryPath, 'utf8');
+
+  assert.match(repositorySource, /SET CONSTRAINTS app\.job_phases_org_job_phase_number_unique DEFERRED/);
+  assert.doesNotMatch(repositorySource, /SET CONSTRAINTS job_phases_org_job_phase_number_unique DEFERRED/);
 });
 
 test('job status follows the next incomplete phase instead of future worst status', () => {

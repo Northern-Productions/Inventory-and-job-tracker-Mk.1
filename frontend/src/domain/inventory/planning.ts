@@ -19,6 +19,7 @@ interface AllocationPlanBasePayload {
   requirementId?: string;
   crossWarehouse?: boolean;
   jobWarehouse?: Warehouse;
+  autoAllocate?: boolean;
 }
 
 export interface AllocateBoxPayload extends AllocationPlanBasePayload {

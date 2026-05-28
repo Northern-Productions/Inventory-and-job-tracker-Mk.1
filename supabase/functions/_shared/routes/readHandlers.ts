@@ -740,11 +740,10 @@ const readHandlers: Record<string, ReadHandler> = {
     }
     const previewTarget = await resolveAllocationPreviewJobContext(client, orgId, params, deps);
     const jobContext = previewTarget.jobContext;
-    const crossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
-    const sourceWarehouse = deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase();
-    const allBoxes = crossWarehouse || !sourceWarehouse
-      ? await deps.listBoxes(client, orgId)
-      : await deps.listBoxesByWarehouses(client, orgId, [sourceWarehouse]);
+    const requestedCrossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
+    const autoAllocate =
+      params.autoAllocate === true ||
+      deps.asTrimmedString(params.autoAllocate).toLowerCase() === "true";
     const jobWarehouse = await deps.resolveAllocationJobWarehouse(
       client,
       orgId,
@@ -752,6 +751,22 @@ const readHandlers: Record<string, ReadHandler> = {
       params.jobWarehouse,
       previewTarget.job,
     );
+    if (autoAllocate && !jobWarehouse) {
+      throw new HttpError(400, "Assign a warehouse to this job before auto-allocating material.");
+    }
+    if (
+      autoAllocate &&
+      deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase() !== jobWarehouse
+    ) {
+      throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
+    }
+    const crossWarehouse = autoAllocate ? false : requestedCrossWarehouse;
+    const sourceWarehouse = deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase();
+    const allBoxes = autoAllocate && jobWarehouse
+      ? await deps.listBoxesByWarehouses(client, orgId, [jobWarehouse])
+      : crossWarehouse || !sourceWarehouse
+        ? await deps.listBoxes(client, orgId)
+        : await deps.listBoxesByWarehouses(client, orgId, [sourceWarehouse]);
     const requirementId = deps.asTrimmedString(params.requirementId);
     const requirements = requirementId
       ? previewTarget.jobId

@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict.sql';
+const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -926,43 +926,22 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.reconcile_auto_planned_allocations(uuid, text, jsonb)',
     includes: [
-      'perform pg_advisory_xact_lock',
-      'create temporary table if not exists auto_planner_explicit_job_id_scope',
-      'create temporary table if not exists auto_planner_explicit_job_scope',
-      'create temporary table if not exists auto_planner_explicit_box_scope',
-      'create temporary table if not exists auto_planner_explicit_caulk_scope',
-      'create temporary table if not exists auto_planner_warnings',
-      'create temporary table if not exists auto_planner_suppressed_film',
-      'create temporary table if not exists auto_planner_suppressed_caulk',
-      'app.allocation_planner_suppressions',
-      'if v_is_suppressed then',
-      'from auto_planner_suppressed_caulk s',
-      'truncate auto_planner_desired_caulk',
-      'app_api.film_allocation_reserves_capacity(a, b.status::text)',
-      "coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'",
-      "upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
-      "coalesce(upper(b.status::text), '') <> 'CHECKED_OUT'",
-      'app_api.plan_allocation_coverage(',
-      "coalesce(r.status, 'ACTIVE') = 'ACTIVE'",
-      'from app.job_caulk_requirements r',
-      'auto_planner_jobs j',
-      "'AUTO_PLANNED allocation created by planner reconciliation.'",
-      'on conflict (box_id) do nothing;',
-      'perform 1\n  from app.boxes b\n  join auto_planner_boxes bx',
-      'create temporary table if not exists auto_planner_fixed_box_commitments',
-      'left join auto_planner_jobs scoped_job',
-      "scoped_job.job_id is not null\n      and coalesce(a.allocation_source::text, 'MANUAL') = 'AUTO_PLANNED'\n      and upper(coalesce(b.status::text, '')) = 'IN_STOCK'",
-      'join app_api.auto_planner_scope_jobs(p_org_id, coalesce(p_scope, \'{}\'::jsonb)) s\n    on s.job_id = j.id',
-      'not exists (select 1 from auto_planner_explicit_job_id_scope)',
-      'fixed_reserved_feet > bx.capacity',
-      'AUTO planner capacity invariant failed',
-      'select j.*\n    from auto_planner_jobs j',
-      'select min(a.created_at)',
-      'select min(a.allocation_id)',
-      'where auto_planner_desired_film.job_id = excluded.job_id\n          and auto_planner_desired_film.requirement_id = excluded.requirement_id\n          and auto_planner_desired_film.box_id = excluded.box_id;',
-      'where auto_planner_desired_caulk.job_id = excluded.job_id\n        and auto_planner_desired_caulk.requirement_id = excluded.requirement_id\n        and auto_planner_desired_caulk.product_id = excluded.product_id\n        and auto_planner_desired_caulk.warehouse = excluded.warehouse;'
+      'return jsonb_build_object(',
+      "'filmInserted', 0",
+      "'filmUpdated', 0",
+      "'filmCancelled', 0",
+      "'caulkInserted', 0",
+      "'caulkUpdated', 0",
+      "'caulkCancelled', 0",
+      "'warningCount', 0",
+      "'manualOnly', true"
     ],
     excludes: [
+      'perform pg_advisory_xact_lock',
+      'create temporary table',
+      'insert into app.allocations',
+      'insert into app.caulk_job_allocations',
+      "'AUTO_PLANNED allocation created by planner reconciliation.'",
       'perform app_api.save_film_order(',
       'delete from app.film_orders',
       'upper(coalesce(b.warehouse::text, \'\')) in (select warehouse from auto_planner_jobs)\n      or exists',

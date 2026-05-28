@@ -148,13 +148,13 @@ test('caulk update jobId scope migration keeps non-scope workflows and duplicate
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
   assert.match(schemaCheck, /public\.api_acl_allocations_caulk_update\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
   assert.match(schemaCheck, /'caulkProductWarehousePairs'/);
 });
 
-test('local caulk update derives jobId from allocation row and owns jobId planner scope', async () => {
+test('local caulk update derives jobId from allocation row without hidden planner allocation', async () => {
   const [runtime, planner] = await Promise.all([
     readFile(localCaulkRuntimePath, 'utf8'),
     readFile(localPlannerPath, 'utf8'),
@@ -167,12 +167,8 @@ test('local caulk update derives jobId from allocation row and owns jobId planne
   assert.doesNotMatch(updateBody, /requireActiveJobForCaulk\(client, orgId, allocation\.job_number\)/);
   assert.match(updateBody, /jobId: selectedJob\.id/);
   assert.match(updateBody, /jobNumber: asTrimmedString\(selectedJob\.job_number\)/);
-  assert.match(updateBody, /reconcileAutoPlannedAllocations\(client, orgId, normalizedActor,/);
-  assert.match(updateBody, /jobIds: \[asTrimmedString\(selectedJob\.id\)\]/);
-  assert.match(updateBody, /jobNumbers: \[asTrimmedString\(selectedJob\.job_number\)\]/);
-  assert.match(updateBody, /productId: allocation\.product_id, warehouse: currentWarehouse/);
-  assert.match(updateBody, /productId: nextProductId, warehouse: nextWarehouse/);
-  assert.match(updateBody, /normalizePlannerWarnings\(plannerResult\)/);
+  assert.doesNotMatch(updateBody, /reconcileAutoPlannedAllocations/);
+  assert.doesNotMatch(updateBody, /normalizePlannerWarnings/);
   assert.match(updateBody, /jobId: asTrimmedString\(selectedJob\.id\)/);
   assert.match(planner, /'\/allocations\/caulk\/update'/);
 });

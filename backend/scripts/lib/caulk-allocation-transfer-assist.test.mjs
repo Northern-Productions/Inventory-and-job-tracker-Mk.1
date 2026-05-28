@@ -244,7 +244,7 @@ class FakeCaulkClient {
   }
 }
 
-test('addCaulkAllocation canonical path uses jobId and scopes planner by jobId', async () => {
+test('addCaulkAllocation canonical path uses jobId without hidden planner allocation', async () => {
   const client = new FakeCaulkClient();
   const result = await addCaulkAllocation(client, 'org-1', 'tester', {
     jobId: client.jobId,
@@ -261,18 +261,7 @@ test('addCaulkAllocation canonical path uses jobId and scopes planner by jobId',
   assert.equal(client.allocations.length, 1);
   assert.equal(client.allocations[0].job_id, client.jobId);
   assert.equal(client.allocations[0].job_number, '4761');
-  assert.deepEqual(client.plannerScopes, [
-    {
-      jobIds: [client.jobId],
-      jobNumbers: ['4761'],
-      caulkProductWarehousePairs: [
-        {
-          productId: '11111111-1111-4111-8111-111111111111',
-          warehouse: 'IL1',
-        },
-      ],
-    },
-  ]);
+  assert.deepEqual(client.plannerScopes, []);
 });
 
 test('addCaulkAllocation rejects canonical jobId and jobNumber mismatch', async () => {

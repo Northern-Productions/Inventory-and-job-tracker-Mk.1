@@ -905,7 +905,7 @@ describe('AllocationJobPage', () => {
 
     await waitFor(() => expect(allocateBoxMutation.mutateAsync).toHaveBeenCalledTimes(1));
     expect(searchBoxesMock).toHaveBeenCalledWith({
-      warehouses: ['IL1', 'MS1'],
+      warehouses: ['IL1'],
       manufacturer: '3M',
       q: 'Night Vision 35',
       showRetired: false
@@ -918,8 +918,66 @@ describe('AllocationJobPage', () => {
         requestedFeet: 40,
         requestedWidthIn: 60,
         requirementId: 'film-req-1',
-        crossWarehouse: true,
-        jobWarehouse: 'IL1'
+        crossWarehouse: false,
+        jobWarehouse: 'IL1',
+        autoAllocate: true
+      })
+    );
+    view.queryClient.clear();
+    view.unmount();
+  });
+
+  it('row-level film Auto Allocate blocks safely when the job has no warehouse', async () => {
+    const requirement = {
+      requirementId: 'film-req-1',
+      manufacturer: '3M',
+      filmName: 'Night Vision 35',
+      widthIn: 60,
+      requiredFeet: 80,
+      status: 'ACTIVE' as const,
+      isComplete: false,
+      actualUsedFeet: 0,
+      completionResult: '' as const,
+      allocatedFeet: 40,
+      remainingFeet: 40,
+      autoPlanningSuppressed: false
+    };
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        warehouse: '',
+        status: 'FILM_ORDER',
+        requiredFeet: 80,
+        allocatedFeet: 40,
+        remainingFeet: 40
+      }) as JobDetail['summary'],
+      requirements: [requirement],
+      caulkRequirements: []
+    };
+    const allocateBoxMutation = {
+      mutateAsync: vi.fn(),
+      isPending: false
+    };
+    useJobMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+    useAllocateBoxMock.mockReturnValue(allocateBoxMutation);
+
+    const view = renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
+
+    expect(searchBoxesMock).not.toHaveBeenCalled();
+    expect(allocateBoxMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toastPushMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Warehouse required',
+        description: 'Assign a warehouse to this job before auto-allocating material.',
+        variant: 'error'
       })
     );
     view.queryClient.clear();
@@ -969,6 +1027,20 @@ describe('AllocationJobPage', () => {
     useAddCaulkJobAllocationMock.mockReturnValue(addCaulkAllocationMutation);
     listCaulkStockMock.mockResolvedValue([
       {
+        warehouse: 'MS1',
+        productId: 'p1',
+        manufacturerId: 'm1',
+        manufacturer: 'DOW',
+        productName: '790 Black',
+        productCode: '790-BLK',
+        tubesPerCase: 20,
+        tubesOnHand: 20,
+        casesOnHand: 1,
+        looseTubes: 0,
+        updatedAt: '2026-03-20T00:00:00Z',
+        updatedBy: 'tester'
+      },
+      {
         warehouse: 'IL1',
         productId: 'p1',
         manufacturerId: 'm1',
@@ -1002,6 +1074,58 @@ describe('AllocationJobPage', () => {
       allocatedTubes: 5,
       notes: 'Auto allocated from requirement row.'
     });
+    view.queryClient.clear();
+    view.unmount();
+  });
+
+  it('row-level caulk Auto Allocate blocks safely when the job has no warehouse', async () => {
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    const requirement = buildCaulkRequirement({
+      requirementId: 'caulk-req-1',
+      allocatedTubes: 0,
+      remainingTubes: 8
+    });
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({
+        jobId,
+        warehouse: '',
+        status: 'FILM_ORDER',
+        requiredTubes: 8,
+        allocatedTubes: 0,
+        remainingTubes: 8
+      }) as JobDetail['summary'],
+      requirements: [],
+      caulkRequirements: [requirement],
+      caulkAllocations: []
+    };
+    const addCaulkAllocationMutation = {
+      mutateAsync: vi.fn(),
+      isPending: false
+    };
+    useParamsMock.mockReturnValue({ jobId });
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+    useAddCaulkJobAllocationMock.mockReturnValue(addCaulkAllocationMutation);
+
+    const view = renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Allocate' }));
+
+    expect(listCaulkStockMock).not.toHaveBeenCalled();
+    expect(addCaulkAllocationMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(toastPushMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Warehouse required',
+        description: 'Assign a warehouse to this job before auto-allocating material.',
+        variant: 'error'
+      })
+    );
     view.queryClient.clear();
     view.unmount();
   });

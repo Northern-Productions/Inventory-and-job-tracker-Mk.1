@@ -84,7 +84,7 @@ test('planner suppression conflict-target hotfix stays scoped to suppression per
 test('schema latest guard tracks the planner suppression conflict-target hotfix', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
   assert.match(schemaCheck, /app_api\.record_auto_planned_allocation_suppression\(uuid, text, text, text\)/);
   assert.match(schemaCheck, /app_api\.record_auto_planned_caulk_allocation_suppression\(uuid, text, text, text\)/);
   assert.match(schemaCheck, /\(coalesce\(phase_id, '00000000-0000-0000-0000-000000000000'::uuid\)\)/);
