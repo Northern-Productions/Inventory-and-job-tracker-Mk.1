@@ -350,7 +350,7 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
   const seenPhaseNumbers = new Set();
   const saved = [];
 
-  await client.query('SET CONSTRAINTS job_phases_org_job_phase_number_unique DEFERRED');
+  await client.query('SET CONSTRAINTS app.job_phases_org_job_phase_number_unique DEFERRED');
   await client.query(
     `
       update app.job_phases

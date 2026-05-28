@@ -678,11 +678,16 @@ export function useAllocationJobPageModel() {
       return;
     }
 
-    const warehouseCodes = warehouseRegistry.entries.map((entry) => entry.code).filter(Boolean);
-    const searchableWarehouses =
-      summary.warehouse && warehouseCodes.includes(summary.warehouse)
-        ? [summary.warehouse, ...warehouseCodes.filter((code) => code !== summary.warehouse)]
-        : warehouseCodes;
+    if (!summary.warehouse) {
+      toast.push({
+        title: 'Warehouse required',
+        description: 'Assign a warehouse to this job before auto-allocating material.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    const searchableWarehouses = [summary.warehouse];
     const previousSnapshot = createFilmOrderCoverageSnapshot(detail);
     setFilmAutoAllocateRequirementId(requirement.requirementId);
 
@@ -722,8 +727,9 @@ export function useAllocationJobPageModel() {
         requestedFeet: remainingFeet,
         requestedWidthIn: requirement.widthIn,
         requirementId: requirement.requirementId,
-        crossWarehouse: true,
-        jobWarehouse: summary.warehouse
+        crossWarehouse: false,
+        jobWarehouse: summary.warehouse,
+        autoAllocate: true
       });
       const coveredFeet = result.allocations.reduce(
         (sum, entry) => sum + Number(entry.coveredFeet ?? entry.allocatedFeet ?? 0),
@@ -788,7 +794,7 @@ export function useAllocationJobPageModel() {
     if (!summary.warehouse) {
       toast.push({
         title: 'Warehouse required',
-        description: 'Add a job warehouse before allocating caulk.',
+        description: 'Assign a warehouse to this job before auto-allocating material.',
         variant: 'error'
       });
       return;

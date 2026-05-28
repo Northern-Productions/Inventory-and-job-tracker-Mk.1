@@ -658,9 +658,35 @@ const mutationHandlers: Record<string, MutationHandler> = {
       throw new HttpError(400, `Job ${jobNumber} is closed and cannot receive allocations.`);
     }
 
-    const rpcPayload = target.usedJobId
+    const autoAllocate =
+      normalizedPayload.autoAllocate === true ||
+      deps.asTrimmedString(normalizedPayload.autoAllocate).toLowerCase() === "true";
+    let jobWarehouse = "";
+    if (autoAllocate) {
+      jobWarehouse = deps.asTrimmedString(existingJob?.warehouse).toUpperCase();
+      if (!jobWarehouse) {
+        throw new HttpError(400, "Assign a warehouse to this job before auto-allocating material.");
+      }
+      const sourceBox = await deps.findBoxById(
+        client,
+        orgId,
+        deps.requireString(normalizedPayload.boxId, "BoxID"),
+      );
+      if (!sourceBox) {
+        throw new HttpError(404, "Box not found.");
+      }
+      if (deps.asTrimmedString(sourceBox.warehouse).toUpperCase() !== jobWarehouse) {
+        throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
+      }
+    }
+
+    const rpcPayload: Record<string, unknown> = target.usedJobId
       ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber }
-      : payloadWithoutRequestOrg;
+      : { ...payloadWithoutRequestOrg };
+    if (autoAllocate) {
+      rpcPayload.crossWarehouse = false;
+      rpcPayload.jobWarehouse = jobWarehouse;
+    }
     const result = await deps.callMutationRpc(client, "api_acl_allocations_apply", orgId, actor, rpcPayload);
     const allocationIds = Array.isArray(result.allocationIds)
       ? result.allocationIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
@@ -1152,19 +1178,22 @@ const mutationHandlers: Record<string, MutationHandler> = {
 /**
  * PURPOSE:
  * Keeps Edge mutations aligned with backend planner reconciliation by deriving
- * the same narrow planner scope after material/job writes.
+ * the same narrow legacy planner scope after material/job writes. The SQL
+ * reconciler is manual-only/no-op as of 0153, but this scoped path still
+ * refreshes affected job details and preserves runtime parity while migrations
+ * roll forward.
  *
  * AFFECTS:
  * Supabase job detail responses, allocation apply/remove, box status/receipt,
  * caulk stock/allocation changes, and transfer-triggered replanning.
  *
  * WHEN CHANGING THIS, ALSO CHECK:
- * backend runtimeAutoAllocationPlanner.mjs, planner migrations 0085/0086,
+ * backend runtimeAutoAllocationPlanner.mjs, planner migrations 0085/0086/0153,
  * and frontend mutation invalidation around job detail reloads.
  *
  * COMMON FAILURE MODES:
- * Stale AUTO_PLANNED rows after Edge mutations, planner work running too
- * broadly, or job detail being reloaded before planner-created rows exist.
+ * Reintroducing hidden allocation side effects, running the no-op RPC too
+ * broadly, or reloading the wrong job detail after a mutation.
  */
 function buildAutoPlannerScope(
   logicalPath: string,

@@ -87,7 +87,7 @@ test('ordered receipt canonicalization narrows physical LF edit guards', async (
 test('latest schema check tracks ordered receipt canonicalization semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0152_fix_planner_suppression_on_conflict\.sql/);
+  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
   assert.match(schemaCheck, /app_api\.physical_film_commitment_feet_for_box\(uuid, text, text\)/);
   assert.match(schemaCheck, /app_api\.find_order_receipt_requirement_id\(uuid, text, text, text, numeric\)/);
   assert.match(schemaCheck, /app_api\.process_linked_box_receipt\(uuid, app\.boxes, text\)/);

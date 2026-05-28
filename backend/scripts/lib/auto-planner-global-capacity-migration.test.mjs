@@ -41,12 +41,17 @@ test('auto planner global capacity migration treats out-of-scope reservations as
   );
 });
 
-test('latest schema check requires scoped planner global capacity semantics', async () => {
+test('latest schema check requires manual-only planner semantics after global capacity migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0152_fix_planner_suppression_on_conflict\.sql/);
-  assert.match(schemaCheck, /auto_planner_fixed_box_commitments/);
-  assert.match(schemaCheck, /AUTO planner capacity invariant failed/);
+  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaCheck, /'manualOnly', true/);
+  assert.match(schemaCheck, /filmInserted', 0/);
+  assert.match(schemaCheck, /caulkInserted', 0/);
+  assert.match(schemaCheck, /insert into app\.allocations/);
+  assert.match(schemaCheck, /insert into app\.caulk_job_allocations/);
+  assert.doesNotMatch(schemaCheck, /auto_planner_fixed_box_commitments/);
+  assert.doesNotMatch(schemaCheck, /AUTO planner capacity invariant failed/);
   assert.doesNotMatch(
     schemaCheck,
     /set remaining = bx\.capacity - coalesce\([\s\S]*coalesce\(a\.allocation_source::text, 'MANUAL'\) <> 'AUTO_PLANNED'[\s\S]*\), 0\)\n  where bx\.box_id is not null;['"]/

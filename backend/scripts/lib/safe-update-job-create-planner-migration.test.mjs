@@ -53,13 +53,15 @@ test('safe-update job create migration adds scoped WHERE clauses', async () => {
   );
 });
 
-test('latest schema check tracks the safe-update job create hotfix', async () => {
+test('latest schema check keeps job create hotfix coverage while requiring manual-only planner semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0152_fix_planner_suppression_on_conflict\.sql/);
+  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
   assert.match(schemaCheck, /app_api\.save_job\(app\.jobs\)/);
   assert.match(schemaCheck, /where app\.jobs\.org_id = excluded\.org_id\\n    and app\.jobs\.job_number = excluded\.job_number/);
-  assert.match(schemaCheck, /where bx\.box_id is not null/);
-  assert.match(schemaCheck, /where auto_planner_desired_film\.job_id = excluded\.job_id/);
-  assert.match(schemaCheck, /where auto_planner_desired_caulk\.job_id = excluded\.job_id/);
+  assert.match(schemaCheck, /'manualOnly', true/);
+  assert.match(schemaCheck, /filmInserted', 0/);
+  assert.match(schemaCheck, /caulkInserted', 0/);
+  assert.doesNotMatch(schemaCheck, /where auto_planner_desired_film\.job_id = excluded\.job_id/);
+  assert.doesNotMatch(schemaCheck, /where auto_planner_desired_caulk\.job_id = excluded\.job_id/);
 });

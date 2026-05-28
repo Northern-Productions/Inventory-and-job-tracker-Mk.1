@@ -151,11 +151,11 @@ test('caulk add jobId scope migration keeps non-scope workflows and duplicate gu
   assert.doesNotMatch(migration, /drop constraint/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0152_fix_planner_suppression_on_conflict\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
   assert.match(schemaCheck, /public\.api_acl_allocations_caulk_add\(uuid, text, jsonb\)/);
 });
 
-test('local caulk add validates canonical jobId and owns jobId planner scope', async () => {
+test('local caulk add validates canonical jobId without hidden planner allocation', async () => {
   const [runtime, planner] = await Promise.all([
     readFile(localCaulkRuntimePath, 'utf8'),
     readFile(localPlannerPath, 'utf8'),
@@ -170,10 +170,8 @@ test('local caulk add validates canonical jobId and owns jobId planner scope', a
   assert.match(addBody, /requireCaulkRequirementForJob\(client, orgId, requireUuid\(requirementIdRaw, 'requirementId'\), job\.id\)/);
   assert.match(addBody, /jobId: job\.id/);
   assert.match(addBody, /jobNumber: asTrimmedString\(job\.job_number\)/);
-  assert.match(addBody, /reconcileAutoPlannedAllocations\(client, orgId, normalizedActor,/);
-  assert.match(addBody, /jobIds: \[asTrimmedString\(job\.id\)\]/);
-  assert.match(addBody, /jobNumbers: \[asTrimmedString\(job\.job_number\)\]/);
-  assert.match(addBody, /caulkProductWarehousePairs: \[\{ productId, warehouse \}\]/);
+  assert.doesNotMatch(addBody, /reconcileAutoPlannedAllocations/);
+  assert.doesNotMatch(addBody, /normalizePlannerWarnings/);
   assert.match(addBody, /jobId: asTrimmedString\(job\.id\)/);
   assert.match(planner, /'\/allocations\/caulk\/add'/);
 });

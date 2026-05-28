@@ -77,8 +77,10 @@ const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
 
 /**
  * PURPOSE:
- * Builds the narrowest safe planner scope available from a mutation request and
- * response so the SQL planner can reconcile stored AUTO_PLANNED reservations.
+ * Builds the narrowest safe legacy planner scope available from a mutation
+ * request and response. The SQL reconciler is manual-only/no-op as of 0153,
+ * but the scoped post-mutation path still refreshes affected job details and
+ * safely tolerates older runtime wiring while DEV/PROD migrations roll forward.
  *
  * AFFECTS:
  * Job create/edit/lifecycle flows, box mutations, manual film/caulk allocation
@@ -89,8 +91,9 @@ const JOB_ID_SHADOW_SCOPE_ROUTES = new Set([
  * scope parsing, and cache invalidation for job detail/allocation views.
  *
  * COMMON FAILURE MODES:
- * Missing a box/job scope leaves stale planned rows; overly broad scopes slow
- * mutations; lifecycle cleanup needs org-wide planning after capacity is freed.
+ * Missing a box/job scope can reload the wrong detail view; overly broad scopes
+ * add avoidable no-op RPC cost; lifecycle cleanup should not reintroduce hidden
+ * allocation side effects.
  */
 function buildAutoPlannerScope(logicalPath, params = {}, responseData = {}) {
   if (!PLANNER_MUTATION_ROUTES.has(logicalPath)) {

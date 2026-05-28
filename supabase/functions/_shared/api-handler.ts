@@ -3142,11 +3142,6 @@ async function resolveAllocationJobWarehouse(
   explicitJobWarehouse: unknown,
   selectedJob: any = null,
 ) {
-  const explicitWarehouse = normalizeOptionalWarehouse(explicitJobWarehouse, "JobWarehouse");
-  if (explicitWarehouse) {
-    return explicitWarehouse;
-  }
-
   if (selectedJob?.warehouse) {
     return asTrimmedString(selectedJob.warehouse).toUpperCase();
   }
@@ -3155,6 +3150,11 @@ async function resolveAllocationJobWarehouse(
   const existingJob = normalizedJobNumber ? await findJobByNumber(client, orgId, normalizedJobNumber) : null;
   if (existingJob?.warehouse) {
     return asTrimmedString(existingJob.warehouse).toUpperCase();
+  }
+
+  const explicitWarehouse = normalizeOptionalWarehouse(explicitJobWarehouse, "JobWarehouse");
+  if (explicitWarehouse) {
+    return explicitWarehouse;
   }
 
   if (!normalizedJobNumber) {

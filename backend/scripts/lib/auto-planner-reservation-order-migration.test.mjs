@@ -35,15 +35,16 @@ test('auto planner reservation-order migration removes install-date film priorit
   assert.doesNotMatch(replacement, /install_date nulls last/);
 });
 
-test('latest schema check requires reservation-order planner semantics', async () => {
+test('latest schema check forbids reservation-order planner internals after manual-only migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0152_fix_planner_suppression_on_conflict\.sql/);
-  assert.match(schemaCheck, /select min\(a\.created_at\)/);
-  assert.match(schemaCheck, /select min\(a\.allocation_id\)/);
-  assert.match(schemaCheck, /app_api\.film_allocation_reserves_capacity\(a, b\.status::text\)/);
-  assert.match(schemaCheck, /select j\.\*\\n\s+from auto_planner_jobs j/);
+  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaCheck, /'manualOnly', true/);
+  assert.match(schemaCheck, /perform app_api\.reconcile_auto_planned_allocations/);
+  assert.match(schemaCheck, /select \*\\n    from auto_planner_jobs\\n    order by/);
   assert.match(schemaCheck, /install_date nulls last/);
+  assert.match(schemaCheck, /covered_feet = auto_planner_desired_film\.covered_feet \+ excluded\.covered_feet/);
+  assert.match(schemaCheck, /allocated_tubes = auto_planner_desired_caulk\.allocated_tubes \+ excluded\.allocated_tubes/);
 });
 
 test('reservation order keeps older allocations when a later job install date moves earlier', () => {

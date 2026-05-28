@@ -9,10 +9,6 @@ import {
   requireString,
   requireUuid,
 } from '../core/helpers.mjs';
-import {
-  normalizePlannerWarnings,
-  reconcileAutoPlannedAllocations,
-} from './runtime/runtimeAutoAllocationPlanner.mjs';
 
 async function callCaulkAllocationMutation(client, functionName, orgId, actor, payload) {
   const row = await queryRow(
@@ -978,11 +974,6 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     notes: payload?.notes,
   });
 
-  const plannerResult = await reconcileAutoPlannedAllocations(client, orgId, normalizedActor, {
-    jobIds: [asTrimmedString(job.id)],
-    jobNumbers: [asTrimmedString(job.job_number)],
-    caulkProductWarehousePairs: [{ productId, warehouse }],
-  });
   const stagedWarnings = await clearStagedPickupForActiveCaulkRequirement(
     client,
     orgId,
@@ -990,7 +981,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     job.id,
     requirementIdRaw
   );
-  const warnings = [...transferStart.warnings, ...stagedWarnings, ...normalizePlannerWarnings(plannerResult)];
+  const warnings = [...transferStart.warnings, ...stagedWarnings];
 
   return buildMutationResponse(job.job_number, allocationId, warnings, {
     jobId: asTrimmedString(job.id),
@@ -1210,16 +1201,6 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
       [allocation.id, orgId, nextAllocatedTubes, nextReservedTubesRemaining, nextNotes, normalizedActor]
     );
   }
-
-  const plannerResult = await reconcileAutoPlannedAllocations(client, orgId, normalizedActor, {
-    jobIds: [asTrimmedString(selectedJob.id)],
-    jobNumbers: [asTrimmedString(selectedJob.job_number)],
-    caulkProductWarehousePairs: [
-      { productId: allocation.product_id, warehouse: currentWarehouse },
-      { productId: nextProductId, warehouse: nextWarehouse },
-    ],
-  });
-  warnings = [...warnings, ...normalizePlannerWarnings(plannerResult)];
 
   return buildMutationResponse(selectedJob.job_number, caulkAllocationId, warnings, {
     jobId: asTrimmedString(selectedJob.id),

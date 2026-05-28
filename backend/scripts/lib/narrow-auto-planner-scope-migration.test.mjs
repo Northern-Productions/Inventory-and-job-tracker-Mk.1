@@ -40,10 +40,12 @@ test('narrow auto planner scope migration avoids warehouse-wide scoped planning'
   );
 });
 
-test('schema check keeps narrow planner semantics after later hotfix migrations', async () => {
+test('schema check keeps manual-only planner semantics after later hotfix migrations', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0152_fix_planner_suppression_on_conflict\.sql/);
+  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
-  assert.match(schemaCheck, /auto_planner_explicit_box_scope/);
+  assert.match(schemaCheck, /'manualOnly', true/);
+  assert.match(schemaCheck, /'filmInserted', 0/);
+  assert.doesNotMatch(schemaCheck, /auto_planner_explicit_box_scope/);
 });

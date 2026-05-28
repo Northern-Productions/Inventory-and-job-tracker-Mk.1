@@ -258,18 +258,28 @@ async function loadAllocationPreviewBoxes(client, orgId, sourceBox, crossWarehou
   return loadWarehouseBoxes(client, orgId, [sourceWarehouse]);
 }
 
-async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber, selectedJob = null) {
-  const explicitWarehouse = normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse');
-  if (explicitWarehouse) {
-    return explicitWarehouse;
-  }
-
+async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber, selectedJob = null, options = {}) {
   if (selectedJob) {
-    return asTrimmedString(selectedJob.warehouse).toUpperCase();
+    const selectedWarehouse = asTrimmedString(selectedJob.warehouse).toUpperCase();
+    if (selectedWarehouse) {
+      return selectedWarehouse;
+    }
   }
 
   const existingJob = await findJobByNumber(client, orgId, jobNumber);
-  return asTrimmedString(existingJob?.warehouse).toUpperCase();
+  const existingWarehouse = asTrimmedString(existingJob?.warehouse).toUpperCase();
+  if (existingWarehouse) {
+    return existingWarehouse;
+  }
+
+  if (!options.requirePersistedJobWarehouse) {
+    const explicitWarehouse = normalizeOptionalWarehouse(payload.jobWarehouse, 'JobWarehouse');
+    if (explicitWarehouse) {
+      return explicitWarehouse;
+    }
+  }
+
+  return '';
 }
 
 async function resolvePreviewJobContext(client, orgId, payload, installDate) {
@@ -375,9 +385,8 @@ async function previewAllocationPlan(client, orgId, payload) {
   }
 
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
-  const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
-  const allBoxes = await loadAllocationPreviewBoxes(client, orgId, source, crossWarehouse);
-  const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
+  const requestedCrossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
+  const autoAllocate = parseBooleanFlag(payload.autoAllocate);
   const previewTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
   const jobContext = previewTarget.jobContext;
   const jobWarehouse = await resolveAllocationJobWarehouse(
@@ -385,8 +394,21 @@ async function previewAllocationPlan(client, orgId, payload) {
     orgId,
     payload,
     jobContext.jobNumber,
-    previewTarget.job
+    previewTarget.job,
+    { requirePersistedJobWarehouse: autoAllocate }
   );
+  if (autoAllocate && !jobWarehouse) {
+    throw new HttpError(400, 'Assign a warehouse to this job before auto-allocating material.');
+  }
+  if (autoAllocate && asTrimmedString(source.warehouse).toUpperCase() !== jobWarehouse) {
+    throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
+  }
+
+  const crossWarehouse = autoAllocate ? false : requestedCrossWarehouse;
+  const allBoxes = autoAllocate && jobWarehouse
+    ? await listBoxesByWarehouses(client, orgId, [jobWarehouse])
+    : await loadAllocationPreviewBoxes(client, orgId, source, crossWarehouse);
+  const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
     source,
     ...allBoxes
@@ -453,7 +475,8 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
-  const crossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
+  const requestedCrossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
+  const autoAllocate = parseBooleanFlag(payload.autoAllocate);
   const source = await findBoxById(client, orgId, boxId);
 
   if (!source) {
@@ -495,13 +518,6 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(400, 'RequestedFeet must be greater than zero unless extraAllocations are provided.');
   }
 
-  const allBoxes = await listBoxes(client, orgId);
-  const boxById = {};
-  for (let index = 0; index < allBoxes.length; index += 1) {
-    boxById[allBoxes[index].boxId] = cloneValue(allBoxes[index]);
-  }
-
-  const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
   const applyTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
   const jobContext = applyTarget.jobContext;
   const jobWarehouse = await resolveAllocationJobWarehouse(
@@ -509,8 +525,27 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     orgId,
     payload,
     jobContext.jobNumber,
-    applyTarget.job
+    applyTarget.job,
+    { requirePersistedJobWarehouse: autoAllocate }
   );
+  if (autoAllocate && !jobWarehouse) {
+    throw new HttpError(400, 'Assign a warehouse to this job before auto-allocating material.');
+  }
+  if (autoAllocate && asTrimmedString(source.warehouse).toUpperCase() !== jobWarehouse) {
+    throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
+  }
+
+  const crossWarehouse = autoAllocate ? false : requestedCrossWarehouse;
+  const allBoxes = autoAllocate && jobWarehouse
+    ? await listBoxesByWarehouses(client, orgId, [jobWarehouse])
+    : await listBoxes(client, orgId);
+  const boxById = {};
+  for (let index = 0; index < allBoxes.length; index += 1) {
+    boxById[allBoxes[index].boxId] = cloneValue(allBoxes[index]);
+  }
+  boxById[source.boxId] = boxById[source.boxId] || cloneValue(source);
+
+  const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
     source,
     ...allBoxes

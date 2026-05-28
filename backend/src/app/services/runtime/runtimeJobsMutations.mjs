@@ -93,7 +93,6 @@ import {
 import {
   getOrResolveJobId,
 } from './runtimeAllocationPlanning.mjs';
-import { reconcileAutoPlannedAllocations } from './runtimeAutoAllocationPlanner.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 import {
   buildJobDuplicateCheckResult,
@@ -1266,11 +1265,6 @@ async function setJobRequirementState(client, orgId, payload, actor) {
       actor
     );
   }
-
-  await reconcileAutoPlannedAllocations(client, orgId, actor, {
-    jobIds: [jobId],
-    jobNumbers: [jobNumber],
-  });
 
   if (nextStatus === 'ACTIVE') {
     await clearStagedPickupIfActiveMaterialBlocked(
