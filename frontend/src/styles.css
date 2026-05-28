@@ -53,6 +53,9 @@
   --color-control-bg-hover: rgba(18, 52, 59, 0.06);
   --color-control-border: #c6d2d6;
   --color-control-text: #2e4b53;
+  --color-segmented-inactive-bg: transparent;
+  --color-segmented-inactive-text: var(--color-control-text);
+  --color-segmented-inactive-hover-bg: var(--color-control-bg-hover);
   --color-field-bg: rgba(255, 255, 255, 0.92);
   --color-field-border: rgba(18, 52, 59, 0.12);
   --color-field-placeholder: #81949a;
@@ -111,6 +114,9 @@
   --color-control-bg-hover: rgba(255, 250, 240, 0.16);
   --color-control-border: rgba(255, 250, 240, 0.24);
   --color-control-text: #fff8e8;
+  --color-segmented-inactive-bg: #071d22;
+  --color-segmented-inactive-text: #fff8e8;
+  --color-segmented-inactive-hover-bg: #173f47;
   --color-field-bg: rgba(255, 250, 240, 0.1);
   --color-field-border: rgba(255, 250, 240, 0.22);
   --color-field-placeholder: rgba(255, 248, 232, 0.58);
@@ -1490,8 +1496,8 @@ textarea {
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 0.44rem 0.85rem;
-  background: transparent;
-  color: #2e4b53;
+  background: var(--color-segmented-inactive-bg);
+  color: var(--color-segmented-inactive-text);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1861,10 +1867,11 @@ textarea {
   margin: 0;
   padding: 0.35rem;
   list-style: none;
-  border: 1px solid rgba(18, 52, 59, 0.16);
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.8rem;
-  background: #fff;
-  box-shadow: 0 10px 26px rgba(18, 52, 59, 0.14);
+  background: var(--color-surface-raised);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-md);
   max-height: 14rem;
   overflow-y: auto;
 }
@@ -1874,11 +1881,12 @@ textarea {
   gap: 0.1rem;
   padding: 0.5rem 0.6rem;
   border-radius: 0.55rem;
+  color: var(--color-text-1);
   cursor: pointer;
 }
 
 .film-name-autocomplete-option small {
-  color: #587177;
+  color: var(--color-text-2);
   font-size: 0.78rem;
 }
 
@@ -1887,8 +1895,10 @@ textarea {
   font-weight: 600;
 }
 
+.film-name-autocomplete-option:hover,
 .film-name-autocomplete-option-active {
-  background: rgba(18, 52, 59, 0.1);
+  background: var(--color-control-bg-hover);
+  color: var(--color-text-1);
 }
 
 .field-textarea {
@@ -5454,9 +5464,13 @@ td.col-available-linear-ft {
 .nav-more-item:hover,
 .account-menu-action:hover:not(:disabled),
 .account-menu-item:hover:not(:disabled),
-.button-ghost:hover:not(:disabled),
-.inventory-view-toggle-button:hover:not(:disabled) {
+.button-ghost:hover:not(:disabled) {
   background: var(--color-control-bg-hover);
+}
+
+.inventory-view-toggle-button:hover:not(:disabled) {
+  background: var(--color-segmented-inactive-hover-bg);
+  color: var(--color-segmented-inactive-text);
 }
 
 .button-primary,
