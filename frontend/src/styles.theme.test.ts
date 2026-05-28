@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+const darkThemeVariables =
+  css.match(/:root\[data-theme="dark"\]\s*{(?<body>[\s\S]*?)\n}/)?.groups?.body ?? '';
 
 function luminance(channel: number) {
   const normalized = channel / 255;
@@ -37,14 +39,15 @@ function contrastRatio(foreground: string, background: string) {
 
 describe('theme contrast styles', () => {
   it('keeps shared segmented controls readable in dark theme', () => {
-    expect(css).toMatch(/--color-segmented-inactive-bg:\s*#071d22/);
-    expect(css).toMatch(/--color-segmented-inactive-text:\s*#fff8e8/);
-    expect(css).toMatch(/--color-segmented-inactive-hover-bg:\s*#173f47/);
+    expect(darkThemeVariables).toMatch(/--color-segmented-inactive-bg:\s*transparent/);
+    expect(darkThemeVariables).toMatch(/--color-segmented-inactive-text:\s*#fff8e8/);
+    expect(darkThemeVariables).toMatch(/--color-segmented-inactive-hover-bg:\s*transparent/);
+    expect(darkThemeVariables).toMatch(/--color-segmented-inactive-hover-text:\s*#fff0d3/);
     expect(css).toMatch(
       /\.inventory-view-toggle-button\s*{[^}]*background:\s*var\(--color-segmented-inactive-bg\);[^}]*color:\s*var\(--color-segmented-inactive-text\);/s
     );
     expect(css).toMatch(
-      /\.inventory-view-toggle-button:hover:not\(:disabled\)\s*{[^}]*background:\s*var\(--color-segmented-inactive-hover-bg\);[^}]*color:\s*var\(--color-segmented-inactive-text\);/s
+      /\.inventory-view-toggle-button:hover:not\(:disabled\)\s*{[^}]*background:\s*var\(--color-segmented-inactive-hover-bg\);[^}]*color:\s*var\(--color-segmented-inactive-hover-text\);/s
     );
   });
 
@@ -63,7 +66,7 @@ describe('theme contrast styles', () => {
 
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#fff8e8', '#071d22')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#fff8e8', '#173f47')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#fff0d3', '#12343b')).toBeGreaterThanOrEqual(4.5);
   });
 });

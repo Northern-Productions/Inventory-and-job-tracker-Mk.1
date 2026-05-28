@@ -56,6 +56,7 @@
   --color-segmented-inactive-bg: transparent;
   --color-segmented-inactive-text: var(--color-control-text);
   --color-segmented-inactive-hover-bg: var(--color-control-bg-hover);
+  --color-segmented-inactive-hover-text: var(--color-control-text);
   --color-field-bg: rgba(255, 255, 255, 0.92);
   --color-field-border: rgba(18, 52, 59, 0.12);
   --color-field-placeholder: #81949a;
@@ -114,9 +115,10 @@
   --color-control-bg-hover: rgba(255, 250, 240, 0.16);
   --color-control-border: rgba(255, 250, 240, 0.24);
   --color-control-text: #fff8e8;
-  --color-segmented-inactive-bg: #071d22;
+  --color-segmented-inactive-bg: transparent;
   --color-segmented-inactive-text: #fff8e8;
-  --color-segmented-inactive-hover-bg: #173f47;
+  --color-segmented-inactive-hover-bg: transparent;
+  --color-segmented-inactive-hover-text: #fff0d3;
   --color-field-bg: rgba(255, 250, 240, 0.1);
   --color-field-border: rgba(255, 250, 240, 0.22);
   --color-field-placeholder: rgba(255, 248, 232, 0.58);
@@ -5470,7 +5472,7 @@ td.col-available-linear-ft {
 
 .inventory-view-toggle-button:hover:not(:disabled) {
   background: var(--color-segmented-inactive-hover-bg);
-  color: var(--color-segmented-inactive-text);
+  color: var(--color-segmented-inactive-hover-text);
 }
 
 .button-primary,
