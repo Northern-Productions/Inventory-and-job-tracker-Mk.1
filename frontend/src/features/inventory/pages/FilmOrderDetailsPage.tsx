@@ -100,7 +100,7 @@ export default function FilmOrderDetailsPage() {
           </Button>
           {order ? (
             <Link className="button button-primary" to={buildAddBoxTarget(order)}>
-              Add Box
+              Fulfill Order
             </Link>
           ) : null}
         </div>

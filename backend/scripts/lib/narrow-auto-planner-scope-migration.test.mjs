@@ -43,7 +43,7 @@ test('narrow auto planner scope migration avoids warehouse-wide scoped planning'
 test('schema check keeps manual-only planner semantics after later hotfix migrations', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaCheck, /0155_film_order_detail_origin_compat\.sql/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /'filmInserted', 0/);

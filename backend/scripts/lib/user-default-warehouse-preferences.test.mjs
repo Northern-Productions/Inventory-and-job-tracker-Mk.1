@@ -72,7 +72,7 @@ test('user default warehouse migration grants only authenticated profile and fil
 test('schema latest guard tracks user default warehouse preference objects', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0155_film_order_detail_origin_compat\.sql';/);
   assert.match(schemaLatest, /signature: 'app\.user_preferences'/);
   assert.match(schemaLatest, /signature: 'app\.user_preferences\.default_warehouse'/);
   assert.match(schemaLatest, /signature: 'app_api\.get_user_default_warehouse\(uuid, uuid\)'/);

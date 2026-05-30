@@ -781,7 +781,7 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('Caulk Allocations');
     expect(html).toContain('Job Material History');
     expect(html).toContain('Locked after checkout');
-    expect(html).toContain('FILM ORDER');
+    expect(html).toContain('Film Order');
     expect(html).toContain('FILM');
     expect(html).toContain('CAULK');
     expect(html).toContain('125 LF');

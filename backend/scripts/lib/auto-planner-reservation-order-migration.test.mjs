@@ -38,7 +38,7 @@ test('auto planner reservation-order migration removes install-date film priorit
 test('latest schema check forbids reservation-order planner internals after manual-only migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaCheck, /0155_film_order_detail_origin_compat\.sql/);
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /perform app_api\.reconcile_auto_planned_allocations/);
   assert.match(schemaCheck, /select \*\\n    from auto_planner_jobs\\n    order by/);

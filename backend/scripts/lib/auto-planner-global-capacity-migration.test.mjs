@@ -44,7 +44,7 @@ test('auto planner global capacity migration treats out-of-scope reservations as
 test('latest schema check requires manual-only planner semantics after global capacity migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaCheck, /0155_film_order_detail_origin_compat\.sql/);
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /filmInserted', 0/);
   assert.match(schemaCheck, /caulkInserted', 0/);

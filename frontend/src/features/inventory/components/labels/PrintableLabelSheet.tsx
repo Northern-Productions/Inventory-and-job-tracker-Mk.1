@@ -141,7 +141,7 @@ function getLogValueClassName(index: number): string {
     'print-label-grid-cell',
     'print-label-grid-value',
     index === 0 ? 'print-label-grid-value-date' : '',
-    index === 2 || index === 4 ? 'print-label-grid-value-key-metric' : ''
+    index === 1 || index === 2 || index === 4 ? 'print-label-grid-value-key-metric' : ''
   ]
     .filter(Boolean)
     .join(' ');

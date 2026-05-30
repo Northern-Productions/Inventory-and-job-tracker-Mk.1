@@ -25,12 +25,16 @@ type JobOverviewHeroSectionProps = {
   stagedPickupPending: boolean;
   statusPending: boolean;
   caulkCheckoutPending: boolean;
+  filmTransferActionBoxId?: string;
+  filmTransferActionPending?: boolean;
   onOpenEdit: () => void;
   onOpenReopenConfirm: () => void;
   onBack: () => void;
   onCheckoutAll: () => void;
   onToggleStagedPickup: (nextIsStaged: boolean) => void;
   onOpenTransferBox: (boxId: string) => void;
+  onStartFilmTransfer?: (alert: JobFilmTransferAlert) => void;
+  onCancelFilmTransfer?: (alert: JobFilmTransferAlert) => void;
 };
 
 export function JobOverviewHeroSection({
@@ -53,12 +57,16 @@ export function JobOverviewHeroSection({
   stagedPickupPending,
   statusPending,
   caulkCheckoutPending,
+  filmTransferActionBoxId = '',
+  filmTransferActionPending = false,
   onOpenEdit,
   onOpenReopenConfirm,
   onBack,
   onCheckoutAll,
   onToggleStagedPickup,
-  onOpenTransferBox
+  onOpenTransferBox,
+  onStartFilmTransfer,
+  onCancelFilmTransfer
 }: JobOverviewHeroSectionProps) {
   const displayJobLabel = formatJobDisplayLabel(summary);
 
@@ -216,6 +224,10 @@ export function JobOverviewHeroSection({
         alerts={filmTransferAlerts}
         jobWarehouse={summary.warehouse}
         onOpenBox={onOpenTransferBox}
+        actionBoxId={filmTransferActionBoxId}
+        actionPending={filmTransferActionPending}
+        onStartTransfer={onStartFilmTransfer}
+        onCancelTransfer={onCancelFilmTransfer}
       />
       <CaulkTransferAlertsPanel alerts={caulkTransferAlerts} jobWarehouse={summary.warehouse} />
     </section>

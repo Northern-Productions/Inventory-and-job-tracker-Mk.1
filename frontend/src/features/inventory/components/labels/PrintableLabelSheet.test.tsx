@@ -147,7 +147,7 @@ describe('PrintableLabelSheet', () => {
     expect(styles).toContain('word-break: break-word');
   });
 
-  it('makes weight and balance log values larger than the other grid values', () => {
+  it('makes job id, weight, and balance log values larger than the other grid values', () => {
     const html = renderToStaticMarkup(
       <PrintableLabelSheet
         labels={[
@@ -166,7 +166,7 @@ describe('PrintableLabelSheet', () => {
       /\.print-label-grid-value-key-metric\s*\{[^}]*font-size:\s*([0-9.]+)pt[^}]*font-weight:\s*([0-9]+)/s
     );
 
-    expect(html.match(/print-label-grid-value-key-metric/g)).toHaveLength(2);
+    expect(html.match(/print-label-grid-value-key-metric/g)).toHaveLength(3);
     expect(keyMetricRule?.[1]).toBe('18');
     expect(keyMetricRule?.[2]).toBe('900');
   });

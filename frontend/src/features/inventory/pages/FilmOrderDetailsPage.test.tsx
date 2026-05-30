@@ -148,6 +148,10 @@ describe('FilmOrderDetailsPage', () => {
     expect(await screen.findByRole('heading', { name: 'FO-1' })).toBeTruthy();
     expect(getFilmOrderDetailMock).toHaveBeenCalledWith('FO-1');
     await waitFor(() => expect(screen.getByText('Incomplete')).toBeTruthy());
+    const fulfillLink = screen.getByRole('link', { name: 'Fulfill Order' });
+    expect(fulfillLink.getAttribute('href')).toContain('/inventory/add?');
+    expect(fulfillLink.getAttribute('href')).toContain('filmOrderId=FO-1');
+    expect(screen.queryByRole('link', { name: 'Add Box' })).toBeNull();
     expect(screen.getByText('Current Needed LF')).toBeTruthy();
     expect(screen.getAllByText('230').length).toBeGreaterThan(0);
     expect(screen.getByText('130')).toBeTruthy();

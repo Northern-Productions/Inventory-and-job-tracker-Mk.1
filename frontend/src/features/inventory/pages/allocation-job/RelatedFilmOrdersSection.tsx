@@ -1,5 +1,4 @@
 import { Button } from '../../../../components/Button';
-import { Link } from 'react-router-dom';
 import {
   MobileField,
   MobileFieldList,
@@ -7,8 +6,8 @@ import {
   MobileRecordHeader
 } from '../../../../components/MobileRecordCard';
 import type { FilmOrderEntry } from '../../../../domain';
+import { FilmOrderStatusLink } from '../../components/FilmOrderStatusLink';
 import { FilmOrderLinkedBoxes } from '../../components/FilmOrderLinkedBoxes';
-import { formatFilmOrderStatusLabel } from './helpers';
 
 interface RelatedFilmOrdersSectionProps {
   orders: FilmOrderEntry[];
@@ -62,10 +61,6 @@ function renderFilmOrderActions({
   );
 }
 
-function buildFilmOrderHref(order: Pick<FilmOrderEntry, 'filmOrderId'>) {
-  return `/film-orders/${encodeURIComponent(order.filmOrderId)}`;
-}
-
 export function RelatedFilmOrdersSection({
   orders,
   isPhoneLayout,
@@ -90,19 +85,11 @@ export function RelatedFilmOrdersSection({
           {orders.map((order) => (
             <MobileRecordCard key={order.filmOrderId}>
               <MobileRecordHeader
-                title={order.filmOrderId}
-                subtitle={`${order.manufacturer} ${order.filmName}`}
-                badge={
-                  <span className={`badge badge-${order.status}`}>
-                    {formatFilmOrderStatusLabel(order.status)}
-                  </span>
-                }
+                title={`${order.manufacturer} ${order.filmName}`}
+                subtitle={`${order.widthIn}" / ${order.requestedFeet} LF requested`}
+                badge={<FilmOrderStatusLink order={order} />}
               />
               <MobileFieldList>
-                <MobileField
-                  label="Film Order"
-                  value={<Link to={buildFilmOrderHref(order)}>{order.filmOrderId}</Link>}
-                />
                 <MobileField label="Ordered Box IDs" value={<FilmOrderLinkedBoxes order={order} />} />
                 <MobileField label="Width" value={order.widthIn} />
                 <MobileField label="Requested LF" value={order.requestedFeet} />
@@ -142,12 +129,7 @@ export function RelatedFilmOrdersSection({
               {orders.map((order) => (
                 <tr key={order.filmOrderId}>
                   <td>
-                    <span className={`badge badge-${order.status}`}>
-                      {formatFilmOrderStatusLabel(order.status)}
-                    </span>
-                    <Link to={buildFilmOrderHref(order)} className="film-orders-detail-link">
-                      {order.filmOrderId}
-                    </Link>
+                    <FilmOrderStatusLink order={order} />
                   </td>
                   <td>
                     {order.manufacturer} {order.filmName}

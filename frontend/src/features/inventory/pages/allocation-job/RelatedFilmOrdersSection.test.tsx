@@ -76,10 +76,13 @@ describe('RelatedFilmOrdersSection', () => {
     expect(screen.queryByText('Origin')).toBeNull();
     expect(screen.queryByText('Auto shortage')).toBeNull();
     expect(screen.queryByText(/Source box:/)).toBeNull();
-    expect(screen.getAllByText('FILM ORDER')).toHaveLength(2);
-    expect(screen.getByRole('link', { name: 'FO-AUTO' }).getAttribute('href')).toBe(
+    expect(screen.getAllByText('Film Order')).toHaveLength(2);
+    const autoStatusLink = screen.getByRole('link', { name: 'Open film order FO-AUTO details' });
+    expect(autoStatusLink.getAttribute('href')).toBe(
       '/film-orders/FO-AUTO'
     );
+    expect(autoStatusLink.textContent).toBe('Film Order');
+    expect(screen.queryByRole('link', { name: 'FO-AUTO' })).toBeNull();
     expect(screen.getAllByRole('button', { name: 'Order Film' })).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: 'Cancel' })).toHaveLength(2);
     expect(screen.getByRole('link', { name: 'IL1-0005' }).getAttribute('href')).toBe(

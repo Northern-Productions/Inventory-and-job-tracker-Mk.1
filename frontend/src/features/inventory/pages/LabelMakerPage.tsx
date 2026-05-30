@@ -17,7 +17,7 @@ import {
 } from '../components/labels/PrintableLabelSheet';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
-import { useFilmCatalog, useMarkLabelsPrinted } from '../hooks/useInventoryQueries';
+import { useBox, useFilmCatalog, useMarkLabelsPrinted } from '../hooks/useInventoryQueries';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
 import {
   canonicalizeManufacturerLabel,
@@ -98,7 +98,8 @@ function isSnapshotStale(lastSyncedAt: string): boolean {
 }
 
 function isUnlabeledLabelCandidate(box: Box): boolean {
-  return box.status === 'IN_STOCK' && box.hasLabel === false;
+  const status = String(box.status || '').trim().toUpperCase();
+  return box.hasLabel === false && (status === 'IN_STOCK' || status === 'ORDERED');
 }
 
 function getUniqueSelectedBoxIds(selectedBoxesBySlot: SlotBoxState): string[] {
@@ -109,6 +110,14 @@ function getUniqueSelectedBoxIds(selectedBoxesBySlot: SlotBoxState): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function getLabelBoxHydrationSignature(box: Box): string {
+  const draft = buildLabelDraftFromBox(box);
+  return JSON.stringify({
+    draft,
+    warnings: buildLabelDraftWarnings(box, draft)
+  });
 }
 
 export default function LabelMakerPage() {
@@ -130,6 +139,8 @@ export default function LabelMakerPage() {
   const boxesQuery = useOfflineInventorySearch(filters.warehouse);
   const filmCatalogQuery = useFilmCatalog();
   const markLabelsPrintedMutation = useMarkLabelsPrinted();
+  const selectedBoxAQuery = useBox(selectedBoxesBySlot.A?.boxId || '');
+  const selectedBoxBQuery = useBox(selectedBoxesBySlot.B?.boxId || '');
   const toast = useToast();
 
   useEffect(() => {
@@ -148,7 +159,7 @@ export default function LabelMakerPage() {
     () => ({
       ...filters,
       q: debouncedQuery,
-      status: labelStatusFilter === 'unlabeled' ? 'IN_STOCK' : filters.status,
+      status: labelStatusFilter === 'unlabeled' ? '' : filters.status,
       film: '',
       widths: normalizeSelectedWidths(filters.widths),
       showRetired: false
@@ -207,6 +218,43 @@ export default function LabelMakerPage() {
     boxesQuery.isOffline || boxesQuery.syncError || isSnapshotStale(boxesQuery.lastSyncedAt)
       ? 'This box data may be outdated. Refresh inventory if needed.'
       : '';
+
+  useEffect(() => {
+    const detailedBoxesBySlot: Partial<Record<LabelSlot, Box | undefined>> = {
+      A: selectedBoxAQuery.data,
+      B: selectedBoxBQuery.data
+    };
+
+    for (const slot of LABEL_SLOTS) {
+      const detailedBox = detailedBoxesBySlot[slot];
+      const selectedBox = selectedBoxesBySlot[slot];
+      if (!detailedBox || !selectedBox || detailedBox.boxId !== selectedBox.boxId) {
+        continue;
+      }
+
+      const nextDraft = buildLabelDraftFromBox(detailedBox);
+      if (getLabelBoxHydrationSignature(selectedBox) !== getLabelBoxHydrationSignature(detailedBox)) {
+        setSelectedBoxesBySlot((current) => ({
+          ...current,
+          [slot]: detailedBox
+        }));
+      }
+      setDraftsBySlot((current) => {
+        const currentDraft = current[slot];
+        if (currentDraft.jobId.trim() || !nextDraft.jobId) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [slot]: {
+            ...currentDraft,
+            jobId: nextDraft.jobId
+          }
+        };
+      });
+    }
+  }, [selectedBoxAQuery.data, selectedBoxBQuery.data, selectedBoxesBySlot.A, selectedBoxesBySlot.B]);
 
   useEffect(() => {
     let isActive = true;
@@ -428,7 +476,7 @@ export default function LabelMakerPage() {
                 { label: 'All boxes', value: 'all' },
                 { label: 'Unlabeled boxes', value: 'unlabeled' }
               ]}
-              hint="Unlabeled shows received in-stock boxes whose labels have not been printed."
+              hint="Unlabeled shows ordered or received boxes whose labels have not been printed."
             />
           </div>
           <InventoryFilters

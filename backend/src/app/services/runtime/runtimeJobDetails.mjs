@@ -601,7 +601,7 @@ function buildDetailContext(
     boxById,
     publicRequirements,
     publicCaulkRequirements,
-    publicAllocations: buildPublicAllocationEntriesForJob(baseData.allocations, boxById),
+    publicAllocations: buildPublicAllocationEntriesForJob(baseData.allocations, boxById, baseData.requirements),
     publicFilmOrders,
     usage: buildPublicJobUsageEntries(baseData.rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(

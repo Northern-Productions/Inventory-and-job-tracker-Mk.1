@@ -66,6 +66,8 @@ export default function AllocationJobPage() {
     isResumeAutoPlanningPending,
     filmAutoAllocatePendingRequirementId,
     caulkAutoAllocatePendingRequirementId,
+    filmTransferActionBoxId,
+    isFilmTransferActionPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     staleFilmOrderPromptOrders,
@@ -82,6 +84,8 @@ export default function AllocationJobPage() {
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
+    handleStartFilmTransferFromAlert,
+    handleCancelFilmTransferFromAlert,
     handleCancelRequirementOrder,
     lifecycleWorkflow,
     filmWorkflow,
@@ -225,6 +229,8 @@ export default function AllocationJobPage() {
         stagedPickupPending={isStagedPickupPending}
         statusPending={isBoxStatusPending}
         caulkCheckoutPending={isCheckoutCaulkPending}
+        filmTransferActionBoxId={filmTransferActionBoxId}
+        filmTransferActionPending={isFilmTransferActionPending}
         onOpenEdit={() => lifecycleWorkflow.setIsEditOpen(true)}
         onOpenReopenConfirm={() => lifecycleWorkflow.setIsReopenConfirmOpen(true)}
         onBack={goBackToAllocations}
@@ -233,6 +239,8 @@ export default function AllocationJobPage() {
           void lifecycleWorkflow.handleSetStagedPickup(nextIsStaged)
         }
         onOpenTransferBox={openInventoryBox}
+        onStartFilmTransfer={(alert) => void handleStartFilmTransferFromAlert(alert)}
+        onCancelFilmTransfer={(alert) => void handleCancelFilmTransferFromAlert(alert)}
       />
 
       <JobPhasesSection
@@ -382,6 +390,7 @@ export default function AllocationJobPage() {
         onConfirmCancelStaleFilmOrders={() => void handleCancelStaleFilmOrders()}
         isOrderAllConfirmOpen={isOrderAllConfirmOpen}
         orderableFilmRequirementCount={orderableFilmOrderGroups.length}
+        orderAllPending={isCreateFilmOrderPending}
         onCancelOrderAll={() => setIsOrderAllConfirmOpen(false)}
         onConfirmOrderAll={() => void handleOrderAllFilmRequirements()}
         allocationToRemove={filmWorkflow.allocationToRemove}

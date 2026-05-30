@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   DIRECT_TO_SITE_CHECKED_OUT_PREFIX,
@@ -100,4 +101,17 @@ test('direct-to-job-site first return notes stay standardized and carry the cali
   assert.match(note, new RegExp(`^${DIRECT_TO_SITE_FIRST_RETURN_PREFIX}: `));
   assert.match(note, /3.34 lbs with 19 LF remaining/);
   assert.match(note, /Additional note: Returned after install/);
+});
+
+test('direct-to-job-site box creation preserves canonical job id for checkout and allocation identity', () => {
+  const source = readFileSync(
+    new URL('../../src/app/services/runtime/boxes/crud.mjs', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /findJobById,/);
+  assert.match(source, /const directToJobSiteJobId = asTrimmedString\(directToJobSiteOrder\.jobId\);/);
+  assert.match(source, /\? await findJobById\(client, orgId, directToJobSiteJobId\)/);
+  assert.match(source, /jobId: asTrimmedString\(linkedOrder\.jobId \|\| directToJobSiteOrder\.jobId \|\| directToJobSiteJob\?\.id\)/);
+  assert.match(source, /lastCheckoutJobId: asTrimmedString\(linkedOrder\.jobId \|\| directToJobSiteOrder\.jobId \|\| directToJobSiteJob\?\.id\)/);
 });

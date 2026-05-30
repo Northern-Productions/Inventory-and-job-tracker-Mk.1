@@ -11,11 +11,23 @@ const backendMigrationPath = path.join(
   'migrations',
   '0153_manual_only_auto_allocation_job_warehouse.sql'
 );
+const explicitSelectionBackendMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0154_manual_allocation_explicit_selection.sql'
+);
 const supabaseMigrationPath = path.join(
   repoRoot,
   'supabase',
   'migrations',
   '20260528100000_manual_only_auto_allocation_job_warehouse.sql'
+);
+const explicitSelectionSupabaseMigrationPath = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260529100000_manual_allocation_explicit_selection.sql'
 );
 const schemaLatestPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 const localAllocationApplyPath = path.join(
@@ -72,6 +84,23 @@ test('manual-only auto-allocation migration stays mirrored', async () => {
   assert.equal(supabaseMigration, backendMigration);
 });
 
+test('manual allocation explicit-selection SQL patch stays mirrored', async () => {
+  const [backendMigration, supabaseMigration] = await Promise.all([
+    readFile(explicitSelectionBackendMigrationPath, 'utf8'),
+    readFile(explicitSelectionSupabaseMigrationPath, 'utf8'),
+  ]);
+
+  assert.equal(supabaseMigration, backendMigration);
+  assert.match(
+    backendMigration,
+    /v_auto_allocate boolean := coalesce\(\(p_payload->>'autoAllocate'\)::boolean, false\);/
+  );
+  assert.match(
+    backendMigration,
+    /if not v_auto_allocate and array_position\(v_selected_box_ids, v_candidate\.box_id\) is null then/
+  );
+});
+
 test('legacy SQL planner reconciliation is guarded as a no-op', async () => {
   const migration = await readFile(backendMigrationPath, 'utf8');
   const body = extractBody(migration, 'app_api.reconcile_auto_planned_allocations');
@@ -87,10 +116,12 @@ test('legacy SQL planner reconciliation is guarded as a no-op', async () => {
 test('schema latest guard tracks manual-only planner semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0155_film_order_detail_origin_compat\.sql';/);
   assert.match(schemaLatest, /'manualOnly', true/);
   assert.match(schemaLatest, /insert into app\.allocations/);
   assert.match(schemaLatest, /insert into app\.caulk_job_allocations/);
+  assert.match(schemaLatest, /v_auto_allocate boolean := coalesce/);
+  assert.match(schemaLatest, /if not v_auto_allocate and array_position/);
 });
 
 test('row-level film Auto Allocate uses only the job warehouse', async () => {
@@ -117,6 +148,8 @@ test('local and Edge allocation routes defensively scope explicit Auto Allocate 
     assert.match(source, /crossWarehouse = autoAllocate \? false : requestedCrossWarehouse|rpcPayload\.crossWarehouse = false/);
   }
   assert.match(localApply, /listBoxesByWarehouses\(client, orgId, \[jobWarehouse\]\)/);
+  assert.match(localApply, /hasExplicitSuggestionSelection/);
+  assert.match(localApply, /: autoAllocate\s+\?\s+plan\.suggestions\.map/);
   assert.match(edgeReads, /deps\.listBoxesByWarehouses\(client, orgId, \[jobWarehouse\]\)/);
   assert.match(edgeMutations, /rpcPayload\.jobWarehouse = jobWarehouse/);
 });

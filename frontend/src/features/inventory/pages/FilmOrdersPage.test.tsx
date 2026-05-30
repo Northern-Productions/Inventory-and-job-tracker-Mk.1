@@ -331,9 +331,51 @@ describe('FilmOrdersPage', () => {
   it('links compact film order rows to the detail page', () => {
     renderPage([buildFilmOrderEntry({ filmOrderId: 'FO-DETAIL' })]);
 
-    expect(screen.getByRole('link', { name: 'FO-DETAIL' }).getAttribute('href')).toBe(
-      '/film-orders/FO-DETAIL'
-    );
+    const detailLink = screen.getByRole('link', { name: 'Open film order FO-DETAIL details' });
+    expect(detailLink.getAttribute('href')).toBe('/film-orders/FO-DETAIL');
+    expect(detailLink.textContent).toBe('Film Order');
+    expect(screen.queryByRole('link', { name: 'FO-DETAIL' })).toBeNull();
+  });
+
+  it('filters film orders by status without changing warehouse query behavior', async () => {
+    const entries = [
+      buildFilmOrderEntry({ filmOrderId: 'FO-OPEN', filmName: 'Open Roll', status: 'FILM_ORDER' }),
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-ON-WAY',
+        filmName: 'On Way Roll',
+        status: 'FILM_ON_THE_WAY',
+        orderedFeet: 20,
+        remainingToOrderFeet: 0
+      }),
+      buildFilmOrderEntry({ filmOrderId: 'FO-DONE', filmName: 'Done Roll', status: 'FULFILLED' })
+    ];
+    getFilmOrdersMock.mockResolvedValue(entries);
+
+    renderPage(entries);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), {
+      target: { value: 'FILM_ON_THE_WAY' }
+    });
+
+    expect(screen.queryByText(/Open Roll/, { selector: 'td' })).toBeNull();
+    expect(screen.getByText(/On Way Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.queryByText(/Done Roll/, { selector: 'td' })).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Warehouse' }), {
+      target: { value: 'MS1' }
+    });
+
+    await waitFor(() => {
+      expect(getFilmOrdersMock).toHaveBeenCalledWith({ warehouse: 'MS1' });
+    });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), {
+      target: { value: 'all' }
+    });
+
+    expect(screen.getByText(/Open Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.getByText(/On Way Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.getByText(/Done Roll/, { selector: 'td' })).toBeTruthy();
   });
 
   it('shows Work Scope in desktop job labels without changing canonical links', () => {
@@ -488,7 +530,7 @@ describe('FilmOrdersPage', () => {
     expect(screen.queryByText(/Source box:/)).toBeNull();
     expect(screen.getByText('Decorative Films, Accent')).toBeTruthy();
     expect(screen.getByText(/Plain Roll/, { selector: 'td' })).toBeTruthy();
-    expect(screen.getAllByText('FILM ORDER')).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: /Open film order .* details/ })).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: 'FILM ORDERED' })).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
     expect(screen.getByLabelText('Received IL1-0005')).toBeTruthy();

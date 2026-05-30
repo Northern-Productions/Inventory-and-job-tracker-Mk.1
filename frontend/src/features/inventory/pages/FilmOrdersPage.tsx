@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
+import { Select } from '../../../components/Select';
 import {
   MobileActionStack,
   MobileField,
@@ -22,6 +23,7 @@ import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import { useAuth } from '../../auth/AuthContext';
 import { CreateFilmOrderDialog } from '../components/CreateFilmOrderDialog';
+import { FilmOrderStatusLink } from '../components/FilmOrderStatusLink';
 import { FilmOrderLinkedBoxes } from '../components/FilmOrderLinkedBoxes';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
@@ -48,10 +50,6 @@ function buildJobHref(order: Pick<FilmOrderEntry, 'jobId' | 'jobNumber'>) {
   return jobId
     ? `/allocations/jobs/${encodeURIComponent(jobId)}`
     : `/allocations/${encodeURIComponent(order.jobNumber)}`;
-}
-
-function buildFilmOrderHref(order: Pick<FilmOrderEntry, 'filmOrderId'>) {
-  return `/film-orders/${encodeURIComponent(order.filmOrderId)}`;
 }
 
 function buildDeleteFilmOrderPayload(order: FilmOrderEntry, reason: string): DeleteFilmOrderPayload {
@@ -162,9 +160,15 @@ function buildReceiveOrderedTarget(order: FilmOrderEntry) {
   return `/inventory/${encodeURIComponent(nextLinkedBox.boxId)}?${params.toString()}`;
 }
 
-function formatBadgeLabel(value: string) {
-  return value.replace(/_/g, ' ');
-}
+const FILM_ORDER_STATUS_FILTER_OPTIONS = [
+  { label: 'All statuses', value: 'all' },
+  { label: 'Film Order', value: 'FILM_ORDER' },
+  { label: 'Film On The Way', value: 'FILM_ON_THE_WAY' },
+  { label: 'Fulfilled', value: 'FULFILLED' },
+  { label: 'Canceled', value: 'CANCELLED' }
+] as const;
+
+type FilmOrderStatusFilter = (typeof FILM_ORDER_STATUS_FILTER_OPTIONS)[number]['value'];
 
 export default function FilmOrdersPage() {
   const navigate = useNavigate();
@@ -173,6 +177,7 @@ export default function FilmOrdersPage() {
   const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
   const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
+  const [statusFilter, setStatusFilter] = useState<FilmOrderStatusFilter>('all');
   const filmOrdersQuery = useFilmOrders({ warehouse: warehouseFilter });
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
@@ -181,9 +186,16 @@ export default function FilmOrdersPage() {
   const [isCreateFilmOrderOpen, setIsCreateFilmOrderOpen] = useState(false);
   const [filmOrderToDelete, setFilmOrderToDelete] = useState<FilmOrderEntry | null>(null);
 
+  const filteredEntries = useMemo(
+    () =>
+      statusFilter === 'all'
+        ? filmOrdersQuery.data || []
+        : (filmOrdersQuery.data || []).filter((order) => order.status === statusFilter),
+    [filmOrdersQuery.data, statusFilter]
+  );
   const orderedEntries = useMemo(
-    () => sortFilmOrders(filmOrdersQuery.data || []),
-    [filmOrdersQuery.data]
+    () => sortFilmOrders(filteredEntries),
+    [filteredEntries]
   );
   const showFilmOrdersLoading = filmOrdersQuery.isLoading && !orderedEntries.length;
 
@@ -283,6 +295,12 @@ export default function FilmOrdersPage() {
             onChange={setWarehouseFilter}
             allowAll
           />
+          <Select
+            label="Status"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as FilmOrderStatusFilter)}
+            options={FILM_ORDER_STATUS_FILTER_OPTIONS}
+          />
         </div>
         <DeferredLoadingState when={showFilmOrdersLoading} label="Loading film orders..." />
         {filmOrdersQuery.isError ? <p className="error-text">{filmOrdersQuery.error.message}</p> : null}
@@ -314,17 +332,11 @@ export default function FilmOrdersPage() {
                         </Link>
                       }
                       badge={
-                        <span className={`badge badge-${order.status}`}>
-                          {formatBadgeLabel(order.status)}
-                        </span>
+                        <FilmOrderStatusLink order={order} />
                       }
                     />
                     <MobileFieldList>
                       <MobileField label="Warehouse" value={order.warehouse} />
-                      <MobileField
-                        label="Film Order"
-                        value={<Link to={buildFilmOrderHref(order)}>{order.filmOrderId}</Link>}
-                      />
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Need To Order LF" value={order.remainingToOrderFeet} />
@@ -390,12 +402,7 @@ export default function FilmOrdersPage() {
                     return (
                       <tr key={order.filmOrderId}>
                         <td>
-                          <Link to={buildFilmOrderHref(order)} className="film-orders-detail-link">
-                            {order.filmOrderId}
-                          </Link>
-                          <span className={`badge badge-${order.status}`}>
-                            {formatBadgeLabel(order.status)}
-                          </span>
+                          <FilmOrderStatusLink order={order} />
                         </td>
                         <td>
                           {order.warehouse}

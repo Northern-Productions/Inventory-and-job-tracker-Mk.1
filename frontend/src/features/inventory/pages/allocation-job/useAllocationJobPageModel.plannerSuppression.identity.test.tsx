@@ -56,6 +56,7 @@ vi.mock('../../hooks/useInventoryQueries', () => ({
   useAddCaulkJobAllocation: () => buildMutationState(),
   useAllocateBox: () => buildMutationState(),
   useCancelCaulkTransfer: () => buildMutationState(),
+  useCancelBoxTransfer: () => buildMutationState(),
   useCheckinCaulkJobAllocation: () => buildMutationState(),
   useClearAllocationPlannerSuppression: () =>
     buildMutationState({ mutateAsync: clearSuppressionMutateAsyncMock }),
@@ -88,6 +89,7 @@ vi.mock('../../hooks/useInventoryQueries', () => ({
   useSetJobPhaseState: () => buildMutationState(),
   useSetJobRequirementState: () => buildMutationState(),
   useSetJobStagedForPickup: () => buildMutationState(),
+  useStartBoxTransfer: () => buildMutationState(),
   useUpdateCaulkJobAllocation: () => buildMutationState(),
   useUpdateJob: () => buildMutationState(),
   useBox: () => ({ data: null, isLoading: false, isError: false, error: null })

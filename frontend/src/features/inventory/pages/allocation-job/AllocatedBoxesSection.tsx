@@ -121,24 +121,29 @@ function formatGroupDate(entries: AllocationJobDetailEntry[], field: 'createdAt'
   return 'See details';
 }
 
-function getAllocationStateLabel(entry: AllocationJobDetailEntry, transferAlert?: JobFilmTransferAlert) {
-  if (entry.checkedOutOnThisJob && entry.boxStatus === 'CHECKED_OUT') {
-    return 'Checked out on this job';
+function formatRequirementLabel(entry: AllocationJobDetailEntry) {
+  const manufacturer = String(entry.requirementManufacturer || entry.manufacturer || '').trim();
+  const filmName = String(entry.requirementFilmName || entry.filmName || '').trim();
+  return [manufacturer, filmName].filter(Boolean).join(' ') || '--';
+}
+
+function formatRequirementWidth(entry: AllocationJobDetailEntry) {
+  const widthValue =
+    typeof entry.requirementWidthIn === 'number' && Number.isFinite(entry.requirementWidthIn) && entry.requirementWidthIn > 0
+      ? entry.requirementWidthIn
+      : entry.widthIn;
+
+  return widthValue || '--';
+}
+
+function formatCoveredRequirementFeet(entry: AllocationJobDetailEntry) {
+  if (entry.allocationKind === 'EXTRA') {
+    return 'EXTRA';
   }
 
-  if (transferAlert) {
-    return formatFilmTransferStateLabel(transferAlert);
-  }
-
-  if (entry.boxStatus === 'ORDERED') {
-    return 'Waiting for receipt';
-  }
-
-  if (entry.boxStatus === 'IN_STOCK') {
-    return 'Ready to check out';
-  }
-
-  return 'Not in stock';
+  const coveredFeet = Number(entry.coveredFeet || 0);
+  const allocatedFeet = Number(entry.allocatedFeet || 0);
+  return String(coveredFeet > 0 ? coveredFeet : allocatedFeet);
 }
 
 function renderAllocationActions({
@@ -213,39 +218,6 @@ function renderAllocationActions({
       ) : null}
       {!showRemove && removeHint ? <span className="muted-text">{removeHint}</span> : null}
     </div>
-  );
-}
-
-function renderAllocationBreakdownActions({
-  entry,
-  isReadOnlyJob,
-  isStatusMutationPending,
-  onRemoveAllocation,
-  isAllocationRemovalPending
-}: {
-  entry: AllocationJobDetailEntry;
-  isReadOnlyJob: boolean;
-  isStatusMutationPending: (boxId: string) => boolean;
-  onRemoveAllocation: (entry: AllocationJobDetailEntry) => void;
-  isAllocationRemovalPending: (allocationId: string) => boolean;
-}) {
-  if (isReadOnlyJob) {
-    return <span className="muted-text">Read-only</span>;
-  }
-
-  if (entry.checkedOutOnThisJob) {
-    return <span className="muted-text">Check in before removing</span>;
-  }
-
-  return (
-    <Button
-      type="button"
-      variant="danger"
-      onClick={() => onRemoveAllocation(entry)}
-      disabled={isAllocationRemovalPending(entry.allocationId) || isStatusMutationPending(entry.boxId)}
-    >
-      Remove
-    </Button>
   );
 }
 
@@ -341,45 +313,15 @@ export function AllocatedBoxesSection({
                 ) : null}
                 {isExpanded ? (
                   <div id={group.detailsId} className="mobile-record-list">
-                    {group.entries.map((detailEntry) => {
-                      const detailTransferAlert = filmTransferAlertsByBoxId[detailEntry.boxId];
-                      return (
+                    {group.entries.map((detailEntry) => (
                         <div key={detailEntry.allocationId} className="mobile-record-card">
                           <MobileFieldList>
-                            <MobileField label="Allocation" value={detailEntry.allocationId} />
-                            <MobileField label="Requirement" value={detailEntry.requirementId || '--'} />
-                            <MobileField
-                              label="Film"
-                              value={`${detailEntry.manufacturer} ${detailEntry.filmName}`}
-                            />
-                            <MobileField label="Width" value={detailEntry.widthIn || '--'} />
-                            <MobileField
-                              label="LF"
-                              value={formatAllocationFeet(
-                                detailEntry.allocatedFeet,
-                                detailEntry.coveredFeet,
-                                detailEntry.allocationKind
-                              )}
-                            />
-                            <MobileField label="Kind" value={detailEntry.allocationKind} />
-                            <MobileField label="Status" value={detailEntry.status} />
-                            <MobileField
-                              label="State"
-                              value={getAllocationStateLabel(detailEntry, detailTransferAlert)}
-                            />
-                            <MobileField label="Created" value={renderDateTime(detailEntry.createdAt)} />
-                            <MobileField label="Resolved" value={renderDateTime(detailEntry.resolvedAt)} />
+                            <MobileField label="Requirement" value={formatRequirementLabel(detailEntry)} />
+                            <MobileField label="Width" value={formatRequirementWidth(detailEntry)} />
+                            <MobileField label="Covered LF" value={formatCoveredRequirementFeet(detailEntry)} />
                           </MobileFieldList>
-                          {renderAllocationBreakdownActions({
-                            entry: detailEntry,
-                            isReadOnlyJob,
-                            isStatusMutationPending,
-                            onRemoveAllocation,
-                            isAllocationRemovalPending
-                          })}
                         </div>
-                      );
-                    })}
+                      ))}
                   </div>
                 ) : null}
                 {renderAllocationActions({
@@ -395,7 +337,7 @@ export function AllocatedBoxesSection({
                   showRemove: group.entries.length === 1,
                   removeHint:
                     canExpand && !isExpanded && group.entries.some((detailEntry) => !detailEntry.checkedOutOnThisJob)
-                      ? 'Expand to remove individual allocations'
+                      ? 'Expand to view requirement coverage'
                       : ''
                 })}
               </MobileRecordCard>
@@ -478,7 +420,7 @@ export function AllocatedBoxesSection({
                             canExpand &&
                             !isExpanded &&
                             group.entries.some((detailEntry) => !detailEntry.checkedOutOnThisJob)
-                              ? 'Expand to remove individual allocations'
+                              ? 'Expand to view requirement coverage'
                               : ''
                         })}
                       </td>
@@ -490,54 +432,19 @@ export function AllocatedBoxesSection({
                             <table>
                               <thead>
                                 <tr>
-                                  <th>Allocation</th>
                                   <th>Requirement</th>
-                                  <th>Film</th>
                                   <th>Width</th>
-                                  <th>LF</th>
-                                  <th>Kind</th>
-                                  <th>Status</th>
-                                  <th>State</th>
-                                  <th>Created</th>
-                                  <th>Resolved</th>
-                                  <th>Actions</th>
+                                  <th>Covered LF</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {group.entries.map((detailEntry) => {
-                                  const detailTransferAlert = filmTransferAlertsByBoxId[detailEntry.boxId];
-                                  return (
-                                    <tr key={detailEntry.allocationId}>
-                                      <td>{detailEntry.allocationId}</td>
-                                      <td>{detailEntry.requirementId || '--'}</td>
-                                      <td>
-                                        {detailEntry.manufacturer} {detailEntry.filmName}
-                                      </td>
-                                      <td>{detailEntry.widthIn || '--'}</td>
-                                      <td>
-                                        {formatAllocationFeet(
-                                          detailEntry.allocatedFeet,
-                                          detailEntry.coveredFeet,
-                                          detailEntry.allocationKind
-                                        )}
-                                      </td>
-                                      <td>{detailEntry.allocationKind}</td>
-                                      <td>{detailEntry.status}</td>
-                                      <td>{getAllocationStateLabel(detailEntry, detailTransferAlert)}</td>
-                                      <td>{renderDateTime(detailEntry.createdAt)}</td>
-                                      <td>{renderDateTime(detailEntry.resolvedAt)}</td>
-                                      <td>
-                                        {renderAllocationBreakdownActions({
-                                          entry: detailEntry,
-                                          isReadOnlyJob,
-                                          isStatusMutationPending,
-                                          onRemoveAllocation,
-                                          isAllocationRemovalPending
-                                        })}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
+                                {group.entries.map((detailEntry) => (
+                                  <tr key={detailEntry.allocationId}>
+                                    <td>{formatRequirementLabel(detailEntry)}</td>
+                                    <td>{formatRequirementWidth(detailEntry)}</td>
+                                    <td>{formatCoveredRequirementFeet(detailEntry)}</td>
+                                  </tr>
+                                ))}
                               </tbody>
                             </table>
                           </div>

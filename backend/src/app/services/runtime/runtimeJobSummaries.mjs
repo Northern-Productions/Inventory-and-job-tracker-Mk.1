@@ -1036,7 +1036,7 @@ function buildJobListEntry(
   };
 }
 
-function buildPublicAllocationEntriesForJob(allocations, boxById) {
+function buildPublicAllocationEntriesForJob(allocations, boxById, requirements = []) {
   const sortedAllocations = allocations
     .slice()
     .sort((left, right) => {
@@ -1085,9 +1085,18 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
 
     reservationMetricsByBoxId[boxId] = buildBoxReservationMetrics(box, activeAllocationsByBoxId[boxId]);
   }
+  const requirementById = {};
+  for (let index = 0; index < requirements.length; index += 1) {
+    const requirement = requirements[index];
+    const requirementId = asTrimmedString(requirement?.id || requirement?.requirementId);
+    if (requirementId) {
+      requirementById[requirementId] = requirement;
+    }
+  }
 
   return sortedAllocations.map((entry) => {
     const box = boxById[entry.boxId];
+    const requirement = requirementById[asTrimmedString(entry.requirementId)] || null;
     const reservationSnapshot =
       reservationMetricsByBoxId[entry.boxId]?.allocationSnapshotsById?.[entry.allocationId] || null;
     return {
@@ -1095,6 +1104,9 @@ function buildPublicAllocationEntriesForJob(allocations, boxById) {
       manufacturer: box ? box.manufacturer : '',
       filmName: box ? box.filmName : '',
       widthIn: box ? box.widthIn : 0,
+      requirementManufacturer: requirement ? requirement.manufacturer : '',
+      requirementFilmName: requirement ? requirement.filmName : '',
+      requirementWidthIn: requirement ? requirement.widthIn : 0,
       boxStatus: box ? box.status : '',
       backedPhysicalFeet: reservationSnapshot ? reservationSnapshot.backedPhysicalFeet : integerOrZero(entry.allocatedFeet),
       reservationState: reservationSnapshot ? reservationSnapshot.reservationState : 'WITHOUT_INSTALL_DATE',
