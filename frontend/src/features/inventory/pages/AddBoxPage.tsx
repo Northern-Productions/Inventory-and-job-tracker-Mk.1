@@ -399,15 +399,17 @@ export default function AddBoxPage() {
     <>
       {!filmOrderPrefill.filmOrderId ? (
         <section className="panel">
-          <div className="page-hero-topline">
-            <span className="eyebrow">Receiving Intake</span>
-          </div>
-          <div className="page-hero-title-row">
+          <div className="add-box-hero-layout">
             <div className="page-hero-copy add-box-hero-copy">
+              <div className="page-hero-topline">
+                <span className="eyebrow">Receiving Intake</span>
+              </div>
               <h2>Add Box</h2>
               <p className="muted-text">
                 Create a warehouse-ready box record with pricing, dates, and roll tracking details.
               </p>
+            </div>
+            <div className="add-box-warehouse-control">
               <WarehouseSelectField
                 label="Warehouse"
                 value={warehouse}

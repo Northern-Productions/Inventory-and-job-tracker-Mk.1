@@ -68,6 +68,18 @@ describe('theme contrast styles', () => {
     expect(css).toMatch(/\.film-orders-filters\s*{[^}]*margin-bottom:\s*1rem;/s);
   });
 
+  it('keeps Add Box intro copy and warehouse selector in a responsive two-column layout', () => {
+    expect(css).toMatch(
+      /\.add-box-hero-layout\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(15rem,\s*18rem\);/s
+    );
+    expect(css).toMatch(
+      /\.add-box-warehouse-control\s*{[^}]*justify-self:\s*end;[^}]*width:\s*100%;/s
+    );
+    expect(css).toMatch(
+      /@media \(max-width:\s*720px\)\s*{[\s\S]*\.add-box-hero-layout\s*{[^}]*grid-template-columns:\s*1fr;/s
+    );
+  });
+
   it('keeps the job editor dialog sections and sticky footer theme-aware', () => {
     expect(css).toMatch(
       /\.dialog-job-editor \.dialog-section\s*{[^}]*background:\s*var\(--color-surface-1\);[^}]*color:\s*var\(--color-text-1\);/s
@@ -104,12 +116,15 @@ describe('theme contrast styles', () => {
     );
   });
 
-  it('keeps the job editor selected width chip dark-filled with light text', () => {
+  it('keeps selected width chips dark-filled with light text across width selectors', () => {
     expect(css).toMatch(
-      /\.dialog-job-editor \.job-editor-requirement-builder \.width-chip-active\s*{[^}]*background:\s*linear-gradient\(180deg,\s*var\(--color-primary-strong\) 0%,\s*var\(--color-primary\) 100%\);[^}]*color:\s*var\(--color-primary-contrast\);/s
+      /\.width-chip-active\s*{[^}]*background:\s*linear-gradient\(180deg,\s*var\(--color-primary-strong\) 0%,\s*var\(--color-primary\) 100%\);[^}]*color:\s*var\(--color-primary-contrast\);/s
     );
     expect(css).toMatch(
-      /\.dialog-job-editor \.job-editor-requirement-builder \.width-chip-active:focus-visible\s*{[^}]*box-shadow:\s*var\(--focus-ring\),/s
+      /\.width-chip-active:focus-visible\s*{[^}]*box-shadow:\s*var\(--focus-ring\),/s
+    );
+    expect(css).not.toMatch(
+      /\.button-primary,[\s\S]*?\.width-chip-active,[\s\S]*?\.label-result-button-selected/
     );
   });
 
