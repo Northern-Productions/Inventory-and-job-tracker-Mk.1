@@ -8,11 +8,6 @@ import { MobileNavigation } from './app-layout/MobileNavigation';
 import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
 import { ShareCurrentPageButton } from './ShareCurrentPageButton';
 
-const DESKTOP_HEADER_STICKY_OFFSET_PX = 12;
-const DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX = 1;
-const DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX = 72;
-const DESKTOP_HEADER_COMPACT_ENTER_BUFFER_PX = 24;
-
 export function AppLayout() {
   const location = useLocation();
   const isPhoneLayout = useIsPhoneLayout();
@@ -30,13 +25,8 @@ export function AppLayout() {
   } = useAppLayoutNavigation(location.pathname);
   const defaultWarehouseLabel = useDefaultWarehouseLabel();
   const hasMountedRef = useRef(false);
-  const headerRef = useRef<HTMLElement>(null);
-  const desktopNavRef = useRef<HTMLDivElement>(null);
-  const desktopCompactEnterThresholdRef = useRef(DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX);
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   const [isDesktopMoreOpen, setIsDesktopMoreOpen] = useState(false);
-  const [isDesktopHeaderPinned, setIsDesktopHeaderPinned] = useState(false);
-  const [isDesktopHeaderCompact, setIsDesktopHeaderCompact] = useState(false);
   const mobileMoreButtonRef = useRef<HTMLButtonElement>(null);
   const desktopMoreRef = useRef<HTMLDivElement>(null);
   const closeMobileMoreSheet = useCallback(() => setIsMobileMoreOpen(false), []);
@@ -46,48 +36,6 @@ export function AppLayout() {
     []
   );
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
-  const syncDesktopHeaderCompact = useCallback(() => {
-    if (isPhoneLayout) {
-      setIsDesktopHeaderPinned(false);
-      setIsDesktopHeaderCompact(false);
-      return;
-    }
-
-    if (window.scrollY <= DESKTOP_HEADER_COMPACT_EXIT_SCROLL_Y_PX) {
-      setIsDesktopHeaderPinned(false);
-      setIsDesktopHeaderCompact(false);
-      return;
-    }
-
-    const navRect = desktopNavRef.current?.getBoundingClientRect();
-    if (!navRect || navRect.height <= 0) {
-      return;
-    }
-
-    const shouldPinHeader = isDesktopHeaderPinned || navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX;
-    if (shouldPinHeader) {
-      setIsDesktopHeaderPinned(true);
-    }
-
-    if (isDesktopHeaderCompact) {
-      return;
-    }
-
-    const headerRect = headerRef.current?.getBoundingClientRect();
-    if (!isDesktopHeaderPinned && headerRect && headerRect.height > navRect.height) {
-      desktopCompactEnterThresholdRef.current = Math.max(
-        headerRect.height - navRect.height + DESKTOP_HEADER_COMPACT_ENTER_BUFFER_PX,
-        DESKTOP_HEADER_COMPACT_MIN_ENTER_SCROLL_Y_PX
-      );
-    }
-
-    if (
-      window.scrollY > desktopCompactEnterThresholdRef.current &&
-      navRect.top <= DESKTOP_HEADER_STICKY_OFFSET_PX
-    ) {
-      setIsDesktopHeaderCompact(true);
-    }
-  }, [isDesktopHeaderCompact, isDesktopHeaderPinned, isPhoneLayout]);
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -97,31 +45,6 @@ export function AppLayout() {
   useEffect(() => {
     hasMountedRef.current = true;
   }, []);
-
-  useEffect(() => {
-    syncDesktopHeaderCompact();
-  }, [location.pathname, syncDesktopHeaderCompact]);
-
-  useEffect(() => {
-    if (isPhoneLayout) {
-      setIsDesktopHeaderPinned(false);
-      setIsDesktopHeaderCompact(false);
-      return;
-    }
-
-    const handleViewportChange = () => {
-      syncDesktopHeaderCompact();
-    };
-
-    handleViewportChange();
-    window.addEventListener('scroll', handleViewportChange, { passive: true });
-    window.addEventListener('resize', handleViewportChange);
-
-    return () => {
-      window.removeEventListener('scroll', handleViewportChange);
-      window.removeEventListener('resize', handleViewportChange);
-    };
-  }, [isPhoneLayout, syncDesktopHeaderCompact]);
 
   useEffect(() => {
     if (isPhoneLayout || !isDesktopMoreOpen) {
@@ -157,14 +80,7 @@ export function AppLayout() {
         isPhoneLayout ? 'app-shell-phone' : ''
       }`.trim()}
     >
-      <header
-        ref={headerRef}
-        className={`app-header ${!isPhoneLayout ? 'app-header-desktop' : ''} ${
-          isDesktopHeaderPinned ? 'app-header-pinned' : ''
-        } ${
-          isDesktopHeaderCompact ? 'app-header-compact' : ''
-        }`.trim()}
-      >
+      <header className={`app-header ${!isPhoneLayout ? 'app-header-desktop' : ''}`.trim()}>
         <div className="app-header-band">
           <div className="app-header-band-inner">
             <div className="app-header-topline">
@@ -179,24 +95,24 @@ export function AppLayout() {
                 <AccountMenuTrigger />
               </div>
             </div>
-            {!isPhoneLayout ? (
-              <div className="app-header-nav-wrap" ref={desktopNavRef}>
-                <DesktopNavigation
-                  primaryItems={primaryNavItems}
-                  moreItems={moreDesktopNavItems}
-                  moreRef={desktopMoreRef}
-                  isMoreActive={isDesktopMoreActive}
-                  isMoreOpen={isDesktopMoreOpen}
-                  moreHasAttention={desktopMoreHasAttention}
-                  moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
-                  onToggleMore={toggleDesktopMoreMenu}
-                  onCloseMore={closeDesktopMoreMenu}
-                />
-              </div>
-            ) : null}
           </div>
         </div>
       </header>
+      {!isPhoneLayout ? (
+        <div className="app-header-nav-wrap">
+          <DesktopNavigation
+            primaryItems={primaryNavItems}
+            moreItems={moreDesktopNavItems}
+            moreRef={desktopMoreRef}
+            isMoreActive={isDesktopMoreActive}
+            isMoreOpen={isDesktopMoreOpen}
+            moreHasAttention={desktopMoreHasAttention}
+            moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
+            onToggleMore={toggleDesktopMoreMenu}
+            onCloseMore={closeDesktopMoreMenu}
+          />
+        </div>
+      ) : null}
       <main className={`app-main ${isPhoneLayout ? 'app-main-phone' : ''}`.trim()}>
         <div
           key={location.pathname}

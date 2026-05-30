@@ -128,6 +128,14 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('uses a sticky desktop nav instead of compact header selectors', () => {
+    expect(css).toMatch(
+      /\.app-header-nav-wrap\s*{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*width:\s*auto;[^}]*margin:\s*0 calc\(50% - 50vw\) 1rem;[^}]*padding:\s*calc\(0\.45rem \+ env\(safe-area-inset-top\)\) var\(--app-shell-inline-padding\) 0\.6rem;[^}]*background:\s*var\(--color-header-pinned-bg\);/s
+    );
+    expect(css).not.toMatch(/\.app-header-desktop\.app-header-pinned/);
+    expect(css).not.toMatch(/\.app-header-desktop\.app-header-compact/);
+  });
+
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);
