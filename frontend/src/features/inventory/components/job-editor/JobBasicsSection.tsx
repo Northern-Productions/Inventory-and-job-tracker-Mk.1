@@ -36,7 +36,7 @@ export function JobBasicsSection({
   const disableJobNumber = mode === 'edit';
 
   return (
-    <div className="dialog-section">
+    <div className="dialog-section job-editor-basics-section">
       <div className="dialog-section-header">
         <h3>Job Basics</h3>
         <p className="muted-text">

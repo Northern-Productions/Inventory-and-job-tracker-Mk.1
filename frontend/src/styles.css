@@ -5831,3 +5831,218 @@ th {
   border-color: rgba(255, 248, 232, 0.28);
   border-top-color: currentColor;
 }
+
+.dialog-job-editor {
+  width: min(100%, 840px);
+  border: 1px solid var(--color-border-soft);
+  padding: 0;
+  background: var(--color-menu-bg);
+  color: var(--color-text-1);
+}
+
+.dialog-job-editor .dialog-header {
+  align-items: flex-start;
+  margin: 0;
+  padding: 1.35rem 1.5rem 0.9rem;
+}
+
+.dialog-job-editor .dialog-close {
+  flex: 0 0 auto;
+  border: 1px solid var(--color-control-border);
+  background: var(--color-control-bg);
+  color: var(--color-text-1);
+}
+
+.job-editor-dialog-body {
+  display: grid;
+  gap: 1rem;
+  padding: 0 1.5rem 1.45rem;
+}
+
+.job-editor-dialog-copy {
+  margin: 0;
+  max-width: 62rem;
+}
+
+.job-editor-dialog-copy p {
+  margin: 0;
+}
+
+.dialog-job-editor .dialog-section {
+  gap: 1rem;
+  margin-top: 0;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem;
+  background: var(--color-surface-1);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-sm);
+}
+
+.dialog-job-editor .dialog-section-header {
+  gap: 0.28rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  padding-bottom: 0.75rem;
+}
+
+.dialog-job-editor .dialog-section-header h3 {
+  color: var(--color-text-1);
+  font-size: 1.02rem;
+  letter-spacing: 0.02em;
+}
+
+.dialog-job-editor .dialog-section-header p,
+.dialog-job-editor .field-hint,
+.dialog-job-editor .muted-text {
+  color: var(--color-text-2);
+}
+
+.dialog-job-editor .field {
+  align-content: start;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.dialog-job-editor .field-hint {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.dialog-job-editor .form-grid,
+.dialog-job-editor .job-editor-basics-layout {
+  margin: 0;
+}
+
+.dialog-job-editor .job-editor-basics-layout {
+  gap: 1rem;
+}
+
+.dialog-job-editor .job-editor-basics-layout--job-only {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.86fr);
+}
+
+.dialog-job-editor .job-editor-basics-primary-grid,
+.dialog-job-editor .job-editor-basics-secondary-grid {
+  gap: 0.9rem;
+}
+
+.dialog-job-editor .field-input {
+  min-height: 3.05rem;
+}
+
+.dialog-job-editor .job-editor-phase-selector-row {
+  align-items: end;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: 0.9rem;
+  background: var(--color-surface-3);
+}
+
+.dialog-job-editor .job-editor-phase-selector-row .button {
+  min-height: 3.05rem;
+  white-space: nowrap;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields {
+  gap: 0.9rem;
+  grid-template-columns:
+    minmax(7rem, 0.62fr)
+    minmax(14rem, 1.35fr)
+    minmax(10rem, 1fr)
+    minmax(10rem, 1fr);
+  margin-top: 0;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(2) {
+  grid-column: span 2;
+}
+
+.job-editor-requirement-builder {
+  align-items: start;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: 0.95rem;
+  background: var(--color-surface-3);
+}
+
+.job-editor-inline-actions {
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.job-editor-inline-actions .button {
+  flex: 0 0 auto;
+  min-width: 8rem;
+}
+
+.job-editor-requirement-table {
+  margin-top: 0.1rem;
+  background: var(--color-surface-raised);
+}
+
+.job-editor-requirement-table .field-input {
+  min-height: 2.7rem;
+}
+
+.job-editor-empty-note,
+.job-editor-form-error {
+  margin: 0;
+}
+
+.dialog-job-editor .dialog-actions-sticky-footer {
+  bottom: 0;
+  gap: 0.75rem;
+  margin: 0;
+  border-top: 1px solid var(--color-border-soft);
+  padding: 1rem 1.5rem calc(1rem + env(safe-area-inset-bottom));
+  background: var(--color-menu-bg);
+  box-shadow: 0 -12px 28px rgba(18, 52, 59, 0.1);
+}
+
+.dialog-job-editor .dialog-actions-sticky-footer .button {
+  min-height: 3rem;
+}
+
+@media (max-width: 900px) {
+  .dialog-job-editor .job-editor-basics-layout--job-only,
+  .dialog-job-editor .job-editor-selected-phase-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(2) {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .dialog-job-editor .dialog-header {
+    padding: 1rem 1rem 0.75rem;
+  }
+
+  .job-editor-dialog-body {
+    gap: 0.85rem;
+    padding: 0 1rem 1.1rem;
+  }
+
+  .dialog-job-editor .dialog-section {
+    border-radius: var(--radius-md);
+    padding: 0.9rem;
+  }
+
+  .dialog-job-editor .job-editor-phase-selector-row {
+    grid-template-columns: 1fr;
+  }
+
+  .job-editor-inline-actions {
+    justify-content: stretch;
+  }
+
+  .job-editor-inline-actions .button {
+    width: 100%;
+  }
+
+  .dialog-job-editor .dialog-actions-sticky-footer {
+    padding-inline: 1rem;
+  }
+}

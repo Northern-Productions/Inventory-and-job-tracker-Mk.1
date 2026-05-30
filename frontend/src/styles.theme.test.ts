@@ -68,6 +68,18 @@ describe('theme contrast styles', () => {
     expect(css).toMatch(/\.film-orders-filters\s*{[^}]*margin-bottom:\s*1rem;/s);
   });
 
+  it('keeps the job editor dialog sections and sticky footer theme-aware', () => {
+    expect(css).toMatch(
+      /\.dialog-job-editor \.dialog-section\s*{[^}]*background:\s*var\(--color-surface-1\);[^}]*color:\s*var\(--color-text-1\);/s
+    );
+    expect(css).toMatch(
+      /\.job-editor-requirement-builder\s*{[^}]*background:\s*var\(--color-surface-3\);/s
+    );
+    expect(css).toMatch(
+      /\.dialog-job-editor \.dialog-actions-sticky-footer\s*{[^}]*bottom:\s*0;[^}]*background:\s*var\(--color-menu-bg\);/s
+    );
+  });
+
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);

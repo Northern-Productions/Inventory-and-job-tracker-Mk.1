@@ -61,7 +61,7 @@ export function JobFilmRequirementsSection({
     manufacturerSelectValue === CUSTOM_MANUFACTURER_OPTION;
 
   return (
-    <div className="dialog-section">
+    <div className="dialog-section job-editor-requirements-section">
       <div className="dialog-section-header">
         <h3>Film Requirements</h3>
         <p className="muted-text">
@@ -69,7 +69,7 @@ export function JobFilmRequirementsSection({
         </p>
       </div>
 
-      <div className="form-grid">
+      <div className="form-grid job-editor-requirement-builder">
         <label className="field">
           <span className="field-label">Manufacturer</span>
           <select
@@ -156,14 +156,14 @@ export function JobFilmRequirementsSection({
         />
       </div>
 
-      <div className="dialog-actions">
+      <div className="dialog-actions job-editor-inline-actions">
         <Button type="button" variant="secondary" onClick={onAddRequirement} disabled={submitting}>
           Add
         </Button>
       </div>
 
       {requirements.length ? (
-        <div className="table-wrap">
+        <div className="table-wrap job-editor-requirement-table">
           <table>
             <thead>
               <tr>
@@ -241,7 +241,7 @@ export function JobFilmRequirementsSection({
           </table>
         </div>
       ) : (
-        <p className="muted-text">
+        <p className="muted-text job-editor-empty-note">
           No film requirements added yet. You can still save an empty job.
         </p>
       )}
