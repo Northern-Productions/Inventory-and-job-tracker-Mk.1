@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse.sql';
+const LATEST_MIGRATION = '0155_film_order_detail_origin_compat.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -278,6 +278,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: ['label_applied_at', 'label_required_at']
   },
   {
+    signature: 'public.api_acl_film_orders_get(uuid, text)',
+    includes: [
+      "'sourceBoxId', v_order.source_box_id",
+      "when app_api.trim_text(v_order.source_box_id) = '' then 'MANUAL'",
+      "else 'AUTO_SHORTAGE'"
+    ],
+    excludes: ['v_order.origin']
+  },
+  {
     signature: 'app_api.normalize_job_sections(text)',
     includes: ['app_api.normalize_job_work_scope(p_value)'],
     excludes: ['Sections must contain numbers separated by commas.']
@@ -387,6 +396,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Job identity mismatch: selected job does not match jobNumber.',
       'and r.job_id = v_job_id',
       'Reactivate it before allocating film.',
+      "v_auto_allocate boolean := coalesce((p_payload->>'autoAllocate')::boolean, false);",
+      'if not v_auto_allocate and array_position(v_selected_box_ids, v_candidate.box_id) is null then',
       'app_api.create_or_merge_manual_requirement_allocation_with_coverage(',
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',

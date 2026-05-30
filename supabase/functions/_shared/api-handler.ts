@@ -5803,7 +5803,11 @@ async function ensureBoxCheckoutCrewCompatibility(client: any, orgId: string, pa
   }
 }
 
-function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<string, any>) {
+function buildPublicAllocationEntriesForJob(
+  allocations: any[],
+  boxById: Record<string, any>,
+  requirements: any[] = [],
+) {
   const sortedAllocations = allocations
     .slice()
     .sort((left, right) => {
@@ -5853,9 +5857,17 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
 
     reservationSnapshotsByBoxId[boxId] = buildBoxReservationSnapshot(box, activeAllocationsByBoxId[boxId]);
   }
+  const requirementById: Record<string, any> = {};
+  for (const requirement of requirements) {
+    const requirementId = asTrimmedString(requirement?.id || requirement?.requirementId);
+    if (requirementId) {
+      requirementById[requirementId] = requirement;
+    }
+  }
 
   return sortedAllocations.map((entry) => {
     const box = boxById[entry.boxId];
+    const requirement = requirementById[asTrimmedString(entry.requirementId)] || null;
     const allocationSnapshot =
       reservationSnapshotsByBoxId[entry.boxId]?.allocationSnapshotsById?.[entry.allocationId] || null;
     return {
@@ -5863,6 +5875,9 @@ function buildPublicAllocationEntriesForJob(allocations: any[], boxById: Record<
       manufacturer: box ? box.manufacturer : "",
       filmName: box ? box.filmName : "",
       widthIn: box ? box.widthIn : 0,
+      requirementManufacturer: requirement ? requirement.manufacturer : "",
+      requirementFilmName: requirement ? requirement.filmName : "",
+      requirementWidthIn: requirement ? requirement.widthIn : 0,
       boxStatus: box ? box.status : "",
       backedPhysicalFeet: allocationSnapshot ? allocationSnapshot.backedPhysicalFeet : integerOrZero(entry.allocatedFeet),
       reservationState: allocationSnapshot ? allocationSnapshot.reservationState : "WITHOUT_INSTALL_DATE",
@@ -6835,7 +6850,7 @@ async function buildAllocationJobDetail(client: any, orgId: string, jobNumber: u
 
   return {
     summary,
-    allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    allocations: buildPublicAllocationEntriesForJob(allocations, boxById, requirements),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
       normalizedJobNumber,
@@ -7467,7 +7482,7 @@ async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
       phases,
     }).phases || [],
     requirements: publicRequirements,
-    allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    allocations: buildPublicAllocationEntriesForJob(allocations, boxById, requirements),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
       normalizedJobNumber,
@@ -7558,7 +7573,7 @@ export async function buildJobDetailById(client: any, orgId: string, jobId: unkn
       phases,
     }).phases || [],
     requirements: publicRequirements,
-    allocations: buildPublicAllocationEntriesForJob(allocations, boxById),
+    allocations: buildPublicAllocationEntriesForJob(allocations, boxById, requirements),
     usage: buildPublicJobUsageEntries(rollHistory, boxById),
     usageTimeline: buildPublicJobUsageTimelineEntries(
       normalizedJobNumber,

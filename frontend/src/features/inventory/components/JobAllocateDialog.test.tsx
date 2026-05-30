@@ -2201,6 +2201,123 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
+  it('saves manual allocation with only the boxes the user explicitly selected', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [
+          {
+            allocationId: 'alloc-il1',
+            boxId: 'IL1-6915',
+            allocatedFeet: 20,
+            coveredFeet: 20
+          }
+        ],
+        filmOrder: null,
+        remainingUncoveredFeet: 20
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({
+      isPending: false,
+      mutateAsync
+    });
+    useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
+      payload?.boxId === 'IL1-6915'
+        ? buildPreviewState({
+            data: {
+              jobNumber: '17170',
+              installDate: '',
+              crewLeader: '',
+              requestedFeet: 40,
+              requestedWidthIn: 48,
+              sourceBoxId: 'IL1-6915',
+              sourceWarehouse: 'IL1',
+              sourceWidthIn: 48,
+              sourceBoxFeetAvailable: 20,
+              sourceSuggestedFeet: 20,
+              sourceSuggestedCoveredFeet: 20,
+              sourceConflicts: [],
+              suggestions: [
+                {
+                  boxId: 'MS1-127',
+                  warehouse: 'MS1',
+                  widthIn: 48,
+                  availableFeet: 25,
+                  suggestedFeet: 20,
+                  suggestedCoveredFeet: 20,
+                  receivedDate: '2026-01-02',
+                  orderDate: '2026-01-02'
+                }
+              ],
+              defaultCoveredFeet: 40,
+              defaultRemainingFeet: 0
+            }
+          })
+        : buildPreviewState()
+    );
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'IL1-6915',
+        warehouse: 'IL1',
+        manufacturer: 'Llumar',
+        filmName: 'RN 07 Refl. One Way Mirror',
+        widthIn: 48,
+        initialFeet: 20,
+        feetAvailable: 20,
+        allocationPlanningFeet: 20
+      }),
+      buildSearchBox({
+        boxId: 'MS1-127',
+        warehouse: 'MS1',
+        manufacturer: 'Llumar',
+        filmName: 'RN07',
+        widthIn: 48,
+        initialFeet: 25,
+        feetAvailable: 25,
+        allocationPlanningFeet: 25
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '17170',
+      warehouse: 'IL1',
+      requirements: [
+        {
+          requirementId: 'req-1',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 40,
+          allocatedFeet: 0,
+          remainingFeet: 40
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const checkboxes = within(table).getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]);
+
+    await waitFor(() => expect((checkboxes[0] as HTMLInputElement).checked).toBe(true));
+    expect((checkboxes[1] as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boxId: 'IL1-6915',
+        requestedFeet: 40,
+        selectedSuggestionBoxIds: [],
+        crossWarehouse: true,
+        jobWarehouse: 'IL1'
+      })
+    );
+    expect(JSON.stringify(mutateAsync.mock.calls[0][0])).not.toContain('MS1-127');
+
+    queryClient.clear();
+  });
+
   it('lets the user reassign the source by unchecking the current box after selecting another one', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) => {
       if (payload?.boxId === 'MS1-127') {

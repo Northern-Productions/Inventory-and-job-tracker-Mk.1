@@ -41,6 +41,8 @@ import {
   useReopenJob,
   useRemoveJobBoxAllocations,
   useSetBoxStatus,
+  useStartBoxTransfer,
+  useCancelBoxTransfer,
   useSetJobPhaseState,
   useSetJobRequirementState,
   useSetJobStagedForPickup,
@@ -102,6 +104,8 @@ export function useAllocationJobPageModel() {
   const removeCaulkAllocationMutation = useRemoveCaulkJobAllocation();
   const receiveCaulkTransferMutation = useReceiveCaulkTransfer();
   const cancelCaulkTransferMutation = useCancelCaulkTransfer();
+  const startBoxTransferMutation = useStartBoxTransfer();
+  const cancelBoxTransferMutation = useCancelBoxTransfer();
   const completeJobMutation = useCompleteJob();
   const deleteJobMutation = useDeleteJob();
   const reopenJobMutation = useReopenJob();
@@ -121,6 +125,7 @@ export function useAllocationJobPageModel() {
   const [staleFilmOrderPromptOrders, setStaleFilmOrderPromptOrders] = useState<FilmOrderEntry[]>([]);
   const [filmAutoAllocateRequirementId, setFilmAutoAllocateRequirementId] = useState('');
   const [caulkAutoAllocateRequirementId, setCaulkAutoAllocateRequirementId] = useState('');
+  const [filmTransferActionBoxId, setFilmTransferActionBoxId] = useState('');
   const [dismissedStaleFilmOrderPromptKeys, setDismissedStaleFilmOrderPromptKeys] = useState<
     Set<string>
   >(() => new Set());
@@ -1104,6 +1109,7 @@ export function useAllocationJobPageModel() {
   async function handleOrderAllFilmRequirements() {
     if (
       isReadOnlyJob ||
+      createFilmOrderMutation.isPending ||
       !ensureActionAccess({
         actionLabel: 'creating film orders',
         feature: 'film_orders',
@@ -1140,6 +1146,78 @@ export function useAllocationJobPageModel() {
         description: error instanceof Error ? error.message : 'One of the create requests failed.',
         variant: 'error'
       });
+    }
+  }
+
+  async function handleStartFilmTransferFromAlert(alert: JobFilmTransferAlert) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !ensureActionAccess({
+        actionLabel: 'starting film transfer',
+        feature: 'inventory',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    setFilmTransferActionBoxId(alert.boxId);
+    try {
+      await startBoxTransferMutation.mutateAsync({
+        boxId: alert.boxId,
+        toWarehouse: alert.destinationWarehouse,
+        notes: `Started from job ${summary.jobNumber} transfer alert.`
+      });
+      toast.push({
+        title: 'Film transfer started',
+        description: `${alert.boxId} is moving from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to start film transfer',
+        description: error instanceof Error ? error.message : 'The transfer request failed.',
+        variant: 'error'
+      });
+    } finally {
+      setFilmTransferActionBoxId('');
+    }
+  }
+
+  async function handleCancelFilmTransferFromAlert(alert: JobFilmTransferAlert) {
+    if (
+      isReadOnlyJob ||
+      !summary ||
+      !alert.transferId ||
+      !ensureActionAccess({
+        actionLabel: 'cancelling film transfer',
+        feature: 'inventory',
+        requireWriteAccess: true
+      })
+    ) {
+      return;
+    }
+
+    setFilmTransferActionBoxId(alert.boxId);
+    try {
+      await cancelBoxTransferMutation.mutateAsync({
+        transferId: alert.transferId,
+        reason: `Cancelled from job ${summary.jobNumber} transfer alert.`
+      });
+      toast.push({
+        title: 'Film transfer cancelled',
+        description: `${alert.boxId} transfer was cancelled.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to cancel film transfer',
+        description: error instanceof Error ? error.message : 'The cancel request failed.',
+        variant: 'error'
+      });
+    } finally {
+      setFilmTransferActionBoxId('');
     }
   }
 
@@ -1192,6 +1270,9 @@ export function useAllocationJobPageModel() {
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     filmAutoAllocatePendingRequirementId: filmAutoAllocateRequirementId,
     caulkAutoAllocatePendingRequirementId: caulkAutoAllocateRequirementId,
+    filmTransferActionBoxId,
+    isFilmTransferActionPending:
+      startBoxTransferMutation.isPending || cancelBoxTransferMutation.isPending,
     isOrderAllConfirmOpen,
     setIsOrderAllConfirmOpen,
     staleFilmOrderPromptOrders,
@@ -1208,6 +1289,8 @@ export function useAllocationJobPageModel() {
     handleResumeAutoPlanning,
     handleResumeCaulkAutoPlanning,
     handleOrderAllFilmRequirements,
+    handleStartFilmTransferFromAlert,
+    handleCancelFilmTransferFromAlert,
     handleCancelRequirementOrder: lifecycleWorkflow.setFilmOrderToDelete,
     lifecycleWorkflow,
     filmWorkflow,

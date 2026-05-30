@@ -593,9 +593,12 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       jobWarehouse,
       pendingTransfersByBoxRecordId
     });
-    const selectedSuggestionBoxIds = Array.isArray(payload.selectedSuggestionBoxIds)
-      ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value))
-      : plan.suggestions.map((suggestion) => suggestion.boxId);
+    const hasExplicitSuggestionSelection = Array.isArray(payload.selectedSuggestionBoxIds);
+    const selectedSuggestionBoxIds = hasExplicitSuggestionSelection
+      ? payload.selectedSuggestionBoxIds.map((value) => asTrimmedString(value)).filter(Boolean)
+      : autoAllocate
+        ? plan.suggestions.map((suggestion) => suggestion.boxId)
+        : [];
     selection = calculateSelectedSuggestionAllocations(plan, selectedSuggestionBoxIds);
   }
 

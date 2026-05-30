@@ -88,6 +88,47 @@ function stripLocalFilmId(displayBoxId: string): string {
   return legacyMatch ? legacyMatch[1] : normalized;
 }
 
+export function getLabelJobIdFromBox(box: Box): string {
+  const orderedForJobs = Array.isArray(box.orderedForJobs) ? box.orderedForJobs : [];
+  const origins = orderedForJobs
+    .map((origin) => ({
+      jobId: normalizeDraftText(origin.jobId),
+      jobNumber: normalizeDraftText(origin.jobNumber),
+      workScope: normalizeDraftText(origin.workScope || origin.sections)
+    }))
+    .filter((origin) => origin.jobNumber);
+
+  if (origins.length > 0) {
+    const originKeys = new Set(
+      origins.map((origin) => [origin.jobId, origin.jobNumber, origin.workScope].join('|'))
+    );
+    if (originKeys.size === 1) {
+      return origins[0].jobNumber;
+    }
+
+    return '';
+  }
+
+  return normalizeDraftText(box.lastCheckoutJob);
+}
+
+function hasAmbiguousLabelJobOrigin(box: Box): boolean {
+  const orderedForJobs = Array.isArray(box.orderedForJobs) ? box.orderedForJobs : [];
+  const origins = orderedForJobs
+    .map((origin) => ({
+      jobId: normalizeDraftText(origin.jobId),
+      jobNumber: normalizeDraftText(origin.jobNumber),
+      workScope: normalizeDraftText(origin.workScope || origin.sections)
+    }))
+    .filter((origin) => origin.jobNumber);
+
+  if (origins.length <= 1) {
+    return false;
+  }
+
+  return new Set(origins.map((origin) => [origin.jobId, origin.jobNumber, origin.workScope].join('|'))).size > 1;
+}
+
 export function getLabelDisplayBoxId(box: Pick<Box, 'boxId' | 'warehouse'>): string {
   return formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
 }
@@ -133,7 +174,7 @@ export function buildLabelDraftFromBox(box: Box): LabelDraft {
 
   return {
     date,
-    jobId: '',
+    jobId: getLabelJobIdFromBox(box),
     weightLbs,
     by: '',
     balance: formatCurrentFeetValue(box),
@@ -162,6 +203,10 @@ export function buildLabelDraftWarnings(box: Box, draft: LabelDraft): string[] {
 
   if (!draft.boxId) {
     warnings.push('Box ID is missing.');
+  }
+
+  if (!draft.jobId && hasAmbiguousLabelJobOrigin(box)) {
+    warnings.push('Box is tied to multiple jobs. Enter the Job ID manually.');
   }
 
   if (!draft.weightLbs) {

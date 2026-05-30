@@ -14,6 +14,7 @@ import {
   toPublicBox,
   findBoxById,
   findFilmOrderById,
+  findJobById,
   findJobByNumber,
   listAllocationsByBox,
   reconcileBoxCheckinAllocations,
@@ -100,11 +101,24 @@ async function addBox(client, orgId, payload, actor) {
       );
     }
 
-    directToJobSiteJob = await findJobByNumber(client, orgId, directToJobSiteOrder.jobNumber);
+    const directToJobSiteJobId = asTrimmedString(directToJobSiteOrder.jobId);
+    directToJobSiteJob = directToJobSiteJobId
+      ? await findJobById(client, orgId, directToJobSiteJobId)
+      : await findJobByNumber(client, orgId, directToJobSiteOrder.jobNumber);
     if (!directToJobSiteJob) {
       throw new HttpError(
         400,
         `Film Order ${directToJobSiteOrder.filmOrderId} must stay linked to an active job before Ship Directly to Job Site can be used.`
+      );
+    }
+
+    if (
+      normalizeJobLifecycleStatus(directToJobSiteJob.lifecycleStatus) === 'ACTIVE' &&
+      asTrimmedString(directToJobSiteJob.jobNumber) !== asTrimmedString(directToJobSiteOrder.jobNumber)
+    ) {
+      throw new HttpError(
+        400,
+        `Film Order ${directToJobSiteOrder.filmOrderId} is linked to a different job than its displayed job number.`
       );
     }
 
@@ -173,6 +187,7 @@ async function addBox(client, orgId, payload, actor) {
           orgId,
           box,
           {
+            jobId: asTrimmedString(linkedOrder.jobId || directToJobSiteOrder.jobId || directToJobSiteJob?.id),
             jobNumber: linkedOrder.jobNumber,
             installDate: linkedOrder.installDate,
             crewLeader: asTrimmedString(linkedOrder.crewLeader) || asTrimmedString(directToJobSiteJob?.crewLeader)
@@ -190,6 +205,7 @@ async function addBox(client, orgId, payload, actor) {
         directToJobSite: true,
         feetAvailable: getDirectToJobSiteAvailableFeet(box.initialFeet, committedFeet),
         hasEverBeenCheckedOut: true,
+        lastCheckoutJobId: asTrimmedString(linkedOrder.jobId || directToJobSiteOrder.jobId || directToJobSiteJob?.id),
         lastCheckoutJob: linkedOrder.jobNumber,
         lastCheckoutDate: todayDateString(),
         zeroedDate: '',

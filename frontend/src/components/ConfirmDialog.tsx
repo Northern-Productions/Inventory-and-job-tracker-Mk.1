@@ -30,6 +30,8 @@ interface ConfirmDialogProps {
   reasonAllowCustomOption?: boolean;
   reasonCustomOptionLabel?: string;
   customReasonLabel?: string;
+  pending?: boolean;
+  pendingLabel?: string;
   onCancel: () => void;
   onConfirm: (reason: string) => void;
 }
@@ -57,6 +59,8 @@ export function ConfirmDialog({
   reasonAllowCustomOption = false,
   reasonCustomOptionLabel = 'Enter New Value',
   customReasonLabel,
+  pending = false,
+  pendingLabel,
   onCancel,
   onConfirm
 }: ConfirmDialogProps) {
@@ -116,10 +120,25 @@ export function ConfirmDialog({
   }
 
   return (
-    <DialogSurface open={open} onClose={onCancel} titleId={titleId} descriptionId={message ? messageId : undefined}>
+    <DialogSurface
+      open={open}
+      onClose={() => {
+        if (!pending) {
+          onCancel();
+        }
+      }}
+      titleId={titleId}
+      descriptionId={message ? messageId : undefined}
+    >
       <div className="dialog-header">
         <h2 id={titleId}>{title}</h2>
-        <button type="button" className="dialog-close" aria-label="Close dialog" onClick={onCancel}>
+        <button
+          type="button"
+          className="dialog-close"
+          aria-label="Close dialog"
+          onClick={onCancel}
+          disabled={pending}
+        >
           x
         </button>
       </div>
@@ -174,7 +193,7 @@ export function ConfirmDialog({
           )
         ) : null}
         <div className="dialog-actions">
-          <Button type="button" variant="ghost" fullWidth onClick={onCancel}>
+          <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={pending}>
             {cancelLabel}
           </Button>
           <Button
@@ -183,6 +202,8 @@ export function ConfirmDialog({
             fullWidth
             onClick={() => onConfirm(resolvedReason)}
             disabled={requireReason && !resolvedReason}
+            loading={pending}
+            loadingLabel={pendingLabel || confirmLabel}
           >
             {confirmLabel}
           </Button>

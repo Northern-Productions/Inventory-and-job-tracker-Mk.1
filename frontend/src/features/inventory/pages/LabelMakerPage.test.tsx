@@ -11,6 +11,7 @@ import LabelMakerPage from './LabelMakerPage';
 const useOfflineInventorySearchMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useMarkLabelsPrintedMock = vi.fn();
+const useBoxMock = vi.fn();
 const useAuthMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
 const createBoxQrCodeDataUrlMock = vi.fn();
@@ -20,6 +21,7 @@ vi.mock('../hooks/useOfflineInventorySearch', () => ({
 }));
 
 vi.mock('../hooks/useInventoryQueries', () => ({
+  useBox: (...args: unknown[]) => useBoxMock(...args),
   useFilmCatalog: () => useFilmCatalogMock(),
   useMarkLabelsPrinted: () => useMarkLabelsPrintedMock()
 }));
@@ -163,6 +165,12 @@ describe('LabelMakerPage', () => {
     });
     useFilmCatalogMock.mockReturnValue({
       data: [],
+      isLoading: false,
+      isError: false,
+      error: null
+    });
+    useBoxMock.mockReturnValue({
+      data: undefined,
       isLoading: false,
       isError: false,
       error: null
@@ -325,7 +333,7 @@ describe('LabelMakerPage', () => {
     expect(getMatchingBoxesTable()).toBeTruthy();
   });
 
-  it('shows unlabeled in-stock boxes without requiring search text', () => {
+  it('shows unlabeled ordered and in-stock boxes without requiring search text', () => {
     useOfflineInventorySearchMock.mockReturnValue({
       snapshotBoxes: [
         buildBox({ boxId: 'MO1-0100', hasLabel: false, status: 'IN_STOCK' }),
@@ -354,8 +362,8 @@ describe('LabelMakerPage', () => {
 
     const table = getMatchingBoxesTable();
     expect(within(table).getByText('MO1-0100')).toBeTruthy();
+    expect(within(table).getByText('MO1-0102')).toBeTruthy();
     expect(within(table).queryByText('MO1-0101')).toBeNull();
-    expect(within(table).queryByText('MO1-0102')).toBeNull();
     expect(within(table).queryByText('MO1-0103')).toBeNull();
     expect(within(table).queryByText('MO1-0104')).toBeNull();
     expect(within(table).queryByText('MO1-0105')).toBeNull();
@@ -611,6 +619,72 @@ describe('LabelMakerPage', () => {
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Print Labels' }) as HTMLButtonElement).disabled).toBe(false)
     );
+  });
+
+  it('prefills Job ID from a selected box job origin and does not guess ambiguous origins', async () => {
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [
+        buildBox({
+          boxId: 'MO1-ORDERED',
+          hasLabel: false,
+          status: 'ORDERED'
+        }),
+        buildBox({
+          boxId: 'MO1-AMBIG',
+          hasLabel: false,
+          status: 'ORDERED',
+          orderedForJobs: [
+            { jobId: 'job-a', jobNumber: '7777', workScope: 'North', filmOrderId: 'FO-A' },
+            { jobId: 'job-b', jobNumber: '7777', workScope: 'South', filmOrderId: 'FO-B' }
+          ]
+        })
+      ],
+      isError: false,
+      error: null,
+      isLoading: false,
+      isOffline: false,
+      isSyncing: false,
+      syncError: null,
+      hasSnapshot: true,
+      lastSyncedAt: new Date().toISOString(),
+      refetch: vi.fn()
+    });
+    useBoxMock.mockImplementation((boxId: string) => ({
+      data:
+        boxId === 'MO1-ORDERED'
+          ? buildBox({
+              boxId: 'MO1-ORDERED',
+              hasLabel: false,
+              status: 'ORDERED',
+              orderedForJobs: [
+                {
+                  jobId: '11111111-1111-4111-8111-111111111111',
+                  jobNumber: '4953',
+                  workScope: 'Lobby',
+                  filmOrderId: 'FO-4953'
+                }
+              ]
+            })
+          : undefined,
+      isLoading: false,
+      isError: false,
+      error: null
+    }));
+
+    renderPage('/labels');
+    fireEvent.change(screen.getByRole('combobox', { name: /Label Status/ }), {
+      target: { value: 'unlabeled' }
+    });
+    fireEvent.click(within(getRowForBox('MO1-ORDERED')).getByRole('button', { name: 'Label A' }));
+
+    await waitFor(() =>
+      expect((screen.getAllByLabelText('Job ID')[0] as HTMLInputElement).value).toBe('4953')
+    );
+
+    fireEvent.click(within(getRowForBox('MO1-AMBIG')).getByRole('button', { name: 'Label B' }));
+
+    expect((screen.getAllByLabelText('Job ID')[1] as HTMLInputElement).value).toBe('');
+    expect(screen.getByText('Box is tied to multiple jobs. Enter the Job ID manually.')).toBeTruthy();
   });
 
   it('disables printing when a required field is blank', async () => {

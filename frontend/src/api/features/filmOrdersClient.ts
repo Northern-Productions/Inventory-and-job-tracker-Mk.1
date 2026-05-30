@@ -23,7 +23,7 @@ export async function getFilmOrders(options: { warehouse?: string } = {}): Promi
 
 export async function getFilmOrderDetail(filmOrderId: string): Promise<FilmOrderDetail> {
   assertFeatureAccess('film_orders', 'read');
-  return requestReadWithFallback<FilmOrderDetail>('/film-orders/get', { filmOrderId }, {});
+  return requestReadWithFallback<FilmOrderDetail>('/film-orders/get', { filmOrderId }, { filmOrderId });
 }
 
 export async function getFilmCatalog(): Promise<FilmCatalogEntry[]> {

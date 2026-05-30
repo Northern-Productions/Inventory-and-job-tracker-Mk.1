@@ -8,6 +8,10 @@ const supabaseMigration = readFileSync(
   'utf8'
 );
 const schemaCheck = readFileSync(new URL('../check-schema-latest.mjs', import.meta.url), 'utf8');
+const runtimeCollectionsAndBoxes = readFileSync(
+  new URL('../../src/app/services/runtime/runtimeCollectionsAndBoxes.mjs', import.meta.url),
+  'utf8'
+);
 
 test('box label tracking migration is mirrored for Supabase deploys', () => {
   assert.equal(supabaseMigration, backendMigration);
@@ -38,6 +42,11 @@ test('box label tracking migration marks ordered receipts as unlabeled', () => {
   );
 });
 
+test('local add and edit box runtime keeps unlabeled boxes unlabeled until printed', () => {
+  assert.match(runtimeCollectionsAndBoxes, /hasLabel: existingBox \? existingBox\.hasLabel !== false : false/);
+  assert.doesNotMatch(runtimeCollectionsAndBoxes, /hasLabel:\s*true/);
+});
+
 test('box label tracking migration adds a mark-printed RPC with audit entries', () => {
   assert.match(backendMigration, /create or replace function public\.api_acl_boxes_mark_labels_printed/);
   assert.match(backendMigration, /jsonb_typeof\(p_payload->'boxIds'\)/);
@@ -47,7 +56,7 @@ test('box label tracking migration adds a mark-printed RPC with audit entries', 
 });
 
 test('schema guard tracks the box label migration and required objects', () => {
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0153_manual_only_auto_allocation_job_warehouse\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0155_film_order_detail_origin_compat\.sql';/);
   assert.match(schemaCheck, /signature: 'app\.boxes\.has_label'/);
   assert.match(schemaCheck, /signature: 'public\.api_acl_boxes_mark_labels_printed\(uuid, text, jsonb\)'/);
   assert.match(schemaCheck, /v_box\.has_label := false;/);

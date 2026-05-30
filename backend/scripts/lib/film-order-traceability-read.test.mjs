@@ -1,10 +1,52 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 import {
   buildBoxFilmOrderOrigins,
   buildFilmOrderDetail,
 } from '../../src/app/services/filmOrders.mjs';
+
+const localReadHandlers = readFileSync(
+  new URL('../../src/app/handlers/readHandlers.mjs', import.meta.url),
+  'utf8'
+);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const backendOriginMigration = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0155_film_order_detail_origin_compat.sql'
+);
+const supabaseOriginMigration = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260529101000_film_order_detail_origin_compat.sql'
+);
+
+test('local read dispatcher projects auth context before ACL-backed film order reads', () => {
+  assert.match(localReadHandlers, /import \{ applyAuthenticatedSessionContext \} from '\.\.\/services\/access\.mjs';/);
+  assert.match(localReadHandlers, /await client\.query\('BEGIN'\);/);
+  assert.match(
+    localReadHandlers,
+    /await applyAuthenticatedSessionContext\(client, authContext\);\s+const response = await handler\(\{ client, orgId: authContext\.orgId, params, authContext \}\);/s
+  );
+  assert.match(localReadHandlers, /await client\.query\('COMMIT'\);/);
+  assert.match(localReadHandlers, /await client\.query\('ROLLBACK'\);/);
+});
+
+test('film order detail origin compatibility migration stays mirrored', () => {
+  const backendMigration = readFileSync(backendOriginMigration, 'utf8');
+  const supabaseMigration = readFileSync(supabaseOriginMigration, 'utf8');
+
+  assert.equal(supabaseMigration, backendMigration);
+  assert.match(backendMigration, /'sourceBoxId', v_order\.source_box_id/);
+  assert.match(backendMigration, /when app_api\.trim_text\(v_order\.source_box_id\) = '' then 'MANUAL'/);
+  assert.doesNotMatch(backendMigration, /v_order\.origin/);
+});
 
 test('buildFilmOrderDetail uses the scoped film order detail RPC', async () => {
   const calls = [];

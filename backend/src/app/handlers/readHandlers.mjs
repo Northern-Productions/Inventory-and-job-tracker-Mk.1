@@ -48,6 +48,7 @@ import { findJobById } from '../repositories/jobsRepository.mjs';
 import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
 import { listWarehouses } from '../services/warehouses.mjs';
+import { applyAuthenticatedSessionContext } from '../services/access.mjs';
 import {
   getGeneralFeaturePermissions,
   getOwnerNotificationPreferencesInternal,
@@ -425,7 +426,25 @@ export async function dispatchReadWithHandlers(logicalPath, params, authContext)
     return handler({ client: null, orgId: authContext.orgId, params, authContext });
   }
 
-  return withReadClient(async (client) =>
-    handler({ client, orgId: authContext.orgId, params, authContext })
-  );
+  return withReadClient(async (client) => {
+    let transactionStarted = false;
+    try {
+      await client.query('BEGIN');
+      transactionStarted = true;
+      await applyAuthenticatedSessionContext(client, authContext);
+      const response = await handler({ client, orgId: authContext.orgId, params, authContext });
+      await client.query('COMMIT');
+      transactionStarted = false;
+      return response;
+    } catch (error) {
+      if (transactionStarted) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (_rollbackError) {
+          // Preserve the original read error.
+        }
+      }
+      throw error;
+    }
+  });
 }

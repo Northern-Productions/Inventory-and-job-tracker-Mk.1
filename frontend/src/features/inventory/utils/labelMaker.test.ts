@@ -3,6 +3,7 @@ import type { Box } from '../../../domain';
 import {
   buildLabelDraftFromBox,
   buildLabelDraftWarnings,
+  getLabelJobIdFromBox,
   getLabelBoxId,
   getMissingRequiredLabelFields,
   type LabelDraft
@@ -117,6 +118,37 @@ describe('label maker mapping', () => {
     );
 
     expect(draft.balance).toBe('100');
+  });
+
+  it('prefills job id from one canonical ordered job origin', () => {
+    const box = buildBox({
+      orderedForJobs: [
+        {
+          jobId: '11111111-1111-4111-8111-111111111111',
+          jobNumber: '4953',
+          workScope: 'Lobby',
+          filmOrderId: 'FO-4953'
+        }
+      ]
+    });
+
+    expect(getLabelJobIdFromBox(box)).toBe('4953');
+    expect(buildLabelDraftFromBox(box).jobId).toBe('4953');
+  });
+
+  it('does not guess a job id when ordered origins are ambiguous', () => {
+    const box = buildBox({
+      orderedForJobs: [
+        { jobId: 'job-a', jobNumber: '7777', workScope: 'North', filmOrderId: 'FO-A' },
+        { jobId: 'job-b', jobNumber: '7777', workScope: 'South', filmOrderId: 'FO-B' }
+      ]
+    });
+    const draft = buildLabelDraftFromBox(box);
+
+    expect(draft.jobId).toBe('');
+    expect(buildLabelDraftWarnings(box, draft)).toContain(
+      'Box is tied to multiple jobs. Enter the Job ID manually.'
+    );
   });
 
   it('uses current feet only and does not fall back to initial feet', () => {

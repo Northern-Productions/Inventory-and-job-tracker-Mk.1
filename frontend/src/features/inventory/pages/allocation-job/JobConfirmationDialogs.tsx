@@ -24,6 +24,7 @@ interface JobConfirmationDialogsProps {
   onConfirmCancelStaleFilmOrders: () => void;
   isOrderAllConfirmOpen: boolean;
   orderableFilmRequirementCount: number;
+  orderAllPending: boolean;
   onCancelOrderAll: () => void;
   onConfirmOrderAll: () => void;
   allocationToRemove: AllocationJobDetailEntry | null;
@@ -66,6 +67,7 @@ export function JobConfirmationDialogs({
   onConfirmCancelStaleFilmOrders,
   isOrderAllConfirmOpen,
   orderableFilmRequirementCount,
+  orderAllPending,
   onCancelOrderAll,
   onConfirmOrderAll,
   allocationToRemove,
@@ -157,9 +159,19 @@ export function JobConfirmationDialogs({
         title="Order All Film"
         message={`Create ${orderableFilmRequirementCount} film order${orderableFilmRequirementCount === 1 ? '' : 's'} for the unmet film requirements on job ${jobNumber}?`}
         confirmLabel="Create Orders"
+        pending={orderAllPending}
+        pendingLabel="Creating..."
         cancelLabel="Review Requirements"
-        onCancel={onCancelOrderAll}
-        onConfirm={onConfirmOrderAll}
+        onCancel={() => {
+          if (!orderAllPending) {
+            onCancelOrderAll();
+          }
+        }}
+        onConfirm={() => {
+          if (!orderAllPending) {
+            onConfirmOrderAll();
+          }
+        }}
       />
 
       <ConfirmDialog

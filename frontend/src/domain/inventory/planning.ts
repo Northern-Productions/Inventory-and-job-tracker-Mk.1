@@ -321,6 +321,9 @@ export interface AllocationJobDetailEntry extends AllocationEntry {
   manufacturer: string;
   filmName: string;
   widthIn: number;
+  requirementManufacturer?: string;
+  requirementFilmName?: string;
+  requirementWidthIn?: number;
   boxStatus: BoxStatus | '';
   checkedOutOnThisJob: boolean;
 }

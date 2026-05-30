@@ -158,50 +158,54 @@ describe('AllocatedBoxesSection', () => {
     expect(screen.getByText('22')).toBeTruthy();
     expect(screen.queryByText('alloc-48')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
-    expect(screen.getByText('Expand to remove individual allocations')).toBeTruthy();
+    expect(screen.getByText('Expand to view requirement coverage')).toBeTruthy();
   });
 
-  it('expands grouped boxes to show per-allocation rows and remove controls', () => {
-    const onRemoveAllocation = vi.fn();
+  it('expands grouped boxes to show simplified requirement coverage rows', () => {
     const entries = [
       buildEntry({
         allocationId: 'alloc-48',
         boxId: 'IL1-6000',
         requirementId: 'req-48',
+        requirementManufacturer: '3M Solar',
+        requirementFilmName: 'Prestige 36',
+        requirementWidthIn: 36,
         allocatedFeet: 10,
-        coveredFeet: 10,
+        coveredFeet: 14,
         boxStatus: 'IN_STOCK'
       }),
       buildEntry({
         allocationId: 'alloc-60',
         boxId: 'IL1-6000',
         requirementId: 'req-60',
+        requirementManufacturer: '3M Solar',
+        requirementFilmName: 'Prestige 60',
+        requirementWidthIn: 60,
         allocatedFeet: 12,
         coveredFeet: 12,
         boxStatus: 'IN_STOCK'
       })
     ];
 
-    renderSection(entries, { onRemoveAllocation });
+    renderSection(entries);
 
     fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
 
-    expect(screen.getByText('alloc-48')).toBeTruthy();
-    expect(screen.getByText('alloc-60')).toBeTruthy();
-    expect(screen.getByText('req-48')).toBeTruthy();
-    expect(screen.getByText('req-60')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2);
-
-    const secondAllocationRow = screen.getByText('alloc-60').closest('tr');
-    expect(secondAllocationRow).toBeTruthy();
-    fireEvent.click(within(secondAllocationRow as HTMLTableRowElement).getByRole('button', { name: 'Remove' }));
-
-    expect(onRemoveAllocation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        allocationId: 'alloc-60',
-        boxId: 'IL1-6000'
-      })
-    );
+    const details = document.getElementById('allocated-box-details-IL1-6000');
+    expect(details).toBeTruthy();
+    const detailView = within(details as HTMLElement);
+    expect(detailView.getByRole('columnheader', { name: 'Requirement' })).toBeTruthy();
+    expect(detailView.getByRole('columnheader', { name: 'Width' })).toBeTruthy();
+    expect(detailView.getByRole('columnheader', { name: 'Covered LF' })).toBeTruthy();
+    expect(detailView.getByText('3M Solar Prestige 36')).toBeTruthy();
+    expect(detailView.getByText('3M Solar Prestige 60')).toBeTruthy();
+    expect(detailView.getByText('36')).toBeTruthy();
+    expect(detailView.getByText('14')).toBeTruthy();
+    expect(screen.queryByText('alloc-48')).toBeNull();
+    expect(screen.queryByText('req-48')).toBeNull();
+    expect(detailView.queryByRole('columnheader', { name: 'Allocation' })).toBeNull();
+    expect(detailView.queryByRole('columnheader', { name: 'Actions' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
   });
 
   it('shows one checkout action for duplicate same-box allocations', () => {

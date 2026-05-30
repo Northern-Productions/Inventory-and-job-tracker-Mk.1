@@ -72,4 +72,26 @@ describe('ConfirmDialog', () => {
     expect(html).toContain('inputMode="numeric"');
     expect(html).toContain('pattern="[0-9]*"');
   });
+
+  it('renders pending confirmation state with disabled actions and busy affordance', () => {
+    const html = renderToStaticMarkup(
+      <ConfirmDialog
+        open
+        title="Order All Film"
+        message="Create all remaining film orders?"
+        confirmLabel="Create Orders"
+        pending
+        pendingLabel="Creating..."
+        cancelLabel="Review Requirements"
+        onCancel={() => undefined}
+        onConfirm={() => undefined}
+      />
+    );
+
+    expect(html).toContain('Creating...');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('button-spinner');
+    expect(html).toContain('Review Requirements</button>');
+    expect(html).toContain('disabled=""');
+  });
 });

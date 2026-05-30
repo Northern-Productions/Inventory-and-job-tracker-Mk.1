@@ -155,6 +155,7 @@ function renderJobDialogs(
       onConfirmCancelStaleFilmOrders={overrides.onConfirmCancelStaleFilmOrders || vi.fn()}
       isOrderAllConfirmOpen={false}
       orderableFilmRequirementCount={0}
+      orderAllPending={false}
       onCancelOrderAll={vi.fn()}
       onConfirmOrderAll={vi.fn()}
       allocationToRemove={null}

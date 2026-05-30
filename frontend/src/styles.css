@@ -1677,6 +1677,14 @@ textarea {
   font-size: 1rem;
 }
 
+.job-transfer-alert-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .job-transfer-alert-meta {
   margin: 0;
   color: var(--color-text-3);
@@ -3595,6 +3603,29 @@ td.col-available-linear-ft {
   color: #154c9d;
   text-decoration-color: currentColor;
   outline: none;
+}
+
+.film-order-status-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    filter 120ms ease,
+    text-decoration-color 120ms ease;
+}
+
+.film-order-status-link:hover,
+.film-order-status-link:focus-visible {
+  filter: brightness(0.94);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+}
+
+.film-order-status-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .caulk-stock-warehouse-link {

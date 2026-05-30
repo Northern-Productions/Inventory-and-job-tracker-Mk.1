@@ -175,7 +175,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.doesNotMatch(checkoutHistoryPage, /<Link|navigate\(`\/allocations\/jobs/);
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
-  assert.match(schemaLatest, /0153_manual_only_auto_allocation_job_warehouse\.sql/);
+  assert.match(schemaLatest, /0155_film_order_detail_origin_compat\.sql/);
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
@@ -183,9 +183,9 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   const latestSupabaseMigration = readdir(supabaseMigrationsPath).then((entries) =>
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
-  assert.equal(await latestBackendMigration, '0153_manual_only_auto_allocation_job_warehouse.sql');
+  assert.equal(await latestBackendMigration, '0155_film_order_detail_origin_compat.sql');
   assert.equal(
     await latestSupabaseMigration,
-    '20260528100000_manual_only_auto_allocation_job_warehouse.sql'
+    '20260529101000_film_order_detail_origin_compat.sql'
   );
 });
