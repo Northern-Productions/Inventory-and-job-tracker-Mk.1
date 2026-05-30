@@ -89,6 +89,30 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('keeps Film Requirements builder grouped into two clean input rows', () => {
+    expect(css).toMatch(
+      /\.job-editor-film-requirement-builder\s*{[^}]*grid-template-areas:\s*"manufacturer film-name"\s*"width required-feet";/s
+    );
+    expect(css).toMatch(
+      /\.job-editor-film-requirement-builder--custom-manufacturer\s*{[^}]*grid-template-areas:\s*"manufacturer film-name"\s*"new-manufacturer new-manufacturer"\s*"width required-feet";/s
+    );
+    expect(css).toMatch(
+      /@media \(max-width:\s*900px\)\s*{[\s\S]*\.dialog-job-editor \.job-editor-film-requirement-builder\s*{[^}]*grid-template-areas:\s*"manufacturer"\s*"film-name"\s*"width"\s*"required-feet";/s
+    );
+    expect(css).toMatch(
+      /@media \(max-width:\s*900px\)\s*{[\s\S]*\.dialog-job-editor \.job-editor-film-requirement-builder--custom-manufacturer\s*{[^}]*grid-template-areas:\s*"manufacturer"\s*"film-name"\s*"new-manufacturer"\s*"width"\s*"required-feet";/s
+    );
+  });
+
+  it('keeps the job editor selected width chip dark-filled with light text', () => {
+    expect(css).toMatch(
+      /\.dialog-job-editor \.job-editor-requirement-builder \.width-chip-active\s*{[^}]*background:\s*linear-gradient\(180deg,\s*var\(--color-primary-strong\) 0%,\s*var\(--color-primary\) 100%\);[^}]*color:\s*var\(--color-primary-contrast\);/s
+    );
+    expect(css).toMatch(
+      /\.dialog-job-editor \.job-editor-requirement-builder \.width-chip-active:focus-visible\s*{[^}]*box-shadow:\s*var\(--focus-ring\),/s
+    );
+  });
+
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);

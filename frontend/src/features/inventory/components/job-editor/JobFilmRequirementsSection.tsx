@@ -69,8 +69,12 @@ export function JobFilmRequirementsSection({
         </p>
       </div>
 
-      <div className="form-grid job-editor-requirement-builder">
-        <label className="field">
+      <div
+        className={`form-grid job-editor-requirement-builder job-editor-film-requirement-builder ${
+          isCustomManufacturerSelected ? 'job-editor-film-requirement-builder--custom-manufacturer' : ''
+        }`.trim()}
+      >
+        <label className="field job-editor-film-manufacturer-field">
           <span className="field-label">Manufacturer</span>
           <select
             className="field-input"
@@ -97,29 +101,33 @@ export function JobFilmRequirementsSection({
           </select>
         </label>
         {isCustomManufacturerSelected ? (
-          <Input
-            label="New Manufacturer"
-            value={manufacturer}
-            onChange={(event) => {
-              onManufacturerChange(event.target.value);
+          <div className="job-editor-film-new-manufacturer-field">
+            <Input
+              label="New Manufacturer"
+              value={manufacturer}
+              onChange={(event) => {
+                onManufacturerChange(event.target.value);
+                onClearError();
+              }}
+              required
+            />
+          </div>
+        ) : null}
+        <div className="job-editor-film-name-field">
+          <FilmNameAutocompleteInput
+            label="Film Name"
+            value={filmName}
+            manufacturer={manufacturer}
+            catalogEntries={filmCatalogEntries}
+            catalogLoading={filmCatalogLoading}
+            catalogError={filmCatalogError}
+            onChange={(nextValue) => {
+              onFilmNameChange(nextValue);
               onClearError();
             }}
-            required
           />
-        ) : null}
-        <FilmNameAutocompleteInput
-          label="Film Name"
-          value={filmName}
-          manufacturer={manufacturer}
-          catalogEntries={filmCatalogEntries}
-          catalogLoading={filmCatalogLoading}
-          catalogError={filmCatalogError}
-          onChange={(nextValue) => {
-            onFilmNameChange(nextValue);
-            onClearError();
-          }}
-        />
-        <div className="field width-selector">
+        </div>
+        <div className="field width-selector job-editor-film-width-field">
           <span className="field-label">Width</span>
           <div className="width-button-grid">
             {WIDTH_BUTTON_VALUES.map((value) => {
@@ -144,16 +152,18 @@ export function JobFilmRequirementsSection({
             })}
           </div>
         </div>
-        <Input
-          label="LF Required"
-          value={requiredFeet}
-          inputMode="numeric"
-          pattern="[0-9]*"
-          onChange={(event) => {
-            onRequiredFeetChange(event.target.value.replace(/[^0-9]/g, ''));
-            onClearError();
-          }}
-        />
+        <div className="job-editor-film-required-feet-field">
+          <Input
+            label="LF Required"
+            value={requiredFeet}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            onChange={(event) => {
+              onRequiredFeetChange(event.target.value.replace(/[^0-9]/g, ''));
+              onClearError();
+            }}
+          />
+        </div>
       </div>
 
       <div className="dialog-actions job-editor-inline-actions">
