@@ -169,6 +169,7 @@ th,
 
 .app-header-desktop {
   position: relative;
+  margin-bottom: 0;
 }
 
 .app-header-topline {
@@ -1117,8 +1118,18 @@ textarea {
 }
 
 .app-header-nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   width: 100%;
   min-width: 0;
+  margin: 0 calc(50% - 50vw) 1rem;
+  padding: calc(0.45rem + env(safe-area-inset-top)) var(--app-shell-inline-padding) 0.6rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: var(--color-header-pinned-bg);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+  box-sizing: border-box;
 }
 
 .app-header-corner {
@@ -1171,49 +1182,6 @@ textarea {
   transition:
     padding 180ms ease,
     transform 180ms ease;
-}
-
-.app-header-desktop.app-header-pinned,
-.app-header-desktop.app-header-compact {
-  position: sticky;
-  top: 0.75rem;
-  z-index: 1000;
-  gap: 0;
-}
-
-.app-header-desktop.app-header-pinned .app-header-band,
-.app-header-desktop.app-header-compact .app-header-band {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(248, 246, 242, 0.95) 100%
-  );
-  box-shadow:
-    0 14px 28px rgba(18, 52, 59, 0.08),
-    0 1px 0 rgba(18, 52, 59, 0.06);
-}
-
-.app-header-desktop.app-header-pinned .app-header-band-inner {
-  gap: 0;
-  padding-top: 0.45rem;
-}
-
-.app-header-desktop.app-header-compact .app-header-band-inner {
-  gap: 0;
-  padding-top: 0.45rem;
-  padding-bottom: 0.45rem;
-}
-
-.app-header-desktop.app-header-pinned .app-header-topline,
-.app-header-desktop.app-header-compact .app-header-topline {
-  max-height: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.app-header-desktop.app-header-compact .app-nav-shell {
-  padding-top: 0.2rem;
-  padding-bottom: 0.2rem;
 }
 
 .account-menu-wrap {
@@ -5451,12 +5419,6 @@ td.col-available-linear-ft {
 .app-header-band {
   background: var(--color-header-bg);
   border-bottom-color: var(--color-border-soft);
-}
-
-.app-header-desktop.app-header-pinned .app-header-band,
-.app-header-desktop.app-header-compact .app-header-band {
-  background: var(--color-header-pinned-bg);
-  box-shadow: var(--shadow-sm);
 }
 
 .app-nav-shell,
