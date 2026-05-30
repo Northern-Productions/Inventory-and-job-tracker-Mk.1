@@ -80,6 +80,15 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('keeps Phase Details grouped into two clean input rows', () => {
+    expect(css).toMatch(
+      /\.dialog-job-editor \.job-editor-selected-phase-fields\s*{[^}]*grid-template-areas:\s*"phase-number work-scope work-scope"\s*"install-date install-end crew-leader";/s
+    );
+    expect(css).toMatch(
+      /@media \(max-width:\s*900px\)\s*{[\s\S]*\.dialog-job-editor \.job-editor-selected-phase-fields\s*{[^}]*grid-template-areas:\s*"phase-number"\s*"work-scope"\s*"install-date"\s*"install-end"\s*"crew-leader";/s
+    );
+  });
+
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);

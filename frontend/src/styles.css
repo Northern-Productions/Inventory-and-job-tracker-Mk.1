@@ -5947,15 +5947,32 @@ th {
 .dialog-job-editor .job-editor-selected-phase-fields {
   gap: 0.9rem;
   grid-template-columns:
-    minmax(7rem, 0.62fr)
-    minmax(14rem, 1.35fr)
-    minmax(10rem, 1fr)
-    minmax(10rem, 1fr);
+    minmax(9rem, 0.85fr)
+    repeat(2, minmax(11rem, 1fr));
+  grid-template-areas:
+    "phase-number work-scope work-scope"
+    "install-date install-end crew-leader";
   margin-top: 0;
 }
 
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(1) {
+  grid-area: phase-number;
+}
+
 .dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(2) {
-  grid-column: span 2;
+  grid-area: work-scope;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(3) {
+  grid-area: install-date;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(4) {
+  grid-area: install-end;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(5) {
+  grid-area: crew-leader;
 }
 
 .job-editor-requirement-builder {
@@ -6010,8 +6027,13 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(2) {
-    grid-column: auto;
+  .dialog-job-editor .job-editor-selected-phase-fields {
+    grid-template-areas:
+      "phase-number"
+      "work-scope"
+      "install-date"
+      "install-end"
+      "crew-leader";
   }
 }
 
