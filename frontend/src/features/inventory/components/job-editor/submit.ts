@@ -9,6 +9,7 @@ import type {
   CaulkRequirementDraftLine,
   JobCaulkRequirementEditorLine,
   JobEditorSubmitPayload,
+  JobEditorSubmitPhaseLine,
   JobPhaseEditorLine,
   JobRequirementEditorLine,
   RequirementDraftLine
@@ -34,6 +35,40 @@ interface BuildJobEditorSubmitPayloadArgs {
 interface BuildJobEditorSubmitPayloadResult {
   error: string | null;
   payload: JobEditorSubmitPayload | null;
+}
+
+function buildSubmitPhaseLine(
+  phase: Omit<JobPhaseEditorLine, 'phaseNumber'> & { phaseNumber: number },
+  normalizedLines: JobRequirementEditorLine[],
+  normalizedCaulkLines: JobCaulkRequirementEditorLine[]
+): JobEditorSubmitPhaseLine {
+  const phaseRequirements = mergeRequirementLines(
+    normalizedLines.filter((line) =>
+      phase.phaseId
+        ? line.phaseId === phase.phaseId
+        : line.phaseNumber === phase.phaseNumber
+    )
+  );
+  const phaseCaulkRequirements = normalizedCaulkLines.filter((line) =>
+    phase.phaseId
+      ? line.phaseId === phase.phaseId
+      : line.phaseNumber === phase.phaseNumber
+  );
+
+  return {
+    ...(phase.phaseId ? { phaseId: phase.phaseId } : {}),
+    phaseNumber: phase.phaseNumber,
+    workScope: phase.workScope,
+    sections: phase.sections,
+    installDate: phase.installDate,
+    installEndDate: phase.installEndDate || '',
+    crewLeader: phase.crewLeader,
+    laborStatus: phase.laborStatus,
+    workflowStatus: phase.workflowStatus,
+    isPrimary: phase.isPrimary,
+    requirements: phaseRequirements,
+    caulkRequirements: phaseCaulkRequirements
+  };
 }
 
 export function buildJobEditorSubmitPayload({
@@ -151,9 +186,9 @@ export function buildJobEditorSubmitPayload({
     }
 
     normalizedLines.push({
-      requirementId: line.requirementId || undefined,
-      phaseId: phase?.phaseId || undefined,
-      phaseNumber: phase?.phaseNumber,
+      ...(line.requirementId ? { requirementId: line.requirementId } : {}),
+      ...(phase?.phaseId ? { phaseId: phase.phaseId } : {}),
+      ...(phase?.phaseNumber ? { phaseNumber: phase.phaseNumber } : {}),
       manufacturer: canonicalizeManufacturerLabel(line.manufacturer).trim(),
       filmName: line.filmName.trim(),
       widthIn: parsedWidth,
@@ -182,9 +217,9 @@ export function buildJobEditorSubmitPayload({
     }
 
     normalizedCaulkLines.push({
-      requirementId: line.requirementId || undefined,
-      phaseId: phase?.phaseId || undefined,
-      phaseNumber: phase?.phaseNumber,
+      ...(line.requirementId ? { requirementId: line.requirementId } : {}),
+      ...(phase?.phaseId ? { phaseId: phase.phaseId } : {}),
+      ...(phase?.phaseNumber ? { phaseNumber: phase.phaseNumber } : {}),
       productId: line.productId,
       requiredTubes: Math.floor(parsedRequiredTubes)
     });
@@ -201,21 +236,9 @@ export function buildJobEditorSubmitPayload({
       crewLeader: primaryPhase?.crewLeader ?? crewLeader.trim(),
       requirements: mergeRequirementLines(normalizedLines),
       caulkRequirements: normalizedCaulkLines,
-      phases: normalizedPhases.map((phase) => ({
-        ...phase,
-        requirements: mergeRequirementLines(
-          normalizedLines.filter((line) =>
-            phase.phaseId
-              ? line.phaseId === phase.phaseId
-              : line.phaseNumber === phase.phaseNumber
-          )
-        ),
-        caulkRequirements: normalizedCaulkLines.filter((line) =>
-          phase.phaseId
-            ? line.phaseId === phase.phaseId
-            : line.phaseNumber === phase.phaseNumber
-        )
-      }))
+      phases: normalizedPhases.map((phase) =>
+        buildSubmitPhaseLine(phase, normalizedLines, normalizedCaulkLines)
+      )
     }
   };
 }
