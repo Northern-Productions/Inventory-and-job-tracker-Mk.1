@@ -3698,6 +3698,14 @@ td.col-available-linear-ft {
   gap: 1rem;
 }
 
+.film-order-detail-page .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
 .film-order-detail-summary,
 .film-order-detail-metrics,
 .box-origin-grid {
@@ -3714,6 +3722,19 @@ td.col-available-linear-ft {
   border-radius: 0.75rem;
   background: rgba(255, 255, 255, 0.76);
   padding: 0.9rem;
+}
+
+.film-order-detail-summary,
+.film-order-detail-metrics,
+.film-order-detail-page .notice-card {
+  border-color: var(--color-border-soft);
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+}
+
+.film-order-detail-summary .detail-label,
+.film-order-detail-metrics .detail-label {
+  color: var(--color-text-2);
 }
 
 .film-order-detail-summary > div,
