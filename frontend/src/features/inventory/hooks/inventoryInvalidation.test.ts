@@ -1,6 +1,10 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
-import { invalidateCaulkJobQueries, invalidateJobLifecycleQueries } from './inventoryInvalidation';
+import {
+  invalidateCaulkJobQueries,
+  invalidateGlobalPlanningQueries,
+  invalidateJobLifecycleQueries
+} from './inventoryInvalidation';
 import { inventoryKeys } from './inventoryQueryKeys';
 
 function createQueryClient() {
@@ -69,5 +73,16 @@ describe('inventory invalidation job identity', () => {
 
     expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
+  });
+
+  it('global planning invalidation refreshes canonical jobId detail caches', async () => {
+    const queryClient = createQueryClient();
+    const jobId = '11111111-1111-4111-8111-111111111111';
+
+    queryClient.setQueryData(inventoryKeys.jobById(jobId), { source: 'job-id' });
+
+    await invalidateGlobalPlanningQueries(queryClient);
+
+    expect(queryClient.getQueryState(inventoryKeys.jobById(jobId))?.isInvalidated).toBe(true);
   });
 });

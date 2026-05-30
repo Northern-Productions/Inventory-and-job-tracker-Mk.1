@@ -99,6 +99,7 @@ export async function invalidateGlobalPlanningQueries(queryClient: QueryClient) 
     inventoryKeys.jobs,
     inventoryKeys.jobsCalendarRoot,
     inventoryKeys.jobRoot,
+    inventoryKeys.jobByIdRoot,
     inventoryKeys.allocationJobs,
     inventoryKeys.allocationJobRoot,
     inventoryKeys.filmOrders,
