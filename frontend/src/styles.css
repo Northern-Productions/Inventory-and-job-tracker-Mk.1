@@ -1121,7 +1121,7 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 1000;
-  width: 100%;
+  width: auto;
   min-width: 0;
   margin: 0 calc(50% - 50vw) 1rem;
   padding: calc(0.45rem + env(safe-area-inset-top)) var(--app-shell-inline-padding) 0.6rem;
