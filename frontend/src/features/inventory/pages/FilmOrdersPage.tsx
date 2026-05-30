@@ -289,7 +289,7 @@ export default function FilmOrdersPage() {
           Film orders are created from explicit order actions in Film Orders before incoming boxes
           are added or received for the job.
         </p>
-        <div className="toolbar-grid reports-filters">
+        <div className="toolbar-grid reports-filters film-orders-filters">
           <WarehouseSelectField
             value={warehouseFilter}
             onChange={setWarehouseFilter}
