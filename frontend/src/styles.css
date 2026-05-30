@@ -3319,6 +3319,10 @@ td.col-available-linear-ft {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.film-orders-filters {
+  margin-bottom: 1rem;
+}
+
 .reports-width-selector {
   grid-column: span 2;
 }

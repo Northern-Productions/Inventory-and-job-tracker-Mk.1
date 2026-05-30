@@ -64,6 +64,10 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('keeps Film Orders filters separated from the table content', () => {
+    expect(css).toMatch(/\.film-orders-filters\s*{[^}]*margin-bottom:\s*1rem;/s);
+  });
+
   it('has representative dark-theme contrast above WCAG normal-text threshold', () => {
     expect(contrastRatio('#12343b', '#fff0d3')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);
