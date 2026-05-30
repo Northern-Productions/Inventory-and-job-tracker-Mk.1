@@ -72,6 +72,20 @@ describe('JobEditorDialog', () => {
     queryClient.clear();
   });
 
+  it('uses the shared polished layout classes for job sections and requirements', () => {
+    const queryClient = createQueryClient();
+    render(buildDialogTree(queryClient));
+
+    expect(document.querySelector('.dialog-job-editor .job-editor-dialog-body')).not.toBeNull();
+    expect(document.querySelector('.job-editor-basics-section')).not.toBeNull();
+    expect(document.querySelector('.job-editor-section')).not.toBeNull();
+    expect(document.querySelectorAll('.job-editor-requirements-section')).toHaveLength(2);
+    expect(document.querySelectorAll('.job-editor-requirement-builder')).toHaveLength(2);
+    expect(document.querySelector('.job-editor-film-requirement-builder')).not.toBeNull();
+    expect(document.querySelector('.dialog-actions.dialog-actions-sticky-footer')).not.toBeNull();
+    queryClient.clear();
+  });
+
   it('preserves create-mode typing across rerenders with fresh empty arrays', () => {
     const queryClient = createQueryClient();
     const initialProps = {

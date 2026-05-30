@@ -314,10 +314,25 @@ th,
   justify-content: flex-end;
 }
 
-.add-box-hero-copy .field {
+.add-box-hero-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 18rem);
+  gap: 1rem;
+  align-items: end;
+}
+
+.add-box-hero-copy {
+  align-self: center;
+}
+
+.add-box-warehouse-control {
+  justify-self: end;
+  width: 100%;
+}
+
+.add-box-warehouse-control .field {
+  margin: 0;
   min-width: 0;
-  margin-top: 0.85rem;
-  max-width: 260px;
 }
 
 .page-hero-summary {
@@ -883,6 +898,15 @@ th {
   .page-hero-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .add-box-hero-layout {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .add-box-warehouse-control {
+    justify-self: stretch;
   }
 
   .page-hero-summary {
@@ -2230,9 +2254,25 @@ textarea {
 }
 
 .width-chip-active {
-  background: var(--color-selected-bg);
-  border-color: var(--color-selected-border);
-  color: var(--color-selected-text);
+  border-color: var(--color-border-strong);
+  background: linear-gradient(180deg, var(--color-primary-strong) 0%, var(--color-primary) 100%);
+  color: var(--color-primary-contrast);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 1px var(--color-border-strong);
+}
+
+.width-chip-active:hover {
+  border-color: var(--color-border-strong);
+  background: linear-gradient(180deg, var(--color-primary-strong) 0%, var(--color-primary) 100%);
+  color: var(--color-primary-contrast);
+}
+
+.width-chip-active:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--focus-ring),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .width-clear-button {
@@ -5537,7 +5577,6 @@ td.col-available-linear-ft {
 .account-menu-button-active,
 .account-menu-trigger-active,
 .inventory-view-toggle-button-active,
-.width-chip-active,
 .label-result-button-selected {
   border-color: var(--color-selected-border);
   background: var(--color-selected-bg);
@@ -5830,4 +5869,295 @@ th {
 :root[data-theme="dark"] .button-ghost .button-spinner {
   border-color: rgba(255, 248, 232, 0.28);
   border-top-color: currentColor;
+}
+
+.dialog-job-editor {
+  width: min(100%, 840px);
+  border: 1px solid var(--color-border-soft);
+  padding: 0;
+  background: var(--color-menu-bg);
+  color: var(--color-text-1);
+}
+
+.dialog-job-editor .dialog-header {
+  align-items: flex-start;
+  margin: 0;
+  padding: 1.35rem 1.5rem 0.9rem;
+}
+
+.dialog-job-editor .dialog-close {
+  flex: 0 0 auto;
+  border: 1px solid var(--color-control-border);
+  background: var(--color-control-bg);
+  color: var(--color-text-1);
+}
+
+.job-editor-dialog-body {
+  display: grid;
+  gap: 1rem;
+  padding: 0 1.5rem 1.45rem;
+}
+
+.job-editor-dialog-copy {
+  margin: 0;
+  max-width: 62rem;
+}
+
+.job-editor-dialog-copy p {
+  margin: 0;
+}
+
+.dialog-job-editor .dialog-section {
+  gap: 1rem;
+  margin-top: 0;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem;
+  background: var(--color-surface-1);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-sm);
+}
+
+.dialog-job-editor .dialog-section-header {
+  gap: 0.28rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  padding-bottom: 0.75rem;
+}
+
+.dialog-job-editor .dialog-section-header h3 {
+  color: var(--color-text-1);
+  font-size: 1.02rem;
+  letter-spacing: 0.02em;
+}
+
+.dialog-job-editor .dialog-section-header p,
+.dialog-job-editor .field-hint,
+.dialog-job-editor .muted-text {
+  color: var(--color-text-2);
+}
+
+.dialog-job-editor .field {
+  align-content: start;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.dialog-job-editor .field-hint {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.dialog-job-editor .form-grid,
+.dialog-job-editor .job-editor-basics-layout {
+  margin: 0;
+}
+
+.dialog-job-editor .job-editor-basics-layout {
+  gap: 1rem;
+}
+
+.dialog-job-editor .job-editor-basics-layout--job-only {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.86fr);
+}
+
+.dialog-job-editor .job-editor-basics-primary-grid,
+.dialog-job-editor .job-editor-basics-secondary-grid {
+  gap: 0.9rem;
+}
+
+.dialog-job-editor .field-input {
+  min-height: 3.05rem;
+}
+
+.dialog-job-editor .job-editor-phase-selector-row {
+  align-items: end;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: 0.9rem;
+  background: var(--color-surface-3);
+}
+
+.dialog-job-editor .job-editor-phase-selector-row .button {
+  min-height: 3.05rem;
+  white-space: nowrap;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields {
+  gap: 0.9rem;
+  grid-template-columns:
+    minmax(9rem, 0.85fr)
+    repeat(2, minmax(11rem, 1fr));
+  grid-template-areas:
+    "phase-number work-scope work-scope"
+    "install-date install-end crew-leader";
+  margin-top: 0;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(1) {
+  grid-area: phase-number;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(2) {
+  grid-area: work-scope;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(3) {
+  grid-area: install-date;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(4) {
+  grid-area: install-end;
+}
+
+.dialog-job-editor .job-editor-selected-phase-fields .field:nth-child(5) {
+  grid-area: crew-leader;
+}
+
+.job-editor-requirement-builder {
+  align-items: start;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: 0.95rem;
+  background: var(--color-surface-3);
+}
+
+.job-editor-film-requirement-builder {
+  grid-template-columns: minmax(13rem, 0.92fr) minmax(16rem, 1.08fr);
+  grid-template-areas:
+    "manufacturer film-name"
+    "width required-feet";
+}
+
+.job-editor-film-requirement-builder--custom-manufacturer {
+  grid-template-areas:
+    "manufacturer film-name"
+    "new-manufacturer new-manufacturer"
+    "width required-feet";
+}
+
+.job-editor-film-manufacturer-field {
+  grid-area: manufacturer;
+}
+
+.job-editor-film-new-manufacturer-field {
+  grid-area: new-manufacturer;
+}
+
+.job-editor-film-name-field {
+  grid-area: film-name;
+  min-width: 0;
+}
+
+.job-editor-film-width-field {
+  grid-area: width;
+}
+
+.job-editor-film-required-feet-field {
+  grid-area: required-feet;
+  min-width: 0;
+}
+
+.job-editor-inline-actions {
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.job-editor-inline-actions .button {
+  flex: 0 0 auto;
+  min-width: 8rem;
+}
+
+.job-editor-requirement-table {
+  margin-top: 0.1rem;
+  background: var(--color-surface-raised);
+}
+
+.job-editor-requirement-table .field-input {
+  min-height: 2.7rem;
+}
+
+.job-editor-empty-note,
+.job-editor-form-error {
+  margin: 0;
+}
+
+.dialog-job-editor .dialog-actions-sticky-footer {
+  bottom: 0;
+  gap: 0.75rem;
+  margin: 0;
+  border-top: 1px solid var(--color-border-soft);
+  padding: 1rem 1.5rem calc(1rem + env(safe-area-inset-bottom));
+  background: var(--color-menu-bg);
+  box-shadow: 0 -12px 28px rgba(18, 52, 59, 0.1);
+}
+
+.dialog-job-editor .dialog-actions-sticky-footer .button {
+  min-height: 3rem;
+}
+
+@media (max-width: 900px) {
+  .dialog-job-editor .job-editor-basics-layout--job-only,
+  .dialog-job-editor .job-editor-selected-phase-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog-job-editor .job-editor-selected-phase-fields {
+    grid-template-areas:
+      "phase-number"
+      "work-scope"
+      "install-date"
+      "install-end"
+      "crew-leader";
+  }
+
+  .dialog-job-editor .job-editor-film-requirement-builder {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "manufacturer"
+      "film-name"
+      "width"
+      "required-feet";
+  }
+
+  .dialog-job-editor .job-editor-film-requirement-builder--custom-manufacturer {
+    grid-template-areas:
+      "manufacturer"
+      "film-name"
+      "new-manufacturer"
+      "width"
+      "required-feet";
+  }
+}
+
+@media (max-width: 720px) {
+  .dialog-job-editor .dialog-header {
+    padding: 1rem 1rem 0.75rem;
+  }
+
+  .job-editor-dialog-body {
+    gap: 0.85rem;
+    padding: 0 1rem 1.1rem;
+  }
+
+  .dialog-job-editor .dialog-section {
+    border-radius: var(--radius-md);
+    padding: 0.9rem;
+  }
+
+  .dialog-job-editor .job-editor-phase-selector-row {
+    grid-template-columns: 1fr;
+  }
+
+  .job-editor-inline-actions {
+    justify-content: stretch;
+  }
+
+  .job-editor-inline-actions .button {
+    width: 100%;
+  }
+
+  .dialog-job-editor .dialog-actions-sticky-footer {
+    padding-inline: 1rem;
+  }
 }

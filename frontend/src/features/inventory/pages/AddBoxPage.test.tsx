@@ -315,6 +315,23 @@ describe('AddBoxPage', () => {
     vi.clearAllMocks();
   });
 
+  it('places the normal add warehouse selector in the intro action column', () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+
+    const { container } = renderPage(queryClient);
+    const layout = container.querySelector('.add-box-hero-layout');
+    const copy = container.querySelector('.add-box-hero-copy');
+    const warehouseControl = container.querySelector('.add-box-warehouse-control');
+    const warehouseSelect = screen.getByRole('combobox', { name: 'Warehouse' });
+
+    expect(layout).toBeTruthy();
+    expect(copy?.textContent).toContain('Receiving Intake');
+    expect(copy?.textContent).toContain('Add Box');
+    expect(copy?.textContent).toContain('Create a warehouse-ready box record');
+    expect(warehouseControl?.contains(warehouseSelect)).toBe(true);
+  });
+
   it('shows remaining-to-order footage as reference and leaves the film-order LF input blank', async () => {
     const queryClient = createQueryClient();
     const existingBoxes = [buildBox()];

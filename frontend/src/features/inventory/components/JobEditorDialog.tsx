@@ -192,150 +192,152 @@ export function JobEditorDialog({
           </button>
         </div>
 
-        <div className="dialog-copy">
-          <p>
-            Set the core job details first, then add any film and caulk requirements the crew
-            should pull against.
-          </p>
-        </div>
-
-        <JobBasicsSection
-          mode={mode}
-          jobNumber={jobNumber}
-          sections={sections}
-          installDate={installDate}
-          crewLeader={crewLeader}
-          warehouse={warehouse}
-          showPhaseFields={false}
-          onJobNumberChange={setJobNumber}
-          onWarehouseChange={setWarehouse}
-          onClearError={clearError}
-        />
-
-        <section className="job-editor-section">
-          <div className="dialog-section-header">
-            <h3>Phase Details</h3>
+        <div className="job-editor-dialog-body">
+          <div className="dialog-copy job-editor-dialog-copy">
+            <p>
+              Set the core job details first, then add any film and caulk requirements the crew
+              should pull against.
+            </p>
           </div>
 
-          <div className="job-editor-phase-selector-row">
-            <label className="field">
-              <span className="field-label">Phase to edit</span>
-              <select
-                className="field-input"
-                value={selectedPhaseKey}
-                onChange={(event) => {
-                  setSelectedPhaseKey(event.target.value);
-                  clearError();
-                }}
-              >
-                {phaseOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button type="button" variant="secondary" size="sm" onClick={addPhaseLine}>
-              Add New Phase
-            </Button>
-          </div>
+          <JobBasicsSection
+            mode={mode}
+            jobNumber={jobNumber}
+            sections={sections}
+            installDate={installDate}
+            crewLeader={crewLeader}
+            warehouse={warehouse}
+            showPhaseFields={false}
+            onJobNumberChange={setJobNumber}
+            onWarehouseChange={setWarehouse}
+            onClearError={clearError}
+          />
 
-          {selectedPhase ? (
-            <div className="job-editor-selected-phase-fields">
-              <Input
-                label="Phase Number"
-                type="number"
-                min="1"
-                step="1"
-                value={String(selectedPhase.phaseNumber)}
-                onChange={(event) => {
-                  updateSelectedPhase({ phaseNumber: event.target.value });
-                  clearError();
-                }}
-              />
-              <Input
-                label="Work Scope"
-                value={selectedPhase.sections}
-                hint="Optional. Examples: Section 1, Sections 4, 5, Lobby."
-                inputMode="text"
-                onChange={(event) => {
-                  updateSelectedPhase({
-                    sections: event.target.value,
-                    workScope: event.target.value
-                  });
-                  clearError();
-                }}
-              />
-              <Input
-                label="Install Date"
-                type="date"
-                value={selectedPhase.installDate}
-                onChange={(event) => {
-                  updateSelectedPhase({ installDate: event.target.value });
-                  clearError();
-                }}
-              />
-              <Input
-                label="Install End Date"
-                type="date"
-                value={selectedPhase.installEndDate || ''}
-                onChange={(event) => {
-                  updateSelectedPhase({ installEndDate: event.target.value });
-                  clearError();
-                }}
-              />
-              <Input
-                label="Crew Leader"
-                value={selectedPhase.crewLeader}
-                onChange={(event) => {
-                  updateSelectedPhase({ crewLeader: event.target.value });
-                  clearError();
-                }}
-              />
+          <section className="dialog-section job-editor-section">
+            <div className="dialog-section-header">
+              <h3>Phase Details</h3>
             </div>
-          ) : null}
-        </section>
 
-        <JobFilmRequirementsSection
-          manufacturerOptions={manufacturerOptions}
-          manufacturer={manufacturer}
-          filmName={filmName}
-          widthIn={widthIn}
-          requiredFeet={requiredFeet}
-          requirements={selectedPhaseRequirements}
-          filmCatalogEntries={filmCatalogEntries}
-          filmCatalogLoading={filmCatalogLoading}
-          filmCatalogError={filmCatalogError}
-          submitting={submitting}
-          hasCustomWidth={hasCustomWidth}
-          onManufacturerChange={setManufacturer}
-          onFilmNameChange={setFilmName}
-          onWidthButtonClick={handleWidthButtonClick}
-          onRequiredFeetChange={setRequiredFeet}
-          onAddRequirement={handleAddRequirement}
-          onUpdateRequirementLine={updateRequirementLine}
-          onRemoveRequirementLine={removeRequirementLine}
-          onClearError={clearError}
-        />
+            <div className="job-editor-phase-selector-row">
+              <label className="field">
+                <span className="field-label">Phase to edit</span>
+                <select
+                  className="field-input"
+                  value={selectedPhaseKey}
+                  onChange={(event) => {
+                    setSelectedPhaseKey(event.target.value);
+                    clearError();
+                  }}
+                >
+                  {phaseOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="button" variant="secondary" size="sm" onClick={addPhaseLine}>
+                Add New Phase
+              </Button>
+            </div>
 
-        <JobCaulkRequirementsSection
-          caulkProductOptions={caulkProductOptions}
-          caulkProductLabelById={caulkProductLabelById}
-          caulkProductId={caulkProductId}
-          caulkRequiredTubes={caulkRequiredTubes}
-          caulkRequirements={selectedPhaseCaulkRequirements}
-          caulkProductLoading={caulkProductLoading}
-          caulkProductError={caulkProductError}
-          submitting={submitting}
-          onCaulkProductChange={setCaulkProductId}
-          onCaulkRequiredTubesChange={setCaulkRequiredTubes}
-          onAddCaulkRequirement={handleAddCaulkRequirement}
-          onUpdateCaulkRequirementLine={updateCaulkRequirementLine}
-          onRemoveCaulkRequirementLine={removeCaulkRequirementLine}
-          onClearError={clearError}
-        />
+            {selectedPhase ? (
+              <div className="job-editor-selected-phase-fields">
+                <Input
+                  label="Phase Number"
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={String(selectedPhase.phaseNumber)}
+                  onChange={(event) => {
+                    updateSelectedPhase({ phaseNumber: event.target.value });
+                    clearError();
+                  }}
+                />
+                <Input
+                  label="Work Scope"
+                  value={selectedPhase.sections}
+                  hint="Optional. Examples: Section 1, Sections 4, 5, Lobby."
+                  inputMode="text"
+                  onChange={(event) => {
+                    updateSelectedPhase({
+                      sections: event.target.value,
+                      workScope: event.target.value
+                    });
+                    clearError();
+                  }}
+                />
+                <Input
+                  label="Install Date"
+                  type="date"
+                  value={selectedPhase.installDate}
+                  onChange={(event) => {
+                    updateSelectedPhase({ installDate: event.target.value });
+                    clearError();
+                  }}
+                />
+                <Input
+                  label="Install End Date"
+                  type="date"
+                  value={selectedPhase.installEndDate || ''}
+                  onChange={(event) => {
+                    updateSelectedPhase({ installEndDate: event.target.value });
+                    clearError();
+                  }}
+                />
+                <Input
+                  label="Crew Leader"
+                  value={selectedPhase.crewLeader}
+                  onChange={(event) => {
+                    updateSelectedPhase({ crewLeader: event.target.value });
+                    clearError();
+                  }}
+                />
+              </div>
+            ) : null}
+          </section>
 
-        {error ? <p className="error-text">{error}</p> : null}
+          <JobFilmRequirementsSection
+            manufacturerOptions={manufacturerOptions}
+            manufacturer={manufacturer}
+            filmName={filmName}
+            widthIn={widthIn}
+            requiredFeet={requiredFeet}
+            requirements={selectedPhaseRequirements}
+            filmCatalogEntries={filmCatalogEntries}
+            filmCatalogLoading={filmCatalogLoading}
+            filmCatalogError={filmCatalogError}
+            submitting={submitting}
+            hasCustomWidth={hasCustomWidth}
+            onManufacturerChange={setManufacturer}
+            onFilmNameChange={setFilmName}
+            onWidthButtonClick={handleWidthButtonClick}
+            onRequiredFeetChange={setRequiredFeet}
+            onAddRequirement={handleAddRequirement}
+            onUpdateRequirementLine={updateRequirementLine}
+            onRemoveRequirementLine={removeRequirementLine}
+            onClearError={clearError}
+          />
+
+          <JobCaulkRequirementsSection
+            caulkProductOptions={caulkProductOptions}
+            caulkProductLabelById={caulkProductLabelById}
+            caulkProductId={caulkProductId}
+            caulkRequiredTubes={caulkRequiredTubes}
+            caulkRequirements={selectedPhaseCaulkRequirements}
+            caulkProductLoading={caulkProductLoading}
+            caulkProductError={caulkProductError}
+            submitting={submitting}
+            onCaulkProductChange={setCaulkProductId}
+            onCaulkRequiredTubesChange={setCaulkRequiredTubes}
+            onAddCaulkRequirement={handleAddCaulkRequirement}
+            onUpdateCaulkRequirementLine={updateCaulkRequirementLine}
+            onRemoveCaulkRequirementLine={removeCaulkRequirementLine}
+            onClearError={clearError}
+          />
+
+          {error ? <p className="error-text job-editor-form-error">{error}</p> : null}
+        </div>
 
         <div className="dialog-actions dialog-actions-sticky-footer">
           <Button type="button" variant="ghost" fullWidth onClick={onCancel} disabled={submitting}>

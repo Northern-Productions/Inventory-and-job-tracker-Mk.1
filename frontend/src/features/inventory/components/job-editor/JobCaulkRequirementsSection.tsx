@@ -41,13 +41,13 @@ export function JobCaulkRequirementsSection({
   onClearError
 }: JobCaulkRequirementsSectionProps) {
   return (
-    <div className="dialog-section">
+    <div className="dialog-section job-editor-requirements-section">
       <div className="dialog-section-header">
         <h3>Caulk Requirements</h3>
         <p className="muted-text">Add each caulk draft to the list before saving the job.</p>
       </div>
 
-      <div className="form-grid">
+      <div className="form-grid job-editor-requirement-builder">
         <label className="field">
           <span className="field-label">Caulk Product</span>
           <select
@@ -78,7 +78,7 @@ export function JobCaulkRequirementsSection({
         />
       </div>
 
-      <div className="dialog-actions">
+      <div className="dialog-actions job-editor-inline-actions">
         <Button
           type="button"
           variant="secondary"
@@ -98,7 +98,7 @@ export function JobCaulkRequirementsSection({
       ) : null}
 
       {caulkRequirements.length ? (
-        <div className="table-wrap">
+        <div className="table-wrap job-editor-requirement-table">
           <table>
             <thead>
               <tr>
@@ -142,7 +142,7 @@ export function JobCaulkRequirementsSection({
           </table>
         </div>
       ) : (
-        <p className="muted-text">No caulk requirements added yet.</p>
+        <p className="muted-text job-editor-empty-note">No caulk requirements added yet.</p>
       )}
     </div>
   );
