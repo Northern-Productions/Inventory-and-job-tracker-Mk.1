@@ -56,6 +56,14 @@ function getRepresentativeEntry(entries: AllocationJobDetailEntry[]) {
   );
 }
 
+function getRemovableEntry(entries: AllocationJobDetailEntry[]) {
+  return (
+    entries.find((entry) => !entry.checkedOutOnThisJob && entry.status === 'ACTIVE' && !entry.resolvedAt) ||
+    entries.find((entry) => !entry.checkedOutOnThisJob) ||
+    null
+  );
+}
+
 export function buildAllocatedBoxGroups(entries: AllocationJobDetailEntry[]): AllocatedBoxGroup[] {
   const groups = new Map<string, AllocatedBoxGroup>();
 
@@ -157,7 +165,7 @@ function renderAllocationActions({
   onRemoveAllocation,
   isAllocationRemovalPending,
   showRemove = true,
-  removeHint = ''
+  removeEntry = entry
 }: {
   entry: AllocationJobDetailEntry;
   isReadOnlyJob: boolean;
@@ -169,13 +177,14 @@ function renderAllocationActions({
   onRemoveAllocation: (entry: AllocationJobDetailEntry) => void;
   isAllocationRemovalPending: (allocationId: string) => boolean;
   showRemove?: boolean;
-  removeHint?: string;
+  removeEntry?: AllocationJobDetailEntry | null;
 }) {
   if (isReadOnlyJob) {
     return <span className="muted-text">Read-only</span>;
   }
 
   const statusPending = isStatusMutationPending(entry.boxId);
+  const removeStatusPending = removeEntry ? isStatusMutationPending(removeEntry.boxId) : statusPending;
 
   return (
     <div className="film-order-actions">
@@ -206,17 +215,16 @@ function renderAllocationActions({
       ) : (
         <span className="muted-text">Not in stock</span>
       )}
-      {showRemove && !entry.checkedOutOnThisJob ? (
+      {showRemove && removeEntry && !removeEntry.checkedOutOnThisJob ? (
         <Button
           type="button"
           variant="danger"
-          onClick={() => onRemoveAllocation(entry)}
-          disabled={isAllocationRemovalPending(entry.allocationId) || statusPending}
+          onClick={() => onRemoveAllocation(removeEntry)}
+          disabled={isAllocationRemovalPending(removeEntry.allocationId) || removeStatusPending}
         >
           Remove
         </Button>
       ) : null}
-      {!showRemove && removeHint ? <span className="muted-text">{removeHint}</span> : null}
     </div>
   );
 }
@@ -273,6 +281,7 @@ export function AllocatedBoxesSection({
             const entry = group.representativeEntry;
             const actionEntry =
               group.entries.find((detailEntry) => isWorkflowActiveAllocation(detailEntry)) || entry;
+            const removableEntry = getRemovableEntry(group.entries);
             const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
             const isExpanded = Boolean(expandedGroups[group.groupKey]);
             const canExpand = group.entries.length > 1;
@@ -334,11 +343,8 @@ export function AllocatedBoxesSection({
                   onCheckoutAllocation,
                   onRemoveAllocation,
                   isAllocationRemovalPending,
-                  showRemove: group.entries.length === 1,
-                  removeHint:
-                    canExpand && !isExpanded && group.entries.some((detailEntry) => !detailEntry.checkedOutOnThisJob)
-                      ? 'Expand to view requirement coverage'
-                      : ''
+                  showRemove: Boolean(removableEntry),
+                  removeEntry: removableEntry
                 })}
               </MobileRecordCard>
             );
@@ -364,6 +370,7 @@ export function AllocatedBoxesSection({
                 const entry = group.representativeEntry;
                 const actionEntry =
                   group.entries.find((detailEntry) => isWorkflowActiveAllocation(detailEntry)) || entry;
+                const removableEntry = getRemovableEntry(group.entries);
                 const transferAlert = filmTransferAlertsByBoxId[entry.boxId];
                 const isExpanded = Boolean(expandedGroups[group.groupKey]);
                 const canExpand = group.entries.length > 1;
@@ -415,13 +422,8 @@ export function AllocatedBoxesSection({
                           onCheckoutAllocation,
                           onRemoveAllocation,
                           isAllocationRemovalPending,
-                          showRemove: group.entries.length === 1,
-                          removeHint:
-                            canExpand &&
-                            !isExpanded &&
-                            group.entries.some((detailEntry) => !detailEntry.checkedOutOnThisJob)
-                              ? 'Expand to view requirement coverage'
-                              : ''
+                          showRemove: Boolean(removableEntry),
+                          removeEntry: removableEntry
                         })}
                       </td>
                     </tr>

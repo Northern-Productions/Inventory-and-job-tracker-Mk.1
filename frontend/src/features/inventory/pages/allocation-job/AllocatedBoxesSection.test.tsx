@@ -132,6 +132,7 @@ describe('AllocatedBoxesSection', () => {
   });
 
   it('groups multiple allocations for the same physical box into one visible row', () => {
+    const onRemoveAllocation = vi.fn();
     const entries = [
       buildEntry({
         allocationId: 'alloc-48',
@@ -151,14 +152,22 @@ describe('AllocatedBoxesSection', () => {
       })
     ];
 
-    renderSection(entries);
+    renderSection(entries, { onRemoveAllocation });
 
     expect(screen.getAllByRole('button', { name: 'IL1-6000' })).toHaveLength(1);
     expect(screen.getByText('Covers 2 requirements')).toBeTruthy();
     expect(screen.getByText('22')).toBeTruthy();
     expect(screen.queryByText('alloc-48')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
-    expect(screen.getByText('Expand to view requirement coverage')).toBeTruthy();
+    expect(screen.queryByText('Expand to view requirement coverage')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(onRemoveAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-48',
+        boxId: 'IL1-6000'
+      })
+    );
   });
 
   it('expands grouped boxes to show simplified requirement coverage rows', () => {
@@ -205,7 +214,8 @@ describe('AllocatedBoxesSection', () => {
     expect(screen.queryByText('req-48')).toBeNull();
     expect(detailView.queryByRole('columnheader', { name: 'Allocation' })).toBeNull();
     expect(detailView.queryByRole('columnheader', { name: 'Actions' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(detailView.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
   });
 
   it('shows one checkout action for duplicate same-box allocations', () => {
@@ -228,6 +238,7 @@ describe('AllocatedBoxesSection', () => {
     renderSection(entries, { onCheckoutAllocation });
 
     expect(screen.getAllByRole('button', { name: 'Check Out' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Check Out' }));
 
     expect(onCheckoutAllocation).toHaveBeenCalledTimes(1);
