@@ -24,6 +24,8 @@ import type {
   JobDetail,
   RemoveCaulkJobAllocationResult,
   JobListEntry,
+  MostUsedFilmOptions,
+  MostUsedFilmRow,
   NeverCheckedOutBoxRow,
   RollHistoryEntry,
   ZeroedBoxRow,
@@ -126,6 +128,8 @@ export interface ReportsSummary {
   zeroedBoxes: ZeroedBoxRow[];
   completedJobs: ClosedJobReportRow[];
   cancelledJobs: ClosedJobReportRow[];
+  mostUsedFilm: MostUsedFilmRow[];
+  mostUsedFilmOptions: MostUsedFilmOptions;
 }
 
 export interface OwnerAssetTotalCostResponse extends AssetTotalCostReport {}

@@ -206,6 +206,17 @@ async function loadReportBoxesSnapshot(client, orgId) {
   return allBoxes;
 }
 
+async function loadReportRequirementsSnapshot(client, orgId) {
+  if (client) {
+    return listJobRequirements(client, orgId);
+  }
+
+  const [allRequirements] = await runParallelReadTasks([
+    (readClient) => listJobRequirements(readClient, orgId),
+  ], { maxConcurrency: 1 });
+  return allRequirements;
+}
+
 function boxMatchesReportFilters(box, filters) {
   if (filters.warehouse && box.warehouse !== filters.warehouse) {
     return false;
@@ -233,6 +244,15 @@ function boxMatchesReportFilters(box, filters) {
   }
 
   return true;
+}
+
+function normalizeReportDate(value) {
+  const text = asTrimmedString(value);
+  if (!text) {
+    return '';
+  }
+
+  return text.slice(0, 10);
 }
 
 function extractClosedDate(updatedAt) {
@@ -269,6 +289,197 @@ function matchesClosedJobReportFilters(jobEntry, filters) {
   return true;
 }
 
+function resolveRequirementDateBasis(requirement, jobEntry) {
+  return (
+    normalizeReportDate(requirement.phaseInstallDate) ||
+    normalizeReportDate(jobEntry?.installDate) ||
+    normalizeReportDate(jobEntry?.createdAt)
+  );
+}
+
+function mostUsedFilmMatchesDateRange(dateBasis, filters) {
+  if (!dateBasis) {
+    return false;
+  }
+
+  if (filters.from && dateBasis < filters.from) {
+    return false;
+  }
+
+  if (filters.to && dateBasis > filters.to) {
+    return false;
+  }
+
+  return true;
+}
+
+function mostUsedFilmMatchesSelectedFilters(requirement, filters) {
+  const manufacturerFilterKey = normalizeCatalogManufacturerLookupKey(filters.manufacturer);
+  if (
+    manufacturerFilterKey &&
+    normalizeCatalogManufacturerLookupKey(requirement.manufacturer) !== manufacturerFilterKey
+  ) {
+    return false;
+  }
+
+  const filmFilterKey = normalizeCatalogLookupKey(filters.film);
+  if (filmFilterKey && normalizeCatalogLookupKey(requirement.filmName) !== filmFilterKey) {
+    return false;
+  }
+
+  if (filters.width && String(requirement.widthIn) !== filters.width) {
+    return false;
+  }
+
+  return true;
+}
+
+function sortTextValues(values) {
+  return [...values].sort(compareCatalogStrings);
+}
+
+function buildMostUsedFilmReport(jobEntries, requirements, filters) {
+  const rankBy = asTrimmedString(filters.rankBy) === 'jobs_using_it' ? 'jobs_using_it' : 'actual_used_lf';
+  const jobsById = new Map();
+  const jobsByNumber = new Map();
+  const optionManufacturers = new Set();
+  const optionFilmNames = new Set();
+  const optionWidths = new Set();
+  const groups = new Map();
+
+  for (const jobEntry of jobEntries) {
+    const jobId = asTrimmedString(jobEntry.jobId);
+    if (jobId) {
+      jobsById.set(jobId, jobEntry);
+    }
+
+    const jobNumber = asTrimmedString(jobEntry.jobNumber);
+    if (jobNumber && !jobsByNumber.has(jobNumber)) {
+      jobsByNumber.set(jobNumber, jobEntry);
+    }
+  }
+
+  for (const requirement of requirements) {
+    const jobId = asTrimmedString(requirement.jobId);
+    const jobEntry = (jobId && jobsById.get(jobId)) || jobsByNumber.get(asTrimmedString(requirement.jobNumber));
+
+    if (!jobEntry) {
+      continue;
+    }
+
+    if (normalizeJobLifecycleStatus(jobEntry.lifecycleStatus) === 'CANCELLED') {
+      continue;
+    }
+
+    if (filters.warehouse && jobEntry.warehouse !== filters.warehouse) {
+      continue;
+    }
+
+    const dateBasis = resolveRequirementDateBasis(requirement, jobEntry);
+    if (!mostUsedFilmMatchesDateRange(dateBasis, filters)) {
+      continue;
+    }
+
+    if (asTrimmedString(requirement.manufacturer)) {
+      optionManufacturers.add(requirement.manufacturer);
+    }
+
+    if (asTrimmedString(requirement.filmName)) {
+      optionFilmNames.add(requirement.filmName);
+    }
+
+    const optionWidth = Number(requirement.widthIn) || 0;
+    if (optionWidth > 0) {
+      optionWidths.add(optionWidth);
+    }
+
+    if (!mostUsedFilmMatchesSelectedFilters(requirement, filters)) {
+      continue;
+    }
+
+    const groupKey = [
+      normalizeCatalogManufacturerLookupKey(requirement.manufacturer),
+      normalizeCatalogLookupKey(requirement.filmName),
+      String(Number(requirement.widthIn) || 0)
+    ].join('|');
+
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        manufacturer: requirement.manufacturer,
+        filmName: requirement.filmName,
+        widthIn: Number(requirement.widthIn) || 0,
+        jobIds: new Set(),
+        totalRequiredLf: 0,
+        actualUsedLf: 0
+      });
+    }
+
+    const group = groups.get(groupKey);
+    group.jobIds.add(jobId || asTrimmedString(requirement.jobNumber));
+    group.totalRequiredLf += Math.max(0, integerOrZero(requirement.requiredFeet));
+    group.actualUsedLf += Math.max(0, integerOrZero(requirement.actualUsedFeet));
+  }
+
+  const mostUsedFilm = Array.from(groups.values())
+    .filter((group) => rankBy !== 'actual_used_lf' || group.actualUsedLf > 0)
+    .map((group) => {
+      const jobsUsingIt = group.jobIds.size;
+      return {
+        rank: 0,
+        manufacturer: group.manufacturer,
+        filmName: group.filmName,
+        widthIn: group.widthIn,
+        jobsUsingIt,
+        totalRequiredLf: group.totalRequiredLf,
+        averageLfPerJob: jobsUsingIt > 0 ? roundToDecimals(group.totalRequiredLf / jobsUsingIt, 1) : 0,
+        actualUsedLf: group.actualUsedLf
+      };
+    });
+
+  mostUsedFilm.sort((left, right) => {
+    if (rankBy === 'jobs_using_it' && left.jobsUsingIt !== right.jobsUsingIt) {
+      return right.jobsUsingIt - left.jobsUsingIt;
+    }
+
+    if (rankBy === 'actual_used_lf' && left.actualUsedLf !== right.actualUsedLf) {
+      return right.actualUsedLf - left.actualUsedLf;
+    }
+
+    if (left.actualUsedLf !== right.actualUsedLf) {
+      return right.actualUsedLf - left.actualUsedLf;
+    }
+
+    if (left.jobsUsingIt !== right.jobsUsingIt) {
+      return right.jobsUsingIt - left.jobsUsingIt;
+    }
+
+    if (left.totalRequiredLf !== right.totalRequiredLf) {
+      return right.totalRequiredLf - left.totalRequiredLf;
+    }
+
+    const manufacturerCompare = compareCatalogStrings(left.manufacturer, right.manufacturer);
+    if (manufacturerCompare !== 0) {
+      return manufacturerCompare;
+    }
+
+    const filmCompare = compareCatalogStrings(left.filmName, right.filmName);
+    if (filmCompare !== 0) {
+      return filmCompare;
+    }
+
+    return left.widthIn - right.widthIn;
+  });
+
+  return {
+    mostUsedFilm: mostUsedFilm.map((row, index) => ({ ...row, rank: index + 1 })),
+    mostUsedFilmOptions: {
+      manufacturers: sortTextValues(optionManufacturers),
+      filmNames: sortTextValues(optionFilmNames),
+      widths: Array.from(optionWidths).sort((left, right) => left - right)
+    }
+  };
+}
+
 async function buildReportsSummary(client, orgId, params) {
   const filters = {
     warehouse: asTrimmedString(params.warehouse).toUpperCase(),
@@ -276,7 +487,8 @@ async function buildReportsSummary(client, orgId, params) {
     film: asTrimmedString(params.film),
     width: asTrimmedString(params.width),
     from: asTrimmedString(params.from),
-    to: asTrimmedString(params.to)
+    to: asTrimmedString(params.to),
+    rankBy: asTrimmedString(params.rankBy)
   };
   const allBoxes = await loadReportBoxesSnapshot(client, orgId);
   const activeBoxes = allBoxes.filter((box) => box.status !== 'ZEROED' && box.status !== 'RETIRED');
@@ -375,6 +587,12 @@ async function buildReportsSummary(client, orgId, params) {
     preloadedBoxes: allBoxes,
     snapshotConcurrency: 1,
   });
+  const allRequirements = await loadReportRequirementsSnapshot(client, orgId);
+  const { mostUsedFilm, mostUsedFilmOptions } = buildMostUsedFilmReport(
+    allJobEntries,
+    allRequirements,
+    filters
+  );
   for (let index = 0; index < allJobEntries.length; index += 1) {
     const jobEntry = allJobEntries[index];
     const lifecycleStatus = normalizeJobLifecycleStatus(jobEntry.lifecycleStatus);
@@ -429,7 +647,9 @@ async function buildReportsSummary(client, orgId, params) {
     neverCheckedOut,
     zeroedByMonth,
     completedJobs,
-    cancelledJobs
+    cancelledJobs,
+    mostUsedFilm,
+    mostUsedFilmOptions
   };
 }
 
@@ -495,6 +715,7 @@ export {
   boxMatchesReportFilters,
   extractClosedDate,
   matchesClosedJobReportFilters,
+  buildMostUsedFilmReport,
   buildReportsSummary,
   buildOwnerAssetTotalCost,
 };

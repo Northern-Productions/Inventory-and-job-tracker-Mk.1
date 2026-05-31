@@ -7,52 +7,45 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { Select } from '../../../components/Select';
-import { formatDate } from '../../../lib/date';
-import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
-import { WidthFilterField } from '../components/WidthFilterField';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
-import { REPORT_TYPE_TITLES, type ReportType, useReportsPageModel } from './reports/useReportsPageModel';
+import {
+  REPORT_TYPE_TITLES,
+  type MostUsedFilmDateRange,
+  type ReportType,
+  useReportsPageModel
+} from './reports/useReportsPageModel';
 
-const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD'
-});
-
-function formatCurrency(value: number) {
-  return USD_CURRENCY_FORMATTER.format(value);
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 1
+  }).format(value);
 }
 
-function formatStatusLabel(status: string) {
-  return status.replace(/_/g, ' ');
-}
+function buildEmptyState(rankBy: string) {
+  if (rankBy === 'actual_used_lf') {
+    return 'No actual film usage found for this filter range. Try Jobs Using It or widen the date range.';
+  }
 
-function formatWorkScope(row: { workScope?: string | null; sections?: string | null }) {
-  return String(row.workScope ?? row.sections ?? '').trim() || '--';
+  return 'No film requirements matched this filter range.';
 }
 
 export default function ReportsPage() {
   const {
-    auth,
     isPhoneLayout,
     filters,
     reportType,
     setReportType,
-    zeroedFilters,
-    rememberedCustomWidth,
-    setRememberedCustomWidth,
-    neverCheckedOut,
-    completedJobs,
-    cancelledJobs,
-    ownerAssetTotalCost,
     reportTypeOptions,
-    zeroedManufacturerOptions,
-    filteredZeroedBoxes,
+    dateRangeOptions,
+    rankByOptions,
+    mostUsedFilm,
+    manufacturerOptions,
+    filmNameOptions,
+    widthOptions,
     showReportLoading,
     reportError,
-    patchWarehouse,
-    patchZeroedFilters,
-    openInventoryBox,
-    openAllocationJob
+    dateRangeError,
+    patchMostUsedFilmFilters
   } = useReportsPageModel();
 
   return (
@@ -61,7 +54,9 @@ export default function ReportsPage() {
         <div className="panel-title-row">
           <div>
             <h2>Reports</h2>
-            <p className="muted-text">Select a report view and filter by warehouse.</p>
+            <p className="muted-text">
+              Most Used Film ranks job demand and actual consumed LF by manufacturer, film, and width.
+            </p>
           </div>
         </div>
 
@@ -74,42 +69,81 @@ export default function ReportsPage() {
           />
           <WarehouseSelectField
             value={filters.warehouse || ''}
-            onChange={(warehouse) => patchWarehouse(warehouse)}
+            onChange={(warehouse) => patchMostUsedFilmFilters({ warehouse })}
             allowAll
+          />
+          <Select
+            label="Manufacturer"
+            value={filters.manufacturer}
+            onChange={(event) => patchMostUsedFilmFilters({ manufacturer: event.target.value })}
+            options={[
+              { label: 'All', value: '' },
+              ...manufacturerOptions.map((manufacturer) => ({
+                label: manufacturer,
+                value: manufacturer
+              }))
+            ]}
+          />
+          <Select
+            label="Film Name"
+            value={filters.filmName}
+            onChange={(event) => patchMostUsedFilmFilters({ filmName: event.target.value })}
+            options={[
+              { label: 'All', value: '' },
+              ...filmNameOptions.map((filmName) => ({
+                label: filmName,
+                value: filmName
+              }))
+            ]}
+          />
+          <Select
+            label="Width"
+            value={filters.width}
+            onChange={(event) => patchMostUsedFilmFilters({ width: event.target.value })}
+            options={[
+              { label: 'All', value: '' },
+              ...widthOptions.map((width) => ({
+                label: `${width}"`,
+                value: String(width)
+              }))
+            ]}
+          />
+          <Select
+            label="Date Range"
+            value={filters.dateRange}
+            onChange={(event) =>
+              patchMostUsedFilmFilters({ dateRange: event.target.value as MostUsedFilmDateRange })
+            }
+            options={dateRangeOptions}
+            error={dateRangeError}
+          />
+          <Select
+            label="Rank By"
+            value={filters.rankBy}
+            onChange={(event) =>
+              patchMostUsedFilmFilters({
+                rankBy: event.target.value === 'jobs_using_it' ? 'jobs_using_it' : 'actual_used_lf'
+              })
+            }
+            options={rankByOptions}
           />
         </div>
 
-        {reportType === 'zeroed_boxes' ? (
-          <div className="toolbar-grid reports-filters">
-            <label className="field">
-              <span className="field-label">Manufacturer</span>
-              <select
-                className="field-input"
-                value={zeroedFilters.manufacturer}
-                onChange={(event) => patchZeroedFilters({ manufacturer: event.target.value })}
-              >
-                <option value="">All</option>
-                {zeroedManufacturerOptions.map((manufacturer) => (
-                  <option key={manufacturer} value={manufacturer}>
-                    {manufacturer}
-                  </option>
-                ))}
-              </select>
-            </label>
+        {filters.dateRange === 'custom' ? (
+          <div className="toolbar-grid reports-filters reports-custom-date-filters">
             <Input
-              label="Search"
-              value={zeroedFilters.q}
-              onChange={(event) => patchZeroedFilters({ q: event.target.value })}
-              placeholder="BoxID, manufacturer, film"
+              label="Custom Start"
+              type="date"
+              value={filters.customFrom}
+              onChange={(event) => patchMostUsedFilmFilters({ customFrom: event.target.value })}
+              error={dateRangeError}
             />
-            <WidthFilterField
-              widths={zeroedFilters.widths}
-              rememberedCustomWidth={rememberedCustomWidth}
-              onWidthsChange={(widths) => patchZeroedFilters({ widths })}
-              onRememberedCustomWidthChange={setRememberedCustomWidth}
-              className="reports-width-selector"
-              dialogTitle="Custom Width"
-              dialogTitleId="reports-custom-width-title"
+            <Input
+              label="Custom End"
+              type="date"
+              value={filters.customTo}
+              onChange={(event) => patchMostUsedFilmFilters({ customTo: event.target.value })}
+              error={dateRangeError}
             />
           </div>
         ) : null}
@@ -117,301 +151,70 @@ export default function ReportsPage() {
 
       <section className="panel">
         <div className="panel-title-row">
-          <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
+          <div>
+            <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
+            <p className="muted-text">
+              Based on job film requirements and requirement-level actual used LF. Warehouse filtering follows
+              the job warehouse.
+            </p>
+          </div>
         </div>
 
         <DeferredLoadingState when={showReportLoading} label="Loading reports..." />
         {reportError ? <p className="error-text">{reportError.message}</p> : null}
 
         {!showReportLoading && !reportError ? (
-          <>
-            {reportType === 'never_checked_out' ? (
-              !neverCheckedOut.length ? (
-                <div className="empty-state">No received boxes matched this report.</div>
-              ) : isPhoneLayout ? (
-                <div className="mobile-record-list">
-                  {neverCheckedOut.map((row) => (
-                    <MobileRecordCard key={row.boxId}>
-                      <MobileRecordHeader
-                        title={row.boxId}
-                        subtitle={`${row.manufacturer} ${row.filmName}`}
-                        badge={<span className={`badge badge-${row.status}`}>{row.status}</span>}
-                      />
-                      <MobileFieldList>
-                        <MobileField label="Warehouse" value={row.warehouse} />
-                        <MobileField label="Width" value={row.widthIn} />
-                        <MobileField label="Received" value={formatDate(row.receivedDate)} />
-                        <MobileField label="Feet Available" value={row.feetAvailable} />
-                      </MobileFieldList>
-                    </MobileRecordCard>
+          !mostUsedFilm.length ? (
+            <div className="empty-state">{buildEmptyState(filters.rankBy)}</div>
+          ) : isPhoneLayout ? (
+            <div className="mobile-record-list">
+              {mostUsedFilm.map((row) => (
+                <MobileRecordCard key={`${row.manufacturer}-${row.filmName}-${row.widthIn}`}>
+                  <MobileRecordHeader
+                    title={`#${row.rank} ${row.filmName}`}
+                    subtitle={`${row.manufacturer} / ${row.widthIn}"`}
+                  />
+                  <MobileFieldList>
+                    <MobileField label="Jobs Using It" value={row.jobsUsingIt} />
+                    <MobileField label="Total Required LF" value={formatNumber(row.totalRequiredLf)} />
+                    <MobileField label="Average LF per Job" value={formatNumber(row.averageLfPerJob)} />
+                    <MobileField label="Actual Used LF" value={formatNumber(row.actualUsedLf)} />
+                  </MobileFieldList>
+                </MobileRecordCard>
+              ))}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Manufacturer</th>
+                    <th>Film Name</th>
+                    <th>Width</th>
+                    <th>Jobs Using It</th>
+                    <th>Total Required LF</th>
+                    <th>Average LF per Job</th>
+                    <th>Actual Used LF</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mostUsedFilm.map((row) => (
+                    <tr key={`${row.manufacturer}-${row.filmName}-${row.widthIn}`}>
+                      <td>{row.rank}</td>
+                      <td>{row.manufacturer}</td>
+                      <td>{row.filmName}</td>
+                      <td>{row.widthIn}"</td>
+                      <td>{row.jobsUsingIt}</td>
+                      <td>{formatNumber(row.totalRequiredLf)}</td>
+                      <td>{formatNumber(row.averageLfPerJob)}</td>
+                      <td>{formatNumber(row.actualUsedLf)}</td>
+                    </tr>
                   ))}
-                </div>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>BoxID</th>
-                        <th>Warehouse</th>
-                        <th>Manufacturer</th>
-                        <th>Film</th>
-                        <th>Width</th>
-                        <th>Received</th>
-                        <th>Status</th>
-                        <th>Feet Available</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {neverCheckedOut.map((row) => (
-                        <tr key={row.boxId}>
-                          <td>{row.boxId}</td>
-                          <td>{row.warehouse}</td>
-                          <td>{row.manufacturer}</td>
-                          <td>{row.filmName}</td>
-                          <td>{row.widthIn}</td>
-                          <td>{formatDate(row.receivedDate)}</td>
-                          <td>{row.status}</td>
-                          <td>{row.feetAvailable}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            ) : null}
-
-            {reportType === 'zeroed_boxes' ? (
-              !filteredZeroedBoxes.length ? (
-                <div className="empty-state">No zeroed boxes matched this report.</div>
-              ) : isPhoneLayout ? (
-                <div className="mobile-record-list">
-                  {filteredZeroedBoxes.map((row) => (
-                    <MobileRecordCard key={row.boxId}>
-                      <MobileRecordHeader
-                        title={row.boxId}
-                        subtitle={`${row.manufacturer} ${row.filmName}`}
-                        onTitleClick={() => openInventoryBox(row.boxId)}
-                      />
-                      <MobileFieldList>
-                        <MobileField label="Warehouse" value={row.warehouse} />
-                        <MobileField label="Zeroed Date" value={formatDate(row.zeroedDate)} />
-                      </MobileFieldList>
-                    </MobileRecordCard>
-                  ))}
-                </div>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>BoxID</th>
-                        <th>Warehouse</th>
-                        <th>Manufacturer</th>
-                        <th>Film</th>
-                        <th>Zeroed Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredZeroedBoxes.map((row) => (
-                        <tr key={row.boxId}>
-                          <td>
-                            <button
-                              type="button"
-                              className="row-button"
-                              onClick={() => openInventoryBox(row.boxId)}
-                            >
-                              {row.boxId}
-                            </button>
-                          </td>
-                          <td>{row.warehouse}</td>
-                          <td>{row.manufacturer}</td>
-                          <td>{row.filmName}</td>
-                          <td>{formatDate(row.zeroedDate)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            ) : null}
-
-            {reportType === 'asset_total_cost' ? (
-              !auth.isOwner ? (
-                <div className="empty-state">Only owners can view this report.</div>
-              ) : !ownerAssetTotalCost ? (
-                <div className="empty-state">No asset cost data is available.</div>
-              ) : (
-                <div className="detail-grid">
-                  <div className="key-value">
-                    <dt className="detail-label-pill detail-label-pill-green">Total On-Hand Asset Cost</dt>
-                    <dd>{formatCurrency(ownerAssetTotalCost.totalAssetCost)}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Included Boxes</dt>
-                    <dd>{ownerAssetTotalCost.includedBoxCount}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Included LF</dt>
-                    <dd>{ownerAssetTotalCost.includedFeet}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Priced Boxes</dt>
-                    <dd>{ownerAssetTotalCost.pricedBoxCount}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Priced LF</dt>
-                    <dd>{ownerAssetTotalCost.pricedFeet}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Unpriced Boxes</dt>
-                    <dd>{ownerAssetTotalCost.unpricedBoxCount}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>Unpriced LF</dt>
-                    <dd>{ownerAssetTotalCost.unpricedFeet}</dd>
-                  </div>
-                  <div className="key-value">
-                    <dt>LF Coverage</dt>
-                    <dd>{(ownerAssetTotalCost.coveragePercentByFeet * 100).toFixed(1)}%</dd>
-                  </div>
-                </div>
-              )
-            ) : null}
-
-            {reportType === 'completed_jobs' ? (
-              !completedJobs.length ? (
-                <div className="empty-state">No completed jobs matched the current filters.</div>
-              ) : isPhoneLayout ? (
-                <div className="mobile-record-list">
-                  {completedJobs.map((row) => (
-                    <MobileRecordCard key={`completed-${row.jobId || row.jobNumber}`}>
-                      <MobileRecordHeader
-                        title={formatJobDisplayLabel(row)}
-                        subtitle={`${row.warehouse} warehouse`}
-                        badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => openAllocationJob(row)}
-                      />
-                      <MobileFieldList>
-                        <MobileField label="Install Date" value={formatDate(row.installDate)} />
-                        <MobileField label="Work Scope" value={formatWorkScope(row)} />
-                        <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
-                      </MobileFieldList>
-                    </MobileRecordCard>
-                  ))}
-                </div>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Job ID</th>
-                        <th>Work Scope</th>
-                        <th>Warehouse</th>
-                        <th>Install Date</th>
-                        <th>Crew Leader</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {completedJobs.map((row) => (
-                        <tr key={`completed-${row.jobId || row.jobNumber}`}>
-                          <td>
-                            <button
-                              type="button"
-                              className="row-button"
-                              onClick={() => openAllocationJob(row)}
-                            >
-                              {formatJobDisplayLabel(row)}
-                            </button>
-                          </td>
-                          <td>{formatWorkScope(row)}</td>
-                          <td>{row.warehouse}</td>
-                          <td>{formatDate(row.installDate)}</td>
-                          <td>{row.crewLeader || '--'}</td>
-                          <td>
-                            <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            ) : null}
-
-            {reportType === 'cancelled_jobs' ? (
-              !cancelledJobs.length ? (
-                <div className="empty-state">No cancelled jobs matched the current filters.</div>
-              ) : isPhoneLayout ? (
-                <div className="mobile-record-list">
-                  {cancelledJobs.map((row) => (
-                    <MobileRecordCard key={`cancelled-${row.jobId || row.jobNumber}`}>
-                      <MobileRecordHeader
-                        title={formatJobDisplayLabel(row)}
-                        subtitle={`${row.warehouse} warehouse`}
-                        badge={<span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>}
-                        onTitleClick={() => openAllocationJob(row)}
-                      />
-                      <MobileFieldList>
-                        <MobileField label="Install Date" value={formatDate(row.installDate)} />
-                        <MobileField label="Work Scope" value={formatWorkScope(row)} />
-                        <MobileField label="Crew Leader" value={row.crewLeader || '--'} />
-                        <MobileField label="Required LF" value={row.requiredFeet} />
-                        <MobileField label="Allocated LF" value={row.allocatedFeet} />
-                        <MobileField label="Remaining LF" value={row.remainingFeet} />
-                        <MobileField label="Closed" value={formatDate(row.closedAt)} />
-                      </MobileFieldList>
-                    </MobileRecordCard>
-                  ))}
-                </div>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Job ID</th>
-                        <th>Work Scope</th>
-                        <th>Warehouse</th>
-                        <th>Install Date</th>
-                        <th>Crew Leader</th>
-                        <th>Status</th>
-                        <th>Required LF</th>
-                        <th>Allocated LF</th>
-                        <th>Remaining LF</th>
-                        <th>Closed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cancelledJobs.map((row) => (
-                        <tr key={`cancelled-${row.jobId || row.jobNumber}`}>
-                          <td>
-                            <button
-                              type="button"
-                              className="row-button"
-                              onClick={() => openAllocationJob(row)}
-                            >
-                              {formatJobDisplayLabel(row)}
-                            </button>
-                          </td>
-                          <td>{formatWorkScope(row)}</td>
-                          <td>{row.warehouse}</td>
-                          <td>{formatDate(row.installDate)}</td>
-                          <td>{row.crewLeader || '--'}</td>
-                          <td>
-                            <span className={`badge badge-${row.status}`}>{formatStatusLabel(row.status)}</span>
-                          </td>
-                          <td>{row.requiredFeet}</td>
-                          <td>{row.allocatedFeet}</td>
-                          <td>{row.remainingFeet}</td>
-                          <td>{formatDate(row.closedAt)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            ) : null}
-          </>
+                </tbody>
+              </table>
+            </div>
+          )
         ) : null}
       </section>
     </>

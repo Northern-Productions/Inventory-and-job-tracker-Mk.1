@@ -2,60 +2,26 @@
 
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useReportsPageModel } from './useReportsPageModel';
+import {
+  buildDateRangeOptions,
+  resolveMostUsedFilmDateBounds,
+  useReportsPageModel
+} from './useReportsPageModel';
 
-const navigateMock = vi.fn();
-
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => navigateMock
-}));
+const useReportsSummaryMock = vi.fn();
 
 vi.mock('../../../../hooks/useIsPhoneLayout', () => ({
   useIsPhoneLayout: () => false
 }));
 
-vi.mock('../../../../lib/offlineInventory', () => ({
-  searchOfflineBoxes: vi.fn().mockResolvedValue([])
-}));
-
-vi.mock('../../../auth/AuthContext', () => ({
-  useAuth: () => ({
-    orgId: 'org-1',
-    accessStatus: 'approved',
-    role: 'admin',
-    permissions: {},
-    isAdminConsoleAllowed: false,
-    pendingCount: 0,
-    receivesInAppNotifications: false,
-    isOwner: false
-  })
+vi.mock('../../hooks/useDefaultWarehouse', () => ({
+  useDefaultWarehouse: () => 'IL1'
 }));
 
 vi.mock('../../hooks/useInventoryQueries', () => ({
-  useReportsSummary: () => ({
-    data: {
-      availableFeetByWidth: [],
-      neverCheckedOut: [],
-      zeroedByMonth: [],
-      zeroedBoxes: [],
-      completedJobs: [],
-      cancelledJobs: []
-    },
-    isLoading: false,
-    error: null
-  }),
-  useOwnerAssetTotalCostReport: () => ({
-    data: null,
-    isLoading: false,
-    error: null
-  }),
-  useFilmCatalog: () => ({
-    data: [],
-    isLoading: false,
-    error: null
-  })
+  useReportsSummary: (filters: unknown) => useReportsSummaryMock(filters)
 }));
 
 function createWrapper() {
@@ -72,39 +38,134 @@ function createWrapper() {
   };
 }
 
+function mockReportsSummary(data = {}) {
+  useReportsSummaryMock.mockReturnValue({
+    data: {
+      mostUsedFilm: [],
+      mostUsedFilmOptions: {
+        manufacturers: ['3M Solar'],
+        filmNames: ['Prestige 70'],
+        widths: [36, 60]
+      },
+      ...data
+    },
+    isLoading: false,
+    error: null
+  });
+}
+
 describe('useReportsPageModel', () => {
   beforeEach(() => {
-    navigateMock.mockReset();
+    useReportsSummaryMock.mockReset();
+    mockReportsSummary();
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it('opens report job links with canonical jobId routes when available', () => {
+  it('defaults to Most Used Film, default warehouse, This year, and Actual Used LF', () => {
+    const currentYear = new Date().getFullYear();
     const { result } = renderHook(() => useReportsPageModel(), {
       wrapper: createWrapper()
     });
 
-    result.current.openAllocationJob({
-      jobId: '11111111-1111-4111-8111-111111111111',
-      jobNumber: '4953'
-    });
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
+    expect(result.current.reportTypeOptions).toEqual([{ label: 'Most Used Film', value: 'most_used_film' }]);
+    expect(result.current.filters.warehouse).toBe('IL1');
+    expect(result.current.filters.dateRange).toBe('this_year');
+    expect(result.current.filters.rankBy).toBe('actual_used_lf');
+    expect(useReportsSummaryMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        warehouse: 'IL1',
+        from: `${currentYear}-01-01`,
+        to: `${currentYear}-12-31`,
+        rankBy: 'actual_used_lf'
+      })
     );
   });
 
-  it('keeps legacy report job links when jobId is unavailable', () => {
+  it('patches filters and sends report summary query params', () => {
     const { result } = renderHook(() => useReportsPageModel(), {
       wrapper: createWrapper()
     });
 
-    result.current.openAllocationJob({
-      jobNumber: '4953'
+    act(() => {
+      result.current.patchMostUsedFilmFilters({
+        warehouse: '',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 70',
+        width: '60',
+        rankBy: 'jobs_using_it'
+      });
     });
 
-    expect(navigateMock).toHaveBeenCalledWith('/allocations/4953');
+    expect(useReportsSummaryMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        warehouse: '',
+        manufacturer: '3M Solar',
+        film: 'Prestige 70',
+        width: '60',
+        rankBy: 'jobs_using_it'
+      })
+    );
+  });
+
+  it('keeps current selected option values visible even when result options narrow', () => {
+    mockReportsSummary({
+      mostUsedFilmOptions: {
+        manufacturers: [],
+        filmNames: [],
+        widths: []
+      }
+    });
+    const { result } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+
+    act(() => {
+      result.current.patchMostUsedFilmFilters({
+        manufacturer: 'Fixture Manufacturer',
+        filmName: 'Fixture Film',
+        width: '72'
+      });
+    });
+
+    expect(result.current.manufacturerOptions).toContain('Fixture Manufacturer');
+    expect(result.current.filmNameOptions).toContain('Fixture Film');
+    expect(result.current.widthOptions).toContain(72);
+  });
+
+  it('builds previous year date options and validates custom ranges', () => {
+    const today = new Date('2026-05-31T12:00:00');
+    expect(buildDateRangeOptions(today).map((option) => option.label)).toEqual([
+      'This year',
+      'Last 30 days',
+      'Last 90 days',
+      'All time',
+      'Custom date range',
+      '2025',
+      '2024',
+      '2023',
+      '2022',
+      '2021'
+    ]);
+    expect(
+      resolveMostUsedFilmDateBounds(
+        { dateRange: 'custom', customFrom: '2026-04-01', customTo: '2026-04-30' },
+        today
+      )
+    ).toEqual({ from: '2026-04-01', to: '2026-04-30', error: '' });
+    expect(
+      resolveMostUsedFilmDateBounds(
+        { dateRange: 'custom', customFrom: '2026-06-01', customTo: '2026-04-30' },
+        today
+      )
+    ).toEqual({ from: '', to: '', error: 'Start date must be on or before end date.' });
+    expect(
+      resolveMostUsedFilmDateBounds(
+        { dateRange: 'year_2025', customFrom: '', customTo: '' },
+        today
+      )
+    ).toEqual({ from: '2025-01-01', to: '2025-12-31', error: '' });
   });
 });
