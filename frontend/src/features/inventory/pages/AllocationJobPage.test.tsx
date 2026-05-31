@@ -1358,7 +1358,8 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('Caulk Allocations');
     expect(html).toContain('No caulk allocations are tied to this job yet.');
     expect(html).not.toContain('badge-CANCELLED');
-    expect(html).toContain('Caulk Checkout Cycles');
+    expect(html).not.toContain('Caulk Checkout Cycles');
+    expect(html).not.toContain('No caulk checkout cycles have been recorded for this job yet.');
     expect(html).toContain('<td>0</td><td>8</td><td>12</td>');
   });
 

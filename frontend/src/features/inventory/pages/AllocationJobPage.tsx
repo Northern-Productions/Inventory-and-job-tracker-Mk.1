@@ -4,7 +4,6 @@ import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { formatDate, formatDateTime } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { CaulkAllocationsSection } from './allocation-job/CaulkAllocationsSection';
-import { CaulkCheckoutCyclesSection } from './allocation-job/CaulkCheckoutCyclesSection';
 import { AllocatedBoxesSection } from './allocation-job/AllocatedBoxesSection';
 import { JobCompletionSection } from './allocation-job/JobCompletionSection';
 import { JobPhasesSection } from './allocation-job/JobPhasesSection';
@@ -33,7 +32,6 @@ export default function AllocationJobPage() {
     usageTimeline,
     caulkRequirements,
     caulkAllocations,
-    caulkCheckouts,
     caulkProducts,
     caulkProductsQuery,
     filmCatalogQuery,
@@ -320,14 +318,6 @@ export default function AllocationJobPage() {
         onReceiveTransfer={(entry) => void handleReceiveCaulkTransfer(entry)}
         onCancelTransfer={(entry) => void handleCancelCaulkTransfer(entry)}
         onRemove={setCaulkAllocationToRemove}
-      />
-
-      <CaulkCheckoutCyclesSection
-        entries={caulkCheckouts}
-        isPhoneLayout={isPhoneLayout}
-        isReadOnlyJob={isReadOnlyJob}
-        isCaulkCheckoutPending={caulkWorkflow.isCaulkCheckoutPending}
-        onOpenCheckin={openCaulkCheckinDialog}
       />
 
       <JobUsageHistorySection
