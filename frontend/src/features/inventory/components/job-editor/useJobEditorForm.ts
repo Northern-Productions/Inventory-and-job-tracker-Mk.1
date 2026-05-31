@@ -27,6 +27,7 @@ import type {
   CaulkRequirementDraftLine,
   JobCaulkRequirementEditorLine,
   JobEditorSubmitPayload,
+  JobEditorSubmitPhaseLine,
   JobPhaseEditorLine,
   JobRequirementEditorLine,
   RequirementDraftLine
@@ -208,7 +209,7 @@ export function useJobEditorForm({
   }
 
   function normalizeInitialPhaseLines(
-    source: JobPhaseEditorLine[],
+    source: Array<JobPhaseEditorLine | JobEditorSubmitPhaseLine>,
     fallbackPhase: {
       sectionsValue?: string | number | null;
       installDateValue?: string;
@@ -217,7 +218,7 @@ export function useJobEditorForm({
   ): JobPhaseEditorLine[] {
     return (source.length ? source : [buildDefaultPhase(fallbackPhase)]).map((phase, index) => ({
       ...phase,
-      id: phase.id || getPhaseLineKey(phase, index),
+      id: 'id' in phase && phase.id ? phase.id : getPhaseLineKey(phase, index),
       phaseNumber: Math.max(1, Math.floor(Number(phase.phaseNumber || index + 1))),
       workScope: getSectionsInputValue(phase.workScope ?? phase.sections),
       sections: getSectionsInputValue(phase.sections ?? phase.workScope),
@@ -230,10 +231,10 @@ export function useJobEditorForm({
           ? 'PLACEHOLDER' as const
           : 'ACTIVE' as const,
       isPrimary: phase.isPrimary === true || index === 0,
-      isComplete: phase.isComplete === true,
-      isNextRelevant: phase.isNextRelevant === true,
-      isExpandedByDefault: phase.isExpandedByDefault === true,
-      status: phase.status || ''
+      isComplete: 'isComplete' in phase && phase.isComplete === true,
+      isNextRelevant: 'isNextRelevant' in phase && phase.isNextRelevant === true,
+      isExpandedByDefault: 'isExpandedByDefault' in phase && phase.isExpandedByDefault === true,
+      status: 'status' in phase ? phase.status || '' : ''
     }));
   }
 

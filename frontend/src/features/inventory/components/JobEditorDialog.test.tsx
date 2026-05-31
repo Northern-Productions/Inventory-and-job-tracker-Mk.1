@@ -60,6 +60,12 @@ function buildDialogTree(
   );
 }
 
+function expectNoUiPhaseKeysInSubmitPayload(payload: unknown) {
+  const serializedPayload = JSON.stringify(payload);
+  expect(serializedPayload).not.toContain('"primary"');
+  expect(serializedPayload).not.toContain('job-phase-');
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -670,6 +676,215 @@ describe('JobEditorDialog', () => {
       expect(onSubmit).not.toHaveBeenCalled();
       expect(screen.getByText(/Phase number must be a positive whole number/i)).toBeTruthy();
     }
+
+    queryClient.clear();
+  });
+
+  it('saves a new default Phase 1 job without leaking the primary phase sentinel', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'create',
+        title: 'New Job',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900101',
+        initialWarehouse: 'IL1',
+        initialSections: 'Lobby',
+        initialInstallDate: '2026-06-01',
+        initialCrewLeader: 'Napo',
+        initialRequirements: [
+          {
+            manufacturer: '3M',
+            filmName: 'Prestige',
+            widthIn: 60,
+            requiredFeet: 12
+          }
+        ],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expectNoUiPhaseKeysInSubmitPayload(payload);
+    expect(payload.phases[0]).not.toHaveProperty('id');
+    expect(payload.phases[0]).not.toHaveProperty('phaseId');
+    expect(payload.phases[0]).toEqual(
+      expect.objectContaining({
+        phaseNumber: 1,
+        workScope: 'Lobby',
+        sections: 'Lobby',
+        isPrimary: true,
+        requirements: [
+          expect.objectContaining({
+            phaseNumber: 1,
+            manufacturer: '3M Solar',
+            filmName: 'Prestige',
+            widthIn: 60,
+            requiredFeet: 12
+          })
+        ]
+      })
+    );
+    expect(payload.phases[0].requirements[0]).not.toHaveProperty('phaseId');
+
+    queryClient.clear();
+  });
+
+  it('saves an edit fallback Phase 1 job without leaking the primary phase sentinel', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 900102',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900102',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-06-02',
+        initialCrewLeader: 'Jamie',
+        initialRequirements: [
+          {
+            requirementId: 'req-fallback-1',
+            manufacturer: 'Llumar',
+            filmName: 'Fallback Film',
+            widthIn: 48,
+            requiredFeet: 20
+          }
+        ],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.jobNumber).toBe('900102');
+    expectNoUiPhaseKeysInSubmitPayload(payload);
+    expect(payload.phases[0]).not.toHaveProperty('id');
+    expect(payload.phases[0]).not.toHaveProperty('phaseId');
+    expect(payload.phases[0].requirements[0]).toEqual(
+      expect.objectContaining({
+        requirementId: 'req-fallback-1',
+        phaseNumber: 1,
+        filmName: 'Fallback Film'
+      })
+    );
+
+    queryClient.clear();
+  });
+
+  it('preserves existing phase UUIDs while omitting local phase row keys from edit saves', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    const primaryPhaseId = '11111111-1111-4111-8111-111111111111';
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 900103',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900103',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-06-03',
+        initialCrewLeader: 'Rob',
+        initialPhases: [
+          {
+            id: primaryPhaseId,
+            phaseId: primaryPhaseId,
+            phaseNumber: 1,
+            workScope: 'Section 1',
+            sections: 'Section 1',
+            installDate: '2026-06-03',
+            crewLeader: 'Rob',
+            laborStatus: 'ACTIVE',
+            isPrimary: true
+          }
+        ],
+        initialRequirements: [
+          {
+            requirementId: 'req-uuid-1',
+            phaseId: primaryPhaseId,
+            phaseNumber: 1,
+            manufacturer: '3M',
+            filmName: 'UUID Film',
+            widthIn: 72,
+            requiredFeet: 30
+          }
+        ],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.phases[0]).not.toHaveProperty('id');
+    expect(payload.phases[0]).toEqual(
+      expect.objectContaining({
+        phaseId: primaryPhaseId,
+        phaseNumber: 1,
+        requirements: [
+          expect.objectContaining({
+            requirementId: 'req-uuid-1',
+            phaseId: primaryPhaseId,
+            phaseNumber: 1
+          })
+        ]
+      })
+    );
+
+    queryClient.clear();
+  });
+
+  it('saves newly added phases by phase number without leaking generated local phase ids', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'create',
+        title: 'New Job',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900104',
+        initialWarehouse: 'IL1',
+        initialSections: 'Section 1',
+        initialInstallDate: '2026-06-04',
+        initialCrewLeader: 'Napo',
+        initialRequirements: [],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Add New Phase/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Work Scope/i }), {
+      target: { value: 'Section 2' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expectNoUiPhaseKeysInSubmitPayload(payload);
+    expect(payload.phases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phaseNumber: 2,
+          workScope: 'Section 2',
+          sections: 'Section 2'
+        })
+      ])
+    );
+    expect(payload.phases[1]).not.toHaveProperty('id');
+    expect(payload.phases[1]).not.toHaveProperty('phaseId');
 
     queryClient.clear();
   });

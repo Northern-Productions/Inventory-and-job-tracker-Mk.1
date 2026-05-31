@@ -20,7 +20,7 @@ export interface JobEditorSubmitPayload {
   crewLeader: string;
   requirements: JobRequirementEditorLine[];
   caulkRequirements: JobCaulkRequirementEditorLine[];
-  phases?: Array<Omit<JobPhaseEditorLine, 'phaseNumber'> & { phaseNumber: number }>;
+  phases?: JobEditorSubmitPhaseLine[];
 }
 
 export interface JobCaulkRequirementEditorLine {
@@ -47,6 +47,21 @@ export interface JobPhaseEditorLine {
   isNextRelevant?: boolean;
   isExpandedByDefault?: boolean;
   status?: string;
+  requirements?: JobRequirementEditorLine[];
+  caulkRequirements?: JobCaulkRequirementEditorLine[];
+}
+
+export interface JobEditorSubmitPhaseLine {
+  phaseId?: string;
+  phaseNumber: number;
+  workScope: string;
+  sections: string;
+  installDate: string;
+  installEndDate?: string;
+  crewLeader: string;
+  laborStatus?: 'ACTIVE' | 'COMPLETE';
+  workflowStatus?: PhaseWorkflowStatus;
+  isPrimary?: boolean;
   requirements?: JobRequirementEditorLine[];
   caulkRequirements?: JobCaulkRequirementEditorLine[];
 }

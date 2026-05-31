@@ -35,28 +35,37 @@ function buildEntry(overrides: Partial<AllocationJobDetailEntry> = {}): Allocati
   };
 }
 
+function buildSectionProps(
+  entries: AllocationJobDetailEntry[],
+  overrides: Partial<ComponentProps<typeof AllocatedBoxesSection>> = {}
+) {
+  return {
+    entries,
+    isPhoneLayout: false,
+    isReadOnlyJob: false,
+    canOpenAllocateDialog: true,
+    allocateButtonLabel: 'Allocate Film',
+    isAuthenticated: true,
+    clientIdConfigured: true,
+    isStatusMutationPending: () => false,
+    filmTransferAlertsByBoxId: {},
+    onOpenAllocateDialog: vi.fn(),
+    onOpenBox: vi.fn(),
+    onOpenFilmCheckin: vi.fn(),
+    onCheckoutAllocation: vi.fn(),
+    onRemoveAllocation: vi.fn(),
+    isAllocationRemovalPending: () => false,
+    ...overrides
+  };
+}
+
 function renderSection(
   entries: AllocationJobDetailEntry[],
   overrides: Partial<ComponentProps<typeof AllocatedBoxesSection>> = {}
 ) {
   return render(
     <AllocatedBoxesSection
-      entries={entries}
-      isPhoneLayout={false}
-      isReadOnlyJob={false}
-      canOpenAllocateDialog={true}
-      allocateButtonLabel="Allocate Film"
-      isAuthenticated={true}
-      clientIdConfigured={true}
-      isStatusMutationPending={() => false}
-      filmTransferAlertsByBoxId={{}}
-      onOpenAllocateDialog={vi.fn()}
-      onOpenBox={vi.fn()}
-      onOpenFilmCheckin={vi.fn()}
-      onCheckoutAllocation={vi.fn()}
-      onRemoveAllocation={vi.fn()}
-      isAllocationRemovalPending={() => false}
-      {...overrides}
+      {...buildSectionProps(entries, overrides)}
     />
   );
 }
@@ -132,6 +141,7 @@ describe('AllocatedBoxesSection', () => {
   });
 
   it('groups multiple allocations for the same physical box into one visible row', () => {
+    const onRemoveAllocation = vi.fn();
     const entries = [
       buildEntry({
         allocationId: 'alloc-48',
@@ -151,17 +161,26 @@ describe('AllocatedBoxesSection', () => {
       })
     ];
 
-    renderSection(entries);
+    renderSection(entries, { onRemoveAllocation });
 
     expect(screen.getAllByRole('button', { name: 'IL1-6000' })).toHaveLength(1);
     expect(screen.getByText('Covers 2 requirements')).toBeTruthy();
     expect(screen.getByText('22')).toBeTruthy();
     expect(screen.queryByText('alloc-48')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
-    expect(screen.getByText('Expand to view requirement coverage')).toBeTruthy();
+    expect(screen.queryByText('Expand to view requirement coverage')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(onRemoveAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-48',
+        boxId: 'IL1-6000'
+      })
+    );
   });
 
-  it('expands grouped boxes to show simplified requirement coverage rows', () => {
+  it('expands grouped boxes to show simplified requirement coverage rows with row-level remove actions', () => {
+    const onRemoveAllocation = vi.fn();
     const entries = [
       buildEntry({
         allocationId: 'alloc-48',
@@ -187,7 +206,7 @@ describe('AllocatedBoxesSection', () => {
       })
     ];
 
-    renderSection(entries);
+    renderSection(entries, { onRemoveAllocation });
 
     fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
 
@@ -197,6 +216,7 @@ describe('AllocatedBoxesSection', () => {
     expect(detailView.getByRole('columnheader', { name: 'Requirement' })).toBeTruthy();
     expect(detailView.getByRole('columnheader', { name: 'Width' })).toBeTruthy();
     expect(detailView.getByRole('columnheader', { name: 'Covered LF' })).toBeTruthy();
+    expect(detailView.getByRole('columnheader', { name: 'Actions' })).toBeTruthy();
     expect(detailView.getByText('3M Solar Prestige 36')).toBeTruthy();
     expect(detailView.getByText('3M Solar Prestige 60')).toBeTruthy();
     expect(detailView.getByText('36')).toBeTruthy();
@@ -204,8 +224,51 @@ describe('AllocatedBoxesSection', () => {
     expect(screen.queryByText('alloc-48')).toBeNull();
     expect(screen.queryByText('req-48')).toBeNull();
     expect(detailView.queryByRole('columnheader', { name: 'Allocation' })).toBeNull();
-    expect(detailView.queryByRole('columnheader', { name: 'Actions' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(detailView.queryByText('req-60')).toBeNull();
+    expect(detailView.getAllByRole('button', { name: 'Remove' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(3);
+
+    fireEvent.click(detailView.getAllByRole('button', { name: 'Remove' })[1]);
+
+    expect(onRemoveAllocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allocationId: 'alloc-60',
+        requirementId: 'req-60',
+        boxId: 'IL1-6000'
+      })
+    );
+  });
+
+  it('keeps the grouped box visible and recalculates coverage when one coverage row remains', () => {
+    const entries = [
+      buildEntry({
+        allocationId: 'alloc-48',
+        boxId: 'IL1-6000',
+        requirementId: 'req-48',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        boxStatus: 'IN_STOCK'
+      }),
+      buildEntry({
+        allocationId: 'alloc-60',
+        boxId: 'IL1-6000',
+        requirementId: 'req-60',
+        allocatedFeet: 12,
+        coveredFeet: 12,
+        boxStatus: 'IN_STOCK'
+      })
+    ];
+    const props = { onRemoveAllocation: vi.fn() };
+    const { rerender } = renderSection(entries, props);
+
+    expect(screen.getByText('Covers 2 requirements')).toBeTruthy();
+    expect(screen.getByText('22')).toBeTruthy();
+
+    rerender(<AllocatedBoxesSection {...buildSectionProps([entries[1]], props)} />);
+
+    expect(screen.getByRole('button', { name: 'IL1-6000' })).toBeTruthy();
+    expect(screen.queryByText('Covers 2 requirements')).toBeNull();
+    expect(screen.getByText('12')).toBeTruthy();
   });
 
   it('shows one checkout action for duplicate same-box allocations', () => {
@@ -228,6 +291,7 @@ describe('AllocatedBoxesSection', () => {
     renderSection(entries, { onCheckoutAllocation });
 
     expect(screen.getAllByRole('button', { name: 'Check Out' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Check Out' }));
 
     expect(onCheckoutAllocation).toHaveBeenCalledTimes(1);
@@ -283,6 +347,12 @@ describe('AllocatedBoxesSection', () => {
 
     expect(screen.getAllByRole('button', { name: 'Check In' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+
+    const details = document.getElementById('allocated-box-details-IL1-8000');
+    expect(details).toBeTruthy();
+    expect(within(details as HTMLElement).queryByRole('button', { name: 'Remove' })).toBeNull();
+
     fireEvent.click(screen.getByRole('button', { name: 'Check In' }));
 
     expect(onOpenFilmCheckin).toHaveBeenCalledTimes(1);
