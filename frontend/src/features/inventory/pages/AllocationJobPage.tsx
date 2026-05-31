@@ -49,9 +49,6 @@ export default function AllocationJobPage() {
     visibleCaulkAllocations,
     isActiveCaulkAllocationEntry,
     hasCheckoutableMaterials,
-    totalRequiredCaulkTubes,
-    totalAllocatedCaulkTubes,
-    totalRemainingCaulkTubes,
     canDeleteJob,
     canEditStagedPickup,
     hasOutstandingReturnedMaterials,
@@ -213,9 +210,6 @@ export default function AllocationJobPage() {
         summary={summary}
         isReadOnlyJob={isReadOnlyJob}
         isLaborOnlyDisplayJob={isLaborOnlyDisplayJob}
-        totalRequiredCaulkTubes={totalRequiredCaulkTubes}
-        totalAllocatedCaulkTubes={totalAllocatedCaulkTubes}
-        totalRemainingCaulkTubes={totalRemainingCaulkTubes}
         stagingBlockingMessage={stagingBlockingMessage}
         canEditStagedPickup={canEditStagedPickup}
         canMarkStagedPickup={canMarkStagedPickup}

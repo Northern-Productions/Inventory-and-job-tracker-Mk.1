@@ -327,13 +327,13 @@ function buildPhase(
   };
 }
 
-function expectOverviewCaulkTotals(
-  html: string,
-  expected: { requiredTubes: number; allocatedTubes: number; remainingTubes: number }
-) {
-  expect(html).toContain(`<dt>Required Tubes</dt><dd>${expected.requiredTubes}</dd>`);
-  expect(html).toContain(`<dt>Allocated Tubes</dt><dd>${expected.allocatedTubes}</dd>`);
-  expect(html).toContain(`<dt>Remaining Tubes</dt><dd>${expected.remainingTubes}</dd>`);
+function expectOverviewMaterialTotalsHidden(html: string) {
+  expect(html).not.toContain('<dt>Required LF</dt>');
+  expect(html).not.toContain('<dt>Allocated LF</dt>');
+  expect(html).not.toContain('<dt>Remaining LF</dt>');
+  expect(html).not.toContain('<dt>Required Tubes</dt>');
+  expect(html).not.toContain('<dt>Allocated Tubes</dt>');
+  expect(html).not.toContain('<dt>Remaining Tubes</dt>');
 }
 
 function expectCaulkRequirementTableTotals(
@@ -789,7 +789,7 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('24 tubes | 2 full cases | 0 loose tubes');
   });
 
-  it('uses requirement-linked caulk coverage for overview tube totals when allocation is bound', () => {
+  it('uses requirement-linked caulk coverage for requirement totals when allocation is bound', () => {
     const requirement = buildCaulkRequirement({
       allocatedTubes: 20,
       remainingTubes: 0
@@ -821,11 +821,7 @@ describe('AllocationJobPage', () => {
 
     const html = renderPage(detail);
 
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 20,
-      remainingTubes: 0
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, requirement);
   });
 
@@ -1162,15 +1158,11 @@ describe('AllocationJobPage', () => {
 
     const html = renderPage(detail);
 
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 20,
-      remainingTubes: 0
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, requirement);
   });
 
-  it('repairs mixed job detail caulk coverage before rendering the overview', () => {
+  it('repairs mixed job detail caulk coverage before rendering requirement totals', () => {
     const staleRequirement = buildCaulkRequirement({
       allocatedTubes: 0,
       remainingTubes: 20
@@ -1210,11 +1202,7 @@ describe('AllocationJobPage', () => {
     };
 
     expect(html).toContain('badge-READY');
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 20,
-      remainingTubes: 0
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, repairedRequirement);
   });
 
@@ -1258,11 +1246,7 @@ describe('AllocationJobPage', () => {
     };
 
     expect(html).toContain('badge-READY');
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 20,
-      remainingTubes: 0
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, repairedRequirement);
   });
 
@@ -1304,11 +1288,7 @@ describe('AllocationJobPage', () => {
     const html = renderPage(detail);
 
     expect(html).toContain('badge-FILM_ORDER');
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 0,
-      remainingTubes: 20
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, staleRequirement);
   });
 
@@ -1422,11 +1402,7 @@ describe('AllocationJobPage', () => {
     };
 
     expect(html).toContain('badge-FILM_ORDER');
-    expectOverviewCaulkTotals(html, {
-      requiredTubes: 20,
-      allocatedTubes: 10,
-      remainingTubes: 10
-    });
+    expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, repairedRequirement);
   });
 

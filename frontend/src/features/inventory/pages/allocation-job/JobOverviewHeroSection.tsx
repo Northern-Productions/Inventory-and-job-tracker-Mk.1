@@ -9,9 +9,6 @@ type JobOverviewHeroSectionProps = {
   summary: JobDetail['summary'];
   isReadOnlyJob: boolean;
   isLaborOnlyDisplayJob: boolean;
-  totalRequiredCaulkTubes: number;
-  totalAllocatedCaulkTubes: number;
-  totalRemainingCaulkTubes: number;
   stagingBlockingMessage: string;
   canEditStagedPickup: boolean;
   canMarkStagedPickup: boolean;
@@ -41,9 +38,6 @@ export function JobOverviewHeroSection({
   summary,
   isReadOnlyJob,
   isLaborOnlyDisplayJob,
-  totalRequiredCaulkTubes,
-  totalAllocatedCaulkTubes,
-  totalRemainingCaulkTubes,
   stagingBlockingMessage,
   canEditStagedPickup,
   canMarkStagedPickup,
@@ -126,30 +120,6 @@ export function JobOverviewHeroSection({
         <div className="key-value">
           <dt>Crew Leader</dt>
           <dd>{summary.crewLeader || '--'}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Required LF</dt>
-          <dd>{summary.requiredFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Allocated LF</dt>
-          <dd>{summary.allocatedFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Remaining LF</dt>
-          <dd>{summary.remainingFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Required Tubes</dt>
-          <dd>{totalRequiredCaulkTubes}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Allocated Tubes</dt>
-          <dd>{totalAllocatedCaulkTubes}</dd>
-        </div>
-        <div className="key-value">
-          <dt>Remaining Tubes</dt>
-          <dd>{totalRemainingCaulkTubes}</dd>
         </div>
       </div>
       <div className="panel-title-row job-detail-staged-panel">
