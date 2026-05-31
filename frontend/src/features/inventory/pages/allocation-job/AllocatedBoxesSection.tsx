@@ -56,12 +56,12 @@ function getRepresentativeEntry(entries: AllocationJobDetailEntry[]) {
   );
 }
 
+function isAllocationRemovable(entry: AllocationJobDetailEntry) {
+  return !entry.checkedOutOnThisJob && entry.status === 'ACTIVE' && !entry.resolvedAt;
+}
+
 function getRemovableEntry(entries: AllocationJobDetailEntry[]) {
-  return (
-    entries.find((entry) => !entry.checkedOutOnThisJob && entry.status === 'ACTIVE' && !entry.resolvedAt) ||
-    entries.find((entry) => !entry.checkedOutOnThisJob) ||
-    null
-  );
+  return entries.find(isAllocationRemovable) || null;
 }
 
 export function buildAllocatedBoxGroups(entries: AllocationJobDetailEntry[]): AllocatedBoxGroup[] {
@@ -215,7 +215,7 @@ function renderAllocationActions({
       ) : (
         <span className="muted-text">Not in stock</span>
       )}
-      {showRemove && removeEntry && !removeEntry.checkedOutOnThisJob ? (
+      {showRemove && removeEntry && isAllocationRemovable(removeEntry) ? (
         <Button
           type="button"
           variant="danger"
@@ -226,6 +226,34 @@ function renderAllocationActions({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+function renderAllocationRemoveButton({
+  entry,
+  isStatusMutationPending,
+  onRemoveAllocation,
+  isAllocationRemovalPending
+}: {
+  entry: AllocationJobDetailEntry;
+  isStatusMutationPending: (boxId: string) => boolean;
+  onRemoveAllocation: (entry: AllocationJobDetailEntry) => void;
+  isAllocationRemovalPending: (allocationId: string) => boolean;
+}) {
+  if (!isAllocationRemovable(entry)) {
+    return null;
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="danger"
+      size="sm"
+      onClick={() => onRemoveAllocation(entry)}
+      disabled={isAllocationRemovalPending(entry.allocationId) || isStatusMutationPending(entry.boxId)}
+    >
+      Remove
+    </Button>
   );
 }
 
@@ -328,6 +356,17 @@ export function AllocatedBoxesSection({
                             <MobileField label="Requirement" value={formatRequirementLabel(detailEntry)} />
                             <MobileField label="Width" value={formatRequirementWidth(detailEntry)} />
                             <MobileField label="Covered LF" value={formatCoveredRequirementFeet(detailEntry)} />
+                            {isAllocationRemovable(detailEntry) ? (
+                              <MobileField
+                                label="Actions"
+                                value={renderAllocationRemoveButton({
+                                  entry: detailEntry,
+                                  isStatusMutationPending,
+                                  onRemoveAllocation,
+                                  isAllocationRemovalPending
+                                })}
+                              />
+                            ) : null}
                           </MobileFieldList>
                         </div>
                       ))}
@@ -437,6 +476,7 @@ export function AllocatedBoxesSection({
                                   <th>Requirement</th>
                                   <th>Width</th>
                                   <th>Covered LF</th>
+                                  <th>Actions</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -445,6 +485,14 @@ export function AllocatedBoxesSection({
                                     <td>{formatRequirementLabel(detailEntry)}</td>
                                     <td>{formatRequirementWidth(detailEntry)}</td>
                                     <td>{formatCoveredRequirementFeet(detailEntry)}</td>
+                                    <td>
+                                      {renderAllocationRemoveButton({
+                                        entry: detailEntry,
+                                        isStatusMutationPending,
+                                        onRemoveAllocation,
+                                        isAllocationRemovalPending
+                                      })}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
