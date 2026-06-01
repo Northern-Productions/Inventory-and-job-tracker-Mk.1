@@ -55,6 +55,23 @@ describe('reports API client', () => {
         neverCheckedOut: [],
         zeroedByMonth: [],
         zeroedBoxes: [],
+        mostUsedFilm: [
+          {
+            rank: 1,
+            manufacturer: '3M Solar',
+            filmName: 'Prestige 70',
+            widthIn: 60,
+            jobsUsingIt: 2,
+            totalRequiredLf: 120,
+            averageLfPerJob: 60,
+            actualUsedLf: 95
+          }
+        ],
+        mostUsedFilmOptions: {
+          manufacturers: ['3M Solar'],
+          filmNames: ['Prestige 70'],
+          widths: [60]
+        },
         completedJobs: [
           {
             jobId: '11111111-1111-4111-8111-111111111111',
@@ -84,6 +101,8 @@ describe('reports API client', () => {
     expect(result.completedJobs[0]?.workScope).toBe('Sections 4, 5');
     expect(result.completedJobs[0]?.sections).toBe('Sections 4, 5');
     expect(result.completedJobs[0]?.jobNumber).toBe('4953');
+    expect(result.mostUsedFilm[0]?.actualUsedLf).toBe(95);
+    expect(result.mostUsedFilmOptions.widths).toEqual([60]);
     expect(requestMock).toHaveBeenCalledWith('GET', '/reports/summary', {
       query: {
         warehouse: 'IL1',
@@ -91,7 +110,8 @@ describe('reports API client', () => {
         film: undefined,
         width: undefined,
         from: undefined,
-        to: undefined
+        to: undefined,
+        rankBy: undefined
       }
     });
   });

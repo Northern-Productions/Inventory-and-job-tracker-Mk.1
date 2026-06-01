@@ -14,7 +14,8 @@ export async function getReportsSummary(filters: ReportsSummaryFilters): Promise
     film: filters.film,
     width: filters.width,
     from: filters.from,
-    to: filters.to
+    to: filters.to,
+    rankBy: filters.rankBy
   };
 
   const summary = await requestReadWithFallback<ReportsSummary>('/reports/summary', params, params);
@@ -24,7 +25,13 @@ export async function getReportsSummary(filters: ReportsSummaryFilters): Promise
     zeroedByMonth: summary.zeroedByMonth || [],
     zeroedBoxes: summary.zeroedBoxes || [],
     completedJobs: summary.completedJobs || [],
-    cancelledJobs: summary.cancelledJobs || []
+    cancelledJobs: summary.cancelledJobs || [],
+    mostUsedFilm: summary.mostUsedFilm || [],
+    mostUsedFilmOptions: {
+      manufacturers: summary.mostUsedFilmOptions?.manufacturers || [],
+      filmNames: summary.mostUsedFilmOptions?.filmNames || [],
+      widths: summary.mostUsedFilmOptions?.widths || []
+    }
   };
 }
 

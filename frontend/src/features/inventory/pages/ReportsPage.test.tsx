@@ -1,17 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReportsPage from './ReportsPage';
 import { useReportsPageModel } from './reports/useReportsPageModel';
 
 vi.mock('./reports/useReportsPageModel', () => ({
   REPORT_TYPE_TITLES: {
-    never_checked_out: 'Received But Never Checked Out',
-    zeroed_boxes: 'All Zeroed Boxes',
-    completed_jobs: 'Completed Jobs',
-    cancelled_jobs: 'Cancelled Jobs',
-    asset_total_cost: 'Asset Total Cost'
+    most_used_film: 'Most Used Film'
   },
   useReportsPageModel: vi.fn()
 }));
@@ -33,97 +29,152 @@ vi.mock('../components/WarehouseSelectField', () => ({
 }));
 
 const useReportsPageModelMock = vi.mocked(useReportsPageModel);
-const openAllocationJobMock = vi.fn();
+const patchMostUsedFilmFiltersMock = vi.fn();
 
 function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> = {}) {
   return {
-    auth: {
-      isOwner: false
-    },
     isPhoneLayout: false,
     filters: {
-      warehouse: ''
-    },
-    reportType: 'completed_jobs',
-    setReportType: vi.fn(),
-    zeroedFilters: {
+      warehouse: '',
       manufacturer: '',
-      q: '',
-      widths: []
+      filmName: '',
+      width: '',
+      dateRange: 'this_year',
+      customFrom: '',
+      customTo: '',
+      rankBy: 'actual_used_lf'
     },
-    rememberedCustomWidth: '',
-    setRememberedCustomWidth: vi.fn(),
-    neverCheckedOut: [],
-    completedJobs: [],
-    cancelledJobs: [],
-    ownerAssetTotalCost: null,
-    reportTypeOptions: [
-      { label: 'Completed Jobs', value: 'completed_jobs' },
-      { label: 'Cancelled Jobs', value: 'cancelled_jobs' }
+    reportType: 'most_used_film',
+    setReportType: vi.fn(),
+    reportTypeOptions: [{ label: 'Most Used Film', value: 'most_used_film' }],
+    dateRangeOptions: [
+      { label: 'This year', value: 'this_year' },
+      { label: 'All time', value: 'all_time' },
+      { label: 'Custom date range', value: 'custom' }
     ],
-    zeroedManufacturerOptions: [],
-    filteredZeroedBoxes: [],
+    rankByOptions: [
+      { label: 'Actual Used LF', value: 'actual_used_lf' },
+      { label: 'Jobs Using It', value: 'jobs_using_it' }
+    ],
+    mostUsedFilm: [
+      {
+        rank: 1,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 70',
+        widthIn: 60,
+        jobsUsingIt: 2,
+        totalRequiredLf: 120,
+        averageLfPerJob: 60,
+        actualUsedLf: 95
+      }
+    ],
+    manufacturerOptions: ['3M Solar'],
+    filmNameOptions: ['Prestige 70'],
+    widthOptions: [60],
     showReportLoading: false,
     reportError: null,
-    patchWarehouse: vi.fn(),
-    patchZeroedFilters: vi.fn(),
-    openInventoryBox: vi.fn(),
-    openAllocationJob: openAllocationJobMock,
+    dateRangeError: '',
+    patchMostUsedFilmFilters: patchMostUsedFilmFiltersMock,
     ...overrides
   } as ReturnType<typeof useReportsPageModel>;
 }
 
 describe('ReportsPage', () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
-    openAllocationJobMock.mockReset();
+    patchMostUsedFilmFiltersMock.mockReset();
     useReportsPageModelMock.mockReset();
   });
 
-  it('shows completed report jobs with work scope while preserving canonical job links', () => {
-    const row = {
-      jobId: '11111111-1111-4111-8111-111111111111',
-      jobNumber: '4953',
-      workScope: 'Sections 4, 5',
-      sections: 'Sections 4, 5',
-      warehouse: 'IL1' as const,
-      installDate: '2026-04-10',
-      crewLeader: 'Crew',
-      status: 'COMPLETED' as const,
-      lifecycleStatus: 'COMPLETED' as const,
-      requiredFeet: 100,
-      allocatedFeet: 100,
-      remainingFeet: 0,
-      closedAt: '2026-04-11T10:00:00Z'
-    };
-    useReportsPageModelMock.mockReturnValue(buildModel({ completedJobs: [row] }));
+  it('exposes only the Most Used Film report and renders requested columns', () => {
+    useReportsPageModelMock.mockReturnValue(buildModel());
 
     render(<ReportsPage />);
 
-    const jobButton = screen.getByRole('button', { name: /IL1-4953.*Sections 4, 5/ });
-    expect(screen.getByRole('columnheader', { name: 'Work Scope' })).toBeTruthy();
-    expect(screen.getAllByText('Sections 4, 5').length).toBeGreaterThan(0);
-
-    fireEvent.click(jobButton);
-
-    expect(openAllocationJobMock).toHaveBeenCalledWith(row);
+    const reportType = screen.getByLabelText('Report Type') as HTMLSelectElement;
+    expect(Array.from(reportType.options).map((option) => option.textContent)).toEqual([
+      'Most Used Film'
+    ]);
+    expect(screen.queryByText('Received But Never Checked Out')).toBeNull();
+    expect(screen.queryByText('All Zeroed Boxes')).toBeNull();
+    expect(screen.queryByText('Completed Jobs')).toBeNull();
+    expect(screen.queryByText('Cancelled Jobs')).toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Rank' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Manufacturer' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Film Name' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Width' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Jobs Using It' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Total Required LF' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Average LF per Job' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Actual Used LF' })).toBeTruthy();
+    expect(screen.getAllByText('Prestige 70').length).toBeGreaterThan(0);
+    expect(screen.getByText('95')).toBeTruthy();
   });
 
-  it('keeps report job labels compatible when work scope and jobId are absent', () => {
+  it('patches report filters from controls', () => {
+    useReportsPageModelMock.mockReturnValue(buildModel());
+
+    render(<ReportsPage />);
+
+    fireEvent.change(screen.getByLabelText('Rank By'), { target: { value: 'jobs_using_it' } });
+    fireEvent.change(screen.getByLabelText('Manufacturer'), { target: { value: '3M Solar' } });
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '60' } });
+
+    expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ rankBy: 'jobs_using_it' });
+    expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ manufacturer: '3M Solar' });
+    expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ width: '60' });
+  });
+
+  it('shows custom date inputs and the actual-usage empty state', () => {
     useReportsPageModelMock.mockReturnValue(
       buildModel({
-        reportType: 'cancelled_jobs',
-        cancelledJobs: [
+        mostUsedFilm: [],
+        filters: {
+          warehouse: '',
+          manufacturer: '',
+          filmName: '',
+          width: '',
+          dateRange: 'custom',
+          customFrom: '',
+          customTo: '',
+          rankBy: 'actual_used_lf'
+        }
+      })
+    );
+
+    render(<ReportsPage />);
+
+    expect(screen.getByLabelText('Custom Start')).toBeTruthy();
+    expect(screen.getByLabelText('Custom End')).toBeTruthy();
+    expect(
+      screen.getByText('No actual film usage found for this filter range. Try Jobs Using It or widen the date range.')
+    ).toBeTruthy();
+  });
+
+  it('shows zero-actual requirement rows in the Jobs Using It view', () => {
+    useReportsPageModelMock.mockReturnValue(
+      buildModel({
+        filters: {
+          warehouse: '',
+          manufacturer: '',
+          filmName: '',
+          width: '',
+          dateRange: 'this_year',
+          customFrom: '',
+          customTo: '',
+          rankBy: 'jobs_using_it'
+        },
+        mostUsedFilm: [
           {
-            jobNumber: '81234',
-            warehouse: 'MS1' as const,
-            installDate: '2026-04-12',
-            crewLeader: '',
-            status: 'CANCELLED' as const,
-            lifecycleStatus: 'CANCELLED' as const,
-            requiredFeet: 0,
-            allocatedFeet: 0,
-            remainingFeet: 0,
-            closedAt: '2026-04-13T10:00:00Z'
+            rank: 1,
+            manufacturer: 'Madico',
+            filmName: 'Safetyshield',
+            widthIn: 72,
+            jobsUsingIt: 3,
+            totalRequiredLf: 180,
+            averageLfPerJob: 60,
+            actualUsedLf: 0
           }
         ]
       })
@@ -131,7 +182,7 @@ describe('ReportsPage', () => {
 
     render(<ReportsPage />);
 
-    expect(screen.getByRole('button', { name: 'MS1-81234' })).toBeTruthy();
-    expect(screen.getAllByText('--').length).toBeGreaterThan(0);
+    expect(screen.getByText('Safetyshield')).toBeTruthy();
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
   });
 });

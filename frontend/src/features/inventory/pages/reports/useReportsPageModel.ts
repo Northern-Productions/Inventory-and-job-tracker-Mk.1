@@ -1,186 +1,219 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import type { ClosedJobReportRow, ReportsSummaryFilters } from '../../../../domain';
+import { useMemo, useState } from 'react';
+import type {
+  MostUsedFilmRankBy,
+  ReportsSummaryFilters,
+  Warehouse
+} from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
-import { searchOfflineBoxes } from '../../../../lib/offlineInventory';
-import { useAuth } from '../../../auth/AuthContext';
 import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
-import {
-  useFilmCatalog,
-  useOwnerAssetTotalCostReport,
-  useReportsSummary
-} from '../../hooks/useInventoryQueries';
-import { getManufacturerOptionsWithCatalog } from '../../utils/boxHelpers';
-import {
-  buildZeroedManufacturerOptions,
-  filterZeroedBoxes,
-  type ZeroedBoxesFilters
-} from '../../utils/reportsZeroedFilters';
-import { buildAllocationJobRoute } from '../../utils/jobRoutes';
-import { normalizeSelectedWidths } from '../../utils/widthFilters';
+import { useReportsSummary } from '../../hooks/useInventoryQueries';
 import { parseWarehouseFilterValue } from '../../utils/warehouseOptions';
 
-export type ReportType =
-  | 'never_checked_out'
-  | 'zeroed_boxes'
-  | 'completed_jobs'
-  | 'cancelled_jobs'
-  | 'asset_total_cost';
+export type ReportType = 'most_used_film';
+export type MostUsedFilmDateRange =
+  | 'this_year'
+  | 'last_30_days'
+  | 'last_90_days'
+  | 'all_time'
+  | 'custom'
+  | `year_${number}`;
 
-export const BASE_REPORT_TYPE_OPTIONS = [
-  { label: 'Received But Never Checked Out', value: 'never_checked_out' },
-  { label: 'All Zeroed Boxes', value: 'zeroed_boxes' },
-  { label: 'Completed Jobs', value: 'completed_jobs' },
-  { label: 'Cancelled Jobs', value: 'cancelled_jobs' }
-];
+export interface MostUsedFilmFilters {
+  warehouse: Warehouse | '';
+  manufacturer: string;
+  filmName: string;
+  width: string;
+  dateRange: MostUsedFilmDateRange;
+  customFrom: string;
+  customTo: string;
+  rankBy: MostUsedFilmRankBy;
+}
 
-export const OWNER_REPORT_TYPE_OPTIONS = [
-  { label: 'Asset Total Cost', value: 'asset_total_cost' },
-  ...BASE_REPORT_TYPE_OPTIONS
+export const REPORT_TYPE_OPTIONS: Array<{ label: string; value: ReportType }> = [
+  { label: 'Most Used Film', value: 'most_used_film' }
 ];
 
 export const REPORT_TYPE_TITLES: Record<ReportType, string> = {
-  never_checked_out: 'Received But Never Checked Out',
-  zeroed_boxes: 'All Zeroed Boxes',
-  completed_jobs: 'Completed Jobs',
-  cancelled_jobs: 'Cancelled Jobs',
-  asset_total_cost: 'Asset Total Cost'
+  most_used_film: 'Most Used Film'
 };
 
-const EMPTY_ZEROED_FILTERS: ZeroedBoxesFilters = {
-  manufacturer: '',
-  q: '',
-  widths: []
-};
+export const RANK_BY_OPTIONS: Array<{ label: string; value: MostUsedFilmRankBy }> = [
+  { label: 'Actual Used LF', value: 'actual_used_lf' },
+  { label: 'Jobs Using It', value: 'jobs_using_it' }
+];
 
-export function useReportsPageModel() {
-  const navigate = useNavigate();
-  const auth = useAuth();
-  const defaultWarehouse = useDefaultWarehouse();
-  const isPhoneLayout = useIsPhoneLayout();
-  const [filters, setFilters] = useState<ReportsSummaryFilters>(() => ({
-    warehouse: defaultWarehouse
-  }));
-  const [reportType, setReportType] = useState<ReportType>(
-    auth.isOwner ? 'asset_total_cost' : 'never_checked_out'
-  );
-  const [zeroedFilters, setZeroedFilters] = useState<ZeroedBoxesFilters>(EMPTY_ZEROED_FILTERS);
-  const [rememberedCustomWidth, setRememberedCustomWidth] = useState('');
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
 
-  const reportsQuery = useReportsSummary(filters);
-  const ownerAssetTotalCostQuery = useOwnerAssetTotalCostReport(
-    { warehouse: filters.warehouse || '' },
-    {
-      enabled: auth.isOwner && reportType === 'asset_total_cost'
-    }
-  );
-  const filmCatalogQuery = useFilmCatalog();
-  const zeroedFallbackQuery = useQuery({
-    queryKey: ['reports', 'zeroed-fallback', filters.warehouse || 'ALL'],
-    queryFn: () =>
-      searchOfflineBoxes({
-        warehouse: filters.warehouse || '',
-        manufacturer: '',
-        q: '',
-        status: 'ZEROED',
-        film: '',
-        showRetired: true
-      })
-  });
-  const knownManufacturerOptions = useMemo(
-    () => getManufacturerOptionsWithCatalog(filmCatalogQuery.data),
-    [filmCatalogQuery.data]
-  );
-  const neverCheckedOut = reportsQuery.data?.neverCheckedOut || [];
-  const completedJobs = reportsQuery.data?.completedJobs || [];
-  const cancelledJobs = reportsQuery.data?.cancelledJobs || [];
-  const ownerAssetTotalCost = ownerAssetTotalCostQuery.data;
-  const reportTypeOptions = useMemo(
-    () => (auth.isOwner ? OWNER_REPORT_TYPE_OPTIONS : BASE_REPORT_TYPE_OPTIONS),
-    [auth.isOwner]
-  );
-  const zeroedBoxes = useMemo(() => {
-    const fromSummary = reportsQuery.data?.zeroedBoxes || [];
-    if (fromSummary.length) {
-      return fromSummary;
-    }
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
-    return (zeroedFallbackQuery.data || [])
-      .filter((box) => box.status === 'ZEROED' && box.zeroedDate)
-      .map((box) => ({
-        boxId: box.boxId,
-        warehouse: box.warehouse,
-        manufacturer: box.manufacturer,
-        filmName: box.filmName,
-        widthIn: box.widthIn,
-        zeroedDate: box.zeroedDate
-      }));
-  }, [reportsQuery.data?.zeroedBoxes, zeroedFallbackQuery.data]);
-  const zeroedManufacturerOptions = useMemo(
-    () =>
-      buildZeroedManufacturerOptions(
-        zeroedBoxes,
-        knownManufacturerOptions,
-        zeroedFilters.manufacturer
-      ),
-    [knownManufacturerOptions, zeroedBoxes, zeroedFilters.manufacturer]
-  );
-  const filteredZeroedBoxes = useMemo(
-    () => filterZeroedBoxes(zeroedBoxes, zeroedFilters),
-    [zeroedBoxes, zeroedFilters]
-  );
-  const reportLoading =
-    reportType === 'asset_total_cost'
-      ? ownerAssetTotalCostQuery.isLoading
-      : reportsQuery.isLoading;
-  const reportError =
-    reportType === 'asset_total_cost'
-      ? ownerAssetTotalCostQuery.error
-      : reportsQuery.error;
-  const showReportLoading =
-    reportLoading && !reportsQuery.data && !ownerAssetTotalCostQuery.data;
-
-  useEffect(() => {
-    if (!auth.isOwner && reportType === 'asset_total_cost') {
-      setReportType('never_checked_out');
-    }
-  }, [auth.isOwner, reportType]);
-
-  function patchWarehouse(warehouse: string) {
-    setFilters({ warehouse: parseWarehouseFilterValue(warehouse) });
+function isValidDateInput(value: string) {
+  if (!value) {
+    return false;
   }
 
-  function patchZeroedFilters(next: Partial<ZeroedBoxesFilters>) {
-    setZeroedFilters((current) => ({
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  return !Number.isNaN(Date.parse(`${value}T00:00:00`));
+}
+
+export function buildDateRangeOptions(today = new Date()) {
+  const currentYear = today.getFullYear();
+  const previousYears = Array.from({ length: 5 }, (_, index) => currentYear - index - 1);
+  return [
+    { label: 'This year', value: 'this_year' },
+    { label: 'Last 30 days', value: 'last_30_days' },
+    { label: 'Last 90 days', value: 'last_90_days' },
+    { label: 'All time', value: 'all_time' },
+    { label: 'Custom date range', value: 'custom' },
+    ...previousYears.map((year) => ({ label: String(year), value: `year_${year}` }))
+  ] as Array<{ label: string; value: MostUsedFilmDateRange }>;
+}
+
+export function resolveMostUsedFilmDateBounds(
+  filters: Pick<MostUsedFilmFilters, 'dateRange' | 'customFrom' | 'customTo'>,
+  today = new Date()
+) {
+  const currentYear = today.getFullYear();
+
+  if (filters.dateRange === 'all_time') {
+    return { from: '', to: '', error: '' };
+  }
+
+  if (filters.dateRange === 'last_30_days') {
+    return { from: toDateInputValue(addDays(today, -29)), to: toDateInputValue(today), error: '' };
+  }
+
+  if (filters.dateRange === 'last_90_days') {
+    return { from: toDateInputValue(addDays(today, -89)), to: toDateInputValue(today), error: '' };
+  }
+
+  if (filters.dateRange === 'custom') {
+    const from = isValidDateInput(filters.customFrom) ? filters.customFrom : '';
+    const to = isValidDateInput(filters.customTo) ? filters.customTo : '';
+    if (from && to && from > to) {
+      return { from: '', to: '', error: 'Start date must be on or before end date.' };
+    }
+
+    return { from, to, error: '' };
+  }
+
+  const yearMatch = /^year_(\d{4})$/.exec(filters.dateRange);
+  const year = yearMatch ? Number(yearMatch[1]) : currentYear;
+  return { from: `${year}-01-01`, to: `${year}-12-31`, error: '' };
+}
+
+function ensureOption(options: string[], value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || options.includes(trimmed)) {
+    return options;
+  }
+
+  return [...options, trimmed].sort((left, right) => left.localeCompare(right));
+}
+
+function ensureWidthOption(options: number[], value: string) {
+  const width = Number(value);
+  if (!Number.isFinite(width) || width <= 0 || options.includes(width)) {
+    return options;
+  }
+
+  return [...options, width].sort((left, right) => left - right);
+}
+
+export function useReportsPageModel() {
+  const defaultWarehouse = useDefaultWarehouse();
+  const isPhoneLayout = useIsPhoneLayout();
+  const [reportType, setReportType] = useState<ReportType>('most_used_film');
+  const [filters, setFilters] = useState<MostUsedFilmFilters>(() => ({
+    warehouse: defaultWarehouse,
+    manufacturer: '',
+    filmName: '',
+    width: '',
+    dateRange: 'this_year',
+    customFrom: '',
+    customTo: '',
+    rankBy: 'actual_used_lf'
+  }));
+
+  const dateBounds = useMemo(
+    () => resolveMostUsedFilmDateBounds(filters),
+    [filters.customFrom, filters.customTo, filters.dateRange]
+  );
+
+  const summaryFilters: ReportsSummaryFilters = useMemo(
+    () => ({
+      warehouse: filters.warehouse,
+      manufacturer: filters.manufacturer,
+      film: filters.filmName,
+      width: filters.width,
+      from: dateBounds.from,
+      to: dateBounds.to,
+      rankBy: filters.rankBy
+    }),
+    [
+      dateBounds.from,
+      dateBounds.to,
+      filters.filmName,
+      filters.manufacturer,
+      filters.rankBy,
+      filters.warehouse,
+      filters.width
+    ]
+  );
+  const reportsQuery = useReportsSummary(summaryFilters);
+  const mostUsedFilmOptions = reportsQuery.data?.mostUsedFilmOptions || {
+    manufacturers: [],
+    filmNames: [],
+    widths: []
+  };
+
+  const manufacturerOptions = useMemo(
+    () => ensureOption(mostUsedFilmOptions.manufacturers, filters.manufacturer),
+    [filters.manufacturer, mostUsedFilmOptions.manufacturers]
+  );
+  const filmNameOptions = useMemo(
+    () => ensureOption(mostUsedFilmOptions.filmNames, filters.filmName),
+    [filters.filmName, mostUsedFilmOptions.filmNames]
+  );
+  const widthOptions = useMemo(
+    () => ensureWidthOption(mostUsedFilmOptions.widths, filters.width),
+    [filters.width, mostUsedFilmOptions.widths]
+  );
+
+  function patchMostUsedFilmFilters(next: Partial<MostUsedFilmFilters>) {
+    setFilters((current) => ({
       ...current,
       ...next,
-      widths: normalizeSelectedWidths(next.widths ?? current.widths)
+      warehouse:
+        next.warehouse === undefined
+          ? current.warehouse
+          : parseWarehouseFilterValue(next.warehouse)
     }));
   }
 
   return {
-    auth,
     isPhoneLayout,
     filters,
     reportType,
     setReportType,
-    zeroedFilters,
-    rememberedCustomWidth,
-    setRememberedCustomWidth,
-    neverCheckedOut,
-    completedJobs,
-    cancelledJobs,
-    ownerAssetTotalCost,
-    reportTypeOptions,
-    zeroedManufacturerOptions,
-    filteredZeroedBoxes,
-    showReportLoading,
-    reportError,
-    patchWarehouse,
-    patchZeroedFilters,
-    openInventoryBox: (boxId: string) => navigate(`/inventory/${encodeURIComponent(boxId)}`),
-    openAllocationJob: (job: Pick<ClosedJobReportRow, 'jobId' | 'jobNumber'>) =>
-      navigate(buildAllocationJobRoute(job))
+    reportTypeOptions: REPORT_TYPE_OPTIONS,
+    dateRangeOptions: buildDateRangeOptions(),
+    rankByOptions: RANK_BY_OPTIONS,
+    mostUsedFilm: reportsQuery.data?.mostUsedFilm || [],
+    manufacturerOptions,
+    filmNameOptions,
+    widthOptions,
+    showReportLoading: reportsQuery.isLoading && !reportsQuery.data,
+    reportError: reportsQuery.error,
+    dateRangeError: dateBounds.error,
+    patchMostUsedFilmFilters
   };
 }

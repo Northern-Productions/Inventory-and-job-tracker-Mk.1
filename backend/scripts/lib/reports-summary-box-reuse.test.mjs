@@ -599,6 +599,8 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
     'zeroedByMonth',
     'completedJobs',
     'cancelledJobs',
+    'mostUsedFilm',
+    'mostUsedFilmOptions',
   ]);
   assert.deepEqual(summary.availableFeetByWidth, [
     {
@@ -632,6 +634,448 @@ test('buildReportsSummary reuses its already-loaded box snapshot for job summari
   assert.deepEqual(
     summary.cancelledJobs.map((entry) => ({ workScope: entry.workScope, sections: entry.sections })),
     [{ workScope: 'B', sections: 'B' }]
+  );
+});
+
+test('buildReportsSummary ranks most-used film by job requirement actual usage and distinct jobs', async () => {
+  const jobs = [
+    {
+      id: 'job-a',
+      org_id: ORG_ID,
+      job_number: '41001',
+      warehouse: 'IL1',
+      sections: 'A',
+      due_date: '2026-05-10',
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-01-05T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-b',
+      org_id: ORG_ID,
+      job_number: '41002',
+      warehouse: 'IL1',
+      sections: 'B',
+      due_date: '2026-05-11',
+      crew_leader: 'Lead',
+      lifecycle_status: 'COMPLETED',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-01-06T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-cancelled',
+      org_id: ORG_ID,
+      job_number: '41003',
+      warehouse: 'IL1',
+      sections: 'Cancelled',
+      due_date: '2026-05-12',
+      crew_leader: 'Lead',
+      lifecycle_status: 'CANCELLED',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-01-07T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-ms1',
+      org_id: ORG_ID,
+      job_number: '41004',
+      warehouse: 'MS1',
+      sections: 'MS1',
+      due_date: '2026-05-13',
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-01-08T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-created-fallback',
+      org_id: ORG_ID,
+      job_number: '41005',
+      warehouse: 'IL1',
+      sections: 'Created fallback',
+      due_date: null,
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-02-09T08:00:00.000Z',
+      updated_at: NOW,
+    },
+  ];
+  const requirements = [
+    {
+      id: 'req-a-1',
+      org_id: ORG_ID,
+      job_id: 'job-a',
+      job_number: '41001',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 50,
+      actual_used_feet: 40,
+      phase_install_date: '2026-05-10',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-a-2',
+      org_id: ORG_ID,
+      job_id: 'job-a',
+      job_number: '41001',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 30,
+      actual_used_feet: 10,
+      phase_install_date: '2026-05-10',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-b-1',
+      org_id: ORG_ID,
+      job_id: 'job-b',
+      job_number: '41002',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 40,
+      actual_used_feet: 25,
+      phase_install_date: '2026-05-11',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-b-zero',
+      org_id: ORG_ID,
+      job_id: 'job-b',
+      job_number: '41002',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 36,
+      required_feet: 20,
+      actual_used_feet: 0,
+      phase_install_date: '2026-05-11',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-created',
+      org_id: ORG_ID,
+      job_id: 'job-created-fallback',
+      job_number: '41005',
+      manufacturer: 'Madico',
+      film_name: 'Safetyshield 800',
+      width_in: 72,
+      required_feet: 110,
+      actual_used_feet: 100,
+      phase_install_date: null,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-cancelled',
+      org_id: ORG_ID,
+      job_id: 'job-cancelled',
+      job_number: '41003',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 999,
+      actual_used_feet: 999,
+      phase_install_date: '2026-05-12',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-ms1',
+      org_id: ORG_ID,
+      job_id: 'job-ms1',
+      job_number: '41004',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 100,
+      actual_used_feet: 90,
+      phase_install_date: '2026-05-13',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const client = createFakeClient({ jobs, requirements });
+
+  const actualSummary = await buildReportsSummary(client, ORG_ID, {
+    warehouse: 'IL1',
+    from: '2026-01-01',
+    to: '2026-12-31',
+    rankBy: 'actual_used_lf',
+  });
+  assert.deepEqual(
+    actualSummary.mostUsedFilm.map((row) => ({
+      rank: row.rank,
+      manufacturer: row.manufacturer,
+      filmName: row.filmName,
+      widthIn: row.widthIn,
+      jobsUsingIt: row.jobsUsingIt,
+      totalRequiredLf: row.totalRequiredLf,
+      averageLfPerJob: row.averageLfPerJob,
+      actualUsedLf: row.actualUsedLf,
+    })),
+    [
+      {
+        rank: 1,
+        manufacturer: 'Madico',
+        filmName: 'Safetyshield 800',
+        widthIn: 72,
+        jobsUsingIt: 1,
+        totalRequiredLf: 110,
+        averageLfPerJob: 110,
+        actualUsedLf: 100,
+      },
+      {
+        rank: 2,
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 70',
+        widthIn: 60,
+        jobsUsingIt: 2,
+        totalRequiredLf: 120,
+        averageLfPerJob: 60,
+        actualUsedLf: 75,
+      },
+    ]
+  );
+  assert.deepEqual(actualSummary.mostUsedFilmOptions, {
+    manufacturers: ['3M Solar', 'Madico'],
+    filmNames: ['Prestige 70', 'Safetyshield 800'],
+    widths: [36, 60, 72],
+  });
+
+  const jobsSummary = await buildReportsSummary(client, ORG_ID, {
+    warehouse: 'IL1',
+    from: '2026-01-01',
+    to: '2026-12-31',
+    rankBy: 'jobs_using_it',
+  });
+  assert.deepEqual(
+    jobsSummary.mostUsedFilm.map((row) => ({
+      rank: row.rank,
+      filmName: row.filmName,
+      widthIn: row.widthIn,
+      jobsUsingIt: row.jobsUsingIt,
+      totalRequiredLf: row.totalRequiredLf,
+      actualUsedLf: row.actualUsedLf,
+    })),
+    [
+      {
+        rank: 1,
+        filmName: 'Prestige 70',
+        widthIn: 60,
+        jobsUsingIt: 2,
+        totalRequiredLf: 120,
+        actualUsedLf: 75,
+      },
+      {
+        rank: 2,
+        filmName: 'Safetyshield 800',
+        widthIn: 72,
+        jobsUsingIt: 1,
+        totalRequiredLf: 110,
+        actualUsedLf: 100,
+      },
+      {
+        rank: 3,
+        filmName: 'Prestige 70',
+        widthIn: 36,
+        jobsUsingIt: 1,
+        totalRequiredLf: 20,
+        actualUsedLf: 0,
+      },
+    ]
+  );
+});
+
+test('buildReportsSummary filters most-used film by manufacturer, film, width, and phase date basis', async () => {
+  const jobs = [
+    {
+      id: 'job-phase-2025',
+      org_id: ORG_ID,
+      job_number: '51001',
+      warehouse: 'IL1',
+      sections: 'Phase date controls',
+      due_date: '2026-02-10',
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-02-01T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-phase-2026',
+      org_id: ORG_ID,
+      job_number: '51002',
+      warehouse: 'IL1',
+      sections: 'Current year',
+      due_date: '2026-03-10',
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-03-01T08:00:00.000Z',
+      updated_at: NOW,
+    },
+  ];
+  const requirements = [
+    {
+      id: 'req-phase-2025',
+      org_id: ORG_ID,
+      job_id: 'job-phase-2025',
+      job_number: '51001',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      required_feet: 70,
+      actual_used_feet: 65,
+      phase_install_date: '2025-12-15',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-phase-2026',
+      org_id: ORG_ID,
+      job_id: 'job-phase-2026',
+      job_number: '51002',
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 72,
+      required_feet: 90,
+      actual_used_feet: 80,
+      phase_install_date: '2026-03-10',
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const client = createFakeClient({ jobs, requirements });
+
+  const summary = await buildReportsSummary(client, ORG_ID, {
+    warehouse: 'IL1',
+    manufacturer: '3M Solar',
+    film: 'Prestige 70',
+    width: '60',
+    from: '2025-01-01',
+    to: '2025-12-31',
+    rankBy: 'actual_used_lf',
+  });
+
+  assert.deepEqual(
+    summary.mostUsedFilm.map((row) => ({
+      filmName: row.filmName,
+      widthIn: row.widthIn,
+      totalRequiredLf: row.totalRequiredLf,
+      actualUsedLf: row.actualUsedLf,
+    })),
+    [
+      {
+        filmName: 'Prestige 70',
+        widthIn: 60,
+        totalRequiredLf: 70,
+        actualUsedLf: 65,
+      },
+    ]
+  );
+});
+
+test('buildReportsSummary falls back from phase install date to job install date and created date', async () => {
+  const jobs = [
+    {
+      id: 'job-install-fallback',
+      org_id: ORG_ID,
+      job_number: '52001',
+      warehouse: 'IL1',
+      sections: 'Install fallback',
+      due_date: '2025-07-15',
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2026-01-01T08:00:00.000Z',
+      updated_at: NOW,
+    },
+    {
+      id: 'job-created-fallback-only',
+      org_id: ORG_ID,
+      job_number: '52002',
+      warehouse: 'IL1',
+      sections: 'Created fallback',
+      due_date: null,
+      crew_leader: 'Lead',
+      lifecycle_status: 'ACTIVE',
+      is_labor_only: false,
+      is_staged_for_pickup: false,
+      created_at: '2024-11-01T08:00:00.000Z',
+      updated_at: NOW,
+    },
+  ];
+  const requirements = [
+    {
+      id: 'req-install-fallback',
+      org_id: ORG_ID,
+      job_id: 'job-install-fallback',
+      job_number: '52001',
+      manufacturer: 'LLumar',
+      film_name: 'Vista',
+      width_in: 48,
+      required_feet: 30,
+      actual_used_feet: 20,
+      phase_install_date: null,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+    {
+      id: 'req-created-fallback-only',
+      org_id: ORG_ID,
+      job_id: 'job-created-fallback-only',
+      job_number: '52002',
+      manufacturer: 'Avery Dennison',
+      film_name: 'Natura',
+      width_in: 60,
+      required_feet: 40,
+      actual_used_feet: 35,
+      phase_install_date: null,
+      created_at: NOW,
+      updated_at: NOW,
+    },
+  ];
+  const client = createFakeClient({ jobs, requirements });
+
+  const installFallbackSummary = await buildReportsSummary(client, ORG_ID, {
+    warehouse: 'IL1',
+    from: '2025-01-01',
+    to: '2025-12-31',
+    rankBy: 'actual_used_lf',
+  });
+  assert.deepEqual(
+    installFallbackSummary.mostUsedFilm.map((row) => row.filmName),
+    ['Vista']
+  );
+
+  const createdFallbackSummary = await buildReportsSummary(client, ORG_ID, {
+    warehouse: 'IL1',
+    from: '2024-01-01',
+    to: '2024-12-31',
+    rankBy: 'actual_used_lf',
+  });
+  assert.deepEqual(
+    createdFallbackSummary.mostUsedFilm.map((row) => row.filmName),
+    ['Natura']
   );
 });
 
@@ -930,10 +1374,14 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
     localReportsSource,
     /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
+  assert.match(localReportsSource, /const allRequirements = await loadReportRequirementsSnapshot\(client, orgId\)/);
+  assert.match(localReportsSource, /buildMostUsedFilmReport\(\s*allJobEntries,\s*allRequirements,\s*filters,?\s*\)/s);
   assert.match(
     edgeSource,
     /buildJobsList\(client, orgId, 0, undefined, \[\], \{\s*preloadedBoxes: allBoxes,\s*snapshotConcurrency: 1,\s*\}\)/s
   );
+  assert.match(edgeSource, /const allRequirements = await listJobRequirements\(client, orgId\)/);
+  assert.match(edgeSource, /buildMostUsedFilmReport\(\s*allJobEntries,\s*allRequirements,\s*filters,?\s*\)/s);
   assert.match(edgeSource, /async function listBoxesSnapshotDirect\(orgId: string\)/);
   assert.match(localReportsSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);
   assert.match(edgeSource, /workScope: asTrimmedString\(jobEntry\.workScope \?\? jobEntry\.sections\)/);

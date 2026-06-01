@@ -48,6 +48,25 @@ export interface ClosedJobReportRow {
   closedAt: string;
 }
 
+export type MostUsedFilmRankBy = 'actual_used_lf' | 'jobs_using_it';
+
+export interface MostUsedFilmRow {
+  rank: number;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  jobsUsingIt: number;
+  totalRequiredLf: number;
+  averageLfPerJob: number;
+  actualUsedLf: number;
+}
+
+export interface MostUsedFilmOptions {
+  manufacturers: string[];
+  filmNames: string[];
+  widths: number[];
+}
+
 export interface ReportsSummaryFilters {
   warehouse?: Warehouse | '';
   manufacturer?: string;
@@ -55,6 +74,7 @@ export interface ReportsSummaryFilters {
   width?: string;
   from?: string;
   to?: string;
+  rankBy?: MostUsedFilmRankBy;
 }
 
 export interface AssetTotalCostReport {
