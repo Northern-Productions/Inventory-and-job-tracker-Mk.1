@@ -68,11 +68,11 @@ export function buildDateRangeOptions(today = new Date()) {
   const currentYear = today.getFullYear();
   const previousYears = Array.from({ length: 5 }, (_, index) => currentYear - index - 1);
   return [
-    { label: 'This year', value: 'this_year' },
-    { label: 'Last 30 days', value: 'last_30_days' },
-    { label: 'Last 90 days', value: 'last_90_days' },
-    { label: 'All time', value: 'all_time' },
     { label: 'Custom date range', value: 'custom' },
+    { label: 'All time', value: 'all_time' },
+    { label: 'This year', value: 'this_year' },
+    { label: 'Last 90 days', value: 'last_90_days' },
+    { label: 'Last 30 days', value: 'last_30_days' },
     ...previousYears.map((year) => ({ label: String(year), value: `year_${year}` }))
   ] as Array<{ label: string; value: MostUsedFilmDateRange }>;
 }
@@ -137,7 +137,7 @@ export function useReportsPageModel() {
     manufacturer: '',
     filmName: '',
     width: '',
-    dateRange: 'this_year',
+    dateRange: 'all_time',
     customFrom: '',
     customTo: '',
     rankBy: 'actual_used_lf'

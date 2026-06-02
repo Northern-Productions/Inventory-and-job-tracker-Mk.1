@@ -64,21 +64,20 @@ describe('useReportsPageModel', () => {
     cleanup();
   });
 
-  it('defaults to Most Used Film, default warehouse, This year, and Actual Used LF', () => {
-    const currentYear = new Date().getFullYear();
+  it('defaults to Most Used Film, default warehouse, All time, and Actual Used LF', () => {
     const { result } = renderHook(() => useReportsPageModel(), {
       wrapper: createWrapper()
     });
 
     expect(result.current.reportTypeOptions).toEqual([{ label: 'Most Used Film', value: 'most_used_film' }]);
     expect(result.current.filters.warehouse).toBe('IL1');
-    expect(result.current.filters.dateRange).toBe('this_year');
+    expect(result.current.filters.dateRange).toBe('all_time');
     expect(result.current.filters.rankBy).toBe('actual_used_lf');
     expect(useReportsSummaryMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         warehouse: 'IL1',
-        from: `${currentYear}-01-01`,
-        to: `${currentYear}-12-31`,
+        from: '',
+        to: '',
         rankBy: 'actual_used_lf'
       })
     );
@@ -138,11 +137,11 @@ describe('useReportsPageModel', () => {
   it('builds previous year date options and validates custom ranges', () => {
     const today = new Date('2026-05-31T12:00:00');
     expect(buildDateRangeOptions(today).map((option) => option.label)).toEqual([
-      'This year',
-      'Last 30 days',
-      'Last 90 days',
-      'All time',
       'Custom date range',
+      'All time',
+      'This year',
+      'Last 90 days',
+      'Last 30 days',
       '2025',
       '2024',
       '2023',
