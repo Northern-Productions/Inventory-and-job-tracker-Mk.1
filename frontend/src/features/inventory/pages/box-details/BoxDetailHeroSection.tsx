@@ -156,27 +156,29 @@ export function BoxDetailHeroSection({
 
   return (
     <section className="panel detail-hero">
-      <p className="eyebrow">BOX DETAILS</p>
       <div className="panel-title-row detail-title-row">
-        <div>
+        <div className="box-detail-title-copy">
+          <p className="eyebrow">BOX DETAILS</p>
           <h2>{box.boxId}</h2>
         </div>
-        <div className="detail-actions">
+        <div className="box-detail-header-meta">
           <span className="warehouse-pill">{getWarehouseLabel(box.warehouse)} warehouse</span>
-          <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
-          {!pendingTransfer && box.status === 'ORDERED' ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onOpenOrderedReceiveDialog}
-              disabled={!canReceiveOrderedBox}
-            >
-              Receive Box
+          <div className="box-detail-action-row">
+            <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+            {!pendingTransfer && box.status === 'ORDERED' ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onOpenOrderedReceiveDialog}
+                disabled={!canReceiveOrderedBox}
+              >
+                Receive Box
+              </Button>
+            ) : null}
+            <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
+              Edit
             </Button>
-          ) : null}
-          <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
-            Edit
-          </Button>
+          </div>
         </div>
       </div>
 

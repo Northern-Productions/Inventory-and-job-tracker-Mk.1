@@ -1712,7 +1712,43 @@ textarea {
 }
 
 .detail-title-row {
+  align-items: flex-start;
   margin-bottom: 0.5rem;
+}
+
+.box-detail-title-copy {
+  display: grid;
+  gap: 1.05rem;
+  min-width: 0;
+}
+
+.box-detail-title-copy .eyebrow,
+.box-detail-title-copy h2 {
+  margin: 0;
+}
+
+.box-detail-title-copy h2 {
+  overflow-wrap: anywhere;
+}
+
+.box-detail-header-meta {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: end;
+  align-content: start;
+  min-width: min(100%, 18rem);
+}
+
+.box-detail-header-meta .warehouse-pill {
+  margin: 0;
+}
+
+.box-detail-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
 }
 
 .detail-status-actions {
@@ -5445,6 +5481,29 @@ td.col-available-linear-ft {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .detail-title-row {
+    align-items: stretch;
+  }
+
+  .box-detail-title-copy {
+    gap: 0.85rem;
+  }
+
+  .box-detail-header-meta {
+    justify-items: start;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .box-detail-action-row {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .box-detail-action-row .button {
+    width: 100%;
   }
 
   .inventory-view-toggle-wrap {
