@@ -852,24 +852,32 @@ th {
 
 .box-detail-card-grid {
   display: grid;
-  gap: 0.9rem;
-  margin-top: 1rem;
+  gap: 1.05rem;
+  margin-top: 1.15rem;
 }
 
 .box-detail-info-card,
 .box-detail-notes-card,
 .box-technical-details-card {
-  border: 1px solid var(--color-border-soft);
-  border-radius: 0.8rem;
-  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.95rem;
+  background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface-3) 100%);
   color: var(--color-text-1);
-  padding: 0.9rem;
+  padding: 1rem 1.05rem 1.05rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .box-detail-info-card h3,
 .box-detail-notes-card h3 {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--color-border-soft);
   font-size: 1rem;
+}
+
+.box-detail-info-card .detail-grid,
+.box-detail-info-card .stat-grid {
+  margin-top: 0;
 }
 
 .box-detail-compact-grid {
@@ -877,7 +885,7 @@ th {
 }
 
 .box-detail-notes-card {
-  margin-top: 0.9rem;
+  margin-top: 1.05rem;
 }
 
 .box-detail-notes-card p {
@@ -889,7 +897,8 @@ th {
 }
 
 .box-technical-details-card {
-  margin-top: 0.9rem;
+  margin-top: 1.05rem;
+  padding: 0.95rem 1.05rem;
 }
 
 .box-technical-details-card summary {
@@ -912,6 +921,26 @@ th {
 
 .box-technical-details-card[open] .panel-header-toggle-symbol {
   transform: rotate(45deg);
+}
+
+@media (max-width: 720px) {
+  .box-detail-card-grid {
+    gap: 0.95rem;
+    margin-top: 1rem;
+  }
+
+  .box-detail-info-card,
+  .box-detail-notes-card,
+  .box-technical-details-card {
+    border-radius: 0.85rem;
+    padding: 0.95rem;
+  }
+
+  .box-detail-info-card h3,
+  .box-detail-notes-card h3 {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+  }
 }
 
 .toast {
