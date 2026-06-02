@@ -1,4 +1,5 @@
 import { LoadingState } from '../../../components/LoadingState';
+import { Link } from 'react-router-dom';
 import {
   MobileField,
   MobileFieldList,
@@ -9,7 +10,8 @@ import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate, formatDateTime } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { useBoxAllocations } from '../hooks/useInventoryQueries';
-import { getActiveAllocatedFeet } from '../utils/boxHelpers';
+import { buildAllocationJobRoute } from '../utils/jobRoutes';
+import type { AllocationEntry } from '../../../domain';
 
 function renderDate(value: string): string {
   return value ? formatDate(value) : '--';
@@ -19,37 +21,32 @@ function renderDateTime(value: string): string {
   return value ? formatDateTime(value) : '--';
 }
 
-function formatAllocationFeet(allocatedFeet: number, coveredFeet: number, backedPhysicalFeet = allocatedFeet) {
-  if (backedPhysicalFeet !== allocatedFeet || (coveredFeet > 0 && coveredFeet !== allocatedFeet)) {
-    return `${allocatedFeet} reserved / ${backedPhysicalFeet} backed / ${coveredFeet} covered`;
-  }
-
-  return String(allocatedFeet);
+function formatReservedFeet(allocatedFeet: number) {
+  return `${allocatedFeet} LF`;
 }
 
-function formatReservationState(value: string | undefined) {
-  return value === 'WITH_INSTALL_DATE' ? 'Locked' : 'Placeholder';
+function formatJobLabel(entry: AllocationEntry) {
+  return formatJobDisplayLabel(entry) || '--';
+}
+
+function renderJobValue(entry: AllocationEntry) {
+  const label = formatJobLabel(entry);
+  return entry.jobId ? <Link to={buildAllocationJobRoute(entry)}>{label}</Link> : label;
 }
 
 export function AllocationsPanel({
   boxId,
-  feetAvailable,
-  lockedFeet = 0,
-  placeholderFeet = 0,
   collapsed = false,
   onToggle
 }: {
   boxId: string;
-  feetAvailable: number;
-  lockedFeet?: number;
-  placeholderFeet?: number;
   collapsed?: boolean;
   onToggle?: () => void;
 }) {
   const isPhoneLayout = useIsPhoneLayout();
   const allocationsQuery = useBoxAllocations(boxId);
   const allocations = allocationsQuery.data || [];
-  const activeAllocatedFeet = getActiveAllocatedFeet(allocations);
+  const activeAllocations = allocations.filter((entry) => entry.status === 'ACTIVE');
   const panelBodyId = `allocations-panel-body-${boxId}`;
 
   return (
@@ -75,48 +72,25 @@ export function AllocationsPanel({
         )}
       </div>
       <div id={panelBodyId} hidden={collapsed}>
-        <div className="stat-grid allocation-stat-grid">
-          <div className="key-value">
-            <dt>Active Reserved LF</dt>
-            <dd>{activeAllocatedFeet}</dd>
-          </div>
-          <div className="key-value">
-            <dt>Locked LF</dt>
-            <dd>{lockedFeet}</dd>
-          </div>
-          <div className="key-value">
-            <dt>Placeholder LF</dt>
-            <dd>{placeholderFeet}</dd>
-          </div>
-          <div className="key-value">
-            <dt>Allocatable Now</dt>
-            <dd>{feetAvailable}</dd>
-          </div>
-        </div>
         {allocationsQuery.isLoading ? <LoadingState label="Loading allocations..." /> : null}
         {allocationsQuery.isError ? <p className="error-text">{allocationsQuery.error.message}</p> : null}
-        {!allocationsQuery.isLoading && !allocationsQuery.isError && !allocations.length ? (
-          <div className="empty-state">No allocations saved for this box yet.</div>
+        {!allocationsQuery.isLoading && !allocationsQuery.isError && !activeAllocations.length ? (
+          <div className="empty-state">No active allocations saved for this box.</div>
         ) : null}
-        {allocations.length ? (
+        {activeAllocations.length ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
-              {allocations.map((entry) => (
+              {activeAllocations.map((entry) => (
                 <MobileRecordCard key={entry.allocationId}>
                   <MobileRecordHeader
-                    title={formatJobDisplayLabel(entry)}
+                    title={formatJobLabel(entry)}
                     subtitle={renderDateTime(entry.createdAt)}
-                    badge={<span className={`badge badge-${entry.status}`}>{entry.status}</span>}
                   />
                   <MobileFieldList>
+                    <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
+                    <MobileField label="Job" value={renderJobValue(entry)} />
                     <MobileField label="Install Date" value={renderDate(entry.installDate)} />
-                    <MobileField label="Crew" value={entry.crewLeader || '--'} />
-                    <MobileField label="Reservation" value={formatReservationState(entry.reservationState)} />
-                    <MobileField
-                      label="LF"
-                      value={formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.backedPhysicalFeet)}
-                    />
-                    <MobileField label="Resolved" value={renderDateTime(entry.resolvedAt)} />
+                    <MobileField label="LF Reserved" value={formatReservedFeet(entry.allocatedFeet)} />
                   </MobileFieldList>
                 </MobileRecordCard>
               ))}
@@ -129,24 +103,16 @@ export function AllocationsPanel({
                     <th>Created</th>
                     <th>Job</th>
                     <th>Install Date</th>
-                    <th>Crew</th>
-                    <th>Reservation</th>
-                    <th>LF</th>
-                    <th>Status</th>
-                    <th>Resolved</th>
+                    <th>LF Reserved</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allocations.map((entry) => (
+                  {activeAllocations.map((entry) => (
                     <tr key={entry.allocationId}>
                       <td>{renderDateTime(entry.createdAt)}</td>
-                      <td>{formatJobDisplayLabel(entry)}</td>
+                      <td>{renderJobValue(entry)}</td>
                       <td>{renderDate(entry.installDate)}</td>
-                      <td>{entry.crewLeader || '--'}</td>
-                      <td>{formatReservationState(entry.reservationState)}</td>
-                      <td>{formatAllocationFeet(entry.allocatedFeet, entry.coveredFeet, entry.backedPhysicalFeet)}</td>
-                      <td>{entry.status}</td>
-                      <td>{renderDateTime(entry.resolvedAt)}</td>
+                      <td>{formatReservedFeet(entry.allocatedFeet)}</td>
                     </tr>
                   ))}
                 </tbody>

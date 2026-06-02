@@ -93,17 +93,23 @@ vi.mock('../schemas/boxSchemas', () => ({
   parseUpdateBoxDraft: (...args: unknown[]) => parseUpdateBoxDraftMock(...args)
 }));
 
-vi.mock('../components/AllocateDialog', () => ({
-  AllocateDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="allocate-dialog">Allocate dialog</div> : null
-}));
-
 vi.mock('../components/BoxForm', () => ({
-  BoxForm: ({ onSubmit }: { onSubmit: (draft: unknown) => void }) => (
+  BoxForm: ({
+    onSubmit,
+    onTransferBox
+  }: {
+    onSubmit: (draft: unknown) => void;
+    onTransferBox?: () => void;
+  }) => (
     <div data-testid="box-form">
       <button type="button" onClick={() => onSubmit(nextBoxFormSubmitDraft)}>
         Submit Mock Edit
       </button>
+      {onTransferBox ? (
+        <button type="button" onClick={onTransferBox}>
+          Transfer Box
+        </button>
+      ) : null}
     </div>
   )
 }));
@@ -126,16 +132,6 @@ vi.mock('../components/HistoryPanel', () => ({
     boxId: string;
     collapsed: boolean;
   }) => <div data-testid="history-panel">{`${boxId}:${String(collapsed)}`}</div>
-}));
-
-vi.mock('../components/RollHistoryPanel', () => ({
-  RollHistoryPanel: ({
-    boxId,
-    collapsed
-  }: {
-    boxId: string;
-    collapsed: boolean;
-  }) => <div data-testid="roll-history-panel">{`${boxId}:${String(collapsed)}`}</div>
 }));
 
 afterEach(() => {
@@ -390,23 +386,48 @@ describe('BoxDetailsPage', () => {
     });
   });
 
-  it('renders the box summary, QR section, and detail actions without needing browser interactions', () => {
+  it('renders the cleaned box summary, QR section, and view-only actions', () => {
     const html = renderPage();
 
+    expect(html).toContain('BOX DETAILS');
     expect(html).toContain('IL1-1234');
-    expect(html).toContain('3M');
-    expect(html).toContain('Ultra 70');
+    expect(html).toContain('Wauconda IL1 warehouse');
+    expect(html).toContain('IN STOCK');
+    expect(html).toContain('>Edit</button>');
     expect(html).toContain('QR Code');
     expect(html).toContain('Copy QR Code');
+    expect(html).toContain('Feet Summary');
     expect(html).toContain('On Hand Feet');
     expect(html).toContain('Allocatable Now');
     expect(html).toContain('Locked Feet');
     expect(html).toContain('Placeholder Feet');
-    expect(html).toContain('420');
-    expect(html).toContain('Transfer Box');
+    expect(html).toContain('Film Identity');
+    expect(html).toContain('Manufacturer');
+    expect(html).toContain('Film Name');
+    expect(html).toContain('Dates &amp; Roll Info');
+    expect(html).toContain('Date Ordered');
+    expect(html).toContain('Date Received');
+    expect(html).toContain('Last Roll Weight');
+    expect(html).toContain('Last Weighed Date');
+    expect(html).toContain('Notes');
+    expect(html).toContain('Keep dry');
+    expect(html).toContain('Box Technical Details');
+    expect(html).toContain('Initial Feet');
+    expect(html).toContain('Initial Weight');
+    expect(html).toContain('Core Type');
+    expect(html).toContain('Core Weight');
+    expect(html).toContain('Lot / Run Number');
+    expect(html).toContain('Purchase Cost');
+    expect(html).toContain('Price / LF');
+    expect(html).toContain('On-Hand Asset Cost');
+    expect(html).not.toContain('>Transfer Box</button>');
+    expect(html).not.toContain('>Check In</button>');
+    expect(html).not.toContain('>Allocate</button>');
+    expect(html).not.toContain('>Check Out</button>');
+    expect(html).not.toContain('Roll Weight History');
   });
 
-  it('keeps Allocate enabled for ordered boxes with planning feet and shows the allocatable-now stat', async () => {
+  it('keeps ordered planning feet visible without exposing a Box Details Allocate action', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -425,17 +446,11 @@ describe('BoxDetailsPage', () => {
       error: null
     });
 
-    renderInteractivePage();
+    const html = renderPage();
 
-    expect(screen.getByText('Allocatable Now')).toBeTruthy();
-    expect(screen.getByText('35')).toBeTruthy();
-
-    const allocateButton = screen.getByRole('button', { name: 'Allocate' }) as HTMLButtonElement;
-    expect(allocateButton.disabled).toBe(false);
-
-    fireEvent.click(allocateButton);
-
-    expect(screen.getByTestId('allocate-dialog')).toBeTruthy();
+    expect(html).toContain('Allocatable Now');
+    expect(html).toContain('35');
+    expect(html).not.toContain('>Allocate</button>');
   });
 
   it('starts a transfer from the box details dialog', async () => {
@@ -445,6 +460,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.click(screen.getByRole('button', { name: 'Transfer Box' }));
     fireEvent.change(screen.getByLabelText('Send To'), { target: { value: 'MS1' } });
     fireEvent.change(screen.getByLabelText('Transfer Notes'), {
@@ -515,6 +531,7 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.click(screen.getByRole('button', { name: 'Transfer Box' }));
     fireEvent.change(screen.getByLabelText('Send To'), { target: { value: 'MS1' } });
 
@@ -947,30 +964,7 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('aria-hidden="false"');
   });
 
-  it('opens the last checkout job with the canonical job id route when available', () => {
-    useBoxMock.mockReturnValueOnce({
-      isLoading: false,
-      isError: false,
-      data: buildBox({
-        status: 'CHECKED_OUT',
-        lastCheckoutJobId: '11111111-1111-4111-8111-111111111111',
-        lastCheckoutJob: '000123',
-        lastCheckoutWorkScope: 'Sections 4, 5',
-        lastCheckoutSections: 'Sections 4, 5'
-      }),
-      error: null
-    });
-
-    renderInteractivePage();
-
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123 / Sections 4, 5' }));
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
-    );
-  });
-
-  it('falls back to the last checkout job number route when job id is absent', () => {
+  it('does not expose legacy last checkout job navigation in the cleaned top summary', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
       isError: false,
@@ -983,9 +977,8 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-000123' }));
-
-    expect(navigateMock).toHaveBeenCalledWith('/allocations/000123');
+    expect(screen.queryByRole('button', { name: 'IL1-000123' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'IL1-000123' })).toBeNull();
   });
 
   it('renders structured film order origins as read-only metadata', () => {
@@ -1318,24 +1311,7 @@ describe('BoxDetailsPage', () => {
     });
   });
 
-  it('uses the dedicated film check-in dialog for boxes that need current linear feet to calibrate return math', async () => {
-    const setStatusState = buildMutationState();
-    setStatusState.mutateAsync.mockResolvedValue(
-      buildUpdateBoxResult({
-        status: 'IN_STOCK',
-        initialFeet: 45,
-        feetAvailable: 19,
-        initialWeightLbs: null,
-        lastRollWeightLbs: 3.34,
-        lastWeighedDate: '2026-04-15',
-        coreType: 'Red plastic',
-        coreWeightLbs: 1.2847,
-        lfWeightLbsPerFt: 0.108174,
-        lastCheckoutJob: '',
-        lastCheckoutDate: ''
-      })
-    );
-    useSetBoxStatusMock.mockReturnValue(setStatusState);
+  it('does not render removed view-only check-in, allocate, or checkout actions', () => {
     useBoxMock.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -1358,67 +1334,11 @@ describe('BoxDetailsPage', () => {
       }),
       error: null
     });
-    useBoxAllocationsMock.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      data: [
-        {
-          allocationId: 'alloc-1',
-          boxId: 'MS1-919',
-          warehouse: 'MS1',
-          jobNumber: '4580',
-          installDate: '2026-04-15',
-          crewLeader: 'Crew',
-          allocatedFeet: 20,
-          coveredFeet: 20,
-          allocationKind: 'REQUIREMENT',
-          allocationSource: 'MANUAL' as const,
-          status: 'ACTIVE',
-          createdAt: '2026-04-15T10:00:00Z',
-          createdBy: 'tester',
-          resolvedAt: '',
-          resolvedBy: '',
-          filmOrderId: '',
-          notes: '',
-          manufacturer: '3M Fasara',
-          filmName: 'Milano Milky White SH2MAML',
-          widthIn: 50,
-          boxStatus: 'CHECKED_OUT',
-          checkedOutOnThisJob: true
-        }
-      ],
-      error: null
-    });
 
     renderInteractivePage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check In' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Check In MS1-919' });
-    expect(within(dialog).getByLabelText(/Current Linear Feet/i)).toBeTruthy();
-    expect(within(dialog).getByText(/close the current checkout for job 4580/i)).toBeTruthy();
-
-    fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Last Roll Weight/i }), {
-      target: { value: '3.34' }
-    });
-    fireEvent.change(within(dialog).getByLabelText(/Current Linear Feet/i), {
-      target: { value: '19' }
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Check In' }));
-
-    await waitFor(() =>
-      expect(setStatusState.mutateAsync).toHaveBeenCalledWith(
-        expect.objectContaining({
-          boxId: 'MS1-919',
-          status: 'IN_STOCK',
-          lastRollWeightLbs: 3.34,
-          currentFeetOnRoll: 19,
-          auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
-        })
-      )
-    );
-
-    const submittedPayload = setStatusState.mutateAsync.mock.calls[0]?.[0];
-    expect(submittedPayload).not.toHaveProperty('coreType');
+    expect(screen.queryByRole('button', { name: 'Check In' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Allocate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
   });
 });

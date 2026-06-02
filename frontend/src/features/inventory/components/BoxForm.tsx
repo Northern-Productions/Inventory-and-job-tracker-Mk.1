@@ -42,6 +42,9 @@ interface BoxFormProps {
   onSubmit: (draft: BoxDraft, context?: BoxFormSubmitContext) => void;
   onCancel?: () => void;
   onDelete?: () => void;
+  onTransferBox?: () => void;
+  transferBoxDisabled?: boolean;
+  transferBoxPending?: boolean;
 }
 
 export function BoxForm({
@@ -63,7 +66,10 @@ export function BoxForm({
   filmCatalogError,
   onSubmit,
   onCancel,
-  onDelete
+  onDelete,
+  onTransferBox,
+  transferBoxDisabled = false,
+  transferBoxPending = false
 }: BoxFormProps) {
   const {
     canCaptureReceivingDetails,
@@ -267,6 +273,16 @@ export function BoxForm({
               disabled={disabled || submitting || deleting}
             >
               Delete
+            </Button>
+          ) : null}
+          {mode === 'edit' && onTransferBox ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onTransferBox}
+              disabled={disabled || submitting || deleting || transferBoxDisabled || transferBoxPending}
+            >
+              Transfer Box
             </Button>
           ) : null}
           <Button type="submit" disabled={disabled || submitting || deleting}>

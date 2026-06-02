@@ -37,7 +37,6 @@ import {
   buildTransferDestinationAnalysis,
   createFallbackBox
 } from './helpers';
-import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 import { useBoxDetailActions } from './useBoxDetailActions';
 import { useBoxQrCode } from './useBoxQrCode';
 import { useBoxTransferWorkflow } from './useBoxTransferWorkflow';
@@ -58,7 +57,6 @@ export function useBoxDetailsPageModel() {
   const auth = useAuth();
   const ensureActionAccess = useActionAccess();
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
-  const canWriteAllocations = auth.hasFeatureAccess('allocations', 'write');
   const boxId = safeDecodePathParam(params.boxId);
   const boxQuery = useBox(boxId);
   const isAddBoxPending = useIsAddBoxPending(boxId);
@@ -83,10 +81,8 @@ export function useBoxDetailsPageModel() {
   const allocationsQuery = useBoxAllocations(boxId);
   const warehouseRegistry = useWarehouseRegistry();
   const [isEditing, setIsEditing] = useState(false);
-  const [isAllocateOpen, setIsAllocateOpen] = useState(false);
   const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
-  const [isRollHistorySectionCollapsed, setIsRollHistorySectionCollapsed] = useState(true);
   const didHandleScanCheckIn = useRef(false);
   const didAutoOpenOrderedReceiveKey = useRef('');
 
@@ -320,7 +316,6 @@ export function useBoxDetailsPageModel() {
   useEffect(() => {
     setIsAllocationsSectionCollapsed(true);
     setIsHistorySectionCollapsed(true);
-    setIsRollHistorySectionCollapsed(true);
   }, [boxId]);
 
   useEffect(() => {
@@ -381,17 +376,12 @@ export function useBoxDetailsPageModel() {
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,
-    canWriteAllocations,
     isEditing,
     setIsEditing,
-    isAllocateOpen,
-    setIsAllocateOpen,
     isAllocationsSectionCollapsed,
     setIsAllocationsSectionCollapsed,
     isHistorySectionCollapsed,
     setIsHistorySectionCollapsed,
-    isRollHistorySectionCollapsed,
-    setIsRollHistorySectionCollapsed,
     transferDestinationAnalysis,
     transferDestinationOptions,
     displayedAllocatedFeet,
@@ -410,8 +400,6 @@ export function useBoxDetailsPageModel() {
     handleCopyQrImage,
     handleDownloadQrImage,
     transferWorkflow,
-    goBackToInventory: () => navigate('/'),
-    openAllocationJob: (job: { jobId?: string | null; jobNumber?: string | null }) =>
-      navigate(buildAllocationJobRoute(job))
+    goBackToInventory: () => navigate('/')
   };
 }

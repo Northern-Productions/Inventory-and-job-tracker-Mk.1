@@ -850,6 +850,70 @@ th {
   margin-top: 0.25rem;
 }
 
+.box-detail-card-grid {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.box-detail-info-card,
+.box-detail-notes-card,
+.box-technical-details-card {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.8rem;
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+  padding: 0.9rem;
+}
+
+.box-detail-info-card h3,
+.box-detail-notes-card h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.box-detail-compact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.box-detail-notes-card {
+  margin-top: 0.9rem;
+}
+
+.box-detail-notes-card p {
+  margin: 0;
+  color: var(--color-text-1);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.box-technical-details-card {
+  margin-top: 0.9rem;
+}
+
+.box-technical-details-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+}
+
+.box-technical-details-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.box-technical-details-card[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+.box-technical-details-card[open] .panel-header-toggle-symbol {
+  transform: rotate(45deg);
+}
+
 .toast {
   border-radius: 1.1rem;
   align-items: center;

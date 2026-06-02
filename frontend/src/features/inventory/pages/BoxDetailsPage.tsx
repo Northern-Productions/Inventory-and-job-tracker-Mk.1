@@ -1,10 +1,8 @@
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
-import { AllocateDialog } from '../components/AllocateDialog';
 import { AllocationsPanel } from '../components/AllocationsPanel';
 import { BoxForm } from '../components/BoxForm';
 import { HistoryPanel } from '../components/HistoryPanel';
-import { RollHistoryPanel } from '../components/RollHistoryPanel';
 import { BoxConfirmationDialogs } from './box-details/BoxConfirmationDialogs';
 import { BoxDetailHeroSection } from './box-details/BoxDetailHeroSection';
 import { TransferBoxDialog } from './box-details/TransferBoxDialog';
@@ -25,17 +23,12 @@ export default function BoxDetailsPage() {
     filmCatalogQuery,
     allocationsQuery,
     canWriteInventory,
-    canWriteAllocations,
     isEditing,
     setIsEditing,
-    isAllocateOpen,
-    setIsAllocateOpen,
     isAllocationsSectionCollapsed,
     setIsAllocationsSectionCollapsed,
     isHistorySectionCollapsed,
     setIsHistorySectionCollapsed,
-    isRollHistorySectionCollapsed,
-    setIsRollHistorySectionCollapsed,
     transferDestinationAnalysis,
     displayedAllocatedFeet,
     filmCheckinReleaseJobNumber,
@@ -53,8 +46,7 @@ export default function BoxDetailsPage() {
     handleCopyQrImage,
     handleDownloadQrImage,
     transferWorkflow,
-    goBackToInventory,
-    openAllocationJob
+    goBackToInventory
   } = useBoxDetailsPageModel();
 
   if (boxQuery.isLoading && !box) {
@@ -71,6 +63,16 @@ export default function BoxDetailsPage() {
       </section>
     );
   }
+
+  const canTransferBoxFromEdit =
+    !pendingTransfer &&
+    !isAddBoxPending &&
+    !shouldBlockEditWhileAllocationsResolve &&
+    !transferWorkflow.transferMutationsPending &&
+    box.status === 'IN_STOCK' &&
+    auth.isAuthenticated &&
+    auth.clientIdConfigured &&
+    canWriteInventory;
 
   return (
     <>
@@ -102,6 +104,9 @@ export default function BoxDetailsPage() {
             setIsEditing(false);
           }}
           onDelete={() => void boxActions.handleDeleteBox()}
+          onTransferBox={transferWorkflow.openTransferDialog}
+          transferBoxDisabled={!canTransferBoxFromEdit}
+          transferBoxPending={transferWorkflow.transferMutationsPending}
         />
       ) : null}
 
@@ -115,7 +120,6 @@ export default function BoxDetailsPage() {
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         canWriteInventory={canWriteInventory}
-        canWriteAllocations={canWriteAllocations}
         deletePending={deleteMutation.isPending}
         statusPending={statusMutation.isPending || receiveOrderedMutation.isPending}
         allocationsLoading={allocationsQuery.isLoading}
@@ -125,25 +129,17 @@ export default function BoxDetailsPage() {
         isQrSectionOpen={isQrSectionOpen}
         qrCodeDataUrl={qrCodeDataUrl}
         qrCodeError={qrCodeError}
-        onOpenTransferDialog={transferWorkflow.openTransferDialog}
         onStartEdit={() => setIsEditing(true)}
-        onOpenJob={openAllocationJob}
         onSetTransferActionState={transferWorkflow.setTransferActionState}
         onToggleQrSection={() => setIsQrSectionOpen((current) => !current)}
         onCopyQrImage={() => void handleCopyQrImage()}
         onDownloadQrImage={handleDownloadQrImage}
         onCopyQrCode={() => void handleCopyQrCode()}
         onOpenOrderedReceiveDialog={() => boxActions.handleStatusChange('IN_STOCK')}
-        onCheckIn={() => void boxActions.handleStatusChange('IN_STOCK')}
-        onOpenAllocateDialog={() => setIsAllocateOpen(true)}
-        onCheckOut={() => void boxActions.handleStatusChange('CHECKED_OUT')}
       />
 
       <AllocationsPanel
         boxId={box.boxId}
-        feetAvailable={box.allocatableNowFeet ?? box.allocationPlanningFeet ?? box.feetAvailable}
-        lockedFeet={box.allocatedWithInstallDateFeet ?? 0}
-        placeholderFeet={box.allocatedWithoutInstallDateFeet ?? 0}
         collapsed={isAllocationsSectionCollapsed}
         onToggle={() => setIsAllocationsSectionCollapsed((current) => !current)}
       />
@@ -152,18 +148,7 @@ export default function BoxDetailsPage() {
         collapsed={isHistorySectionCollapsed}
         onToggle={() => setIsHistorySectionCollapsed((current) => !current)}
       />
-      <RollHistoryPanel
-        boxId={box.boxId}
-        collapsed={isRollHistorySectionCollapsed}
-        onToggle={() => setIsRollHistorySectionCollapsed((current) => !current)}
-      />
 
-      <AllocateDialog
-        open={isAllocateOpen}
-        box={box}
-        onOpen={() => setIsAllocateOpen(true)}
-        onCancel={() => setIsAllocateOpen(false)}
-      />
       <TransferBoxDialog
         open={transferWorkflow.isTransferDialogOpen}
         currentWarehouse={box.warehouse}
