@@ -39,7 +39,7 @@ function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> =
       manufacturer: '',
       filmName: '',
       width: '',
-      dateRange: 'this_year',
+      dateRange: 'all_time',
       customFrom: '',
       customTo: '',
       rankBy: 'actual_used_lf'
@@ -48,9 +48,9 @@ function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> =
     setReportType: vi.fn(),
     reportTypeOptions: [{ label: 'Most Used Film', value: 'most_used_film' }],
     dateRangeOptions: [
-      { label: 'This year', value: 'this_year' },
+      { label: 'Custom date range', value: 'custom' },
       { label: 'All time', value: 'all_time' },
-      { label: 'Custom date range', value: 'custom' }
+      { label: 'This year', value: 'this_year' }
     ],
     rankByOptions: [
       { label: 'Actual Used LF', value: 'actual_used_lf' },
