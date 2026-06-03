@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
@@ -17,7 +17,7 @@ function DetailField({
   return (
     <div className="key-value">
       <dt className={labelClassName}>{label}</dt>
-      <dd>{value === '' || value === null ? '--' : value}</dd>
+      <dd>{value === '' || value === null || value === undefined ? '--' : value}</dd>
     </div>
   );
 }
@@ -55,7 +55,6 @@ interface BoxDetailHeroSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   canWriteInventory: boolean;
-  canWriteAllocations: boolean;
   deletePending: boolean;
   statusPending: boolean;
   allocationsLoading: boolean;
@@ -65,18 +64,13 @@ interface BoxDetailHeroSectionProps {
   isQrSectionOpen: boolean;
   qrCodeDataUrl: string;
   qrCodeError: string;
-  onOpenTransferDialog: () => void;
   onStartEdit: () => void;
-  onOpenJob: (job: { jobId?: string | null; jobNumber?: string | null }) => void;
   onSetTransferActionState: (state: 'receive' | 'cancel') => void;
   onToggleQrSection: () => void;
   onCopyQrImage: () => void;
   onDownloadQrImage: () => void;
   onCopyQrCode: () => void;
   onOpenOrderedReceiveDialog: () => void;
-  onCheckIn: () => void;
-  onOpenAllocateDialog: () => void;
-  onCheckOut: () => void;
 }
 
 export function BoxDetailHeroSection({
@@ -89,7 +83,6 @@ export function BoxDetailHeroSection({
   isAuthenticated,
   clientIdConfigured,
   canWriteInventory,
-  canWriteAllocations,
   deletePending,
   statusPending,
   allocationsLoading,
@@ -99,30 +92,16 @@ export function BoxDetailHeroSection({
   isQrSectionOpen,
   qrCodeDataUrl,
   qrCodeError,
-  onOpenTransferDialog,
   onStartEdit,
-  onOpenJob,
   onSetTransferActionState,
   onToggleQrSection,
   onCopyQrImage,
   onDownloadQrImage,
   onCopyQrCode,
-  onOpenOrderedReceiveDialog,
-  onCheckIn,
-  onOpenAllocateDialog,
-  onCheckOut
+  onOpenOrderedReceiveDialog
 }: BoxDetailHeroSectionProps) {
-  const canTransferBox =
-    !isEditing &&
-    !pendingTransfer &&
-    !isAddBoxPending &&
-    !shouldBlockEditWhileAllocationsResolve &&
-    !transferMutationsPending &&
-    box.status === 'IN_STOCK' &&
-    isAuthenticated &&
-    clientIdConfigured &&
-    canWriteInventory;
-
+  const technicalDetailsId = useId();
+  const [isTechnicalDetailsOpen, setIsTechnicalDetailsOpen] = useState(false);
   const canReceiveOrderedBox =
     !isEditing &&
     !pendingTransfer &&
@@ -163,7 +142,7 @@ export function BoxDetailHeroSection({
     }
     if (!isEditing && box.status === 'TRANSFER') {
       hints.push(
-        'Pending transfers must be received or cancelled before editing, allocating, checking in, or checking out this box.'
+        'Pending transfers must be received or cancelled before editing this box.'
       );
     }
 
@@ -176,25 +155,19 @@ export function BoxDetailHeroSection({
   const orderedForJobs = Array.isArray(box.orderedForJobs)
     ? box.orderedForJobs.filter((entry) => entry.jobNumber || entry.filmOrderId)
     : [];
-  const lastCheckoutJobLabel = formatJobDisplayLabel({
-    jobNumber: box.lastCheckoutJob,
-    warehouse: box.warehouse,
-    workScope: box.lastCheckoutWorkScope,
-    sections: box.lastCheckoutSections
-  });
 
   return (
     <section className="panel detail-hero">
-      <p className="eyebrow">Box Details</p>
       <div className="panel-title-row detail-title-row">
-        <div>
+        <div className="box-detail-title-copy">
+          <p className="eyebrow">BOX DETAILS</p>
           <h2>{box.boxId}</h2>
-          <p className="warehouse-pill">{getWarehouseLabel(box.warehouse)} warehouse</p>
         </div>
-        <div className="detail-actions">
-          <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
-          {!pendingTransfer ? (
-            box.status === 'ORDERED' ? (
+        <div className="box-detail-header-meta">
+          <span className="warehouse-pill">{getWarehouseLabel(box.warehouse)} warehouse</span>
+          <div className="box-detail-action-row">
+            <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+            {!pendingTransfer && box.status === 'ORDERED' ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -203,97 +176,106 @@ export function BoxDetailHeroSection({
               >
                 Receive Box
               </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onOpenTransferDialog}
-                disabled={!canTransferBox}
-              >
-                Transfer Box
-              </Button>
-            )
-          ) : null}
-          <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
-            Edit
+            ) : null}
+            <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
+              Edit
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="box-detail-card-grid">
+        <section className="box-detail-info-card">
+          <h3>Feet Summary</h3>
+          <dl className="stat-grid">
+            <DetailField
+              label="On Hand Feet"
+              value={currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}
+              labelClassName="detail-label-pill detail-label-pill-green"
+            />
+            <DetailField
+              label="Allocatable Now"
+              value={allocatableNowFeet}
+              labelClassName="detail-label-pill detail-label-pill-green"
+            />
+            <DetailField
+              label="Locked Feet"
+              value={lockedFeet}
+              labelClassName="detail-label-pill detail-label-pill-orange"
+            />
+            <DetailField
+              label="Placeholder Feet"
+              value={allocationsLoading ? '...' : placeholderFeet}
+              labelClassName="detail-label-pill detail-label-pill-red"
+            />
+          </dl>
+        </section>
+
+        <section className="box-detail-info-card">
+          <h3>Film Identity</h3>
+          <dl className="detail-grid box-detail-compact-grid">
+            <DetailField label="Manufacturer" value={box.manufacturer} />
+            <DetailField label="Film Name" value={box.filmName} />
+            <DetailField
+              label="Width"
+              value={box.widthIn}
+              labelClassName="detail-label-pill detail-label-pill-orange"
+            />
+          </dl>
+        </section>
+
+        <section className="box-detail-info-card">
+          <h3>Dates & Roll Info</h3>
+          <dl className="detail-grid box-detail-compact-grid">
+            <DetailField label="Date Ordered" value={formatDate(box.orderDate)} />
+            <DetailField label="Date Received" value={formatDate(box.receivedDate)} />
+            <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
+            <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
+          </dl>
+        </section>
+      </div>
+
+      <section className="box-detail-notes-card">
+        <h3>Notes</h3>
+        <p>{box.notes || '--'}</p>
+      </section>
+
+      <section className="box-technical-details-card" aria-labelledby={`${technicalDetailsId}-heading`}>
+        <div className="box-technical-details-header">
+          <h3 id={`${technicalDetailsId}-heading`}>Box Technical Details</h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="box-technical-details-toggle"
+            aria-expanded={isTechnicalDetailsOpen}
+            aria-controls={`${technicalDetailsId}-body`}
+            aria-label={`${isTechnicalDetailsOpen ? 'Close' : 'Open'} Box Technical Details`}
+            onClick={() => setIsTechnicalDetailsOpen((current) => !current)}
+          >
+            {isTechnicalDetailsOpen ? 'Close' : 'Open'}
           </Button>
         </div>
-      </div>
-
-      <div className="detail-highlight-grid stat-grid">
-        <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-green">On Hand Feet</dt>
-          <dd>{currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}</dd>
-        </div>
-        <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-green">Allocatable Now</dt>
-          <dd>{allocatableNowFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-orange">Locked Feet</dt>
-          <dd>{lockedFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt className="detail-label-pill detail-label-pill-red">Placeholder Feet</dt>
-          <dd>{allocationsLoading ? '...' : placeholderFeet}</dd>
-        </div>
-        <div className="key-value">
-          <dt>On-Hand Asset Cost</dt>
-          <dd>{currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : formatUsdAmount(onHandAssetCost)}</dd>
-        </div>
-      </div>
-
-      <div className="detail-grid detail-grid-secondary">
-        <DetailField label="Manufacturer" value={box.manufacturer} />
-        <DetailField label="Film Name" value={box.filmName} />
-        <DetailField
-          label="Width"
-          value={box.widthIn}
-          labelClassName="detail-label-pill detail-label-pill-orange"
-        />
-        <DetailField label="Initial Feet" value={box.initialFeet} />
-        <DetailField
-          label="Current Feet"
-          value={currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}
-        />
-        <DetailField label="Lot Run" value={box.lotRun} />
-        <DetailField label="Order Date" value={formatDate(box.orderDate)} />
-        <DetailField label="Received Date" value={formatDate(box.receivedDate)} />
-        <DetailField label="Initial Weight" value={box.initialWeightLbs} />
-        <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
-        <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
-        <DetailField label="Core Type" value={box.coreType} />
-        <DetailField label="Core Weight" value={box.coreWeightLbs} />
-        <DetailField label="LF Weight / Ft" value={box.lfWeightLbsPerFt} />
-        <DetailField label="Price / LF" value={formatPricePerLf(box.pricePerLf)} />
-        <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
-        <DetailField
-          label="Last Checkout Job"
-          value={
-            box.status === 'CHECKED_OUT' && box.lastCheckoutJob ? (
-              <button
-                type="button"
-                className="row-button"
-                onClick={() =>
-                  onOpenJob({
-                    jobId: box.lastCheckoutJobId,
-                    jobNumber: box.lastCheckoutJob
-                  })
-                }
-              >
-                {lastCheckoutJobLabel}
-              </button>
-            ) : (
-              lastCheckoutJobLabel
-            )
-          }
-        />
-        <DetailField label="Last Checkout Date" value={formatDate(box.lastCheckoutDate)} />
-        <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />
-        <DetailField label="Zeroed Reason" value={box.zeroedReason} />
-        <DetailField label="Zeroed By" value={box.zeroedBy} />
-        <DetailField label="Notes" value={box.notes} />
-      </div>
+        <dl
+          id={`${technicalDetailsId}-body`}
+          className="detail-grid detail-grid-secondary box-technical-details-body"
+          hidden={!isTechnicalDetailsOpen}
+        >
+          <DetailField label="Initial Feet" value={box.initialFeet} />
+          <DetailField label="Initial Weight" value={box.initialWeightLbs} />
+          <DetailField label="Core Type" value={box.coreType} />
+          <DetailField label="Core Weight" value={box.coreWeightLbs} />
+          <DetailField label="Lot / Run Number" value={box.lotRun} />
+          <DetailField label="Purchase Cost" value={formatUsdAmount(box.purchaseCost)} />
+          <DetailField label="Price / LF" value={formatPricePerLf(box.pricePerLf)} />
+          <DetailField
+            label="On-Hand Asset Cost"
+            value={currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : formatUsdAmount(onHandAssetCost)}
+          />
+          <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />
+          <DetailField label="Zeroed By" value={box.zeroedBy} />
+        </dl>
+      </section>
 
       <section className="box-origin-section">
         <div className="panel-title-row">
@@ -457,73 +439,13 @@ export function BoxDetailHeroSection({
         </div>
       </div>
 
-      {!isEditing ? (
-        <>
-          {actionHints.map((hint) => (
+      {!isEditing
+        ? actionHints.map((hint) => (
             <p key={hint} className="muted-text">
               {hint}
             </p>
-          ))}
-
-          <div className="page-actions detail-status-actions">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onCheckIn}
-              disabled={
-                isAddBoxPending ||
-                statusPending ||
-                box.status === 'ORDERED' ||
-                box.status === 'IN_STOCK' ||
-                box.status === 'TRANSFER' ||
-                box.status === 'ZEROED' ||
-                box.status === 'RETIRED' ||
-                !isAuthenticated ||
-                !clientIdConfigured ||
-                !canWriteInventory
-              }
-            >
-              Check In
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onOpenAllocateDialog}
-              disabled={
-                isAddBoxPending ||
-                statusPending ||
-                (box.status !== 'IN_STOCK' && box.status !== 'ORDERED') ||
-                box.status === 'TRANSFER' ||
-                !isAuthenticated ||
-                !clientIdConfigured ||
-                box.allocationPlanningFeet <= 0 ||
-                !canWriteAllocations
-              }
-            >
-              Allocate
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onCheckOut}
-              disabled={
-                isAddBoxPending ||
-                statusPending ||
-                box.status === 'ORDERED' ||
-                box.status === 'CHECKED_OUT' ||
-                box.status === 'TRANSFER' ||
-                box.status === 'ZEROED' ||
-                box.status === 'RETIRED' ||
-                !isAuthenticated ||
-                !clientIdConfigured ||
-                !canWriteInventory
-              }
-            >
-              Check Out
-            </Button>
-          </div>
-        </>
-      ) : null}
+          ))
+        : null}
     </section>
   );
 }

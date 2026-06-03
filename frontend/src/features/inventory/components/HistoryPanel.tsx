@@ -7,7 +7,21 @@ import {
 } from '../../../components/MobileRecordCard';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDateTime } from '../../../lib/date';
-import { useBoxHistory } from '../hooks/useInventoryQueries';
+import { useRollHistory } from '../hooks/useInventoryQueries';
+
+function hasTrustedFeet(feetBefore: number, feetAfter: number) {
+  return feetBefore > 0 || feetAfter > 0;
+}
+
+function renderLfUsed(feetBefore: number, feetAfter: number): string {
+  return hasTrustedFeet(feetBefore, feetAfter)
+    ? `${Math.max(feetBefore - feetAfter, 0)} LF`
+    : '--';
+}
+
+function renderDate(value: string): string {
+  return value ? formatDateTime(value) : '--';
+}
 
 export function HistoryPanel({
   boxId,
@@ -19,7 +33,7 @@ export function HistoryPanel({
   onToggle?: () => void;
 }) {
   const isPhoneLayout = useIsPhoneLayout();
-  const historyQuery = useBoxHistory(boxId);
+  const historyQuery = useRollHistory(boxId);
   const panelBodyId = `history-panel-body-${boxId}`;
 
   return (
@@ -48,16 +62,22 @@ export function HistoryPanel({
         {historyQuery.isLoading ? <LoadingState label="Loading history..." /> : null}
         {historyQuery.isError ? <p className="error-text">{historyQuery.error.message}</p> : null}
         {!historyQuery.isLoading && !historyQuery.isError && !historyQuery.data?.length ? (
-          <div className="empty-state">No audit history yet.</div>
+          <div className="empty-state">No usage or check-in history yet.</div>
         ) : null}
         {historyQuery.data?.length ? (
           isPhoneLayout ? (
             <div className="mobile-record-list">
               {historyQuery.data.map((entry) => (
                 <MobileRecordCard key={entry.logId}>
-                  <MobileRecordHeader title={entry.action} subtitle={formatDateTime(entry.date)} />
+                  <MobileRecordHeader
+                    title={entry.jobNumber || '--'}
+                    subtitle={renderDate(entry.checkedInAt || entry.checkedOutAt)}
+                  />
                   <MobileFieldList>
-                    <MobileField label="User" value={entry.user || '--'} />
+                    <MobileField label="Date" value={renderDate(entry.checkedInAt || entry.checkedOutAt)} />
+                    <MobileField label="Job Number" value={entry.jobNumber || '--'} />
+                    <MobileField label="LF Used" value={renderLfUsed(entry.feetBefore, entry.feetAfter)} />
+                    <MobileField label="Crew Leader" value="--" />
                     <MobileField label="Notes" value={entry.notes || '--'} />
                   </MobileFieldList>
                 </MobileRecordCard>
@@ -69,17 +89,19 @@ export function HistoryPanel({
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Action</th>
-                    <th>User</th>
+                    <th>Job Number</th>
+                    <th>LF Used</th>
+                    <th>Crew Leader</th>
                     <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {historyQuery.data.map((entry) => (
                     <tr key={entry.logId}>
-                      <td>{formatDateTime(entry.date)}</td>
-                      <td>{entry.action}</td>
-                      <td>{entry.user || '--'}</td>
+                      <td>{renderDate(entry.checkedInAt || entry.checkedOutAt)}</td>
+                      <td>{entry.jobNumber || '--'}</td>
+                      <td>{renderLfUsed(entry.feetBefore, entry.feetAfter)}</td>
+                      <td>--</td>
                       <td>{entry.notes || '--'}</td>
                     </tr>
                   ))}

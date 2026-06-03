@@ -406,4 +406,30 @@ describe('BoxForm', () => {
     expect(onSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ boxId: 'IL1-6735' }));
     expect(onSubmit.mock.calls[0]?.[1]).toBeUndefined();
   });
+
+  it('places Transfer Box between Delete and Save Changes in edit mode', () => {
+    const onTransferBox = vi.fn();
+
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-action-row"
+        mode="edit"
+        submitLabel="Save Changes"
+        onSubmit={vi.fn()}
+        onDelete={vi.fn()}
+        onTransferBox={onTransferBox}
+      />
+    );
+
+    const actionLabels = within(document.querySelector('.form-actions') as HTMLElement)
+      .getAllByRole('button')
+      .map((button) => button.textContent?.trim());
+
+    expect(actionLabels).toEqual(['Delete', 'Transfer Box', 'Save Changes']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transfer Box' }));
+
+    expect(onTransferBox).toHaveBeenCalledTimes(1);
+  });
 });
