@@ -412,6 +412,7 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('Notes');
     expect(html).toContain('Keep dry');
     expect(html).toContain('Box Technical Details');
+    expect(html).toContain('>Open</button>');
     expect(html).toContain('Initial Feet');
     expect(html).toContain('Initial Weight');
     expect(html).toContain('Core Type');
@@ -425,6 +426,30 @@ describe('BoxDetailsPage', () => {
     expect(html).not.toContain('>Allocate</button>');
     expect(html).not.toContain('>Check Out</button>');
     expect(html).not.toContain('Roll Weight History');
+  });
+
+  it('opens and closes Box Technical Details from a labeled button', () => {
+    renderInteractivePage();
+
+    const openButton = screen.getByRole('button', { name: 'Open Box Technical Details' });
+    const controlledId = openButton.getAttribute('aria-controls');
+    expect(openButton.getAttribute('aria-expanded')).toBe('false');
+    expect(controlledId).toBeTruthy();
+    const detailsBody = document.getElementById(controlledId || '');
+    expect(detailsBody?.hasAttribute('hidden')).toBe(true);
+
+    fireEvent.click(openButton);
+
+    const closeButton = screen.getByRole('button', { name: 'Close Box Technical Details' });
+    expect(closeButton.getAttribute('aria-expanded')).toBe('true');
+    expect(detailsBody?.hasAttribute('hidden')).toBe(false);
+
+    fireEvent.click(closeButton);
+
+    expect(screen.getByRole('button', { name: 'Open Box Technical Details' }).getAttribute('aria-expanded')).toBe(
+      'false'
+    );
+    expect(detailsBody?.hasAttribute('hidden')).toBe(true);
   });
 
   it('keeps ordered planning feet visible without exposing a Box Details Allocate action', () => {

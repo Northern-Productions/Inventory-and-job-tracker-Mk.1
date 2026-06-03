@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
@@ -100,6 +100,8 @@ export function BoxDetailHeroSection({
   onCopyQrCode,
   onOpenOrderedReceiveDialog
 }: BoxDetailHeroSectionProps) {
+  const technicalDetailsId = useId();
+  const [isTechnicalDetailsOpen, setIsTechnicalDetailsOpen] = useState(false);
   const canReceiveOrderedBox =
     !isEditing &&
     !pendingTransfer &&
@@ -238,12 +240,27 @@ export function BoxDetailHeroSection({
         <p>{box.notes || '--'}</p>
       </section>
 
-      <details className="box-technical-details-card">
-        <summary>
-          <span>Box Technical Details</span>
-          <span className="panel-header-toggle-symbol" aria-hidden="true">+</span>
-        </summary>
-        <dl className="detail-grid detail-grid-secondary">
+      <section className="box-technical-details-card" aria-labelledby={`${technicalDetailsId}-heading`}>
+        <div className="box-technical-details-header">
+          <h3 id={`${technicalDetailsId}-heading`}>Box Technical Details</h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="box-technical-details-toggle"
+            aria-expanded={isTechnicalDetailsOpen}
+            aria-controls={`${technicalDetailsId}-body`}
+            aria-label={`${isTechnicalDetailsOpen ? 'Close' : 'Open'} Box Technical Details`}
+            onClick={() => setIsTechnicalDetailsOpen((current) => !current)}
+          >
+            {isTechnicalDetailsOpen ? 'Close' : 'Open'}
+          </Button>
+        </div>
+        <dl
+          id={`${technicalDetailsId}-body`}
+          className="detail-grid detail-grid-secondary box-technical-details-body"
+          hidden={!isTechnicalDetailsOpen}
+        >
           <DetailField label="Initial Feet" value={box.initialFeet} />
           <DetailField label="Initial Weight" value={box.initialWeightLbs} />
           <DetailField label="Core Type" value={box.coreType} />
@@ -258,7 +275,7 @@ export function BoxDetailHeroSection({
           <DetailField label="Zeroed Date" value={formatDate(box.zeroedDate)} />
           <DetailField label="Zeroed By" value={box.zeroedBy} />
         </dl>
-      </details>
+      </section>
 
       <section className="box-origin-section">
         <div className="panel-title-row">
