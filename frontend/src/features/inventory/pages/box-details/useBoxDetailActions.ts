@@ -29,7 +29,6 @@ import {
 import {
   confirmWarnings,
   getAddOrEditWarnings,
-  getCheckInWarnings,
   getCheckoutBlockReason,
   getCheckoutWarnings
 } from '../../utils/boxWarnings';
@@ -433,14 +432,6 @@ export function useBoxDetailActions({
 
     try {
       const payload = buildFilmCheckinPayload(box, draft);
-      const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
-        currentFeetOnRoll: payload.currentFeetOnRoll,
-        coreType: payload.coreType || box.coreType || undefined
-      });
-      if (!confirmWarnings(checkInWarnings)) {
-        return;
-      }
-
       const priorCheckoutJobNumber = box.lastCheckoutJob.trim();
       const { result, warnings } = await setBoxStatus(payload);
       if (!didPersistFilmCheckinRollTracking(payload, result.box)) {

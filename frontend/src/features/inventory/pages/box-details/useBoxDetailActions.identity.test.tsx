@@ -124,4 +124,54 @@ describe('useBoxDetailActions checkout identity', () => {
       auditNote: 'Checked out for job 7777'
     });
   });
+
+  it('does not block zeroed film check-in behind a native browser confirmation', async () => {
+    const checkInBox = box({
+      status: 'CHECKED_OUT',
+      receivedDate: '2026-05-20',
+      lastRollWeightLbs: 5,
+      coreWeightLbs: 0.5,
+      lfWeightLbsPerFt: 0.1,
+      initialFeet: 20,
+      lastCheckoutJob: '9327001',
+      lastCheckoutJobId: '11111111-1111-4111-8111-111111111111'
+    });
+    const { hook, setBoxStatus } = renderActions({
+      box: checkInBox
+    });
+    setBoxStatus.mockResolvedValueOnce({
+      result: {
+        box: box({
+          ...checkInBox,
+          status: 'ZEROED',
+          lastRollWeightLbs: 0,
+          feetAvailable: 0
+        }),
+        logId: 'log-1'
+      },
+      warnings: ['This check-in will auto-move the box into zeroed out inventory.']
+    });
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+
+    try {
+      await act(async () => {
+        await hook.result.current.handleFilmCheckinConfirm({
+          lastRollWeightLbs: '0',
+          currentFeetOnRoll: '',
+          coreType: ''
+        });
+      });
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(setBoxStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-P3C2D-S1',
+          status: 'IN_STOCK',
+          lastRollWeightLbs: 0
+        })
+      );
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
 });
