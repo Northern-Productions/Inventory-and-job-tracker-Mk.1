@@ -253,4 +253,83 @@ describe('useJobFilmWorkflow remove allocation identity', () => {
       })
     );
   });
+
+  it('does not block zeroed film check-in behind a native browser confirmation', async () => {
+    const checkInWarning = 'This check-in will auto-move the box into zeroed out inventory.';
+    boxQueryState.current = {
+      data: {
+        boxId: 'IL1-100',
+        status: 'CHECKED_OUT',
+        receivedDate: '2026-04-01',
+        directToJobSite: false,
+        lastRollWeightLbs: 15,
+        coreWeightLbs: 1,
+        lfWeightLbsPerFt: 0.1,
+        coreType: '',
+        widthIn: 60,
+        initialFeet: 100
+      },
+      isLoading: false,
+      isError: false,
+      error: null
+    };
+    const workflow = renderWorkflow({ canonicalJobId: JOB_ID });
+    workflow.setBoxStatus.mockResolvedValueOnce({
+      result: {
+        box: {
+          boxId: 'IL1-100',
+          status: 'ZEROED',
+          lastRollWeightLbs: 0,
+          feetAvailable: 0,
+          coreWeightLbs: 1,
+          lfWeightLbsPerFt: 0.1,
+          initialFeet: 100,
+          coreType: ''
+        }
+      },
+      warnings: [checkInWarning]
+    });
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+
+    try {
+      await act(async () => {
+        workflow.result.current.setFilmCheckinEntry(
+          buildAllocation({
+            boxStatus: 'CHECKED_OUT',
+            checkedOutOnThisJob: true
+          })
+        );
+      });
+      await act(async () => {
+        workflow.result.current.handleFilmCheckinConfirm({
+          lastRollWeightLbs: '0',
+          currentFeetOnRoll: '',
+          coreType: ''
+        });
+      });
+
+      await waitFor(() => expect(workflow.setBoxStatus).toHaveBeenCalled());
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(workflow.setBoxStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          boxId: 'IL1-100',
+          status: 'IN_STOCK',
+          jobId: JOB_ID,
+          jobNumber: '000123',
+          lastRollWeightLbs: 0
+        })
+      );
+      await waitFor(() =>
+        expect(workflow.pushToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: 'Checked in IL1-100',
+            description: expect.stringContaining(checkInWarning),
+            variant: 'success'
+          })
+        )
+      );
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
 });

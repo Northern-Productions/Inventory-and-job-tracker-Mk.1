@@ -11,7 +11,6 @@ import type {
   SetBoxStatusPayload
 } from '../../../../domain';
 import { useBox, usePendingSetBoxStatusBoxIds } from '../../hooks/useInventoryQueries';
-import { confirmWarnings, getCheckInWarnings } from '../../utils/boxWarnings';
 import {
   buildFilmCheckinPayload,
   didPersistFilmCheckinRollTracking,
@@ -287,14 +286,6 @@ export function useJobFilmWorkflow({
       payload.jobId = canonicalJobId;
       payload.jobNumber = summary?.jobNumber || entry.jobNumber;
     }
-    const checkInWarnings = getCheckInWarnings(box, payload.lastRollWeightLbs!, {
-      currentFeetOnRoll: payload.currentFeetOnRoll,
-      coreType: payload.coreType || box.coreType || undefined
-    });
-    if (!confirmWarnings(checkInWarnings)) {
-      return;
-    }
-
     const draftSnapshot = cloneFilmCheckinDraft(draft);
     setFilmCheckinDraftOverride(null);
     setFilmCheckinEntry(null);
