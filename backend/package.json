@@ -23,6 +23,7 @@
     "edge:test": "cd ../frontend && deno test --allow-env ../supabase/functions/_shared/api-handler.test.ts ../supabase/functions/_shared/route-timing.test.ts ../supabase/functions/_shared/routes/mutationHandlers.test.ts ../supabase/functions/_shared/services/appAttention.test.ts",
     "env:check:dev": "node scripts/check-env-target.mjs --env .env.dev --expect dev",
     "env:check:prod": "node scripts/check-env-target.mjs --env ../.secrets/prod.env --expect prod --allow-prod",
+    "film-weight:profiles:dry": "node scripts/generate-film-weight-profile-candidates.mjs",
     "inventory:il1-shelf-audit:apply": "node scripts/reconcile-il1-shelf-audit.mjs --apply",
     "inventory:il1-shelf-audit:dry": "node scripts/reconcile-il1-shelf-audit.mjs",
     "jobs:completed:backfill:apply": "node scripts/backfill-completed-jobs.mjs --apply",
