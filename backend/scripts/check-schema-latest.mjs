@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0155_film_order_detail_origin_compat.sql';
+const LATEST_MIGRATION = '0156_film_weight_profiles_foundation.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -47,6 +47,12 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.allocation_planner_suppressions.phase_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.film_order_events' },
+  { kind: 'table', signature: 'app.film_weight_profiles' },
+  { kind: 'table', signature: 'app.film_weight_samples' },
+  { kind: 'table', signature: 'app.film_weight_pending_reviews' },
+  { kind: 'column', signature: 'app.film_weight_profiles.average_normalized_lbs_per_inch_foot' },
+  { kind: 'column', signature: 'app.film_weight_samples.normalized_lbs_per_inch_foot' },
+  { kind: 'column', signature: 'app.film_weight_pending_reviews.user_action_hint' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'public.api_list_access_requests(uuid, text)' },
@@ -89,6 +95,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
+  { kind: 'function', signature: 'public.api_acl_record_film_weight_sample_from_box(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_get_film_weight_pending_review_count(uuid)' },
+  { kind: 'function', signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)' },
+  { kind: 'function', signature: 'app_api.recalculate_film_weight_profile(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_box_film_order_origins(uuid, text)' },
   { kind: 'function', signature: 'app_api.append_film_order_event(uuid, text, text, text, uuid, jsonb, jsonb, text, timestamp with time zone, text, text)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },

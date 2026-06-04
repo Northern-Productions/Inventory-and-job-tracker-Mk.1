@@ -18,6 +18,7 @@ import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs'
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { getAllocationReservationState } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
+import { recordFilmWeightSampleFromBox } from '../../filmWeightProfiles.mjs';
 
 function parseOptionalReceivedWeight(value) {
   const trimmed = asTrimmedString(value);
@@ -57,6 +58,15 @@ function buildReceiveAuditNote(boxId, receivedWeightLbs, lotRun) {
   return details.length > 0
     ? `Received ordered box ${boxId} ${details.join(' with ')}`
     : `Received ordered box ${boxId}`;
+}
+
+function appendFilmWeightProfileWarning(warnings, result, boxId) {
+  const decision = asTrimmedString(result?.decision);
+  if (decision === 'pending_review') {
+    warnings.push(`Film weight sample for box ${boxId} was queued for Weight Chart review.`);
+  } else if (decision === 'logging_failed' && asTrimmedString(result?.warning)) {
+    warnings.push(asTrimmedString(result.warning));
+  }
 }
 
 async function receiveOrderedBox(client, orgId, payload, actor) {
@@ -125,6 +135,12 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
     filmName: persistedBox.filmName,
     sourceBoxId: persistedBox.boxId
   });
+
+  appendFilmWeightProfileWarning(
+    warnings,
+    await recordFilmWeightSampleFromBox(client, orgId, persistedBox.boxId, actor),
+    persistedBox.boxId
+  );
 
   const publicBefore = toPublicBox(applyReservationMetricsToBox(existing, existingAllocations));
   const publicAfter = toPublicBox(

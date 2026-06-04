@@ -66,7 +66,7 @@ test('access-management RPC permission migration grants only authenticated execu
 test('latest schema check guards the access-management RPC permission surface', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0155_film_order_detail_origin_compat\.sql/);
+  assert.match(schemaCheck, /0156_film_weight_profiles_foundation\.sql/);
   assert.match(schemaCheck, /REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);
   for (const signature of accessManagementRpcSignatures) {

@@ -58,7 +58,7 @@ test('phase workflow migration adds Active/Placeholder status and staged invalid
 test('schema latest guard tracks phase workflow status objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0155_film_order_detail_origin_compat\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0156_film_weight_profiles_foundation\.sql';/);
   assert.match(schemaCheck, /app\.job_phases\.workflow_status/);
   assert.match(schemaCheck, /app_api\.normalize_job_phase_workflow_status\(text\)/);
   assert.match(schemaCheck, /public\.api_acl_jobs_clear_staged_for_active_requirement\(uuid, text, jsonb\)/);

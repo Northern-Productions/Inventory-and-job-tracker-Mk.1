@@ -32,6 +32,7 @@ import {
   hasPositiveReactivationSignal,
   resolveAllocationsForCheckout,
 } from '../checkout/checkoutFlow.mjs';
+import { recordFilmWeightSampleFromBox } from '../../filmWeightProfiles.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
@@ -45,6 +46,15 @@ import {
   getDirectToJobSiteCommittedFeet,
   parseShipDirectToJobSiteFlag,
 } from './directToJobSite.mjs';
+
+function appendFilmWeightProfileWarning(warnings, result, boxId) {
+  const decision = asTrimmedString(result?.decision);
+  if (decision === 'pending_review') {
+    warnings.push(`Film weight sample for box ${boxId} was queued for Weight Chart review.`);
+  } else if (decision === 'logging_failed' && asTrimmedString(result?.warning)) {
+    warnings.push(asTrimmedString(result.warning));
+  }
+}
 
 async function addBox(client, orgId, payload, actor) {
   const warnings = [];
@@ -258,6 +268,11 @@ async function addBox(client, orgId, payload, actor) {
       box = await processLinkedFilmOrderReceipt(client, orgId, cloneValue(box), actor, warnings);
       box = await saveBoxRecord(client, orgId, box);
       await recalculateFilmOrdersForBoxLinks(client, orgId, box.boxId, actor);
+      appendFilmWeightProfileWarning(
+        warnings,
+        await recordFilmWeightSampleFromBox(client, orgId, box.boxId, actor),
+        box.boxId
+      );
     }
   }
 
@@ -423,6 +438,12 @@ async function updateBox(client, orgId, payload, actor) {
     filmName: updatedBox.filmName,
     sourceBoxId: updatedBox.boxId
   });
+
+  appendFilmWeightProfileWarning(
+    warnings,
+    await recordFilmWeightSampleFromBox(client, orgId, updatedBox.boxId, actor),
+    updatedBox.boxId
+  );
 
   const publicBefore = toPublicBox(
     applyReservationMetricsToBox(existing, await listAllocationsByBox(client, orgId, existing.boxId))

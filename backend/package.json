@@ -49,6 +49,7 @@
     "verify:vercel:prod": "node scripts/verify-vercel-production-status.mjs",
     "verify:edge:live": "node scripts/verify-live-edge-job-summary.mjs",
     "verify:edge:caulk": "node scripts/verify-caulk-smoke-flow.mjs --edge",
+    "verify:film-weight-profiles:dev": "node scripts/verify-film-weight-profiles-foundation-dev.mjs",
     "start": "npm run check:schema:latest && node server.mjs",
     "start:unsafe": "node server.mjs",
     "dev": "npm run check:schema:latest && node --watch server.mjs"
