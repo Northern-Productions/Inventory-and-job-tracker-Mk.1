@@ -1,0 +1,101 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./http', () => ({
+  request: vi.fn()
+}));
+
+import { getFilmWeightPendingReviews, getFilmWeightProfiles } from './client';
+import { request } from './http';
+
+const requestMock = vi.mocked(request);
+
+describe('film weight API client', () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+  });
+
+  it('loads film weight profiles through GET /film-weight/profiles', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          {
+            profileId: 'profile-1',
+            manufacturer: '3M Solar',
+            filmName: 'Night Vision 35',
+            coreType: '3IN',
+            acceptedSampleCount: 2,
+            pendingReviewCount: 1,
+            confidence: 'needs_review',
+            status: 'needs_review',
+            averageLbsPerSqFt: '0.012',
+            averageNormalizedLbsPerInchFoot: '0.001',
+            observedWidths: ['36', 72]
+          }
+        ]
+      },
+      warnings: []
+    });
+
+    const profiles = await getFilmWeightProfiles();
+
+    expect(profiles[0]).toEqual(
+      expect.objectContaining({
+        profileId: 'profile-1',
+        manufacturer: '3M Solar',
+        filmName: 'Night Vision 35',
+        coreType: '3IN',
+        acceptedSampleCount: 2,
+        pendingReviewCount: 1,
+        confidence: 'needs_review',
+        status: 'needs_review',
+        averageLbsPerSqFt: 0.012,
+        averageNormalizedLbsPerInchFoot: 0.001,
+        observedWidths: [36, 72]
+      })
+    );
+    expect(requestMock).toHaveBeenCalledWith('GET', '/film-weight/profiles', {
+      query: {}
+    });
+  });
+
+  it('loads open pending film weight reviews through GET /film-weight/pending-reviews', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        entries: [
+          {
+            reviewId: 'review-1',
+            boxId: 'IL1-100',
+            manufacturer: '3M Solar',
+            filmName: 'Night Vision 35',
+            widthIn: '72',
+            recordedLf: '100',
+            measuredRollWeightLbs: '14.5',
+            coreType: '3IN',
+            reason: 'outside_10_lf_tolerance',
+            reasons: ['outside_10_lf_tolerance'],
+            suggestedAction: 'approve_sample',
+            createdAt: '2026-06-03T12:00:00Z'
+          }
+        ]
+      },
+      warnings: []
+    });
+
+    const reviews = await getFilmWeightPendingReviews();
+
+    expect(reviews[0]).toEqual(
+      expect.objectContaining({
+        reviewId: 'review-1',
+        boxId: 'IL1-100',
+        widthIn: 72,
+        recordedLf: 100,
+        measuredRollWeightLbs: 14.5,
+        reasons: ['outside_10_lf_tolerance'],
+        suggestedAction: 'approve_sample'
+      })
+    );
+    expect(requestMock).toHaveBeenCalledWith('GET', '/film-weight/pending-reviews', {
+      query: {}
+    });
+  });
+});

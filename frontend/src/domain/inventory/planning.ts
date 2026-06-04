@@ -242,6 +242,64 @@ export interface FilmCatalogEntry {
   updatedAt: string;
 }
 
+export type FilmWeightProfileConfidence = 'starter' | 'building' | 'solid' | 'needs_review';
+export type FilmWeightProfileStatus = 'active' | 'needs_review' | 'disabled';
+
+export interface FilmWeightProfileEntry {
+  profileId: string;
+  manufacturer: string;
+  filmName: string;
+  filmKey: string;
+  coreType: string;
+  coreWeightLbs: number | null;
+  averageLbsPerSqFt: number | null;
+  averageNormalizedLbsPerInchFoot: number | null;
+  acceptedSampleCount: number;
+  pendingReviewCount: number;
+  confidence: FilmWeightProfileConfidence | string;
+  status: FilmWeightProfileStatus | string;
+  observedWidths: number[];
+  firstSampleAt: string;
+  lastSampleAt: string;
+  lastReviewAt: string;
+  manuallyOverridden: boolean;
+  notes: string;
+  updatedAt: string;
+}
+
+export interface FilmWeightProfilesResponse {
+  entries: FilmWeightProfileEntry[];
+}
+
+export interface FilmWeightPendingReviewEntry {
+  reviewId: string;
+  profileId: string;
+  sampleId: string;
+  boxId: string;
+  manufacturer: string;
+  filmName: string;
+  filmKey: string;
+  widthIn: number | null;
+  recordedLf: number | null;
+  measuredRollWeightLbs: number | null;
+  coreType: string;
+  coreWeightLbs: number | null;
+  estimatedLf: number | null;
+  lfError: number | null;
+  reason: string;
+  reasons: string[];
+  suggestedAction: string;
+  status: string;
+  profileConfidence: string;
+  profileStatus: string;
+  createdAt: string;
+  notes: string;
+}
+
+export interface FilmWeightPendingReviewsResponse {
+  entries: FilmWeightPendingReviewEntry[];
+}
+
 export interface CreateFilmOrderPayload {
   jobId?: string;
   jobNumber: string;

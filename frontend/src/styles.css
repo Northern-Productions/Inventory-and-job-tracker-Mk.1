@@ -3485,6 +3485,130 @@ td.col-available-linear-ft {
   margin-bottom: 1rem;
 }
 
+.weight-chart-page {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.weight-chart-page > * {
+  min-width: 0;
+}
+
+.weight-chart-header {
+  align-items: flex-start;
+}
+
+.weight-chart-header h2,
+.weight-chart-header p {
+  margin: 0;
+}
+
+.weight-chart-header p {
+  margin-top: 0.35rem;
+}
+
+.weight-chart-counts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: var(--color-text-2);
+  font-weight: 700;
+}
+
+.weight-chart-counts span {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: var(--color-surface-3);
+}
+
+.weight-chart-tabs {
+  width: fit-content;
+  min-width: min(100%, 24rem);
+  box-shadow: none;
+}
+
+.weight-chart-filters {
+  margin: 0 0 1rem;
+  min-width: 0;
+}
+
+.weight-chart-pending-filters {
+  grid-template-columns: minmax(16rem, 32rem);
+}
+
+.weight-chart-table-wrap {
+  background: var(--color-table-bg);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.weight-chart-table {
+  min-width: 980px;
+}
+
+.weight-chart-table th,
+.weight-chart-table td {
+  vertical-align: middle;
+}
+
+.weight-chart-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.24rem 0.62rem;
+  background: var(--color-surface-3);
+  color: var(--color-text-1);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.weight-chart-pill-starter {
+  background: rgba(180, 214, 255, 0.36);
+  color: #1e4e8d;
+}
+
+.weight-chart-pill-building {
+  background: rgba(255, 227, 176, 0.6);
+  color: #7c4e07;
+}
+
+.weight-chart-pill-solid {
+  background: rgba(173, 232, 198, 0.4);
+  color: #1f5f3e;
+}
+
+.weight-chart-pill-needs_review {
+  background: rgba(196, 82, 71, 0.18);
+  color: #9a3027;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-starter {
+  background: rgba(159, 215, 255, 0.22);
+  color: #d5ecff;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-building {
+  background: rgba(255, 210, 136, 0.2);
+  color: #ffe2a7;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-solid {
+  background: rgba(173, 232, 198, 0.18);
+  color: #d7f5e2;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-needs_review {
+  background: rgba(244, 137, 122, 0.2);
+  color: #ffd3cc;
+}
+
 .reports-width-selector {
   grid-column: span 2;
 }
@@ -5546,6 +5670,14 @@ td.col-available-linear-ft {
     width: 100%;
     gap: 0.35rem;
     border-radius: 0.85rem;
+  }
+
+  .weight-chart-tabs {
+    width: 100%;
+  }
+
+  .weight-chart-pending-filters {
+    grid-template-columns: 1fr;
   }
 
   .inventory-view-toggle-button {

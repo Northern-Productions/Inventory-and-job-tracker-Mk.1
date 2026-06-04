@@ -19,6 +19,8 @@ describe('app API client', () => {
       data: {
         hasJobsNeedingAllocation: true,
         hasFilmOrdersNeedingAttention: false,
+        hasFilmWeightPendingReviews: true,
+        filmWeightPendingReviewCount: 2,
         pendingAccessRequests: true
       },
       warnings: []
@@ -29,6 +31,8 @@ describe('app API client', () => {
     expect(summary).toEqual({
       hasJobsNeedingAllocation: true,
       hasFilmOrdersNeedingAttention: false,
+      hasFilmWeightPendingReviews: true,
+      filmWeightPendingReviewCount: 2,
       pendingAccessRequests: true
     });
     expect(requestMock).toHaveBeenCalledWith('GET', '/app/attention-summary', {

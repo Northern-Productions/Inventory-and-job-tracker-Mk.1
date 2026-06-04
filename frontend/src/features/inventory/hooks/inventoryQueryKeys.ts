@@ -81,6 +81,8 @@ export const inventoryKeys = {
   filmOrdersRoot: ['inventory', 'film-orders'] as const,
   filmOrders: ['inventory', 'film-orders'] as const,
   filmOrdersList: (params: { warehouse?: string } = {}) => ['inventory', 'film-orders', params] as const,
+  filmWeightProfiles: ['inventory', 'film-weight', 'profiles'] as const,
+  filmWeightPendingReviews: ['inventory', 'film-weight', 'pending-reviews'] as const,
   filmCatalog: ['inventory', 'film-catalog'] as const,
   caulkProducts: ['caulk', 'products'] as const,
   caulkTransfersRoot: ['caulk', 'transfers'] as const,

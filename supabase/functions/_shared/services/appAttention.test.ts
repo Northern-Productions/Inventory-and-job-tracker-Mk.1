@@ -43,3 +43,33 @@ Deno.test("buildAppAttentionSummary uses the lightweight jobs attention dependen
   assert(filmOrderCalls === 0, "Expected film orders to be skipped without film_orders read access.");
   assert(accessRequestCalls === 0, "Expected access requests to be skipped for non-owner users.");
 });
+
+Deno.test("buildAppAttentionSummary includes film weight pending review attention for inventory readers", async () => {
+  let weightCountCalls = 0;
+  const summary = await buildAppAttentionSummary(
+    {},
+    "org-1",
+    {
+      role: "member",
+      permissions: {
+        inventory: { read: true },
+        jobs: { read: false },
+        allocations: { read: false },
+        film_orders: { read: false },
+      },
+    } as any,
+    {
+      hasActiveJobsNeedingAllocation: async () => false,
+      buildFilmOrdersList: async () => [],
+      countOpenFilmWeightPendingReviews: async () => {
+        weightCountCalls += 1;
+        return 3;
+      },
+      rpcOrThrow: async <T>() => [] as T,
+    },
+  );
+
+  assert(weightCountCalls === 1, "Expected inventory readers to load the film weight pending count.");
+  assert(summary.hasFilmWeightPendingReviews === true, "Expected pending film weight attention.");
+  assert(summary.filmWeightPendingReviewCount === 3, "Expected pending film weight count.");
+});

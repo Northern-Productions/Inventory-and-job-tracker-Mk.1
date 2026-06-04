@@ -95,6 +95,15 @@ export const navItems: NavItem[] = [
     mode: 'read'
   },
   {
+    to: '/weight-chart',
+    desktopLabel: 'Weight Chart',
+    mobileLabel: 'Weight Chart',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    feature: 'inventory',
+    mode: 'read'
+  },
+  {
     to: '/activity',
     desktopLabel: 'Activity',
     mobileLabel: 'Activity',
@@ -175,6 +184,7 @@ export function resolveAppShellTheme(pathname: string): AppShellTheme {
     normalizedPath.startsWith('/activity') ||
     normalizedPath.startsWith('/checkout-history') ||
     normalizedPath.startsWith('/labels') ||
+    normalizedPath.startsWith('/weight-chart') ||
     normalizedPath.startsWith('/admin/') ||
     normalizedPath.startsWith('/owner/')
   ) {

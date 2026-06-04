@@ -9609,6 +9609,209 @@ async function reopenJob(client: any, identity: AuthIdentity, payload: Record<st
   );
 }
 
+function normalizeStringListForFilmWeight(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => asTrimmedString(entry)).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => asTrimmedString(entry)).filter(Boolean);
+      }
+    } catch (_error) {
+      return trimmed.split(",").map((entry) => asTrimmedString(entry)).filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function normalizeNumericListForFilmWeight(value: unknown): number[] {
+  const rawValues = Array.isArray(value) ? value : [];
+  const next: number[] = [];
+  const seen = new Set<string>();
+  for (const entry of rawValues) {
+    const numeric = numericOrNull(entry);
+    if (numeric === null || numeric <= 0) {
+      continue;
+    }
+    const key = String(numeric);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(numeric);
+  }
+  return next.sort((left, right) => left - right);
+}
+
+async function listFilmWeightProfiles(_client: any, orgId: string) {
+  const readClient = requireServiceRoleClient();
+  const { data, error } = await readClient
+    .schema("app")
+    .from("film_weight_profiles")
+    .select(
+      [
+        "id",
+        "manufacturer",
+        "film_name",
+        "film_key",
+        "core_type",
+        "core_weight_lbs",
+        "average_normalized_lbs_per_inch_foot",
+        "average_lbs_per_sq_ft",
+        "accepted_sample_count",
+        "pending_review_count",
+        "confidence",
+        "status",
+        "first_sample_at",
+        "last_sample_at",
+        "last_review_at",
+        "manually_overridden",
+        "notes",
+        "updated_at",
+      ].join(","),
+    )
+    .eq("org_id", orgId)
+    .order("updated_at", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load film weight profiles");
+
+  const rows = Array.isArray(data) ? data as unknown as Record<string, unknown>[] : [];
+  const profileIds = rows.map((row) => asTrimmedString(row.id)).filter(Boolean);
+  const widthsByProfile = new Map<string, number[]>();
+
+  if (profileIds.length) {
+    const { data: sampleRows, error: samplesError } = await readClient
+      .schema("app")
+      .from("film_weight_samples")
+      .select("profile_id,width_inches")
+      .eq("org_id", orgId)
+      .in("profile_id", profileIds)
+      .not("width_inches", "is", null);
+    throwOnSupabaseError(samplesError, "Unable to load film weight sample widths");
+
+    for (const sample of Array.isArray(sampleRows) ? sampleRows as unknown as Record<string, unknown>[] : []) {
+      const profileId = asTrimmedString(sample.profile_id);
+      const width = numericOrNull(sample.width_inches);
+      if (!profileId || width === null || width <= 0) {
+        continue;
+      }
+      const existing = widthsByProfile.get(profileId) || [];
+      if (!existing.includes(width)) {
+        existing.push(width);
+      }
+      widthsByProfile.set(profileId, existing);
+    }
+  }
+
+  return rows.map((row) => {
+    const profileId = asTrimmedString(row.id);
+    return {
+      profileId,
+      manufacturer: asTrimmedString(row.manufacturer),
+      filmName: asTrimmedString(row.film_name),
+      filmKey: asTrimmedString(row.film_key),
+      coreType: asTrimmedString(row.core_type),
+      coreWeightLbs: numericOrNull(row.core_weight_lbs),
+      averageNormalizedLbsPerInchFoot: numericOrNull(row.average_normalized_lbs_per_inch_foot),
+      averageLbsPerSqFt: numericOrNull(row.average_lbs_per_sq_ft),
+      acceptedSampleCount: Math.max(0, integerOrZero(row.accepted_sample_count)),
+      pendingReviewCount: Math.max(0, integerOrZero(row.pending_review_count)),
+      confidence: asTrimmedString(row.confidence) || "starter",
+      status: asTrimmedString(row.status) || "active",
+      observedWidths: normalizeNumericListForFilmWeight(widthsByProfile.get(profileId) || []),
+      firstSampleAt: asTrimmedString(row.first_sample_at),
+      lastSampleAt: asTrimmedString(row.last_sample_at),
+      lastReviewAt: asTrimmedString(row.last_review_at),
+      manuallyOverridden: row.manually_overridden === true,
+      notes: asTrimmedString(row.notes),
+      updatedAt: asTrimmedString(row.updated_at),
+    };
+  });
+}
+
+async function listOpenFilmWeightPendingReviews(_client: any, orgId: string) {
+  const readClient = requireServiceRoleClient();
+  const { data, error } = await readClient
+    .schema("app")
+    .from("film_weight_pending_reviews")
+    .select("id,profile_id,sample_id,source_box_id,manufacturer,film_name,film_key,reason,reasons,status,user_action_hint,created_at,notes")
+    .eq("org_id", orgId)
+    .eq("status", "open")
+    .order("created_at", { ascending: false });
+  throwOnSupabaseError(error, "Unable to load film weight pending reviews");
+
+  const rows = Array.isArray(data) ? data as unknown as Record<string, unknown>[] : [];
+  const sampleIds = rows.map((row) => asTrimmedString(row.sample_id)).filter(Boolean);
+  const profileIds = rows.map((row) => asTrimmedString(row.profile_id)).filter(Boolean);
+  const samplesById = new Map<string, Record<string, unknown>>();
+  const profilesById = new Map<string, Record<string, unknown>>();
+
+  if (sampleIds.length) {
+    const { data: sampleRows, error: samplesError } = await readClient
+      .schema("app")
+      .from("film_weight_samples")
+      .select("id,width_inches,recorded_lf,measured_roll_weight_lbs,core_type,core_weight_lbs,estimated_lf_against_profile,lf_error_against_profile")
+      .eq("org_id", orgId)
+      .in("id", sampleIds);
+    throwOnSupabaseError(samplesError, "Unable to load film weight pending review samples");
+
+    for (const sample of Array.isArray(sampleRows) ? sampleRows as unknown as Record<string, unknown>[] : []) {
+      samplesById.set(asTrimmedString(sample.id), sample);
+    }
+  }
+
+  if (profileIds.length) {
+    const { data: profileRows, error: profilesError } = await readClient
+      .schema("app")
+      .from("film_weight_profiles")
+      .select("id,confidence,status")
+      .eq("org_id", orgId)
+      .in("id", profileIds);
+    throwOnSupabaseError(profilesError, "Unable to load film weight pending review profiles");
+
+    for (const profile of Array.isArray(profileRows) ? profileRows as unknown as Record<string, unknown>[] : []) {
+      profilesById.set(asTrimmedString(profile.id), profile);
+    }
+  }
+
+  return rows.map((row) => {
+    const sample = samplesById.get(asTrimmedString(row.sample_id)) || {};
+    const profile = profilesById.get(asTrimmedString(row.profile_id)) || {};
+    return {
+      reviewId: asTrimmedString(row.id),
+      profileId: asTrimmedString(row.profile_id),
+      sampleId: asTrimmedString(row.sample_id),
+      boxId: asTrimmedString(row.source_box_id),
+      manufacturer: asTrimmedString(row.manufacturer),
+      filmName: asTrimmedString(row.film_name),
+      filmKey: asTrimmedString(row.film_key),
+      widthIn: numericOrNull(sample.width_inches),
+      recordedLf: numericOrNull(sample.recorded_lf),
+      measuredRollWeightLbs: numericOrNull(sample.measured_roll_weight_lbs),
+      coreType: asTrimmedString(sample.core_type),
+      coreWeightLbs: numericOrNull(sample.core_weight_lbs),
+      estimatedLf: numericOrNull(sample.estimated_lf_against_profile),
+      lfError: numericOrNull(sample.lf_error_against_profile),
+      reason: asTrimmedString(row.reason),
+      reasons: normalizeStringListForFilmWeight(row.reasons),
+      suggestedAction: asTrimmedString(row.user_action_hint) || "review_sample",
+      status: asTrimmedString(row.status) || "open",
+      profileConfidence: asTrimmedString(profile.confidence),
+      profileStatus: asTrimmedString(profile.status),
+      createdAt: asTrimmedString(row.created_at),
+      notes: asTrimmedString(row.notes),
+    };
+  });
+}
+
 async function canonicalizeRequirementPayloadEntries(
   client: any,
   orgId: string,
@@ -9747,6 +9950,10 @@ async function dispatchRead(
       buildAppAttentionSummaryFromService(readClient, readOrgId, identity, {
         hasActiveJobsNeedingAllocation: hasActiveJobsNeedingAllocationForAttentionSummary,
         buildFilmOrdersList,
+        countOpenFilmWeightPendingReviews: (countClient, countOrgId) =>
+          rpcOrThrow<number>(countClient, "api_acl_get_film_weight_pending_review_count", {
+            p_org_id: countOrgId,
+          }),
         rpcOrThrow,
       }),
     asTrimmedString,
@@ -9801,6 +10008,8 @@ async function dispatchRead(
     buildFilmOrderDetail,
     buildBoxFilmOrderOrigins,
     buildFilmCatalog,
+    listFilmWeightProfiles,
+    listOpenFilmWeightPendingReviews,
     listRollHistoryByBox,
     buildReportsSummary,
     buildOwnerAssetTotalCost,

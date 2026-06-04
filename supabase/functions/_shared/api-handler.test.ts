@@ -50,6 +50,8 @@ Deno.test("Edge response cache bypasses mutation-sensitive operational reads", (
     "/allocations/by-job",
     "/allocations/jobs",
     "/film-orders/get",
+    "/film-weight/profiles",
+    "/film-weight/pending-reviews",
     "/app/attention-summary",
   ];
 
@@ -81,6 +83,40 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
 
   assertEquals(shouldUseCache("POST", "/allocations/caulk/add"), false, "Expected mutations to bypass cache.");
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
+});
+
+Deno.test("Edge film weight chart read routes delegate to read-model dependencies", async () => {
+  const calls: string[] = [];
+  const profileResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/film-weight/profiles",
+    {},
+    {} as any,
+    {
+      listFilmWeightProfiles: async (_client: unknown, orgId: string) => {
+        calls.push(`profiles:${orgId}`);
+        return [{ profileId: "profile-1" }];
+      },
+    } as any,
+  );
+  const pendingResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/film-weight/pending-reviews",
+    {},
+    {} as any,
+    {
+      listOpenFilmWeightPendingReviews: async (_client: unknown, orgId: string) => {
+        calls.push(`pending:${orgId}`);
+        return [{ reviewId: "review-1" }];
+      },
+    } as any,
+  );
+
+  assertEquals(calls, ["profiles:org-1", "pending:org-1"], "Expected Weight Chart routes to call their dependencies.");
+  assertEquals(profileResponse.data, { entries: [{ profileId: "profile-1" }] }, "Expected profile entries envelope.");
+  assertEquals(pendingResponse.data, { entries: [{ reviewId: "review-1" }] }, "Expected pending entries envelope.");
 });
 
 Deno.test("Edge /audit/list projects structured checkout job identity by jobId only", async () => {

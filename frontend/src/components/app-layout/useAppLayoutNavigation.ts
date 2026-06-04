@@ -16,6 +16,7 @@ function mapToComputedNavItems(
   options: {
     allocationsAttention: boolean;
     filmOrdersAttention: boolean;
+    weightChartAttention: boolean;
     accessAttention: boolean;
   }
 ) {
@@ -27,15 +28,19 @@ function mapToComputedNavItems(
         ? options.allocationsAttention
         : item.to === '/film-orders'
           ? options.filmOrdersAttention
-          : options.accessAttention && item.to === '/admin/access',
+          : item.to === '/weight-chart'
+            ? options.weightChartAttention
+            : options.accessAttention && item.to === '/admin/access',
     attentionAriaLabel:
       item.to === '/allocations' && options.allocationsAttention
         ? `${item.desktopLabel} (jobs need allocations)`
         : item.to === '/film-orders' && options.filmOrdersAttention
           ? `${item.desktopLabel} (needs ordering)`
-          : options.accessAttention && item.to === '/admin/access'
-            ? `${item.desktopLabel} (pending approvals)`
-            : undefined
+          : item.to === '/weight-chart' && options.weightChartAttention
+            ? `${item.desktopLabel} (pending reviews)`
+            : options.accessAttention && item.to === '/admin/access'
+              ? `${item.desktopLabel} (pending approvals)`
+              : undefined
   }));
 }
 
@@ -50,9 +55,11 @@ function toMobileNavItems(items: ComputedNavItem[]) {
         ? `${item.mobileLabel} (jobs need allocations)`
         : item.to === '/film-orders' && item.showAttentionDot
           ? `${item.mobileLabel} (needs ordering)`
-          : item.to === '/admin/access' && item.showAttentionDot
-            ? `${item.mobileLabel} (pending approvals)`
-            : item.attentionAriaLabel
+          : item.to === '/weight-chart' && item.showAttentionDot
+            ? `${item.mobileLabel} (pending reviews)`
+            : item.to === '/admin/access' && item.showAttentionDot
+              ? `${item.mobileLabel} (pending approvals)`
+              : item.attentionAriaLabel
   }));
 }
 
@@ -71,8 +78,9 @@ export function useAppLayoutNavigation(pathname: string): {
   const auth = useAuth();
   const canReadJobs = auth.hasFeatureAccess('allocations', 'read');
   const canReadFilmOrders = auth.hasFeatureAccess('film_orders', 'read');
+  const canReadInventory = auth.hasFeatureAccess('inventory', 'read');
   const attentionSummaryQuery = useAppAttentionSummary({
-    enabled: canReadJobs || canReadFilmOrders || auth.isOwner,
+    enabled: canReadJobs || canReadFilmOrders || canReadInventory || auth.isOwner,
     refetchOnWindowFocus: true
   });
   const appShellTheme = useMemo(
@@ -110,11 +118,16 @@ export function useAppLayoutNavigation(pathname: string): {
     canReadFilmOrders &&
     Boolean(attentionSummaryQuery.data?.hasFilmOrdersNeedingAttention) &&
     visibleNavItems.some((item) => item.to === '/film-orders');
+  const showWeightChartAttention =
+    canReadInventory &&
+    Boolean(attentionSummaryQuery.data?.hasFilmWeightPendingReviews) &&
+    visibleNavItems.some((item) => item.to === '/weight-chart');
   const desktopNavItems = useMemo(
     () =>
       mapToComputedNavItems(visibleNavItems, pathname, {
         allocationsAttention: showJobsNeedingAllocationAttention,
         filmOrdersAttention: showFilmOrdersAttention,
+        weightChartAttention: showWeightChartAttention,
         accessAttention: showAccessPendingAttention
       }),
     [
@@ -122,6 +135,7 @@ export function useAppLayoutNavigation(pathname: string): {
       showAccessPendingAttention,
       showFilmOrdersAttention,
       showJobsNeedingAllocationAttention,
+      showWeightChartAttention,
       visibleNavItems
     ]
   );
@@ -130,6 +144,7 @@ export function useAppLayoutNavigation(pathname: string): {
       mapToComputedNavItems(visibleNavItems, pathname, {
         allocationsAttention: showJobsNeedingAllocationAttention,
         filmOrdersAttention: showFilmOrdersAttention,
+        weightChartAttention: showWeightChartAttention,
         accessAttention: showAccessPendingAttention
       }),
     [
@@ -137,6 +152,7 @@ export function useAppLayoutNavigation(pathname: string): {
       showAccessPendingAttention,
       showFilmOrdersAttention,
       showJobsNeedingAllocationAttention,
+      showWeightChartAttention,
       visibleNavItems
     ]
   );
@@ -157,20 +173,18 @@ export function useAppLayoutNavigation(pathname: string): {
     [mobileNavItems]
   );
   const mobileMoreAttentionAriaLabel = useMemo(() => {
-    if (showAccessPendingAttention && showFilmOrdersAttention) {
-      return 'More (pending approvals and film orders need ordering)';
-    }
+    const messages = [
+      showAccessPendingAttention ? 'pending approvals' : '',
+      showFilmOrdersAttention ? 'film orders need ordering' : '',
+      showWeightChartAttention ? 'weight samples need review' : ''
+    ].filter(Boolean);
 
-    if (showFilmOrdersAttention) {
-      return 'More (film orders need ordering)';
-    }
-
-    if (showAccessPendingAttention) {
-      return 'More (pending approvals)';
+    if (messages.length) {
+      return `More (${messages.join(' and ')})`;
     }
 
     return undefined;
-  }, [showAccessPendingAttention, showFilmOrdersAttention]);
+  }, [showAccessPendingAttention, showFilmOrdersAttention, showWeightChartAttention]);
 
   return {
     appShellTheme,

@@ -89,6 +89,88 @@ function confidenceForProfile({ acceptedSampleCount, openPendingReviewCount = 0 
   return 'solid';
 }
 
+function numberOrNull(value) {
+  const numeric = numericOrNull(value);
+  return numeric === null ? null : numeric;
+}
+
+function normalizeReasons(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => asTrimmedString(entry)).filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => asTrimmedString(entry)).filter(Boolean);
+      }
+    } catch (_error) {
+      return trimmed.split(',').map((entry) => asTrimmedString(entry)).filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function toFilmWeightProfileEntry(row = {}) {
+  return {
+    profileId: asTrimmedString(row.profile_id ?? row.id),
+    manufacturer: asTrimmedString(row.manufacturer),
+    filmName: asTrimmedString(row.film_name),
+    filmKey: asTrimmedString(row.film_key),
+    coreType: asTrimmedString(row.core_type),
+    coreWeightLbs: numberOrNull(row.core_weight_lbs),
+    averageNormalizedLbsPerInchFoot: numberOrNull(row.average_normalized_lbs_per_inch_foot),
+    averageLbsPerSqFt: numberOrNull(row.average_lbs_per_sq_ft),
+    acceptedSampleCount: Math.max(0, Math.trunc(Number(row.accepted_sample_count || 0))),
+    pendingReviewCount: Math.max(0, Math.trunc(Number(row.pending_review_count || 0))),
+    confidence: asTrimmedString(row.confidence) || 'starter',
+    status: asTrimmedString(row.status) || 'active',
+    observedWidths: normalizeReasons(row.observed_widths)
+      .map((entry) => Number(entry))
+      .filter((entry) => Number.isFinite(entry) && entry > 0),
+    firstSampleAt: asTrimmedString(row.first_sample_at),
+    lastSampleAt: asTrimmedString(row.last_sample_at),
+    lastReviewAt: asTrimmedString(row.last_review_at),
+    manuallyOverridden: row.manually_overridden === true,
+    notes: asTrimmedString(row.notes),
+    updatedAt: asTrimmedString(row.updated_at),
+  };
+}
+
+function toFilmWeightPendingReviewEntry(row = {}) {
+  return {
+    reviewId: asTrimmedString(row.review_id ?? row.id),
+    profileId: asTrimmedString(row.profile_id),
+    sampleId: asTrimmedString(row.sample_id),
+    boxId: asTrimmedString(row.source_box_id),
+    manufacturer: asTrimmedString(row.manufacturer),
+    filmName: asTrimmedString(row.film_name),
+    filmKey: asTrimmedString(row.film_key),
+    widthIn: numberOrNull(row.width_inches),
+    recordedLf: numberOrNull(row.recorded_lf),
+    measuredRollWeightLbs: numberOrNull(row.measured_roll_weight_lbs),
+    coreType: asTrimmedString(row.core_type),
+    coreWeightLbs: numberOrNull(row.core_weight_lbs),
+    estimatedLf: numberOrNull(row.estimated_lf_against_profile),
+    lfError: numberOrNull(row.lf_error_against_profile),
+    reason: asTrimmedString(row.reason),
+    reasons: normalizeReasons(row.reasons),
+    suggestedAction: asTrimmedString(row.user_action_hint) || 'review_sample',
+    status: asTrimmedString(row.status) || 'open',
+    profileConfidence: asTrimmedString(row.profile_confidence),
+    profileStatus: asTrimmedString(row.profile_status),
+    createdAt: asTrimmedString(row.created_at),
+    notes: asTrimmedString(row.notes),
+  };
+}
+
 function validateSampleInput(sample = {}) {
   const reasons = [];
   const manufacturer = asTrimmedString(sample.manufacturer);
@@ -234,6 +316,87 @@ async function countOpenFilmWeightPendingReviews(client, orgId) {
   return Math.max(0, Number(row?.pending_count || 0) || 0);
 }
 
+async function listFilmWeightProfiles(client, orgId) {
+  const result = await client.query(
+    `
+      select
+        p.id as profile_id,
+        p.manufacturer,
+        p.film_name,
+        p.film_key,
+        p.core_type,
+        p.core_weight_lbs,
+        p.average_normalized_lbs_per_inch_foot,
+        p.average_lbs_per_sq_ft,
+        p.accepted_sample_count,
+        p.pending_review_count,
+        p.confidence,
+        p.status,
+        p.first_sample_at,
+        p.last_sample_at,
+        p.last_review_at,
+        p.manually_overridden,
+        p.notes,
+        p.updated_at,
+        coalesce(
+          jsonb_agg(distinct s.width_inches) filter (where s.width_inches is not null),
+          '[]'::jsonb
+        ) as observed_widths
+      from app.film_weight_profiles p
+      left join app.film_weight_samples s
+        on s.org_id = p.org_id
+       and s.profile_id = p.id
+      where p.org_id = $1
+      group by p.id
+      order by p.updated_at desc, p.manufacturer asc, p.film_name asc, p.core_type asc
+    `,
+    [orgId]
+  );
+  return (result.rows || []).map(toFilmWeightProfileEntry);
+}
+
+async function listOpenFilmWeightPendingReviews(client, orgId) {
+  const result = await client.query(
+    `
+      select
+        r.id as review_id,
+        r.profile_id,
+        r.sample_id,
+        r.source_box_id,
+        r.manufacturer,
+        r.film_name,
+        r.film_key,
+        r.reason,
+        r.reasons,
+        r.user_action_hint,
+        r.status,
+        r.created_at,
+        r.notes,
+        s.width_inches,
+        s.recorded_lf,
+        s.measured_roll_weight_lbs,
+        s.core_type,
+        s.core_weight_lbs,
+        s.estimated_lf_against_profile,
+        s.lf_error_against_profile,
+        p.confidence as profile_confidence,
+        p.status as profile_status
+      from app.film_weight_pending_reviews r
+      left join app.film_weight_samples s
+        on s.org_id = r.org_id
+       and s.id = r.sample_id
+      left join app.film_weight_profiles p
+        on p.org_id = r.org_id
+       and p.id = r.profile_id
+      where r.org_id = $1
+        and r.status = 'open'
+      order by r.created_at desc, r.source_box_id asc
+    `,
+    [orgId]
+  );
+  return (result.rows || []).map(toFilmWeightPendingReviewEntry);
+}
+
 export {
   FILM_WEIGHT_LF_TOLERANCE,
   calculateFilmWeightMetrics,
@@ -242,6 +405,8 @@ export {
   countOpenFilmWeightPendingReviews,
   estimateRemainingLfFromProfile,
   evaluateSampleAgainstProfile,
+  listFilmWeightProfiles,
+  listOpenFilmWeightPendingReviews,
   recordFilmWeightSampleFromBox,
   validateSampleInput,
 };

@@ -34,16 +34,25 @@ export async function buildAppAttentionSummary(
       orgId: string,
     ) => Promise<boolean>;
     buildFilmOrdersList: (client: any, orgId: string) => Promise<Record<string, unknown>[]>;
+    countOpenFilmWeightPendingReviews?: (client: any, orgId: string) => Promise<number>;
     rpcOrThrow: <T>(client: any, fn: string, params?: Record<string, unknown>) => Promise<T>;
   },
 ) {
   const canReadJobs = canReadFeature(identity, "jobs") || canReadFeature(identity, "allocations");
   const canReadFilmOrders = canReadFeature(identity, "film_orders");
+  const canReadInventory = canReadFeature(identity, "inventory");
   const canReviewAccessRequests = identity.role === "owner";
 
-  const [hasJobsNeedingAllocation, filmOrders, accessRequests] = await Promise.all([
+  const [hasJobsNeedingAllocation, filmOrders, pendingWeightReviews, accessRequests] = await Promise.all([
     canReadJobs ? deps.hasActiveJobsNeedingAllocation(client, orgId) : Promise.resolve(false),
     canReadFilmOrders ? deps.buildFilmOrdersList(client, orgId) : Promise.resolve([]),
+    canReadInventory
+      ? deps.countOpenFilmWeightPendingReviews
+        ? deps.countOpenFilmWeightPendingReviews(client, orgId)
+        : deps.rpcOrThrow<number>(client, "api_acl_get_film_weight_pending_review_count", {
+            p_org_id: orgId,
+          })
+      : Promise.resolve(0),
     canReviewAccessRequests
       ? deps.rpcOrThrow<Record<string, unknown>[]>(client, "api_list_access_requests", {
           p_org_id: orgId,
@@ -55,6 +64,8 @@ export async function buildAppAttentionSummary(
   return {
     hasJobsNeedingAllocation,
     hasFilmOrdersNeedingAttention: filmOrders.some((entry) => isFilmOrderNeedingAttention(entry)),
+    hasFilmWeightPendingReviews: Number(pendingWeightReviews || 0) > 0,
+    filmWeightPendingReviewCount: Math.max(0, Number(pendingWeightReviews || 0) || 0),
     pendingAccessRequests: accessRequests.length > 0,
   };
 }

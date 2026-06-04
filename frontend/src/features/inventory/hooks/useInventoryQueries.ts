@@ -16,6 +16,8 @@ export {
   useFilmCatalog,
   useFilmOrderDetail,
   useFilmOrders,
+  useFilmWeightPendingReviews,
+  useFilmWeightProfiles,
   useIsAddBoxPending,
   useJob,
   useJobById,
