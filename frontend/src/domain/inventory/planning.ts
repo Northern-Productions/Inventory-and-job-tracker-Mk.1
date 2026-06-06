@@ -245,6 +245,13 @@ export interface FilmCatalogEntry {
 export type FilmWeightProfileConfidence = 'starter' | 'building' | 'solid' | 'needs_review';
 export type FilmWeightProfileStatus = 'active' | 'needs_review' | 'disabled';
 
+export interface FilmWeightProfileWidthSummary {
+  widthIn: number;
+  maxRecordedLf: number;
+  acceptedSampleCount: number;
+  lastSampleAt: string;
+}
+
 export interface FilmWeightProfileEntry {
   profileId: string;
   manufacturer: string;
@@ -259,6 +266,7 @@ export interface FilmWeightProfileEntry {
   confidence: FilmWeightProfileConfidence | string;
   status: FilmWeightProfileStatus | string;
   observedWidths: number[];
+  widthSummaries: FilmWeightProfileWidthSummary[];
   firstSampleAt: string;
   lastSampleAt: string;
   lastReviewAt: string;

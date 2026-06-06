@@ -9652,6 +9652,13 @@ function normalizeNumericListForFilmWeight(value: unknown): number[] {
   return next.sort((left, right) => left - right);
 }
 
+interface FilmWeightWidthSummary {
+  widthIn: number;
+  maxRecordedLf: number;
+  acceptedSampleCount: number;
+  lastSampleAt: string;
+}
+
 async function listFilmWeightProfiles(_client: any, orgId: string) {
   const readClient = requireServiceRoleClient();
   const { data, error } = await readClient
@@ -9686,21 +9693,27 @@ async function listFilmWeightProfiles(_client: any, orgId: string) {
   const rows = Array.isArray(data) ? data as unknown as Record<string, unknown>[] : [];
   const profileIds = rows.map((row) => asTrimmedString(row.id)).filter(Boolean);
   const widthsByProfile = new Map<string, number[]>();
+  const widthSummariesByProfile = new Map<string, FilmWeightWidthSummary[]>();
 
   if (profileIds.length) {
     const { data: sampleRows, error: samplesError } = await readClient
       .schema("app")
       .from("film_weight_samples")
-      .select("profile_id,width_inches")
+      .select("profile_id,width_inches,recorded_lf,sample_date")
       .eq("org_id", orgId)
       .in("profile_id", profileIds)
-      .not("width_inches", "is", null);
-    throwOnSupabaseError(samplesError, "Unable to load film weight sample widths");
+      .eq("acceptance_status", "accepted")
+      .not("width_inches", "is", null)
+      .not("recorded_lf", "is", null);
+    throwOnSupabaseError(samplesError, "Unable to load film weight sample width summaries");
+
+    const summaryMapsByProfile = new Map<string, Map<string, FilmWeightWidthSummary>>();
 
     for (const sample of Array.isArray(sampleRows) ? sampleRows as unknown as Record<string, unknown>[] : []) {
       const profileId = asTrimmedString(sample.profile_id);
       const width = numericOrNull(sample.width_inches);
-      if (!profileId || width === null || width <= 0) {
+      const recordedLf = numericOrNull(sample.recorded_lf);
+      if (!profileId || width === null || width <= 0 || recordedLf === null || recordedLf <= 0) {
         continue;
       }
       const existing = widthsByProfile.get(profileId) || [];
@@ -9708,6 +9721,33 @@ async function listFilmWeightProfiles(_client: any, orgId: string) {
         existing.push(width);
       }
       widthsByProfile.set(profileId, existing);
+
+      const widthKey = String(width);
+      const summaryMap = summaryMapsByProfile.get(profileId) || new Map<string, FilmWeightWidthSummary>();
+      const sampleDate = asTrimmedString(sample.sample_date);
+      const current = summaryMap.get(widthKey);
+      if (!current) {
+        summaryMap.set(widthKey, {
+          widthIn: width,
+          maxRecordedLf: recordedLf,
+          acceptedSampleCount: 1,
+          lastSampleAt: sampleDate,
+        });
+      } else {
+        current.maxRecordedLf = Math.max(current.maxRecordedLf, recordedLf);
+        current.acceptedSampleCount += 1;
+        if (sampleDate && (!current.lastSampleAt || sampleDate > current.lastSampleAt)) {
+          current.lastSampleAt = sampleDate;
+        }
+      }
+      summaryMapsByProfile.set(profileId, summaryMap);
+    }
+
+    for (const [profileId, summaryMap] of summaryMapsByProfile.entries()) {
+      widthSummariesByProfile.set(
+        profileId,
+        Array.from(summaryMap.values()).sort((left, right) => left.widthIn - right.widthIn),
+      );
     }
   }
 
@@ -9727,6 +9767,7 @@ async function listFilmWeightProfiles(_client: any, orgId: string) {
       confidence: asTrimmedString(row.confidence) || "starter",
       status: asTrimmedString(row.status) || "active",
       observedWidths: normalizeNumericListForFilmWeight(widthsByProfile.get(profileId) || []),
+      widthSummaries: widthSummariesByProfile.get(profileId) || [],
       firstSampleAt: asTrimmedString(row.first_sample_at),
       lastSampleAt: asTrimmedString(row.last_sample_at),
       lastReviewAt: asTrimmedString(row.last_review_at),

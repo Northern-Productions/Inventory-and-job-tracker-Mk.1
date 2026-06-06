@@ -118,7 +118,52 @@ function normalizeReasons(value) {
   return [];
 }
 
+function normalizeWidthSummaries(value) {
+  let rawEntries = [];
+  if (Array.isArray(value)) {
+    rawEntries = value;
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        rawEntries = Array.isArray(parsed) ? parsed : [];
+      } catch (_error) {
+        rawEntries = [];
+      }
+    }
+  }
+
+  return rawEntries
+    .map((entry) => {
+      const row = entry && typeof entry === 'object' ? entry : {};
+      const widthIn = numberOrNull(row.widthIn ?? row.width_inches);
+      const maxRecordedLf = numberOrNull(row.maxRecordedLf ?? row.max_recorded_lf);
+      if (widthIn === null || maxRecordedLf === null || widthIn <= 0 || maxRecordedLf <= 0) {
+        return null;
+      }
+      return {
+        widthIn,
+        maxRecordedLf,
+        acceptedSampleCount: Math.max(
+          0,
+          Math.trunc(Number(row.acceptedSampleCount ?? row.accepted_sample_count ?? 0) || 0)
+        ),
+        lastSampleAt: asTrimmedString(row.lastSampleAt ?? row.last_sample_at),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.widthIn - right.widthIn);
+}
+
 function toFilmWeightProfileEntry(row = {}) {
+  const widthSummaries = normalizeWidthSummaries(row.width_summaries);
+  const observedWidths = widthSummaries.length
+    ? widthSummaries.map((entry) => entry.widthIn)
+    : normalizeReasons(row.observed_widths)
+        .map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry) && entry > 0);
+
   return {
     profileId: asTrimmedString(row.profile_id ?? row.id),
     manufacturer: asTrimmedString(row.manufacturer),
@@ -132,9 +177,8 @@ function toFilmWeightProfileEntry(row = {}) {
     pendingReviewCount: Math.max(0, Math.trunc(Number(row.pending_review_count || 0))),
     confidence: asTrimmedString(row.confidence) || 'starter',
     status: asTrimmedString(row.status) || 'active',
-    observedWidths: normalizeReasons(row.observed_widths)
-      .map((entry) => Number(entry))
-      .filter((entry) => Number.isFinite(entry) && entry > 0),
+    observedWidths,
+    widthSummaries,
     firstSampleAt: asTrimmedString(row.first_sample_at),
     lastSampleAt: asTrimmedString(row.last_sample_at),
     lastReviewAt: asTrimmedString(row.last_review_at),
@@ -339,15 +383,52 @@ async function listFilmWeightProfiles(client, orgId) {
         p.notes,
         p.updated_at,
         coalesce(
-          jsonb_agg(distinct s.width_inches) filter (where s.width_inches is not null),
+          (
+            select jsonb_agg(width_rows.width_inches order by width_rows.width_inches)
+            from (
+              select distinct s.width_inches
+              from app.film_weight_samples s
+              where s.org_id = p.org_id
+                and s.profile_id = p.id
+                and s.acceptance_status = 'accepted'
+                and s.width_inches is not null
+                and s.recorded_lf is not null
+                and s.recorded_lf > 0
+            ) width_rows
+          ),
           '[]'::jsonb
-        ) as observed_widths
+        ) as observed_widths,
+        coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object(
+                'widthIn', summary_rows.width_inches,
+                'maxRecordedLf', summary_rows.max_recorded_lf,
+                'acceptedSampleCount', summary_rows.accepted_sample_count,
+                'lastSampleAt', summary_rows.last_sample_at
+              )
+              order by summary_rows.width_inches
+            )
+            from (
+              select
+                s.width_inches,
+                max(s.recorded_lf) as max_recorded_lf,
+                count(*)::integer as accepted_sample_count,
+                max(s.sample_date) as last_sample_at
+              from app.film_weight_samples s
+              where s.org_id = p.org_id
+                and s.profile_id = p.id
+                and s.acceptance_status = 'accepted'
+                and s.width_inches is not null
+                and s.recorded_lf is not null
+                and s.recorded_lf > 0
+              group by s.width_inches
+            ) summary_rows
+          ),
+          '[]'::jsonb
+        ) as width_summaries
       from app.film_weight_profiles p
-      left join app.film_weight_samples s
-        on s.org_id = p.org_id
-       and s.profile_id = p.id
       where p.org_id = $1
-      group by p.id
       order by p.updated_at desc, p.manufacturer asc, p.film_name asc, p.core_type asc
     `,
     [orgId]

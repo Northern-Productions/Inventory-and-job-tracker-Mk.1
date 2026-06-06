@@ -28,6 +28,20 @@ test('film weight profile read model maps profile rows for the Weight Chart', as
             confidence: 'needs_review',
             status: 'needs_review',
             observed_widths: [72, '36'],
+            width_summaries: [
+              {
+                widthIn: '72',
+                maxRecordedLf: '100',
+                acceptedSampleCount: '1',
+                lastSampleAt: '2026-06-03T12:00:00Z',
+              },
+              {
+                widthIn: '36',
+                maxRecordedLf: '105',
+                acceptedSampleCount: '1',
+                lastSampleAt: '2026-06-02T12:00:00Z',
+              },
+            ],
             last_sample_at: '2026-06-03T12:00:00Z',
           },
         ],
@@ -38,6 +52,8 @@ test('film weight profile read model maps profile rows for the Weight Chart', as
   const entries = await listFilmWeightProfiles(fakeClient, 'org-1');
 
   assert.deepEqual(calls.map((call) => call.params), [['org-1']]);
+  assert.match(calls[0].sql, /acceptance_status = 'accepted'/);
+  assert.match(calls[0].sql, /max\(s\.recorded_lf\)/);
   assert.deepEqual(entries[0], {
     profileId: 'profile-1',
     manufacturer: '3M Solar',
@@ -51,7 +67,21 @@ test('film weight profile read model maps profile rows for the Weight Chart', as
     pendingReviewCount: 1,
     confidence: 'needs_review',
     status: 'needs_review',
-    observedWidths: [72, 36],
+    observedWidths: [36, 72],
+    widthSummaries: [
+      {
+        widthIn: 36,
+        maxRecordedLf: 105,
+        acceptedSampleCount: 1,
+        lastSampleAt: '2026-06-02T12:00:00Z',
+      },
+      {
+        widthIn: 72,
+        maxRecordedLf: 100,
+        acceptedSampleCount: 1,
+        lastSampleAt: '2026-06-03T12:00:00Z',
+      },
+    ],
     firstSampleAt: '',
     lastSampleAt: '2026-06-03T12:00:00Z',
     lastReviewAt: '',

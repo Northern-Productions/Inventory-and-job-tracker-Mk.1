@@ -3,7 +3,8 @@ import type {
   FilmWeightPendingReviewEntry,
   FilmWeightPendingReviewListResponse,
   FilmWeightProfileEntry,
-  FilmWeightProfileListResponse
+  FilmWeightProfileListResponse,
+  FilmWeightProfileWidthSummary
 } from '../../domain';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
 
@@ -34,7 +35,39 @@ function normalizeNullableNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function normalizeWidthSummaries(value: unknown): FilmWeightProfileWidthSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const record = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+      const widthIn = normalizeNullableNumber(record.widthIn ?? record.width_inches);
+      const maxRecordedLf = normalizeNullableNumber(record.maxRecordedLf ?? record.max_recorded_lf);
+      if (widthIn === null || maxRecordedLf === null || widthIn <= 0 || maxRecordedLf <= 0) {
+        return null;
+      }
+      return {
+        widthIn,
+        maxRecordedLf,
+        acceptedSampleCount: Math.max(
+          0,
+          Math.trunc(Number(record.acceptedSampleCount ?? record.accepted_sample_count ?? 0) || 0)
+        ),
+        lastSampleAt: String(record.lastSampleAt ?? record.last_sample_at ?? '').trim()
+      };
+    })
+    .filter((entry): entry is FilmWeightProfileWidthSummary => entry !== null)
+    .sort((left, right) => left.widthIn - right.widthIn);
+}
+
 function normalizeProfile(entry: Partial<FilmWeightProfileEntry> = {}): FilmWeightProfileEntry {
+  const widthSummaries = normalizeWidthSummaries(entry.widthSummaries);
+  const observedWidths = widthSummaries.length
+    ? widthSummaries.map((summary) => summary.widthIn)
+    : normalizeNumberList(entry.observedWidths);
+
   return {
     profileId: String(entry.profileId || '').trim(),
     manufacturer: String(entry.manufacturer || '').trim(),
@@ -48,7 +81,8 @@ function normalizeProfile(entry: Partial<FilmWeightProfileEntry> = {}): FilmWeig
     pendingReviewCount: Math.max(0, Math.trunc(Number(entry.pendingReviewCount || 0) || 0)),
     confidence: String(entry.confidence || 'starter').trim(),
     status: String(entry.status || 'active').trim(),
-    observedWidths: normalizeNumberList(entry.observedWidths),
+    observedWidths,
+    widthSummaries,
     firstSampleAt: String(entry.firstSampleAt || '').trim(),
     lastSampleAt: String(entry.lastSampleAt || '').trim(),
     lastReviewAt: String(entry.lastReviewAt || '').trim(),

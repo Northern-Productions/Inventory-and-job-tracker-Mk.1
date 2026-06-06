@@ -31,13 +31,27 @@ function buildProfile(overrides: Partial<FilmWeightProfileEntry> = {}): FilmWeig
     filmKey: '3m-solar|night-vision-35',
     coreType: '3IN',
     coreWeightLbs: 3.2,
-    averageLbsPerSqFt: 0.0123456789,
-    averageNormalizedLbsPerInchFoot: 0.001028806575,
+    averageLbsPerSqFt: 0.012,
+    averageNormalizedLbsPerInchFoot: 0.001,
     acceptedSampleCount: 2,
     pendingReviewCount: 1,
     confidence: 'needs_review',
     status: 'needs_review',
     observedWidths: [36, 72],
+    widthSummaries: [
+      {
+        widthIn: 36,
+        maxRecordedLf: 105,
+        acceptedSampleCount: 1,
+        lastSampleAt: '2026-06-02T12:00:00Z'
+      },
+      {
+        widthIn: 72,
+        maxRecordedLf: 100,
+        acceptedSampleCount: 1,
+        lastSampleAt: '2026-06-03T12:00:00Z'
+      }
+    ],
     firstSampleAt: '2026-06-01T12:00:00Z',
     lastSampleAt: '2026-06-03T12:00:00Z',
     lastReviewAt: '',
@@ -87,35 +101,35 @@ describe('WeightChartPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the Weight Chart title, helper text, profile columns, and friendly labels', () => {
+  it('renders a chart-focused Weight Chart page with filters and chart rows', () => {
     render(<WeightChartPage />);
 
     expect(screen.getByRole('heading', { name: 'Weight Chart' })).toBeTruthy();
     expect(
       screen.getByText(
-        'Track film weight profiles built from received/weighed ordered film and review samples that need attention.'
+        'Charts are built from trusted received and weighed ordered film, using accepted sample LF, width, roll weight, and core data.'
       )
     ).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Profiles' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('tab', { name: 'Profiles' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Pending Review' })).toBeNull();
+    expect(screen.getByText('1 charts')).toBeTruthy();
+    expect(screen.getByText('1 samples need review')).toBeTruthy();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
       'Manufacturer',
       'Film Name',
       'Core Type',
-      'Observed Widths',
+      'Widths Available',
       'Accepted Samples',
-      'Pending Reviews',
       'Confidence',
-      'Avg lbs / sq ft',
-      'Avg normalized lbs / inch-ft',
-      'Last Sample Date',
-      'Status'
+      'Last Sample / Updated',
+      'Action'
     ]);
     expect(screen.getByText('Night Vision 35')).toBeTruthy();
     expect(screen.getByText('36", 72"')).toBeTruthy();
-    expect(screen.getAllByText('Needs Review').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Open Chart' })).toBeTruthy();
   });
 
-  it('filters profiles by manufacturer, film name, core type, confidence, and status', () => {
+  it('filters chart profiles by manufacturer, film name, width, and core type', () => {
     useFilmWeightProfilesMock.mockReturnValue(
       buildQueryState([
         buildProfile(),
@@ -124,10 +138,19 @@ describe('WeightChartPage', () => {
           manufacturer: 'Madico',
           filmName: 'SafetyShield 800',
           coreType: '6IN',
-          acceptedSampleCount: 4,
-          pendingReviewCount: 0,
           confidence: 'solid',
-          status: 'active'
+          status: 'active',
+          observedWidths: [60],
+          widthSummaries: [
+            {
+              widthIn: 60,
+              maxRecordedLf: 98,
+              acceptedSampleCount: 4,
+              lastSampleAt: '2026-06-04T12:00:00Z'
+            }
+          ],
+          acceptedSampleCount: 4,
+          pendingReviewCount: 0
         })
       ])
     );
@@ -143,68 +166,48 @@ describe('WeightChartPage', () => {
     fireEvent.change(screen.getByLabelText('Film Name'), {
       target: { value: 'safety' }
     });
+    fireEvent.change(screen.getByLabelText('Width'), {
+      target: { value: '60' }
+    });
     fireEvent.change(screen.getByLabelText('Core Type'), {
       target: { value: '6IN' }
-    });
-    fireEvent.change(screen.getByLabelText('Confidence'), {
-      target: { value: 'solid' }
-    });
-    fireEvent.change(screen.getByLabelText('Status'), {
-      target: { value: 'active' }
     });
 
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
     expect(screen.queryByText('Night Vision 35')).toBeNull();
   });
 
-  it('renders pending reviews with friendly reasons and suggested actions', () => {
+  it('opens a chart modal with observed width columns, even LF rows, and calculated weights', () => {
     render(<WeightChartPage />);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Pending Review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chart' }));
 
-    expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
-      'Box',
-      'Manufacturer',
-      'Film Name',
-      'Width',
-      'Recorded LF',
-      'Measured Weight',
-      'Core Type',
-      'Estimated LF',
-      'LF Error',
-      'Profile / Confidence',
-      'Reason',
-      'Suggested Action',
-      'Created'
+    const dialog = screen.getByRole('dialog', { name: 'Night Vision 35' });
+    expect(within(dialog).getByText(/3M Solar \/ 3IN core \/ Needs Review confidence \/ 2 accepted samples/u)).toBeTruthy();
+    expect(within(dialog).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      '36"',
+      '72"'
     ]);
-    expect(screen.getByText('IL1-FWC-434829793120')).toBeTruthy();
-    expect(screen.getByText('Outside 10 LF tolerance')).toBeTruthy();
-    expect(screen.getByText('Approve or reject later')).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText('Search Pending Reviews'), {
-      target: { value: 'no match' }
-    });
-    expect(screen.getByText('No film weight samples need review.')).toBeTruthy();
+    expect(within(dialog).getByText('Starts at 106 LF / 1 samples')).toBeTruthy();
+    expect(within(dialog).getByText('Starts at 100 LF / 1 samples')).toBeTruthy();
+    expect(within(dialog).getByText('106 LF')).toBeTruthy();
+    expect(within(dialog).getByText('104 LF')).toBeTruthy();
+    expect(within(dialog).getByText('7.02 lbs')).toBeTruthy();
+    expect(within(dialog).getByText('10.40 lbs')).toBeTruthy();
+    expect(within(dialog).getAllByText('0 LF').length).toBeGreaterThan(0);
   });
 
-  it('shows empty states for profiles and pending reviews', () => {
-    useFilmWeightProfilesMock.mockReturnValue(buildQueryState([]));
-    useFilmWeightPendingReviewsMock.mockReturnValue(buildQueryState([]));
-
+  it('closes the chart modal without losing the chart list', () => {
     render(<WeightChartPage />);
 
-    expect(
-      screen.getByText(
-        'No film weight profiles have been created yet. Profiles are created when ordered film is received with usable weight, LF, width, and core data.'
-      )
-    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close weight chart' }));
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Pending Review' }));
-
-    expect(screen.getByText('No film weight samples need review.')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('Night Vision 35')).toBeTruthy();
   });
 
-  it('shows loading and error states without leaving blank UI', async () => {
+  it('shows empty, loading, and error states without internal review actions', async () => {
     useFilmWeightProfilesMock.mockReturnValue(
       buildQueryState([], {
         isLoading: true
@@ -219,21 +222,10 @@ describe('WeightChartPage', () => {
 
     render(<WeightChartPage />);
 
-    expect(await screen.findByText('Loading film weight profiles...')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Pending Review' }));
-
+    expect(await screen.findByText('Loading film weight charts...')).toBeTruthy();
     expect(screen.getByText('Pending review read failed')).toBeTruthy();
-  });
-
-  it('does not render approve, reject, or edit review actions in the read-only phase', () => {
-    render(<WeightChartPage />);
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Pending Review' }));
-
-    const panel = screen.getByRole('tabpanel', { name: 'Pending Review' });
-    expect(within(panel).queryByRole('button', { name: /approve/i })).toBeNull();
-    expect(within(panel).queryByRole('button', { name: /reject/i })).toBeNull();
-    expect(within(panel).queryByRole('button', { name: /edit/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /reject/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /edit/i })).toBeNull();
   });
 });

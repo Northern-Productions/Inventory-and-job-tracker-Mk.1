@@ -29,7 +29,21 @@ describe('film weight API client', () => {
             status: 'needs_review',
             averageLbsPerSqFt: '0.012',
             averageNormalizedLbsPerInchFoot: '0.001',
-            observedWidths: ['36', 72]
+            observedWidths: ['36', 72],
+            widthSummaries: [
+              {
+                widthIn: '72',
+                maxRecordedLf: '100',
+                acceptedSampleCount: '1',
+                lastSampleAt: '2026-06-03T12:00:00Z'
+              },
+              {
+                widthIn: '36',
+                maxRecordedLf: '105',
+                acceptedSampleCount: '1',
+                lastSampleAt: '2026-06-02T12:00:00Z'
+              }
+            ]
           }
         ]
       },
@@ -50,7 +64,21 @@ describe('film weight API client', () => {
         status: 'needs_review',
         averageLbsPerSqFt: 0.012,
         averageNormalizedLbsPerInchFoot: 0.001,
-        observedWidths: [36, 72]
+        observedWidths: [36, 72],
+        widthSummaries: [
+          {
+            widthIn: 36,
+            maxRecordedLf: 105,
+            acceptedSampleCount: 1,
+            lastSampleAt: '2026-06-02T12:00:00Z'
+          },
+          {
+            widthIn: 72,
+            maxRecordedLf: 100,
+            acceptedSampleCount: 1,
+            lastSampleAt: '2026-06-03T12:00:00Z'
+          }
+        ]
       })
     );
     expect(requestMock).toHaveBeenCalledWith('GET', '/film-weight/profiles', {
