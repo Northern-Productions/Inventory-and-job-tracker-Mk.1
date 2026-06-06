@@ -114,6 +114,7 @@ describe('WeightChartPage', () => {
     expect(screen.queryByRole('tab', { name: 'Pending Review' })).toBeNull();
     expect(screen.getByText('1 charts')).toBeTruthy();
     expect(screen.getByText('1 samples need review')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Manufacturer' })).toBeTruthy();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
       'Manufacturer',
       'Film Name',
@@ -127,6 +128,29 @@ describe('WeightChartPage', () => {
     expect(screen.getByText('Night Vision 35')).toBeTruthy();
     expect(screen.getByText('36", 72"')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Open Chart' })).toBeTruthy();
+  });
+
+  it('renders unique sorted manufacturer dropdown options with All manufacturers selected by default', () => {
+    useFilmWeightProfilesMock.mockReturnValue(
+      buildQueryState([
+        buildProfile({ manufacturer: 'Madico', profileId: 'profile-madico' }),
+        buildProfile({ manufacturer: '3M Solar', profileId: 'profile-3m' }),
+        buildProfile({ manufacturer: 'madico', profileId: 'profile-madico-duplicate' }),
+        buildProfile({ manufacturer: 'Llumar', profileId: 'profile-llumar' })
+      ])
+    );
+
+    render(<WeightChartPage />);
+
+    const manufacturerSelect = screen.getByRole('combobox', {
+      name: 'Manufacturer'
+    }) as HTMLSelectElement;
+    expect(manufacturerSelect.value).toBe('all');
+    expect(
+      within(manufacturerSelect)
+        .getAllByRole('option')
+        .map((option) => option.textContent)
+    ).toEqual(['All manufacturers', '3M Solar', 'Llumar', 'Madico']);
   });
 
   it('filters chart profiles by manufacturer, film name, width, and core type', () => {
@@ -157,8 +181,8 @@ describe('WeightChartPage', () => {
 
     render(<WeightChartPage />);
 
-    fireEvent.change(screen.getByLabelText('Manufacturer'), {
-      target: { value: 'madico' }
+    fireEvent.change(screen.getByRole('combobox', { name: 'Manufacturer' }), {
+      target: { value: 'Madico' }
     });
     expect(screen.queryByText('Night Vision 35')).toBeNull();
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
@@ -175,6 +199,22 @@ describe('WeightChartPage', () => {
 
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
     expect(screen.queryByText('Night Vision 35')).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Manufacturer' }), {
+      target: { value: 'all' }
+    });
+    fireEvent.change(screen.getByLabelText('Film Name'), {
+      target: { value: '' }
+    });
+    fireEvent.change(screen.getByLabelText('Width'), {
+      target: { value: 'all' }
+    });
+    fireEvent.change(screen.getByLabelText('Core Type'), {
+      target: { value: 'all' }
+    });
+
+    expect(screen.getByText('Night Vision 35')).toBeTruthy();
+    expect(screen.getByText('SafetyShield 800')).toBeTruthy();
   });
 
   it('opens a chart modal with observed width columns, even LF rows, and calculated weights', () => {

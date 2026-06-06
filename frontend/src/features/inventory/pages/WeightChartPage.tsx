@@ -87,7 +87,7 @@ function profileMatchesFilters(
   const widthFilter = Number(filters.width);
 
   return (
-    (!filters.manufacturer || manufacturer.includes(normalizeToken(filters.manufacturer))) &&
+    (filters.manufacturer === 'all' || manufacturer === normalizeToken(filters.manufacturer)) &&
     (!filters.filmName || filmName.includes(normalizeToken(filters.filmName))) &&
     (filters.coreType === 'all' || coreType === normalizeToken(filters.coreType)) &&
     (filters.width === 'all' ||
@@ -191,7 +191,7 @@ function WeightChartDialog({ profile, onClose }: WeightChartDialogProps) {
 }
 
 export default function WeightChartPage() {
-  const [manufacturerFilter, setManufacturerFilter] = useState('');
+  const [manufacturerFilter, setManufacturerFilter] = useState('all');
   const [filmNameFilter, setFilmNameFilter] = useState('');
   const [coreTypeFilter, setCoreTypeFilter] = useState('all');
   const [widthFilter, setWidthFilter] = useState('all');
@@ -201,6 +201,23 @@ export default function WeightChartPage() {
   const profiles = profilesQuery.data || [];
   const pendingReviews = pendingReviewsQuery.data || [];
   const chartProfiles = useMemo(() => profiles.filter(hasChartData), [profiles]);
+  const manufacturerOptions = useMemo(() => {
+    const valuesByKey = new Map<string, string>();
+    for (const profile of chartProfiles) {
+      const value = profile.manufacturer.trim();
+      const key = normalizeToken(value);
+      if (value && !valuesByKey.has(key)) {
+        valuesByKey.set(key, value);
+      }
+    }
+    const values = Array.from(valuesByKey.values()).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: 'base' })
+    );
+    return [
+      { label: 'All manufacturers', value: 'all' },
+      ...values.map((value) => ({ label: value, value }))
+    ];
+  }, [chartProfiles]);
   const coreTypeOptions = useMemo(() => {
     const values = Array.from(
       new Set(
@@ -270,15 +287,12 @@ export default function WeightChartPage() {
       ) : null}
 
       <div className="toolbar-grid reports-filters weight-chart-filters">
-        <label className="field">
-          <span className="field-label">Manufacturer</span>
-          <input
-            className="field-input"
-            value={manufacturerFilter}
-            onChange={(event) => setManufacturerFilter(event.target.value)}
-            placeholder="Search manufacturer"
-          />
-        </label>
+        <Select
+          label="Manufacturer"
+          value={manufacturerFilter}
+          onChange={(event) => setManufacturerFilter(event.target.value)}
+          options={manufacturerOptions}
+        />
         <label className="field">
           <span className="field-label">Film Name</span>
           <input
