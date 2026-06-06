@@ -280,10 +280,8 @@ export default function WeightChartPage() {
               <tr>
                 <th>Manufacturer</th>
                 <th>Film Name</th>
-                <th>Core Type</th>
                 <th>Widths Available</th>
                 <th>Accepted Samples</th>
-                <th>Confidence</th>
                 <th>Last Sample / Updated</th>
                 <th>Action</th>
               </tr>
@@ -293,14 +291,8 @@ export default function WeightChartPage() {
                 <tr key={profile.profileId}>
                   <td>{profile.manufacturer || '--'}</td>
                   <td>{profile.filmName || '--'}</td>
-                  <td>{profile.coreType || '--'}</td>
                   <td>{formatObservedWidths(profile.observedWidths)}</td>
                   <td>{profile.acceptedSampleCount}</td>
-                  <td>
-                    <span className={`weight-chart-pill weight-chart-pill-${normalizeToken(profile.confidence)}`}>
-                      {displayLabel(profile.confidence, CONFIDENCE_LABELS)}
-                    </span>
-                  </td>
                   <td>{formatDate(getProfileLastDate(profile))}</td>
                   <td>
                     <button

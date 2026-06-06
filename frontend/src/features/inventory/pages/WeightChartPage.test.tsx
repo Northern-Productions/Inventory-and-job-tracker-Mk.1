@@ -121,13 +121,13 @@ describe('WeightChartPage', () => {
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
       'Manufacturer',
       'Film Name',
-      'Core Type',
       'Widths Available',
       'Accepted Samples',
-      'Confidence',
       'Last Sample / Updated',
       'Action'
     ]);
+    expect(screen.queryByRole('columnheader', { name: 'Core Type' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Confidence' })).toBeNull();
     expect(screen.getByText('Night Vision 35')).toBeTruthy();
     expect(screen.getByText('36", 72"')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Open Chart' })).toBeTruthy();
@@ -156,7 +156,7 @@ describe('WeightChartPage', () => {
     ).toEqual(['All manufacturers', '3M Solar', 'Llumar', 'Madico']);
   });
 
-  it('filters chart profiles by manufacturer and film name while preserving width and core table data', () => {
+  it('filters chart profiles by manufacturer and film name while preserving width table data', () => {
     useFilmWeightProfilesMock.mockReturnValue(
       buildQueryState([
         buildProfile(),
@@ -189,8 +189,9 @@ describe('WeightChartPage', () => {
     });
     expect(screen.queryByText('Night Vision 35')).toBeNull();
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
-    expect(screen.getByText('6IN')).toBeTruthy();
     expect(screen.getByText('60"')).toBeTruthy();
+    expect(screen.queryByText('6IN')).toBeNull();
+    expect(screen.queryByText('Solid')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Film Name'), {
       target: { value: 'safety' }
