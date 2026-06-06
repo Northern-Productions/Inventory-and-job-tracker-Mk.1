@@ -77,21 +77,14 @@ function profileMatchesFilters(
   filters: {
     manufacturer: string;
     filmName: string;
-    coreType: string;
-    width: string;
   }
 ) {
   const manufacturer = normalizeToken(profile.manufacturer);
   const filmName = normalizeToken(profile.filmName);
-  const coreType = normalizeToken(profile.coreType);
-  const widthFilter = Number(filters.width);
 
   return (
-    (!filters.manufacturer || manufacturer.includes(normalizeToken(filters.manufacturer))) &&
-    (!filters.filmName || filmName.includes(normalizeToken(filters.filmName))) &&
-    (filters.coreType === 'all' || coreType === normalizeToken(filters.coreType)) &&
-    (filters.width === 'all' ||
-      profile.widthSummaries.some((summary) => summary.widthIn === widthFilter))
+    (filters.manufacturer === 'all' || manufacturer === normalizeToken(filters.manufacturer)) &&
+    (!filters.filmName || filmName.includes(normalizeToken(filters.filmName)))
   );
 }
 
@@ -191,41 +184,29 @@ function WeightChartDialog({ profile, onClose }: WeightChartDialogProps) {
 }
 
 export default function WeightChartPage() {
-  const [manufacturerFilter, setManufacturerFilter] = useState('');
+  const [manufacturerFilter, setManufacturerFilter] = useState('all');
   const [filmNameFilter, setFilmNameFilter] = useState('');
-  const [coreTypeFilter, setCoreTypeFilter] = useState('all');
-  const [widthFilter, setWidthFilter] = useState('all');
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const profilesQuery = useFilmWeightProfiles();
   const pendingReviewsQuery = useFilmWeightPendingReviews();
   const profiles = profilesQuery.data || [];
   const pendingReviews = pendingReviewsQuery.data || [];
   const chartProfiles = useMemo(() => profiles.filter(hasChartData), [profiles]);
-  const coreTypeOptions = useMemo(() => {
-    const values = Array.from(
-      new Set(
-        chartProfiles
-          .map((profile) => profile.coreType.trim())
-          .filter(Boolean)
-          .sort((left, right) => left.localeCompare(right))
-      )
+  const manufacturerOptions = useMemo(() => {
+    const valuesByKey = new Map<string, string>();
+    for (const profile of chartProfiles) {
+      const value = profile.manufacturer.trim();
+      const key = normalizeToken(value);
+      if (value && !valuesByKey.has(key)) {
+        valuesByKey.set(key, value);
+      }
+    }
+    const values = Array.from(valuesByKey.values()).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: 'base' })
     );
     return [
-      { label: 'All core types', value: 'all' },
+      { label: 'All manufacturers', value: 'all' },
       ...values.map((value) => ({ label: value, value }))
-    ];
-  }, [chartProfiles]);
-  const widthOptions = useMemo(() => {
-    const values = Array.from(
-      new Set(
-        chartProfiles
-          .flatMap((profile) => profile.widthSummaries.map((summary) => summary.widthIn))
-          .filter((width) => Number.isFinite(width) && width > 0)
-      )
-    ).sort((left, right) => left - right);
-    return [
-      { label: 'All widths', value: 'all' },
-      ...values.map((value) => ({ label: `${formatNumber(value, 2)}"`, value: String(value) }))
     ];
   }, [chartProfiles]);
   const filteredProfiles = useMemo(
@@ -233,12 +214,10 @@ export default function WeightChartPage() {
       chartProfiles.filter((profile) =>
         profileMatchesFilters(profile, {
           manufacturer: manufacturerFilter,
-          filmName: filmNameFilter,
-          coreType: coreTypeFilter,
-          width: widthFilter
+          filmName: filmNameFilter
         })
       ),
-    [chartProfiles, coreTypeFilter, filmNameFilter, manufacturerFilter, widthFilter]
+    [chartProfiles, filmNameFilter, manufacturerFilter]
   );
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.profileId === selectedProfileId) || null,
@@ -270,15 +249,12 @@ export default function WeightChartPage() {
       ) : null}
 
       <div className="toolbar-grid reports-filters weight-chart-filters">
-        <label className="field">
-          <span className="field-label">Manufacturer</span>
-          <input
-            className="field-input"
-            value={manufacturerFilter}
-            onChange={(event) => setManufacturerFilter(event.target.value)}
-            placeholder="Search manufacturer"
-          />
-        </label>
+        <Select
+          label="Manufacturer"
+          value={manufacturerFilter}
+          onChange={(event) => setManufacturerFilter(event.target.value)}
+          options={manufacturerOptions}
+        />
         <label className="field">
           <span className="field-label">Film Name</span>
           <input
@@ -288,18 +264,6 @@ export default function WeightChartPage() {
             placeholder="Search film"
           />
         </label>
-        <Select
-          label="Width"
-          value={widthFilter}
-          onChange={(event) => setWidthFilter(event.target.value)}
-          options={widthOptions}
-        />
-        <Select
-          label="Core Type"
-          value={coreTypeFilter}
-          onChange={(event) => setCoreTypeFilter(event.target.value)}
-          options={coreTypeOptions}
-        />
       </div>
 
       <DeferredLoadingState when={showProfilesLoading} label="Loading film weight charts..." />

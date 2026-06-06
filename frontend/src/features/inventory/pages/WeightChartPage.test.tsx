@@ -114,6 +114,10 @@ describe('WeightChartPage', () => {
     expect(screen.queryByRole('tab', { name: 'Pending Review' })).toBeNull();
     expect(screen.getByText('1 charts')).toBeTruthy();
     expect(screen.getByText('1 samples need review')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Manufacturer' })).toBeTruthy();
+    expect(screen.getByLabelText('Film Name')).toBeTruthy();
+    expect(screen.queryByLabelText('Width')).toBeNull();
+    expect(screen.queryByLabelText('Core Type')).toBeNull();
     expect(screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
       'Manufacturer',
       'Film Name',
@@ -129,7 +133,30 @@ describe('WeightChartPage', () => {
     expect(screen.getByRole('button', { name: 'Open Chart' })).toBeTruthy();
   });
 
-  it('filters chart profiles by manufacturer, film name, width, and core type', () => {
+  it('renders unique sorted manufacturer dropdown options with All manufacturers selected by default', () => {
+    useFilmWeightProfilesMock.mockReturnValue(
+      buildQueryState([
+        buildProfile({ manufacturer: 'Madico', profileId: 'profile-madico' }),
+        buildProfile({ manufacturer: '3M Solar', profileId: 'profile-3m' }),
+        buildProfile({ manufacturer: 'madico', profileId: 'profile-madico-duplicate' }),
+        buildProfile({ manufacturer: 'Llumar', profileId: 'profile-llumar' })
+      ])
+    );
+
+    render(<WeightChartPage />);
+
+    const manufacturerSelect = screen.getByRole('combobox', {
+      name: 'Manufacturer'
+    }) as HTMLSelectElement;
+    expect(manufacturerSelect.value).toBe('all');
+    expect(
+      within(manufacturerSelect)
+        .getAllByRole('option')
+        .map((option) => option.textContent)
+    ).toEqual(['All manufacturers', '3M Solar', 'Llumar', 'Madico']);
+  });
+
+  it('filters chart profiles by manufacturer and film name while preserving width and core table data', () => {
     useFilmWeightProfilesMock.mockReturnValue(
       buildQueryState([
         buildProfile(),
@@ -157,24 +184,56 @@ describe('WeightChartPage', () => {
 
     render(<WeightChartPage />);
 
-    fireEvent.change(screen.getByLabelText('Manufacturer'), {
-      target: { value: 'madico' }
+    fireEvent.change(screen.getByRole('combobox', { name: 'Manufacturer' }), {
+      target: { value: 'Madico' }
     });
     expect(screen.queryByText('Night Vision 35')).toBeNull();
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
+    expect(screen.getByText('6IN')).toBeTruthy();
+    expect(screen.getByText('60"')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Film Name'), {
       target: { value: 'safety' }
     });
-    fireEvent.change(screen.getByLabelText('Width'), {
-      target: { value: '60' }
-    });
-    fireEvent.change(screen.getByLabelText('Core Type'), {
-      target: { value: '6IN' }
-    });
 
     expect(screen.getByText('SafetyShield 800')).toBeTruthy();
     expect(screen.queryByText('Night Vision 35')).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Manufacturer' }), {
+      target: { value: 'all' }
+    });
+    fireEvent.change(screen.getByLabelText('Film Name'), {
+      target: { value: '' }
+    });
+
+    expect(screen.getByText('Night Vision 35')).toBeTruthy();
+    expect(screen.getByText('SafetyShield 800')).toBeTruthy();
+  });
+
+  it('shows the empty state when manufacturer and film name filters have no matching chart', () => {
+    useFilmWeightProfilesMock.mockReturnValue(
+      buildQueryState([
+        buildProfile(),
+        buildProfile({
+          profileId: 'profile-2',
+          manufacturer: 'Madico',
+          filmName: 'SafetyShield 800'
+        })
+      ])
+    );
+
+    render(<WeightChartPage />);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Manufacturer' }), {
+      target: { value: 'Madico' }
+    });
+    fireEvent.change(screen.getByLabelText('Film Name'), {
+      target: { value: 'night' }
+    });
+
+    expect(screen.queryByText('Night Vision 35')).toBeNull();
+    expect(screen.queryByText('SafetyShield 800')).toBeNull();
+    expect(screen.getByText(/No film weight charts match these filters yet/u)).toBeTruthy();
   });
 
   it('opens a chart modal with observed width columns, even LF rows, and calculated weights', () => {
