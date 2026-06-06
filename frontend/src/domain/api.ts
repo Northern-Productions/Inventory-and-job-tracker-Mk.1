@@ -20,6 +20,8 @@ import type {
   Box,
   ClosedJobReportRow,
   FilmCatalogEntry,
+  FilmWeightPendingReviewEntry,
+  FilmWeightProfileEntry,
   FilmOrderEntry,
   JobDetail,
   RemoveCaulkJobAllocationResult,
@@ -107,6 +109,14 @@ export interface FilmOrderListResult {
 
 export interface FilmCatalogResponse {
   entries: FilmCatalogEntry[];
+}
+
+export interface FilmWeightProfileListResponse {
+  entries: FilmWeightProfileEntry[];
+}
+
+export interface FilmWeightPendingReviewListResponse {
+  entries: FilmWeightPendingReviewEntry[];
 }
 
 export interface AllocationJobListResponse {

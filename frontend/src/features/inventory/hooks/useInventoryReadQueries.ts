@@ -28,7 +28,9 @@ export {
   useCaulkProducts,
   useFilmCatalog,
   useFilmOrderDetail,
-  useFilmOrders
+  useFilmOrders,
+  useFilmWeightPendingReviews,
+  useFilmWeightProfiles
 } from './queries/planningQueries';
 export {
   useAuditList,

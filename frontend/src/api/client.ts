@@ -94,5 +94,9 @@ export {
   getFilmOrderDetail,
   getFilmOrders
 } from './features/filmOrdersClient';
+export {
+  getFilmWeightPendingReviews,
+  getFilmWeightProfiles
+} from './features/filmWeightClient';
 export { getAuditByBox, getRollHistoryByBox, listAudit, undoAudit } from './features/auditClient';
 export { getOwnerAssetTotalCostReport, getReportsSummary } from './features/reportsClient';

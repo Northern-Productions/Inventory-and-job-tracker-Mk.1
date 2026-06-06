@@ -138,7 +138,10 @@ export async function withMutation(callback) {
         app.caulk_job_checkouts,
         app.audit_log,
         app.roll_weight_log,
-        app.film_catalog
+        app.film_catalog,
+        app.film_weight_profiles,
+        app.film_weight_samples,
+        app.film_weight_pending_reviews
       in share row exclusive mode
     `);
     const result = await callback(client);

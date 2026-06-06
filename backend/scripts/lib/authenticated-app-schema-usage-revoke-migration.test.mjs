@@ -40,7 +40,7 @@ test('authenticated app schema usage revoke migration only closes authenticated 
 test('latest schema check points to the authenticated app schema usage revoke', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0155_film_order_detail_origin_compat\.sql/);
+  assert.match(schemaCheck, /0156_film_weight_profiles_foundation\.sql/);
   assert.match(schemaCheck, /authenticated_app_schema_usage/);
   assert.match(schemaCheck, /service_role_app_schema_usage/);
 });

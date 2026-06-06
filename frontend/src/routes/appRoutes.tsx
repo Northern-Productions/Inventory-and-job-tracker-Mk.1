@@ -15,6 +15,7 @@ const QrScanPage = lazy(() => import('../features/inventory/pages/QrScanPage'));
 const ActivityPage = lazy(() => import('../features/inventory/pages/ActivityPage'));
 const FilmOrdersPage = lazy(() => import('../features/inventory/pages/FilmOrdersPage'));
 const FilmOrderDetailsPage = lazy(() => import('../features/inventory/pages/FilmOrderDetailsPage'));
+const WeightChartPage = lazy(() => import('../features/inventory/pages/WeightChartPage'));
 const ReportsPage = lazy(() => import('../features/inventory/pages/ReportsPage'));
 const CheckoutHistoryPage = lazy(
   () => import('../features/inventory/pages/CheckoutHistoryPage')
@@ -98,6 +99,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: '/labels',
         element: withFeatureRoute(<LabelMakerPage />, 'inventory', 'read')
+      },
+      {
+        path: '/weight-chart',
+        element: withFeatureRoute(<WeightChartPage />, 'inventory', 'read')
       },
       {
         path: '/caulk',

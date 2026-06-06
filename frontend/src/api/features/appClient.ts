@@ -7,6 +7,11 @@ function normalizeAppAttentionSummary(
   return {
     hasJobsNeedingAllocation: Boolean(value?.hasJobsNeedingAllocation),
     hasFilmOrdersNeedingAttention: Boolean(value?.hasFilmOrdersNeedingAttention),
+    hasFilmWeightPendingReviews: Boolean(value?.hasFilmWeightPendingReviews),
+    filmWeightPendingReviewCount: Math.max(
+      0,
+      Math.trunc(Number(value?.filmWeightPendingReviewCount || 0) || 0)
+    ),
     pendingAccessRequests: Boolean(value?.pendingAccessRequests)
   };
 }

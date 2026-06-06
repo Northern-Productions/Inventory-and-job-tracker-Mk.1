@@ -3485,6 +3485,269 @@ td.col-available-linear-ft {
   margin-bottom: 1rem;
 }
 
+.weight-chart-page {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.weight-chart-page > * {
+  min-width: 0;
+}
+
+.weight-chart-header {
+  align-items: flex-start;
+}
+
+.weight-chart-header h2,
+.weight-chart-header p {
+  margin: 0;
+}
+
+.weight-chart-header p {
+  margin-top: 0.35rem;
+}
+
+.weight-chart-counts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: var(--color-text-2);
+  font-weight: 700;
+}
+
+.weight-chart-counts span {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: var(--color-surface-3);
+}
+
+.weight-chart-tabs {
+  width: fit-content;
+  min-width: min(100%, 24rem);
+  box-shadow: none;
+}
+
+.weight-chart-filters {
+  margin: 0 0 1rem;
+  min-width: 0;
+}
+
+.weight-chart-pending-filters {
+  grid-template-columns: minmax(16rem, 32rem);
+}
+
+.weight-chart-table-wrap {
+  background: var(--color-table-bg);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.weight-chart-table {
+  min-width: 980px;
+}
+
+.weight-chart-profile-table {
+  min-width: 860px;
+}
+
+.weight-chart-table th,
+.weight-chart-table td {
+  vertical-align: middle;
+}
+
+.weight-chart-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.24rem 0.62rem;
+  background: var(--color-surface-3);
+  color: var(--color-text-1);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.weight-chart-pill-starter {
+  background: rgba(180, 214, 255, 0.36);
+  color: #1e4e8d;
+}
+
+.weight-chart-pill-building {
+  background: rgba(255, 227, 176, 0.6);
+  color: #7c4e07;
+}
+
+.weight-chart-pill-solid {
+  background: rgba(173, 232, 198, 0.4);
+  color: #1f5f3e;
+}
+
+.weight-chart-pill-needs_review {
+  background: rgba(196, 82, 71, 0.18);
+  color: #9a3027;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-starter {
+  background: rgba(159, 215, 255, 0.22);
+  color: #d5ecff;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-building {
+  background: rgba(255, 210, 136, 0.2);
+  color: #ffe2a7;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-solid {
+  background: rgba(173, 232, 198, 0.18);
+  color: #d7f5e2;
+}
+
+:root[data-theme="dark"] .weight-chart-pill-needs_review {
+  background: rgba(244, 137, 122, 0.2);
+  color: #ffd3cc;
+}
+
+.weight-chart-open-button {
+  white-space: nowrap;
+}
+
+.weight-chart-dialog {
+  width: min(100%, 72rem);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.weight-chart-dialog-header {
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.weight-chart-dialog-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--color-text-2);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.weight-chart-dialog-header h2,
+.weight-chart-dialog-header p {
+  margin: 0;
+}
+
+.weight-chart-dialog-header h2 {
+  font-size: clamp(1.55rem, 3vw, 2.2rem);
+  line-height: 1.08;
+}
+
+.weight-chart-dialog-header .muted-text {
+  margin-top: 0.4rem;
+}
+
+.weight-chart-modal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 1rem 0;
+}
+
+.weight-chart-modal-summary span {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  background: var(--color-surface-3);
+  color: var(--color-text-1);
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 0.38rem 0.7rem;
+}
+
+.weight-chart-modal-scroll {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.weight-chart-columns {
+  display: grid;
+  grid-auto-columns: minmax(12rem, 1fr);
+  grid-auto-flow: column;
+  gap: 0.85rem;
+  min-width: max-content;
+}
+
+.weight-chart-width-column {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.8rem;
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.weight-chart-width-header {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: var(--color-surface-3);
+}
+
+.weight-chart-width-header h3,
+.weight-chart-width-header p {
+  margin: 0;
+}
+
+.weight-chart-width-header h3 {
+  color: var(--color-text-1);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.weight-chart-width-header p {
+  color: var(--color-text-2);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.weight-chart-row-list {
+  display: grid;
+  max-height: min(52vh, 32rem);
+  overflow-y: auto;
+}
+
+.weight-chart-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.56rem 0.9rem;
+  border-bottom: 1px solid var(--color-border-soft);
+  color: var(--color-text-1);
+  font-size: 0.92rem;
+}
+
+.weight-chart-row:last-child {
+  border-bottom: 0;
+}
+
+.weight-chart-row span {
+  color: var(--color-text-2);
+  font-weight: 800;
+}
+
+.weight-chart-row strong {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .reports-width-selector {
   grid-column: span 2;
 }
@@ -5546,6 +5809,22 @@ td.col-available-linear-ft {
     width: 100%;
     gap: 0.35rem;
     border-radius: 0.85rem;
+  }
+
+  .weight-chart-tabs {
+    width: 100%;
+  }
+
+  .weight-chart-dialog {
+    width: min(100%, 42rem);
+  }
+
+  .weight-chart-columns {
+    grid-auto-columns: minmax(10.5rem, 78vw);
+  }
+
+  .weight-chart-pending-filters {
+    grid-template-columns: 1fr;
   }
 
   .inventory-view-toggle-button {

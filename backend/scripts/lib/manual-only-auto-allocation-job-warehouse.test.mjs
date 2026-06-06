@@ -116,7 +116,7 @@ test('legacy SQL planner reconciliation is guarded as a no-op', async () => {
 test('schema latest guard tracks manual-only planner semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0155_film_order_detail_origin_compat\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0156_film_weight_profiles_foundation\.sql';/);
   assert.match(schemaLatest, /'manualOnly', true/);
   assert.match(schemaLatest, /insert into app\.allocations/);
   assert.match(schemaLatest, /insert into app\.caulk_job_allocations/);

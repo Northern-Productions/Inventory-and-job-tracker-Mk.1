@@ -132,6 +132,8 @@ export type ReadHandlerDeps = {
   buildFilmOrderDetail: (client: any, orgId: string, filmOrderId: unknown) => Promise<Record<string, unknown>>;
   buildBoxFilmOrderOrigins: (client: any, orgId: string, boxId: string) => Promise<any[]>;
   buildFilmCatalog: (client: any, orgId: string) => Promise<unknown[]>;
+  listFilmWeightProfiles: (client: any, orgId: string) => Promise<unknown[]>;
+  listOpenFilmWeightPendingReviews: (client: any, orgId: string) => Promise<unknown[]>;
   listRollHistoryByBox: (client: any, orgId: string, boxId: string) => Promise<unknown[]>;
   buildReportsSummary: (client: any, orgId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
   buildOwnerAssetTotalCost: (
@@ -886,6 +888,12 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/film-data/catalog": async ({ client, orgId }, deps) => {
     return ok({ entries: await deps.buildFilmCatalog(client, orgId) });
+  },
+  "/film-weight/profiles": async ({ client, orgId }, deps) => {
+    return ok({ entries: await deps.listFilmWeightProfiles(client, orgId) });
+  },
+  "/film-weight/pending-reviews": async ({ client, orgId }, deps) => {
+    return ok({ entries: await deps.listOpenFilmWeightPendingReviews(client, orgId) });
   },
   "/roll-history/by-box": async ({ client, orgId, params }, deps) => {
     const entries = await deps.listRollHistoryByBox(client, orgId, deps.requireString(params.boxId, "boxId"));

@@ -194,6 +194,20 @@ function createRecordingClient() {
       const sql = String(text).replace(/\s+/g, ' ').trim().toLowerCase();
       state.calls.push({ sql, params });
 
+      if (/^(savepoint|release savepoint|rollback to savepoint)\b/i.test(sql)) {
+        return { rows: [] };
+      }
+
+      if (sql.includes('app_api.record_film_weight_sample_from_box')) {
+        state.filmWeightSampleLogs = state.filmWeightSampleLogs || [];
+        state.filmWeightSampleLogs.push({
+          org_id: params[0],
+          box_id: params[1],
+          actor: params[2],
+        });
+        return { rows: [{ result: { decision: 'skipped' } }] };
+      }
+
       if (sql.includes('select app_api.resolve_box_id_alias')) {
         return { rows: [{ box_id: params[1] }] };
       }

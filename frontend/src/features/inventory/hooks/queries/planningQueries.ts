@@ -9,6 +9,10 @@ import {
   getFilmOrderDetail,
   getFilmOrders
 } from '../../../../api/features/filmOrdersClient';
+import {
+  getFilmWeightPendingReviews,
+  getFilmWeightProfiles
+} from '../../../../api/features/filmWeightClient';
 import { listBoxDealers } from '../../../../api/features/inventoryClient';
 import type { AppAttentionSummary } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
@@ -81,6 +85,30 @@ export function useFilmCatalog(options: { enabled?: boolean } = {}) {
     staleTime: 10 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false
+  });
+}
+
+export function useFilmWeightProfiles(options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}) {
+  return useCachedInventoryReadQuery({
+    queryKey: inventoryKeys.filmWeightProfiles,
+    queryFn: () => getFilmWeightProfiles(),
+    enabled: options.enabled ?? true,
+    staleTime: 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true
+  });
+}
+
+export function useFilmWeightPendingReviews(
+  options: { enabled?: boolean; refetchOnWindowFocus?: boolean } = {}
+) {
+  return useCachedInventoryReadQuery({
+    queryKey: inventoryKeys.filmWeightPendingReviews,
+    queryFn: () => getFilmWeightPendingReviews(),
+    enabled: options.enabled ?? true,
+    staleTime: 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: options.refetchOnWindowFocus ?? true
   });
 }
 

@@ -135,6 +135,8 @@ describe('AppLayout', () => {
       buildQueryState({
         hasJobsNeedingAllocation: false,
         hasFilmOrdersNeedingAttention: false,
+        hasFilmWeightPendingReviews: false,
+        filmWeightPendingReviewCount: 0,
         pendingAccessRequests: false
       })
     );
@@ -339,6 +341,8 @@ describe('AppLayout', () => {
       buildQueryState({
         hasJobsNeedingAllocation: false,
         hasFilmOrdersNeedingAttention: true,
+        hasFilmWeightPendingReviews: false,
+        filmWeightPendingReviewCount: 0,
         pendingAccessRequests: false
       })
     );
@@ -354,6 +358,8 @@ describe('AppLayout', () => {
       buildQueryState({
         hasJobsNeedingAllocation: false,
         hasFilmOrdersNeedingAttention: true,
+        hasFilmWeightPendingReviews: false,
+        filmWeightPendingReviewCount: 0,
         pendingAccessRequests: false
       })
     );
@@ -370,6 +376,53 @@ describe('AppLayout', () => {
     renderLayout('/');
 
     expect(screen.queryByRole('link', { name: 'Film Orders (needs ordering)' })).toBeNull();
+  });
+
+  it('shows Weight Chart under desktop More and marks it when film weight reviews are pending', () => {
+    useAppAttentionSummaryMock.mockReturnValue(
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention: false,
+        hasFilmWeightPendingReviews: true,
+        filmWeightPendingReviewCount: 2,
+        pendingAccessRequests: false
+      })
+    );
+
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More (weight samples need review)' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Weight Chart (pending reviews)' })).toBeTruthy();
+  });
+
+  it('does not show the Weight Chart attention dot when no film weight reviews are pending', () => {
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+
+    expect(screen.getByRole('menuitem', { name: 'Weight Chart' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Weight Chart (pending reviews)' })).toBeNull();
+  });
+
+  it('shows the Weight Chart pending review dot on mobile More and inside the sheet', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+    useAppAttentionSummaryMock.mockReturnValue(
+      buildQueryState({
+        hasJobsNeedingAllocation: false,
+        hasFilmOrdersNeedingAttention: false,
+        hasFilmWeightPendingReviews: true,
+        filmWeightPendingReviewCount: 2,
+        pendingAccessRequests: false
+      })
+    );
+
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More (weight samples need review)' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'More' });
+    expect(within(dialog).getByRole('button', { name: 'Weight Chart (pending reviews)' })).toBeTruthy();
   });
 
   it('shows Labels under desktop More and marks More active on the Labels route', () => {
@@ -419,6 +472,8 @@ describe('AppLayout', () => {
       buildQueryState({
         hasJobsNeedingAllocation: false,
         hasFilmOrdersNeedingAttention,
+        hasFilmWeightPendingReviews: false,
+        filmWeightPendingReviewCount: 0,
         pendingAccessRequests: false
       })
     );
@@ -439,6 +494,8 @@ describe('AppLayout', () => {
       buildQueryState({
         hasJobsNeedingAllocation: false,
         hasFilmOrdersNeedingAttention,
+        hasFilmWeightPendingReviews: false,
+        filmWeightPendingReviewCount: 0,
         pendingAccessRequests: false
       })
     );

@@ -47,6 +47,10 @@ import {
 import { findJobById } from '../repositories/jobsRepository.mjs';
 import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
+import {
+  listFilmWeightProfiles,
+  listOpenFilmWeightPendingReviews,
+} from '../services/filmWeightProfiles.mjs';
 import { listWarehouses } from '../services/warehouses.mjs';
 import { applyAuthenticatedSessionContext } from '../services/access.mjs';
 import {
@@ -338,6 +342,10 @@ const readHandlers = {
   '/film-orders/get': async ({ client, orgId, params }) =>
     ok(await buildFilmOrderDetail(client, orgId, params.filmOrderId)),
   '/film-data/catalog': async ({ client, orgId }) => ok({ entries: await buildFilmCatalog(client, orgId) }),
+  '/film-weight/profiles': async ({ client, orgId }) =>
+    ok({ entries: await listFilmWeightProfiles(client, orgId) }),
+  '/film-weight/pending-reviews': async ({ client, orgId }) =>
+    ok({ entries: await listOpenFilmWeightPendingReviews(client, orgId) }),
   '/roll-history/by-box': async ({ client, orgId, params }) => {
     const entries = await listRollHistoryByBox(client, orgId, requireString(params.boxId, 'boxId'));
     const scopeFieldsByJobId = await buildJobScopeFieldsByJobId(client, orgId, entries);
