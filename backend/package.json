@@ -20,7 +20,7 @@
     "check:schema:latest": "node scripts/check-schema-latest.mjs",
     "contract:matrix": "node scripts/generate-runtime-route-matrix.mjs",
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
-    "edge:test": "cd ../frontend && deno test --allow-env ../supabase/functions/_shared/api-handler.test.ts ../supabase/functions/_shared/route-timing.test.ts ../supabase/functions/_shared/routes/mutationHandlers.test.ts ../supabase/functions/_shared/services/appAttention.test.ts",
+    "edge:test": "cd ../frontend && deno test --allow-env ../supabase/functions/_shared/acl.test.ts ../supabase/functions/_shared/api-handler.test.ts ../supabase/functions/_shared/route-timing.test.ts ../supabase/functions/_shared/routes/mutationHandlers.test.ts ../supabase/functions/_shared/services/appAttention.test.ts",
     "env:check:dev": "node scripts/check-env-target.mjs --env .env.dev --expect dev",
     "env:check:prod": "node scripts/check-env-target.mjs --env ../.secrets/prod.env --expect prod --allow-prod",
     "film-weight:profiles:dry": "node scripts/generate-film-weight-profile-candidates.mjs",

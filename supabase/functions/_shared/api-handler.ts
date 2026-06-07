@@ -10196,7 +10196,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       return new Response(responseBody, { status: 200, headers });
     }
 
-    ensureEffectiveRouteAccess(identity, logicalPath);
+    ensureEffectiveRouteAccess(identity, request.method, logicalPath);
 
     const params = routeParams(request.method, requestUrl, bodyJson);
     const payload = request.method === "GET"
