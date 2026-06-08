@@ -33,7 +33,7 @@ function buildAllocation(overrides = {}) {
 
 test('buildBoxReservationSnapshot subtracts active requirement reservations across sources', () => {
   const snapshot = buildBoxReservationSnapshot(
-    buildBox({ feetAvailable: 70 }),
+    buildBox({ feetAvailable: 40 }),
     [
       buildAllocation({ allocationId: 'manual', allocatedFeet: 20, allocationSource: 'MANUAL' }),
       buildAllocation({ allocationId: 'auto', allocatedFeet: 30, allocationSource: 'AUTO_PLANNED' }),
@@ -48,9 +48,9 @@ test('buildBoxReservationSnapshot subtracts active requirement reservations acro
   assert.equal(snapshot.allocationSnapshotsById.auto.backedPhysicalFeet, 30);
 });
 
-test('buildBoxReservationSnapshot counts AUTO_PLANNED reservations without relying on stored feetAvailable', () => {
+test('buildBoxReservationSnapshot counts AUTO_PLANNED reservations as stored physical commitments', () => {
   const snapshot = buildBoxReservationSnapshot(
-    buildBox({ feetAvailable: 100 }),
+    buildBox({ feetAvailable: 0 }),
     [buildAllocation({ allocationId: 'auto', allocatedFeet: 100, installDate: '', allocationSource: 'AUTO_PLANNED' })]
   );
 

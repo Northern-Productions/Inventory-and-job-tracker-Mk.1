@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { receiveOrderedBox } from '../../src/app/services/runtime/boxes/receiveOrdered.mjs';
+import { recalculateFilmOrder } from '../../src/app/services/runtime/runtimeAllocationPlanning.mjs';
 
 function createBoxRow(overrides = {}) {
   return {
@@ -470,6 +471,34 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
   assert.match(client.state.auditEntries[0].notes, /Received ordered box IL1-ORDERED-1 at 12.5 lbs with lot run LOT-42/);
 });
 
+test('recalculateFilmOrder trusts corrected linked box LF instead of stale link ordered feet', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    initial_feet: 100,
+    feet_available: 100,
+    width_in: 36,
+    status: 'ORDERED',
+  });
+  client.state.filmOrder = createFilmOrderRow({
+    requested_feet: 230,
+    ordered_feet: 230,
+    remaining_to_order_feet: 0,
+    status: 'FILM_ON_THE_WAY',
+  });
+  client.state.filmOrderLink = createFilmOrderLinkRow({
+    ordered_feet: 230,
+    auto_allocated_feet: 0,
+  });
+
+  await recalculateFilmOrder(client, 'org-1', 'FO-RECEIVE-1', 'warehouse-user');
+
+  assert.equal(client.state.filmOrder.ordered_feet, 100);
+  assert.equal(client.state.filmOrder.remaining_to_order_feet, 130);
+  assert.equal(client.state.filmOrder.status, 'FILM_ORDER');
+  assert.equal(client.state.filmOrder.resolved_at, null);
+  assert.equal(client.state.filmOrder.resolved_by, '');
+});
+
 test('receiveOrderedBox preserves existing core metrics when core type is omitted', async () => {
   const client = createRecordingClient();
   client.state.box = createBoxRow({
@@ -526,7 +555,7 @@ test('receiveOrderedBox resolves an existing ordered placeholder allocation inst
   assert.equal(response.ok, true);
   assert.match(
     response.warnings.join(' '),
-    /100 LF placeholder from IL1-ORDERED-1 was resolved to job 5555 for Film Order FO-RECEIVE-1/i
+    /100 covered LF \(100 physical LF\) placeholder from IL1-ORDERED-1 was resolved to job 5555 for Film Order FO-RECEIVE-1/i
   );
   assert.equal(client.state.allocations.length, 1);
   assert.equal(client.state.allocations[0].allocation_id, 'ALLOC-PLACEHOLDER-1');

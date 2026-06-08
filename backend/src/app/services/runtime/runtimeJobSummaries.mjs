@@ -1163,6 +1163,14 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
   }
 
   const grouped = {};
+  const filmOrderById = {};
+  for (let index = 0; index < normalizedFilmOrders.length; index += 1) {
+    const filmOrderId = asTrimmedString(normalizedFilmOrders[index]?.filmOrderId);
+    if (filmOrderId) {
+      filmOrderById[filmOrderId] = normalizedFilmOrders[index];
+    }
+  }
+
   for (let index = 0; index < links.length; index += 1) {
     const link = links[index];
     const filmOrderId = asTrimmedString(link?.filmOrderId);
@@ -1175,13 +1183,21 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
       grouped[filmOrderId] = [];
     }
 
+    const box = linkedBoxById[boxId];
+    const filmOrder = filmOrderById[filmOrderId] || {};
+    const orderedFeet = computeCoveredFeetForAllocation(
+      Math.max(0, Number(box?.initialFeet || link.orderedFeet || 0) || 0),
+      box?.widthIn || filmOrder?.widthIn,
+      filmOrder?.widthIn
+    );
+
     grouped[filmOrderId].push({
       boxId,
-      orderedFeet: link.orderedFeet,
+      orderedFeet,
       autoAllocatedFeet: link.autoAllocatedFeet,
-      dealer: asTrimmedString(linkedBoxById[boxId].dealer),
-      isReceived: isReceivedLinkedBoxStatus(linkedBoxById[boxId].status),
-      ...(linkedBoxById[boxId].directToJobSite === true ? { isDirectToJobSite: true } : {})
+      dealer: asTrimmedString(box.dealer),
+      isReceived: isReceivedLinkedBoxStatus(box.status),
+      ...(box.directToJobSite === true ? { isDirectToJobSite: true } : {})
     });
   }
 

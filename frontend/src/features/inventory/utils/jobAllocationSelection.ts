@@ -76,6 +76,24 @@ function isAllocatableCandidate(candidate: AllocationCandidateBox) {
   );
 }
 
+function planCandidateCoverageAllocation(
+  remainingCoverageFeet: number,
+  planningFeet: number,
+  candidate: AllocationCandidateBox,
+  requirementWidthIn: number
+) {
+  if (Number.isFinite(Number(requirementWidthIn)) && Number(requirementWidthIn) > 0) {
+    return planCoverageAllocation(
+      remainingCoverageFeet,
+      planningFeet,
+      candidate.widthIn,
+      requirementWidthIn
+    );
+  }
+
+  return planCoverageAllocation(remainingCoverageFeet, planningFeet, 1, 1);
+}
+
 export function prioritizeCandidateBoxes<T extends AllocationCandidateBox>(
   candidates: T[],
   preferredBoxIds: Iterable<string> = [],
@@ -139,10 +157,10 @@ export function autoSelectCandidateBoxIds(
     }
 
     selected.push(candidate.boxId);
-    remainingCoverageFeet = planCoverageAllocation(
+    remainingCoverageFeet = planCandidateCoverageAllocation(
       remainingCoverageFeet,
       planningFeet,
-      candidate.widthIn,
+      candidate,
       requirementWidthIn
     ).remainingCoveredFeet;
   }
@@ -189,10 +207,10 @@ export function planSelectedCandidateAllocation(
       continue;
     }
 
-    const nextPlan = planCoverageAllocation(
+    const nextPlan = planCandidateCoverageAllocation(
       remainingCoverageFeet,
       planningFeet,
-      candidate.widthIn,
+      candidate,
       requirementWidthIn
     );
     const allocatedFeet = nextPlan.allocatedFeet;

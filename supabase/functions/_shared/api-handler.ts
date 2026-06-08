@@ -4858,12 +4858,14 @@ function indexReadinessBoxes(allBoxes: any[], boxById: Record<string, any> = {})
 function filmOrderMatchesRequirement(filmOrder: any, requirement: any): boolean {
   const orderRequirementId = asTrimmedString(filmOrder?.requirementId);
   const requirementId = asTrimmedString(requirement?.requirementId || requirement?.id);
+  const orderWidth = Number(filmOrder?.widthIn || 0);
+  const requirementWidth = Number(requirement?.widthIn || 0);
   const productMatches = planningFilmCanSatisfyRequirement(
     filmOrder?.manufacturer,
     filmOrder?.filmName,
     requirement?.manufacturer,
     requirement?.filmName,
-  ) && Number(filmOrder?.widthIn || 0) === Number(requirement?.widthIn || 0);
+  ) && requirementWidth > 0 && orderWidth >= requirementWidth;
 
   if (orderRequirementId || requirementId) {
     return Boolean(orderRequirementId && requirementId && orderRequirementId === requirementId && productMatches);
@@ -4883,7 +4885,8 @@ function getFilmOnTheWayFeetForRequirement(filmOrders: any[], requirement: any):
     }
     // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
     const orderedFeet = integerOrZero(entry.orderedFeet);
-    total += orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    const sourceFeet = orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    total += computeCoveredFeetForAllocation(sourceFeet, entry?.widthIn, requirement?.widthIn);
   }
   return total;
 }
@@ -5940,6 +5943,25 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     return linkedBoxesByFilmOrderId;
   }
 
+  const serviceClient = requireServiceRoleClient();
+  const filmOrderById: Record<string, any> = {};
+  for (const batchIds of chunkValues(normalizedFilmOrderIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("film_orders")
+      .select("*")
+      .eq("org_id", orgId)
+      .in("film_order_id", batchIds);
+    throwOnSupabaseError(error, "Unable to load film orders for linked boxes");
+    for (const row of Array.isArray(data) ? data : []) {
+      const order = mapDbFilmOrderRow(row);
+      const orderId = asTrimmedString(order?.filmOrderId);
+      if (orderId) {
+        filmOrderById[orderId] = order;
+      }
+    }
+  }
+
   const links = await listFilmOrderLinksByFilmOrderIds(orgId, normalizedFilmOrderIds);
   const boxById = { ...initialBoxById };
   const missingBoxIds = Array.from(
@@ -5968,12 +5990,16 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     if (!linkedBoxesByFilmOrderId[filmOrderId]) {
       linkedBoxesByFilmOrderId[filmOrderId] = [];
     }
+    const box = boxById[boxId] as Record<string, unknown>;
+    const filmOrder = filmOrderById[filmOrderId];
     linkedBoxesByFilmOrderId[filmOrderId].push({
       boxId,
-      orderedFeet: integerOrZero((link as Record<string, unknown>).orderedFeet),
+      orderedFeet: filmOrder
+        ? getLinkedBoxCoveredFeetForFilmOrder(filmOrder, link, box)
+        : getLinkedBoxPhysicalFeet(link, box),
       autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
-      dealer: asTrimmedString((boxById[boxId] as Record<string, unknown>).dealer),
-      isReceived: isReceivedLinkedBoxStatus((boxById[boxId] as Record<string, unknown>).status),
+      dealer: asTrimmedString(box.dealer),
+      isReceived: isReceivedLinkedBoxStatus(box.status),
     });
   }
 
@@ -5999,11 +6025,38 @@ function hasReceivedLinkedBoxStatus(status: unknown) {
   return normalizedStatus !== "" && normalizedStatus !== "ORDERED";
 }
 
+function getLinkedBoxPhysicalFeet(link: any, box: any): number {
+  const correctedBoxFeet = integerOrZero(box?.initialFeet);
+  if (correctedBoxFeet > 0) {
+    return correctedBoxFeet;
+  }
+
+  return integerOrZero(link?.orderedFeet || link?.ordered_feet);
+}
+
+function getLinkedBoxCoveredFeetForFilmOrder(filmOrder: any, link: any, box: any): number {
+  return computeCoveredFeetForAllocation(
+    getLinkedBoxPhysicalFeet(link, box),
+    box?.widthIn || filmOrder?.widthIn,
+    filmOrder?.widthIn,
+  );
+}
+
 async function summarizeFilmOrderLinkedBoxes(
   client: any,
   orgId: string,
   filmOrderId: string,
+  filmOrder: any = null,
 ) {
+  const order = filmOrder || await findFilmOrderById(client, orgId, filmOrderId);
+  if (!order) {
+    return {
+      hasLinkedBoxes: false,
+      allLinkedBoxesReceived: false,
+      orderedFeet: 0,
+    };
+  }
+
   const links = await listFilmOrderLinksByFilmOrderId(client, orgId, filmOrderId);
   if (!links.length) {
     return {
@@ -6030,7 +6083,7 @@ async function summarizeFilmOrderLinkedBoxes(
       continue;
     }
 
-    orderedFeet += integerOrZero(linkRecord.ordered_feet);
+    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(order, linkRecord, box);
     if (!hasReceivedLinkedBoxStatus(box.status)) {
       allLinkedBoxesReceived = false;
     }
@@ -9468,7 +9521,7 @@ async function recalculateFilmOrderAfterAllocationMutation(
     }
   }
 
-  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId);
+  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId, existing);
   const orderedFeet = linkedBoxSummary.orderedFeet;
 
   const requestedFeet = integerOrZero(existing.requestedFeet);

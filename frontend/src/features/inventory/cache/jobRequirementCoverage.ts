@@ -15,6 +15,7 @@ import {
   markFilmOrderLinkedBoxReceived
 } from '../utils/filmOrders';
 import { getAllocationCoveredFeet } from './jobSummaryMath';
+import { computeCoveredFeetForAllocation } from '../../../domain/allocationCoverageContract.mjs';
 
 type UpdateJobRequirementInput = NonNullable<UpdateJobPayload['requirements']>[number] & {
   requirementId?: string;
@@ -148,6 +149,7 @@ function allocationMatchesRequirement(
   allocation: Pick<AllocationJobDetailEntry, 'manufacturer' | 'filmName' | 'widthIn'>,
   requirement: Pick<JobRequirementLine, 'manufacturer' | 'filmName' | 'widthIn'>
 ) {
+  const requirementWidth = Number(requirement.widthIn) || 0;
   return (
     canJobPlanningFilmSatisfyRequirement(
       allocation.manufacturer,
@@ -155,7 +157,8 @@ function allocationMatchesRequirement(
       requirement.manufacturer,
       requirement.filmName
     ) &&
-    (Number(allocation.widthIn) || 0) >= (Number(requirement.widthIn) || 0)
+    requirementWidth > 0 &&
+    (Number(allocation.widthIn) || 0) >= requirementWidth
   );
 }
 
@@ -282,7 +285,8 @@ function getFilmOnTheWayFeetForRequirement(filmOrders: FilmOrderEntry[], require
 
     // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
     const orderedFeet = Math.max(0, Number(order.orderedFeet || 0));
-    return sum + (orderedFeet > 0 ? orderedFeet : Math.max(0, Number(order.requestedFeet || 0)));
+    const sourceFeet = orderedFeet > 0 ? orderedFeet : Math.max(0, Number(order.requestedFeet || 0));
+    return sum + computeCoveredFeetForAllocation(sourceFeet, order.widthIn, requirement.widthIn);
   }, 0);
 }
 

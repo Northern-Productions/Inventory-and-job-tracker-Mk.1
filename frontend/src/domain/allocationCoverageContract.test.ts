@@ -8,11 +8,15 @@ import {
 } from './allocationCoverageContract.mjs';
 
 describe('allocationCoverageContract', () => {
-  it('only applies split coverage to exact 72-to-36 matches', () => {
+  it('uses floor source-width to requirement-width multipliers for compatible widths', () => {
     expect(isSplitCoveragePair(72, 36)).toBe(true);
     expect(getAllocationCoverageMultiplier(72, 36)).toBe(2);
+    expect(getAllocationCoverageMultiplier(36, 36)).toBe(1);
+    expect(getAllocationCoverageMultiplier(48, 36)).toBe(1);
     expect(getAllocationCoverageMultiplier(60, 36)).toBe(1);
     expect(getAllocationCoverageMultiplier(72, 48)).toBe(1);
+    expect(getAllocationCoverageMultiplier(72, 60)).toBe(1);
+    expect(getAllocationCoverageMultiplier(36, 72)).toBe(0);
   });
 
   it('rounds physical feet up for odd 36-inch covered requests', () => {
@@ -36,5 +40,16 @@ describe('allocationCoverageContract', () => {
       remainingCoveredFeet: 4,
       usesSplitCoverage: true
     });
+  });
+
+  it('does not allocate smaller source widths to larger requirements', () => {
+    expect(planCoverageAllocation(20, 20, 36, 72)).toEqual({
+      allocatedFeet: 0,
+      coveredFeet: 0,
+      remainingCoveredFeet: 20,
+      usesSplitCoverage: false
+    });
+    expect(computePhysicalFeetForCoverage(20, 36, 72)).toBe(0);
+    expect(computeCoveredFeetForAllocation(20, 36, 72)).toBe(0);
   });
 });

@@ -35,7 +35,14 @@ import {
 import { recordFilmWeightSampleFromBox } from '../../filmWeightProfiles.mjs';
 import { buildBoxFromPayload } from '../runtimeCollectionsAndBoxes.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
-import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
+import {
+  applyReservationMetricsToBox,
+  deriveBoxPhysicalFeetAvailable,
+} from '../runtimeAllocationReservations.mjs';
+import {
+  isOrderedFilmReservationBoxStatus,
+  isPhysicalFilmReservationBoxStatus,
+} from '../../../../../../shared/domain/filmAllocationReservations.mjs';
 import {
   assertDirectToJobSiteFlagIsServerOwned,
   assertNoShipDirectToJobSiteFlag,
@@ -54,6 +61,54 @@ function appendFilmWeightProfileWarning(warnings, result, boxId) {
   } else if (decision === 'logging_failed' && asTrimmedString(result?.warning)) {
     warnings.push(asTrimmedString(result.warning));
   }
+}
+
+function getBoxPhysicalFeetForCapacityReconciliation(box, allocations = []) {
+  if (isOrderedFilmReservationBoxStatus(box?.status)) {
+    const parsedInitialFeet = Number(box?.initialFeet);
+    if (!Number.isFinite(parsedInitialFeet)) {
+      return 0;
+    }
+    return Math.max(0, Math.floor(parsedInitialFeet));
+  }
+
+  if (isPhysicalFilmReservationBoxStatus(box?.status)) {
+    return deriveBoxPhysicalFeetAvailable(box, allocations);
+  }
+
+  return null;
+}
+
+async function reconcileBoxMaterialReality(client, orgId, box, actor, warnings) {
+  const allocations = await listAllocationsByBox(client, orgId, box.boxId);
+  const physicalFeetAfter = getBoxPhysicalFeetForCapacityReconciliation(box, allocations);
+
+  if (physicalFeetAfter === null || physicalFeetAfter === undefined) {
+    return box;
+  }
+
+  const reconciliationResult = await reconcileBoxCheckinAllocations(
+    client,
+    orgId,
+    {
+      boxId: box.boxId,
+      physicalFeetAfter,
+    },
+    actor
+  );
+
+  if (Array.isArray(reconciliationResult.warnings) && reconciliationResult.warnings.length > 0) {
+    warnings.push(...reconciliationResult.warnings);
+  }
+
+  const nextBox = {
+    ...cloneValue(box),
+    feetAvailable: Math.max(0, Number(reconciliationResult.feetAvailable ?? box.feetAvailable) || 0),
+  };
+
+  const savedBox = await saveBoxRecord(client, orgId, nextBox);
+  await recalculateFilmOrdersForBoxLinks(client, orgId, savedBox.boxId, actor);
+  return savedBox;
 }
 
 async function addBox(client, orgId, payload, actor) {
@@ -430,6 +485,7 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
+    updatedBox = await reconcileBoxMaterialReality(client, orgId, updatedBox, actor, warnings);
   }
 
   await seedFilmCatalogRecordIfMissing(client, orgId, {

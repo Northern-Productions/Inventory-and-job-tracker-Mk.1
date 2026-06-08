@@ -78,54 +78,64 @@ test('work scope key groundwork migration order precedes final duplicate enablem
   const backendMigrations = (await readdir(migrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
   const supabaseMigrations = (await readdir(supabaseMigrationsPath)).filter((entry) => /^\d+_/.test(entry)).sort();
 
-  assert.equal(backendMigrations.at(-24), '0134_caulk_read_jobid_scope_projection.sql');
-  assert.equal(backendMigrations.at(-23), '0135_job_work_scope_key_groundwork.sql');
-  assert.equal(backendMigrations.at(-22), '0136_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(backendMigrations.at(-21), '0137_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(backendMigrations.at(-20), '0138_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(backendMigrations.at(-19), '0139_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(backendMigrations.at(-18), '0140_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(backendMigrations.at(-17), '0141_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(backendMigrations.at(-16), '0142_requirement_actual_usage_state.sql');
-  assert.equal(backendMigrations.at(-15), '0143_multi_phase_jobs.sql');
-  assert.equal(backendMigrations.at(-14), '0144_phase_edit_modal_work_scope_fix.sql');
-  assert.equal(backendMigrations.at(-13), '0145_legacy_checkin_requirement_reconciliation.sql');
-  assert.equal(backendMigrations.at(-12), '0146_caulk_requirement_actual_usage_state.sql');
-  assert.equal(backendMigrations.at(-11), '0147_phase_calendar_install_end_date.sql');
-  assert.equal(backendMigrations.at(-10), '0148_close_checked_in_allocations.sql');
-  assert.equal(backendMigrations.at(-9), '0149_film_order_traceability.sql');
-  assert.equal(backendMigrations.at(-8), '0150_phase_workflow_status.sql');
-  assert.equal(backendMigrations.at(-7), '0151_user_default_warehouse_preferences.sql');
-  assert.equal(backendMigrations.at(-6), '0152_fix_planner_suppression_on_conflict.sql');
-  assert.equal(backendMigrations.at(-5), '0153_manual_only_auto_allocation_job_warehouse.sql');
-  assert.equal(backendMigrations.at(-4), '0154_manual_allocation_explicit_selection.sql');
-  assert.equal(backendMigrations.at(-3), '0155_film_order_detail_origin_compat.sql');
-  assert.equal(backendMigrations.at(-2), '0156_film_weight_profiles_foundation.sql');
-  assert.equal(backendMigrations.at(-1), '0157_service_role_staged_pickup_acl.sql');
-  assert.equal(supabaseMigrations.at(-24), '20260514030000_caulk_read_jobid_scope_projection.sql');
-  assert.equal(supabaseMigrations.at(-23), '20260518010000_job_work_scope_key_groundwork.sql');
-  assert.equal(supabaseMigrations.at(-22), '20260518020000_enable_job_number_work_scope_uniqueness.sql');
-  assert.equal(supabaseMigrations.at(-21), '20260520010000_repair_box_update_partial_receiving_parity.sql');
-  assert.equal(supabaseMigrations.at(-20), '20260520020000_preserve_partial_box_update_physical_feet.sql');
-  assert.equal(supabaseMigrations.at(-19), '20260520030000_box_status_duplicate_job_checkout_guard.sql');
-  assert.equal(supabaseMigrations.at(-18), '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql');
-  assert.equal(supabaseMigrations.at(-17), '20260520050000_box_checkin_reconcile_same_job_allocations.sql');
-  assert.equal(supabaseMigrations.at(-16), '20260521010000_requirement_actual_usage_state.sql');
-  assert.equal(supabaseMigrations.at(-15), '20260521020000_multi_phase_jobs.sql');
-  assert.equal(supabaseMigrations.at(-14), '20260521120000_phase_edit_modal_work_scope_fix.sql');
-  assert.equal(supabaseMigrations.at(-13), '20260521150000_legacy_checkin_requirement_reconciliation.sql');
-  assert.equal(supabaseMigrations.at(-12), '20260521160000_caulk_requirement_actual_usage_state.sql');
-  assert.equal(supabaseMigrations.at(-11), '20260521173000_phase_calendar_install_end_date.sql');
-  assert.equal(supabaseMigrations.at(-10), '20260522090000_close_checked_in_allocations.sql');
-  assert.equal(supabaseMigrations.at(-9), '20260523100000_film_order_traceability.sql');
-  assert.equal(supabaseMigrations.at(-8), '20260523110000_phase_workflow_status.sql');
-  assert.equal(supabaseMigrations.at(-7), '20260525120000_user_default_warehouse_preferences.sql');
-  assert.equal(supabaseMigrations.at(-6), '20260527100000_fix_planner_suppression_on_conflict.sql');
-  assert.equal(supabaseMigrations.at(-5), '20260528100000_manual_only_auto_allocation_job_warehouse.sql');
-  assert.equal(supabaseMigrations.at(-4), '20260529100000_manual_allocation_explicit_selection.sql');
-  assert.equal(supabaseMigrations.at(-3), '20260529101000_film_order_detail_origin_compat.sql');
-  assert.equal(supabaseMigrations.at(-2), '20260603100000_film_weight_profiles_foundation.sql');
-  assert.equal(supabaseMigrations.at(-1), '20260608120000_service_role_staged_pickup_acl.sql');
+
+  const expectedBackendTail = [
+    '0134_caulk_read_jobid_scope_projection.sql',
+    '0135_job_work_scope_key_groundwork.sql',
+    '0136_enable_job_number_work_scope_uniqueness.sql',
+    '0137_repair_box_update_partial_receiving_parity.sql',
+    '0138_preserve_partial_box_update_physical_feet.sql',
+    '0139_box_status_duplicate_job_checkout_guard.sql',
+    '0140_box_checkin_physical_lf_reconciliation_priority.sql',
+    '0141_box_checkin_reconcile_same_job_allocations.sql',
+    '0142_requirement_actual_usage_state.sql',
+    '0143_multi_phase_jobs.sql',
+    '0144_phase_edit_modal_work_scope_fix.sql',
+    '0145_legacy_checkin_requirement_reconciliation.sql',
+    '0146_caulk_requirement_actual_usage_state.sql',
+    '0147_phase_calendar_install_end_date.sql',
+    '0148_close_checked_in_allocations.sql',
+    '0149_film_order_traceability.sql',
+    '0150_phase_workflow_status.sql',
+    '0151_user_default_warehouse_preferences.sql',
+    '0152_fix_planner_suppression_on_conflict.sql',
+    '0153_manual_only_auto_allocation_job_warehouse.sql',
+    '0154_manual_allocation_explicit_selection.sql',
+    '0155_film_order_detail_origin_compat.sql',
+    '0156_film_weight_profiles_foundation.sql',
+    '0157_service_role_staged_pickup_acl.sql',
+    '0158_material_flow_reconciliation_rules.sql',
+  ];
+  assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
+  const expectedSupabaseTail = [
+    '20260514030000_caulk_read_jobid_scope_projection.sql',
+    '20260518010000_job_work_scope_key_groundwork.sql',
+    '20260518020000_enable_job_number_work_scope_uniqueness.sql',
+    '20260520010000_repair_box_update_partial_receiving_parity.sql',
+    '20260520020000_preserve_partial_box_update_physical_feet.sql',
+    '20260520030000_box_status_duplicate_job_checkout_guard.sql',
+    '20260520040000_box_checkin_physical_lf_reconciliation_priority.sql',
+    '20260520050000_box_checkin_reconcile_same_job_allocations.sql',
+    '20260521010000_requirement_actual_usage_state.sql',
+    '20260521020000_multi_phase_jobs.sql',
+    '20260521120000_phase_edit_modal_work_scope_fix.sql',
+    '20260521150000_legacy_checkin_requirement_reconciliation.sql',
+    '20260521160000_caulk_requirement_actual_usage_state.sql',
+    '20260521173000_phase_calendar_install_end_date.sql',
+    '20260522090000_close_checked_in_allocations.sql',
+    '20260523100000_film_order_traceability.sql',
+    '20260523110000_phase_workflow_status.sql',
+    '20260525120000_user_default_warehouse_preferences.sql',
+    '20260527100000_fix_planner_suppression_on_conflict.sql',
+    '20260528100000_manual_only_auto_allocation_job_warehouse.sql',
+    '20260529100000_manual_allocation_explicit_selection.sql',
+    '20260529101000_film_order_detail_origin_compat.sql',
+    '20260603100000_film_weight_profiles_foundation.sql',
+    '20260608120000_service_role_staged_pickup_acl.sql',
+    '20260608130000_material_flow_reconciliation_rules.sql',
+  ];
+  assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
+
 });
 
 test('work scope key migration adds only the helper, generated column, and non-unique support index', async () => {
@@ -193,7 +203,9 @@ test('SQL work scope key normalization mirrors shared JS normalization for repre
 test('schema latest guard keeps work scope key generated column checks after duplicate enablement', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl\.sql';/);
+
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules\.sql';/);
+
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);
   assert.match(schemaLatest, /a\.attgenerated = 's' as is_generated_stored/);

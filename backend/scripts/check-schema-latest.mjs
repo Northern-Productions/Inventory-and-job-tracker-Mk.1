@@ -4,7 +4,9 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl.sql';
+
+const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules.sql';
+
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -209,10 +211,12 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'app_api.recalculate_film_order(uuid, text, text)',
     includes: [
       'v_link_count > 0',
+      'app_api.compute_covered_feet_from_allocation(',
+      'coalesce(b.initial_feet, l.ordered_feet, 0)',
       "upper(coalesce(b.status::text, '')) <> 'ORDERED'",
       'v_received_link_count = v_link_count'
     ],
-    excludes: []
+    excludes: ['coalesce(sum(l.ordered_feet)']
   },
   {
     signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)',
@@ -220,44 +224,55 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_recalculate_film_order_ids',
       'app_api.find_order_receipt_requirement_id(',
       'app_api.requirement_film_is_compatible(',
-      'round(coalesce(r.width_in, 0)::numeric, 4) = round(coalesce(v_order.width_in, 0)::numeric, 4)',
+      'coalesce(v_box.width_in, v_order.width_in, 0) >= coalesce(r.width_in, 0)',
+      'app_api.plan_allocation_coverage(',
+      'v_reused_covered_feet',
       'Resolved ordered-box placeholder on receipt for Film Order %s.',
       'Split from ordered-box placeholder %s on receipt for Film Order %s.',
       "v_existing_allocation.allocation_source := 'FILM_ORDER_RECEIPT'::app.allocation_source;",
       'v_box.feet_available := greatest(v_box.feet_available - v_reused_feet, 0);',
       'perform app_api.recalculate_film_order(p_org_id, v_recalculate_film_order_id, p_actor);'
     ],
-    excludes: ['v_box.feet_available <= 0', 'app_api.normalize_job_requirement_lookup_key(']
+    excludes: [
+      'v_box.feet_available <= 0',
+      'app_api.normalize_job_requirement_lookup_key(',
+      'round(coalesce(r.width_in, 0)::numeric, 4) = round(coalesce(v_order.width_in, 0)::numeric, 4)'
+    ]
   },
   {
     signature: 'app_api.find_order_receipt_requirement_id(uuid, text, text, text, numeric)',
     includes: [
       'app_api.requirement_film_is_compatible(',
-      'round(coalesce(r.width_in, 0)::numeric, 4) = round(coalesce(p_width_in, 0)::numeric, 4)'
+      'coalesce(p_width_in, 0) >= coalesce(r.width_in, 0)'
     ],
-    excludes: ['app_api.normalize_job_requirement_lookup_key(']
+    excludes: [
+      'app_api.normalize_job_requirement_lookup_key(',
+      'round(coalesce(r.width_in, 0)::numeric, 4) = round(coalesce(p_width_in, 0)::numeric, 4)'
+    ]
   },
   {
     signature: 'app_api.physical_film_commitment_feet_for_box(uuid, text, text)',
     includes: [
-      "coalesce(a.allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'",
-      'a.requirement_id is not null',
-      "app_api.trim_text(a.film_order_id) <> ''",
-      "coalesce(a.allocation_source::text, 'MANUAL') = 'FILM_ORDER_RECEIPT'"
+      "a.status = 'ACTIVE'",
+      "app_api.film_allocation_reserves_capacity(a, 'IN_STOCK')"
     ],
     excludes: [
-      "and a.job_date is not null\n    and ("
+      "and a.job_date is not null\n    and (",
+      "app_api.trim_text(a.film_order_id) <> ''",
+      "coalesce(a.allocation_source::text, 'MANUAL') = 'FILM_ORDER_RECEIPT'"
     ]
   },
   {
     signature: 'app_api.film_allocation_consumes_stored_capacity(app.allocations, text)',
     includes: [
       'app_api.film_allocation_reserves_capacity(p_allocation, p_box_status)',
-      "coalesce((p_allocation).allocation_source::text, 'MANUAL') = 'FILM_ORDER_RECEIPT'",
-      "coalesce((p_allocation).allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'"
+      "(p_allocation).status = 'ACTIVE'",
+      "upper(coalesce(p_box_status, '')) in ('IN_STOCK', 'TRANSFER')"
     ],
     excludes: [
-      "and (p_allocation).job_date is not null\n    and upper"
+      "and (p_allocation).job_date is not null\n    and upper",
+      "coalesce((p_allocation).allocation_source::text, 'MANUAL') = 'FILM_ORDER_RECEIPT'",
+      "coalesce((p_allocation).allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'"
     ]
   },
   {
@@ -728,6 +743,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_acl_boxes_update(uuid, text, jsonb)',
     includes: [
+      'v_material_reconciliation_result := app_api.reconcile_box_checkin_allocations',
+      'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_lookup_box_id, p_actor);',
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
       'perform app_api.reconcile_auto_planned_allocations('
     ],

@@ -17,7 +17,7 @@ import {
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
-import { getAllocationReservationState } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
+import { allocationReservesCapacity } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
 import { recordFilmWeightSampleFromBox } from '../../filmWeightProfiles.mjs';
 
 function parseOptionalReceivedWeight(value) {
@@ -40,7 +40,7 @@ function sumLockedAllocatedFeet(allocations) {
       return total;
     }
 
-    return total + (getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' ? Number(entry?.allocatedFeet || 0) : 0);
+    return total + (allocationReservesCapacity(entry, { status: 'ORDERED' }) ? Number(entry?.allocatedFeet || 0) : 0);
   }, 0);
 }
 

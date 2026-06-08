@@ -55,7 +55,9 @@ test('physical LF reconciliation preserves scheduled and older job priority befo
 test('latest schema check requires physical LF reconciliation priority semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0157_service_role_staged_pickup_acl\.sql/);
+
+  assert.match(schemaCheck, /0158_material_flow_reconciliation_rules\.sql/);
+
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(schemaCheck, /case when a\.job_date is not null then 0 else 1 end/);
   assert.match(schemaCheck, /coalesce\(j\.created_at, a\.created_at\) asc/);

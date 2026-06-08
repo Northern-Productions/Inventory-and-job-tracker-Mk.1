@@ -1,6 +1,6 @@
 declare module './allocationCoverageContract.mjs' {
   export function isSplitCoveragePair(sourceWidthIn: unknown, requirementWidthIn: unknown): boolean;
-  export function getAllocationCoverageMultiplier(sourceWidthIn: unknown, requirementWidthIn: unknown): 1 | 2;
+  export function getAllocationCoverageMultiplier(sourceWidthIn: unknown, requirementWidthIn: unknown): number;
   export function computePhysicalFeetForCoverage(
     requestedCoveredFeet: unknown,
     sourceWidthIn: unknown,

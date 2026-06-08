@@ -119,7 +119,9 @@ test('caulk read projection keeps duplicate guards and latest schema guard align
   assert.doesNotMatch(migration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl\.sql';/);
+
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules\.sql';/);
+
   assert.match(schemaCheck, /public\.api_acl_list_caulk_transfers\(uuid, text, uuid\)/);
   assert.match(schemaCheck, /public\.api_acl_list_caulk_transactions\(uuid, text, uuid, integer\)/);
 });

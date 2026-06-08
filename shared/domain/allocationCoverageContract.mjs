@@ -17,11 +17,18 @@ function normalizeWholeFeet(value) {
 }
 
 export function isSplitCoveragePair(sourceWidthIn, requirementWidthIn) {
-  return normalizeWidthIn(sourceWidthIn) === 72 && normalizeWidthIn(requirementWidthIn) === 36;
+  return getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn) > 1;
 }
 
 export function getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn) {
-  return isSplitCoveragePair(sourceWidthIn, requirementWidthIn) ? 2 : 1;
+  const sourceWidth = normalizeWidthIn(sourceWidthIn);
+  const requirementWidth = normalizeWidthIn(requirementWidthIn);
+
+  if (sourceWidth <= 0 || requirementWidth <= 0 || sourceWidth < requirementWidth) {
+    return 0;
+  }
+
+  return Math.max(1, Math.floor(sourceWidth / requirementWidth));
 }
 
 export function computePhysicalFeetForCoverage(requestedCoveredFeet, sourceWidthIn, requirementWidthIn) {
@@ -31,6 +38,10 @@ export function computePhysicalFeetForCoverage(requestedCoveredFeet, sourceWidth
   }
 
   const multiplier = getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn);
+  if (multiplier <= 0) {
+    return 0;
+  }
+
   return Math.ceil(requestedFeet / multiplier);
 }
 
@@ -45,7 +56,12 @@ export function computeCoveredFeetForAllocation(
     return 0;
   }
 
-  const coveredFeet = physicalFeet * getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn);
+  const multiplier = getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn);
+  if (multiplier <= 0) {
+    return 0;
+  }
+
+  const coveredFeet = physicalFeet * multiplier;
   const cappedCoveredFeet = Number.isFinite(Number(maxCoveredFeet))
     ? Math.max(0, Math.floor(Number(maxCoveredFeet)))
     : Number.MAX_SAFE_INTEGER;
@@ -68,6 +84,16 @@ export function planCoverageAllocation(
       coveredFeet: 0,
       remainingCoveredFeet: requestedFeet,
       usesSplitCoverage: isSplitCoveragePair(sourceWidthIn, requirementWidthIn)
+    };
+  }
+
+  const multiplier = getAllocationCoverageMultiplier(sourceWidthIn, requirementWidthIn);
+  if (multiplier <= 0) {
+    return {
+      allocatedFeet: 0,
+      coveredFeet: 0,
+      remainingCoveredFeet: requestedFeet,
+      usesSplitCoverage: false
     };
   }
 

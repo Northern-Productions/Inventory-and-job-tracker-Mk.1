@@ -1109,6 +1109,8 @@ function resolveAllocationJobMetadata(allocations, filmOrders) {
 function filmOrderMatchesRequirement(filmOrder, requirement) {
   const orderRequirementId = asTrimmedString(filmOrder?.requirementId);
   const requirementId = asTrimmedString(requirement?.requirementId || requirement?.id);
+  const orderWidth = Number(filmOrder?.widthIn || 0);
+  const requirementWidth = Number(requirement?.widthIn || 0);
   const productMatches =
     planningFilmCanSatisfyRequirement(
       filmOrder?.manufacturer,
@@ -1116,7 +1118,8 @@ function filmOrderMatchesRequirement(filmOrder, requirement) {
       requirement?.manufacturer,
       requirement?.filmName
     ) &&
-    Number(filmOrder?.widthIn || 0) === Number(requirement?.widthIn || 0);
+    orderWidth >= requirementWidth &&
+    requirementWidth > 0;
 
   if (orderRequirementId || requirementId) {
     return Boolean(orderRequirementId && requirementId && orderRequirementId === requirementId && productMatches);
@@ -1140,7 +1143,8 @@ function getFilmOnTheWayFeetForRequirement(filmOrders, requirement) {
 
     // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
     const orderedFeet = integerOrZero(entry.orderedFeet);
-    total += orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    const sourceFeet = orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    total += computeCoveredFeetForAllocation(sourceFeet, entry.widthIn, requirement.widthIn);
   }
 
   return total;

@@ -132,16 +132,10 @@ function allocationReservesCapacity(entry, box) {
 }
 
 function allocationConsumesStoredPhysicalFeet(entry, box) {
-  const allocationSource = normalizeAllocationSource(entry?.allocationSource ?? entry?.allocation_source);
-  const isPhysicalCommitment =
-    getAllocationReservationState(entry) === 'WITH_INSTALL_DATE' || allocationSource === 'FILM_ORDER_RECEIPT';
-
   return (
     allocationReservesCapacity(entry, box) &&
     getAllocationStatus(entry) === 'ACTIVE' &&
-    isPhysicalCommitment &&
-    isPhysicalFilmReservationBoxStatus(box?.status) &&
-    allocationSource !== 'AUTO_PLANNED'
+    isPhysicalFilmReservationBoxStatus(box?.status)
   );
 }
 

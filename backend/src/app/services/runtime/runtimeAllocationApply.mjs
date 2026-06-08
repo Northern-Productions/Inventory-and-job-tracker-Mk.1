@@ -642,7 +642,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       client,
       orgId,
       applyPlanningAllocationToBox(currentBox, plannedAllocation.allocatedFeet, {
-        consumeAllocatableFeet: Boolean(jobContext.installDate),
+        consumeAllocatableFeet: true,
       })
     );
     trackActiveAllocationForCapacity(activeAllocationsByBox, {
@@ -713,7 +713,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       client,
       orgId,
       applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet, {
-        consumeAllocatableFeet: Boolean(jobContext.installDate),
+        consumeAllocatableFeet: true,
       })
     );
     trackActiveAllocationForCapacity(activeAllocationsByBox, allocation);

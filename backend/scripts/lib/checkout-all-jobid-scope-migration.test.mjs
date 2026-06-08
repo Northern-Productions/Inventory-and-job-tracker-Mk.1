@@ -106,7 +106,9 @@ test('checkout-all jobId scope migration updates schema latest without changing 
     readFile(duplicateGuardMigrationPath, 'utf8'),
   ]);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl\.sql';/);
+
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules\.sql';/);
+
   assert.match(schemaCheck, /public\.api_acl_boxes_resolve_checkout_allocations\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.resolve_allocations_for_checkout\(uuid, text, text, text, uuid\)/);
   assert.match(migration, /create or replace function app_api\.resolve_allocations_for_checkout\(\s+p_org_id uuid,\s+p_box_id text,\s+p_job_number text,\s+p_actor text,\s+p_job_id uuid\s+\)/);
