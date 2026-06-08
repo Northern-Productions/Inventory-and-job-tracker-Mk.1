@@ -12,20 +12,14 @@ async function readRepoFile(...parts) {
   return fs.readFile(path.join(repoRoot, ...parts), 'utf8');
 }
 
-test('staged pickup jobId scope is runtime-only and adds no migration', async () => {
+test('staged pickup jobId scope keeps paired migration history current', async () => {
   const [backendMigrations, supabaseMigrations] = await Promise.all([
     fs.readdir(path.join(repoRoot, 'backend', 'migrations')),
     fs.readdir(path.join(repoRoot, 'supabase', 'migrations')),
   ]);
 
-  assert.equal(
-    backendMigrations.some((name) => /staged[_-]pickup.*jobid|jobid.*staged[_-]pickup/i.test(name)),
-    false,
-  );
-  assert.equal(
-    supabaseMigrations.some((name) => /staged[_-]pickup.*jobid|jobid.*staged[_-]pickup/i.test(name)),
-    false,
-  );
+  assert.ok(backendMigrations.includes('0157_service_role_staged_pickup_acl.sql'));
+  assert.ok(supabaseMigrations.includes('20260608120000_service_role_staged_pickup_acl.sql'));
 });
 
 test('frontend staged pickup sends canonical jobId and avoids unsafe legacy detail patching', async () => {
@@ -75,6 +69,10 @@ test('Edge staged pickup validates canonical jobId and reloads by id without pla
     readRepoFile('supabase', 'functions', '_shared', 'api-handler.ts'),
     readRepoFile('supabase', 'functions', '_shared', 'routes', 'mutationHandlers.ts'),
   ]);
+  const edgeBody = edgeSource.slice(
+    edgeSource.indexOf('async function setJobStagedPickup'),
+    edgeSource.indexOf('async function getBoxTransferByBox'),
+  );
   const routeBody = routeSource.slice(
     routeSource.indexOf('"/jobs/set-staged-pickup": async'),
     routeSource.indexOf('"/jobs/checkout-all": async'),
@@ -84,7 +82,9 @@ test('Edge staged pickup validates canonical jobId and reloads by id without pla
   assert.match(edgeSource, /const targetJobId = target\.usedJobId \? requireString\(target\.jobId, "jobId"\) : "";/);
   assert.match(edgeSource, /effectiveJobId\s+\?\s+\{\s+jobId: effectiveJobId,/);
   assert.match(edgeSource, /listAllocationsByJobIdDirect\(orgId, targetJobId\)/);
-  assert.match(edgeSource, /\.eq\("id", effectiveJobId\)/);
+  assert.match(edgeBody, /api_acl_jobs_set_staged_pickup_for_user/);
+  assert.match(edgeBody, /p_actor_user_id: identity\.userId/);
+  assert.doesNotMatch(edgeBody, /\.from\("jobs"\)[\s\S]*?\.update\(/);
   assert.match(edgeSource, /\.\.\.\(target\.usedJobId \? \{ jobId: targetJobId \} : \{\}\),/);
   assert.match(routeSource, /const SQL_PLANNER_HANDLED_ROUTES = new Set\(\[[\s\S]*"\/jobs\/set-staged-pickup"/);
   assert.match(routeBody, /const jobId = deps\.asTrimmedString\(result\.jobId\);/);

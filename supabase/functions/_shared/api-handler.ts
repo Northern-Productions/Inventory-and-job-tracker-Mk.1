@@ -8417,6 +8417,7 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
     ? requireString(target.jobNumber, "JobNumber")
     : requireString(payload.jobNumber, "JobNumber");
   const targetJobId = target.usedJobId ? requireString(target.jobId, "jobId") : "";
+  const serviceClient = requireServiceRoleClientForJobs();
   const normalizedFlag = typeof payload.isStagedForPickup === "boolean"
     ? String(payload.isStagedForPickup)
     : asTrimmedString(payload.isStagedForPickup).toLowerCase();
@@ -8432,7 +8433,6 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
     throw new HttpError(400, "isStagedForPickup must be true or false.");
   }
 
-  const serviceClient = requireServiceRoleClientForJobs();
   const { data: legacyJobRow, error: jobError } = target.usedJobId
     ? { data: null, error: null }
     : await serviceClient
@@ -8490,24 +8490,27 @@ async function setJobStagedPickup(client: any, identity: AuthIdentity, payload: 
   }
 
   const updatedAt = new Date().toISOString();
-  const { error: updateError } = await serviceClient
-    .schema("app")
-    .from("jobs")
-    .update({
-      is_staged_for_pickup: nextIsStaged,
-      updated_at: updatedAt,
-      updated_by: actor,
-    })
-    .eq("org_id", orgId)
-    .eq("id", effectiveJobId);
-  throwOnSupabaseError(updateError, "Unable to update staged pickup");
+  const result = await rpcOrThrow<Record<string, unknown>>(serviceClient, "api_acl_jobs_set_staged_pickup_for_user", {
+    p_org_id: orgId,
+    p_actor_user_id: identity.userId,
+    p_actor: actor,
+    p_payload: {
+      ...payload,
+      ...(target.usedJobId ? { jobId: targetJobId } : {}),
+      jobNumber,
+      isStagedForPickup: nextIsStaged,
+    },
+  });
+  const resultWarnings = Array.isArray(result?.warnings)
+    ? result.warnings.map(asTrimmedString).filter(Boolean)
+    : [];
 
   return {
     ...(target.usedJobId ? { jobId: targetJobId } : {}),
-    jobNumber,
-    isStagedForPickup: nextIsStaged,
-    updatedAt,
-    warnings,
+    jobNumber: asTrimmedString(result?.jobNumber) || jobNumber,
+    isStagedForPickup: result?.isStagedForPickup === true,
+    updatedAt: asTrimmedString(result?.updatedAt) || updatedAt,
+    warnings: [...warnings, ...resultWarnings],
   };
 }
 

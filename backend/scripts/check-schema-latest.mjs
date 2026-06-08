@@ -4,7 +4,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
-const LATEST_MIGRATION = '0156_film_weight_profiles_foundation.sql';
+const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl.sql';
 
 const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.access_requests' },
@@ -128,8 +128,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_job_phases(uuid)' },
   { kind: 'function', signature: 'public.api_acl_list_job_phases_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_job_phases_by_job_id(uuid, uuid)' },
+  { kind: 'function', signature: 'app_api.require_effective_feature_access_for_user(uuid, uuid, text, text)' },
   { kind: 'function', signature: 'public.api_jobs_set_staged_pickup(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_jobs_set_staged_pickup_for_user(uuid, uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_job_caulk_requirements_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_job_allocations_by_job(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transfers(uuid, text, uuid)' },

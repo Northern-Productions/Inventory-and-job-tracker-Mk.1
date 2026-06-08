@@ -76,7 +76,7 @@ test('complete job jobId scope migration stays mirrored and advances schema late
   ]);
 
   assert.equal(supabaseMigration, backendMigration);
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0156_film_weight_profiles_foundation\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0157_service_role_staged_pickup_acl\.sql';/);
   assert.match(schemaCheck, /app_api\.cancel_active_caulk_allocations_for_job_id\(uuid, text, uuid, text, text, boolean\)/);
   assert.match(schemaCheck, /public\.api_acl_jobs_cancel_caulk_allocations\(uuid, text, jsonb\)/);
 });
