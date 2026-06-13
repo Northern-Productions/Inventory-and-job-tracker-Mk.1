@@ -34,7 +34,7 @@ const useWarehouseRegistryMock = vi.fn();
 const parseUpdateBoxDraftMock = vi.fn();
 const qrCodeToDataUrlMock = vi.fn();
 let nextBoxFormSubmitDraft: unknown = { dealer: '' };
-let currentSearchParams = 'showQr=1';
+let currentSearchParams = '';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -121,7 +121,12 @@ vi.mock('../components/AllocationsPanel', () => ({
   }: {
     boxId: string;
     collapsed: boolean;
-  }) => <div data-testid="allocations-panel">{`${boxId}:${String(collapsed)}`}</div>
+  }) => (
+    <section data-testid="allocations-panel">
+      <h2>Allocations</h2>
+      <span>{`${boxId}:${String(collapsed)}`}</span>
+    </section>
+  )
 }));
 
 vi.mock('../components/HistoryPanel', () => ({
@@ -303,7 +308,7 @@ describe('BoxDetailsPage', () => {
     useUpsertBoxDealerMock.mockReset();
     qrCodeToDataUrlMock.mockResolvedValue('data:image/png;base64,qr');
     nextBoxFormSubmitDraft = { dealer: '' };
-    currentSearchParams = 'showQr=1';
+    currentSearchParams = '';
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -386,24 +391,30 @@ describe('BoxDetailsPage', () => {
     });
   });
 
-  it('renders the cleaned box summary, QR section, and view-only actions', () => {
+  it('renders the readable box summary, collapsed admin sections, and view-only actions', () => {
     const html = renderPage();
 
     expect(html).toContain('BOX DETAILS');
     expect(html).toContain('IL1-1234');
+    expect(html).toContain('3M');
+    expect(html).toContain('Ultra 70');
+    expect(html).toContain('30&quot;');
     expect(html).toContain('Wauconda IL1 warehouse');
     expect(html).toContain('IN STOCK');
     expect(html).toContain('>Edit</button>');
     expect(html).toContain('QR Code');
-    expect(html).toContain('Copy QR Code');
     expect(html).toContain('Feet Summary');
-    expect(html).toContain('On Hand Feet');
-    expect(html).toContain('Allocatable Now');
-    expect(html).toContain('Locked Feet');
-    expect(html).toContain('Placeholder Feet');
-    expect(html).toContain('Film Identity');
-    expect(html).toContain('Manufacturer');
-    expect(html).toContain('Film Name');
+    expect(html).toContain('Physical LF Remaining');
+    expect(html).toContain('Available to Allocate');
+    expect(html).toContain('Scheduled LF');
+    expect(html).toContain('Placeholder LF');
+    expect(html).toContain('This box has 420 LF available to allocate.');
+    expect(html).not.toContain('On Hand Feet');
+    expect(html).not.toContain('Allocatable Now');
+    expect(html).not.toContain('Locked Feet');
+    expect(html).not.toContain('Placeholder Feet');
+    expect(html).not.toContain('Film Identity');
+    expect(html).toContain('Allocations');
     expect(html).toContain('Dates &amp; Roll Info');
     expect(html).toContain('Date Ordered');
     expect(html).toContain('Date Received');
@@ -413,6 +424,9 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('Keep dry');
     expect(html).toContain('Box Technical Details');
     expect(html).toContain('>Open</button>');
+    expect(html).toContain('Open Origin');
+    expect(html).toContain('No origin recorded');
+    expect(html).toContain('qr-code-card qr-code-card-closed');
     expect(html).toContain('Initial Feet');
     expect(html).toContain('Initial Weight');
     expect(html).toContain('Core Type');
@@ -426,6 +440,10 @@ describe('BoxDetailsPage', () => {
     expect(html).not.toContain('>Allocate</button>');
     expect(html).not.toContain('>Check Out</button>');
     expect(html).not.toContain('Roll Weight History');
+
+    expect(html.indexOf('Notes')).toBeLessThan(html.indexOf('Allocations'));
+    expect(html.indexOf('Allocations')).toBeLessThan(html.indexOf('Dates &amp; Roll Info'));
+    expect(html.indexOf('Dates &amp; Roll Info')).toBeLessThan(html.indexOf('Box Technical Details'));
   });
 
   it('opens and closes Box Technical Details from a labeled button', () => {
@@ -452,6 +470,20 @@ describe('BoxDetailsPage', () => {
     expect(detailsBody?.hasAttribute('hidden')).toBe(true);
   });
 
+  it('keeps allocations open while lower-priority sections are collapsed by default', () => {
+    renderInteractivePage();
+
+    expect(screen.getByTestId('allocations-panel').textContent).toContain('IL1-1234:false');
+    expect(screen.getByTestId('history-panel').textContent).toContain('IL1-1234:true');
+
+    const originButton = screen.getByRole('button', { name: 'Open Origin' });
+    const originBody = document.getElementById(originButton.getAttribute('aria-controls') || '');
+
+    expect(originButton.getAttribute('aria-expanded')).toBe('false');
+    expect(originBody?.hasAttribute('hidden')).toBe(true);
+    expect(screen.getByRole('button', { name: 'QR Code' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('keeps ordered planning feet visible without exposing a Box Details Allocate action', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,
@@ -473,7 +505,7 @@ describe('BoxDetailsPage', () => {
 
     const html = renderPage();
 
-    expect(html).toContain('Allocatable Now');
+    expect(html).toContain('Available to Allocate');
     expect(html).toContain('35');
     expect(html).not.toContain('>Allocate</button>');
   });
@@ -1039,6 +1071,8 @@ describe('BoxDetailsPage', () => {
   });
 
   it('auto-opens the QR section when showQr=1 is present in the search params', () => {
+    currentSearchParams = 'showQr=1';
+
     const html = renderPage();
 
     expect(html).toContain('qr-code-card qr-code-card-open');
@@ -1052,7 +1086,12 @@ describe('BoxDetailsPage', () => {
       isError: false,
       data: buildBox({
         status: 'CHECKED_OUT',
-        lastCheckoutJob: '000123'
+        lastCheckoutJob: '000123',
+        feetAvailable: 0,
+        allocationPlanningFeet: 0,
+        allocatableNowFeet: 0,
+        physicalFeetAvailable: 20,
+        allocatedWithInstallDateFeet: 20
       }),
       error: null
     });
@@ -1061,6 +1100,8 @@ describe('BoxDetailsPage', () => {
 
     expect(screen.queryByRole('button', { name: 'IL1-000123' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'IL1-000123' })).toBeNull();
+    expect(screen.getByText('Current Activity')).toBeTruthy();
+    expect(screen.getByText('This box is checked out. All remaining film is currently scheduled, so 0 LF is available to allocate.')).toBeTruthy();
   });
 
   it('renders structured film order origins as read-only metadata', () => {
@@ -1117,6 +1158,8 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Open Origin' }));
+
     expect(screen.getByRole('link', { name: 'IL1-4953 / Sections 4, 5' }).getAttribute('href')).toBe(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'
     );
@@ -1135,6 +1178,8 @@ describe('BoxDetailsPage', () => {
 
     renderInteractivePage();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Open Origin' }));
+
     expect(screen.queryByRole('link', { name: 'IL1-4953' })).toBeNull();
     expect(screen.getByText('IL1-4953')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'FO-1' }).getAttribute('href')).toBe('/film-orders/FO-1');
@@ -1151,6 +1196,8 @@ describe('BoxDetailsPage', () => {
     });
 
     renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Origin' }));
 
     expect(screen.getByText('Origin')).toBeTruthy();
     expect(screen.queryByText('No origin recorded.')).toBeNull();

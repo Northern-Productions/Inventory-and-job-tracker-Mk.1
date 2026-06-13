@@ -850,6 +850,11 @@ th {
   margin-top: 0.25rem;
 }
 
+.detail-hero {
+  min-width: 0;
+  overflow-x: clip;
+}
+
 .box-detail-card-grid {
   display: grid;
   gap: 1.05rem;
@@ -859,6 +864,7 @@ th {
 .box-detail-info-card,
 .box-detail-notes-card,
 .box-technical-details-card {
+  min-width: 0;
   border: 1px solid var(--color-border-strong);
   border-radius: 0.95rem;
   background: linear-gradient(180deg, var(--color-surface-2) 0%, var(--color-surface-3) 100%);
@@ -880,6 +886,16 @@ th {
   margin-top: 0;
 }
 
+.box-detail-availability-note {
+  margin: 0.85rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.75rem;
+  background: var(--color-surface-muted);
+  color: var(--color-text-2);
+  font-weight: 650;
+}
+
 .box-detail-compact-grid {
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
 }
@@ -894,6 +910,40 @@ th {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.box-detail-notes-card-empty {
+  padding-block: 0.8rem;
+}
+
+.box-detail-notes-card-empty h3 {
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.4rem;
+}
+
+.box-detail-notes-card-empty p,
+.box-collapsed-section-summary {
+  color: var(--color-text-3);
+}
+
+.box-detail-working-section {
+  margin-top: 1.05rem;
+  min-width: 0;
+}
+
+.box-detail-working-section > .panel {
+  margin: 0;
+  border-color: var(--color-border-strong);
+  box-shadow: none;
+}
+
+.box-current-activity-card {
+  margin-top: 1.05rem;
+}
+
+.box-current-activity-card .muted-text,
+.box-origin-section .muted-text {
+  margin: 0;
 }
 
 .box-technical-details-card {
@@ -935,6 +985,10 @@ th {
 
 .box-technical-details-body[hidden] {
   display: none;
+}
+
+.box-origin-section {
+  display: block;
 }
 
 :root[data-theme="dark"] .box-technical-details-toggle.button {
@@ -1743,17 +1797,32 @@ textarea {
 
 .box-detail-title-copy {
   display: grid;
-  gap: 1.05rem;
+  gap: 0.45rem;
   min-width: 0;
 }
 
 .box-detail-title-copy .eyebrow,
-.box-detail-title-copy h2 {
+.box-detail-title-copy h2,
+.box-detail-subtitle {
   margin: 0;
 }
 
 .box-detail-title-copy h2 {
   overflow-wrap: anywhere;
+}
+
+.box-detail-subtitle {
+  color: var(--color-text-2);
+  font-size: 1rem;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.box-detail-subtitle-muted {
+  color: var(--color-text-3);
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .box-detail-header-meta {

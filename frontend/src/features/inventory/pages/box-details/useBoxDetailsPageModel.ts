@@ -81,7 +81,7 @@ export function useBoxDetailsPageModel() {
   const allocationsQuery = useBoxAllocations(boxId);
   const warehouseRegistry = useWarehouseRegistry();
   const [isEditing, setIsEditing] = useState(false);
-  const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(true);
+  const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(false);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
   const didHandleScanCheckIn = useRef(false);
   const didAutoOpenOrderedReceiveKey = useRef('');
@@ -314,7 +314,7 @@ export function useBoxDetailsPageModel() {
   ]);
 
   useEffect(() => {
-    setIsAllocationsSectionCollapsed(true);
+    setIsAllocationsSectionCollapsed(false);
     setIsHistorySectionCollapsed(true);
   }, [boxId]);
 

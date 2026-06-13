@@ -7,7 +7,7 @@ import {
   MobileRecordHeader
 } from '../../../components/MobileRecordCard';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
-import { formatDate, formatDateTime } from '../../../lib/date';
+import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { useBoxAllocations } from '../hooks/useInventoryQueries';
 import { buildAllocationJobRoute } from '../utils/jobRoutes';
@@ -17,16 +17,24 @@ function renderDate(value: string): string {
   return value ? formatDate(value) : '--';
 }
 
-function renderDateTime(value: string): string {
-  return value ? formatDateTime(value) : '--';
-}
-
-function formatReservedFeet(allocatedFeet: number) {
+function formatClaimedFeet(allocatedFeet: number) {
   return `${allocatedFeet} LF`;
 }
 
 function formatJobLabel(entry: AllocationEntry) {
   return formatJobDisplayLabel(entry) || '--';
+}
+
+function renderWorkScope(entry: AllocationEntry) {
+  return String(entry.workScope || entry.sections || '').trim() || '--';
+}
+
+function renderPlanningState(entry: AllocationEntry) {
+  const normalizedState = String(entry.reservationState || '').trim().toUpperCase();
+  if (normalizedState === 'WITH_INSTALL_DATE' || entry.installDate) {
+    return 'Scheduled';
+  }
+  return 'Placeholder';
 }
 
 function renderJobValue(entry: AllocationEntry) {
@@ -84,13 +92,14 @@ export function AllocationsPanel({
                 <MobileRecordCard key={entry.allocationId}>
                   <MobileRecordHeader
                     title={formatJobLabel(entry)}
-                    subtitle={renderDateTime(entry.createdAt)}
+                    subtitle={`${formatClaimedFeet(entry.allocatedFeet)} claimed`}
                   />
                   <MobileFieldList>
-                    <MobileField label="Created" value={renderDateTime(entry.createdAt)} />
                     <MobileField label="Job" value={renderJobValue(entry)} />
                     <MobileField label="Install Date" value={renderDate(entry.installDate)} />
-                    <MobileField label="LF Reserved" value={formatReservedFeet(entry.allocatedFeet)} />
+                    <MobileField label="Work Scope" value={renderWorkScope(entry)} />
+                    <MobileField label="LF Claimed" value={formatClaimedFeet(entry.allocatedFeet)} />
+                    <MobileField label="Planning State" value={renderPlanningState(entry)} />
                   </MobileFieldList>
                 </MobileRecordCard>
               ))}
@@ -100,19 +109,21 @@ export function AllocationsPanel({
               <table>
                 <thead>
                   <tr>
-                    <th>Created</th>
                     <th>Job</th>
                     <th>Install Date</th>
-                    <th>LF Reserved</th>
+                    <th>Work Scope</th>
+                    <th>LF Claimed</th>
+                    <th>Planning State</th>
                   </tr>
                 </thead>
                 <tbody>
                   {activeAllocations.map((entry) => (
                     <tr key={entry.allocationId}>
-                      <td>{renderDateTime(entry.createdAt)}</td>
                       <td>{renderJobValue(entry)}</td>
                       <td>{renderDate(entry.installDate)}</td>
-                      <td>{formatReservedFeet(entry.allocatedFeet)}</td>
+                      <td>{renderWorkScope(entry)}</td>
+                      <td>{formatClaimedFeet(entry.allocatedFeet)}</td>
+                      <td>{renderPlanningState(entry)}</td>
                     </tr>
                   ))}
                 </tbody>

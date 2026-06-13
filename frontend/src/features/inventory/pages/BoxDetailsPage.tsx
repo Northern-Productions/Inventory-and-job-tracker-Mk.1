@@ -136,12 +136,13 @@ export default function BoxDetailsPage() {
         onDownloadQrImage={handleDownloadQrImage}
         onCopyQrCode={() => void handleCopyQrCode()}
         onOpenOrderedReceiveDialog={() => boxActions.handleStatusChange('IN_STOCK')}
-      />
-
-      <AllocationsPanel
-        boxId={box.boxId}
-        collapsed={isAllocationsSectionCollapsed}
-        onToggle={() => setIsAllocationsSectionCollapsed((current) => !current)}
+        allocationsSection={
+          <AllocationsPanel
+            boxId={box.boxId}
+            collapsed={isAllocationsSectionCollapsed}
+            onToggle={() => setIsAllocationsSectionCollapsed((current) => !current)}
+          />
+        }
       />
       <HistoryPanel
         boxId={box.boxId}

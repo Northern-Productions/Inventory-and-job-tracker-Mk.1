@@ -4,6 +4,7 @@ import { Button } from '../../../../components/Button';
 import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
 import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
+import { buildAllocationJobRoute } from '../../utils/jobRoutes';
 
 function DetailField({
   label,
@@ -45,6 +46,62 @@ function formatBoxStatusLabel(status: string) {
   return status === 'TRANSFER' ? 'Transfer' : status.replace(/_/g, ' ');
 }
 
+function formatBoxStatusSentence(status: string) {
+  return formatBoxStatusLabel(status)
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatLf(value: number) {
+  return `${Math.max(0, Math.floor(Number(value) || 0))} LF`;
+}
+
+function getAvailabilitySentence({
+  status,
+  allocatableNowFeet,
+  lockedFeet,
+  placeholderFeet,
+  availabilityKnown
+}: {
+  status: string;
+  allocatableNowFeet: number;
+  lockedFeet: number;
+  placeholderFeet: number;
+  availabilityKnown: boolean;
+}) {
+  if (!availabilityKnown) {
+    return 'Availability details are not available for this box.';
+  }
+
+  if (status === 'CHECKED_OUT' && allocatableNowFeet <= 0) {
+    const reservedCopy =
+      lockedFeet > 0 && placeholderFeet > 0
+        ? 'scheduled or planned'
+        : placeholderFeet > 0
+          ? 'planned as placeholder'
+          : 'scheduled';
+    return `This box is checked out. All remaining film is currently ${reservedCopy}, so 0 LF is available to allocate.`;
+  }
+
+  if (allocatableNowFeet > 0) {
+    return `This box has ${formatLf(allocatableNowFeet)} available to allocate.`;
+  }
+
+  if (lockedFeet > 0 && placeholderFeet > 0) {
+    return `This box has ${formatLf(lockedFeet)} scheduled and ${formatLf(placeholderFeet)} planned as placeholder.`;
+  }
+
+  if (lockedFeet > 0) {
+    return `This box has ${formatLf(lockedFeet)} scheduled.`;
+  }
+
+  if (placeholderFeet > 0) {
+    return `This box has ${formatLf(placeholderFeet)} planned as placeholder.`;
+  }
+
+  return 'This box has no available film remaining.';
+}
+
 interface BoxDetailHeroSectionProps {
   box: Box;
   pendingTransfer: BoxTransferEntry | null;
@@ -71,6 +128,7 @@ interface BoxDetailHeroSectionProps {
   onDownloadQrImage: () => void;
   onCopyQrCode: () => void;
   onOpenOrderedReceiveDialog: () => void;
+  allocationsSection: ReactNode;
 }
 
 export function BoxDetailHeroSection({
@@ -98,10 +156,13 @@ export function BoxDetailHeroSection({
   onCopyQrImage,
   onDownloadQrImage,
   onCopyQrCode,
-  onOpenOrderedReceiveDialog
+  onOpenOrderedReceiveDialog,
+  allocationsSection
 }: BoxDetailHeroSectionProps) {
   const technicalDetailsId = useId();
+  const originDetailsId = useId();
   const [isTechnicalDetailsOpen, setIsTechnicalDetailsOpen] = useState(false);
+  const [isOriginDetailsOpen, setIsOriginDetailsOpen] = useState(false);
   const canReceiveOrderedBox =
     !isEditing &&
     !pendingTransfer &&
@@ -148,10 +209,52 @@ export function BoxDetailHeroSection({
 
     return hints;
   }, [box.status, canWriteInventory, isAuthenticated, isEditing, shouldBlockEditWhileAllocationsResolve]);
-  const allocatableNowFeet = box.allocatableNowFeet ?? box.allocationPlanningFeet ?? box.feetAvailable;
+  const allocatableNowFeet = Math.max(0, Number(box.allocatableNowFeet ?? box.allocationPlanningFeet ?? box.feetAvailable ?? 0));
   const physicalFeetOnHand = currentFeetOnRoll ?? box.physicalFeetAvailable ?? box.feetAvailable;
-  const lockedFeet = box.allocatedWithInstallDateFeet ?? 0;
-  const placeholderFeet = box.allocatedWithoutInstallDateFeet ?? Math.max(displayedAllocatedFeet - lockedFeet, 0);
+  const lockedFeet = Math.max(0, Number(box.allocatedWithInstallDateFeet ?? 0));
+  const placeholderFeet = Math.max(
+    0,
+    Number(box.allocatedWithoutInstallDateFeet ?? Math.max(displayedAllocatedFeet - lockedFeet, 0))
+  );
+  const availabilityKnown = !(
+    currentFeetOnRoll === null &&
+    box.physicalFeetAvailable === undefined &&
+    box.allocatableNowFeet === undefined &&
+    box.allocationPlanningFeet === undefined
+  );
+  const availabilitySentence = getAvailabilitySentence({
+    status: box.status,
+    allocatableNowFeet,
+    lockedFeet,
+    placeholderFeet,
+    availabilityKnown
+  });
+  const filmIdentityLine = [box.manufacturer, box.filmName, `${box.widthIn}"`]
+    .filter((entry) => String(entry || '').trim())
+    .join(' \u00b7 ');
+  const warehouseStatusLine = [
+    `${getWarehouseLabel(box.warehouse)} warehouse`,
+    formatBoxStatusSentence(box.status)
+  ]
+    .filter((entry) => String(entry || '').trim())
+    .join(' \u00b7 ');
+  const notesText = String(box.notes || '').trim();
+  const hasNotes = Boolean(notesText && notesText !== '--');
+  const checkoutJobLabel = box.lastCheckoutJob
+    ? formatJobDisplayLabel({
+        jobNumber: box.lastCheckoutJob,
+        warehouse: box.warehouse,
+        workScope: box.lastCheckoutWorkScope || box.lastCheckoutSections || null
+      })
+    : '';
+  const checkoutJobValue =
+    box.lastCheckoutJobId && checkoutJobLabel ? (
+      <Link to={buildAllocationJobRoute({ jobId: box.lastCheckoutJobId, jobNumber: box.lastCheckoutJob })}>
+        {checkoutJobLabel}
+      </Link>
+    ) : (
+      checkoutJobLabel || '--'
+    );
   const orderedForJobs = Array.isArray(box.orderedForJobs)
     ? box.orderedForJobs.filter((entry) => entry.jobNumber || entry.filmOrderId)
     : [];
@@ -162,9 +265,10 @@ export function BoxDetailHeroSection({
         <div className="box-detail-title-copy">
           <p className="eyebrow">BOX DETAILS</p>
           <h2>{box.boxId}</h2>
+          {filmIdentityLine ? <p className="box-detail-subtitle">{filmIdentityLine}</p> : null}
+          {warehouseStatusLine ? <p className="box-detail-subtitle box-detail-subtitle-muted">{warehouseStatusLine}</p> : null}
         </div>
         <div className="box-detail-header-meta">
-          <span className="warehouse-pill">{getWarehouseLabel(box.warehouse)} warehouse</span>
           <div className="box-detail-action-row">
             <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
             {!pendingTransfer && box.status === 'ORDERED' ? (
@@ -189,55 +293,66 @@ export function BoxDetailHeroSection({
           <h3>Feet Summary</h3>
           <dl className="stat-grid">
             <DetailField
-              label="On Hand Feet"
+              label="Physical LF Remaining"
               value={currentFeetOnRoll === null && box.physicalFeetAvailable === undefined ? '...' : physicalFeetOnHand}
               labelClassName="detail-label-pill detail-label-pill-green"
             />
             <DetailField
-              label="Allocatable Now"
+              label="Available to Allocate"
               value={allocatableNowFeet}
               labelClassName="detail-label-pill detail-label-pill-green"
             />
             <DetailField
-              label="Locked Feet"
+              label="Scheduled LF"
               value={lockedFeet}
               labelClassName="detail-label-pill detail-label-pill-orange"
             />
             <DetailField
-              label="Placeholder Feet"
+              label="Placeholder LF"
               value={allocationsLoading ? '...' : placeholderFeet}
               labelClassName="detail-label-pill detail-label-pill-red"
             />
           </dl>
-        </section>
-
-        <section className="box-detail-info-card">
-          <h3>Film Identity</h3>
-          <dl className="detail-grid box-detail-compact-grid">
-            <DetailField label="Manufacturer" value={box.manufacturer} />
-            <DetailField label="Film Name" value={box.filmName} />
-            <DetailField
-              label="Width"
-              value={box.widthIn}
-              labelClassName="detail-label-pill detail-label-pill-orange"
-            />
-          </dl>
-        </section>
-
-        <section className="box-detail-info-card">
-          <h3>Dates & Roll Info</h3>
-          <dl className="detail-grid box-detail-compact-grid">
-            <DetailField label="Date Ordered" value={formatDate(box.orderDate)} />
-            <DetailField label="Date Received" value={formatDate(box.receivedDate)} />
-            <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
-            <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
-          </dl>
+          <p className="box-detail-availability-note">{availabilitySentence}</p>
         </section>
       </div>
 
-      <section className="box-detail-notes-card">
+      <section className={`box-detail-notes-card ${hasNotes ? '' : 'box-detail-notes-card-empty'}`.trim()}>
         <h3>Notes</h3>
-        <p>{box.notes || '--'}</p>
+        <p>{hasNotes ? notesText : 'No notes recorded.'}</p>
+      </section>
+
+      <div className="box-detail-working-section">{allocationsSection}</div>
+
+      {box.status === 'CHECKED_OUT' ? (
+        <section className="box-detail-info-card box-current-activity-card">
+          <h3>Current Activity</h3>
+          {box.lastCheckoutJob || box.lastCheckoutDate ? (
+            <dl className="detail-grid box-detail-compact-grid">
+              <DetailField label="State" value="Checked out" />
+              <DetailField label="Related Job" value={checkoutJobValue} />
+              <DetailField label="Checked Out" value={formatDate(box.lastCheckoutDate)} />
+              <DetailField
+                label="Work Scope"
+                value={box.lastCheckoutWorkScope || box.lastCheckoutSections || '--'}
+              />
+            </dl>
+          ) : (
+            <p className="muted-text">
+              This box is currently checked out. Latest checkout details are not available.
+            </p>
+          )}
+        </section>
+      ) : null}
+
+      <section className="box-detail-info-card">
+        <h3>Dates &amp; Roll Info</h3>
+        <dl className="detail-grid box-detail-compact-grid">
+          <DetailField label="Date Ordered" value={formatDate(box.orderDate)} />
+          <DetailField label="Date Received" value={formatDate(box.receivedDate)} />
+          <DetailField label="Last Roll Weight" value={box.lastRollWeightLbs} />
+          <DetailField label="Last Weighed Date" value={formatDate(box.lastWeighedDate)} />
+        </dl>
       </section>
 
       <section className="box-technical-details-card" aria-labelledby={`${technicalDetailsId}-heading`}>
@@ -277,12 +392,29 @@ export function BoxDetailHeroSection({
         </dl>
       </section>
 
-      <section className="box-origin-section">
-        <div className="panel-title-row">
-          <h3>Origin</h3>
-          <span className="muted-text">Read-only</span>
+      <section className="box-technical-details-card box-origin-section" aria-labelledby={`${originDetailsId}-heading`}>
+        <div className="box-technical-details-header">
+          <div>
+            <h3 id={`${originDetailsId}-heading`}>Origin</h3>
+            <p className="muted-text box-collapsed-section-summary">
+              {orderedForJobs.length ? `${orderedForJobs.length} recorded origin${orderedForJobs.length === 1 ? '' : 's'}` : 'No origin recorded'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="box-technical-details-toggle"
+            aria-expanded={isOriginDetailsOpen}
+            aria-controls={`${originDetailsId}-body`}
+            aria-label={`${isOriginDetailsOpen ? 'Close' : 'Open'} Origin`}
+            onClick={() => setIsOriginDetailsOpen((current) => !current)}
+          >
+            {isOriginDetailsOpen ? 'Close' : 'Open'}
+          </Button>
         </div>
-        {orderedForJobs.length ? (
+        <div id={`${originDetailsId}-body`} hidden={!isOriginDetailsOpen} className="box-technical-details-body">
+          {orderedForJobs.length ? (
           <div className="box-origin-grid">
             {orderedForJobs.map((entry) => {
               const jobLabel = entry.jobNumber
@@ -327,9 +459,10 @@ export function BoxDetailHeroSection({
               );
             })}
           </div>
-        ) : (
-          <div className="empty-state">No origin recorded.</div>
-        )}
+          ) : (
+            <div className="empty-state">No origin recorded.</div>
+          )}
+        </div>
       </section>
 
       {pendingTransfer ? (

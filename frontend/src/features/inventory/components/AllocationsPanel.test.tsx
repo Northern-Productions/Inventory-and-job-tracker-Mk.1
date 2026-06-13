@@ -122,14 +122,17 @@ describe('AllocationsPanel', () => {
 
     renderPanel({ boxId: 'IL1-100' });
 
-    expect(screen.getByText('Created')).toBeTruthy();
     expect(screen.getByText('Job')).toBeTruthy();
     expect(screen.getByText('Install Date')).toBeTruthy();
-    expect(screen.getByText('LF Reserved')).toBeTruthy();
+    expect(screen.getByText('Work Scope')).toBeTruthy();
+    expect(screen.getByText('LF Claimed')).toBeTruthy();
+    expect(screen.getByText('Planning State')).toBeTruthy();
     expect(screen.getByText('24 LF')).toBeTruthy();
+    expect(screen.getByText('Scheduled')).toBeTruthy();
     expect(screen.queryByText('IL1-9999')).toBeNull();
     expect(screen.queryByText('Reservation')).toBeNull();
     expect(screen.queryByText('Status')).toBeNull();
+    expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('Resolved')).toBeNull();
   });
 
