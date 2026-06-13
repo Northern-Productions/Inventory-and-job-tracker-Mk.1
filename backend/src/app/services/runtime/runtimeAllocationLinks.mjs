@@ -201,6 +201,7 @@ import {
 } from './runtimeAllocationCoverage.mjs';
 import { buildPublicAllocationEntriesForJob } from './runtimeJobSummaries.mjs';
 import { createAllocationRecord } from './runtimeAllocationPlanning.mjs';
+import { findLatestCheckoutAuditEntryByBoxId } from './checkout/audit.mjs';
 import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 
 function hasNonCancelledAllocationForBoxJob(allocations, boxId, jobNumber, jobId = '') {
