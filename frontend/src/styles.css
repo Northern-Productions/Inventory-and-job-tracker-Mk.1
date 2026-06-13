@@ -4457,19 +4457,22 @@ td.col-available-linear-ft {
   width: 0.78rem;
   height: 0.78rem;
   border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  border: 1px solid currentColor;
 }
 
 .job-calendar-status-legend-swatch-ready {
-  background: #166534;
+  background: #d9efe2;
+  color: #1b6b45;
 }
 
 .job-calendar-status-legend-swatch-film-order {
-  background: #b42318;
+  background: #fff0ec;
+  color: #a33a2b;
 }
 
 .job-calendar-status-legend-swatch-ordered {
-  background: #1d4ed8;
+  background: #dce7fb;
+  color: #1b4f9c;
 }
 
 .job-calendar-shell {
@@ -4887,23 +4890,23 @@ td.col-available-linear-ft {
 
 .job-calendar-job-link.job-calendar-job-link-status-ready,
 .job-calendar-event-bar.job-calendar-job-link-status-ready {
-  border-color: rgba(22, 101, 52, 0.42);
-  background: #166534;
-  color: #ffffff;
+  border-color: rgba(27, 107, 69, 0.28);
+  background: #d9efe2;
+  color: #1b6b45;
 }
 
 .job-calendar-job-link.job-calendar-job-link-status-film-order,
 .job-calendar-event-bar.job-calendar-job-link-status-film-order {
-  border-color: rgba(180, 35, 24, 0.46);
-  background: #b42318;
-  color: #ffffff;
+  border-color: rgba(163, 58, 43, 0.3);
+  background: #fff0ec;
+  color: #a33a2b;
 }
 
 .job-calendar-job-link.job-calendar-job-link-status-ordered,
 .job-calendar-event-bar.job-calendar-job-link-status-ordered {
-  border-color: rgba(29, 78, 216, 0.46);
-  background: #1d4ed8;
-  color: #ffffff;
+  border-color: rgba(27, 79, 156, 0.3);
+  background: #dce7fb;
+  color: #1b4f9c;
 }
 
 .job-calendar-job-link.job-calendar-job-link-status-neutral,
@@ -6324,25 +6327,40 @@ th {
   color: var(--color-text-2);
 }
 
+:root[data-theme="dark"] .job-calendar-status-legend-swatch-ready {
+  background: rgba(104, 211, 145, 0.18);
+  color: #d9ffe8;
+}
+
+:root[data-theme="dark"] .job-calendar-status-legend-swatch-film-order {
+  background: rgba(255, 137, 120, 0.18);
+  color: #ffd3cb;
+}
+
+:root[data-theme="dark"] .job-calendar-status-legend-swatch-ordered {
+  background: rgba(138, 188, 255, 0.2);
+  color: #dbeaff;
+}
+
 :root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-ready,
 :root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-ready {
-  border-color: rgba(134, 239, 172, 0.36);
-  background: #15803d;
-  color: #f0fff5;
+  border-color: rgba(104, 211, 145, 0.34);
+  background: rgba(104, 211, 145, 0.18);
+  color: #d9ffe8;
 }
 
 :root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-film-order,
 :root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-film-order {
-  border-color: rgba(252, 165, 165, 0.38);
-  background: #b91c1c;
-  color: #fff5f5;
+  border-color: rgba(255, 137, 120, 0.34);
+  background: rgba(255, 137, 120, 0.18);
+  color: #ffd3cb;
 }
 
 :root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-ordered,
 :root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-ordered {
-  border-color: rgba(147, 197, 253, 0.42);
-  background: #1d4ed8;
-  color: #f4f8ff;
+  border-color: rgba(138, 188, 255, 0.36);
+  background: rgba(138, 188, 255, 0.2);
+  color: #dbeaff;
 }
 
 :root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-neutral,
