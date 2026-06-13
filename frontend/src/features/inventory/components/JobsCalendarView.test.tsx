@@ -56,7 +56,7 @@ describe('JobsCalendarView', () => {
               lifecycleStatus: 'COMPLETED'
             }),
             buildJob({ jobNumber: '10003', installDate: '2026-03-24', status: 'FILM_ORDER' }),
-            buildJob({ jobNumber: '10004', installDate: '2026-03-24' })
+            buildJob({ jobNumber: '10004', installDate: '2026-03-24', hasOrderedAllocations: true })
           ]}
           navigationStatus={{ kind: 'loading', label: 'Loading Mar 29 - Apr 4, 2026...' }}
           transitionToken={1}
@@ -75,6 +75,10 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('job-calendar-grid-week');
     expect(html).toContain('job-calendar-shell-animate');
     expect(html).toContain('Calendar view');
+    expect(html).toContain('Calendar status colors');
+    expect(html).toContain('Ready');
+    expect(html).toContain('Film Order');
+    expect(html).toContain('Ordered / On the Way');
     expect(html).toContain('option value="week" selected=""');
     expect(html).toContain('job-calendar-nav-status-loading');
     expect(html).toContain('Loading Mar 29 - Apr 4, 2026...');
@@ -82,6 +86,8 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('IL1-10001 / Phase 2');
     expect(html).toContain('job-calendar-job-link-highlight');
     expect(html).toContain('job-calendar-job-link-status-ready');
+    expect(html).toContain('job-calendar-job-link-status-film-order');
+    expect(html).toContain('job-calendar-job-link-status-ordered');
     expect(html).toContain('job-calendar-stage-mark');
     expect(html).toContain('job-calendar-job-link-status-completed');
     expect(html).toContain('job-calendar-day-modal');

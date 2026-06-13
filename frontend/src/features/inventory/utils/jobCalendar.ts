@@ -408,17 +408,32 @@ export function formatCalendarPeriodLabel(view: JobCalendarView, anchorDate: str
 }
 
 export function getCalendarJobStatusClass(
-  entry: Pick<CalendarJob, 'status' | 'lifecycleStatus' | 'filmOrderCount' | 'isStagedForPickup'>
+  entry: Pick<CalendarJob, 'status' | 'lifecycleStatus' | 'filmOrderCount' | 'hasOrderedAllocations'>
 ) {
-  if (String(entry.lifecycleStatus || '').toUpperCase() === 'COMPLETED' || entry.status === 'COMPLETED') {
+  const lifecycleStatus = String(entry.lifecycleStatus || '').trim().toUpperCase();
+  const displayStatus = getJobListDisplayStatus(entry.status, entry.filmOrderCount);
+
+  if (lifecycleStatus === 'COMPLETED' || displayStatus === 'COMPLETED') {
     return 'job-calendar-job-link-status-completed';
   }
 
-  if (getJobListDisplayStatus(entry.status, entry.filmOrderCount) === 'CANCELLED') {
+  if (lifecycleStatus === 'CANCELLED' || displayStatus === 'CANCELLED') {
     return 'job-calendar-job-link-status-cancelled';
   }
 
-  return 'job-calendar-job-link-status-ready';
+  if (entry.hasOrderedAllocations || displayStatus === 'ORDERED') {
+    return 'job-calendar-job-link-status-ordered';
+  }
+
+  if (displayStatus === 'FILM_ORDER') {
+    return 'job-calendar-job-link-status-film-order';
+  }
+
+  if (displayStatus === 'READY') {
+    return 'job-calendar-job-link-status-ready';
+  }
+
+  return 'job-calendar-job-link-status-neutral';
 }
 
 export const getJobCalendarStatusClassName = getCalendarJobStatusClass;

@@ -156,13 +156,31 @@ describe('jobCalendar', () => {
       getCalendarJobStatusClass(
         buildJob({ jobNumber: '50000', status: 'FILM_ORDER', isStagedForPickup: true })
       )
-    ).toBe('job-calendar-job-link-status-ready');
+    ).toBe('job-calendar-job-link-status-film-order');
 
     expect(
       getCalendarJobStatusClass(
         buildJob({ jobNumber: '60000', status: 'ORDERED' })
       )
+    ).toBe('job-calendar-job-link-status-ordered');
+  });
+
+  it('maps calendar job bars to existing material status signals', () => {
+    expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70000', status: 'READY' }))
     ).toBe('job-calendar-job-link-status-ready');
+    expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70001', status: 'READY', filmOrderCount: 1 }))
+    ).toBe('job-calendar-job-link-status-film-order');
+    expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70002', status: 'FILM_ORDER' }))
+    ).toBe('job-calendar-job-link-status-film-order');
+    expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70003', status: 'READY', hasOrderedAllocations: true }))
+    ).toBe('job-calendar-job-link-status-ordered');
+    expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70004', status: 'SCHEDULED' as CalendarJob['status'] }))
+    ).toBe('job-calendar-job-link-status-neutral');
   });
 
   it('prefers the current workflow when cross-workflow search results tie', () => {

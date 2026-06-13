@@ -436,6 +436,29 @@ export function JobsCalendarView({
             <div>
               <p className="eyebrow job-calendar-eyebrow">Install schedule</p>
               <h3 className="job-calendar-title">Install Calendar</h3>
+              <div className="job-calendar-status-legend" role="list" aria-label="Calendar status colors">
+                <span className="job-calendar-status-legend-item" role="listitem">
+                  <span
+                    className="job-calendar-status-legend-swatch job-calendar-status-legend-swatch-ready"
+                    aria-hidden="true"
+                  />
+                  Ready
+                </span>
+                <span className="job-calendar-status-legend-item" role="listitem">
+                  <span
+                    className="job-calendar-status-legend-swatch job-calendar-status-legend-swatch-film-order"
+                    aria-hidden="true"
+                  />
+                  Film Order
+                </span>
+                <span className="job-calendar-status-legend-item" role="listitem">
+                  <span
+                    className="job-calendar-status-legend-swatch job-calendar-status-legend-swatch-ordered"
+                    aria-hidden="true"
+                  />
+                  Ordered / On the Way
+                </span>
+              </div>
             </div>
             <div className="job-calendar-controls-stack">
               <div className="job-calendar-month-controls" aria-label="Calendar navigation">

@@ -4436,6 +4436,42 @@ td.col-available-linear-ft {
   margin: 0;
 }
 
+.job-calendar-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  margin-top: 0.65rem;
+  color: #48656b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.job-calendar-status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.job-calendar-status-legend-swatch {
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.job-calendar-status-legend-swatch-ready {
+  background: #166534;
+}
+
+.job-calendar-status-legend-swatch-film-order {
+  background: #b42318;
+}
+
+.job-calendar-status-legend-swatch-ordered {
+  background: #1d4ed8;
+}
+
 .job-calendar-shell {
   display: grid;
   gap: 1rem;
@@ -4849,32 +4885,50 @@ td.col-available-linear-ft {
   border-style: solid;
 }
 
-.job-calendar-job-link-status-ready {
-  color: #2f8f61;
+.job-calendar-job-link.job-calendar-job-link-status-ready,
+.job-calendar-event-bar.job-calendar-job-link-status-ready {
+  border-color: rgba(22, 101, 52, 0.42);
+  background: #166534;
+  color: #ffffff;
 }
 
-.job-calendar-job-link-status-allocate {
+.job-calendar-job-link.job-calendar-job-link-status-film-order,
+.job-calendar-event-bar.job-calendar-job-link-status-film-order {
+  border-color: rgba(180, 35, 24, 0.46);
+  background: #b42318;
+  color: #ffffff;
+}
+
+.job-calendar-job-link.job-calendar-job-link-status-ordered,
+.job-calendar-event-bar.job-calendar-job-link-status-ordered {
+  border-color: rgba(29, 78, 216, 0.46);
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.job-calendar-job-link.job-calendar-job-link-status-neutral,
+.job-calendar-event-bar.job-calendar-job-link-status-neutral {
+  color: #24464d;
+}
+
+.job-calendar-job-link.job-calendar-job-link-status-allocate,
+.job-calendar-event-bar.job-calendar-job-link-status-allocate {
   color: #c47b2d;
 }
 
-.job-calendar-job-link-status-film-order {
-  color: #2d6f8f;
-}
-
-.job-calendar-job-link-status-ordered {
-  color: #075985;
-}
-
-.job-calendar-job-link-status-conflict {
+.job-calendar-job-link.job-calendar-job-link-status-conflict,
+.job-calendar-event-bar.job-calendar-job-link-status-conflict {
   color: #9b3547;
 }
 
-.job-calendar-job-link-status-completed {
+.job-calendar-job-link.job-calendar-job-link-status-completed,
+.job-calendar-event-bar.job-calendar-job-link-status-completed {
   color: #77858a;
   background: rgba(241, 244, 244, 0.96);
 }
 
-.job-calendar-job-link-status-cancelled {
+.job-calendar-job-link.job-calendar-job-link-status-cancelled,
+.job-calendar-event-bar.job-calendar-job-link-status-cancelled {
   color: #93615d;
   background: rgba(250, 243, 242, 0.96);
 }
@@ -6264,6 +6318,49 @@ th {
   border-color: var(--color-border-soft);
   background: var(--color-surface-2);
   color: var(--color-text-1);
+}
+
+:root[data-theme="dark"] .job-calendar-status-legend {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-ready,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-ready {
+  border-color: rgba(134, 239, 172, 0.36);
+  background: #15803d;
+  color: #f0fff5;
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-film-order,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-film-order {
+  border-color: rgba(252, 165, 165, 0.38);
+  background: #b91c1c;
+  color: #fff5f5;
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-ordered,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-ordered {
+  border-color: rgba(147, 197, 253, 0.42);
+  background: #1d4ed8;
+  color: #f4f8ff;
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-neutral,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-neutral {
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-completed,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-completed {
+  background: rgba(255, 250, 240, 0.11);
+  color: var(--color-text-2);
+}
+
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-cancelled,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-cancelled {
+  background: rgba(255, 137, 120, 0.12);
+  color: #ffd3cb;
 }
 
 .job-phase-card:focus-visible,
