@@ -1103,10 +1103,15 @@ th {
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 a {
@@ -1280,6 +1285,7 @@ textarea {
   align-items: stretch;
   justify-content: flex-start;
   gap: 0.75rem;
+  min-width: 0;
   margin-bottom: 1rem;
 }
 
@@ -1305,6 +1311,7 @@ textarea {
   margin-inline: auto;
   display: grid;
   gap: 0.65rem;
+  min-width: 0;
   padding: calc(0.25rem + var(--app-shell-block-start-padding))
     var(--app-shell-inline-padding) 0.75rem;
   box-sizing: border-box;
@@ -1334,12 +1341,14 @@ textarea {
   align-items: center;
   gap: 0.5rem;
   flex: 0 0 auto;
+  min-width: 0;
   min-height: 2.35rem;
   position: relative;
   z-index: 45;
 }
 
 .app-header-warehouse {
+  min-width: 0;
   max-width: min(32vw, 18rem);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1350,6 +1359,8 @@ textarea {
 }
 
 .app-header h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 0;
   font-size: clamp(1.35rem, 2.6vw, 2.05rem);
 }
@@ -4419,6 +4430,7 @@ td.col-available-linear-ft {
 .job-calendar {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .job-calendar-header {
@@ -4426,6 +4438,12 @@ td.col-available-linear-ft {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+  min-width: 0;
+}
+
+.job-calendar-header > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-eyebrow {
@@ -4440,6 +4458,8 @@ td.col-available-linear-ft {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem 0.85rem;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 0.65rem;
   color: #48656b;
   font-size: 0.78rem;
@@ -4478,6 +4498,8 @@ td.col-available-linear-ft {
 .job-calendar-shell {
   display: grid;
   gap: 1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-shell-animate {
@@ -4489,6 +4511,8 @@ td.col-available-linear-ft {
   display: grid;
   justify-items: end;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-month-controls {
@@ -4497,6 +4521,8 @@ td.col-available-linear-ft {
   gap: 0.45rem;
   align-items: center;
   justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-nav-status {
@@ -4646,6 +4672,8 @@ td.col-available-linear-ft {
 .job-calendar-day {
   display: grid;
   gap: 0.6rem;
+  box-sizing: border-box;
+  min-width: 0;
   min-height: 9.5rem;
   padding: 0.75rem;
   border: 1px solid rgba(18, 52, 59, 0.1);
@@ -4686,6 +4714,8 @@ td.col-available-linear-ft {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
   min-height: 2rem;
   padding: 0;
@@ -4731,6 +4761,8 @@ td.col-available-linear-ft {
   display: grid;
   gap: 0.4rem;
   align-content: start;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-job-stack-compact {
@@ -4742,7 +4774,10 @@ td.col-available-linear-ft {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
+  max-width: 100%;
   padding: 0.42rem 0.58rem;
   border-radius: 0.75rem;
   border: 1px solid rgba(18, 52, 59, 0.08);
@@ -4958,11 +4993,16 @@ td.col-available-linear-ft {
 .job-calendar-week-list {
   display: grid;
   gap: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .job-calendar-week-card {
   display: grid;
   gap: 0.75rem;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   width: 100%;
   padding: 0.9rem;
   border: 1px solid rgba(18, 52, 59, 0.1);
@@ -4988,6 +5028,8 @@ td.col-available-linear-ft {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
   padding: 0;
   border: 0;
@@ -5009,11 +5051,13 @@ td.col-available-linear-ft {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .job-calendar-week-card-copy {
   display: grid;
   gap: 0.15rem;
+  min-width: 0;
 }
 
 .job-calendar-week-card-title {
