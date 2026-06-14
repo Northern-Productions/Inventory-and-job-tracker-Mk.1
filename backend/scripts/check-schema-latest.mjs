@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations.sql';
+const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -211,12 +211,25 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'app_api.recalculate_film_order(uuid, text, text)',
     includes: [
       'v_link_count > 0',
+      'update app.film_order_box_links l',
+      "a.status in ('ACTIVE', 'FULFILLED')",
       'app_api.compute_covered_feet_from_allocation(',
       'coalesce(b.initial_feet, l.ordered_feet, 0)',
+      'app_api.box_physical_feet_available(b)',
       "upper(coalesce(b.status::text, '')) <> 'ORDERED'",
       'v_received_link_count = v_link_count'
     ],
     excludes: ['coalesce(sum(l.ordered_feet)']
+  },
+  {
+    signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)',
+    includes: [
+      'from app.film_order_box_links l',
+      'l.film_order_id = fo.film_order_id',
+      "'NO_MATCHING_FILM_ORDER'",
+      'v_primary_order.requested_feet := v_needed_order_feet'
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.process_linked_box_receipt(uuid, app.boxes, text)',

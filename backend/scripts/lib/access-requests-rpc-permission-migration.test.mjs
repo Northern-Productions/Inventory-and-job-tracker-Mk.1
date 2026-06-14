@@ -65,7 +65,7 @@ test('latest schema check guards access requests RPC execute permission', async 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0159_box_lf_correction_reconciles_allocations\.sql/);
+  assert.match(schemaCheck, /0161_linked_film_order_shortage_reconcile_guard\.sql/);
 
   assert.match(schemaCheck, /public\.api_list_access_requests\(uuid, text\)/);
   assert.match(schemaCheck, /'api_list_access_requests'/);

@@ -587,6 +587,48 @@ test('recalculateFilmOrder trusts corrected linked box LF instead of stale link 
   assert.equal(client.state.filmOrder.resolved_by, '');
 });
 
+test('recalculateFilmOrder uses physical LF and synced linked allocation after received-box LF correction', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    initial_feet: 82,
+    feet_available: 0,
+    width_in: 36,
+    status: 'IN_STOCK',
+    received_date: '2026-04-23',
+  });
+  client.state.filmOrder = createFilmOrderRow({
+    requested_feet: 82,
+    covered_feet: 82,
+    ordered_feet: 82,
+    remaining_to_order_feet: 0,
+    status: 'FULFILLED',
+    resolved_at: '2026-04-23T10:00:00Z',
+    resolved_by: 'warehouse-user',
+  });
+  client.state.filmOrderLink = createFilmOrderLinkRow({
+    ordered_feet: 82,
+    auto_allocated_feet: 82,
+  });
+  client.state.allocations = [
+    createAllocationRow({
+      allocated_feet: 80,
+      covered_feet: 80,
+      film_order_id: 'FO-RECEIVE-1',
+      status: 'ACTIVE',
+    }),
+  ];
+
+  await recalculateFilmOrder(client, 'org-1', 'FO-RECEIVE-1', 'warehouse-user');
+
+  assert.equal(client.state.filmOrder.covered_feet, 80);
+  assert.equal(client.state.filmOrder.ordered_feet, 80);
+  assert.equal(client.state.filmOrder.remaining_to_order_feet, 2);
+  assert.equal(client.state.filmOrder.status, 'FILM_ORDER');
+  assert.equal(client.state.filmOrder.resolved_at, null);
+  assert.equal(client.state.filmOrder.resolved_by, '');
+  assert.equal(client.state.filmOrderLink.auto_allocated_feet, 80);
+});
+
 test('receiveOrderedBox preserves existing core metrics when core type is omitted', async () => {
   const client = createRecordingClient();
   client.state.box = createBoxRow({

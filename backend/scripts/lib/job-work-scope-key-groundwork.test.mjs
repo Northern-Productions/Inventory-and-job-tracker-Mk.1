@@ -106,6 +106,8 @@ test('work scope key groundwork migration order precedes final duplicate enablem
     '0157_service_role_staged_pickup_acl.sql',
     '0158_material_flow_reconciliation_rules.sql',
     '0159_box_lf_correction_reconciles_allocations.sql',
+    '0160_linked_film_order_physical_lf_recalc.sql',
+    '0161_linked_film_order_shortage_reconcile_guard.sql',
   ];
   assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
   const expectedSupabaseTail = [
@@ -135,6 +137,8 @@ test('work scope key groundwork migration order precedes final duplicate enablem
     '20260608120000_service_role_staged_pickup_acl.sql',
     '20260608130000_material_flow_reconciliation_rules.sql',
     '20260613100000_box_lf_correction_reconciles_allocations.sql',
+    '20260613102000_linked_film_order_physical_lf_recalc.sql',
+    '20260613103000_linked_film_order_shortage_reconcile_guard.sql',
   ];
   assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
 
@@ -206,7 +210,7 @@ test('schema latest guard keeps work scope key generated column checks after dup
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/);
 
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);

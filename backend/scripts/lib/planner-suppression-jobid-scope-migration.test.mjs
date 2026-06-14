@@ -131,7 +131,7 @@ test('planner suppression jobId scope migration does not alter deferred workflow
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/);
 
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
 });

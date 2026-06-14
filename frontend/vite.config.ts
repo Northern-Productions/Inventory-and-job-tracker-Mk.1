@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const proxyTarget = env.VITE_PROXY_TARGET?.trim();
+  const proxyTarget = process.env.VITE_PROXY_TARGET?.trim() || env.VITE_PROXY_TARGET?.trim();
   const proxyUrl = proxyTarget ? new URL(proxyTarget) : null;
 
   return {

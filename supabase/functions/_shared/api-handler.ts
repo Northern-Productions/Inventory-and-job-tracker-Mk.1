@@ -72,6 +72,8 @@ import { rankJobNumberSearchCandidates } from "../../../shared/domain/jobNumberS
 import {
   buildBoxReservationSnapshot,
   getAllocationReservationState,
+  isOrderedFilmReservationBoxStatus,
+  isPhysicalFilmReservationBoxStatus,
 } from "../../../shared/domain/filmAllocationReservations.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 
@@ -6025,7 +6027,30 @@ function hasReceivedLinkedBoxStatus(status: unknown) {
   return normalizedStatus !== "" && normalizedStatus !== "ORDERED";
 }
 
-function getLinkedBoxPhysicalFeet(link: any, box: any): number {
+function getLinkedBoxPhysicalFeet(link: any, box: any, allocations: any[] = []): number {
+  if (isOrderedFilmReservationBoxStatus(box?.status)) {
+    const orderedBoxFeet = integerOrZero(box?.initialFeet);
+    if (orderedBoxFeet > 0) {
+      return orderedBoxFeet;
+    }
+
+    return integerOrZero(link?.orderedFeet || link?.ordered_feet);
+  }
+
+  if (isPhysicalFilmReservationBoxStatus(box?.status)) {
+    if (box?.physicalFeetAvailable !== null && box?.physicalFeetAvailable !== undefined) {
+      return integerOrZero(box.physicalFeetAvailable);
+    }
+
+    const reservationSnapshot = buildBoxReservationSnapshot(box, allocations);
+    if (
+      reservationSnapshot.physicalFeetAvailable !== null &&
+      reservationSnapshot.physicalFeetAvailable !== undefined
+    ) {
+      return integerOrZero(reservationSnapshot.physicalFeetAvailable);
+    }
+  }
+
   const correctedBoxFeet = integerOrZero(box?.initialFeet);
   if (correctedBoxFeet > 0) {
     return correctedBoxFeet;
@@ -6034,12 +6059,54 @@ function getLinkedBoxPhysicalFeet(link: any, box: any): number {
   return integerOrZero(link?.orderedFeet || link?.ordered_feet);
 }
 
-function getLinkedBoxCoveredFeetForFilmOrder(filmOrder: any, link: any, box: any): number {
+function getLinkedBoxCoveredFeetForFilmOrder(filmOrder: any, link: any, box: any, allocations: any[] = []): number {
   return computeCoveredFeetForAllocation(
-    getLinkedBoxPhysicalFeet(link, box),
+    getLinkedBoxPhysicalFeet(link, box, allocations),
     box?.widthIn || filmOrder?.widthIn,
     filmOrder?.widthIn,
   );
+}
+
+function getLinkedFilmOrderAllocatedFeet(allocations: any[], filmOrderId: string): number {
+  let total = 0;
+  const normalizedFilmOrderId = asTrimmedString(filmOrderId);
+
+  for (const allocation of Array.isArray(allocations) ? allocations : []) {
+    const status = asTrimmedString(allocation?.status).toUpperCase();
+    if (
+      asTrimmedString(allocation?.filmOrderId || allocation?.film_order_id) === normalizedFilmOrderId &&
+      (status === "ACTIVE" || status === "FULFILLED")
+    ) {
+      total += integerOrZero(allocation?.allocatedFeet ?? allocation?.allocated_feet);
+    }
+  }
+
+  return total;
+}
+
+async function syncFilmOrderLinkAllocatedFeet(
+  serviceClient: any,
+  orgId: string,
+  link: Record<string, unknown>,
+  allocations: any[],
+) {
+  const autoAllocatedFeet = getLinkedFilmOrderAllocatedFeet(allocations, asTrimmedString(link.filmOrderId));
+  if (autoAllocatedFeet === integerOrZero(link.autoAllocatedFeet)) {
+    return link;
+  }
+
+  const { error } = await serviceClient
+    .schema("app")
+    .from("film_order_box_links")
+    .update({ auto_allocated_feet: autoAllocatedFeet })
+    .eq("org_id", orgId)
+    .eq("link_id", asTrimmedString(link.linkId));
+  throwOnSupabaseError(error, `Unable to sync film order linked box ${asTrimmedString(link.boxId)}`);
+
+  return {
+    ...link,
+    autoAllocatedFeet,
+  };
 }
 
 async function summarizeFilmOrderLinkedBoxes(
@@ -6047,6 +6114,7 @@ async function summarizeFilmOrderLinkedBoxes(
   orgId: string,
   filmOrderId: string,
   filmOrder: any = null,
+  serviceClient: any = null,
 ) {
   const order = filmOrder || await findFilmOrderById(client, orgId, filmOrderId);
   if (!order) {
@@ -6083,7 +6151,12 @@ async function summarizeFilmOrderLinkedBoxes(
       continue;
     }
 
-    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(order, linkRecord, box);
+    const allocations = await listAllocationsByBox(client, orgId, boxId);
+    const syncedLink = serviceClient
+      ? await syncFilmOrderLinkAllocatedFeet(serviceClient, orgId, linkRecord, allocations)
+      : linkRecord;
+
+    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(order, syncedLink, box, allocations);
     if (!hasReceivedLinkedBoxStatus(box.status)) {
       allLinkedBoxesReceived = false;
     }
@@ -9521,7 +9594,7 @@ async function recalculateFilmOrderAfterAllocationMutation(
     }
   }
 
-  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId, existing);
+  const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId, existing, serviceClient);
   const orderedFeet = linkedBoxSummary.orderedFeet;
 
   const requestedFeet = integerOrZero(existing.requestedFeet);
