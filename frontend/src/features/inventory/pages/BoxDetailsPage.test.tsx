@@ -786,6 +786,7 @@ describe('BoxDetailsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    expect(within(dialog).getByRole('spinbutton', { name: /Current LF/i })).toBeTruthy();
     expect(within(dialog).getByRole('spinbutton', { name: /Weight \(lbs\)/i })).toBeTruthy();
     expect(within(dialog).getByRole('textbox', { name: /Lot\/Run Number/i })).toBeTruthy();
     expect(within(dialog).getByRole('combobox', { name: /Core Type/i })).toBeTruthy();
@@ -795,7 +796,8 @@ describe('BoxDetailsPage', () => {
 
     await waitFor(() =>
       expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
-        boxId: 'IL1-1234'
+        boxId: 'IL1-1234',
+        currentFeetOnRoll: 500
       })
     );
   });
@@ -854,7 +856,61 @@ describe('BoxDetailsPage', () => {
       expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
         boxId: 'IL1-1234',
         receivedWeightLbs: 18.5,
+        currentFeetOnRoll: 500,
         lotRun: 'LOT-42'
+      })
+    );
+  });
+
+  it('maps corrected ordered receive current LF into the dedicated mutation payload', async () => {
+    const receiveOrderedState = buildMutationState();
+    receiveOrderedState.mutateAsync.mockResolvedValue(
+      buildUpdateBoxResult({
+        status: 'IN_STOCK',
+        receivedDate: '2026-04-17',
+        initialFeet: 80,
+        feetAvailable: 0,
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      })
+    );
+    useReceiveOrderedBoxMock.mockReturnValue(receiveOrderedState);
+    useBoxMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'ORDERED',
+        receivedDate: '',
+        initialFeet: 82,
+        feetAvailable: 0,
+        lotRun: '',
+        coreType: '',
+        coreWeightLbs: null,
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: ''
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Box' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Receive IL1-1234' });
+    fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Current LF/i }), {
+      target: { value: '80' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Receive Box' }));
+
+    await waitFor(() =>
+      expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
+        boxId: 'IL1-1234',
+        currentFeetOnRoll: 80
       })
     );
   });
@@ -911,6 +967,7 @@ describe('BoxDetailsPage', () => {
     await waitFor(() =>
       expect(receiveOrderedState.mutateAsync).toHaveBeenCalledWith({
         boxId: 'IL1-1234',
+        currentFeetOnRoll: 500,
         coreType: 'Red plastic'
       })
     );

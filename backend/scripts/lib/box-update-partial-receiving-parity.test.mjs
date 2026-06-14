@@ -68,6 +68,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '0156_film_weight_profiles_foundation.sql',
     '0157_service_role_staged_pickup_acl.sql',
     '0158_material_flow_reconciliation_rules.sql',
+    '0159_box_lf_correction_reconciles_allocations.sql',
   ];
   assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
   const expectedSupabaseTail = [
@@ -93,6 +94,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '20260603100000_film_weight_profiles_foundation.sql',
     '20260608120000_service_role_staged_pickup_acl.sql',
     '20260608130000_material_flow_reconciliation_rules.sql',
+    '20260613100000_box_lf_correction_reconciles_allocations.sql',
   ];
   assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
 
@@ -133,7 +135,7 @@ test('schema latest guard catches stale box update partial receiving function dr
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations\.sql';/);
 
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);

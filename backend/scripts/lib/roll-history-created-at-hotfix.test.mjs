@@ -50,7 +50,7 @@ test('latest schema check still validates the roll history overload hotfix seman
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0158_material_flow_reconciliation_rules\.sql/);
+  assert.match(schemaCheck, /0159_box_lf_correction_reconciles_allocations\.sql/);
 
   assert.match(schemaCheck, /insert into app\.roll_weight_log \(/);
   assert.match(schemaCheck, /created_at\\n  \)/);

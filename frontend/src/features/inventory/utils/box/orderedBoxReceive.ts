@@ -4,6 +4,7 @@ import { CORE_TYPE_OPTIONS } from './boxRollTracking';
 
 export interface OrderedBoxReceiveDraft {
   receivedWeightLbs: string;
+  currentFeetOnRoll: string;
   lotRun: string;
   coreType: string;
 }
@@ -47,10 +48,11 @@ function parseOptionalCoreType(value: string): BoxCoreType {
 }
 
 export function createOrderedBoxReceiveDraft(
-  box: Pick<Box, 'lotRun' | 'coreType'>
+  box: Pick<Box, 'initialFeet' | 'lotRun' | 'coreType'>
 ): OrderedBoxReceiveDraft {
   return {
     receivedWeightLbs: '',
+    currentFeetOnRoll: String(Math.max(0, Math.floor(Number(box.initialFeet || 0)))),
     lotRun: box.lotRun,
     coreType: normalizeCoreTypeOption(box.coreType)
   };
@@ -59,6 +61,7 @@ export function createOrderedBoxReceiveDraft(
 export function validateOrderedBoxReceiveDraft(draft: OrderedBoxReceiveDraft) {
   return {
     receivedWeightLbs: parseOptionalNonNegativeNumber(draft.receivedWeightLbs, 'Weight'),
+    currentFeetOnRoll: parseOptionalNonNegativeNumber(draft.currentFeetOnRoll, 'Current Linear Feet'),
     lotRun: draft.lotRun.trim(),
     coreType: parseOptionalCoreType(draft.coreType)
   };
@@ -75,6 +78,10 @@ export function buildReceiveOrderedBoxPayload(
 
   if (validated.receivedWeightLbs !== undefined) {
     payload.receivedWeightLbs = validated.receivedWeightLbs;
+  }
+
+  if (validated.currentFeetOnRoll !== undefined) {
+    payload.currentFeetOnRoll = Math.floor(validated.currentFeetOnRoll);
   }
 
   if (validated.lotRun) {

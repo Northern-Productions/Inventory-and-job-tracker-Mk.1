@@ -13,6 +13,7 @@ import {
   saveBoxRecord,
   seedFilmCatalogRecordIfMissing,
   appendAuditEntry,
+  reconcileBoxCheckinAllocations,
 } from '../../runtimeDeps.mjs';
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
@@ -34,6 +35,20 @@ function parseOptionalReceivedWeight(value) {
   return roundToDecimals(parsed, 2);
 }
 
+function parseOptionalReceivedFeet(value) {
+  const trimmed = asTrimmedString(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new HttpError(400, 'CurrentFeetOnRoll must be a valid non-negative number.');
+  }
+
+  return Math.floor(parsed);
+}
+
 function sumLockedAllocatedFeet(allocations) {
   return (Array.isArray(allocations) ? allocations : []).reduce((total, entry) => {
     if (entry?.status !== 'ACTIVE') {
@@ -44,8 +59,12 @@ function sumLockedAllocatedFeet(allocations) {
   }, 0);
 }
 
-function buildReceiveAuditNote(boxId, receivedWeightLbs, lotRun) {
+function buildReceiveAuditNote(boxId, receivedWeightLbs, currentFeetOnRoll, lotRun) {
   const details = [];
+
+  if (currentFeetOnRoll !== null) {
+    details.push(`with ${currentFeetOnRoll} LF recorded`);
+  }
 
   if (receivedWeightLbs !== null) {
     details.push(`at ${receivedWeightLbs} lbs`);
@@ -67,6 +86,30 @@ function appendFilmWeightProfileWarning(warnings, result, boxId) {
   } else if (decision === 'logging_failed' && asTrimmedString(result?.warning)) {
     warnings.push(asTrimmedString(result.warning));
   }
+}
+
+async function reconcileReceivedBoxPhysicalReality(client, orgId, box, actor, warnings) {
+  const physicalFeetAfter = Math.max(0, Number(box?.initialFeet || 0) || 0);
+  const reconciliationResult = await reconcileBoxCheckinAllocations(
+    client,
+    orgId,
+    {
+      boxId: box.boxId,
+      physicalFeetAfter,
+    },
+    actor
+  );
+
+  if (Array.isArray(reconciliationResult.warnings) && reconciliationResult.warnings.length > 0) {
+    warnings.push(...reconciliationResult.warnings);
+  }
+
+  const nextBox = {
+    ...cloneValue(box),
+    feetAvailable: Math.max(0, Number(reconciliationResult.feetAvailable ?? box.feetAvailable) || 0),
+  };
+
+  return saveBoxRecord(client, orgId, nextBox);
 }
 
 async function receiveOrderedBox(client, orgId, payload, actor) {
@@ -101,6 +144,7 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
   }
 
   const receivedWeightLbs = parseOptionalReceivedWeight(payload.receivedWeightLbs);
+  const receivedFeet = parseOptionalReceivedFeet(payload.currentFeetOnRoll ?? payload.receivedFeet);
   const requestedLotRun = asTrimmedString(payload.lotRun);
   const requestedCoreType = normalizeCoreType(payload.coreType, true);
   const existingAllocations = await listAllocationsByBox(client, orgId, existing.boxId);
@@ -110,7 +154,10 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
 
   updatedBox.status = 'IN_STOCK';
   updatedBox.receivedDate = receivedDate;
-  updatedBox.feetAvailable = Math.max(existing.initialFeet - lockedAllocatedFeet, 0);
+  if (receivedFeet !== null) {
+    updatedBox.initialFeet = receivedFeet;
+  }
+  updatedBox.feetAvailable = Math.max(updatedBox.initialFeet - lockedAllocatedFeet, 0);
   updatedBox.lotRun = requestedLotRun || existing.lotRun;
   updatedBox.hasLabel = false;
 
@@ -125,8 +172,11 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
     updatedBox.lastWeighedDate = receivedDate;
   }
 
-  let persistedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
+  let persistedBox = await saveBoxRecord(client, orgId, updatedBox);
+  persistedBox = await reconcileReceivedBoxPhysicalReality(client, orgId, persistedBox, actor, warnings);
+  persistedBox = await processLinkedFilmOrderReceipt(client, orgId, persistedBox, actor, warnings);
   persistedBox = await saveBoxRecord(client, orgId, persistedBox);
+  persistedBox = await reconcileReceivedBoxPhysicalReality(client, orgId, persistedBox, actor, warnings);
   await recalculateFilmOrdersForBoxLinks(client, orgId, persistedBox.boxId, actor);
 
   await seedFilmCatalogRecordIfMissing(client, orgId, {
@@ -154,7 +204,7 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
     publicBefore,
     publicAfter,
     actor,
-    buildReceiveAuditNote(persistedBox.boxId, receivedWeightLbs, updatedBox.lotRun)
+    buildReceiveAuditNote(persistedBox.boxId, receivedWeightLbs, receivedFeet, updatedBox.lotRun)
   );
 
   return ok({ box: publicAfter, logId }, warnings);

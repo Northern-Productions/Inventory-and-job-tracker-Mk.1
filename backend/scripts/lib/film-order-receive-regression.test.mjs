@@ -31,7 +31,9 @@ function createBoxRow(overrides = {}) {
     purchase_cost: null,
     notes: '',
     direct_to_job_site: false,
+    has_label: false,
     has_ever_been_checked_out: false,
+    last_checkout_job_id: null,
     last_checkout_job: '',
     last_checkout_date: null,
     zeroed_date: null,
@@ -209,6 +211,90 @@ function createRecordingClient() {
         return { rows: [{ result: { decision: 'skipped' } }] };
       }
 
+      if (sql.includes('select app_api.reconcile_box_checkin_allocations')) {
+        const boxId = params[2];
+        const physicalFeetAfter = Math.max(0, Number(params[3] || 0));
+        const activeRows = state.allocations
+          .filter((entry) => entry.box_id === boxId && String(entry.status || '').toUpperCase() === 'ACTIVE')
+          .sort((left, right) => {
+            const leftDateRank = left.job_date ? 0 : 1;
+            const rightDateRank = right.job_date ? 0 : 1;
+            if (leftDateRank !== rightDateRank) {
+              return leftDateRank - rightDateRank;
+            }
+            const dateDiff = String(left.job_date || '').localeCompare(String(right.job_date || ''));
+            if (dateDiff !== 0) {
+              return dateDiff;
+            }
+            const createdDiff = String(left.created_at || '').localeCompare(String(right.created_at || ''));
+            if (createdDiff !== 0) {
+              return createdDiff;
+            }
+            return String(left.allocation_id || '').localeCompare(String(right.allocation_id || ''));
+          });
+        let remainingFeet = physicalFeetAfter;
+        const reducedAllocationIds = [];
+        const cancelledAllocationIds = [];
+        const affectedJobNumbers = [];
+        const updatedFilmOrderIds = [];
+        const warnings = [];
+
+        for (const allocation of activeRows) {
+          const allocatedFeet = Number(allocation.allocated_feet || 0);
+          if (remainingFeet >= allocatedFeet) {
+            remainingFeet -= allocatedFeet;
+            continue;
+          }
+
+          if (allocation.job_number) {
+            affectedJobNumbers.push(allocation.job_number);
+          }
+          if (allocation.film_order_id) {
+            updatedFilmOrderIds.push(allocation.film_order_id);
+          }
+
+          if (remainingFeet > 0) {
+            reducedAllocationIds.push(allocation.allocation_id);
+            allocation.allocated_feet = remainingFeet;
+            allocation.covered_feet = Math.min(Number(allocation.covered_feet || allocatedFeet), remainingFeet);
+            warnings.push(`Reduced allocation ${allocation.allocation_id} for job ${allocation.job_number}.`);
+            remainingFeet = 0;
+          } else {
+            cancelledAllocationIds.push(allocation.allocation_id);
+            allocation.status = 'CANCELLED';
+            allocation.resolved_at = '2026-04-23T10:30:00Z';
+            allocation.resolved_by = params[1];
+            warnings.push(`Cancelled allocation ${allocation.allocation_id} for job ${allocation.job_number}.`);
+          }
+        }
+
+        const storedActiveFeet = state.allocations
+          .filter((entry) => entry.box_id === boxId && String(entry.status || '').toUpperCase() === 'ACTIVE')
+          .reduce((total, entry) => total + Number(entry.allocated_feet || 0), 0);
+        const box = getBoxes().find((entry) => entry.box_id === boxId);
+        if (box) {
+          box.feet_available = Math.max(physicalFeetAfter - storedActiveFeet, 0);
+        }
+
+        return {
+          rows: [
+            {
+              result: {
+                boxId,
+                physicalFeetAfter,
+                activeStoredFeet: storedActiveFeet,
+                feetAvailable: Math.max(physicalFeetAfter - storedActiveFeet, 0),
+                reducedAllocationIds,
+                cancelledAllocationIds,
+                affectedJobNumbers,
+                updatedFilmOrderIds,
+                warnings,
+              },
+            },
+          ],
+        };
+      }
+
       if (sql.includes('select app_api.resolve_box_id_alias')) {
         return { rows: [{ box_id: params[1] }] };
       }
@@ -383,12 +469,14 @@ function createRecordingClient() {
           purchase_cost: params[21],
           notes: params[22],
           direct_to_job_site: params[23] === true,
-          has_ever_been_checked_out: params[24] === true,
-          last_checkout_job: params[25],
-          last_checkout_date: params[26] || null,
-          zeroed_date: params[27] || null,
-          zeroed_reason: params[28],
-          zeroed_by: params[29],
+          has_label: params[24] !== false,
+          has_ever_been_checked_out: params[25] === true,
+          last_checkout_job_id: params[26] || null,
+          last_checkout_job: params[27],
+          last_checkout_date: params[28] || null,
+          zeroed_date: params[29] || null,
+          zeroed_reason: params[30],
+          zeroed_by: params[31],
           created_at: existingBox?.created_at || '2026-04-23T09:00:00Z',
           updated_at: '2026-04-23T10:00:00Z',
         };
@@ -566,6 +654,61 @@ test('receiveOrderedBox resolves an existing ordered placeholder allocation inst
   assert.equal(client.state.filmOrder.status, 'FULFILLED');
   assert.equal(client.state.filmOrderLink.auto_allocated_feet, 100);
   assert.equal(client.state.box.feet_available, 0);
+});
+
+test('receiveOrderedBox accepts corrected received LF below existing allocation and reconciles the shortage', async () => {
+  const client = createRecordingClient();
+  client.state.box = createBoxRow({
+    initial_feet: 82,
+    feet_available: 82,
+  });
+  client.state.filmOrder = createFilmOrderRow({
+    requested_feet: 82,
+    covered_feet: 0,
+    ordered_feet: 82,
+    remaining_to_order_feet: 0,
+    status: 'FILM_ON_THE_WAY',
+  });
+  client.state.filmOrderLink = createFilmOrderLinkRow({
+    ordered_feet: 82,
+    auto_allocated_feet: 0,
+  });
+  client.state.jobRequirements = [
+    createJobRequirementRow({
+      required_feet: 82,
+    }),
+  ];
+  client.state.allocations = [
+    createAllocationRow({
+      allocated_feet: 82,
+      covered_feet: 82,
+    }),
+  ];
+
+  const response = await receiveOrderedBox(
+    client,
+    'org-1',
+    {
+      boxId: 'IL1-ORDERED-1',
+      currentFeetOnRoll: 80,
+    },
+    'warehouse-user'
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(client.state.box.initial_feet, 80);
+  assert.equal(client.state.box.feet_available, 0);
+  assert.equal(client.state.allocations.length, 1);
+  assert.equal(client.state.allocations[0].status, 'ACTIVE');
+  assert.equal(client.state.allocations[0].allocated_feet, 80);
+  assert.equal(client.state.allocations[0].covered_feet, 80);
+  assert.equal(client.state.allocations[0].film_order_id, 'FO-RECEIVE-1');
+  assert.equal(client.state.filmOrderLink.auto_allocated_feet, 80);
+  assert.equal(client.state.filmOrder.ordered_feet, 80);
+  assert.equal(client.state.filmOrder.remaining_to_order_feet, 2);
+  assert.equal(client.state.filmOrder.status, 'FILM_ORDER');
+  assert.match(client.state.auditEntries[0].notes, /with 80 LF recorded/);
+  assert.match(response.warnings.join(' '), /Reduced allocation ALLOC-PLACEHOLDER-1/i);
 });
 
 test('receiveOrderedBox canonicalizes compatible film aliases across multiple linked boxes without duplicate rows', async () => {

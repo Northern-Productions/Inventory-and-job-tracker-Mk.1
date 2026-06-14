@@ -7,24 +7,27 @@ import {
 
 describe('orderedBoxReceive', () => {
   it('creates a receive draft with the existing lot run', () => {
-    expect(createOrderedBoxReceiveDraft({ lotRun: 'LR-1', coreType: 'Red plastic' })).toEqual({
+    expect(createOrderedBoxReceiveDraft({ initialFeet: 82, lotRun: 'LR-1', coreType: 'Red plastic' })).toEqual({
       receivedWeightLbs: '',
+      currentFeetOnRoll: '82',
       lotRun: 'LR-1',
       coreType: 'Red plastic'
     });
   });
 
   it('leaves an invalid existing core type unselected in the receive draft', () => {
-    expect(createOrderedBoxReceiveDraft({ lotRun: 'LR-1', coreType: 'Unsupported core' as never })).toEqual({
+    expect(createOrderedBoxReceiveDraft({ initialFeet: 82, lotRun: 'LR-1', coreType: 'Unsupported core' as never })).toEqual({
       receivedWeightLbs: '',
+      currentFeetOnRoll: '82',
       lotRun: 'LR-1',
       coreType: ''
     });
   });
 
   it('allows blank optional values', () => {
-    expect(validateOrderedBoxReceiveDraft({ receivedWeightLbs: '', lotRun: '   ', coreType: '' })).toEqual({
+    expect(validateOrderedBoxReceiveDraft({ receivedWeightLbs: '', currentFeetOnRoll: '', lotRun: '   ', coreType: '' })).toEqual({
       receivedWeightLbs: undefined,
+      currentFeetOnRoll: undefined,
       lotRun: '',
       coreType: ''
     });
@@ -32,31 +35,38 @@ describe('orderedBoxReceive', () => {
 
   it('rejects negative receive weights', () => {
     expect(() =>
-      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '-1', lotRun: '', coreType: '' })
+      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '-1', currentFeetOnRoll: '', lotRun: '', coreType: '' })
     ).toThrow('Weight must be a valid non-negative number.');
   });
 
   it('rejects receive weights with more than 2 decimal places', () => {
     expect(() =>
-      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '5.234', lotRun: '', coreType: '' })
+      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '5.234', currentFeetOnRoll: '', lotRun: '', coreType: '' })
     ).toThrow('Weight must be a valid non-negative number with up to 2 decimal places.');
   });
 
   it('rejects invalid core types', () => {
     expect(() =>
-      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '', lotRun: '', coreType: 'Unsupported core' })
+      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '', currentFeetOnRoll: '', lotRun: '', coreType: 'Unsupported core' })
     ).toThrow('Select a core type.');
+  });
+
+  it('rejects current LF with more than 2 decimal places', () => {
+    expect(() =>
+      validateOrderedBoxReceiveDraft({ receivedWeightLbs: '', currentFeetOnRoll: '80.123', lotRun: '', coreType: '' })
+    ).toThrow('Current Linear Feet must be a valid non-negative number with up to 2 decimal places.');
   });
 
   it('builds the ordered receive payload from the trimmed optional inputs', () => {
     expect(
       buildReceiveOrderedBoxPayload(
         { boxId: 'IL1-1234' },
-        { receivedWeightLbs: '18.5', lotRun: '  LOT-7  ', coreType: 'Red plastic' }
+        { receivedWeightLbs: '18.5', currentFeetOnRoll: '80', lotRun: '  LOT-7  ', coreType: 'Red plastic' }
       )
     ).toEqual({
       boxId: 'IL1-1234',
       receivedWeightLbs: 18.5,
+      currentFeetOnRoll: 80,
       lotRun: 'LOT-7',
       coreType: 'Red plastic'
     });
@@ -66,7 +76,7 @@ describe('orderedBoxReceive', () => {
     expect(
       buildReceiveOrderedBoxPayload(
         { boxId: 'IL1-1234' },
-        { receivedWeightLbs: '', lotRun: '', coreType: '   ' }
+        { receivedWeightLbs: '', currentFeetOnRoll: '', lotRun: '', coreType: '   ' }
       )
     ).toEqual({
       boxId: 'IL1-1234'

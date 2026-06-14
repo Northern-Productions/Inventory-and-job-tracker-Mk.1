@@ -171,7 +171,7 @@ test('caulk transfer jobId scope migration keeps non-scope workflows and duplica
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations\.sql';/);
 
   assert.match(schemaCheck, /public\.api_acl_caulk_transfer_receive\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /public\.api_acl_caulk_transfer_cancel\(uuid, text, jsonb\)/);

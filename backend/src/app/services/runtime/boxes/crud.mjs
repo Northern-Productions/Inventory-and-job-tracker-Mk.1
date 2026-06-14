@@ -79,9 +79,12 @@ function getBoxPhysicalFeetForCapacityReconciliation(box, allocations = []) {
   return null;
 }
 
-async function reconcileBoxMaterialReality(client, orgId, box, actor, warnings) {
+async function reconcileBoxMaterialReality(client, orgId, box, actor, warnings, options = {}) {
   const allocations = await listAllocationsByBox(client, orgId, box.boxId);
-  const physicalFeetAfter = getBoxPhysicalFeetForCapacityReconciliation(box, allocations);
+  const physicalFeetAfter =
+    options.physicalFeetAfter !== undefined && options.physicalFeetAfter !== null
+      ? Math.max(0, Number(options.physicalFeetAfter) || 0)
+      : getBoxPhysicalFeetForCapacityReconciliation(box, allocations);
 
   if (physicalFeetAfter === null || physicalFeetAfter === undefined) {
     return box;
@@ -410,6 +413,15 @@ async function updateBox(client, orgId, payload, actor) {
   }
 
   let updatedBox = await buildBoxFromPayload(client, orgId, payload, warnings, existing);
+  const explicitPhysicalFeetInput = Number(payload?.currentFeetOnRoll);
+  const explicitPhysicalFeetAfter =
+    Object.prototype.hasOwnProperty.call(payload || {}, 'currentFeetOnRoll') &&
+    payload.currentFeetOnRoll !== null &&
+    payload.currentFeetOnRoll !== undefined &&
+    String(payload.currentFeetOnRoll).trim() !== '' &&
+    Number.isFinite(explicitPhysicalFeetInput)
+      ? Math.max(0, Math.floor(explicitPhysicalFeetInput))
+      : null;
 
   applyAddOrEditWarnings(warnings, existing, updatedBox);
 
@@ -485,7 +497,14 @@ async function updateBox(client, orgId, payload, actor) {
     updatedBox = await processLinkedFilmOrderReceipt(client, orgId, updatedBox, actor, warnings);
     updatedBox = await saveBoxRecord(client, orgId, updatedBox);
     await recalculateFilmOrdersForBoxLinks(client, orgId, updatedBox.boxId, actor);
-    updatedBox = await reconcileBoxMaterialReality(client, orgId, updatedBox, actor, warnings);
+    updatedBox = await reconcileBoxMaterialReality(
+      client,
+      orgId,
+      updatedBox,
+      actor,
+      warnings,
+      explicitPhysicalFeetAfter !== null ? { physicalFeetAfter: explicitPhysicalFeetAfter } : {}
+    );
   }
 
   await seedFilmCatalogRecordIfMissing(client, orgId, {

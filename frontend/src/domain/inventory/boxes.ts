@@ -133,6 +133,7 @@ export interface SetBoxStatusPayload {
 export interface ReceiveOrderedBoxPayload {
   boxId: string;
   receivedWeightLbs?: number;
+  currentFeetOnRoll?: number;
   lotRun?: string;
   coreType?: BoxCoreType;
 }

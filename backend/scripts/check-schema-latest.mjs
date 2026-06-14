@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0158_material_flow_reconciliation_rules.sql';
+const LATEST_MIGRATION = '0159_box_lf_correction_reconciles_allocations.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -279,10 +279,13 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
     includes: [
       'v_locked_allocated_feet := app_api.physical_film_commitment_feet_for_box(p_org_id, v_lookup_box_id);',
-      'v_box.feet_available := greatest(coalesce(v_existing.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
+      'v_received_feet_text text',
+      'v_box.initial_feet := v_received_feet;',
+      'v_box.feet_available := greatest(coalesce(v_box.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
       "v_core_type := app_api.normalize_core_type(v_payload->>'coreType', true);",
       'v_box.core_weight_lbs := app_api.derive_core_weight_lbs(v_core_type, v_box.width_in);',
       'v_box.has_label := false;',
+      'v_material_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
       "v_log_id := app_api.append_audit_entry(",
@@ -291,7 +294,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ],
     excludes: [
       'public.api_boxes_update(p_org_id, p_actor, v_payload)',
-      'v_locked_allocated_feet := app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id);'
+      'v_locked_allocated_feet := app_api.locked_allocated_feet_for_box(p_org_id, v_lookup_box_id);',
+      "CurrentFeetOnRoll cannot be lower than the box''s active allocated feet",
+      "Received physical LF cannot be lower than the box''s active allocated feet"
     ]
   },
   {
@@ -743,12 +748,17 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'public.api_acl_boxes_update(uuid, text, jsonb)',
     includes: [
+      "p_payload->>'currentFeetOnRoll'",
       'v_material_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_lookup_box_id, p_actor);',
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
       'perform app_api.reconcile_auto_planned_allocations('
     ],
-    excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_box(']
+    excludes: [
+      'perform app_api.reconcile_auto_shortage_film_orders_for_box(',
+      "CurrentFeetOnRoll cannot be lower than the box''s active allocated feet",
+      "Received physical LF cannot be lower than the box''s active allocated feet"
+    ]
   },
   {
     signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)',
@@ -862,7 +872,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: [
       'if v_initial_weight_input is null and v_existing.initial_weight_lbs is null then',
       'v_feet_available := app_api.clamp_feet_to_initial_range(v_feet_available, v_initial_feet);',
-      "select coalesce(sum(a.allocated_feet), 0)::integer\n    into v_active_allocated_feet\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = v_box_id\n      and a.status = 'ACTIVE';"
+      "select coalesce(sum(a.allocated_feet), 0)::integer\n    into v_active_allocated_feet\n    from app.allocations a\n    where a.org_id = p_org_id\n      and a.box_id = v_box_id\n      and a.status = 'ACTIVE';",
+      "CurrentFeetOnRoll cannot be lower than the box''s active allocated feet",
+      "Received physical LF cannot be lower than the box''s active allocated feet"
     ]
   },
   {

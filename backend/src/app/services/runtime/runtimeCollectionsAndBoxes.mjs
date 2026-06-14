@@ -584,12 +584,6 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
 
     if (usedPartialReceivingMetrics) {
       if (currentFeetOnRollInput !== null) {
-        if (currentFeetOnRollInput < storedAllocatedFeet) {
-          throw new HttpError(
-            400,
-            `CurrentFeetOnRoll cannot be lower than the box's locked allocated feet (${storedAllocatedFeet}).`
-          );
-        }
         feetAvailable = clampFeetToInitialRange(currentFeetOnRollInput - storedAllocatedFeet, initialFeet);
       } else {
         feetAvailable = clampFeetToInitialRange(existingBox?.feetAvailable ?? feetAvailable, initialFeet);
@@ -628,12 +622,6 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
         resolvedLfWeightLbsPerFt,
         initialFeet
       );
-      if (physicalFeetAvailable < storedAllocatedFeet) {
-        throw new HttpError(
-          400,
-          `Received physical LF cannot be lower than the box's locked allocated feet (${storedAllocatedFeet}).`
-        );
-      }
       const shouldRepairStaleFeet =
         Boolean(existingBox && existingBox.receivedDate) &&
         Math.max(existingBox ? existingBox.feetAvailable : 0, 0) === 0 &&

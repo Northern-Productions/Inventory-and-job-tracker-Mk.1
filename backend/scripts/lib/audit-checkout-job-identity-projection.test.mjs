@@ -176,7 +176,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
 
-  assert.match(schemaLatest, /0158_material_flow_reconciliation_rules\.sql/);
+  assert.match(schemaLatest, /0159_box_lf_correction_reconciles_allocations\.sql/);
 
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
@@ -186,10 +186,10 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
 
-  assert.equal(await latestBackendMigration, '0158_material_flow_reconciliation_rules.sql');
+  assert.equal(await latestBackendMigration, '0159_box_lf_correction_reconciles_allocations.sql');
 
   assert.equal(
     await latestSupabaseMigration,
-    '20260608130000_material_flow_reconciliation_rules.sql'
+    '20260613100000_box_lf_correction_reconciles_allocations.sql'
   );
 });

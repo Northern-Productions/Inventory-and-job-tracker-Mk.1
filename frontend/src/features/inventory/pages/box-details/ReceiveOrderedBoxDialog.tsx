@@ -27,6 +27,7 @@ export function ReceiveOrderedBoxDialog({
 }: ReceiveOrderedBoxDialogProps) {
   const [draft, setDraft] = useState<OrderedBoxReceiveDraft>({
     receivedWeightLbs: '',
+    currentFeetOnRoll: '',
     lotRun: '',
     coreType: ''
   });
@@ -38,7 +39,7 @@ export function ReceiveOrderedBoxDialog({
       return;
     }
 
-    setDraft(box ? createOrderedBoxReceiveDraft(box) : { receivedWeightLbs: '', lotRun: '', coreType: '' });
+    setDraft(box ? createOrderedBoxReceiveDraft(box) : { receivedWeightLbs: '', currentFeetOnRoll: '', lotRun: '', coreType: '' });
     setError('');
   }, [box, open]);
 
@@ -93,10 +94,29 @@ export function ReceiveOrderedBoxDialog({
         </button>
       </div>
       <p id="receive-ordered-box-dialog-description" className="muted-text dialog-message">
-        Save this box as received and move it into active in-stock inventory. Weight, lot run, and
-        core type are optional so receipt is not blocked when the box cannot be weighed right away.
+        Save this box as received and move it into active in-stock inventory. Adjust Current LF when
+        the physical label differs from the ordered LF. Weight, lot run, and core type are optional.
       </p>
       <div className="form-grid">
+        <Input
+          label="Current LF"
+          type="number"
+          step="1"
+          min="0"
+          inputMode="numeric"
+          className="field-input-no-spinner"
+          autoFocus
+          value={draft.currentFeetOnRoll}
+          onChange={(event) => {
+            if (!/^\d*$/.test(event.target.value)) {
+              return;
+            }
+            setDraft((current) => ({ ...current, currentFeetOnRoll: event.target.value }));
+            setError('');
+          }}
+          hint="Use the physical label LF. This may be lower than the ordered LF."
+          disabled={pending || !box}
+        />
         <Input
           label="Weight (lbs)"
           type="number"
@@ -104,7 +124,6 @@ export function ReceiveOrderedBoxDialog({
           min="0"
           inputMode="decimal"
           className="field-input-no-spinner"
-          autoFocus
           value={draft.receivedWeightLbs}
           placeholder="Optional"
           onChange={(event) => {
