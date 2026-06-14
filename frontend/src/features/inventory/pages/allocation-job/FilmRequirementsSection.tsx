@@ -19,7 +19,7 @@ interface FilmRequirementsSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   isCreateFilmOrderPending: boolean;
-  isRequirementStatePending: boolean;
+  pendingRequirementStateIds: Set<string>;
   isResumeAutoPlanningPending: boolean;
   autoAllocatePendingRequirementId?: string;
   pendingDeleteFilmOrderIds: Set<string>;
@@ -42,7 +42,7 @@ export function FilmRequirementsSection({
   isAuthenticated,
   clientIdConfigured,
   isCreateFilmOrderPending,
-  isRequirementStatePending,
+  pendingRequirementStateIds,
   isResumeAutoPlanningPending,
   autoAllocatePendingRequirementId = '',
   pendingDeleteFilmOrderIds,
@@ -86,6 +86,7 @@ export function FilmRequirementsSection({
 
   function renderStateToggle(entry: JobRequirementLine) {
     const checked = entry.status === 'COMPLETE';
+    const isRequirementStatePending = pendingRequirementStateIds.has(entry.requirementId);
     const disabled =
       isReadOnlyJob ||
       !isAuthenticated ||
@@ -103,6 +104,7 @@ export function FilmRequirementsSection({
           />
           <span>{checked ? 'Complete' : 'Active'}</span>
         </label>
+        {isRequirementStatePending ? <span className="muted-text">Saving...</span> : null}
         {renderCompletionResult(entry)}
       </div>
     );

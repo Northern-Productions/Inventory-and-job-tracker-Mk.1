@@ -56,7 +56,8 @@ export default function AllocationJobPage() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending,
-    isRequirementStatePending,
+    pendingFilmRequirementStateIds,
+    pendingCaulkRequirementStateIds,
     isPhaseStatePending,
     isResumeAutoPlanningPending,
     filmAutoAllocatePendingRequirementId,
@@ -247,7 +248,8 @@ export default function AllocationJobPage() {
         clientIdConfigured={auth.clientIdConfigured}
         canOrderAll={orderableFilmOrderGroups.length > 0 && !isReadOnlyJob && auth.isAuthenticated && auth.clientIdConfigured}
         isCreateFilmOrderPending={isCreateFilmOrderPending}
-        isRequirementStatePending={isRequirementStatePending}
+        pendingFilmRequirementStateIds={pendingFilmRequirementStateIds}
+        pendingCaulkRequirementStateIds={pendingCaulkRequirementStateIds}
         isPhaseStatePending={isPhaseStatePending}
         isResumeAutoPlanningPending={isResumeAutoPlanningPending}
         filmAutoAllocatePendingRequirementId={filmAutoAllocatePendingRequirementId}

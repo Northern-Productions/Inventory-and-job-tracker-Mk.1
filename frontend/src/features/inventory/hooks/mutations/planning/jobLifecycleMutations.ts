@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useOptimisticQueue } from '../../../../../components/OptimisticQueue';
 import { cancelJob } from '../../../../../api/features/filmOrdersClient';
 import {
@@ -45,6 +45,145 @@ import {
   invalidateJobLifecycleQueries
 } from '../../inventoryInvalidation';
 import { syncOfflineInventoryQueries } from '../../useInventoryOfflineSync';
+
+type PendingRequirementStateEntry = {
+  operationId: string;
+  payload: SetJobRequirementStatePayload;
+};
+
+type RequirementStateMutationContext = {
+  jobKey: string;
+  operationId: string;
+  rollbackPayload: SetJobRequirementStatePayload | null;
+};
+
+const pendingRequirementStateByClient = new WeakMap<
+  QueryClient,
+  Map<string, PendingRequirementStateEntry[]>
+>();
+
+let nextRequirementStateOperationId = 0;
+
+function getRequirementStateJobKey(payload: SetJobRequirementStatePayload) {
+  const jobId = String(payload.jobId || '').trim();
+  return jobId ? `id:${jobId}` : `number:${String(payload.jobNumber || '').trim()}`;
+}
+
+function getRequirementStateDetailKey(payload: SetJobRequirementStatePayload) {
+  const jobId = String(payload.jobId || '').trim();
+  return jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber);
+}
+
+function getPendingRequirementStateEntries(queryClient: QueryClient, jobKey: string) {
+  let pendingByJob = pendingRequirementStateByClient.get(queryClient);
+  if (!pendingByJob) {
+    pendingByJob = new Map();
+    pendingRequirementStateByClient.set(queryClient, pendingByJob);
+  }
+  return pendingByJob.get(jobKey) || [];
+}
+
+function setPendingRequirementStateEntries(
+  queryClient: QueryClient,
+  jobKey: string,
+  entries: PendingRequirementStateEntry[]
+) {
+  let pendingByJob = pendingRequirementStateByClient.get(queryClient);
+  if (!pendingByJob) {
+    pendingByJob = new Map();
+    pendingRequirementStateByClient.set(queryClient, pendingByJob);
+  }
+
+  if (entries.length) {
+    pendingByJob.set(jobKey, entries);
+  } else {
+    pendingByJob.delete(jobKey);
+  }
+}
+
+function addPendingRequirementState(
+  queryClient: QueryClient,
+  jobKey: string,
+  entry: PendingRequirementStateEntry
+) {
+  setPendingRequirementStateEntries(queryClient, jobKey, [
+    ...getPendingRequirementStateEntries(queryClient, jobKey),
+    entry
+  ]);
+}
+
+function removePendingRequirementState(queryClient: QueryClient, jobKey: string, operationId: string) {
+  setPendingRequirementStateEntries(
+    queryClient,
+    jobKey,
+    getPendingRequirementStateEntries(queryClient, jobKey).filter(
+      (entry) => entry.operationId !== operationId
+    )
+  );
+}
+
+function applyRequirementStatePayloadToCaches(
+  queryClient: QueryClient,
+  payload: SetJobRequirementStatePayload
+) {
+  const jobId = String(payload.jobId || '').trim();
+  const detailKey = getRequirementStateDetailKey(payload);
+  const currentDetail = queryClient.getQueryData<JobDetail>(detailKey);
+  if (!currentDetail) {
+    return;
+  }
+
+  const optimisticDetail = createOptimisticJobDetailAfterRequirementStateChange(currentDetail, payload);
+  syncJobDetailCaches(queryClient, optimisticDetail, {
+    syncAllocationJobDetail: !jobId,
+    syncLegacyJobDetail: !jobId
+  });
+}
+
+function reapplyPendingRequirementStates(queryClient: QueryClient, jobKey: string) {
+  for (const entry of getPendingRequirementStateEntries(queryClient, jobKey)) {
+    applyRequirementStatePayloadToCaches(queryClient, entry.payload);
+  }
+}
+
+function buildRequirementStateRollbackPayload(
+  queryClient: QueryClient,
+  payload: SetJobRequirementStatePayload
+): SetJobRequirementStatePayload | null {
+  const detail = queryClient.getQueryData<JobDetail>(getRequirementStateDetailKey(payload));
+  if (!detail) {
+    return null;
+  }
+
+  const targetCollection =
+    payload.materialType === 'CAULK' ? detail.caulkRequirements || [] : detail.requirements || [];
+  const requirement = targetCollection.find(
+    (entry) => String(entry.requirementId || '').trim() === String(payload.requirementId || '').trim()
+  );
+  if (!requirement) {
+    return null;
+  }
+
+  return {
+    ...payload,
+    status: requirement.status === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE'
+  };
+}
+
+async function invalidateRequirementStateQueries(
+  queryClient: QueryClient,
+  payload: SetJobRequirementStatePayload
+) {
+  const jobId = String(payload.jobId || '').trim();
+  await Promise.all([
+    invalidateGlobalPlanningQueries(queryClient),
+    queryClient.invalidateQueries({
+      queryKey: jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber)
+    }),
+    ...(jobId ? [] : [queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(payload.jobNumber) })]),
+    queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
+  ]);
+}
 
 export function useCreateJob() {
   const queryClient = useQueryClient();
@@ -159,9 +298,12 @@ export function useSetJobRequirementState() {
   return useMutation({
     mutationKey: inventoryKeys.setJobRequirementStateMutation,
     mutationFn: (payload: SetJobRequirementStatePayload) => setJobRequirementState(payload),
-    onMutate: async (payload) => {
+    onMutate: async (payload): Promise<RequirementStateMutationContext> => {
       const jobId = String(payload.jobId || '').trim();
-      const detailKey = jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(payload.jobNumber);
+      const detailKey = getRequirementStateDetailKey(payload);
+      const jobKey = getRequirementStateJobKey(payload);
+      const operationId = `requirement-state-${++nextRequirementStateOperationId}`;
+      const rollbackPayload = buildRequirementStateRollbackPayload(queryClient, payload);
       await Promise.all([
         queryClient.cancelQueries({ queryKey: inventoryKeys.jobs }),
         queryClient.cancelQueries({ queryKey: detailKey }),
@@ -170,45 +312,34 @@ export function useSetJobRequirementState() {
         queryClient.cancelQueries({ queryKey: inventoryKeys.filmOrders })
       ]);
 
-      return beginImmediateOptimisticMutation(
-        queryClient,
-        [
-          inventoryKeys.jobs,
-          detailKey,
-          inventoryKeys.allocationJobs,
-          ...(jobId ? [] : [inventoryKeys.allocationJob(payload.jobNumber)]),
-          inventoryKeys.filmOrders
-        ],
-        () => {
-          const currentDetail = queryClient.getQueryData<JobDetail>(detailKey);
-          if (!currentDetail) {
-            return;
-          }
-          const optimisticDetail = createOptimisticJobDetailAfterRequirementStateChange(currentDetail, payload);
-          syncJobDetailCaches(queryClient, optimisticDetail, {
-            syncAllocationJobDetail: !jobId,
-            syncLegacyJobDetail: !jobId
-          });
-        }
-      );
+      addPendingRequirementState(queryClient, jobKey, { operationId, payload });
+      applyRequirementStatePayloadToCaches(queryClient, payload);
+
+      return { jobKey, operationId, rollbackPayload };
     },
-    onError: (_error, _variables, context) => {
-      restoreSnapshots(queryClient, context?.snapshots);
+    onError: async (_error, variables, context) => {
+      const jobKey = context?.jobKey || getRequirementStateJobKey(variables);
+      if (context?.operationId) {
+        removePendingRequirementState(queryClient, jobKey, context.operationId);
+      }
+      if (context?.rollbackPayload) {
+        applyRequirementStatePayloadToCaches(queryClient, context.rollbackPayload);
+      }
+      await invalidateRequirementStateQueries(queryClient, variables);
+      reapplyPendingRequirementStates(queryClient, jobKey);
     },
-    onSuccess: async ({ result }, variables) => {
+    onSuccess: async ({ result }, variables, context) => {
       const jobId = String(variables.jobId || '').trim();
+      const jobKey = context?.jobKey || getRequirementStateJobKey(variables);
       syncJobDetailCaches(queryClient, result, {
         syncAllocationJobDetail: !jobId,
         syncLegacyJobDetail: !jobId
       });
-      await Promise.all([
-        invalidateGlobalPlanningQueries(queryClient),
-        queryClient.invalidateQueries({
-          queryKey: jobId ? inventoryKeys.jobById(jobId) : inventoryKeys.job(variables.jobNumber)
-        }),
-        ...(jobId ? [] : [queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })]),
-        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders })
-      ]);
+      if (context?.operationId) {
+        removePendingRequirementState(queryClient, jobKey, context.operationId);
+      }
+      await invalidateRequirementStateQueries(queryClient, variables);
+      reapplyPendingRequirementStates(queryClient, jobKey);
       void syncOfflineInventoryQueries(queryClient);
     }
   });

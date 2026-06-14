@@ -14,7 +14,7 @@ interface CaulkRequirementsSectionProps {
   isReadOnlyJob: boolean;
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
-  isRequirementStatePending: boolean;
+  pendingRequirementStateIds: Set<string>;
   isResumeAutoPlanningPending: boolean;
   autoAllocatePendingRequirementId?: string;
   title?: string;
@@ -30,7 +30,7 @@ export function CaulkRequirementsSection({
   isReadOnlyJob,
   isAuthenticated,
   clientIdConfigured,
-  isRequirementStatePending,
+  pendingRequirementStateIds,
   isResumeAutoPlanningPending,
   autoAllocatePendingRequirementId = '',
   title = 'Caulk Requirements',
@@ -61,6 +61,7 @@ export function CaulkRequirementsSection({
 
   function renderStateToggle(entry: JobCaulkRequirementLine) {
     const checked = entry.status === 'COMPLETE';
+    const isRequirementStatePending = pendingRequirementStateIds.has(entry.requirementId);
     const disabled =
       isReadOnlyJob ||
       !isAuthenticated ||
@@ -78,6 +79,7 @@ export function CaulkRequirementsSection({
           />
           <span>{checked ? 'Complete' : 'Active'}</span>
         </label>
+        {isRequirementStatePending ? <span className="muted-text">Saving...</span> : null}
         {renderCompletionResult(entry)}
       </div>
     );

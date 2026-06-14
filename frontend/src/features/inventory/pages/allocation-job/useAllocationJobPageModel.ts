@@ -126,6 +126,12 @@ export function useAllocationJobPageModel() {
   const [filmAutoAllocateRequirementId, setFilmAutoAllocateRequirementId] = useState('');
   const [caulkAutoAllocateRequirementId, setCaulkAutoAllocateRequirementId] = useState('');
   const [filmTransferActionBoxId, setFilmTransferActionBoxId] = useState('');
+  const [pendingFilmRequirementStateIds, setPendingFilmRequirementStateIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [pendingCaulkRequirementStateIds, setPendingCaulkRequirementStateIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [dismissedStaleFilmOrderPromptKeys, setDismissedStaleFilmOrderPromptKeys] = useState<
     Set<string>
   >(() => new Set());
@@ -910,9 +916,12 @@ export function useAllocationJobPageModel() {
     requirement: JobRequirementLine,
     nextStatus: 'ACTIVE' | 'COMPLETE'
   ) {
+    const requirementId = String(requirement.requirementId || '').trim();
     if (
       isReadOnlyJob ||
       !summary ||
+      !requirementId ||
+      pendingFilmRequirementStateIds.has(requirementId) ||
       !ensureActionAccess({
         actionLabel: 'changing requirement state',
         feature: 'jobs',
@@ -922,11 +931,17 @@ export function useAllocationJobPageModel() {
       return;
     }
 
+    setPendingFilmRequirementStateIds((current) => {
+      const next = new Set(current);
+      next.add(requirementId);
+      return next;
+    });
+
     try {
       await setJobRequirementStateMutation.mutateAsync({
         ...(routeJobId ? { jobId: routeJobId } : {}),
         jobNumber: summary.jobNumber,
-        requirementId: requirement.requirementId,
+        requirementId,
         status: nextStatus
       });
       toast.push({
@@ -943,6 +958,15 @@ export function useAllocationJobPageModel() {
         description: error instanceof Error ? error.message : 'The requirement update failed.',
         variant: 'error'
       });
+    } finally {
+      setPendingFilmRequirementStateIds((current) => {
+        if (!current.has(requirementId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(requirementId);
+        return next;
+      });
     }
   }
 
@@ -950,9 +974,12 @@ export function useAllocationJobPageModel() {
     requirement: JobCaulkRequirementLine,
     nextStatus: 'ACTIVE' | 'COMPLETE'
   ) {
+    const requirementId = String(requirement.requirementId || '').trim();
     if (
       isReadOnlyJob ||
       !summary ||
+      !requirementId ||
+      pendingCaulkRequirementStateIds.has(requirementId) ||
       !ensureActionAccess({
         actionLabel: 'changing caulk requirement state',
         feature: 'jobs',
@@ -962,11 +989,17 @@ export function useAllocationJobPageModel() {
       return;
     }
 
+    setPendingCaulkRequirementStateIds((current) => {
+      const next = new Set(current);
+      next.add(requirementId);
+      return next;
+    });
+
     try {
       await setJobRequirementStateMutation.mutateAsync({
         ...(routeJobId ? { jobId: routeJobId } : {}),
         jobNumber: summary.jobNumber,
-        requirementId: requirement.requirementId,
+        requirementId,
         materialType: 'CAULK',
         status: nextStatus
       });
@@ -983,6 +1016,15 @@ export function useAllocationJobPageModel() {
         title: 'Unable to update caulk requirement',
         description: error instanceof Error ? error.message : 'The caulk requirement update failed.',
         variant: 'error'
+      });
+    } finally {
+      setPendingCaulkRequirementStateIds((current) => {
+        if (!current.has(requirementId)) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(requirementId);
+        return next;
       });
     }
   }
@@ -1265,7 +1307,8 @@ export function useAllocationJobPageModel() {
     isExtraFilmMode,
     pendingDeleteFilmOrderIds,
     isCreateFilmOrderPending: createFilmOrderMutation.isPending,
-    isRequirementStatePending: setJobRequirementStateMutation.isPending,
+    pendingFilmRequirementStateIds,
+    pendingCaulkRequirementStateIds,
     isPhaseStatePending: setJobPhaseStateMutation.isPending,
     isResumeAutoPlanningPending: clearAutoPlanningSuppressionMutation.isPending,
     filmAutoAllocatePendingRequirementId: filmAutoAllocateRequirementId,

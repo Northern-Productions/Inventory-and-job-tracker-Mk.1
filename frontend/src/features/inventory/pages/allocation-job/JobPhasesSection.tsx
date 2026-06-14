@@ -17,7 +17,8 @@ interface JobPhasesSectionProps {
   clientIdConfigured: boolean;
   canOrderAll: boolean;
   isCreateFilmOrderPending: boolean;
-  isRequirementStatePending: boolean;
+  pendingFilmRequirementStateIds: Set<string>;
+  pendingCaulkRequirementStateIds: Set<string>;
   isPhaseStatePending: boolean;
   isResumeAutoPlanningPending: boolean;
   filmAutoAllocatePendingRequirementId?: string;
@@ -114,7 +115,8 @@ export function JobPhasesSection({
   clientIdConfigured,
   canOrderAll,
   isCreateFilmOrderPending,
-  isRequirementStatePending,
+  pendingFilmRequirementStateIds,
+  pendingCaulkRequirementStateIds,
   isPhaseStatePending,
   isResumeAutoPlanningPending,
   filmAutoAllocatePendingRequirementId = '',
@@ -506,7 +508,7 @@ export function JobPhasesSection({
                     isAuthenticated={isAuthenticated}
                     clientIdConfigured={clientIdConfigured}
                     isCreateFilmOrderPending={isCreateFilmOrderPending}
-                    isRequirementStatePending={isRequirementStatePending}
+                    pendingRequirementStateIds={pendingFilmRequirementStateIds}
                     isResumeAutoPlanningPending={isResumeAutoPlanningPending}
                     autoAllocatePendingRequirementId={filmAutoAllocatePendingRequirementId}
                     pendingDeleteFilmOrderIds={pendingDeleteFilmOrderIds}
@@ -525,7 +527,7 @@ export function JobPhasesSection({
                     isReadOnlyJob={isReadOnlyJob}
                     isAuthenticated={isAuthenticated}
                     clientIdConfigured={clientIdConfigured}
-                    isRequirementStatePending={isRequirementStatePending}
+                    pendingRequirementStateIds={pendingCaulkRequirementStateIds}
                     isResumeAutoPlanningPending={isResumeAutoPlanningPending}
                     autoAllocatePendingRequirementId={caulkAutoAllocatePendingRequirementId}
                     onSetRequirementState={onSetCaulkRequirementState}

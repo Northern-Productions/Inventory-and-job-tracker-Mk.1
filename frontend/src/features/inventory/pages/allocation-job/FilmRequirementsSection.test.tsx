@@ -68,7 +68,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={orderRequirement}
@@ -104,7 +104,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -132,7 +132,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -166,7 +166,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -196,7 +196,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -221,7 +221,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -249,7 +249,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={vi.fn()}
@@ -265,6 +265,48 @@ describe('FilmRequirementsSection planner suppression actions', () => {
 
     expect(setRequirementState).toHaveBeenCalledWith(requirement, 'COMPLETE');
     expect(screen.getByText('28')).not.toBeNull();
+  });
+
+  it('only disables the requirement row currently saving', () => {
+    const setRequirementState = vi.fn();
+    const firstRequirement = buildRequirement({
+      requirementId: 'req-pending',
+      filmName: 'Night Vision 15'
+    });
+    const secondRequirement = buildRequirement({
+      requirementId: 'req-ready',
+      filmName: 'Prestige 40'
+    });
+
+    render(
+      <FilmRequirementsSection
+        requirements={[firstRequirement, secondRequirement]}
+        filmOrders={[]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        pendingRequirementStateIds={new Set(['req-pending'])}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
+        onSetRequirementState={setRequirementState}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={vi.fn()}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    const toggles = screen.getAllByRole('checkbox', { name: 'Active' }) as HTMLInputElement[];
+    expect(toggles[0].disabled).toBe(true);
+    expect(toggles[1].disabled).toBe(false);
+    expect(screen.getByText('Saving...')).not.toBeNull();
+
+    fireEvent.click(toggles[1]);
+
+    expect(setRequirementState).toHaveBeenCalledWith(secondRequirement, 'COMPLETE');
   });
 
   it('keeps Order and Auto Allocate visible but disabled for completed requirements', () => {
@@ -285,7 +327,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
         isAuthenticated
         clientIdConfigured
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingRequirementStateIds={new Set()}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}
         onOrderRequirement={orderRequirement}

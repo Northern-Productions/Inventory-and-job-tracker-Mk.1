@@ -4,20 +4,28 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OptimisticQueueProvider } from '../../../../../components/OptimisticQueue';
-import type { JobDetail, JobListEntry } from '../../../../../domain';
+import type { JobDetail, JobListEntry, JobRequirementLine, SetJobRequirementStatePayload } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useCancelJob, useCompleteJob, useDeleteJob, useUpdateJob } from './jobLifecycleMutations';
+import {
+  useCancelJob,
+  useCompleteJob,
+  useDeleteJob,
+  useSetJobRequirementState,
+  useUpdateJob
+} from './jobLifecycleMutations';
 
 const updateJobMock = vi.fn();
 const completeJobMock = vi.fn();
 const cancelJobMock = vi.fn();
 const deleteJobMock = vi.fn();
+const setJobRequirementStateMock = vi.fn();
 
 vi.mock('../../../../../api/features/jobsClient', () => ({
   completeJob: (...args: unknown[]) => completeJobMock(...args),
   createJob: vi.fn(),
   deleteJob: (...args: unknown[]) => deleteJobMock(...args),
   reopenJob: vi.fn(),
+  setJobRequirementState: (...args: unknown[]) => setJobRequirementStateMock(...args),
   updateJob: (...args: unknown[]) => updateJobMock(...args)
 }));
 
@@ -31,6 +39,7 @@ beforeEach(() => {
   completeJobMock.mockReset();
   cancelJobMock.mockReset();
   deleteJobMock.mockReset();
+  setJobRequirementStateMock.mockReset();
 });
 
 function createQueryClient() {
@@ -99,6 +108,54 @@ function buildDetail(summary = buildSummary()): JobDetail {
   };
 }
 
+function buildRequirement(overrides: Partial<JobRequirementLine> = {}): JobRequirementLine {
+  return {
+    requirementId: 'req-1',
+    manufacturer: '3M',
+    filmName: 'Prestige 40',
+    widthIn: 60,
+    requiredFeet: 10,
+    status: 'ACTIVE',
+    isComplete: false,
+    actualUsedFeet: 0,
+    completionResult: '',
+    allocatedFeet: 10,
+    remainingFeet: 0,
+    autoPlanningSuppressed: false,
+    ...overrides
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
+function buildDetailWithRequirements(requirements: JobRequirementLine[]) {
+  return {
+    ...buildDetail(
+      buildSummary({
+        requirementCount: requirements.length,
+        requiredFeet: requirements.reduce((sum, entry) => sum + Number(entry.requiredFeet || 0), 0),
+        allocatedFeet: requirements.reduce((sum, entry) => sum + Number(entry.allocatedFeet || 0), 0),
+        remainingFeet: requirements.reduce((sum, entry) => sum + Number(entry.remainingFeet || 0), 0)
+      })
+    ),
+    requirements
+  };
+}
+
+function getRequirementStatus(queryClient: QueryClient, jobId: string, requirementId: string) {
+  return queryClient
+    .getQueryData<JobDetail>(inventoryKeys.jobById(jobId))
+    ?.requirements.find((entry) => entry.requirementId === requirementId)?.status;
+}
+
 describe('useUpdateJob identity caches', () => {
   it('canonical update syncs jobById and leaves legacy detail caches alone', async () => {
     const queryClient = createQueryClient();
@@ -145,6 +202,128 @@ describe('useUpdateJob identity caches', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJob(before.summary.jobNumber))).toEqual({
       source: 'legacy-allocation-job'
     });
+  });
+});
+
+describe('useSetJobRequirementState optimistic cache behavior', () => {
+  it('keeps later pending optimistic requirement state when an earlier save resolves first', async () => {
+    const queryClient = createQueryClient();
+    const requirementA = buildRequirement({ requirementId: 'req-a', filmName: 'Film A' });
+    const requirementB = buildRequirement({ requirementId: 'req-b', filmName: 'Film B' });
+    const before = buildDetailWithRequirements([requirementA, requirementB]);
+    const afterFirst = buildDetailWithRequirements([
+      buildRequirement({ ...requirementA, status: 'COMPLETE', isComplete: true }),
+      requirementB
+    ]);
+    const afterSecond = buildDetailWithRequirements([
+      buildRequirement({ ...requirementA, status: 'COMPLETE', isComplete: true }),
+      buildRequirement({ ...requirementB, status: 'COMPLETE', isComplete: true })
+    ]);
+    const firstSave = createDeferred<{ result: JobDetail; warnings: string[] }>();
+    const secondSave = createDeferred<{ result: JobDetail; warnings: string[] }>();
+    queryClient.setQueryData(inventoryKeys.jobById(before.summary.jobId!), before);
+    setJobRequirementStateMock.mockImplementation((payload: SetJobRequirementStatePayload) =>
+      payload.requirementId === 'req-a' ? firstSave.promise : secondSave.promise
+    );
+
+    const { result } = renderHook(() => useSetJobRequirementState(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    let firstPromise!: Promise<unknown>;
+    let secondPromise!: Promise<unknown>;
+    await act(async () => {
+      firstPromise = result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        requirementId: 'req-a',
+        status: 'COMPLETE'
+      });
+      secondPromise = result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        requirementId: 'req-b',
+        status: 'COMPLETE'
+      });
+      await Promise.resolve();
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('COMPLETE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
+
+    await act(async () => {
+      firstSave.resolve({ result: afterFirst, warnings: [] });
+      await firstPromise;
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('COMPLETE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
+
+    await act(async () => {
+      secondSave.resolve({ result: afterSecond, warnings: [] });
+      await secondPromise;
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('COMPLETE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
+  });
+
+  it('rolls back only the failed requirement while preserving another pending optimistic save', async () => {
+    const queryClient = createQueryClient();
+    const requirementA = buildRequirement({ requirementId: 'req-a', filmName: 'Film A' });
+    const requirementB = buildRequirement({ requirementId: 'req-b', filmName: 'Film B' });
+    const before = buildDetailWithRequirements([requirementA, requirementB]);
+    const afterSecond = buildDetailWithRequirements([
+      requirementA,
+      buildRequirement({ ...requirementB, status: 'COMPLETE', isComplete: true })
+    ]);
+    const firstSave = createDeferred<{ result: JobDetail; warnings: string[] }>();
+    const secondSave = createDeferred<{ result: JobDetail; warnings: string[] }>();
+    queryClient.setQueryData(inventoryKeys.jobById(before.summary.jobId!), before);
+    setJobRequirementStateMock.mockImplementation((payload: SetJobRequirementStatePayload) =>
+      payload.requirementId === 'req-a' ? firstSave.promise : secondSave.promise
+    );
+
+    const { result } = renderHook(() => useSetJobRequirementState(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    let firstPromise!: Promise<unknown>;
+    let secondPromise!: Promise<unknown>;
+    await act(async () => {
+      firstPromise = result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        requirementId: 'req-a',
+        status: 'COMPLETE'
+      });
+      secondPromise = result.current.mutateAsync({
+        jobId: before.summary.jobId,
+        jobNumber: before.summary.jobNumber,
+        requirementId: 'req-b',
+        status: 'COMPLETE'
+      });
+      await Promise.resolve();
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('COMPLETE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
+
+    await act(async () => {
+      firstSave.reject(new Error('Save failed'));
+      await expect(firstPromise).rejects.toThrow('Save failed');
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('ACTIVE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
+
+    await act(async () => {
+      secondSave.resolve({ result: afterSecond, warnings: [] });
+      await secondPromise;
+    });
+
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-a')).toBe('ACTIVE');
+    expect(getRequirementStatus(queryClient, before.summary.jobId!, 'req-b')).toBe('COMPLETE');
   });
 });
 

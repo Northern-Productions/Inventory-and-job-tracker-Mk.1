@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -103,7 +103,8 @@ function renderPhases({
     clientIdConfigured: true,
     canOrderAll: false,
     isCreateFilmOrderPending: false,
-    isRequirementStatePending: false,
+    pendingFilmRequirementStateIds: new Set<string>(),
+    pendingCaulkRequirementStateIds: new Set<string>(),
     isPhaseStatePending: false,
     isResumeAutoPlanningPending: false,
     pendingDeleteFilmOrderIds: new Set<string>(),
@@ -364,7 +365,8 @@ describe('JobPhasesSection', () => {
         clientIdConfigured
         canOrderAll={false}
         isCreateFilmOrderPending={false}
-        isRequirementStatePending={false}
+        pendingFilmRequirementStateIds={new Set<string>()}
+        pendingCaulkRequirementStateIds={new Set<string>()}
         isPhaseStatePending={false}
         isResumeAutoPlanningPending={false}
         pendingDeleteFilmOrderIds={new Set()}

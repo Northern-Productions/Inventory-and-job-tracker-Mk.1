@@ -39,7 +39,7 @@ function renderSection(
       isReadOnlyJob={false}
       isAuthenticated
       clientIdConfigured
-      isRequirementStatePending={false}
+      pendingRequirementStateIds={new Set()}
       isResumeAutoPlanningPending={false}
       onSetRequirementState={vi.fn()}
       onAutoAllocateRequirement={vi.fn()}
@@ -112,6 +112,42 @@ describe('CaulkRequirementsSection actual usage state', () => {
 
     expect(setRequirementState).toHaveBeenCalledWith(requirement, 'COMPLETE');
     expect(screen.getAllByText('8').length).toBeGreaterThan(0);
+  });
+
+  it('only disables the caulk requirement row currently saving', () => {
+    const setRequirementState = vi.fn();
+    const firstRequirement = buildRequirement({
+      requirementId: 'caulk-pending',
+      productName: 'Dowsil 795'
+    });
+    const secondRequirement = buildRequirement({
+      requirementId: 'caulk-ready',
+      productName: 'Tremco Spectrem 1'
+    });
+
+    render(
+      <CaulkRequirementsSection
+        requirements={[firstRequirement, secondRequirement]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        pendingRequirementStateIds={new Set(['caulk-pending'])}
+        isResumeAutoPlanningPending={false}
+        onSetRequirementState={setRequirementState}
+        onAutoAllocateRequirement={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+      />
+    );
+
+    const toggles = screen.getAllByRole('checkbox', { name: 'Active' }) as HTMLInputElement[];
+    expect(toggles[0].disabled).toBe(true);
+    expect(toggles[1].disabled).toBe(false);
+    expect(screen.getByText('Saving...')).not.toBeNull();
+
+    fireEvent.click(toggles[1]);
+
+    expect(setRequirementState).toHaveBeenCalledWith(secondRequirement, 'COMPLETE');
   });
 
   it('keeps complete caulk rows out of resume auto-plan actions', () => {
