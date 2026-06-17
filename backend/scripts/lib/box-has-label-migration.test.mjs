@@ -57,7 +57,7 @@ test('box label tracking migration adds a mark-printed RPC with audit entries', 
 
 test('schema guard tracks the box label migration and required objects', () => {
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
 
   assert.match(schemaCheck, /signature: 'app\.boxes\.has_label'/);
   assert.match(schemaCheck, /signature: 'public\.api_acl_boxes_mark_labels_printed\(uuid, text, jsonb\)'/);

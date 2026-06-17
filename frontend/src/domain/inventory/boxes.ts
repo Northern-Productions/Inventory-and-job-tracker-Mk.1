@@ -75,6 +75,11 @@ export interface SearchBoxesParams {
   showRetired?: boolean;
 }
 
+export interface SuggestedBoxIdResponse {
+  warehouse: Warehouse;
+  boxId: string;
+}
+
 export interface AddBoxPayload {
   boxId: string;
   warehouse?: Warehouse;

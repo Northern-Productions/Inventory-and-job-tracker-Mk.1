@@ -19,6 +19,8 @@ export const inventoryKeys = {
   searchRoot: ['inventory', 'search'] as const,
   boxRoot: ['inventory', 'box'] as const,
   box: (boxId: string) => ['inventory', 'box', boxId] as const,
+  suggestedBoxIdRoot: ['inventory', 'box', 'suggested-id'] as const,
+  suggestedBoxId: (warehouse: string) => ['inventory', 'box', 'suggested-id', warehouse] as const,
   boxTransferRoot: ['inventory', 'box-transfer'] as const,
   boxTransfer: (boxId: string) => ['inventory', 'box-transfer', boxId] as const,
   boxTransferPlanRoot: ['inventory', 'box-transfer-plan'] as const,

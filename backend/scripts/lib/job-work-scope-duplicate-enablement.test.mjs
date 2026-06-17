@@ -61,6 +61,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '0159_box_lf_correction_reconciles_allocations.sql',
     '0160_linked_film_order_physical_lf_recalc.sql',
     '0161_linked_film_order_shortage_reconcile_guard.sql',
+    '0162_prevent_box_id_alias_collisions.sql',
   ];
   assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
   const expectedSupabaseTail = [
@@ -91,6 +92,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '20260613100000_box_lf_correction_reconciles_allocations.sql',
     '20260613102000_linked_film_order_physical_lf_recalc.sql',
     '20260613103000_linked_film_order_shortage_reconcile_guard.sql',
+    '20260617100000_prevent_box_id_alias_collisions.sql',
   ];
   assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
 
@@ -149,7 +151,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
 
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);

@@ -44,7 +44,7 @@ test('latest schema guard requires job requirement id preservation release objec
   assert.match(
     schemaGuard,
 
-    /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/,
+    /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/,
 
     'Expected the schema guard to name the new latest backend migration.'
   );

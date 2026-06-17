@@ -15,7 +15,8 @@ import {
   useBoxDealers,
   useFilmCatalog,
   useFilmOrders,
-  useSearchBoxes,
+  useSearchBoxesWithOptions,
+  useSuggestedNextBoxId,
   useUpsertBoxDealer
 } from '../hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
@@ -77,7 +78,11 @@ export default function AddBoxPage() {
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
   );
-  const warehouseBoxesQuery = useSearchBoxes({ warehouse, showRetired: false });
+  const warehouseBoxesQuery = useSearchBoxesWithOptions(
+    { warehouse, showRetired: true },
+    { enabled: Boolean(warehouse) }
+  );
+  const suggestedBoxIdQuery = useSuggestedNextBoxId(warehouse, { enabled: Boolean(warehouse) });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const [filmOrderDraftSeed, setFilmOrderDraftSeed] = useState<BoxDraft | null>(null);
   const [filmOrderRemainingFeet, setFilmOrderRemainingFeet] = useState<number | null>(null);
@@ -133,9 +138,27 @@ export default function AddBoxPage() {
     () => getWarehousePrefix(warehouseRegistry.entries, warehouse),
     [warehouse, warehouseRegistry.entries]
   );
-  const nextBoxIdForCreateWarehouse = useMemo(
+  const fallbackNextBoxIdForCreateWarehouse = useMemo(
     () => getNextBoxIdForWarehouse(warehouseBoxesQuery.data ?? [], warehouse, warehousePrefix),
     [warehouse, warehouseBoxesQuery.data, warehousePrefix]
+  );
+  const suggestedBoxId = suggestedBoxIdQuery.data?.boxId?.trim() || '';
+  const suggestedBoxIdIsAlreadyKnown = useMemo(() => {
+    if (!suggestedBoxId) {
+      return false;
+    }
+
+    const normalizedSuggestion = suggestedBoxId.toUpperCase();
+    return (warehouseBoxesQuery.data ?? []).some(
+      (box) => String(box.boxId || '').trim().toUpperCase() === normalizedSuggestion
+    );
+  }, [suggestedBoxId, warehouseBoxesQuery.data]);
+  const nextBoxIdForCreateWarehouse = useMemo(
+    () =>
+      suggestedBoxId && !suggestedBoxIdIsAlreadyKnown
+        ? suggestedBoxId
+        : fallbackNextBoxIdForCreateWarehouse,
+    [fallbackNextBoxIdForCreateWarehouse, suggestedBoxId, suggestedBoxIdIsAlreadyKnown]
   );
   const baseInitialDraft = useMemo(() => {
     if (retryState?.retryDraft) {

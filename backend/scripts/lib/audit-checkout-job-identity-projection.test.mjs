@@ -176,7 +176,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
 
-  assert.match(schemaLatest, /0161_linked_film_order_shortage_reconcile_guard\.sql/);
+  assert.match(schemaLatest, /0162_prevent_box_id_alias_collisions\.sql/);
 
 
   const latestBackendMigration = readdir(migrationsPath).then((entries) =>
@@ -186,10 +186,10 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
     entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
   );
 
-  assert.equal(await latestBackendMigration, '0161_linked_film_order_shortage_reconcile_guard.sql');
+  assert.equal(await latestBackendMigration, '0162_prevent_box_id_alias_collisions.sql');
 
   assert.equal(
     await latestSupabaseMigration,
-    '20260613103000_linked_film_order_shortage_reconcile_guard.sql'
+    '20260617100000_prevent_box_id_alias_collisions.sql'
   );
 });

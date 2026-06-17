@@ -36,6 +36,7 @@ export type ReadHandlerDeps = {
   rpcOrThrow: <T>(client: any, fn: string, params?: Record<string, unknown>) => Promise<T>;
   enrichAdminPermissionEntries: (entriesRaw: unknown[]) => Promise<Record<string, unknown>[]>;
   buildSearchBoxes: (client: any, orgId: string, params: Record<string, unknown>) => Promise<unknown>;
+  suggestNextBoxId: (client: any, orgId: string, warehouse: string) => Promise<Record<string, unknown>>;
   findBoxById: (client: any, orgId: string, boxId: string) => Promise<any>;
   findFilmOrderById: (client: any, orgId: string, filmOrderId: string) => Promise<any>;
   listFilmOrderLinksByBoxId: (client: any, orgId: string, boxId: string) => Promise<any[]>;
@@ -659,6 +660,9 @@ const readHandlers: Record<string, ReadHandler> = {
   },
   "/boxes/search": async ({ client, orgId, params }, deps) => {
     return ok(await deps.buildSearchBoxes(client, orgId, params));
+  },
+  "/boxes/suggest-next-id": async ({ client, orgId, params }, deps) => {
+    return ok(await deps.suggestNextBoxId(client, orgId, deps.requireString(params.warehouse, "Warehouse")));
   },
   "/boxes/get": async ({ client, orgId, params }, deps) => {
     const found = await deps.findBoxById(client, orgId, deps.requireString(params.boxId, "boxId"));

@@ -49,6 +49,7 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/app/attention-summary",
   "/warehouses/list",
   "/boxes/search",
+  "/boxes/suggest-next-id",
   "/boxes/get",
   "/boxes/transfer/by-box",
   "/boxes/transfer/plan",

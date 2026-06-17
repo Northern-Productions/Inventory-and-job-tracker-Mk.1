@@ -17,6 +17,7 @@ import type {
   MarkLabelsPrintedResult,
   ReceiveOrderedBoxPayload,
   SearchBoxesParams,
+  SuggestedBoxIdResponse,
   ReceiveBoxTransferPayload,
   SetBoxStatusPayload,
   StartBoxTransferPayload,
@@ -251,6 +252,21 @@ export async function getBoxTransferPlan(
       destinationBoxIdOverride: params.destinationBoxIdOverride
     }
   );
+}
+
+export async function suggestNextBoxId(warehouse: Warehouse): Promise<SuggestedBoxIdResponse> {
+  assertFeatureAccess('inventory', 'read');
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase() as Warehouse;
+  const response = await requestReadWithFallback<SuggestedBoxIdResponse>(
+    '/boxes/suggest-next-id',
+    { warehouse: normalizedWarehouse },
+    { warehouse: normalizedWarehouse }
+  );
+
+  return {
+    warehouse: String(response.warehouse || normalizedWarehouse).trim().toUpperCase() as Warehouse,
+    boxId: String(response.boxId || '').trim().toUpperCase()
+  };
 }
 
 export async function addBox(

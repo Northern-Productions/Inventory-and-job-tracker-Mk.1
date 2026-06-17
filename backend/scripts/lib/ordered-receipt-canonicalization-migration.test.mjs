@@ -88,7 +88,7 @@ test('latest schema check tracks ordered receipt canonicalization semantics', as
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0161_linked_film_order_shortage_reconcile_guard\.sql/);
+  assert.match(schemaCheck, /0162_prevent_box_id_alias_collisions\.sql/);
 
   assert.match(schemaCheck, /app_api\.physical_film_commitment_feet_for_box\(uuid, text, text\)/);
   assert.match(schemaCheck, /app_api\.find_order_receipt_requirement_id\(uuid, text, text, text, numeric\)/);

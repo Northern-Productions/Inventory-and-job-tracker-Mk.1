@@ -1,12 +1,19 @@
 import { useMutationState } from '@tanstack/react-query';
 import { getAllocationsByBox, previewAllocationPlan } from '../../../../api/features/allocationsClient';
 import { getAuditByBox, getRollHistoryByBox } from '../../../../api/features/auditClient';
-import { getBox, getBoxTransfer, getBoxTransferPlan, searchBoxes } from '../../../../api/features/inventoryClient';
+import {
+  getBox,
+  getBoxTransfer,
+  getBoxTransferPlan,
+  searchBoxes,
+  suggestNextBoxId
+} from '../../../../api/features/inventoryClient';
 import type {
   AddBoxPayload,
   AllocateBoxPayload,
   BoxTransferPlanParams,
-  SearchBoxesParams
+  SearchBoxesParams,
+  Warehouse
 } from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
 import { useInventoryReadQuery } from './shared';
@@ -31,6 +38,15 @@ export function useBox(boxId: string) {
     queryKey: inventoryKeys.box(boxId),
     queryFn: () => getBox(boxId),
     enabled: Boolean(boxId)
+  });
+}
+
+export function useSuggestedNextBoxId(warehouse: Warehouse, options: { enabled?: boolean } = {}) {
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase();
+  return useInventoryReadQuery({
+    queryKey: inventoryKeys.suggestedBoxId(normalizedWarehouse),
+    queryFn: () => suggestNextBoxId(normalizedWarehouse),
+    enabled: Boolean(normalizedWarehouse) && (options.enabled ?? true)
   });
 }
 

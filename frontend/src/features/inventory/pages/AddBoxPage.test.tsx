@@ -12,6 +12,7 @@ const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
 const useAuthMock = vi.fn();
 const searchBoxesMock = vi.fn();
+const suggestNextBoxIdMock = vi.fn();
 const addBoxMock = vi.fn();
 const listBoxDealersMock = vi.fn();
 const upsertBoxDealerMock = vi.fn();
@@ -42,6 +43,7 @@ vi.mock('../hooks/useWarehouseRegistry', () => ({
 
 vi.mock('../../../api/features/inventoryClient', () => ({
   searchBoxes: (...args: unknown[]) => searchBoxesMock(...args),
+  suggestNextBoxId: (...args: unknown[]) => suggestNextBoxIdMock(...args),
   addBox: (...args: unknown[]) => addBoxMock(...args),
   listBoxDealers: (...args: unknown[]) => listBoxDealersMock(...args),
   upsertBoxDealer: (...args: unknown[]) => upsertBoxDealerMock(...args),
@@ -288,6 +290,7 @@ describe('AddBoxPage', () => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
     searchBoxesMock.mockReset();
+    suggestNextBoxIdMock.mockReset();
     addBoxMock.mockReset();
     listBoxDealersMock.mockReset();
     upsertBoxDealerMock.mockReset();
@@ -300,6 +303,7 @@ describe('AddBoxPage', () => {
     });
     getFilmCatalogMock.mockResolvedValue([]);
     getFilmOrdersMock.mockResolvedValue([]);
+    suggestNextBoxIdMock.mockResolvedValue({ warehouse: 'IL1', boxId: 'IL1-0006' });
     listBoxDealersMock.mockResolvedValue([]);
     upsertBoxDealerMock.mockImplementation(async ({ name }: { name: string }) => ({
       dealerId: `dealer-${String(name).trim().toLowerCase().replace(/\s+/g, '-')}`,

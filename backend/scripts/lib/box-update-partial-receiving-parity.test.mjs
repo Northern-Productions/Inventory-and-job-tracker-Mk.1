@@ -71,6 +71,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '0159_box_lf_correction_reconciles_allocations.sql',
     '0160_linked_film_order_physical_lf_recalc.sql',
     '0161_linked_film_order_shortage_reconcile_guard.sql',
+    '0162_prevent_box_id_alias_collisions.sql',
   ];
   assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
   const expectedSupabaseTail = [
@@ -99,6 +100,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '20260613100000_box_lf_correction_reconciles_allocations.sql',
     '20260613102000_linked_film_order_physical_lf_recalc.sql',
     '20260613103000_linked_film_order_shortage_reconcile_guard.sql',
+    '20260617100000_prevent_box_id_alias_collisions.sql',
   ];
   assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
 
@@ -139,7 +141,7 @@ test('schema latest guard catches stale box update partial receiving function dr
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
 
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);

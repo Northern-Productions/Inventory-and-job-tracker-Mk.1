@@ -1,7 +1,6 @@
 import type {
   AllocationEntry,
   Box,
-  BoxStatus,
   Warehouse
 } from '../../../../domain';
 import {
@@ -13,8 +12,6 @@ import { toDateInputValue, todayDateString } from '../../../../lib/date';
 import { deriveCurrentFeetOnRollForBox } from './boxRollTracking';
 
 export const STANDARD_WIDTH_OPTIONS = ['36', '48', '60', '72'] as const;
-
-const ACTIVE_CANONICAL_BOX_STATUSES: readonly BoxStatus[] = ['ORDERED', 'IN_STOCK', 'CHECKED_OUT', 'TRANSFER'];
 
 export interface BoxDraft {
   boxId: string;
@@ -126,9 +123,8 @@ export function getNextBoxIdForWarehouse(
 ): string {
   const normalizedPrefix = String(warehousePrefix || warehouse).trim().toUpperCase().replace(/-+$/, '');
   const requiredPrefix = normalizedPrefix ? `${normalizedPrefix}-` : '';
-  const activeCanonicalBoxes = dedupeBoxesByDisplayBoxId(
+  const knownBoxIdentities = dedupeBoxesByDisplayBoxId(
     boxes
-      .filter((box) => ACTIVE_CANONICAL_BOX_STATUSES.includes(box.status))
       .map((box) => ({
         ...box,
         boxId: normalizeTrailingLetterBoxId(box.boxId)
@@ -144,7 +140,7 @@ export function getNextBoxIdForWarehouse(
   let bestValue = 0;
   let bestWidth = 0;
 
-  for (const box of activeCanonicalBoxes) {
+  for (const box of knownBoxIdentities) {
     const normalizedBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
     if (!requiredPrefix || !normalizedBoxId.startsWith(requiredPrefix)) {
       continue;

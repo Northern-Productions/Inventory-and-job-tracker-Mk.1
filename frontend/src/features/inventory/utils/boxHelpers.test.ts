@@ -156,7 +156,7 @@ describe('boxHelpers', () => {
     expect(getNextBoxIdForWarehouse([], 'CA1', 'CA1')).toBe('CA1-1');
   });
 
-  it('ignores zeroed, retired, and alias duplicates when building the next warehouse box id', () => {
+  it('counts zeroed, retired, and transferred identities when building the fallback next warehouse box id', () => {
     expect(
       getNextBoxIdForWarehouse(
         [
@@ -171,7 +171,7 @@ describe('boxHelpers', () => {
         ],
         'IL1'
       )
-    ).toBe('IL1-7002');
+    ).toBe('IL1-9128');
   });
 
   it('normalizes trailing-letter box ids to numeric canonical ids', () => {

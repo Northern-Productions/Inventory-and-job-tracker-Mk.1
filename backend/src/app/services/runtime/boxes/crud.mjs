@@ -122,16 +122,28 @@ async function addBox(client, orgId, payload, actor) {
   let directToJobSiteOrder = null;
   let directToJobSiteJob = null;
 
-  if (await findBoxById(client, orgId, boxId)) {
+  const addBoxConflict = await findBoxIdConflict(client, orgId, boxId);
+  if (addBoxConflict) {
+    const normalizedBoxId = boxId.toUpperCase();
+    if (addBoxConflict.conflictType === 'alias') {
+      throw new HttpError(
+        409,
+        `BoxID ${normalizedBoxId} is reserved as a historical transfer alias for ${addBoxConflict.conflictBoxId} and cannot be reused.`
+      );
+    }
+
+    if (addBoxConflict.conflictType === 'pending_transfer') {
+      throw new HttpError(
+        409,
+        `BoxID ${normalizedBoxId} is already reserved by a pending transfer and cannot be reused yet.`
+      );
+    }
+
     throw new HttpError(400, 'A box with this BoxID already exists.');
   }
 
-  const addBoxConflict = await findBoxIdConflict(client, orgId, boxId);
-  if (addBoxConflict?.conflictType === 'pending_transfer') {
-    throw new HttpError(
-      400,
-      `BoxID ${boxId.toUpperCase()} is already reserved by a pending transfer and cannot be reused yet.`
-    );
+  if (await findBoxById(client, orgId, boxId)) {
+    throw new HttpError(400, 'A box with this BoxID already exists.');
   }
 
   assertDirectToJobSiteFlagIsServerOwned(payload, 'Add Box');

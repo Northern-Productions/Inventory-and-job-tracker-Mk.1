@@ -7,6 +7,7 @@ export {
   useBoxTransfer,
   useBoxTransferPlan,
   useIsAddBoxPending,
+  useSuggestedNextBoxId,
   useRollHistory,
   useSearchBoxes,
   useSearchBoxesWithOptions

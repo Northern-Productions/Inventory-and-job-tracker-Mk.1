@@ -10132,6 +10132,11 @@ async function dispatchRead(
     rpcOrThrow,
     enrichAdminPermissionEntries,
     buildSearchBoxes,
+    suggestNextBoxId: (readClient: any, readOrgId: string, warehouse: string) =>
+      rpcOrThrow<Record<string, unknown>>(readClient, "api_acl_suggest_next_box_id", {
+        p_org_id: readOrgId,
+        p_warehouse: warehouse,
+      }),
     findBoxById,
     findFilmOrderById,
     listFilmOrderLinksByBoxId: (_readClient: any, readOrgId: string, boxId: string) =>

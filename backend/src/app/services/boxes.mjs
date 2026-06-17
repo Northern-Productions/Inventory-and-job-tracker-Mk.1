@@ -1,5 +1,6 @@
 // Purpose: Box and transfer service surface for backend handlers.
 export { buildBoxFromPayload, buildSearchBoxes } from './runtime/runtimeCollectionsAndBoxes.mjs';
+export { suggestNextBoxId } from '../repositories/boxes/index.mjs';
 export {
   addBox,
   updateBox,

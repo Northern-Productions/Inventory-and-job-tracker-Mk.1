@@ -272,6 +272,22 @@ async function findBoxById(client, orgId, boxId) {
   return mapDbBoxRow(row);
 }
 
+async function suggestNextBoxId(client, orgId, warehouse) {
+  const normalizedWarehouse = requireString(warehouse, 'Warehouse').toUpperCase();
+  const row = await queryRow(
+    client,
+    `
+      select app_api.suggest_next_box_id($1::uuid, $2::text) as box_id
+    `,
+    [orgId, normalizedWarehouse]
+  );
+
+  return {
+    warehouse: normalizedWarehouse,
+    boxId: requireString(row?.box_id, 'Suggested BoxID').toUpperCase(),
+  };
+}
+
 async function saveBoxRecord(client, orgId, box) {
   assertLegalBoxWeightState(box);
 
@@ -684,6 +700,7 @@ export {
   listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,
+  suggestNextBoxId,
   saveBoxRecord,
   findBoxByRecordId,
   findBoxTransferByTransferId,

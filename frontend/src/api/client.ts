@@ -49,6 +49,7 @@ export {
   receiveOrderedBox,
   searchBoxes,
   setBoxStatus,
+  suggestNextBoxId,
   syncAllOfflineInventorySnapshots,
   syncOfflineInventorySnapshot,
   upsertBoxDealer,

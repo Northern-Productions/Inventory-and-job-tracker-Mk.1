@@ -41,7 +41,8 @@ export {
   useReportsSummary,
   useRollHistory,
   useSearchBoxes,
-  useSearchBoxesWithOptions
+  useSearchBoxesWithOptions,
+  useSuggestedNextBoxId
 } from './useInventoryReadQueries';
 export {
   useAddBox,

@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0161_linked_film_order_shortage_reconcile_guard.sql';
+const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -197,6 +197,12 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.cancel_active_allocations_for_box_job(uuid, text, text, text, text, uuid)' },
   { kind: 'function', signature: 'app_api.upsert_box_dealer(uuid, text)' },
+  { kind: 'function', signature: 'app_api.resolve_box_id_alias(uuid, text, timestamp with time zone)' },
+  { kind: 'function', signature: 'app_api.box_id_identity_collision_diagnostics(uuid)' },
+  { kind: 'function', signature: 'app_api.suggest_next_box_id(uuid, text)' },
+  { kind: 'function', signature: 'public.api_acl_suggest_next_box_id(uuid, text)' },
+  { kind: 'function', signature: 'app_api.prevent_box_id_alias_collision_for_boxes()' },
+  { kind: 'function', signature: 'app_api.prevent_box_id_alias_collision_for_aliases()' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations(uuid, text, date, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_schedule_allocations_by_job_id(uuid, uuid, date, text)' },
   { kind: 'function', signature: 'app_api.sync_active_job_phase_schedules(uuid, uuid)' },
@@ -207,6 +213,55 @@ const REQUIRED_OBJECTS = [
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'app_api.resolve_box_id_alias(uuid, text, timestamp with time zone)',
+    includes: [
+      'from app.boxes b',
+      'where b.org_id = p_org_id',
+      'and b.box_id = v_input',
+      'from app.box_id_aliases a',
+      'canonical_box_id',
+      'return coalesce(v_resolved, v_input);'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.suggest_next_box_id(uuid, text)',
+    includes: [
+      'from app.boxes b',
+      'from app.box_id_aliases a',
+      'from app.box_transfers t',
+      'v_next_value := v_best_value + 1;'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_acl_suggest_next_box_id(uuid, text)',
+    includes: [
+      'app_api.require_effective_feature_access',
+      'app_api.require_org_warehouse',
+      'app_api.suggest_next_box_id'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.prevent_box_id_alias_collision_for_boxes()',
+    includes: [
+      'from app.box_id_aliases a',
+      'historical transfer alias',
+      'cannot be reused'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.prevent_box_id_alias_collision_for_aliases()',
+    includes: [
+      'cannot point to itself.',
+      'must be an existing canonical box.',
+      'a direct box with that ID already exists.'
+    ],
+    excludes: []
+  },
   {
     signature: 'app_api.recalculate_film_order(uuid, text, text)',
     includes: [

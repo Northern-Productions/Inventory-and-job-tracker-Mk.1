@@ -16,7 +16,7 @@ vi.mock('./features/sharedClient', () => ({
   requestReadWithFallback: vi.fn()
 }));
 
-import { getBoxTransferPlan, searchBoxes } from './client';
+import { getBoxTransferPlan, searchBoxes, suggestNextBoxId } from './client';
 import { requestReadWithFallback } from './features/sharedClient';
 
 const requestReadWithFallbackMock = vi.mocked(requestReadWithFallback);
@@ -165,5 +165,24 @@ describe('inventory API client', () => {
         destinationBoxIdOverride: 'MS1-1234-IL1-2'
       }
     );
+  });
+
+  it('reads the next collision-safe BoxID suggestion for a warehouse', async () => {
+    requestReadWithFallbackMock.mockResolvedValueOnce({
+      warehouse: 'il2',
+      boxId: 'il2-4'
+    });
+
+    const suggestion = await suggestNextBoxId('il2');
+
+    expect(requestReadWithFallbackMock).toHaveBeenCalledWith(
+      '/boxes/suggest-next-id',
+      { warehouse: 'IL2' },
+      { warehouse: 'IL2' }
+    );
+    expect(suggestion).toEqual({
+      warehouse: 'IL2',
+      boxId: 'IL2-4'
+    });
   });
 });

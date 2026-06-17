@@ -13,6 +13,7 @@ export {
   listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,
+  suggestNextBoxId,
   saveBoxRecord,
   findBoxByRecordId,
   findBoxTransferByTransferId,

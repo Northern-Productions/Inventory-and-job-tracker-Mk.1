@@ -45,7 +45,7 @@ import {
   buildReportsSummary,
 } from '../services/jobs.mjs';
 import { findJobById } from '../repositories/jobsRepository.mjs';
-import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan } from '../services/boxes.mjs';
+import { buildSearchBoxes, getBoxTransferByBox, getBoxTransferPlan, suggestNextBoxId } from '../services/boxes.mjs';
 import { buildAppAttentionSummary } from '../services/appShell.mjs';
 import {
   listFilmWeightProfiles,
@@ -230,6 +230,8 @@ const readHandlers = {
   '/warehouses/list': async ({ client, orgId, authContext }) =>
     ok({ entries: await listWarehouses(client, orgId, authContext) }),
   '/boxes/search': async ({ client, orgId, params }) => ok(await buildSearchBoxes(client, orgId, params)),
+  '/boxes/suggest-next-id': async ({ client, orgId, params }) =>
+    ok(await suggestNextBoxId(client, orgId, requireString(params.warehouse, 'Warehouse'))),
   '/boxes/get': async ({ client, orgId, params }) => {
     const found = await findBoxById(client, orgId, params.boxId);
     if (!found) {
