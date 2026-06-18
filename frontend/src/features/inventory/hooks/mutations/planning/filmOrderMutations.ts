@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createFilmOrder,
-  deleteFilmOrder
+  deleteFilmOrder,
+  manualFulfillFilmOrder
 } from '../../../../../api/features/filmOrdersClient';
 import type {
   AllocationJobDetail,
@@ -311,6 +312,36 @@ export function useDeleteFilmOrder() {
     },
     onSettled: (_data, _error, _variables, context) => {
       context?.operation?.finish();
+    }
+  });
+}
+
+export function useManualFulfillFilmOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.manualFulfillFilmOrderMutation,
+    mutationFn: (payload: DeleteFilmOrderPayload) => manualFulfillFilmOrder(payload),
+    onSuccess: async (_data, variables) => {
+      const jobId = String(variables.jobId || '').trim();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrder(variables.filmOrderId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        ...(jobId ? [queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) })] : []),
+        ...(!jobId && variables.jobNumber
+          ? [
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+            ]
+          : [])
+      ]);
+
+      void syncOfflineInventoryQueries(queryClient);
     }
   });
 }

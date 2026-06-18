@@ -91,6 +91,9 @@ import {
   buildRequirementRowsForReplace,
 } from './runtimeCollectionsAndBoxes.mjs';
 import {
+  buildPublicFilmOrderLinkedBoxes,
+} from './runtimeJobSummaries.mjs';
+import {
   getOrResolveJobId,
 } from './runtimeAllocationPlanning.mjs';
 import { getAllocationReservationState } from '../../../../../shared/domain/filmAllocationReservations.mjs';
@@ -1562,6 +1565,53 @@ async function deleteFilmOrder(client, orgId, payload, actor) {
   return ok(toPublicFilmOrder(result.filmOrder, []), warnings);
 }
 
+async function manualFulfillFilmOrder(client, orgId, payload, actor) {
+  const filmOrderId = requireString(payload.filmOrderId, 'FilmOrderID');
+  const target = await resolveJobMutationTargetById(client, orgId, payload);
+  if (target.usedJobId) {
+    const filmOrder = await findFilmOrderById(client, orgId, filmOrderId);
+    const ownership = validateFilmOrderJobMutationOwnership({
+      filmOrder,
+      filmOrderId,
+      target,
+      normalizeJobNumberDigits,
+    });
+    if (!ownership.ok) {
+      throw new HttpError(ownership.status || 409, ownership.message);
+    }
+  }
+
+  const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = payload || {};
+  const rpcPayload = {
+    ...payloadWithoutRequestOrg,
+    ...(target.usedJobId ? { jobId: target.jobId, jobNumber: target.jobNumber } : {})
+  };
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_film_orders_manual_fulfill(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, asTrimmedString(actor), JSON.stringify(rpcPayload)]
+  );
+  const result = row?.result || {};
+  const filmOrder = await findFilmOrderById(client, orgId, filmOrderId);
+  if (!filmOrder) {
+    throw new HttpError(500, 'Film order was manually fulfilled but could not be reloaded.');
+  }
+
+  return ok(
+    toPublicFilmOrder(
+      filmOrder,
+      await buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrder.filmOrderId)
+    ),
+    Array.isArray(result.warnings) ? result.warnings : []
+  );
+}
+
 async function deleteBox(client, orgId, payload, actor) {
   const boxId = requireString(payload.boxId, 'BoxID');
   const reason = asTrimmedString(payload.reason) || 'Deleted from box details.';
@@ -1629,5 +1679,6 @@ export {
   removeJobBoxAllocation,
   clearAllocationPlannerSuppression,
   deleteFilmOrder,
+  manualFulfillFilmOrder,
   deleteBox,
 };

@@ -80,13 +80,9 @@ function compareInstallDateDescending(left: JobListEntry, right: JobListEntry) {
   return compareJobNumberDescending(left, right);
 }
 
-export function getJobListDisplayStatus(status: string, filmOrderCount: number) {
+export function getJobListDisplayStatus(status: string, _filmOrderCount: number) {
   if (status === 'ORDERED') {
     return 'ORDERED';
-  }
-
-  if (status === 'READY' && filmOrderCount > 0) {
-    return 'FILM_ORDER';
   }
 
   return status;

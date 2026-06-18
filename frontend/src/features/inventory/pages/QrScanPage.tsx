@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getBox } from '../../../api/features/inventoryClient';
 import { QrScanner } from '../components/QrScanner';
+import { buildAllocationJobRoute } from '../utils/jobRoutes';
 
 export default function QrScanPage() {
   const navigate = useNavigate();
@@ -18,10 +19,25 @@ export default function QrScanPage() {
 
       try {
         const box = await getBox(normalizedBoxId);
-        const target =
-          box.status === 'CHECKED_OUT'
-            ? `/inventory/${encodeURIComponent(box.boxId)}?scanAction=checkin`
-            : `/inventory/${encodeURIComponent(box.boxId)}`;
+        let target = `/inventory/${encodeURIComponent(box.boxId)}`;
+        if (box.status === 'CHECKED_OUT') {
+          const checkoutJobId = String(box.lastCheckoutJobId || '').trim();
+          if (checkoutJobId) {
+            const params = new URLSearchParams({
+              scanAction: 'checkin',
+              boxId: box.boxId
+            });
+            target = `${buildAllocationJobRoute({
+              jobId: checkoutJobId,
+              jobNumber: box.lastCheckoutJob
+            })}?${params.toString()}`;
+          } else {
+            const params = new URLSearchParams({
+              scanNotice: 'checkout-job-unknown'
+            });
+            target = `${target}?${params.toString()}`;
+          }
+        }
         navigate(target);
         return true;
       } catch (_error) {

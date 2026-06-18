@@ -20,6 +20,15 @@ If a requested change conflicts with these rules, warn Rob and Sage before imple
 - For ordered boxes, allocatable LF is expected physical LF minus active allocation claims.
 - A checked-out box may report returned physical LF; that returned reality is accepted and then reconciled.
 - If roll weight can derive LF, derived LF is treated as the current physical LF within the app's existing weighing rules.
+- When roll-weight inputs are complete, the current physical LF is derived from the returned/current roll weight, empty core weight, LF-per-foot profile, and initial LF cap:
+
+```text
+derived LF = min(floor((last roll weight - core weight) / LF weight per foot), floor(initial LF))
+```
+
+- If the derived value is below zero, treat it as 0 LF. If any required input is missing or LF weight per foot is not positive, do not invent a derived LF.
+- Derived roll-weight LF overrides stale stored `feet_available` or `physical_feet_available` values for read/display semantics. A stale 0 LF value must not hide remaining material when complete, valid weight data proves film remains.
+- If current LF is explicitly entered during check-in and the app has enough weight/core/profile data, the app may derive the corresponding roll weight using the existing inverse formula. Do not backfill or mass-repair data outside an approved repair task.
 
 ## No Over-Allocation Rule
 

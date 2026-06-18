@@ -20,7 +20,7 @@ import {
   transferCaulkStock,
   upsertCaulkProduct,
 } from '../services/caulk.mjs';
-import { createFilmOrder, deleteFilmOrder } from '../services/filmOrders.mjs';
+import { createFilmOrder, deleteFilmOrder, manualFulfillFilmOrder } from '../services/filmOrders.mjs';
 import {
   buildJobDetail,
   buildJobDetailById,
@@ -230,6 +230,8 @@ const mutationHandlers = {
     cancelJob(client, orgId, params, authContext.actor),
   '/film-orders/delete': async ({ client, orgId, authContext, params }) =>
     deleteFilmOrder(client, orgId, params, authContext.actor),
+  '/film-orders/manual-fulfill': async ({ client, orgId, authContext, params }) =>
+    manualFulfillFilmOrder(client, orgId, params, authContext.actor),
   '/boxes/update': async ({ client, orgId, authContext, params }) =>
     updateBox(client, orgId, params, authContext.actor),
   '/boxes/delete': async ({ client, orgId, authContext, params }) =>

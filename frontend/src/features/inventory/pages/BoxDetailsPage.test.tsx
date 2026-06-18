@@ -389,6 +389,7 @@ describe('BoxDetailsPage', () => {
         { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
       ]
     });
+    currentSearchParams = '';
   });
 
   it('renders the readable box summary, collapsed admin sections, and view-only actions', () => {
@@ -1078,6 +1079,31 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('qr-code-card qr-code-card-open');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-hidden="false"');
+  });
+
+  it('does not auto-check in a checked-out box from the old QR scanAction route', async () => {
+    currentSearchParams = 'scanAction=checkin';
+    const statusMutation = buildMutationState();
+    useSetBoxStatusMock.mockReturnValue(statusMutation);
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: '000123',
+        lastCheckoutJobId: '11111111-1111-4111-8111-111111111111',
+        feetAvailable: 0,
+        allocationPlanningFeet: 0,
+        physicalFeetAvailable: 20
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    await waitFor(() => expect(screen.getByText('Current Activity')).toBeTruthy());
+    expect(statusMutation.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Check In' })).toBeNull();
   });
 
   it('does not expose legacy last checkout job navigation in the cleaned top summary', () => {

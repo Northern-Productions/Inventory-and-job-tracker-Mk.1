@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { JobDetail } from '../../../domain';
 import AllocationJobPage from './AllocationJobPage';
@@ -13,6 +13,7 @@ const searchBoxesMock = vi.fn();
 const listCaulkStockMock = vi.fn();
 const useParamsMock = vi.fn();
 const useSearchParamsMock = vi.fn();
+const setSearchParamsMock = vi.fn();
 const useAuthMock = vi.fn();
 const useJobMock = vi.fn();
 const useJobByIdMock = vi.fn();
@@ -398,10 +399,11 @@ describe('AllocationJobPage', () => {
     listCaulkStockMock.mockReset();
     useParamsMock.mockReset();
     useSearchParamsMock.mockReset();
+    setSearchParamsMock.mockReset();
     useJobMock.mockReset();
     useJobByIdMock.mockReset();
     useParamsMock.mockReturnValue({ jobNumber: '000123' });
-    useSearchParamsMock.mockReturnValue([new URLSearchParams()]);
+    useSearchParamsMock.mockReturnValue([new URLSearchParams(), setSearchParamsMock]);
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
       isAuthenticated: true,
@@ -1782,6 +1784,88 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Check In');
     expect(html).toContain('Check Out');
+  });
+
+  it('opens the film check-in dialog from a scanned checked-out box on Job Details', async () => {
+    const jobId = '11111111-1111-4111-8111-111111111111';
+    const detail: JobDetail = {
+      ...baseDetail,
+      summary: buildSummary({ jobId, jobNumber: '000123' }) as JobDetail['summary'],
+      allocations: [
+        {
+          allocationId: 'alloc-checked-out',
+          boxId: 'IL1-100',
+          warehouse: 'IL1',
+          jobNumber: '000123',
+          installDate: '2026-03-20',
+          crewLeader: 'Crew',
+          allocatedFeet: 50,
+          coveredFeet: 50,
+          status: 'ACTIVE',
+          allocationKind: 'REQUIREMENT',
+          allocationSource: 'MANUAL' as const,
+          createdAt: '2026-03-20T00:00:00Z',
+          createdBy: 'tester',
+          resolvedAt: '',
+          resolvedBy: '',
+          filmOrderId: '',
+          notes: '',
+          manufacturer: '3M',
+          filmName: 'Ultra 70',
+          widthIn: 60,
+          boxStatus: 'CHECKED_OUT',
+          checkedOutOnThisJob: true
+        }
+      ]
+    };
+
+    useParamsMock.mockReturnValue({ jobId });
+    useSearchParamsMock.mockReturnValue([
+      new URLSearchParams('scanAction=checkin&boxId=IL1-100'),
+      setSearchParamsMock
+    ]);
+    useJobByIdMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: detail,
+      error: null,
+      refetch: vi.fn().mockResolvedValue({ data: detail })
+    });
+    useBoxMock.mockReturnValue({
+      data: {
+        boxId: 'IL1-100',
+        status: 'CHECKED_OUT',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'Ultra 70',
+        widthIn: 60,
+        initialFeet: 100,
+        feetAvailable: 0,
+        receivedDate: '2026-03-20',
+        directToJobSite: false,
+        lastRollWeightLbs: 12,
+        coreWeightLbs: 2,
+        lfWeightLbsPerFt: 0.1,
+        coreType: '',
+        lastCheckoutJob: '000123',
+        lastCheckoutJobId: jobId
+      },
+      isLoading: false,
+      isError: false,
+      error: null
+    });
+
+    renderInteractivePage();
+
+    const dialog = await screen.findByRole('dialog', { name: 'Check In IL1-100' });
+    expect(
+      within(dialog).getByText(
+        'This return will close the current checkout for job 000123 and record returned roll history.'
+      )
+    ).toBeTruthy();
+    expect(setSearchParamsMock).toHaveBeenCalledWith(expect.any(URLSearchParams), {
+      replace: true
+    });
   });
 
   it('hides historical resolved allocation rows from Allocated Boxes while keeping the current checkout row', () => {

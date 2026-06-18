@@ -1,44 +1,21 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
+import { useToast } from '../../../components/Toast';
 import type { FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../lib/url';
 import { useFilmOrderDetail } from '../hooks/useInventoryQueries';
+import { useManualFulfillFilmOrder } from '../hooks/mutations/planning/filmOrderMutations';
 import { formatFilmOrderDealerLabel } from '../utils/filmOrders';
 
 function buildJobHref(order: Pick<FilmOrderDetail, 'jobId' | 'jobNumber'>) {
   return order.jobId
     ? `/allocations/jobs/${encodeURIComponent(order.jobId)}`
     : `/allocations/${encodeURIComponent(order.jobNumber)}`;
-}
-
-function buildAddBoxTarget(order: FilmOrderDetail) {
-  const params = new URLSearchParams({
-    filmOrderId: order.filmOrderId,
-    jobNumber: order.jobNumber,
-    warehouse: order.warehouse,
-    manufacturer: order.manufacturer,
-    filmName: order.filmName,
-    width: String(order.widthIn),
-    remainingToOrderFeet: String(Math.max(order.remainingFeet, 0)),
-    notes: `Ordered for job ${order.jobNumber} via ${order.filmOrderId}`
-  });
-
-  if (order.jobId) {
-    params.set('jobId', order.jobId);
-  }
-  const workScope = String(order.phase?.workScope ?? order.workScope ?? '').trim();
-  if (workScope) {
-    params.set('workScope', workScope);
-  }
-  const sections = String(order.phase?.sections ?? order.sections ?? '').trim();
-  if (sections) {
-    params.set('sections', sections);
-  }
-
-  return `/inventory/add?${params.toString()}`;
 }
 
 function formatDisplayStatus(status: FilmOrderDisplayStatus) {
@@ -83,9 +60,38 @@ function renderChangedData(value: Record<string, unknown> | null | undefined) {
 export default function FilmOrderDetailsPage() {
   const params = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const filmOrderId = safeDecodePathParam(params.filmOrderId);
   const detailQuery = useFilmOrderDetail(filmOrderId);
+  const manualFulfillMutation = useManualFulfillFilmOrder();
+  const [manualFulfillOpen, setManualFulfillOpen] = useState(false);
   const order = detailQuery.data;
+
+  async function handleManualFulfillConfirm() {
+    if (!order) {
+      return;
+    }
+
+    try {
+      const { warnings } = await manualFulfillMutation.mutateAsync({
+        filmOrderId: order.filmOrderId,
+        jobId: order.jobId,
+        jobNumber: order.jobNumber
+      });
+      setManualFulfillOpen(false);
+      toast.push({
+        title: 'Film order fulfilled',
+        description: warnings[0] || `${order.filmOrderId} was manually marked fulfilled.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to fulfill film order',
+        description: error instanceof Error ? error.message : 'The film order could not be marked fulfilled.',
+        variant: 'error'
+      });
+    }
+  }
 
   return (
     <section className="panel film-order-detail-page">
@@ -99,9 +105,15 @@ export default function FilmOrderDetailsPage() {
             Back
           </Button>
           {order ? (
-            <Link className="button button-primary" to={buildAddBoxTarget(order)}>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => setManualFulfillOpen(true)}
+              loading={manualFulfillMutation.isPending}
+              loadingLabel="Fulfilling..."
+            >
               Fulfill Order
-            </Link>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -241,6 +253,18 @@ export default function FilmOrderDetailsPage() {
           </section>
         </>
       ) : null}
+
+      <ConfirmDialog
+        open={manualFulfillOpen}
+        title="Fulfill Film Order"
+        message="Do you want to consider this film order fulfilled?"
+        cancelLabel="No"
+        confirmLabel="Yes"
+        pending={manualFulfillMutation.isPending}
+        pendingLabel="Fulfilling..."
+        onCancel={() => setManualFulfillOpen(false)}
+        onConfirm={() => void handleManualFulfillConfirm()}
+      />
     </section>
   );
 }

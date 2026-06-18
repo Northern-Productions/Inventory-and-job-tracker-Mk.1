@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import type {
   CaulkJobCheckoutEntry,
@@ -89,6 +89,7 @@ export function useAllocationJobPageModel() {
   const ensureActionAccess = useActionAccess();
   const warehouseRegistry = useWarehouseRegistry();
   const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const routeJobId = safeDecodePathParam(params.jobId);
   const jobNumber = safeDecodePathParam(params.jobNumber);
   const jobByNumberQuery = useJob(routeJobId ? '' : jobNumber);
@@ -136,6 +137,7 @@ export function useAllocationJobPageModel() {
   const [dismissedStaleFilmOrderPromptKeys, setDismissedStaleFilmOrderPromptKeys] = useState<
     Set<string>
   >(() => new Set());
+  const didHandleScanCheckinKey = useRef('');
 
   const rawDetail = jobQuery.data;
   const detail = useMemo(
@@ -561,6 +563,61 @@ export function useAllocationJobPageModel() {
     cancelCaulkTransfer: cancelCaulkTransferMutation.mutateAsync,
     cancelCaulkTransferPending: cancelCaulkTransferMutation.isPending
   });
+
+  useEffect(() => {
+    const scanAction = String(searchParams.get('scanAction') || '').trim();
+    if (scanAction !== 'checkin') {
+      return;
+    }
+
+    const scannedBoxId = String(searchParams.get('boxId') || '').trim();
+    const jobIdentity = routeJobId || summary?.jobId || summary?.jobNumber || jobNumber;
+    const scanKey = `${jobIdentity}:${scannedBoxId}`.toUpperCase();
+    if (!scannedBoxId || !jobIdentity || didHandleScanCheckinKey.current === scanKey) {
+      return;
+    }
+
+    if (!detail || jobQuery.isLoading) {
+      return;
+    }
+
+    const normalizedBoxId = scannedBoxId.toUpperCase();
+    const checkedOutEntries = visibleAllocations.filter(
+      (entry) =>
+        String(entry.boxId || '').trim().toUpperCase() === normalizedBoxId &&
+        entry.checkedOutOnThisJob &&
+        entry.boxStatus === 'CHECKED_OUT'
+    );
+
+    didHandleScanCheckinKey.current = scanKey;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('scanAction');
+    nextParams.delete('boxId');
+    setSearchParams(nextParams, { replace: true });
+
+    if (checkedOutEntries.length > 0) {
+      filmWorkflow.openFilmCheckinDialog(checkedOutEntries[0]);
+      return;
+    }
+
+    toast.push({
+      title: 'Scanned box is not checked out on this job',
+      description: `Box ${scannedBoxId} was not found as a checked-out box on this job. Open the box details or search Jobs if it was checked out elsewhere.`,
+      variant: 'warning'
+    });
+  }, [
+    detail,
+    filmWorkflow,
+    jobNumber,
+    jobQuery.isLoading,
+    routeJobId,
+    searchParams,
+    setSearchParams,
+    summary?.jobId,
+    summary?.jobNumber,
+    toast,
+    visibleAllocations
+  ]);
 
   async function handleCancelStaleFilmOrders() {
     const orders = staleFilmOrderPromptOrders;

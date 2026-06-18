@@ -56,7 +56,12 @@ describe('JobsCalendarView', () => {
               lifecycleStatus: 'COMPLETED'
             }),
             buildJob({ jobNumber: '10003', installDate: '2026-03-24', status: 'FILM_ORDER' }),
-            buildJob({ jobNumber: '10004', installDate: '2026-03-24', hasOrderedAllocations: true })
+            buildJob({
+              jobNumber: '10004',
+              installDate: '2026-03-24',
+              status: 'ORDERED',
+              hasOrderedAllocations: true
+            })
           ]}
           navigationStatus={{ kind: 'loading', label: 'Loading Mar 29 - Apr 4, 2026...' }}
           transitionToken={1}

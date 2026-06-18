@@ -137,6 +137,7 @@ export type FilmOrderDisplayStatus =
   | 'FILM_ORDER'
   | 'INCOMPLETE'
   | 'FULFILLED_COVERED'
+  | 'MANUALLY_FULFILLED'
   | 'CANCELLED'
   | 'NO_LONGER_NEEDED';
 
@@ -204,6 +205,8 @@ export interface FilmOrderDetail extends FilmOrderEntry {
   fulfilledFeet: number;
   remainingFeet: number;
   overageFeet: number;
+  manualFulfilledAt?: string | null;
+  manualFulfilledBy?: string | null;
   orderedDate?: string | null;
   receivedDate?: string | null;
   job?: {

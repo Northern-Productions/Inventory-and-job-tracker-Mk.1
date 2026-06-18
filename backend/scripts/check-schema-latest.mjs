@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0164_job_edit_preserve_phase_requirement_state.sql';
+const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -96,6 +96,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_film_orders_cancel(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_film_orders_manual_fulfill(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_film_orders_manual_fulfill(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_record_film_weight_sample_from_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_get_film_weight_pending_review_count(uuid)' },
@@ -273,7 +275,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'coalesce(b.initial_feet, l.ordered_feet, 0)',
       'app_api.box_physical_feet_available(b)',
       "upper(coalesce(b.status::text, '')) <> 'ORDERED'",
-      'v_received_link_count = v_link_count'
+      'v_received_link_count = v_link_count',
+      'v_manually_fulfilled',
+      'FILM_ORDER_MANUALLY_FULFILLED'
     ],
     excludes: ['coalesce(sum(l.ordered_feet)']
   },
@@ -383,7 +387,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       "'sourceBoxId', v_order.source_box_id",
       "when app_api.trim_text(v_order.source_box_id) = '' then 'MANUAL'",
-      "else 'AUTO_SHORTAGE'"
+      "else 'AUTO_SHORTAGE'",
+      'MANUALLY_FULFILLED',
+      "'manualFulfilledAt', v_manual_fulfill_event.created_at"
     ],
     excludes: ['v_order.origin']
   },

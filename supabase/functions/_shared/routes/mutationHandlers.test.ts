@@ -2442,6 +2442,113 @@ Deno.test("/film-orders/delete validates jobId film order ownership before RPC",
   );
 });
 
+Deno.test("/film-orders/manual-fulfill validates ownership, calls RPC, and reloads linked boxes", async () => {
+  const jobIdLookups: Array<Record<string, unknown>> = [];
+  const filmOrderLookups: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const linkedBoxLookups: string[] = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/manual-fulfill",
+    {
+      orgId: "request-org-ignored",
+      jobId: "11111111-1111-4111-8111-111111111111",
+      jobNumber: "81234",
+      filmOrderId: "FO-100",
+    },
+    buildDeps({
+      findJobById: async (_client: unknown, orgId: string, jobId: string) => {
+        jobIdLookups.push({ orgId, jobId });
+        return {
+          id: jobId,
+          jobNumber: "81234",
+        };
+      },
+      findFilmOrderById: async (_client: unknown, orgId: string, filmOrderId: string) => {
+        filmOrderLookups.push({ orgId, filmOrderId });
+        return {
+          filmOrderId,
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          status: filmOrderLookups.length > 1 ? "FULFILLED" : "FILM_ORDER",
+        };
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          filmOrderId: "FO-100",
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          warnings: ["Film order manually marked fulfilled."],
+        };
+      },
+      buildPublicFilmOrderLinkedBoxes: async (_client: unknown, _orgId: string, filmOrderId: string) => {
+        linkedBoxLookups.push(filmOrderId);
+        return [{ boxId: "IL1-100" }];
+      },
+      toPublicFilmOrder: (entry: any, linkedBoxes: any[]) => ({
+        filmOrderId: entry.filmOrderId,
+        jobNumber: entry.jobNumber,
+        status: entry.status,
+        linkedBoxes,
+      }),
+    }),
+  );
+
+  assertEquals(
+    jobIdLookups,
+    [{ orgId: "org-from-auth", jobId: "11111111-1111-4111-8111-111111111111" }],
+    "Expected manual fulfill jobId validation to use auth-derived org.",
+  );
+  assertEquals(
+    filmOrderLookups,
+    [
+      { orgId: "org-from-auth", filmOrderId: "FO-100" },
+      { orgId: "org-from-auth", filmOrderId: "FO-100" },
+    ],
+    "Expected manual fulfill to load the order for ownership and reload the result.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_film_orders_manual_fulfill",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          jobId: "11111111-1111-4111-8111-111111111111",
+          jobNumber: "81234",
+          filmOrderId: "FO-100",
+        },
+      },
+    ],
+    "Expected manual fulfill to call the explicit SQL RPC with canonical job identity.",
+  );
+  assertEquals(linkedBoxLookups, ["FO-100"], "Expected manual fulfill response to preserve linked boxes.");
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        filmOrderId: "FO-100",
+        jobNumber: "81234",
+        status: "FULFILLED",
+        linkedBoxes: [{ boxId: "IL1-100" }],
+      },
+      warnings: ["Film order manually marked fulfilled."],
+    },
+    "Expected manual fulfill response to return the reloaded public film order.",
+  );
+});
+
 Deno.test("/film-orders/delete rejects mismatched jobId and jobNumber before RPC", async () => {
   let filmOrderLookupCount = 0;
   let rpcCallCount = 0;

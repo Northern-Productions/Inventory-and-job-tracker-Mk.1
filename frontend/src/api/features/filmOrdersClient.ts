@@ -66,3 +66,14 @@ export async function deleteFilmOrder(
     warnings: response.warnings
   };
 }
+
+export async function manualFulfillFilmOrder(
+  payload: DeleteFilmOrderPayload
+): Promise<{ result: FilmOrderEntry; warnings: string[] }> {
+  assertFeatureAccess('film_orders', 'write');
+  const response = await request<FilmOrderEntry>('POST', '/film-orders/manual-fulfill', { body: payload });
+  return {
+    result: response.data,
+    warnings: response.warnings
+  };
+}

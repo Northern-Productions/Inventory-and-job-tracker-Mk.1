@@ -83,7 +83,7 @@ export function useBoxDetailsPageModel() {
   const [isEditing, setIsEditing] = useState(false);
   const [isAllocationsSectionCollapsed, setIsAllocationsSectionCollapsed] = useState(false);
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
-  const didHandleScanCheckIn = useRef(false);
+  const didHandleScanNotice = useRef('');
   const didAutoOpenOrderedReceiveKey = useRef('');
 
   const box = boxQuery.data;
@@ -319,16 +319,25 @@ export function useBoxDetailsPageModel() {
   }, [boxId]);
 
   useEffect(() => {
-    if (searchParams.get('scanAction') !== 'checkin' || didHandleScanCheckIn.current || !box) {
+    if (searchParams.get('scanNotice') !== 'checkout-job-unknown' || !box) {
       return;
     }
 
-    didHandleScanCheckIn.current = true;
-
-    if (box.status === 'CHECKED_OUT') {
-      void boxActions.handleStatusChange('IN_STOCK');
+    const noticeKey = `${box.boxId}:checkout-job-unknown`;
+    if (didHandleScanNotice.current === noticeKey) {
+      return;
     }
-  }, [box, boxActions, searchParams]);
+
+    didHandleScanNotice.current = noticeKey;
+    const checkoutJob = String(box.lastCheckoutJob || '').trim();
+    toast.push({
+      title: 'Open the job to check in this box',
+      description: checkoutJob
+        ? `Box ${box.boxId} is checked out to job ${checkoutJob}, but the scan did not include a canonical job link. Open the related job or search Jobs to check it in.`
+        : `Box ${box.boxId} is checked out, but the scan did not include enough job context to open the check-in workflow automatically.`,
+      variant: 'warning'
+    });
+  }, [box, searchParams, toast]);
 
   useEffect(() => {
     if (

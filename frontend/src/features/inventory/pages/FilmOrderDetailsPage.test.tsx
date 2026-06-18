@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,8 @@ import type { FilmOrderDetail } from '../../../domain';
 import FilmOrderDetailsPage from './FilmOrderDetailsPage';
 
 const getFilmOrderDetailMock = vi.fn();
+const manualFulfillFilmOrderMock = vi.fn();
+const toastPushMock = vi.fn();
 
 vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmOrderDetail: (...args: unknown[]) => getFilmOrderDetailMock(...args),
@@ -15,7 +17,12 @@ vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmOrders: vi.fn(),
   createFilmOrder: vi.fn(),
   cancelJob: vi.fn(),
-  deleteFilmOrder: vi.fn()
+  deleteFilmOrder: vi.fn(),
+  manualFulfillFilmOrder: (...args: unknown[]) => manualFulfillFilmOrderMock(...args)
+}));
+
+vi.mock('../../../components/Toast', () => ({
+  useToast: () => ({ push: toastPushMock })
 }));
 
 function createQueryClient() {
@@ -139,7 +146,16 @@ describe('FilmOrderDetailsPage', () => {
 
   beforeEach(() => {
     getFilmOrderDetailMock.mockReset();
+    manualFulfillFilmOrderMock.mockReset();
+    toastPushMock.mockReset();
     getFilmOrderDetailMock.mockResolvedValue(buildDetail());
+    manualFulfillFilmOrderMock.mockResolvedValue({
+      result: {
+        ...buildDetail(),
+        status: 'FULFILLED'
+      },
+      warnings: ['Film order manually marked fulfilled. Linked boxes and physical LF were not changed.']
+    });
   });
 
   it('renders dynamic need, fulfillment, box links, job link, and history', async () => {
@@ -148,9 +164,8 @@ describe('FilmOrderDetailsPage', () => {
     expect(await screen.findByRole('heading', { name: 'FO-1' })).toBeTruthy();
     expect(getFilmOrderDetailMock).toHaveBeenCalledWith('FO-1');
     await waitFor(() => expect(screen.getByText('Incomplete')).toBeTruthy());
-    const fulfillLink = screen.getByRole('link', { name: 'Fulfill Order' });
-    expect(fulfillLink.getAttribute('href')).toContain('/inventory/add?');
-    expect(fulfillLink.getAttribute('href')).toContain('filmOrderId=FO-1');
+    expect(screen.getByRole('button', { name: 'Fulfill Order' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Fulfill Order' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Add Box' })).toBeNull();
     expect(screen.getByText('Current Needed LF')).toBeTruthy();
     expect(screen.getAllByText('230').length).toBeGreaterThan(0);
@@ -163,6 +178,35 @@ describe('FilmOrderDetailsPage', () => {
     ).toBe(true);
     expect(screen.getAllByRole('link', { name: 'IL1-100' })).toHaveLength(2);
     expect(screen.getByText('LINKED BOX INITIAL FEET CHANGED')).toBeTruthy();
+  });
+
+  it('confirms manual fulfillment without navigating to the Add Box flow', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fulfill Order' }));
+
+    expect(screen.getByRole('heading', { name: 'Fulfill Film Order' })).toBeTruthy();
+    expect(screen.getByText('Do you want to consider this film order fulfilled?')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    expect(manualFulfillFilmOrderMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fulfill Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+
+    await waitFor(() =>
+      expect(manualFulfillFilmOrderMock).toHaveBeenCalledWith({
+        filmOrderId: 'FO-1',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4024'
+      })
+    );
+    expect(toastPushMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Film order fulfilled',
+        variant: 'success'
+      })
+    );
   });
 
   it('shows no longer needed status when the linked requirement no longer matches', async () => {

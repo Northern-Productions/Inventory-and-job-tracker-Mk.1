@@ -78,6 +78,7 @@ export const inventoryKeys = {
   removeJobBoxAllocationMutation: ['inventory', 'mutation', 'remove-job-box-allocation'] as const,
   clearAllocationPlannerSuppressionMutation: ['inventory', 'mutation', 'clear-allocation-planner-suppression'] as const,
   deleteFilmOrderMutation: ['inventory', 'mutation', 'delete-film-order'] as const,
+  manualFulfillFilmOrderMutation: ['inventory', 'mutation', 'manual-fulfill-film-order'] as const,
   filmOrderRoot: ['inventory', 'film-order'] as const,
   filmOrder: (filmOrderId: string) => ['inventory', 'film-order', filmOrderId] as const,
   filmOrdersRoot: ['inventory', 'film-orders'] as const,

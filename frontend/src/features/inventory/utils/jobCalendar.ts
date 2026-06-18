@@ -421,7 +421,7 @@ export function getCalendarJobStatusClass(
     return 'job-calendar-job-link-status-cancelled';
   }
 
-  if (entry.hasOrderedAllocations || displayStatus === 'ORDERED') {
+  if (displayStatus === 'ORDERED') {
     return 'job-calendar-job-link-status-ordered';
   }
 
@@ -431,6 +431,10 @@ export function getCalendarJobStatusClass(
 
   if (displayStatus === 'READY') {
     return 'job-calendar-job-link-status-ready';
+  }
+
+  if (entry.hasOrderedAllocations) {
+    return 'job-calendar-job-link-status-ordered';
   }
 
   return 'job-calendar-job-link-status-neutral';

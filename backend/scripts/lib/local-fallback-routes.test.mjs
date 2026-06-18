@@ -28,6 +28,7 @@ test('uses local fallback for localhost inventory, job, film-order, and caulk wr
   assert.equal(shouldUseLocalFallbackRoute('POST', '/jobs/reopen'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/boxes/set-status'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/film-orders/create'), true);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/film-orders/manual-fulfill'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/audit/undo'), true);
 });
 

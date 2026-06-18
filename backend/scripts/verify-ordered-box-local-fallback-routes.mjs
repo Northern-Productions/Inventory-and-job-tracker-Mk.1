@@ -38,7 +38,8 @@ const REQUIRED_MUTATION_PATHS = [
   '/jobs/delete',
   '/film-orders/create',
   '/film-orders/cancel',
-  '/film-orders/delete'
+  '/film-orders/delete',
+  '/film-orders/manual-fulfill'
 ];
 
 for (const path of REQUIRED_READ_PATHS) {

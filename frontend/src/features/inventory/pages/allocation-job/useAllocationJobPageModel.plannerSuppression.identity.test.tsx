@@ -7,6 +7,7 @@ import type { JobCaulkRequirementLine, JobDetail, JobRequirementLine } from '../
 import { useAllocationJobPageModel } from './useAllocationJobPageModel';
 
 const useParamsMock = vi.fn();
+const setSearchParamsMock = vi.fn();
 const useJobMock = vi.fn();
 const useJobByIdMock = vi.fn();
 const clearSuppressionMutateAsyncMock = vi.fn();
@@ -14,7 +15,8 @@ const createFilmOrderMutateAsyncMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
-  useParams: () => useParamsMock()
+  useParams: () => useParamsMock(),
+  useSearchParams: () => [new URLSearchParams(), setSearchParamsMock]
 }));
 
 vi.mock('../../../../components/Toast', () => ({
@@ -216,6 +218,7 @@ function renderModel({ canonical = true } = {}) {
 describe('useAllocationJobPageModel planner suppression identity', () => {
   beforeEach(() => {
     useParamsMock.mockReset();
+    setSearchParamsMock.mockReset();
     useJobMock.mockReset();
     useJobByIdMock.mockReset();
     clearSuppressionMutateAsyncMock.mockReset();

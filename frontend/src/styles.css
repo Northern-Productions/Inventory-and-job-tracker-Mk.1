@@ -2900,6 +2900,111 @@ td.col-available-linear-ft {
   overflow-wrap: anywhere;
 }
 
+.job-material-history-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.job-material-history-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-sm);
+}
+
+.job-material-history-card-header,
+.job-material-history-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+.job-material-history-card-header h3 {
+  margin: 0.35rem 0 0;
+  font-size: 1.05rem;
+}
+
+.job-material-history-meta {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: end;
+  color: var(--color-text-2);
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.job-material-history-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+}
+
+.job-material-history-group {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.75rem;
+  background: var(--color-surface-muted);
+}
+
+.job-material-history-group h4 {
+  margin: 0;
+  color: var(--color-text-1);
+  font-size: 0.95rem;
+}
+
+.job-material-history-fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.job-material-history-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: space-between;
+  color: var(--color-text-1);
+}
+
+.job-material-history-label {
+  color: var(--color-text-2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.job-material-history-footer {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.job-material-history-footer p {
+  margin: 0.2rem 0 0;
+}
+
+@media (max-width: 680px) {
+  .job-material-history-card-header,
+  .job-material-history-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .job-material-history-meta {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .job-material-history-field {
+    justify-content: flex-start;
+  }
+}
+
 .mobile-action-stack {
   display: grid;
   gap: 0.6rem;

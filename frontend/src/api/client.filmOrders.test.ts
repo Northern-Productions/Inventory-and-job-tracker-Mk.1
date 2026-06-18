@@ -17,7 +17,14 @@ vi.mock('./http', () => {
   };
 });
 
-import { cancelJob, createFilmOrder, deleteFilmOrder, getFilmOrderDetail, getFilmOrders } from './client';
+import {
+  cancelJob,
+  createFilmOrder,
+  deleteFilmOrder,
+  getFilmOrderDetail,
+  getFilmOrders,
+  manualFulfillFilmOrder
+} from './client';
 import { request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -227,6 +234,33 @@ describe('film orders API client identity payloads', () => {
         jobNumber: '1234',
         filmOrderId: 'FO-1',
         reason: 'Delete from Film Orders.'
+      }
+    });
+  });
+
+  it('posts canonical manual fulfill payloads without changing linked box data client-side', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        filmOrderId: 'FO-1',
+        jobNumber: '1234',
+        status: 'FULFILLED',
+        linkedBoxes: [{ boxId: 'IL1-100' }]
+      },
+      warnings: ['Film order manually marked fulfilled.']
+    });
+
+    const response = await manualFulfillFilmOrder({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '1234',
+      filmOrderId: 'FO-1'
+    });
+
+    expect(response.result.linkedBoxes).toEqual([{ boxId: 'IL1-100' }]);
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/manual-fulfill', {
+      body: {
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234',
+        filmOrderId: 'FO-1'
       }
     });
   });

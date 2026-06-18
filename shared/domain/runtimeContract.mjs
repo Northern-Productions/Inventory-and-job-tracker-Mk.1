@@ -94,6 +94,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/film-orders/create': 'film_orders',
   '/film-orders/cancel': 'film_orders',
   '/film-orders/delete': 'film_orders',
+  '/film-orders/manual-fulfill': 'film_orders',
 
   '/audit/list': 'activity_history',
   '/audit/by-box': 'activity_history',

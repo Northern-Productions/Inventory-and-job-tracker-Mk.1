@@ -1161,6 +1161,43 @@ const mutationHandlers: Record<string, MutationHandler> = {
     const result = await deps.callMutationRpc(client, "api_acl_film_orders_delete", orgId, actor, rpcPayload);
     return ok(result.filmOrder || null, result.warnings || []);
   },
+  "/film-orders/manual-fulfill": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const filmOrderId = deps.requireString(normalizedPayload.filmOrderId, "FilmOrderID");
+    const target = await resolveEdgeJobMutationTargetById(client, orgId, normalizedPayload, {
+      findJobById: deps.findJobById,
+      normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+    });
+    const { orgId: _requestOrgId, ...payloadWithoutRequestOrg } = normalizedPayload;
+
+    if (target.usedJobId) {
+      const filmOrder = await deps.findFilmOrderById(client, orgId, filmOrderId);
+      const ownership = validateFilmOrderJobMutationOwnership({
+        filmOrder,
+        filmOrderId,
+        target,
+        normalizeJobNumberDigits: deps.normalizeJobNumberDigits,
+      });
+      if (!ownership.ok) {
+        throw new HttpError(ownership.status || 409, ownership.message || "Film order ownership mismatch.");
+      }
+    }
+
+    const rpcPayload = target.usedJobId
+      ? { ...payloadWithoutRequestOrg, jobId: target.jobId, jobNumber: target.jobNumber }
+      : payloadWithoutRequestOrg;
+    const result = await deps.callMutationRpc(client, "api_acl_film_orders_manual_fulfill", orgId, actor, rpcPayload);
+    const filmOrder = await deps.findFilmOrderById(client, orgId, filmOrderId);
+    if (!filmOrder) {
+      throw new HttpError(500, "Film order was manually fulfilled but could not be reloaded.");
+    }
+    return ok(
+      deps.toPublicFilmOrder(
+        filmOrder,
+        await deps.buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrder.filmOrderId)
+      ),
+      result.warnings || [],
+    );
+  },
   "/audit/undo": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_audit_undo", orgId, actor, normalizedPayload);
     const boxId = deps.asTrimmedString(result.boxId);

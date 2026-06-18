@@ -5,7 +5,11 @@ export {
   buildBoxFilmOrderOrigins,
   buildFilmCatalog,
 } from './runtime/runtimeAuditFilmReads.mjs';
-export { createFilmOrder, deleteFilmOrder } from './runtime/runtimeJobsMutations.mjs';
+export {
+  createFilmOrder,
+  deleteFilmOrder,
+  manualFulfillFilmOrder,
+} from './runtime/runtimeJobsMutations.mjs';
 export {
   cancelFilmOrderAndReleaseAllocations,
   cancelActiveFilmOrderAllocationsForBox,

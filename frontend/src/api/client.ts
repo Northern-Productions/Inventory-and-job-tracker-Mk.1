@@ -93,7 +93,8 @@ export {
   deleteFilmOrder,
   getFilmCatalog,
   getFilmOrderDetail,
-  getFilmOrders
+  getFilmOrders,
+  manualFulfillFilmOrder
 } from './features/filmOrdersClient';
 export {
   getFilmWeightPendingReviews,
