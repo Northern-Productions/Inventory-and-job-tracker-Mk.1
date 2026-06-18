@@ -44,7 +44,7 @@ test('latest schema check requires same-job check-in reconciliation semantics', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0164_job_edit_preserve_phase_requirement_state\.sql/);
+  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
 
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(

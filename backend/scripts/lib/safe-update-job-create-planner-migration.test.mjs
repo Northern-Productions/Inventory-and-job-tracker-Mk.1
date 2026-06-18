@@ -57,7 +57,7 @@ test('latest schema check keeps job create hotfix coverage while requiring manua
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0164_job_edit_preserve_phase_requirement_state\.sql/);
+  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
 
   assert.match(schemaCheck, /app_api\.save_job\(app\.jobs\)/);
   assert.match(schemaCheck, /where app\.jobs\.org_id = excluded\.org_id\\n    and app\.jobs\.job_number = excluded\.job_number/);

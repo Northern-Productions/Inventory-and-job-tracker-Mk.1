@@ -32,7 +32,7 @@ test('film weight profiles migration stays mirrored and schema-guarded', async (
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0164_job_edit_preserve_phase_requirement_state\.sql/);
+  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);
