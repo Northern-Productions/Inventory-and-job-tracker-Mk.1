@@ -23,6 +23,12 @@ const schemaLatestPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema
 const baseSchemaPath = path.join(repoRoot, 'backend', 'migrations', '0001_supabase_inventory_schema.sql');
 const duplicateGuardPath = path.join(repoRoot, 'backend', 'migrations', '0117_duplicate_job_creation_guard.sql');
 
+function assertContainsContiguousSequence(entries, expectedSequence) {
+  const startIndex = entries.indexOf(expectedSequence[0]);
+  assert.notEqual(startIndex, -1, `${expectedSequence[0]} should be present`);
+  assert.deepEqual(entries.slice(startIndex, startIndex + expectedSequence.length), expectedSequence);
+}
+
 function sqlLikeNormalizeJobWorkScopeKey(value) {
   const display = String(value ?? '').trim().replace(/\s+/g, ' ');
   if (!display) {
@@ -111,7 +117,7 @@ test('work scope key groundwork migration order precedes final duplicate enablem
     '0162_prevent_box_id_alias_collisions.sql',
     '0163_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
+  assertContainsContiguousSequence(backendMigrations, expectedBackendTail);
   const expectedSupabaseTail = [
     '20260514030000_caulk_read_jobid_scope_projection.sql',
     '20260518010000_job_work_scope_key_groundwork.sql',
@@ -144,7 +150,7 @@ test('work scope key groundwork migration order precedes final duplicate enablem
     '20260617100000_prevent_box_id_alias_collisions.sql',
     '20260617101000_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
+  assertContainsContiguousSequence(supabaseMigrations, expectedSupabaseTail);
 
 });
 
@@ -214,7 +220,7 @@ test('schema latest guard keeps work scope key generated column checks after dup
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0164_job_edit_preserve_phase_requirement_state\.sql';/);
 
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);

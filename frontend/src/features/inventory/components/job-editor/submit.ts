@@ -11,6 +11,7 @@ import type {
   JobEditorSubmitPayload,
   JobEditorSubmitPhaseLine,
   JobPhaseEditorLine,
+  JobRequirementEditorStatus,
   JobRequirementEditorLine,
   RequirementDraftLine
 } from './types';
@@ -69,6 +70,25 @@ function buildSubmitPhaseLine(
     requirements: phaseRequirements,
     caulkRequirements: phaseCaulkRequirements
   };
+}
+
+function normalizeRequirementStatus(status: string | undefined): JobRequirementEditorStatus | undefined {
+  return String(status || '').trim().toUpperCase() === 'COMPLETE'
+    ? 'COMPLETE'
+    : String(status || '').trim().toUpperCase() === 'ACTIVE'
+      ? 'ACTIVE'
+      : undefined;
+}
+
+function normalizeOptionalInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(parsed));
 }
 
 export function buildJobEditorSubmitPayload({
@@ -185,6 +205,8 @@ export function buildJobEditorSubmitPayload({
       };
     }
 
+    const status = normalizeRequirementStatus(line.status);
+    const actualUsedFeet = normalizeOptionalInteger(line.actualUsedFeet);
     normalizedLines.push({
       ...(line.requirementId ? { requirementId: line.requirementId } : {}),
       ...(phase?.phaseId ? { phaseId: phase.phaseId } : {}),
@@ -192,7 +214,11 @@ export function buildJobEditorSubmitPayload({
       manufacturer: canonicalizeManufacturerLabel(line.manufacturer).trim(),
       filmName: line.filmName.trim(),
       widthIn: parsedWidth,
-      requiredFeet: Math.floor(parsedRequiredFeet)
+      requiredFeet: Math.floor(parsedRequiredFeet),
+      ...(status ? { status } : {}),
+      ...(actualUsedFeet !== undefined ? { actualUsedFeet } : {}),
+      ...(line.completedAt ? { completedAt: line.completedAt } : {}),
+      ...(line.completedBy ? { completedBy: line.completedBy } : {})
     });
   }
 
@@ -216,12 +242,18 @@ export function buildJobEditorSubmitPayload({
       };
     }
 
+    const status = normalizeRequirementStatus(line.status);
+    const actualUsedTubes = normalizeOptionalInteger(line.actualUsedTubes);
     normalizedCaulkLines.push({
       ...(line.requirementId ? { requirementId: line.requirementId } : {}),
       ...(phase?.phaseId ? { phaseId: phase.phaseId } : {}),
       ...(phase?.phaseNumber ? { phaseNumber: phase.phaseNumber } : {}),
       productId: line.productId,
-      requiredTubes: Math.floor(parsedRequiredTubes)
+      requiredTubes: Math.floor(parsedRequiredTubes),
+      ...(status ? { status } : {}),
+      ...(actualUsedTubes !== undefined ? { actualUsedTubes } : {}),
+      ...(line.completedAt ? { completedAt: line.completedAt } : {}),
+      ...(line.completedBy ? { completedBy: line.completedBy } : {})
     });
   }
 

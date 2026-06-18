@@ -349,6 +349,17 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
       }];
   const seenPhaseNumbers = new Set();
   const saved = [];
+  const existingPhases = await listJobPhasesByJobId(client, orgId, jobHeader.id);
+  const existingPhaseById = {};
+  const existingPhaseByNumber = {};
+  for (let index = 0; index < existingPhases.length; index += 1) {
+    const existing = existingPhases[index];
+    const phaseId = asTrimmedString(existing.phaseId || existing.id);
+    if (phaseId) {
+      existingPhaseById[phaseId] = existing;
+    }
+    existingPhaseByNumber[String(existing.phaseNumber)] = existing;
+  }
 
   await client.query('SET CONSTRAINTS app.job_phases_org_job_phase_number_unique DEFERRED');
   await client.query(
@@ -371,12 +382,22 @@ async function replaceJobPhasesForJob(client, orgId, jobHeader, phases, actor, n
       throw new HttpError(400, `Phase ${phaseNumber} already exists on this job.`);
     }
     seenPhaseNumbers.add(phaseNumber);
+    const inputWorkflowStatus = asTrimmedString(
+      entry.workflowStatus ?? entry.workflow_status ?? entry.phaseWorkflowStatus
+    );
+    const existingPhase = asTrimmedString(entry.phaseId || entry.id)
+      ? existingPhaseById[asTrimmedString(entry.phaseId || entry.id)]
+      : existingPhaseByNumber[String(phaseNumber)];
     saved.push(await saveJobPhaseRecord(client, orgId, jobHeader.id, {
       ...entry,
       phaseNumber,
       sections: entry.sections ?? entry.workScope ?? null,
       laborStatus: entry.laborStatus || entry.status,
-      workflowStatus: entry.workflowStatus || entry.workflow_status || (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER'),
+      workflowStatus:
+        inputWorkflowStatus ||
+        existingPhase?.workflowStatus ||
+        existingPhase?.workflow_status ||
+        (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER'),
       isPrimary: index === 0 || entry.isPrimary === true,
       updatedAt: nowIso,
       updatedBy: actor,
@@ -1652,7 +1673,12 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
     const mergeKey = `${phaseKey}|${productId}`;
 
     if (!mergedByProductId[mergeKey]) {
-      const status = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+      const rawStatus = asTrimmedString(entry.status).toUpperCase();
+      const status = rawStatus === 'COMPLETE'
+        ? 'COMPLETE'
+        : rawStatus === 'ACTIVE'
+          ? 'ACTIVE'
+          : undefined;
       mergedByProductId[mergeKey] = {
         requirementId: asTrimmedString(entry.requirementId),
         phaseId: asTrimmedString(entry.phaseId),
@@ -1665,11 +1691,18 @@ async function normalizeJobCaulkRequirementEntries(client, orgId, entries) {
         completedBy: asTrimmedString(entry.completedBy),
       };
     } else {
-      const status = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE' ? 'COMPLETE' : 'ACTIVE';
+      const rawStatus = asTrimmedString(entry.status).toUpperCase();
+      const status = rawStatus === 'COMPLETE'
+        ? 'COMPLETE'
+        : rawStatus === 'ACTIVE'
+          ? 'ACTIVE'
+          : undefined;
       if (status === 'COMPLETE') {
         mergedByProductId[mergeKey].status = 'COMPLETE';
         mergedByProductId[mergeKey].completedAt ||= asTrimmedString(entry.completedAt);
         mergedByProductId[mergeKey].completedBy ||= asTrimmedString(entry.completedBy);
+      } else if (status === 'ACTIVE' && !mergedByProductId[mergeKey].status) {
+        mergedByProductId[mergeKey].status = 'ACTIVE';
       }
       mergedByProductId[mergeKey].actualUsedTubes = Math.max(
         integerOrZero(mergedByProductId[mergeKey].actualUsedTubes),
@@ -1750,11 +1783,14 @@ async function replaceJobCaulkRequirementsForJob(client, orgId, jobHeader, entri
       ? existingById[explicitRequirementId]
       : existingByPhaseProduct[`${phaseId}|${entry.productId}`];
     const nextRequirementId = explicitRequirementId || matchedExisting?.requirementId || crypto.randomUUID();
-    const nextStatus = asTrimmedString(entry.status).toUpperCase() === 'COMPLETE'
+    const rawStatus = asTrimmedString(entry.status).toUpperCase();
+    const nextStatus = rawStatus === 'COMPLETE'
       ? 'COMPLETE'
-      : asTrimmedString(matchedExisting?.status).toUpperCase() === 'COMPLETE'
-        ? 'COMPLETE'
-        : 'ACTIVE';
+      : rawStatus === 'ACTIVE'
+        ? 'ACTIVE'
+        : asTrimmedString(matchedExisting?.status).toUpperCase() === 'COMPLETE'
+          ? 'COMPLETE'
+          : 'ACTIVE';
     const nextActualUsedTubes = matchedExisting
       ? Math.max(integerOrZero(matchedExisting.actualUsedTubes), integerOrZero(entry.actualUsedTubes))
       : integerOrZero(entry.actualUsedTubes);

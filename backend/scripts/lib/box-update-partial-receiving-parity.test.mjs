@@ -31,6 +31,12 @@ const runtimeCollectionsAndBoxesPath = path.join(
   'runtimeCollectionsAndBoxes.mjs'
 );
 
+function assertContainsContiguousSequence(entries, expectedSequence) {
+  const startIndex = entries.indexOf(expectedSequence[0]);
+  assert.notEqual(startIndex, -1, `${expectedSequence[0]} should be present`);
+  assert.deepEqual(entries.slice(startIndex, startIndex + expectedSequence.length), expectedSequence);
+}
+
 test('box update partial receiving parity repair migrations stay mirrored', async () => {
   const [backendMigration, supabaseMigration] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
@@ -74,7 +80,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '0162_prevent_box_id_alias_collisions.sql',
     '0163_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
+  assertContainsContiguousSequence(backendMigrations, expectedBackendTail);
   const expectedSupabaseTail = [
     '20260520010000_repair_box_update_partial_receiving_parity.sql',
     '20260520020000_preserve_partial_box_update_physical_feet.sql',
@@ -104,7 +110,7 @@ test('box update partial receiving parity repair precedes checkout and check-in 
     '20260617100000_prevent_box_id_alias_collisions.sql',
     '20260617101000_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
+  assertContainsContiguousSequence(supabaseMigrations, expectedSupabaseTail);
 
 });
 
@@ -143,7 +149,7 @@ test('schema latest guard catches stale box update partial receiving function dr
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0164_job_edit_preserve_phase_requirement_state\.sql';/);
 
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);

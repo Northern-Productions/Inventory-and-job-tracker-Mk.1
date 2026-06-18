@@ -184,6 +184,7 @@ export function JobWorkflowDialogs({
           installEndDate: phase.installEndDate || '',
           crewLeader: phase.crewLeader || '',
           laborStatus: phase.laborStatus,
+          workflowStatus: phase.workflowStatus,
           isPrimary: phase.isPrimary,
           isComplete: phase.isComplete,
           isNextRelevant: phase.isNextRelevant,
@@ -196,7 +197,11 @@ export function JobWorkflowDialogs({
           phaseId: entry.phaseId,
           phaseNumber: entry.phaseNumber,
           productId: entry.productId,
-          requiredTubes: entry.requiredTubes
+          requiredTubes: entry.requiredTubes,
+          status: entry.status,
+          actualUsedTubes: entry.actualUsedTubes,
+          completedAt: entry.completedAt,
+          completedBy: entry.completedBy
         }))}
         filmCatalogEntries={filmCatalogEntries}
         filmCatalogLoading={filmCatalogLoading}

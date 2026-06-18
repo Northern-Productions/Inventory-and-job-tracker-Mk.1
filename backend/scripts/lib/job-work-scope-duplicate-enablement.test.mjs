@@ -19,6 +19,12 @@ const repositoryPath = path.join(repoRoot, 'backend', 'src', 'app', 'repositorie
 const runtimeMutationsPath = path.join(repoRoot, 'backend', 'src', 'app', 'services', 'runtime', 'runtimeJobsMutations.mjs');
 const edgeMutationHandlersPath = path.join(repoRoot, 'supabase', 'functions', '_shared', 'routes', 'mutationHandlers.ts');
 
+function assertContainsContiguousSequence(entries, expectedSequence) {
+  const startIndex = entries.indexOf(expectedSequence[0]);
+  assert.notEqual(startIndex, -1, `${expectedSequence[0]} should be present`);
+  assert.deepEqual(entries.slice(startIndex, startIndex + expectedSequence.length), expectedSequence);
+}
+
 test('final work scope duplicate enablement migrations stay mirrored', async () => {
   const [backendMigration, supabaseMigration] = await Promise.all([
     readFile(backendMigrationPath, 'utf8'),
@@ -64,7 +70,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '0162_prevent_box_id_alias_collisions.sql',
     '0163_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
+  assertContainsContiguousSequence(backendMigrations, expectedBackendTail);
   const expectedSupabaseTail = [
     '20260518010000_job_work_scope_key_groundwork.sql',
     '20260518020000_enable_job_number_work_scope_uniqueness.sql',
@@ -96,7 +102,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '20260617100000_prevent_box_id_alias_collisions.sql',
     '20260617101000_phase_specific_allocation_schedule.sql',
   ];
-  assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
+  assertContainsContiguousSequence(supabaseMigrations, expectedSupabaseTail);
 
 });
 
@@ -153,7 +159,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0164_job_edit_preserve_phase_requirement_state\.sql';/);
 
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);

@@ -221,7 +221,19 @@ async function clearStagedPickupIfActiveMaterialBlocked(
   return savedJob;
 }
 
-function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
+function findExistingPhaseForPayloadEntry(entry, phaseNumber, existingPhases = []) {
+  const phaseId = asTrimmedString(entry?.phaseId || entry?.id);
+  if (phaseId) {
+    const byId = existingPhases.find((phase) => asTrimmedString(phase.phaseId || phase.id) === phaseId);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  return existingPhases.find((phase) => Number(phase.phaseNumber) === Number(phaseNumber)) || null;
+}
+
+function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null, existingPhases = []) {
   const rawPhases = getPayloadPhaseEntries(payload);
   if (!rawPhases.length) {
     return [buildDefaultPhaseInputFromJobPayload(payload, fallbackPrimaryPhase || {})];
@@ -235,6 +247,10 @@ function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
     }
     seenPhaseNumbers.add(phaseNumber);
     const installDate = normalizeDateString(entry?.installDate ?? entry?.dueDate, `Phases[${index + 1}].InstallDate`, true);
+    const existingPhase = findExistingPhaseForPayloadEntry(entry, phaseNumber, existingPhases);
+    const workflowStatusInput = asTrimmedString(
+      entry?.workflowStatus ?? entry?.workflow_status ?? entry?.phaseWorkflowStatus
+    );
     return {
       phaseId: asTrimmedString(entry?.phaseId || entry?.id),
       phaseNumber,
@@ -248,7 +264,10 @@ function normalizePhaseInputsFromPayload(payload, fallbackPrimaryPhase = null) {
       crewLeader: asTrimmedString(entry?.crewLeader),
       laborStatus: normalizeJobPhaseLaborStatus(entry?.laborStatus || entry?.status),
       workflowStatus: normalizeJobPhaseWorkflowStatus(
-        entry?.workflowStatus ?? entry?.workflow_status ?? entry?.phaseWorkflowStatus ?? (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER')
+        workflowStatusInput ||
+        existingPhase?.workflowStatus ||
+        existingPhase?.workflow_status ||
+        (phaseNumber === 1 ? 'ACTIVE' : 'PLACEHOLDER')
       ),
       isPrimary: entry?.isPrimary === true || index === 0,
       requirements: Array.isArray(entry?.requirements) ? entry.requirements : [],
@@ -638,7 +657,7 @@ async function updateJob(client, orgId, payload, actor) {
   const nextHeader = cloneValue(header);
   const existingPhases = header?.id ? await listJobPhasesByJobId(client, orgId, header.id) : [];
   const primaryExistingPhase = existingPhases.find((entry) => entry.isPrimary) || existingPhases[0] || null;
-  const phaseInputs = normalizePhaseInputsFromPayload(updatePayload, primaryExistingPhase);
+  const phaseInputs = normalizePhaseInputsFromPayload(updatePayload, primaryExistingPhase, existingPhases);
   const primaryPhaseInput = phaseInputs.find((entry) => entry.isPrimary) || phaseInputs[0];
 
   if (updatePayload.warehouse !== undefined) {

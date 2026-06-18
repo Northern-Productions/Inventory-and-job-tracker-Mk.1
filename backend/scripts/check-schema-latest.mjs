@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0162_prevent_box_id_alias_collisions.sql';
+const LATEST_MIGRATION = '0164_job_edit_preserve_phase_requirement_state.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -176,6 +176,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.film_requirement_planner_signature(text, text, numeric, integer)' },
   { kind: 'function', signature: 'app_api.caulk_requirement_planner_signature(uuid, text, integer)' },
   { kind: 'function', signature: 'app_api.requirement_rows_from_payload_with_ids(jsonb)' },
+  { kind: 'function', signature: 'app_api.caulk_requirement_rows_from_payload(jsonb)' },
   {
     kind: 'function',
     signature: 'app_api.replace_job_requirements(uuid, app.jobs, jsonb, text, timestamp with time zone)'
@@ -423,7 +424,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "phase.value->>'installEndDate'",
       'Install End Date requires an Install Date.',
       'Install End Date must be the same day as or later than Install Date.',
-      'install_end_date = excluded.install_end_date'
+      'install_end_date = excluded.install_end_date',
+      'v_existing_workflow_status text;',
+      'select id, workflow_status into v_next_id, v_existing_workflow_status',
+      "coalesce(nullif(v_workflow_text, ''), v_existing_workflow_status, case when v_phase.phase_number = 1 then 'ACTIVE' else 'PLACEHOLDER' end)"
     ],
     excludes: []
   },
@@ -794,8 +798,23 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       "nullif(app_api.trim_text(value->>'phaseId'), '')::uuid as phase_id",
       "nullif(app_api.trim_text(value->>'requirementId'), '')::uuid as requirement_id",
-      "app_api.normalize_requirement_status(value->>'status') as status",
+      "when value ? 'status' or value ? 'requirementStatus'",
+      "app_api.normalize_requirement_status(coalesce(value->>'status', value->>'requirementStatus'))",
+      'else null',
+      'filter (where n.status is not null)',
       '(array_agg(n.requirement_id order by n.ordinality) filter (where n.requirement_id is not null))[1],'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.caulk_requirement_rows_from_payload(jsonb)',
+    includes: [
+      "nullif(app_api.trim_text(value->>'phaseId'), '')::uuid as phase_id",
+      "nullif(app_api.trim_text(value->>'requirementId'), '')::uuid as requirement_id",
+      "when value ? 'status' or value ? 'requirementStatus'",
+      "app_api.normalize_requirement_status(coalesce(value->>'status', value->>'requirementStatus'))",
+      'else null',
+      'filter (where n.status is not null)'
     ],
     excludes: []
   },

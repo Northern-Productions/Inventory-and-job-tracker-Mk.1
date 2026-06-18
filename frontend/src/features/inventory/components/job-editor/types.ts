@@ -1,5 +1,7 @@
 import type { PhaseWorkflowStatus, Warehouse } from '../../../../domain';
 
+export type JobRequirementEditorStatus = 'ACTIVE' | 'COMPLETE';
+
 export interface JobRequirementEditorLine {
   requirementId?: string;
   phaseId?: string;
@@ -8,6 +10,10 @@ export interface JobRequirementEditorLine {
   filmName: string;
   widthIn: number;
   requiredFeet: number;
+  status?: JobRequirementEditorStatus;
+  actualUsedFeet?: number;
+  completedAt?: string;
+  completedBy?: string;
 }
 
 export interface JobEditorSubmitPayload {
@@ -29,6 +35,10 @@ export interface JobCaulkRequirementEditorLine {
   phaseNumber?: number;
   productId: string;
   requiredTubes: number;
+  status?: JobRequirementEditorStatus;
+  actualUsedTubes?: number;
+  completedAt?: string;
+  completedBy?: string;
 }
 
 export interface JobPhaseEditorLine {
@@ -74,6 +84,10 @@ export interface RequirementDraftLine {
   filmName: string;
   widthIn: string;
   requiredFeet: string;
+  status?: JobRequirementEditorStatus;
+  actualUsedFeet?: number;
+  completedAt?: string;
+  completedBy?: string;
 }
 
 export interface CaulkRequirementDraftLine {
@@ -82,4 +96,8 @@ export interface CaulkRequirementDraftLine {
   phaseKey: string;
   productId: string;
   requiredTubes: string;
+  status?: JobRequirementEditorStatus;
+  actualUsedTubes?: number;
+  completedAt?: string;
+  completedBy?: string;
 }

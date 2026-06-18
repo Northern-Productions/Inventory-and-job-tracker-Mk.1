@@ -718,6 +718,7 @@ describe('JobEditorDialog', () => {
         phaseNumber: 1,
         workScope: 'Lobby',
         sections: 'Lobby',
+        workflowStatus: 'ACTIVE',
         isPrimary: true,
         requirements: [
           expect.objectContaining({
@@ -776,6 +777,202 @@ describe('JobEditorDialog', () => {
         phaseNumber: 1,
         filmName: 'Fallback Film'
       })
+    );
+
+    queryClient.clear();
+  });
+
+  it('preserves hidden phase and requirement state when saving an edit', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    const phaseOneId = '11111111-1111-4111-8111-111111111111';
+    const phaseTwoId = '22222222-2222-4222-8222-222222222222';
+    const filmRequirementId = '33333333-3333-4333-8333-333333333333';
+    const caulkRequirementId = '44444444-4444-4444-8444-444444444444';
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 900202',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900202',
+        initialWarehouse: 'IL1',
+        initialSections: 'Phase 1',
+        initialInstallDate: '2026-06-10',
+        initialCrewLeader: 'Rob',
+        initialPhases: [
+          {
+            id: phaseOneId,
+            phaseId: phaseOneId,
+            phaseNumber: 1,
+            workScope: 'Phase 1',
+            sections: 'Phase 1',
+            installDate: '2026-06-10',
+            crewLeader: 'Rob',
+            laborStatus: 'ACTIVE',
+            workflowStatus: 'PLACEHOLDER',
+            isPrimary: true
+          },
+          {
+            id: phaseTwoId,
+            phaseId: phaseTwoId,
+            phaseNumber: 2,
+            workScope: 'Phase 2',
+            sections: 'Phase 2',
+            installDate: '2026-06-12',
+            crewLeader: 'Sage',
+            laborStatus: 'ACTIVE',
+            workflowStatus: 'ACTIVE',
+            isPrimary: false,
+            isNextRelevant: true
+          }
+        ],
+        initialRequirements: [
+          {
+            requirementId: filmRequirementId,
+            phaseId: phaseOneId,
+            phaseNumber: 1,
+            manufacturer: '3M',
+            filmName: 'Stateful Film',
+            widthIn: 60,
+            requiredFeet: 40,
+            status: 'COMPLETE',
+            actualUsedFeet: 37,
+            completedAt: '2026-06-11T14:00:00.000Z',
+            completedBy: 'codex'
+          }
+        ],
+        initialCaulkRequirements: [
+          {
+            requirementId: caulkRequirementId,
+            phaseId: phaseOneId,
+            phaseNumber: 1,
+            productId: '55555555-5555-4555-8555-555555555555',
+            requiredTubes: 3,
+            status: 'COMPLETE',
+            actualUsedTubes: 2,
+            completedAt: '2026-06-11T15:00:00.000Z',
+            completedBy: 'codex'
+          }
+        ],
+        onSubmit
+      })
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Work Scope/i }), {
+      target: { value: 'Phase 2 - edited' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.phases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phaseId: phaseOneId,
+          phaseNumber: 1,
+          workflowStatus: 'PLACEHOLDER',
+          requirements: [
+            expect.objectContaining({
+              requirementId: filmRequirementId,
+              phaseId: phaseOneId,
+              status: 'COMPLETE',
+              actualUsedFeet: 37,
+              completedAt: '2026-06-11T14:00:00.000Z',
+              completedBy: 'codex'
+            })
+          ],
+          caulkRequirements: [
+            expect.objectContaining({
+              requirementId: caulkRequirementId,
+              phaseId: phaseOneId,
+              status: 'COMPLETE',
+              actualUsedTubes: 2,
+              completedAt: '2026-06-11T15:00:00.000Z',
+              completedBy: 'codex'
+            })
+          ]
+        }),
+        expect.objectContaining({
+          phaseId: phaseTwoId,
+          phaseNumber: 2,
+          workflowStatus: 'ACTIVE',
+          workScope: 'Phase 2 - edited'
+        })
+      ])
+    );
+    expect(payload.requirements[0]).toEqual(
+      expect.objectContaining({
+        requirementId: filmRequirementId,
+        status: 'COMPLETE',
+        actualUsedFeet: 37
+      })
+    );
+    expect(payload.caulkRequirements[0]).toEqual(
+      expect.objectContaining({
+        requirementId: caulkRequirementId,
+        status: 'COMPLETE',
+        actualUsedTubes: 2
+      })
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps Phase 1 placeholder state when adding a new phase during edit', () => {
+    const queryClient = createQueryClient();
+    const onSubmit = vi.fn();
+    const phaseOneId = '11111111-1111-4111-8111-111111111111';
+    render(
+      buildDialogTree(queryClient, {
+        mode: 'edit',
+        title: 'Edit Job 900203',
+        submitLabel: 'Save Job',
+        initialJobNumber: '900203',
+        initialWarehouse: 'IL1',
+        initialSections: 'Phase 1',
+        initialInstallDate: '2026-06-10',
+        initialCrewLeader: 'Rob',
+        initialPhases: [
+          {
+            id: phaseOneId,
+            phaseId: phaseOneId,
+            phaseNumber: 1,
+            workScope: 'Phase 1',
+            sections: 'Phase 1',
+            installDate: '2026-06-10',
+            crewLeader: 'Rob',
+            laborStatus: 'ACTIVE',
+            workflowStatus: 'PLACEHOLDER',
+            isPrimary: true
+          }
+        ],
+        initialRequirements: [],
+        initialCaulkRequirements: [],
+        onSubmit
+      })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Add New Phase/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Work Scope/i }), {
+      target: { value: 'Phase 2' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Save Job/i }));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.phases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phaseId: phaseOneId,
+          phaseNumber: 1,
+          workflowStatus: 'PLACEHOLDER'
+        }),
+        expect.objectContaining({
+          phaseNumber: 2,
+          workflowStatus: 'PLACEHOLDER',
+          workScope: 'Phase 2'
+        })
+      ])
     );
 
     queryClient.clear();

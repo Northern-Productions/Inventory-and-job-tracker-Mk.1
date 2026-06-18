@@ -30,7 +30,11 @@ export function createDraftLine(entry?: JobRequirementEditorLine): RequirementDr
     manufacturer: canonicalizeManufacturerLabel(entry?.manufacturer || ''),
     filmName: entry?.filmName || '',
     widthIn: entry ? String(entry.widthIn) : '',
-    requiredFeet: entry ? String(entry.requiredFeet) : ''
+    requiredFeet: entry ? String(entry.requiredFeet) : '',
+    status: entry?.status,
+    actualUsedFeet: entry?.actualUsedFeet,
+    completedAt: entry?.completedAt,
+    completedBy: entry?.completedBy
   };
 }
 
@@ -43,7 +47,11 @@ export function createCaulkDraftLine(
     requirementId: entry?.requirementId || '',
     phaseKey,
     productId: entry?.productId || '',
-    requiredTubes: entry ? String(entry.requiredTubes) : ''
+    requiredTubes: entry ? String(entry.requiredTubes) : '',
+    status: entry?.status,
+    actualUsedTubes: entry?.actualUsedTubes,
+    completedAt: entry?.completedAt,
+    completedBy: entry?.completedBy
   };
 }
 
@@ -80,6 +88,17 @@ export function mergeRequirementLines(lines: JobRequirementEditorLine[]) {
     }
 
     existing.requiredFeet += line.requiredFeet;
+    if (line.status === 'COMPLETE' || existing.status === 'COMPLETE') {
+      existing.status = 'COMPLETE';
+      existing.completedAt ||= line.completedAt;
+      existing.completedBy ||= line.completedBy;
+    } else if (line.status === 'ACTIVE' || existing.status === 'ACTIVE') {
+      existing.status = 'ACTIVE';
+    }
+    existing.actualUsedFeet = Math.max(
+      Number(existing.actualUsedFeet || 0),
+      Number(line.actualUsedFeet || 0)
+    );
   }
 
   return Array.from(merged.values());
