@@ -708,7 +708,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       client,
       orgId,
       applyPlanningAllocationToBox(currentBox, plannedAllocation.allocatedFeet, {
-        consumeAllocatableFeet: true,
+        consumeAllocatableFeet: false,
       })
     );
     trackActiveAllocationForCapacity(activeAllocationsByBox, {
@@ -779,7 +779,7 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       client,
       orgId,
       applyPlanningAllocationToBox(currentBox, plannedExtra.allocatedFeet, {
-        consumeAllocatableFeet: true,
+        consumeAllocatableFeet: false,
       })
     );
     trackActiveAllocationForCapacity(activeAllocationsByBox, allocation);

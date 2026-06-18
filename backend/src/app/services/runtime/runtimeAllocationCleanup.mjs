@@ -680,7 +680,13 @@ async function removeAllocationFromJob(client, orgId, jobNumber, allocationId, u
 
   if (releasedFeet > 0) {
     if (box && asTrimmedString(box.status).toUpperCase() !== 'ZEROED' && asTrimmedString(box.status).toUpperCase() !== 'RETIRED') {
-      await saveBoxRecord(client, orgId, releaseAllocationFeetFromBox(box, releasedFeet));
+      await saveBoxRecord(
+        client,
+        orgId,
+        releaseAllocationFeetFromBox(box, releasedFeet, {
+          restoreAllocatableFeet: false,
+        })
+      );
     }
   }
 

@@ -32,12 +32,13 @@ test('film weight profiles migration stays mirrored and schema-guarded', async (
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
+  assert.match(schemaCheck, /0168_film_weight_pending_review_resolution\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_pending_reviews'/);
   assert.match(schemaCheck, /signature: 'app_api\.record_film_weight_sample_from_box/);
+  assert.match(schemaCheck, /signature: 'app_api\.resolve_film_weight_pending_review/);
 });
 
 test('calculates film-only weight and normalized profile weights', () => {

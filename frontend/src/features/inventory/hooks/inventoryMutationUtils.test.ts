@@ -2334,7 +2334,7 @@ describe('inventoryMutationUtils', () => {
     ]);
   });
 
-  it('uses covered feet for optimistic 72-to-36 requirement allocations while only consuming physical stock', () => {
+  it('uses covered feet for optimistic 72-to-36 requirement allocations without consuming physical stock', () => {
     const queryClient = createQueryClient();
     const detail = {
       summary: {
@@ -2476,7 +2476,9 @@ describe('inventoryMutationUtils', () => {
       ]
     });
     expect(queryClient.getQueryData(inventoryKeys.box('MS1-3608'))).toMatchObject({
-      feetAvailable: 0
+      feetAvailable: 10,
+      allocationPlanningFeet: 0,
+      allocatableNowFeet: 0
     });
   });
 
@@ -2745,7 +2747,7 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
-  it('reduces available feet inside job-allocate search caches after an optimistic allocation', () => {
+  it('reduces planning feet inside job-allocate search caches after an optimistic allocation', () => {
     const queryClient = createQueryClient();
     const jobAllocateSearchKey = [
       'inventory',
@@ -2841,7 +2843,9 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(jobAllocateSearchKey)).toMatchObject([
       {
         boxId: 'MS1-965',
-        feetAvailable: 0
+        feetAvailable: 100,
+        allocationPlanningFeet: 0,
+        allocatableNowFeet: 0
       },
       {
         boxId: 'MS1-966',
@@ -3087,7 +3091,9 @@ describe('inventoryMutationUtils', () => {
       ]
     });
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-6552'))).toMatchObject({
-      feetAvailable: 14
+      feetAvailable: 3,
+      allocationPlanningFeet: 14,
+      allocatableNowFeet: 14
     });
     expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-6552'))).toEqual([]);
     expect(
@@ -3403,7 +3409,7 @@ describe('inventoryMutationUtils', () => {
       allocationPlanningFeet: 10
     });
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-C'))).toMatchObject({
-      feetAvailable: 0,
+      feetAvailable: 12,
       allocationPlanningFeet: 0
     });
     expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-A'))).toEqual([]);
@@ -3670,7 +3676,9 @@ describe('inventoryMutationUtils', () => {
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-6552'))).toMatchObject({
-      feetAvailable: 14
+      feetAvailable: 3,
+      allocationPlanningFeet: 14,
+      allocatableNowFeet: 14
     });
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-5973'))).toMatchObject({
       feetAvailable: 5
@@ -4059,7 +4067,9 @@ describe('inventoryMutationUtils', () => {
       })
     ]);
     expect(queryClient.getQueryData(inventoryKeys.box('IL1-6396'))).toMatchObject({
-      feetAvailable: 20
+      feetAvailable: 4,
+      allocationPlanningFeet: 20,
+      allocatableNowFeet: 20
     });
     expect(queryClient.getQueryData(inventoryKeys.allocations('IL1-6396'))).toEqual([
       expect.objectContaining({

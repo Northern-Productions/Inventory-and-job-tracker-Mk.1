@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   listFilmWeightProfiles,
   listOpenFilmWeightPendingReviews,
+  resolveFilmWeightPendingReview,
 } from '../../src/app/services/filmWeightProfiles.mjs';
 
 test('film weight profile read model maps profile rows for the Weight Chart', async () => {
@@ -152,4 +153,46 @@ test('film weight pending review read model maps sample and profile context', as
     createdAt: '2026-06-03T12:00:00Z',
     notes: '',
   });
+});
+
+test('film weight pending review resolution calls the ACL RPC', async () => {
+  const calls = [];
+  const fakeClient = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      assert.match(sql, /api_acl_resolve_film_weight_pending_review/);
+      return {
+        rows: [
+          {
+            result: {
+              reviewId: 'review-1',
+              sampleId: 'sample-1',
+              profileId: 'profile-1',
+              boxId: 'IL1-FWC-434829793120',
+              decision: 'accept',
+              status: 'resolved',
+              acceptanceStatus: 'accepted',
+              pendingReviewCount: 0,
+            },
+          },
+        ],
+      };
+    },
+  };
+
+  const result = await resolveFilmWeightPendingReview(fakeClient, 'org-1', 'tester', {
+    reviewId: 'review-1',
+    decision: 'accept',
+  });
+
+  assert.deepEqual(calls[0].params, [
+    'org-1',
+    'tester',
+    {
+      reviewId: 'review-1',
+      decision: 'accept',
+    },
+  ]);
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.acceptanceStatus, 'accepted');
 });

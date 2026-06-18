@@ -107,7 +107,7 @@ test('checkout-all jobId scope migration updates schema latest without changing 
   ]);
 
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution\.sql';/);
 
   assert.match(schemaCheck, /public\.api_acl_boxes_resolve_checkout_allocations\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.resolve_allocations_for_checkout\(uuid, text, text, text, uuid\)/);

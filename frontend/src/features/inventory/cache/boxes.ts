@@ -34,7 +34,7 @@ export function applyPlanningAllocationToCachedBox(box: Box, allocatedFeet: numb
     box.status === 'ORDERED'
       ? 0
       : box.status === 'IN_STOCK' || box.status === 'TRANSFER'
-        ? Math.max(0, Number(box.feetAvailable || 0) - nextAllocatedFeet)
+        ? Math.max(0, Number(box.feetAvailable || 0))
         : Number(box.feetAvailable || 0);
 
   return {
@@ -52,7 +52,7 @@ export function releasePlanningAllocationFromCachedBox(box: Box, releasedFeet: n
     box.status === 'ORDERED'
       ? 0
       : box.status === 'IN_STOCK' || box.status === 'TRANSFER'
-        ? Math.min(Math.max(0, Number(box.initialFeet || 0)), Math.max(0, Number(box.feetAvailable || 0) + nextReleasedFeet))
+        ? Math.max(0, Number(box.feetAvailable || 0))
         : Number(box.feetAvailable || 0);
 
   return {

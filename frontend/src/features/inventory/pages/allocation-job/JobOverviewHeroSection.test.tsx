@@ -35,7 +35,7 @@ function buildSummary(overrides: Partial<JobDetail['summary']> = {}): JobDetail[
 }
 
 function renderHero(summaryOverrides: Partial<JobDetail['summary']> = {}) {
-  render(
+  return render(
     <JobOverviewHeroSection
       summary={buildSummary(summaryOverrides)}
       isReadOnlyJob={false}
@@ -99,6 +99,19 @@ describe('JobOverviewHeroSection', () => {
     expect(screen.queryByText('Required Tubes')).toBeNull();
     expect(screen.queryByText('Allocated Tubes')).toBeNull();
     expect(screen.queryByText('Remaining Tubes')).toBeNull();
+  });
+
+  it('uses a stable title and action layout for long job labels', () => {
+    const { container } = renderHero({
+      jobNumber: '12345678901234567890',
+      workScope: 'A very long work scope name that should wrap before it pushes the action buttons away from the header'
+    });
+
+    expect(container.querySelector('.job-overview-title-row')).toBeTruthy();
+    expect(container.querySelector('.job-overview-title-copy')).toBeTruthy();
+    expect(container.querySelector('.job-overview-actions')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
   });
 
   it('omits the ON ORDER pill when there are no ordered allocations', () => {

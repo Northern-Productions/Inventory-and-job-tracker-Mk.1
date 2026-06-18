@@ -45,6 +45,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/film-data/catalog': 'inventory',
   '/film-weight/profiles': 'inventory',
   '/film-weight/pending-reviews': 'inventory',
+  '/film-weight/pending-reviews/resolve': 'inventory',
   '/warehouses/list': 'inventory',
   '/owner/warehouses/add': 'inventory',
   '/caulk/manufacturers/list': 'inventory',

@@ -1198,6 +1198,16 @@ const mutationHandlers: Record<string, MutationHandler> = {
       result.warnings || [],
     );
   },
+  "/film-weight/pending-reviews/resolve": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_resolve_film_weight_pending_review",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result, Array.isArray(result.warnings) ? result.warnings : []);
+  },
   "/audit/undo": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_acl_audit_undo", orgId, actor, normalizedPayload);
     const boxId = deps.asTrimmedString(result.boxId);

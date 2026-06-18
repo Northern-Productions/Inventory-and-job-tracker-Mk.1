@@ -2,8 +2,14 @@ import { useMemo, useState } from 'react';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { DialogSurface } from '../../../components/DialogSurface';
 import { Select } from '../../../components/Select';
-import type { FilmWeightProfileEntry, FilmWeightProfileWidthSummary } from '../../../domain';
+import type {
+  FilmWeightPendingReviewDecision,
+  FilmWeightPendingReviewEntry,
+  FilmWeightProfileEntry,
+  FilmWeightProfileWidthSummary
+} from '../../../domain';
 import { formatDate } from '../../../lib/date';
+import { useResolveFilmWeightPendingReview } from '../hooks/useInventoryMutationHooks';
 import {
   useFilmWeightPendingReviews,
   useFilmWeightProfiles
@@ -46,6 +52,10 @@ function formatWeight(value: number | null) {
   }).format(value);
 }
 
+function pluralizeSampleCount(count: number) {
+  return count === 1 ? '1 sample needs review' : `${count} samples need review`;
+}
+
 function formatLongDecimal(value: number | null) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return '--';
@@ -60,6 +70,13 @@ function formatObservedWidths(widths: number[]) {
   }
 
   return widths.map((width) => `${formatNumber(width, 2)}"`).join(', ');
+}
+
+function formatWidth(value: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '--';
+  }
+  return `${formatNumber(value, 2)}"`;
 }
 
 function hasChartData(profile: FilmWeightProfileEntry) {
@@ -110,6 +127,14 @@ function estimateRollWeight(profile: FilmWeightProfileEntry, widthIn: number, lf
 
 function getProfileLastDate(profile: FilmWeightProfileEntry) {
   return profile.lastSampleAt || profile.updatedAt;
+}
+
+function formatReviewReasons(review: FilmWeightPendingReviewEntry) {
+  const values = review.reasons.length ? review.reasons : review.reason ? [review.reason] : [];
+  if (!values.length) {
+    return '--';
+  }
+  return values.map((entry) => entry.replace(/_/g, ' ')).join(', ');
 }
 
 interface WeightChartDialogProps {
@@ -187,8 +212,15 @@ export default function WeightChartPage() {
   const [manufacturerFilter, setManufacturerFilter] = useState('all');
   const [filmNameFilter, setFilmNameFilter] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [showReviewPanel, setShowReviewPanel] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const [pendingReviewAction, setPendingReviewAction] = useState<{
+    reviewId: string;
+    decision: FilmWeightPendingReviewDecision;
+  } | null>(null);
   const profilesQuery = useFilmWeightProfiles();
   const pendingReviewsQuery = useFilmWeightPendingReviews();
+  const resolveReviewMutation = useResolveFilmWeightPendingReview();
   const profiles = profilesQuery.data || [];
   const pendingReviews = pendingReviewsQuery.data || [];
   const chartProfiles = useMemo(() => profiles.filter(hasChartData), [profiles]);
@@ -225,6 +257,24 @@ export default function WeightChartPage() {
   );
   const showProfilesLoading = profilesQuery.isLoading && !profiles.length;
 
+  async function resolveReview(
+    review: FilmWeightPendingReviewEntry,
+    decision: FilmWeightPendingReviewDecision
+  ) {
+    setReviewError('');
+    setPendingReviewAction({ reviewId: review.reviewId, decision });
+    try {
+      await resolveReviewMutation.mutateAsync({
+        reviewId: review.reviewId,
+        decision
+      });
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'The review could not be resolved.');
+    } finally {
+      setPendingReviewAction(null);
+    }
+  }
+
   return (
     <section className="panel weight-chart-page">
       <div className="panel-title-row weight-chart-header">
@@ -237,7 +287,18 @@ export default function WeightChartPage() {
         </div>
         <div className="weight-chart-counts" aria-label="Weight chart summary">
           <span>{chartProfiles.length} charts</span>
-          <span>{pendingReviews.length} samples need review</span>
+          {pendingReviews.length ? (
+            <button
+              type="button"
+              className="weight-chart-count-button"
+              onClick={() => setShowReviewPanel((current) => !current)}
+              aria-expanded={showReviewPanel}
+            >
+              {pluralizeSampleCount(pendingReviews.length)}
+            </button>
+          ) : (
+            <span>{pluralizeSampleCount(0)}</span>
+          )}
         </div>
       </div>
 
@@ -265,6 +326,96 @@ export default function WeightChartPage() {
           />
         </label>
       </div>
+
+      {pendingReviews.length && showReviewPanel ? (
+        <section className="weight-chart-review-panel" aria-label="Film weight samples needing review">
+          <div className="panel-title-row weight-chart-review-title">
+            <div>
+              <h3>Samples Needing Review</h3>
+              <p className="muted-text">
+                Review weight samples from received boxes before they affect chart averages.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="button button-ghost"
+              onClick={() => setShowReviewPanel(false)}
+            >
+              Hide
+            </button>
+          </div>
+          {reviewError ? <p className="error-text">{reviewError}</p> : null}
+          <div className="table-wrap weight-chart-table-wrap">
+            <table className="weight-chart-table weight-chart-review-table">
+              <thead>
+                <tr>
+                  <th>Box</th>
+                  <th>Film</th>
+                  <th>Width</th>
+                  <th>Recorded LF</th>
+                  <th>Measured Weight</th>
+                  <th>Estimated LF</th>
+                  <th>Reason</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingReviews.map((review) => {
+                  const accepting =
+                    pendingReviewAction?.reviewId === review.reviewId &&
+                    pendingReviewAction.decision === 'accept';
+                  const rejecting =
+                    pendingReviewAction?.reviewId === review.reviewId &&
+                    pendingReviewAction.decision === 'reject';
+                  const actionPending = accepting || rejecting;
+                  return (
+                    <tr key={review.reviewId}>
+                      <td>
+                        <a href={`#/inventory/${encodeURIComponent(review.boxId)}`}>{review.boxId}</a>
+                      </td>
+                      <td>
+                        <strong>{review.manufacturer || '--'}</strong>
+                        <br />
+                        <span className="muted-text">{review.filmName || '--'}</span>
+                      </td>
+                      <td>{formatWidth(review.widthIn)}</td>
+                      <td>{formatNumber(review.recordedLf, 0)}</td>
+                      <td>{formatWeight(review.measuredRollWeightLbs)} lbs</td>
+                      <td>
+                        {formatNumber(review.estimatedLf, 2)}
+                        {review.lfError !== null ? (
+                          <span className="muted-text"> / {formatNumber(review.lfError, 2)} LF off</span>
+                        ) : null}
+                      </td>
+                      <td>{formatReviewReasons(review)}</td>
+                      <td>
+                        <div className="weight-chart-review-actions">
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            onClick={() => void resolveReview(review, 'accept')}
+                            disabled={resolveReviewMutation.isPending}
+                          >
+                            {accepting ? 'Accepting...' : 'Accept Sample'}
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-danger"
+                            onClick={() => void resolveReview(review, 'reject')}
+                            disabled={resolveReviewMutation.isPending}
+                          >
+                            {rejecting ? 'Rejecting...' : 'Reject Sample'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <DeferredLoadingState when={showProfilesLoading} label="Loading film weight charts..." />
       {!showProfilesLoading && !profilesQuery.isError && !filteredProfiles.length ? (
@@ -297,7 +448,7 @@ export default function WeightChartPage() {
                   <td>
                     <button
                       type="button"
-                      className="button secondary-button weight-chart-open-button"
+                      className="button button-secondary weight-chart-open-button"
                       onClick={() => setSelectedProfileId(profile.profileId)}
                     >
                       Open Chart

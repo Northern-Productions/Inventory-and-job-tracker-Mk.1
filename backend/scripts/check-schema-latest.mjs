@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix.sql';
+const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -100,6 +100,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_film_orders_manual_fulfill(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_record_film_weight_sample_from_box(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.resolve_film_weight_pending_review(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_resolve_film_weight_pending_review(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_get_film_weight_pending_review_count(uuid)' },
   { kind: 'function', signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.recalculate_film_weight_profile(uuid, uuid)' },

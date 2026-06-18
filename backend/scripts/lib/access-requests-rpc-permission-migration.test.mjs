@@ -65,7 +65,7 @@ test('latest schema check guards access requests RPC execute permission', async 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
+  assert.match(schemaCheck, /0168_film_weight_pending_review_resolution\.sql/);
 
   assert.match(schemaCheck, /public\.api_list_access_requests\(uuid, text\)/);
   assert.match(schemaCheck, /'api_list_access_requests'/);

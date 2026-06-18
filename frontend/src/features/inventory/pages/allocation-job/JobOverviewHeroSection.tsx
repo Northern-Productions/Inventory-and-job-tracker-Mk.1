@@ -70,12 +70,12 @@ export function JobOverviewHeroSection({
         <span className="eyebrow">Job Overview</span>
         {isReadOnlyJob ? <span className="muted-text">Read-only workflow</span> : null}
       </div>
-      <div className="panel-title-row">
-        <div>
+      <div className="panel-title-row job-overview-title-row">
+        <div className="job-overview-title-copy">
           <h2>JOB ID {displayJobLabel}</h2>
           <p className="muted-text">Job detail</p>
         </div>
-        <div className="detail-actions">
+        <div className="detail-actions job-overview-actions">
           {summary.isLaborOnly ? (
             <span className="detail-header-pill detail-header-pill-labor-only">LABOR ONLY</span>
           ) : null}

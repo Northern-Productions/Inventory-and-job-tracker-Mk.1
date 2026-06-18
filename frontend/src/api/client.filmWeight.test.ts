@@ -4,7 +4,11 @@ vi.mock('./http', () => ({
   request: vi.fn()
 }));
 
-import { getFilmWeightPendingReviews, getFilmWeightProfiles } from './client';
+import {
+  getFilmWeightPendingReviews,
+  getFilmWeightProfiles,
+  resolveFilmWeightPendingReview
+} from './client';
 import { request } from './http';
 
 const requestMock = vi.mocked(request);
@@ -124,6 +128,44 @@ describe('film weight API client', () => {
     );
     expect(requestMock).toHaveBeenCalledWith('GET', '/film-weight/pending-reviews', {
       query: {}
+    });
+  });
+
+  it('resolves a pending film weight review through POST /film-weight/pending-reviews/resolve', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        reviewId: 'review-1',
+        sampleId: 'sample-1',
+        profileId: 'profile-1',
+        boxId: 'IL1-100',
+        decision: 'reject',
+        status: 'rejected',
+        acceptanceStatus: 'rejected',
+        pendingReviewCount: '0'
+      },
+      warnings: []
+    });
+
+    const result = await resolveFilmWeightPendingReview({
+      reviewId: 'review-1',
+      decision: 'reject'
+    });
+
+    expect(result).toEqual({
+      reviewId: 'review-1',
+      sampleId: 'sample-1',
+      profileId: 'profile-1',
+      boxId: 'IL1-100',
+      decision: 'reject',
+      status: 'rejected',
+      acceptanceStatus: 'rejected',
+      pendingReviewCount: 0
+    });
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-weight/pending-reviews/resolve', {
+      body: {
+        reviewId: 'review-1',
+        decision: 'reject'
+      }
     });
   });
 });
