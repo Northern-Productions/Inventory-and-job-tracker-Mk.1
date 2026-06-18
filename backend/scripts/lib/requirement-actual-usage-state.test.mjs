@@ -87,7 +87,7 @@ test('completion result is green for under or exact usage and red for overuse', 
   assert.equal(deriveRequirementCompletionResult(buildRequirement({ status: 'ACTIVE' }), 25, 28), '');
 });
 
-test('complete requirements do not create material demand, and reactivated rows do', () => {
+test('complete requirements do not create material demand, and active rows only demand remaining unused LF', () => {
   const completeStatus = computeJobStatusFromRequirements(
     'ACTIVE',
     false,
@@ -104,7 +104,7 @@ test('complete requirements do not create material demand, and reactivated rows 
     'ACTIVE',
     false,
     false,
-    [buildRequirement({ status: 'ACTIVE', actualUsedFeet: 28 })],
+    [buildRequirement({ status: 'ACTIVE', actualUsedFeet: 20 })],
     [],
     [],
     [],
@@ -112,11 +112,23 @@ test('complete requirements do not create material demand, and reactivated rows 
   );
   assert.equal(activeStatus, 'FILM_ORDER');
 
-  const orderedStatus = computeJobStatusFromRequirements(
+  const overusedActiveStatus = computeJobStatusFromRequirements(
     'ACTIVE',
     false,
     false,
     [buildRequirement({ status: 'ACTIVE', actualUsedFeet: 28 })],
+    [],
+    [],
+    [],
+    { jobNumber: '9001' }
+  );
+  assert.equal(overusedActiveStatus, 'READY');
+
+  const orderedStatus = computeJobStatusFromRequirements(
+    'ACTIVE',
+    false,
+    false,
+    [buildRequirement({ status: 'ACTIVE', actualUsedFeet: 20 })],
     [],
     [],
     [buildFilmOrder()],

@@ -4985,12 +4985,22 @@ function deriveInStockReadinessStatus(params: {
     params.caulkAllocations,
     { jobNumber: params.jobNumber, jobWarehouse: params.jobWarehouse },
   );
+
+  function getMissingFilmFeet(requirement: any, allocatedFeet: unknown): number {
+    const requiredFeet = integerOrZero(requirement?.requiredFeet);
+    if (requiredFeet <= 0) {
+      return 0;
+    }
+
+    const actualUsedFeet = integerOrZero(requirement?.actualUsedFeet);
+    return Math.max(0, requiredFeet - actualUsedFeet - Math.min(integerOrZero(allocatedFeet), requiredFeet));
+  }
+
   const filmReady = requirements.every((requirement) => {
     if (isRequirementComplete(requirement)) {
       return true;
     }
-    const requiredFeet = integerOrZero(requirement?.requiredFeet);
-    if (requiredFeet <= 0) {
+    if (integerOrZero(requirement?.requiredFeet) <= 0) {
       return true;
     }
 
@@ -4999,7 +5009,7 @@ function deriveInStockReadinessStatus(params: {
       return false;
     }
 
-    return integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet) >= requiredFeet;
+    return getMissingFilmFeet(requirement, filmCoverageByRequirementId[requirementId]?.allocatedFeet) <= 0;
   });
   const caulkReady = caulkRequirements.every((requirement) => {
     if (isCaulkRequirementComplete(requirement)) {
@@ -5026,17 +5036,14 @@ function deriveInStockReadinessStatus(params: {
     if (isRequirementComplete(requirement)) {
       return true;
     }
-    const requiredFeet = integerOrZero(requirement?.requiredFeet);
-    if (requiredFeet <= 0) {
+    if (integerOrZero(requirement?.requiredFeet) <= 0) {
       return true;
     }
     const requirementId = getRequirementId(requirement);
     if (!requirementId) {
       return false;
     }
-    const actualUsedFeet = integerOrZero(requirement?.actualUsedFeet);
-    const allocatedFeet = integerOrZero(filmCoverageByRequirementId[requirementId]?.allocatedFeet);
-    const missingFeet = Math.max(0, requiredFeet - actualUsedFeet - Math.min(allocatedFeet, requiredFeet));
+    const missingFeet = getMissingFilmFeet(requirement, filmCoverageByRequirementId[requirementId]?.allocatedFeet);
     return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
   });
 

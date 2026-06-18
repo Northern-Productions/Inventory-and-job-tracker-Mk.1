@@ -226,6 +226,56 @@ test('deriveInStockReadinessStatus derives film readiness from strict stored all
   );
 });
 
+test('deriveInStockReadinessStatus treats actual used LF as fulfilled film demand', () => {
+  const status = deriveInStockReadinessStatus({
+    jobNumber: '17380',
+    lifecycleStatus: 'ACTIVE',
+    isLaborOnly: false,
+    requirements: [
+      {
+        requirementId: 'req-phase-2',
+        jobNumber: '17380',
+        manufacturer: 'SOLYX',
+        filmName: 'Frosted Stripes SXC-1418',
+        widthIn: 60,
+        requiredFeet: 50,
+        actualUsedFeet: 38,
+        status: 'ACTIVE'
+      }
+    ],
+    caulkRequirements: [],
+    allocations: [
+      {
+        allocationId: 'alloc-phase-2',
+        boxId: 'IL1-6854',
+        jobNumber: '17380',
+        requirementId: 'req-phase-2',
+        status: 'ACTIVE',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 12,
+        coveredFeet: 12
+      }
+    ],
+    caulkAllocations: [],
+    filmOrders: [],
+    caulkStockEntries: [],
+    jobWarehouse: 'IL1',
+    allBoxes: [
+      {
+        boxId: 'IL1-6854',
+        warehouse: 'IL1',
+        status: 'IN_STOCK',
+        manufacturer: 'SOLYX',
+        filmName: 'Frosted Stripes SXC-1418',
+        widthIn: 60,
+        feetAvailable: 13
+      }
+    ]
+  });
+
+  assert.equal(status, 'READY');
+});
+
 test('deriveInStockReadinessStatus excludes invalid film allocation coverage', () => {
   const base = {
     jobNumber: '19413',

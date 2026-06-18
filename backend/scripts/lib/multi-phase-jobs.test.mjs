@@ -203,6 +203,75 @@ test('future phase controls status after the nearer phase is complete', () => {
   assert.equal(summary.remainingFeet, 25);
 });
 
+test('active phase stays ready when actual used plus backed allocation covers required LF', () => {
+  const summary = buildJobListEntry(
+    buildHeader({ jobNumber: '17380' }),
+    [
+      buildRequirement({
+        requirementId: 'req-used-covered',
+        phaseId: 'phase-2',
+        phaseNumber: 2,
+        manufacturer: 'SOLYX',
+        filmName: 'Frosted Stripes SXC-1418',
+        widthIn: 60,
+        requiredFeet: 50,
+        actualUsedFeet: 38,
+        allocatedFeet: 12,
+        remainingFeet: 0,
+      }),
+    ],
+    [
+      {
+        allocationId: 'alloc-used-covered',
+        boxId: 'IL1-6854',
+        jobNumber: '17380',
+        requirementId: 'req-used-covered',
+        status: 'ACTIVE',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 12,
+        coveredFeet: 12,
+      },
+    ],
+    [],
+    [],
+    [],
+    {
+      'IL1-6854': {
+        boxId: 'IL1-6854',
+        warehouse: 'IL1',
+        status: 'IN_STOCK',
+        manufacturer: 'SOLYX',
+        filmName: 'Frosted Stripes SXC-1418',
+        widthIn: 60,
+        feetAvailable: 13,
+      },
+    },
+    {
+      phases: [
+        buildPhase({
+          phaseId: 'phase-1',
+          phaseNumber: 1,
+          workflowStatus: 'PLACEHOLDER',
+          installDate: '2999-01-15',
+        }),
+        buildPhase({
+          phaseId: 'phase-2',
+          phaseNumber: 2,
+          workScope: 'Phase 2',
+          sections: 'Phase 2',
+          installDate: '2999-03-15',
+        }),
+      ],
+    }
+  );
+
+  assert.equal(summary.status, 'READY');
+  assert.equal(summary.phaseNumber, 2);
+  assert.equal(summary.remainingFeet, 0);
+  assert.equal(summary.filmOrderCount, 0);
+  assert.equal(summary.phases[1].status, 'READY');
+});
+
 test('same-date phase group uses Film Order over Ready and expands both phases', () => {
   const summary = buildJobListEntry(
     buildHeader(),
