@@ -179,17 +179,12 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.match(schemaLatest, /0162_prevent_box_id_alias_collisions\.sql/);
 
 
-  const latestBackendMigration = readdir(migrationsPath).then((entries) =>
-    entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
-  );
-  const latestSupabaseMigration = readdir(supabaseMigrationsPath).then((entries) =>
-    entries.filter((entry) => /^\d+_/.test(entry)).sort().at(-1)
-  );
+  const backendMigrations = await readdir(migrationsPath);
+  const supabaseMigrations = await readdir(supabaseMigrationsPath);
 
-  assert.equal(await latestBackendMigration, '0162_prevent_box_id_alias_collisions.sql');
+  assert.ok(backendMigrations.includes('0162_prevent_box_id_alias_collisions.sql'));
 
-  assert.equal(
-    await latestSupabaseMigration,
-    '20260617100000_prevent_box_id_alias_collisions.sql'
+  assert.ok(
+    supabaseMigrations.includes('20260617100000_prevent_box_id_alias_collisions.sql')
   );
 });

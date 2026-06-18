@@ -705,6 +705,96 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
+  it('uses the selected phase schedule in allocation preview payloads', async () => {
+    const canonicalJobId = '11111111-1111-4111-8111-111111111111';
+    useAllocationPreviewMock.mockReturnValue(buildPreviewState());
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobId: canonicalJobId,
+      jobNumber: '4803',
+      installDate: '2026-05-01',
+      crewLeader: 'Phase One',
+      requirements: [
+        {
+          requirementId: 'req-phase-2',
+          phaseId: '22222222-2222-4222-8222-222222222222',
+          phaseNumber: 2,
+          phaseInstallDate: '2026-06-15',
+          phaseCrewLeader: 'Phase Two',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jobId: canonicalJobId,
+          jobNumber: '4803',
+          requirementId: 'req-phase-2',
+          installDate: '2026-06-15',
+          crewLeader: 'Phase Two'
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
+  it('keeps placeholder phase allocation preview payloads unscheduled', async () => {
+    const canonicalJobId = '11111111-1111-4111-8111-111111111111';
+    useAllocationPreviewMock.mockReturnValue(buildPreviewState());
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobId: canonicalJobId,
+      jobNumber: '4803',
+      installDate: '2026-05-01',
+      crewLeader: 'Phase One',
+      requirements: [
+        {
+          requirementId: 'req-placeholder',
+          phaseId: '33333333-3333-4333-8333-333333333333',
+          phaseNumber: 3,
+          phaseInstallDate: '',
+          phaseCrewLeader: '',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+
+    await waitFor(() =>
+      expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          jobId: canonicalJobId,
+          jobNumber: '4803',
+          requirementId: 'req-placeholder',
+          installDate: '',
+          crewLeader: ''
+        })
+      )
+    );
+
+    queryClient.clear();
+  });
+
   it('keeps legacy allocation preview payloads jobNumber-only', async () => {
     useAllocationPreviewMock.mockReturnValue(buildPreviewState());
     searchBoxesMock.mockResolvedValue([buildSearchBox()]);
@@ -797,6 +887,59 @@ describe('JobAllocateDialog', () => {
         requirementId: 'req-1',
         selectedSuggestionBoxIds: [],
         extraAllocations: []
+      })
+    );
+
+    queryClient.clear();
+  });
+
+  it('uses the selected phase schedule in allocation apply payloads', async () => {
+    const canonicalJobId = '11111111-1111-4111-8111-111111111111';
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [],
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({ isPending: false, mutateAsync });
+    useAllocationPreviewMock.mockReturnValue(buildPreviewState());
+    searchBoxesMock.mockResolvedValue([buildSearchBox()]);
+
+    const { queryClient } = renderDialog({
+      jobId: canonicalJobId,
+      jobNumber: '4803',
+      installDate: '2026-05-01',
+      crewLeader: 'Phase One',
+      requirements: [
+        {
+          requirementId: 'req-phase-2',
+          phaseId: '22222222-2222-4222-8222-222222222222',
+          phaseNumber: 2,
+          phaseInstallDate: '2026-06-15',
+          phaseCrewLeader: 'Phase Two',
+          manufacturer: 'Llumar',
+          filmName: 'RN 07',
+          widthIn: 48,
+          requiredFeet: 15,
+          allocatedFeet: 0,
+          remainingFeet: 15
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    fireEvent.click(within(table).getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        jobId: canonicalJobId,
+        jobNumber: '4803',
+        requirementId: 'req-phase-2',
+        installDate: '2026-06-15',
+        crewLeader: 'Phase Two'
       })
     );
 

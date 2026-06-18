@@ -16,6 +16,7 @@ import { safeDecodePathParam } from '../../../../lib/url';
 import { useAuth } from '../../../auth/AuthContext';
 import { listCaulkStock } from '../../../../api/features/caulkClient';
 import { searchBoxes } from '../../../../api/features/inventoryClient';
+import { resolveRequirementScheduleContext } from '../../utils/jobRequirementSchedule';
 import {
   useAddCaulkJobAllocation,
   useAllocateBox,
@@ -678,8 +679,11 @@ export function useAllocationJobPageModel() {
       return;
     }
 
-    const effectiveInstallDate = requirement.phaseInstallDate || summary.installDate || '';
-    const effectiveCrewLeader = requirement.phaseCrewLeader || summary.crewLeader || '';
+    const { installDate: effectiveInstallDate, crewLeader: effectiveCrewLeader } =
+      resolveRequirementScheduleContext(requirement, {
+        installDate: summary.installDate,
+        crewLeader: summary.crewLeader
+      });
     if (effectiveInstallDate.trim() && !effectiveCrewLeader.trim()) {
       toast.push({
         title: 'Crew leader required',

@@ -199,6 +199,7 @@ async function resolveAllocationPreviewJobContext(
   orgId: string,
   params: Record<string, unknown>,
   deps: ReadHandlerDeps,
+  options: { allowPhaseScheduleOverride?: boolean } = {},
 ): Promise<{ job: any; jobId: string; jobContext: JobContext }> {
   const jobIdText = deps.asTrimmedString(params.jobId);
   if (!jobIdText) {
@@ -240,11 +241,14 @@ async function resolveAllocationPreviewJobContext(
   const existingInstallDate = deps.asTrimmedString(job.installDate);
   const existingCrewLeader = deps.asTrimmedString(job.crewLeader);
 
-  if (existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
+  const allowPhaseScheduleOverride = options.allowPhaseScheduleOverride === true;
+
+  if (!allowPhaseScheduleOverride && existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
     throw new HttpError(400, "Install Date must stay the same for an existing Job Number.");
   }
 
   if (
+    !allowPhaseScheduleOverride &&
     existingCrewLeader &&
     normalizedCrewLeader &&
     deps.normalizeCrewLeaderKey(existingCrewLeader) !== deps.normalizeCrewLeaderKey(normalizedCrewLeader)
@@ -266,6 +270,62 @@ async function resolveAllocationPreviewJobContext(
       installDate: resolvedInstallDate,
       crewLeader: resolvedCrewLeader,
     },
+  };
+}
+
+function hasRequirementPhaseScheduleScope(requirement: any, deps: ReadHandlerDeps) {
+  if (!requirement || typeof requirement !== "object") {
+    return false;
+  }
+
+  return Boolean(
+    deps.asTrimmedString(requirement.phaseId) ||
+      Number(requirement.phaseNumber || 0) > 0 ||
+      deps.asTrimmedString(requirement.phaseWorkScope) ||
+      Object.prototype.hasOwnProperty.call(requirement, "phaseInstallDate") ||
+      Object.prototype.hasOwnProperty.call(requirement, "phaseCrewLeader")
+  );
+}
+
+function resolveRequirementScheduleJobContext(
+  jobContext: JobContext,
+  selectedRequirement: any,
+  params: Record<string, unknown>,
+  deps: ReadHandlerDeps,
+) {
+  if (!hasRequirementPhaseScheduleScope(selectedRequirement, deps)) {
+    return jobContext;
+  }
+
+  const phaseInstallDate = deps.asTrimmedString(selectedRequirement.phaseInstallDate);
+  const phaseCrewLeader = deps.asTrimmedString(selectedRequirement.phaseCrewLeader);
+  const suppliedInstallDate = deps.normalizeDateString(
+    params.installDate ?? params.jobDate,
+    "Install Date",
+    true,
+  );
+  const suppliedCrewLeader = deps.asTrimmedString(params.crewLeader);
+
+  if (phaseInstallDate && suppliedInstallDate && phaseInstallDate !== suppliedInstallDate) {
+    throw new HttpError(400, "Install Date must match the selected requirement phase.");
+  }
+
+  if (
+    phaseCrewLeader &&
+    suppliedCrewLeader &&
+    deps.normalizeCrewLeaderKey(phaseCrewLeader) !== deps.normalizeCrewLeaderKey(suppliedCrewLeader)
+  ) {
+    throw new HttpError(400, "Crew Leader must match the selected requirement phase.");
+  }
+
+  if (phaseInstallDate && !phaseCrewLeader) {
+    throw new HttpError(400, "Crew Leader is required when Install Date is set.");
+  }
+
+  return {
+    ...jobContext,
+    installDate: phaseInstallDate,
+    crewLeader: phaseCrewLeader,
   };
 }
 
@@ -744,8 +804,11 @@ const readHandlers: Record<string, ReadHandler> = {
     if (!source) {
       throw new HttpError(404, "Box not found.");
     }
-    const previewTarget = await resolveAllocationPreviewJobContext(client, orgId, params, deps);
-    const jobContext = previewTarget.jobContext;
+    const requirementId = deps.asTrimmedString(params.requirementId);
+    const previewTarget = await resolveAllocationPreviewJobContext(client, orgId, params, deps, {
+      allowPhaseScheduleOverride: Boolean(requirementId),
+    });
+    let jobContext = previewTarget.jobContext;
     const requestedCrossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
     const autoAllocate =
       params.autoAllocate === true ||
@@ -773,7 +836,6 @@ const readHandlers: Record<string, ReadHandler> = {
       : crossWarehouse || !sourceWarehouse
         ? await deps.listBoxes(client, orgId)
         : await deps.listBoxesByWarehouses(client, orgId, [sourceWarehouse]);
-    const requirementId = deps.asTrimmedString(params.requirementId);
     const requirements = requirementId
       ? previewTarget.jobId
         ? await deps.listJobRequirementsByJobId(client, orgId, previewTarget.jobId, previewTarget.job)
@@ -792,6 +854,7 @@ const readHandlers: Record<string, ReadHandler> = {
         `Requirement ${requirementId} does not belong to job ${deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber)}.`,
       );
     }
+    jobContext = resolveRequirementScheduleJobContext(jobContext, selectedRequirement, params, deps);
     return ok(deps.buildAllocationPreviewPlan(
       source,
       params.requestedFeet,

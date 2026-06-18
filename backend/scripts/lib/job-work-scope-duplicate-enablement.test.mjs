@@ -62,6 +62,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '0160_linked_film_order_physical_lf_recalc.sql',
     '0161_linked_film_order_shortage_reconcile_guard.sql',
     '0162_prevent_box_id_alias_collisions.sql',
+    '0163_phase_specific_allocation_schedule.sql',
   ];
   assert.deepEqual(backendMigrations.slice(-expectedBackendTail.length), expectedBackendTail);
   const expectedSupabaseTail = [
@@ -93,6 +94,7 @@ test('final work scope duplicate enablement migration precedes box workflow foll
     '20260613102000_linked_film_order_physical_lf_recalc.sql',
     '20260613103000_linked_film_order_shortage_reconcile_guard.sql',
     '20260617100000_prevent_box_id_alias_collisions.sql',
+    '20260617101000_phase_specific_allocation_schedule.sql',
   ];
   assert.deepEqual(supabaseMigrations.slice(-expectedSupabaseTail.length), expectedSupabaseTail);
 

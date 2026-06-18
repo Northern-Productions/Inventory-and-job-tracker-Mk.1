@@ -10,6 +10,14 @@ const edgeReadHandlers = readFileSync(
   new URL('../../../supabase/functions/_shared/routes/readHandlers.ts', import.meta.url),
   'utf8'
 );
+const backendPhaseScheduleMigration = readFileSync(
+  new URL('../../../backend/migrations/0163_phase_specific_allocation_schedule.sql', import.meta.url),
+  'utf8'
+);
+const supabasePhaseScheduleMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260617101000_phase_specific_allocation_schedule.sql', import.meta.url),
+  'utf8'
+);
 
 function extractBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -36,10 +44,12 @@ test('local allocation preview supports explicit jobId without changing legacy p
   assert.match(resolverBody, /findJobById\(client, orgId, jobId\)/);
   assert.match(resolverBody, /Job was not found\./);
   assert.match(resolverBody, /Job identity mismatch: selected job does not match jobNumber\./);
+  assert.match(resolverBody, /allowPhaseScheduleOverride/);
   assert.match(resolverBody, /resolveJobContext\(\s*client,\s*orgId,\s*payload\.jobNumber/s);
-  assert.match(previewBody, /resolvePreviewJobContext\(client, orgId, payload, installDate\)/);
+  assert.match(previewBody, /allowPhaseScheduleOverride:\s*Boolean\(requirementId\)/);
   assert.match(previewBody, /listJobRequirementsByJobId\(client, orgId, previewTarget\.jobId\)/);
   assert.match(previewBody, /listJobRequirementsByJob\(client, orgId, jobContext\.jobNumber\)/);
+  assert.match(previewBody, /resolveRequirementScheduleJobContext\(/);
 });
 
 test('allocation apply now reuses canonical jobId preview identity resolution', () => {
@@ -49,9 +59,10 @@ test('allocation apply now reuses canonical jobId preview identity resolution', 
     'export {'
   );
 
-  assert.match(applyBody, /resolvePreviewJobContext\(client, orgId, payload, installDate\)/);
+  assert.match(applyBody, /allowPhaseScheduleOverride:\s*Boolean\(requirementId\)/);
   assert.match(applyBody, /listJobRequirementsByJobId\(client, orgId, applyTarget\.jobId\)/);
   assert.match(applyBody, /listJobRequirementsByJob\(client, orgId, jobContext\.jobNumber\)/);
+  assert.match(applyBody, /resolveRequirementScheduleJobContext\(/);
 });
 
 test('Edge allocation preview mirrors canonical jobId validation and job_id requirement loading', () => {
@@ -71,8 +82,28 @@ test('Edge allocation preview mirrors canonical jobId validation and job_id requ
   assert.match(resolverBody, /deps\.findJobById\(client, orgId, jobId\)/);
   assert.match(resolverBody, /Job was not found\./);
   assert.match(resolverBody, /Job identity mismatch: selected job does not match jobNumber\./);
+  assert.match(resolverBody, /allowPhaseScheduleOverride/);
   assert.match(resolverBody, /deps\.resolveJobContext\(\s*client,\s*orgId,\s*params\.jobNumber/s);
-  assert.match(previewHandlerBody, /resolveAllocationPreviewJobContext\(client, orgId, params, deps\)/);
+  assert.match(previewHandlerBody, /allowPhaseScheduleOverride:\s*Boolean\(requirementId\)/);
   assert.match(previewHandlerBody, /deps\.listJobRequirementsByJobId\(client, orgId, previewTarget\.jobId, previewTarget\.job\)/);
   assert.match(previewHandlerBody, /deps\.listJobRequirementsByJob\(/);
+  assert.match(previewHandlerBody, /resolveRequirementScheduleJobContext\(/);
+});
+
+test('phase-specific allocation schedule migration is mirrored and requirement-scoped', () => {
+  for (const migrationBody of [backendPhaseScheduleMigration, supabasePhaseScheduleMigration]) {
+    assert.match(migrationBody, /v_requirement_phase_install_date date/);
+    assert.match(migrationBody, /v_payload_job_date date/);
+    assert.match(migrationBody, /v_requirement_id_text = ''/);
+    assert.match(migrationBody, /JobDate must match the selected requirement phase/);
+    assert.match(migrationBody, /CrewLeader must match the selected requirement phase/);
+    assert.match(migrationBody, /select ph\.install_date, coalesce\(ph\.crew_leader, ''\), true/);
+    assert.match(migrationBody, /v_job_context := jsonb_build_object/);
+  }
+
+  assert.equal(
+    backendPhaseScheduleMigration.replace(/\s+/g, ' ').trim(),
+    supabasePhaseScheduleMigration.replace(/\s+/g, ' ').trim(),
+    'Expected backend and Supabase phase schedule migrations to stay mirrored.'
+  );
 });

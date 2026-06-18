@@ -1167,6 +1167,176 @@ Deno.test("/allocations/preview canonical jobId path validates identity and load
   );
 });
 
+Deno.test("/allocations/preview canonical jobId path uses selected requirement phase schedule", async () => {
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const phaseId = "22222222-2222-4222-8222-222222222222";
+  const source = {
+    boxId: "IL1-SOURCE",
+    warehouse: "IL1",
+    id: "source-record",
+    manufacturer: "Llumar",
+    filmName: "RN 07",
+    widthIn: 48,
+  };
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/preview",
+    {
+      jobId,
+      boxId: source.boxId,
+      jobNumber: "4803",
+      installDate: "2026-06-15",
+      crewLeader: "Phase Two",
+      requestedFeet: 1,
+      requirementId: "req-phase-2",
+      crossWarehouse: false,
+    },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findBoxById: async () => source,
+      findJobById: async () => ({
+        id: jobId,
+        jobNumber: "4803",
+        warehouse: "IL1",
+        installDate: "2026-05-01",
+        crewLeader: "Phase One",
+        lifecycleStatus: "ACTIVE",
+      }),
+      resolveJobContext: async () => {
+        throw new Error("legacy jobNumber context should not be used for canonical preview");
+      },
+      normalizeDateString: (value: unknown) => String(value || "").trim(),
+      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
+      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
+      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
+      listBoxes: async () => [],
+      listBoxesByWarehouses: async () => [source],
+      resolveAllocationJobWarehouse: async () => "IL1",
+      listJobRequirementsByJobId: async () => [
+        {
+          id: "req-phase-2",
+          jobId,
+          jobNumber: "4803",
+          phaseId,
+          phaseNumber: 2,
+          phaseInstallDate: "2026-06-15",
+          phaseCrewLeader: "Phase Two",
+          manufacturer: "Llumar",
+          filmName: "RN 07",
+          widthIn: 48,
+        },
+      ],
+      listJobRequirementsByJob: async () => {
+        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
+      },
+      buildPendingTransfersByBoxRecordId: async () => ({}),
+      listActiveAllocations: async () => [],
+      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
+        jobContext,
+        selectedRequirementId: options.selectedRequirement?.id,
+      }),
+    } as any,
+  );
+
+  assertEquals(
+    response.data,
+    {
+      jobContext: { jobNumber: "4803", installDate: "2026-06-15", crewLeader: "Phase Two" },
+      selectedRequirementId: "req-phase-2",
+    },
+    "Expected canonical preview planning to use the selected requirement phase schedule.",
+  );
+});
+
+Deno.test("/allocations/preview canonical jobId path keeps placeholder phases unscheduled", async () => {
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const phaseId = "33333333-3333-4333-8333-333333333333";
+  const source = {
+    boxId: "IL1-SOURCE",
+    warehouse: "IL1",
+    id: "source-record",
+    manufacturer: "Llumar",
+    filmName: "RN 07",
+    widthIn: 48,
+  };
+
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/allocations/preview",
+    {
+      jobId,
+      boxId: source.boxId,
+      jobNumber: "4803",
+      installDate: "2026-05-01",
+      crewLeader: "Phase One",
+      requestedFeet: 1,
+      requirementId: "req-placeholder",
+      crossWarehouse: false,
+    },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findBoxById: async () => source,
+      findJobById: async () => ({
+        id: jobId,
+        jobNumber: "4803",
+        warehouse: "IL1",
+        installDate: "2026-05-01",
+        crewLeader: "Phase One",
+        lifecycleStatus: "ACTIVE",
+      }),
+      resolveJobContext: async () => {
+        throw new Error("legacy jobNumber context should not be used for canonical preview");
+      },
+      normalizeDateString: (value: unknown) => String(value || "").trim(),
+      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
+      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
+      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
+      listBoxes: async () => [],
+      listBoxesByWarehouses: async () => [source],
+      resolveAllocationJobWarehouse: async () => "IL1",
+      listJobRequirementsByJobId: async () => [
+        {
+          id: "req-placeholder",
+          jobId,
+          jobNumber: "4803",
+          phaseId,
+          phaseNumber: 3,
+          phaseInstallDate: "",
+          phaseCrewLeader: "",
+          manufacturer: "Llumar",
+          filmName: "RN 07",
+          widthIn: 48,
+        },
+      ],
+      listJobRequirementsByJob: async () => {
+        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
+      },
+      buildPendingTransfersByBoxRecordId: async () => ({}),
+      listActiveAllocations: async () => [],
+      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown) => ({
+        jobContext,
+      }),
+    } as any,
+  );
+
+  assertEquals(
+    response.data,
+    {
+      jobContext: { jobNumber: "4803", installDate: "", crewLeader: "" },
+    },
+    "Expected placeholder phase preview planning to stay unscheduled.",
+  );
+});
+
 Deno.test("/allocations/preview rejects invalid, missing, and mismatched canonical jobId", async () => {
   const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
   const baseDeps = {

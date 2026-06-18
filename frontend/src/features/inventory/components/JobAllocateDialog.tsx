@@ -13,6 +13,7 @@ import {
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { findMatchingBoxesForRequirement } from '../utils/jobAllocationMatching';
 import { buildFullBoxExtraAllocations, prioritizeCandidateBoxes } from '../utils/jobAllocationSelection';
+import { resolveRequirementScheduleContext } from '../utils/jobRequirementSchedule';
 import { ActionBar } from './job-allocate-dialog/ActionBar';
 import { AllocationPlanTable } from './job-allocate-dialog/AllocationPlanTable';
 import { RequirementFields } from './job-allocate-dialog/RequirementFields';
@@ -90,8 +91,8 @@ export function JobAllocateDialog({
     () => allocatableRequirements.find((entry) => entry.requirementId === selectedRequirementId) || null,
     [allocatableRequirements, selectedRequirementId]
   );
-  const effectiveInstallDate = selectedRequirement?.phaseInstallDate || installDate || '';
-  const effectiveCrewLeader = selectedRequirement?.phaseCrewLeader || crewLeader || '';
+  const { installDate: effectiveInstallDate, crewLeader: effectiveCrewLeader } =
+    resolveRequirementScheduleContext(selectedRequirement, { installDate, crewLeader });
   const warehouseRegistry = useWarehouseRegistry();
   const searchableWarehouses = useMemo(
     () => {

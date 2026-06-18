@@ -282,7 +282,7 @@ async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber, 
   return '';
 }
 
-async function resolvePreviewJobContext(client, orgId, payload, installDate) {
+async function resolvePreviewJobContext(client, orgId, payload, installDate, options = {}) {
   const jobIdText = asTrimmedString(payload.jobId);
   if (!jobIdText) {
     return {
@@ -319,11 +319,14 @@ async function resolvePreviewJobContext(client, orgId, payload, installDate) {
   const existingInstallDate = asTrimmedString(job.installDate);
   const existingCrewLeader = asTrimmedString(job.crewLeader);
 
-  if (existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
+  const allowPhaseScheduleOverride = options && options.allowPhaseScheduleOverride === true;
+
+  if (!allowPhaseScheduleOverride && existingInstallDate && normalizedInstallDate && existingInstallDate !== normalizedInstallDate) {
     throw new HttpError(400, 'Install Date must stay the same for an existing Job Number.');
   }
 
   if (
+    !allowPhaseScheduleOverride &&
     existingCrewLeader &&
     normalizedCrewLeader &&
     normalizeCrewLeaderKey(existingCrewLeader) !== normalizeCrewLeaderKey(normalizedCrewLeader)
@@ -347,6 +350,53 @@ async function resolvePreviewJobContext(client, orgId, payload, installDate) {
       installDate: resolvedInstallDate,
       crewLeader: resolvedCrewLeader
     }
+  };
+}
+
+function hasRequirementPhaseScheduleScope(requirement) {
+  if (!requirement || typeof requirement !== 'object') {
+    return false;
+  }
+
+  return Boolean(
+    asTrimmedString(requirement.phaseId) ||
+      Number(requirement.phaseNumber || 0) > 0 ||
+      asTrimmedString(requirement.phaseWorkScope) ||
+      Object.prototype.hasOwnProperty.call(requirement, 'phaseInstallDate') ||
+      Object.prototype.hasOwnProperty.call(requirement, 'phaseCrewLeader')
+  );
+}
+
+function resolveRequirementScheduleJobContext(jobContext, selectedRequirement, payloadInstallDate, payloadCrewLeader) {
+  if (!hasRequirementPhaseScheduleScope(selectedRequirement)) {
+    return jobContext;
+  }
+
+  const phaseInstallDate = asTrimmedString(selectedRequirement.phaseInstallDate);
+  const phaseCrewLeader = asTrimmedString(selectedRequirement.phaseCrewLeader);
+  const suppliedInstallDate = normalizeDateString(payloadInstallDate, 'Install Date', true);
+  const suppliedCrewLeader = asTrimmedString(payloadCrewLeader);
+
+  if (phaseInstallDate && suppliedInstallDate && phaseInstallDate !== suppliedInstallDate) {
+    throw new HttpError(400, 'Install Date must match the selected requirement phase.');
+  }
+
+  if (
+    phaseCrewLeader &&
+    suppliedCrewLeader &&
+    normalizeCrewLeaderKey(phaseCrewLeader) !== normalizeCrewLeaderKey(suppliedCrewLeader)
+  ) {
+    throw new HttpError(400, 'Crew Leader must match the selected requirement phase.');
+  }
+
+  if (phaseInstallDate && !phaseCrewLeader) {
+    throw new HttpError(400, 'Crew Leader is required when Install Date is set.');
+  }
+
+  return {
+    ...jobContext,
+    installDate: phaseInstallDate,
+    crewLeader: phaseCrewLeader
   };
 }
 
@@ -387,8 +437,11 @@ async function previewAllocationPlan(client, orgId, payload) {
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
   const requestedCrossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
   const autoAllocate = parseBooleanFlag(payload.autoAllocate);
-  const previewTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
-  const jobContext = previewTarget.jobContext;
+  const requirementId = asTrimmedString(payload.requirementId);
+  const previewTarget = await resolvePreviewJobContext(client, orgId, payload, installDate, {
+    allowPhaseScheduleOverride: Boolean(requirementId)
+  });
+  let jobContext = previewTarget.jobContext;
   const jobWarehouse = await resolveAllocationJobWarehouse(
     client,
     orgId,
@@ -419,7 +472,6 @@ async function previewAllocationPlan(client, orgId, payload) {
     jobWarehouse,
     'Only in-stock, ordered, or transfer boxes can be allocated.'
   );
-  const requirementId = asTrimmedString(payload.requirementId);
   const jobRequirements = requirementId
     ? previewTarget.jobId
       ? await listJobRequirementsByJobId(client, orgId, previewTarget.jobId)
@@ -433,6 +485,12 @@ async function previewAllocationPlan(client, orgId, payload) {
         jobContext.jobNumber
       )
     : null;
+  jobContext = resolveRequirementScheduleJobContext(
+    jobContext,
+    selectedRequirement,
+    installDate,
+    payload.crewLeader
+  );
 
   return buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
     crossWarehouse,
@@ -518,8 +576,11 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     throw new HttpError(400, 'RequestedFeet must be greater than zero unless extraAllocations are provided.');
   }
 
-  const applyTarget = await resolvePreviewJobContext(client, orgId, payload, installDate);
-  const jobContext = applyTarget.jobContext;
+  const requirementId = asTrimmedString(payload.requirementId);
+  const applyTarget = await resolvePreviewJobContext(client, orgId, payload, installDate, {
+    allowPhaseScheduleOverride: Boolean(requirementId)
+  });
+  let jobContext = applyTarget.jobContext;
   const jobWarehouse = await resolveAllocationJobWarehouse(
     client,
     orgId,
@@ -556,7 +617,6 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     jobWarehouse,
     'Only in-stock, ordered, or transfer boxes can be allocated.'
   );
-  const requirementId = asTrimmedString(payload.requirementId);
   if (requestedFeet > 0 && !requirementId) {
     throw new HttpError(400, 'RequirementId is required for film allocations.');
   }
@@ -570,6 +630,12 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
     requirementId
       ? resolveSelectedRequirement(jobRequirements, requirementId, source, jobContext.jobNumber)
       : null;
+  jobContext = resolveRequirementScheduleJobContext(
+    jobContext,
+    selectedRequirement,
+    installDate,
+    payload.crewLeader
+  );
   const minimumWidthValue = Number(payload.requestedWidthIn);
   const minimumWidthIn = selectedRequirement
     ? Number(selectedRequirement.widthIn) || 0
