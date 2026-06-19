@@ -1843,6 +1843,71 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
   );
 });
 
+Deno.test("/film-weight/pending-reviews/resolve delegates to the review resolution RPC", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-weight/pending-reviews/resolve",
+    {
+      reviewId: "11111111-2222-4333-8444-555555555555",
+      decision: "accept",
+      notes: "Fixture sample is valid.",
+    },
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload });
+        return {
+          reviewId: payload.reviewId,
+          decision: payload.decision,
+          status: "resolved",
+          acceptanceStatus: "accepted",
+          warnings: ["Review resolved."],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_resolve_film_weight_pending_review",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload: {
+          reviewId: "11111111-2222-4333-8444-555555555555",
+          decision: "accept",
+          notes: "Fixture sample is valid.",
+        },
+      },
+    ],
+    "Expected pending review resolution to call the ACL RPC with auth-derived org.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        reviewId: "11111111-2222-4333-8444-555555555555",
+        decision: "accept",
+        status: "resolved",
+        acceptanceStatus: "accepted",
+        warnings: ["Review resolved."],
+      },
+      warnings: ["Review resolved."],
+    },
+    "Expected pending review resolution response to normalize the RPC result.",
+  );
+});
+
 Deno.test("caulk transfer receive/cancel preserve transferId payloads while stripping request orgId", async () => {
   const cases = [
     {

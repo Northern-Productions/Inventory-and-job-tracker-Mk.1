@@ -1,12 +1,15 @@
 // Purpose: Read-only Film Weight Chart API surface.
 import type {
   FilmWeightPendingReviewEntry,
+  ResolveFilmWeightPendingReviewPayload,
+  ResolveFilmWeightPendingReviewResult,
   FilmWeightPendingReviewListResponse,
   FilmWeightProfileEntry,
   FilmWeightProfileListResponse,
   FilmWeightProfileWidthSummary
 } from '../../domain';
 import { assertFeatureAccess, requestReadWithFallback } from './sharedClient';
+import { request } from '../http';
 
 function normalizeNumberList(value: unknown): number[] {
   if (!Array.isArray(value)) {
@@ -121,6 +124,23 @@ function normalizePendingReview(
   };
 }
 
+function normalizeResolutionResult(
+  entry: Partial<ResolveFilmWeightPendingReviewResult> = {}
+): ResolveFilmWeightPendingReviewResult {
+  const decision = String(entry.decision || '').trim().toLowerCase();
+
+  return {
+    reviewId: String(entry.reviewId || '').trim(),
+    sampleId: String(entry.sampleId || '').trim(),
+    profileId: String(entry.profileId || '').trim(),
+    boxId: String(entry.boxId || '').trim(),
+    decision: decision === 'reject' ? 'reject' : 'accept',
+    status: String(entry.status || '').trim(),
+    acceptanceStatus: String(entry.acceptanceStatus || '').trim(),
+    pendingReviewCount: Math.max(0, Math.trunc(Number(entry.pendingReviewCount || 0) || 0))
+  };
+}
+
 export async function getFilmWeightProfiles(): Promise<FilmWeightProfileEntry[]> {
   assertFeatureAccess('inventory', 'read');
   const data = await requestReadWithFallback<FilmWeightProfileListResponse>(
@@ -139,4 +159,16 @@ export async function getFilmWeightPendingReviews(): Promise<FilmWeightPendingRe
     {}
   );
   return (data.entries || []).map(normalizePendingReview);
+}
+
+export async function resolveFilmWeightPendingReview(
+  payload: ResolveFilmWeightPendingReviewPayload
+): Promise<ResolveFilmWeightPendingReviewResult> {
+  assertFeatureAccess('inventory', 'write');
+  const { data } = await request<ResolveFilmWeightPendingReviewResult>(
+    'POST',
+    '/film-weight/pending-reviews/resolve',
+    { body: payload }
+  );
+  return normalizeResolutionResult(data);
 }

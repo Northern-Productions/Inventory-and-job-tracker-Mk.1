@@ -478,6 +478,22 @@ async function listOpenFilmWeightPendingReviews(client, orgId) {
   return (result.rows || []).map(toFilmWeightPendingReviewEntry);
 }
 
+async function resolveFilmWeightPendingReview(client, orgId, actor, payload = {}) {
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_resolve_film_weight_pending_review(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, asTrimmedString(actor), payload]
+  );
+
+  return row?.result || {};
+}
+
 export {
   FILM_WEIGHT_LF_TOLERANCE,
   calculateFilmWeightMetrics,
@@ -489,5 +505,6 @@ export {
   listFilmWeightProfiles,
   listOpenFilmWeightPendingReviews,
   recordFilmWeightSampleFromBox,
+  resolveFilmWeightPendingReview,
   validateSampleInput,
 };

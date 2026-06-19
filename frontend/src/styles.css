@@ -1952,6 +1952,26 @@ textarea {
   margin: 0.75rem 0 1rem;
 }
 
+.job-overview-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.job-overview-title-copy {
+  min-width: 0;
+}
+
+.job-overview-title-copy h2 {
+  overflow-wrap: anywhere;
+}
+
+.job-overview-actions {
+  align-items: flex-start;
+  justify-content: flex-end;
+  min-width: max-content;
+}
+
 .job-detail-staged-panel {
   padding-top: 0.2rem;
   border-top: 1px solid rgba(18, 52, 59, 0.08);
@@ -3703,11 +3723,25 @@ td.col-available-linear-ft {
   font-weight: 700;
 }
 
-.weight-chart-counts span {
+.weight-chart-counts span,
+.weight-chart-count-button {
   border: 1px solid var(--color-border-soft);
   border-radius: 999px;
   padding: 0.35rem 0.65rem;
   background: var(--color-surface-3);
+  color: var(--color-text-2);
+  font: inherit;
+  font-weight: 700;
+}
+
+.weight-chart-count-button {
+  cursor: pointer;
+}
+
+.weight-chart-count-button:hover,
+.weight-chart-count-button:focus-visible {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-1);
 }
 
 .weight-chart-tabs {
@@ -3743,6 +3777,45 @@ td.col-available-linear-ft {
 .weight-chart-table th,
 .weight-chart-table td {
   vertical-align: middle;
+}
+
+.weight-chart-review-panel {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.9rem;
+  background: var(--color-surface-2);
+  padding: 1rem;
+}
+
+.weight-chart-review-title {
+  margin-bottom: 0.85rem;
+}
+
+.weight-chart-review-title h3,
+.weight-chart-review-title p {
+  margin: 0;
+}
+
+.weight-chart-review-title p {
+  margin-top: 0.3rem;
+}
+
+.weight-chart-review-table {
+  min-width: 1080px;
+}
+
+.weight-chart-review-table strong {
+  color: var(--color-text-1);
+}
+
+.weight-chart-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.weight-chart-review-actions .button {
+  white-space: nowrap;
 }
 
 .weight-chart-pill {
@@ -6048,6 +6121,20 @@ td.col-available-linear-ft {
 
   .detail-title-row {
     align-items: stretch;
+  }
+
+  .job-overview-title-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-overview-actions {
+    align-items: stretch;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .job-overview-actions .button {
+    width: 100%;
   }
 
   .box-detail-title-copy {

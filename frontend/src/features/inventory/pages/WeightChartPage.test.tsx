@@ -7,10 +7,18 @@ import WeightChartPage from './WeightChartPage';
 
 const useFilmWeightProfilesMock = vi.fn();
 const useFilmWeightPendingReviewsMock = vi.fn();
+const resolveReviewMutateAsyncMock = vi.fn();
 
 vi.mock('../hooks/useInventoryQueries', () => ({
   useFilmWeightProfiles: () => useFilmWeightProfilesMock(),
   useFilmWeightPendingReviews: () => useFilmWeightPendingReviewsMock()
+}));
+
+vi.mock('../hooks/useInventoryMutationHooks', () => ({
+  useResolveFilmWeightPendingReview: () => ({
+    mutateAsync: resolveReviewMutateAsyncMock,
+    isPending: false
+  })
 }));
 
 function buildQueryState<T>(data: T, overrides: Record<string, unknown> = {}) {
@@ -94,6 +102,16 @@ describe('WeightChartPage', () => {
   beforeEach(() => {
     useFilmWeightProfilesMock.mockReturnValue(buildQueryState([buildProfile()]));
     useFilmWeightPendingReviewsMock.mockReturnValue(buildQueryState([buildPendingReview()]));
+    resolveReviewMutateAsyncMock.mockResolvedValue({
+      reviewId: 'review-1',
+      sampleId: 'sample-1',
+      profileId: 'profile-1',
+      boxId: 'IL1-FWC-434829793120',
+      decision: 'accept',
+      status: 'resolved',
+      acceptanceStatus: 'accepted',
+      pendingReviewCount: 0
+    });
   });
 
   afterEach(() => {
@@ -113,7 +131,7 @@ describe('WeightChartPage', () => {
     expect(screen.queryByRole('tab', { name: 'Profiles' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Pending Review' })).toBeNull();
     expect(screen.getByText('1 charts')).toBeTruthy();
-    expect(screen.getByText('1 samples need review')).toBeTruthy();
+    expect(screen.getByText('1 sample needs review')).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Manufacturer' })).toBeTruthy();
     expect(screen.getByLabelText('Film Name')).toBeTruthy();
     expect(screen.queryByLabelText('Width')).toBeNull();
@@ -131,6 +149,30 @@ describe('WeightChartPage', () => {
     expect(screen.getByText('Night Vision 35')).toBeTruthy();
     expect(screen.getByText('36", 72"')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Open Chart' })).toBeTruthy();
+  });
+
+  it('opens a review panel with box detail links and resolves pending samples', async () => {
+    render(<WeightChartPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '1 sample needs review' }));
+
+    const panel = screen.getByRole('region', { name: 'Film weight samples needing review' });
+    const boxLink = within(panel).getByRole('link', { name: 'IL1-FWC-434829793120' }) as HTMLAnchorElement;
+    expect(boxLink.getAttribute('href')).toBe('#/inventory/IL1-FWC-434829793120');
+    expect(within(panel).getByText('outside 10 lf tolerance')).toBeTruthy();
+    expect(within(panel).getByText('18.40 lbs')).toBeTruthy();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Accept Sample' }));
+    expect(resolveReviewMutateAsyncMock).toHaveBeenCalledWith({
+      reviewId: 'review-1',
+      decision: 'accept'
+    });
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reject Sample' }));
+    expect(resolveReviewMutateAsyncMock).toHaveBeenCalledWith({
+      reviewId: 'review-1',
+      decision: 'reject'
+    });
   });
 
   it('renders unique sorted manufacturer dropdown options with All manufacturers selected by default', () => {
@@ -267,7 +309,7 @@ describe('WeightChartPage', () => {
     expect(screen.getByText('Night Vision 35')).toBeTruthy();
   });
 
-  it('shows empty, loading, and error states without internal review actions', async () => {
+  it('shows empty, loading, and error states without showing the review panel by default', async () => {
     useFilmWeightProfilesMock.mockReturnValue(
       buildQueryState([], {
         isLoading: true

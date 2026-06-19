@@ -67,7 +67,7 @@ test('latest schema check guards the access-management RPC permission surface', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
+  assert.match(schemaCheck, /0168_film_weight_pending_review_resolution\.sql/);
 
   assert.match(schemaCheck, /REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);

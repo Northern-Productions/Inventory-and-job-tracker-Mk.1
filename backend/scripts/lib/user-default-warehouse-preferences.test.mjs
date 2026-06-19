@@ -73,7 +73,7 @@ test('schema latest guard tracks user default warehouse preference objects', asy
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution\.sql';/);
 
   assert.match(schemaLatest, /signature: 'app\.user_preferences'/);
   assert.match(schemaLatest, /signature: 'app\.user_preferences\.default_warehouse'/);

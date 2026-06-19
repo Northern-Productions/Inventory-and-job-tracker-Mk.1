@@ -43,6 +43,7 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   "/film-orders/cancel",
   "/film-orders/delete",
   "/film-orders/manual-fulfill",
+  "/film-weight/pending-reviews/resolve",
   "/audit/undo",
 ]);
 

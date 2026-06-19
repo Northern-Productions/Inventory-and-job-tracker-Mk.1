@@ -29,6 +29,9 @@ export {
   useDeleteFilmOrder
 } from './mutations/planning/filmOrderMutations';
 export {
+  useResolveFilmWeightPendingReview
+} from './mutations/planning/filmWeightMutations';
+export {
   useCancelJob,
   useCompleteJob,
   useCreateJob,

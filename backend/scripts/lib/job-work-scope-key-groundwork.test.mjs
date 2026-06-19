@@ -220,7 +220,7 @@ test('schema latest guard keeps work scope key generated column checks after dup
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution\.sql';/);
 
   assert.match(schemaLatest, /signature: 'app\.jobs\.work_scope_key'/);
   assert.match(schemaLatest, /signature: 'app_api\.normalize_job_work_scope_key\(text\)'/);

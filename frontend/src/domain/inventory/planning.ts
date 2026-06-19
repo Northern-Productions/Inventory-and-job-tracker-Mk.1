@@ -311,6 +311,25 @@ export interface FilmWeightPendingReviewsResponse {
   entries: FilmWeightPendingReviewEntry[];
 }
 
+export type FilmWeightPendingReviewDecision = 'accept' | 'reject';
+
+export interface ResolveFilmWeightPendingReviewPayload {
+  reviewId: string;
+  decision: FilmWeightPendingReviewDecision;
+  notes?: string;
+}
+
+export interface ResolveFilmWeightPendingReviewResult {
+  reviewId: string;
+  sampleId: string;
+  profileId: string;
+  boxId: string;
+  decision: FilmWeightPendingReviewDecision;
+  status: 'resolved' | 'rejected' | string;
+  acceptanceStatus: 'accepted' | 'rejected' | string;
+  pendingReviewCount: number;
+}
+
 export interface CreateFilmOrderPayload {
   jobId?: string;
   jobNumber: string;

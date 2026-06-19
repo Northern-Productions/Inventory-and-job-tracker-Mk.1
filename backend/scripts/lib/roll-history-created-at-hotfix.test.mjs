@@ -50,7 +50,7 @@ test('latest schema check still validates the roll history overload hotfix seman
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0167_manual_film_order_fulfill_public_permission_fix\.sql/);
+  assert.match(schemaCheck, /0168_film_weight_pending_review_resolution\.sql/);
 
   assert.match(schemaCheck, /insert into app\.roll_weight_log \(/);
   assert.match(schemaCheck, /created_at\\n  \)/);

@@ -57,7 +57,7 @@ test('job id read-route permission migration restricts direct helper execution',
 
 test('schema guard expects the job id read-route permission migration and RPC permissions', () => {
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0167_manual_film_order_fulfill_public_permission_fix\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution\.sql';/);
 
   assert.match(schemaCheck, /signature: 'public\.api_find_job_by_id\(uuid, uuid\)'/);
   assert.match(schemaCheck, /signature: 'public\.api_acl_find_job_by_id\(uuid, uuid\)'/);
