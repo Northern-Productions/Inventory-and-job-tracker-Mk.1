@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
@@ -170,14 +170,27 @@ const FILM_ORDER_STATUS_FILTER_OPTIONS = [
 
 type FilmOrderStatusFilter = (typeof FILM_ORDER_STATUS_FILTER_OPTIONS)[number]['value'];
 
+const DEFAULT_FILM_ORDER_STATUS_FILTER: FilmOrderStatusFilter = 'FILM_ORDER';
+
+function parseFilmOrderStatusFilter(value: string | null): FilmOrderStatusFilter {
+  if (FILM_ORDER_STATUS_FILTER_OPTIONS.some((option) => option.value === value)) {
+    return value as FilmOrderStatusFilter;
+  }
+
+  return DEFAULT_FILM_ORDER_STATUS_FILTER;
+}
+
 export default function FilmOrdersPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
   const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
-  const [statusFilter, setStatusFilter] = useState<FilmOrderStatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<FilmOrderStatusFilter>(() =>
+    parseFilmOrderStatusFilter(searchParams.get('status'))
+  );
   const filmOrdersQuery = useFilmOrders({ warehouse: warehouseFilter });
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();

@@ -107,14 +107,18 @@ function createQueryClient() {
   });
 }
 
-function renderPage(entries: FilmOrderEntry[]) {
+type RenderPageOptions = {
+  route?: string;
+};
+
+function renderPage(entries: FilmOrderEntry[], options: RenderPageOptions = {}) {
   const queryClient = createQueryClient();
   queryClient.setQueryData(inventoryKeys.filmOrders, entries);
   queryClient.setQueryData(inventoryKeys.filmCatalog, []);
 
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/film-orders']}>
+      <MemoryRouter initialEntries={[options.route || '/film-orders']}>
         <FilmOrdersPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -237,6 +241,64 @@ describe('FilmOrdersPage', () => {
     });
   });
 
+  it('defaults the film orders status filter to Film Order when no explicit status is selected', () => {
+    const entries = [
+      buildFilmOrderEntry({ filmOrderId: 'FO-OPEN', filmName: 'Open Roll', status: 'FILM_ORDER' }),
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-ON-WAY',
+        filmName: 'On Way Roll',
+        status: 'FILM_ON_THE_WAY',
+        orderedFeet: 20,
+        remainingToOrderFeet: 0
+      }),
+      buildFilmOrderEntry({ filmOrderId: 'FO-DONE', filmName: 'Done Roll', status: 'FULFILLED' })
+    ];
+
+    renderPage(entries);
+
+    expect((screen.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe(
+      'FILM_ORDER'
+    );
+    expect(screen.getByText(/Open Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.queryByText(/On Way Roll/, { selector: 'td' })).toBeNull();
+    expect(screen.queryByText(/Done Roll/, { selector: 'td' })).toBeNull();
+  });
+
+  it('preserves an explicit status filter from the route on first load', () => {
+    const entries = [
+      buildFilmOrderEntry({ filmOrderId: 'FO-OPEN', filmName: 'Open Roll', status: 'FILM_ORDER' }),
+      buildFilmOrderEntry({
+        filmOrderId: 'FO-ON-WAY',
+        filmName: 'On Way Roll',
+        status: 'FILM_ON_THE_WAY',
+        orderedFeet: 20,
+        remainingToOrderFeet: 0
+      })
+    ];
+
+    renderPage(entries, { route: '/film-orders?status=FILM_ON_THE_WAY' });
+
+    expect((screen.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe(
+      'FILM_ON_THE_WAY'
+    );
+    expect(screen.queryByText(/Open Roll/, { selector: 'td' })).toBeNull();
+    expect(screen.getByText(/On Way Roll/, { selector: 'td' })).toBeTruthy();
+  });
+
+  it('keeps every film order status option available', () => {
+    renderPage([]);
+
+    const options = within(screen.getByRole('combobox', { name: 'Status' })).getAllByRole('option');
+
+    expect(options.map((option) => option.textContent)).toEqual([
+      'All statuses',
+      'Film Order',
+      'Film On The Way',
+      'Fulfilled',
+      'Canceled'
+    ]);
+  });
+
   it('surfaces film orders that still need ordering before on-the-way entries and renders blue job links on desktop', () => {
     const onTheWayOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-1',
@@ -278,13 +340,16 @@ describe('FilmOrdersPage', () => {
       createdAt: '2026-04-06T00:03:00Z'
     });
 
-    const { container } = renderPage([
-      onTheWayOrder,
-      datedLaterOrder,
-      datedSoonerOrder,
-      unscheduledShortage,
-      resolvedOrder
-    ]);
+    const { container } = renderPage(
+      [
+        onTheWayOrder,
+        datedLaterOrder,
+        datedSoonerOrder,
+        unscheduledShortage,
+        resolvedOrder
+      ],
+      { route: '/film-orders?status=all' }
+    );
 
     expect(
       screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
@@ -570,30 +635,33 @@ describe('FilmOrdersPage', () => {
   });
 
   it('navigates into the first outstanding ordered box when RECEIVE is clicked', async () => {
-    renderPage([
-      buildFilmOrderEntry({
-        filmOrderId: 'FO-RECEIVE',
-        status: 'FILM_ON_THE_WAY',
-        orderedFeet: 60,
-        remainingToOrderFeet: 0,
-        linkedBoxes: [
-          {
-            boxId: 'IL1-0009',
-            dealer: 'Eastman Performance Films',
-            orderedFeet: 30,
-            autoAllocatedFeet: 0,
-            isReceived: true
-          },
-          {
-            boxId: 'IL1-0010',
-            dealer: 'Eastman Performance Films',
-            orderedFeet: 30,
-            autoAllocatedFeet: 0,
-            isReceived: false
-          }
-        ]
-      })
-    ]);
+    renderPage(
+      [
+        buildFilmOrderEntry({
+          filmOrderId: 'FO-RECEIVE',
+          status: 'FILM_ON_THE_WAY',
+          orderedFeet: 60,
+          remainingToOrderFeet: 0,
+          linkedBoxes: [
+            {
+              boxId: 'IL1-0009',
+              dealer: 'Eastman Performance Films',
+              orderedFeet: 30,
+              autoAllocatedFeet: 0,
+              isReceived: true
+            },
+            {
+              boxId: 'IL1-0010',
+              dealer: 'Eastman Performance Films',
+              orderedFeet: 30,
+              autoAllocatedFeet: 0,
+              isReceived: false
+            }
+          ]
+        })
+      ],
+      { route: '/film-orders?status=FILM_ON_THE_WAY' }
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'RECEIVE' }));
 
