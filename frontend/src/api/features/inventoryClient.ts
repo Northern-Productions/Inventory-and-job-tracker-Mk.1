@@ -110,6 +110,7 @@ export function normalizeHasLabel(value: unknown): boolean {
 }
 
 function normalizeBox(box: Box): Box {
+  const normalizedStatus = String(box.status || '').trim().toUpperCase();
   const availableFeet = Math.max(0, Number(box.feetAvailable || 0));
   const initialFeet = Math.max(0, Number(box.initialFeet || 0));
   const activeAllocatedFeet = Math.max(
@@ -124,15 +125,19 @@ function normalizeBox(box: Box): Box {
       : Math.max(0, Number(box.allocatableNowFeet || 0));
   const physicalFeetAvailable =
     box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
-      ? Math.max(0, availableFeet + allocatedWithInstallDateFeet)
+      ? normalizedStatus === 'CHECKED_OUT'
+        ? availableFeet
+        : Math.max(0, availableFeet + allocatedWithInstallDateFeet)
       : Math.max(0, Number(box.physicalFeetAvailable || 0));
   const activePlanningFeet =
     box.allocatableNowFeet !== undefined && box.allocatableNowFeet !== null
       ? allocatableNowFeet
-      : box.status === 'IN_STOCK' || box.status === 'TRANSFER'
+      : normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER'
         ? availableFeet
-        : box.status === 'ORDERED'
+        : normalizedStatus === 'ORDERED'
           ? Math.max(0, initialFeet - activeAllocatedFeet)
+          : normalizedStatus === 'CHECKED_OUT'
+            ? Math.max(0, availableFeet - activeAllocatedFeet)
           : 0;
   const lastCheckoutWorkScope = String(
     (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutWorkScope ??

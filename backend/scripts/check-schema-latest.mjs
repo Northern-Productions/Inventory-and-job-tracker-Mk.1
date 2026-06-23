@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0168_film_weight_pending_review_resolution.sql';
+const LATEST_MIGRATION = '0169_checked_out_box_allocatable_lf.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -349,6 +349,26 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "coalesce((p_allocation).allocation_source::text, 'MANUAL') = 'FILM_ORDER_RECEIPT'",
       "coalesce((p_allocation).allocation_source::text, 'MANUAL') <> 'AUTO_PLANNED'"
     ]
+  },
+  {
+    signature: 'app_api.box_physical_feet_available(app.boxes)',
+    includes: [
+      "('IN_STOCK', 'TRANSFER', 'CHECKED_OUT')",
+      "upper(coalesce(p_box.status::text, '')) = 'CHECKED_OUT'",
+      'coalesce(p_box.feet_available, 0)'
+    ],
+    excludes: [
+      "upper(coalesce(p_box.status::text, '')) not in ('IN_STOCK', 'TRANSFER')"
+    ]
+  },
+  {
+    signature: 'app_api.box_allocatable_now_feet(app.boxes)',
+    includes: [
+      "('IN_STOCK', 'TRANSFER', 'CHECKED_OUT')",
+      'app_api.box_physical_feet_available(p_box)',
+      'app_api.reserved_film_allocated_feet_for_box(p_box.org_id, p_box.box_id)'
+    ],
+    excludes: []
   },
   {
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',

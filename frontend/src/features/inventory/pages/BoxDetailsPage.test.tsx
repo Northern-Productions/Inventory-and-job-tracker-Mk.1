@@ -1130,6 +1130,35 @@ describe('BoxDetailsPage', () => {
     expect(screen.getByText('This box is checked out. All remaining film is currently scheduled, so 0 LF is available to allocate.')).toBeTruthy();
   });
 
+  it('shows remaining unclaimed LF for checked-out boxes with partial scheduled and placeholder claims', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: '000123',
+        feetAvailable: 42,
+        allocationPlanningFeet: 42,
+        allocatableNowFeet: 42,
+        physicalFeetAvailable: 71,
+        allocatedWithInstallDateFeet: 15,
+        allocatedWithoutInstallDateFeet: 14
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    expect(screen.getByText('Physical LF Remaining')).toBeTruthy();
+    expect(screen.getByText('Available to Allocate')).toBeTruthy();
+    expect(screen.getByText('Scheduled LF')).toBeTruthy();
+    expect(screen.getByText('Placeholder LF')).toBeTruthy();
+    expect(screen.getByText('This box is checked out. 42 LF remains unclaimed and can be planned, but the box must return before it can be physically checked out again.')).toBeTruthy();
+    expect(
+      screen.queryByText('This box is checked out. All remaining film is currently scheduled or planned, so 0 LF is available to allocate.')
+    ).toBeNull();
+  });
+
   it('renders structured film order origins as read-only metadata', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,

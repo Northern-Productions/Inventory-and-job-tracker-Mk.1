@@ -32,7 +32,7 @@ test('film weight profiles migration stays mirrored and schema-guarded', async (
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0168_film_weight_pending_review_resolution\.sql/);
+  assert.match(schemaCheck, /0169_checked_out_box_allocatable_lf\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);

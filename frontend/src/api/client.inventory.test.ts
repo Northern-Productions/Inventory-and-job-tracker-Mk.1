@@ -116,6 +116,40 @@ describe('inventory API client', () => {
     });
   });
 
+  it('normalizes checked-out search boxes to use unclaimed LF as planning capacity while preserving physical LF', async () => {
+    requestReadWithFallbackMock.mockResolvedValueOnce([
+      {
+        boxId: 'IL1-7056',
+        warehouse: 'IL1',
+        manufacturer: '3M',
+        filmName: 'S140',
+        widthIn: 60,
+        initialFeet: 100,
+        feetAvailable: 42,
+        physicalFeetAvailable: 71,
+        allocatedWithInstallDateFeet: 15,
+        allocatedWithoutInstallDateFeet: 14,
+        allocatableNowFeet: 42,
+        allocationPlanningFeet: null,
+        status: 'CHECKED_OUT'
+      }
+    ]);
+
+    const boxes = await searchBoxes({ warehouse: 'IL1' });
+
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toMatchObject({
+      boxId: 'IL1-7056',
+      status: 'CHECKED_OUT',
+      feetAvailable: 42,
+      physicalFeetAvailable: 71,
+      allocatedWithInstallDateFeet: 15,
+      allocatedWithoutInstallDateFeet: 14,
+      allocatableNowFeet: 42,
+      allocationPlanningFeet: 42
+    });
+  });
+
   it('preserves remote inventory rows beyond the first thousand results', async () => {
     const remoteBoxes = Array.from({ length: 1002 }, (_, index) => ({
       boxId: index === 1000 ? 'IL1-6734' : index === 1001 ? 'IL1-6942' : `IL1-${String(index + 1).padStart(4, '0')}`,

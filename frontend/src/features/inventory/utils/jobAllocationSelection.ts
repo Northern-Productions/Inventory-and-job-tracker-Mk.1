@@ -7,6 +7,7 @@ export interface AllocationCandidateBox {
   planningFeet?: number;
   allocatableNowFeet?: number | null;
   allocationPlanningFeet?: number;
+  activeAllocatedFeet?: number;
   boxStatus?: string;
   status?: string;
   widthIn?: number;
@@ -43,9 +44,22 @@ function toNormalizedSelectedSet(selectedBoxIds: Iterable<string>) {
 }
 
 function getCandidatePlanningFeet(candidate: AllocationCandidateBox) {
+  const explicitPlanningFeet = candidate.planningFeet ?? candidate.allocatableNowFeet;
+  if (explicitPlanningFeet !== undefined && explicitPlanningFeet !== null) {
+    return Math.max(0, Math.floor(Number(explicitPlanningFeet) || 0));
+  }
+
+  const normalizedStatus = String(candidate.boxStatus || candidate.status || '').trim().toUpperCase();
+  if (normalizedStatus === 'CHECKED_OUT') {
+    return Math.max(
+      0,
+      Math.floor(Number(candidate.feetAvailable || 0) - Number(candidate.activeAllocatedFeet || 0))
+    );
+  }
+
   return Math.max(
     0,
-    Math.floor(Number((candidate.planningFeet ?? candidate.allocatableNowFeet ?? candidate.feetAvailable) || 0))
+    Math.floor(Number(candidate.feetAvailable || 0))
   );
 }
 
@@ -63,7 +77,11 @@ function getCandidateStatusRank(candidate: AllocationCandidateBox) {
     return 2;
   }
 
-  return 3;
+  if (normalizedStatus === 'CHECKED_OUT') {
+    return 3;
+  }
+
+  return 4;
 }
 
 function isAllocatableCandidate(candidate: AllocationCandidateBox) {
@@ -72,7 +90,8 @@ function isAllocatableCandidate(candidate: AllocationCandidateBox) {
     normalizedStatus === '' ||
     normalizedStatus === 'IN_STOCK' ||
     normalizedStatus === 'TRANSFER' ||
-    normalizedStatus === 'ORDERED'
+    normalizedStatus === 'ORDERED' ||
+    normalizedStatus === 'CHECKED_OUT'
   );
 }
 

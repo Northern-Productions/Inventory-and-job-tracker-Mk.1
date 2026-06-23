@@ -66,14 +66,15 @@ describe('jobAllocationSelection', () => {
     ]);
   });
 
-  it('ranks in-stock boxes ahead of transfer boxes, and transfer boxes ahead of ordered boxes', () => {
+  it('ranks checked-out boxes after ordered boxes while keeping them eligible for planning', () => {
     const prioritized = prioritizeCandidateBoxes([
+      buildCandidate('checked-out', 42, { status: 'CHECKED_OUT', allocatableNowFeet: 42 }),
       buildCandidate('ordered', 50, { status: 'ORDERED' }),
       buildCandidate('transfer', 50, { status: 'TRANSFER' }),
       buildCandidate('in-stock', 50, { status: 'IN_STOCK' })
     ]);
 
-    expect(prioritized.map((entry) => entry.boxId)).toEqual(['in-stock', 'transfer', 'ordered']);
+    expect(prioritized.map((entry) => entry.boxId)).toEqual(['in-stock', 'transfer', 'ordered', 'checked-out']);
   });
 
   it('auto-selects enough boxes to satisfy requested LF', () => {
@@ -105,6 +106,44 @@ describe('jobAllocationSelection', () => {
     );
 
     expect(selected).toEqual(['leftover']);
+  });
+
+  it('auto-selects checked-out boxes when unclaimed planning LF remains', () => {
+    const selected = autoSelectCandidateBoxIds(
+      [
+        buildCandidate('fully-claimed-checked-out', 71, {
+          status: 'CHECKED_OUT',
+          allocatableNowFeet: 0,
+          allocationPlanningFeet: 71
+        }),
+        buildCandidate('unclaimed-checked-out', 71, {
+          status: 'CHECKED_OUT',
+          allocatableNowFeet: 42,
+          allocationPlanningFeet: 42
+        })
+      ],
+      40
+    );
+
+    expect(selected).toEqual(['unclaimed-checked-out']);
+  });
+
+  it('falls back to checked-out physical LF minus active claims when explicit planning LF is absent', () => {
+    const selected = autoSelectCandidateBoxIds(
+      [
+        buildCandidate('fully-claimed-checked-out', 71, {
+          status: 'CHECKED_OUT',
+          activeAllocatedFeet: 71
+        }),
+        buildCandidate('raw-unclaimed-checked-out', 71, {
+          status: 'CHECKED_OUT',
+          activeAllocatedFeet: 29
+        })
+      ],
+      40
+    );
+
+    expect(selected).toEqual(['raw-unclaimed-checked-out']);
   });
 
   it('auto-selects preferred boxes first when they are linked to the job film order', () => {

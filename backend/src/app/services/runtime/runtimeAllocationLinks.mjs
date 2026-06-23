@@ -197,6 +197,7 @@ import {
 import {
   getActiveAllocatedFeetForBox,
   buildPublicJobRequirementEntries,
+  planningFilmCanSatisfyRequirement,
   resolveAllocationJobMetadata,
 } from './runtimeAllocationCoverage.mjs';
 import { buildPublicAllocationEntriesForJob } from './runtimeJobSummaries.mjs';

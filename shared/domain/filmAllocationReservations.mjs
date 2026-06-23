@@ -387,7 +387,7 @@ function buildBoxReservationSnapshot(box, allocations, options = {}) {
 
     return {
       physicalFeetAvailable,
-      allocatableNowFeet: 0,
+      allocatableNowFeet: Math.max(0, physicalFeetAvailable - activeAllocatedFeet),
       allocatedWithInstallDateFeet,
       allocatedWithoutInstallDateFeet,
       activeAllocatedFeet,

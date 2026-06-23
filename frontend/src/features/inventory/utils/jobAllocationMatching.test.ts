@@ -80,7 +80,72 @@ describe('findMatchingBoxesForRequirement', () => {
       requirement
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-60-C']);
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-60-A', 'IL1-72-A', 'IL1-60-C', 'IL1-72-CHECKED']);
+  });
+
+  it('includes checked-out boxes with unclaimed planning LF after ordered candidates', () => {
+    const requirement = buildRequirement({ widthIn: 60, remainingFeet: 40 });
+    const matching = findMatchingBoxesForRequirement(
+      [
+        buildBox({
+          boxId: 'IL1-CHECKED-UNCLAIMED',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60,
+          status: 'CHECKED_OUT',
+          feetAvailable: 42,
+          allocatableNowFeet: 42,
+          allocationPlanningFeet: 42
+        }),
+        buildBox({
+          boxId: 'IL1-ORDERED',
+          manufacturer: 'Madico',
+          filmName: 'Graffiti Free 6MIL',
+          widthIn: 60,
+          status: 'ORDERED',
+          feetAvailable: 0,
+          allocatableNowFeet: 40,
+          allocationPlanningFeet: 40
+        })
+      ],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-ORDERED', 'IL1-CHECKED-UNCLAIMED']);
+  });
+
+  it('falls back to checked-out physical LF minus active claims when allocatableNowFeet is absent', () => {
+    const requirement = buildRequirement({ widthIn: 60, remainingFeet: 40 });
+    const rawCheckedOutBox = {
+      ...buildBox({
+        boxId: 'IL1-CHECKED-RAW',
+        manufacturer: 'Madico',
+        filmName: 'Graffiti Free 6MIL',
+        widthIn: 60,
+        status: 'CHECKED_OUT',
+        feetAvailable: 71
+      }),
+      allocatableNowFeet: null,
+      activeAllocatedFeet: 29
+    } as Box;
+    const fullyClaimedCheckedOutBox = {
+      ...buildBox({
+        boxId: 'IL1-CHECKED-CLAIMED',
+        manufacturer: 'Madico',
+        filmName: 'Graffiti Free 6MIL',
+        widthIn: 60,
+        status: 'CHECKED_OUT',
+        feetAvailable: 71
+      }),
+      allocatableNowFeet: null,
+      activeAllocatedFeet: 71
+    } as Box;
+    const matching = findMatchingBoxesForRequirement(
+      [rawCheckedOutBox, fullyClaimedCheckedOutBox],
+      requirement
+    );
+
+    expect(matching.map((box) => box.boxId)).toEqual(['IL1-CHECKED-RAW']);
   });
 
   it('includes transfer boxes between in-stock and ordered candidates', () => {

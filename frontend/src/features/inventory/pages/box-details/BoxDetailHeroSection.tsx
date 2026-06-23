@@ -73,6 +73,10 @@ function getAvailabilitySentence({
     return 'Availability details are not available for this box.';
   }
 
+  if (status === 'CHECKED_OUT' && allocatableNowFeet > 0) {
+    return `This box is checked out. ${formatLf(allocatableNowFeet)} remains unclaimed and can be planned, but the box must return before it can be physically checked out again.`;
+  }
+
   if (status === 'CHECKED_OUT' && allocatableNowFeet <= 0) {
     const reservedCopy =
       lockedFeet > 0 && placeholderFeet > 0

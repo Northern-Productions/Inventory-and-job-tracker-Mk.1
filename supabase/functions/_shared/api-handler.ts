@@ -4335,7 +4335,7 @@ function normalizeAllocationKind(value: unknown): "REQUIREMENT" | "EXTRA" {
 
 function isAllocatableBoxStatus(value: unknown) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === "IN_STOCK" || normalized === "ORDERED";
+  return normalized === "IN_STOCK" || normalized === "ORDERED" || normalized === "CHECKED_OUT";
 }
 
 function findPendingTransferForBox(box: any, pendingTransfersByBoxRecordId: Record<string, any> = {}) {
@@ -4391,7 +4391,11 @@ function getAllocationCandidateStatusRank(box: any) {
     return 2;
   }
 
-  return 3;
+  if (normalizedStatus === "CHECKED_OUT") {
+    return 3;
+  }
+
+  return 4;
 }
 
 function computeAllocationPlanningFeet(
@@ -4407,6 +4411,10 @@ function computeAllocationPlanningFeet(
 
   if (normalizedStatus === "ORDERED") {
     return Math.max(0, integerOrZero(initialFeet) - integerOrZero(activeAllocatedFeet));
+  }
+
+  if (normalizedStatus === "CHECKED_OUT") {
+    return Math.max(0, integerOrZero(feetAvailable) - integerOrZero(activeAllocatedFeet));
   }
 
   return 0;
@@ -4446,7 +4454,12 @@ function boxUsesOrderedPlanning(box: any) {
 
 function boxCanReceiveReleasedAllocationFeet(box: any) {
   const normalizedStatus = asTrimmedString(box?.status).toUpperCase();
-  return normalizedStatus !== "ZEROED" && normalizedStatus !== "RETIRED" && normalizedStatus !== "ORDERED";
+  return (
+    normalizedStatus !== "ZEROED" &&
+    normalizedStatus !== "RETIRED" &&
+    normalizedStatus !== "ORDERED" &&
+    normalizedStatus !== "CHECKED_OUT"
+  );
 }
 
 function hasActiveOrderedAllocations(allocations: any[], boxById: Record<string, any> = {}) {

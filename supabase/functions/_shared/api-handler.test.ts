@@ -1591,6 +1591,81 @@ Deno.test("/boxes/get reports checked-out physical LF from stored current feet, 
   }, "Expected checked-out box readback to use the stored current LF, not initialFeet.");
 });
 
+Deno.test("/boxes/get reports unclaimed allocatable LF for partially claimed checked-out boxes", async () => {
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/boxes/get",
+    { boxId: "IL1-7056" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || ""),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => {
+        const numberValue = Number(value);
+        return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+      },
+      findBoxById: async () => ({
+        boxId: "IL1-7056",
+        warehouse: "IL1",
+        status: "CHECKED_OUT",
+        initialFeet: 100,
+        feetAvailable: 42,
+        storedFeetAvailable: 71,
+        lastCheckoutJobId: "4971d840-171f-4969-9bdf-8a79a94e2bc8",
+        lastCheckoutJob: "9327001",
+      }),
+      listAllocationsByBox: async () => [
+        {
+          allocationId: "alloc-scheduled",
+          boxId: "IL1-7056",
+          jobId: "4971d840-171f-4969-9bdf-8a79a94e2bc8",
+          jobNumber: "9327001",
+          requirementId: "8457dc46-e538-4e7b-b0ff-678ee0748e4b",
+          allocatedFeet: 15,
+          status: "ACTIVE",
+          installDate: "2026-06-25",
+          allocationKind: "REQUIREMENT",
+          allocationSource: "MANUAL",
+        },
+        {
+          allocationId: "alloc-placeholder",
+          boxId: "IL1-7056",
+          jobId: "5c708501-f4c5-413b-8eb8-3a9627f3f20b",
+          jobNumber: "9327002",
+          requirementId: "af075476-2024-446c-a827-1847972d6844",
+          allocatedFeet: 14,
+          status: "ACTIVE",
+          installDate: "",
+          allocationKind: "REQUIREMENT",
+          allocationSource: "AUTO_PLANNED",
+        },
+      ],
+      buildBoxFilmOrderOrigins: async () => [],
+      findJobById: async () => null,
+      toPublicBox: (box: Record<string, unknown>) => ({
+        boxId: box.boxId,
+        status: box.status,
+        feetAvailable: box.feetAvailable,
+        physicalFeetAvailable: box.physicalFeetAvailable,
+        allocatedWithInstallDateFeet: box.allocatedWithInstallDateFeet,
+        allocatedWithoutInstallDateFeet: box.allocatedWithoutInstallDateFeet,
+        allocatableNowFeet: box.allocatableNowFeet,
+      }),
+    } as any,
+  );
+
+  assertEquals(response.data, {
+    boxId: "IL1-7056",
+    status: "CHECKED_OUT",
+    feetAvailable: 42,
+    physicalFeetAvailable: 71,
+    allocatedWithInstallDateFeet: 15,
+    allocatedWithoutInstallDateFeet: 14,
+    allocatableNowFeet: 42,
+  }, "Expected checked-out box readback to expose 71 - 15 - 14 = 42 LF as unclaimed planning capacity.");
+});
+
 Deno.test("/allocations/by-box enriches allocation history scope by job id only", async () => {
   const jobLookups: string[] = [];
   const response = await dispatchReadWithHandlers(

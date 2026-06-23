@@ -4,6 +4,7 @@ import {
   getCapacityReservationEntries,
   getStoredPhysicalFootprintEntries,
   isOrderedFilmReservationBoxStatus,
+  isCheckedOutFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
   sumAllocatedFeet,
 } from '../../../../../shared/domain/filmAllocationReservations.mjs';
@@ -68,7 +69,9 @@ function buildJobCreatedAtByJobId(jobs) {
 }
 
 function deriveBoxPhysicalFeetAvailable(box, allocations = []) {
-  if (!isPhysicalFilmReservationBoxStatus(box?.status)) {
+  const isPhysicalReservationStatus = isPhysicalFilmReservationBoxStatus(box?.status);
+  const isCheckedOutStatus = isCheckedOutFilmReservationBoxStatus(box?.status);
+  if (!isPhysicalReservationStatus && !isCheckedOutStatus) {
     return null;
   }
 
@@ -79,6 +82,10 @@ function deriveBoxPhysicalFeetAvailable(box, allocations = []) {
       Number(box.lfWeightLbsPerFt),
       integerOrZero(box.initialFeet)
     );
+  }
+
+  if (isCheckedOutStatus) {
+    return null;
   }
 
   return Math.max(0, integerOrZero(box?.feetAvailable) + sumAllocatedFeet(getStoredPhysicalFootprintEntries(allocations, box)));
@@ -115,12 +122,14 @@ function applyReservationMetricsToBox(box, allocations = [], options = {}) {
   }
 
   const metrics = buildBoxReservationMetrics(box, allocations, options);
-  const normalizedFeetAvailable = isPhysicalFilmReservationBoxStatus(box.status)
+  const exposesPublicAllocatableFeet =
+    isPhysicalFilmReservationBoxStatus(box.status) || isCheckedOutFilmReservationBoxStatus(box.status);
+  const normalizedFeetAvailable = exposesPublicAllocatableFeet
     ? metrics.allocatableNowFeet
     : integerOrZero(box.feetAvailable);
   const nextAllocationPlanningFeet = isOrderedFilmReservationBoxStatus(box.status)
     ? computeAllocationPlanningFeet(box.status, box.initialFeet, box.feetAvailable, metrics.activeAllocatedFeet)
-    : isPhysicalFilmReservationBoxStatus(box.status)
+    : exposesPublicAllocatableFeet
       ? metrics.allocatableNowFeet
       : computeAllocationPlanningFeet(box.status, box.initialFeet, normalizedFeetAvailable, metrics.activeAllocatedFeet);
 

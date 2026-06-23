@@ -51,6 +51,10 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       return Math.max(0, deps.integerOrZero(initialFeet) - deps.integerOrZero(activeAllocatedFeet));
     }
 
+    if (normalizedStatus === "CHECKED_OUT") {
+      return Math.max(0, deps.integerOrZero(feetAvailable) - deps.integerOrZero(activeAllocatedFeet));
+    }
+
     return 0;
   }
 
@@ -217,6 +221,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       : undefined;
     const lastCheckoutWorkScope = deps.asTrimmedString(box.lastCheckoutWorkScope || box.lastCheckoutSections);
     const lastCheckoutSections = deps.asTrimmedString(box.lastCheckoutSections || box.lastCheckoutWorkScope);
+    const normalizedStatus = deps.asTrimmedString(box.status).toUpperCase();
     const publicBox = {
       boxId: box.boxId,
       warehouse: box.warehouse,
@@ -228,7 +233,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       feetAvailable: box.feetAvailable,
       physicalFeetAvailable:
         box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
-          ? Math.max(0, deps.integerOrZero(box.feetAvailable) + deps.integerOrZero(box.allocatedWithInstallDateFeet))
+          ? normalizedStatus === "CHECKED_OUT"
+            ? deps.integerOrZero(box.feetAvailable)
+            : Math.max(0, deps.integerOrZero(box.feetAvailable) + deps.integerOrZero(box.allocatedWithInstallDateFeet))
           : deps.integerOrZero(box.physicalFeetAvailable),
       allocatableNowFeet:
         box.allocatableNowFeet === undefined || box.allocatableNowFeet === null

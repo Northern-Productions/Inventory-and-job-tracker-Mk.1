@@ -7,9 +7,12 @@ import {
   getJobPlanningFilmMatch
 } from './jobPlanningFilmIdentity';
 
-function getBoxPlanningFeet(
-  box: Pick<Box, 'status' | 'feetAvailable' | 'allocatableNowFeet'>
-) {
+type BoxPlanningFeetInput = Pick<Box, 'status' | 'feetAvailable' | 'allocatableNowFeet'> & {
+  activeAllocatedFeet?: number | null;
+};
+
+function getBoxPlanningFeet(box: BoxPlanningFeetInput) {
+  const normalizedStatus = String(box.status || '').trim().toUpperCase();
   if (
     box.allocatableNowFeet !== undefined &&
     box.allocatableNowFeet !== null &&
@@ -18,7 +21,11 @@ function getBoxPlanningFeet(
     return Math.max(0, Number(box.allocatableNowFeet || 0));
   }
 
-  if (box.status === 'IN_STOCK' || box.status === 'TRANSFER') {
+  if (normalizedStatus === 'CHECKED_OUT') {
+    return Math.max(0, Number(box.feetAvailable || 0) - Number(box.activeAllocatedFeet || 0));
+  }
+
+  if (normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER') {
     return Math.max(0, Number(box.feetAvailable || 0));
   }
 
@@ -38,7 +45,11 @@ function getAllocationStatusRank(status: Box['status']) {
     return 2;
   }
 
-  return 3;
+  if (status === 'CHECKED_OUT') {
+    return 3;
+  }
+
+  return 4;
 }
 
 function isTransferAllocatableForJob(box: Pick<Box, 'status'>, _jobWarehouse: string) {
@@ -134,6 +145,7 @@ export function findMatchingBoxesForRequirement(
     const isAllocatableStatus =
       box.status === 'IN_STOCK' ||
       box.status === 'ORDERED' ||
+      box.status === 'CHECKED_OUT' ||
       isTransferAllocatableForJob(box, jobWarehouse);
     if (!isAllocatableStatus || getBoxPlanningFeet(box) <= 0) {
       return [];

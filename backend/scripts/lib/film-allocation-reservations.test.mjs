@@ -133,6 +133,33 @@ test('buildBoxReservationSnapshot uses stored checked-out physical feet instead 
   assert.equal(snapshot.allocationSnapshotsById['checked-out-fixture'].shortageFeet, 0);
 });
 
+test('buildBoxReservationSnapshot exposes unclaimed checked-out LF after scheduled and placeholder claims', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', initialFeet: 100, feetAvailable: 71 }),
+    [
+      buildAllocation({
+        allocationId: 'scheduled-claim',
+        allocatedFeet: 15,
+        installDate: '2026-06-25',
+      }),
+      buildAllocation({
+        allocationId: 'placeholder-claim',
+        allocatedFeet: 14,
+        installDate: '',
+      }),
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 71);
+  assert.equal(snapshot.allocatedWithInstallDateFeet, 15);
+  assert.equal(snapshot.allocatedWithoutInstallDateFeet, 14);
+  assert.equal(snapshot.activeAllocatedFeet, 29);
+  assert.equal(snapshot.allocatableNowFeet, 42);
+  assert.equal(snapshot.allocationSnapshotsById['scheduled-claim'].backedPhysicalFeet, 15);
+  assert.equal(snapshot.allocationSnapshotsById['placeholder-claim'].backedPhysicalFeet, 14);
+  assert.equal(snapshot.allocationSnapshotsById['placeholder-claim'].shortageFeet, 0);
+});
+
 test('buildBoxReservationSnapshot protects scheduled jobs before unscheduled jobs when physical LF is short', () => {
   const snapshot = buildBoxReservationSnapshot(
     buildBox({ status: 'CHECKED_OUT', initialFeet: 100, feetAvailable: 70 }),
@@ -284,4 +311,31 @@ test('applyReservationMetricsToBox separates full-roll physical LF from reserved
   assert.equal(readPayload.physicalFeetAvailable, 100);
   assert.equal(readPayload.allocatableNowFeet, 99);
   assert.equal(readPayload.feetAvailable, 99);
+});
+
+test('applyReservationMetricsToBox keeps checked-out physical LF while exposing only unclaimed LF publicly', () => {
+  const readPayload = toPublicBox(
+    applyReservationMetricsToBox(
+      buildBox({ status: 'CHECKED_OUT', initialFeet: 100, feetAvailable: 71 }),
+      [
+        buildAllocation({
+          allocationId: 'checked-out-scheduled',
+          allocatedFeet: 15,
+          installDate: '2026-06-25',
+        }),
+        buildAllocation({
+          allocationId: 'checked-out-placeholder',
+          allocatedFeet: 14,
+          installDate: '',
+        }),
+      ]
+    )
+  );
+
+  assert.equal(readPayload.physicalFeetAvailable, 71);
+  assert.equal(readPayload.allocatedWithInstallDateFeet, 15);
+  assert.equal(readPayload.allocatedWithoutInstallDateFeet, 14);
+  assert.equal(readPayload.allocatableNowFeet, 42);
+  assert.equal(readPayload.allocationPlanningFeet, 42);
+  assert.equal(readPayload.feetAvailable, 42);
 });

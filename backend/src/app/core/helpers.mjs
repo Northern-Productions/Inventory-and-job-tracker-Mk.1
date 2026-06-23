@@ -150,7 +150,7 @@ function assertBoxStatus(value) {
 
 function isAllocatableBoxStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === 'IN_STOCK' || normalized === 'ORDERED' || normalized === 'TRANSFER';
+  return normalized === 'IN_STOCK' || normalized === 'ORDERED' || normalized === 'TRANSFER' || normalized === 'CHECKED_OUT';
 }
 
 function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
@@ -202,6 +202,10 @@ function computeAllocationPlanningFeet(status, initialFeet, feetAvailable, activ
     return Math.max(0, integerOrZero(initialFeet) - integerOrZero(activeAllocatedFeet));
   }
 
+  if (normalizedStatus === 'CHECKED_OUT') {
+    return Math.max(0, integerOrZero(feetAvailable) - integerOrZero(activeAllocatedFeet));
+  }
+
   return 0;
 }
 
@@ -236,18 +240,27 @@ function boxUsesOrderedPlanning(box) {
 
 function boxCanReceiveReleasedAllocationFeet(box) {
   const normalizedStatus = asTrimmedString(box?.status).toUpperCase();
-  return normalizedStatus !== 'ZEROED' && normalizedStatus !== 'RETIRED' && normalizedStatus !== 'ORDERED';
+  return (
+    normalizedStatus !== 'ZEROED' &&
+    normalizedStatus !== 'RETIRED' &&
+    normalizedStatus !== 'ORDERED' &&
+    normalizedStatus !== 'CHECKED_OUT'
+  );
 }
 
 function applyPlanningAllocationToBox(box, allocatedFeet, options = {}) {
   const nextAllocatedFeet = Math.max(0, integerOrZero(allocatedFeet));
   const nextActiveAllocatedFeet = integerOrZero(box.activeAllocatedFeet) + nextAllocatedFeet;
   const consumesAllocatableFeet = options.consumeAllocatableFeet !== false;
-  const nextFeetAvailable = boxUsesOrderedPlanning(box)
-    ? 0
-    : consumesAllocatableFeet
-      ? Math.max(0, integerOrZero(box.feetAvailable) - nextAllocatedFeet)
-      : Math.max(0, integerOrZero(box.feetAvailable));
+  const normalizedStatus = asTrimmedString(box.status).toUpperCase();
+  let nextFeetAvailable = Math.max(0, integerOrZero(box.feetAvailable));
+  if (boxUsesOrderedPlanning(box)) {
+    nextFeetAvailable = 0;
+  } else if (normalizedStatus === 'CHECKED_OUT') {
+    nextFeetAvailable = integerOrZero(box.feetAvailable);
+  } else if (consumesAllocatableFeet) {
+    nextFeetAvailable = Math.max(0, integerOrZero(box.feetAvailable) - nextAllocatedFeet);
+  }
 
   return {
     ...box,

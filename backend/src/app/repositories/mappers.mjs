@@ -146,6 +146,7 @@ function toPublicBox(box) {
     : undefined;
   const lastCheckoutWorkScope = asTrimmedString(box.lastCheckoutWorkScope || box.lastCheckoutSections);
   const lastCheckoutSections = asTrimmedString(box.lastCheckoutSections || box.lastCheckoutWorkScope);
+  const normalizedStatus = asTrimmedString(box.status).toUpperCase();
   const publicBox = {
     boxId: box.boxId,
     warehouse: box.warehouse,
@@ -157,7 +158,9 @@ function toPublicBox(box) {
     feetAvailable: box.feetAvailable,
     physicalFeetAvailable:
       box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
-        ? Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(box.allocatedWithInstallDateFeet))
+        ? normalizedStatus === 'CHECKED_OUT'
+          ? integerOrZero(box.feetAvailable)
+          : Math.max(0, integerOrZero(box.feetAvailable) + integerOrZero(box.allocatedWithInstallDateFeet))
         : integerOrZero(box.physicalFeetAvailable),
     allocatableNowFeet:
       box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
