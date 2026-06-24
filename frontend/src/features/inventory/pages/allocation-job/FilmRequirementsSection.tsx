@@ -249,6 +249,7 @@ export function FilmRequirementsSection({
                 subtitle={`Width ${entry.widthIn}"`}
               />
               <MobileFieldList>
+                <MobileField label="Required LF" value={entry.requiredFeet} />
                 <MobileField label="Allocated LF" value={entry.allocatedFeet} />
                 <MobileField label="Actual Used LF" value={entry.actualUsedFeet} />
                 <MobileField label="Remaining LF" value={entry.remainingFeet} />
@@ -268,6 +269,7 @@ export function FilmRequirementsSection({
                 <th>Manufacturer</th>
                 <th>Film</th>
                 <th>Width</th>
+                <th>Required LF</th>
                 <th>Allocated LF</th>
                 <th>Actual Used LF</th>
                 <th>Remaining LF</th>
@@ -281,6 +283,7 @@ export function FilmRequirementsSection({
                   <td>{entry.manufacturer}</td>
                   <td>{entry.filmName}</td>
                   <td>{entry.widthIn}</td>
+                  <td>{entry.requiredFeet}</td>
                   <td>{entry.allocatedFeet}</td>
                   <td>{entry.actualUsedFeet}</td>
                   <td>{entry.remainingFeet}</td>

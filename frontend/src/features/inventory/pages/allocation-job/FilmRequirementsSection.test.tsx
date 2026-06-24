@@ -150,6 +150,96 @@ describe('FilmRequirementsSection planner suppression actions', () => {
     expect(screen.queryByLabelText('Overused')).toBeNull();
   });
 
+  it('shows required LF before allocated, actual used, and remaining LF in the desktop table', () => {
+    const { container } = render(
+      <FilmRequirementsSection
+        requirements={[
+          buildRequirement({
+            requiredFeet: 29,
+            allocatedFeet: 0,
+            actualUsedFeet: 29,
+            remainingFeet: 0
+          })
+        ]}
+        filmOrders={[]}
+        isPhoneLayout={false}
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        pendingRequirementStateIds={new Set()}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
+        onSetRequirementState={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={vi.fn()}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    const headers = Array.from(container.querySelectorAll('thead th')).map((element) =>
+      element.textContent?.trim()
+    );
+    expect(headers.slice(3, 7)).toEqual([
+      'Required LF',
+      'Allocated LF',
+      'Actual Used LF',
+      'Remaining LF'
+    ]);
+
+    const cells = Array.from(container.querySelectorAll('tbody tr:first-child td')).map((element) =>
+      element.textContent?.trim()
+    );
+    expect(cells.slice(3, 7)).toEqual(['29', '0', '29', '0']);
+  });
+
+  it('shows required LF before allocated, actual used, and remaining LF in the mobile card', () => {
+    const { container } = render(
+      <FilmRequirementsSection
+        requirements={[
+          buildRequirement({
+            requiredFeet: 29,
+            allocatedFeet: 0,
+            actualUsedFeet: 29,
+            remainingFeet: 0
+          })
+        ]}
+        filmOrders={[]}
+        isPhoneLayout
+        isReadOnlyJob={false}
+        isAuthenticated
+        clientIdConfigured
+        isCreateFilmOrderPending={false}
+        pendingRequirementStateIds={new Set()}
+        isResumeAutoPlanningPending={false}
+        pendingDeleteFilmOrderIds={new Set()}
+        onOrderRequirement={vi.fn()}
+        onAutoAllocateRequirement={vi.fn()}
+        onSetRequirementState={vi.fn()}
+        onResumeAutoPlanning={vi.fn()}
+        onCancelRequirementOrder={vi.fn()}
+        onOrderAll={vi.fn()}
+      />
+    );
+
+    const labels = Array.from(container.querySelectorAll('.mobile-field-label')).map((element) =>
+      element.textContent?.trim()
+    );
+    const values = Array.from(container.querySelectorAll('.mobile-field-value')).map((element) =>
+      element.textContent?.trim()
+    );
+
+    expect(labels.slice(0, 4)).toEqual([
+      'Required LF',
+      'Allocated LF',
+      'Actual Used LF',
+      'Remaining LF'
+    ]);
+    expect(values.slice(0, 4)).toEqual(['29', '0', '29', '0']);
+  });
+
   it('hides planning-only LF columns from the visible table', () => {
     render(
       <FilmRequirementsSection
@@ -181,6 +271,7 @@ describe('FilmRequirementsSection planner suppression actions', () => {
     expect(screen.queryByText('Planned LF')).toBeNull();
     expect(screen.queryByText('Locked LF')).toBeNull();
     expect(screen.queryByText('Placeholder LF')).toBeNull();
+    expect(screen.getByText('Required LF')).not.toBeNull();
     expect(screen.getByText('Allocated LF')).not.toBeNull();
     expect(screen.getByText('Actual Used LF')).not.toBeNull();
     expect(screen.getByText('Remaining LF')).not.toBeNull();
