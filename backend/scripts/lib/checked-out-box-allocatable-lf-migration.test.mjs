@@ -38,7 +38,6 @@ test('checked-out allocatable LF migration preserves physical LF and subtracts a
 test('schema latest checks checked-out allocatable LF function semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0169_checked_out_box_allocatable_lf\.sql';/);
   assert.match(schemaLatest, /app_api\.box_physical_feet_available\(app\.boxes\)/);
   assert.match(schemaLatest, /app_api\.box_allocatable_now_feet\(app\.boxes\)/);
   assert.match(schemaLatest, /CHECKED_OUT/);

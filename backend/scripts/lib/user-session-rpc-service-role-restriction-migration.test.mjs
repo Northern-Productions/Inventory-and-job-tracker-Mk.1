@@ -54,7 +54,7 @@ test('latest schema check points to the user-session RPC service-role restrictio
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0169_checked_out_box_allocatable_lf\.sql/);
+  assert.match(schemaCheck, /0171_checked_out_allocation_apply_guard\.sql/);
 
   assert.match(schemaCheck, /service_role_executable_required_public_api/);
   for (const signature of userSessionRpcSignatures) {

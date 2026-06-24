@@ -119,26 +119,28 @@ function normalizeBox(box: Box): Box {
   );
   const allocatedWithInstallDateFeet = Math.max(0, Number(box.allocatedWithInstallDateFeet || 0));
   const allocatedWithoutInstallDateFeet = Math.max(0, Number(box.allocatedWithoutInstallDateFeet || 0));
-  const allocatableNowFeet =
-    box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
-      ? availableFeet
-      : Math.max(0, Number(box.allocatableNowFeet || 0));
   const physicalFeetAvailable =
     box.physicalFeetAvailable === undefined || box.physicalFeetAvailable === null
       ? normalizedStatus === 'CHECKED_OUT'
         ? availableFeet
         : Math.max(0, availableFeet + allocatedWithInstallDateFeet)
       : Math.max(0, Number(box.physicalFeetAvailable || 0));
+  const fallbackPlanningFeet =
+    normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER'
+      ? availableFeet
+      : normalizedStatus === 'ORDERED'
+        ? Math.max(0, initialFeet - activeAllocatedFeet)
+        : normalizedStatus === 'CHECKED_OUT'
+          ? Math.max(0, physicalFeetAvailable - activeAllocatedFeet)
+          : 0;
+  const allocatableNowFeet =
+    box.allocatableNowFeet === undefined || box.allocatableNowFeet === null
+      ? fallbackPlanningFeet
+      : Math.max(0, Number(box.allocatableNowFeet || 0));
   const activePlanningFeet =
     box.allocatableNowFeet !== undefined && box.allocatableNowFeet !== null
       ? allocatableNowFeet
-      : normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER'
-        ? availableFeet
-        : normalizedStatus === 'ORDERED'
-          ? Math.max(0, initialFeet - activeAllocatedFeet)
-          : normalizedStatus === 'CHECKED_OUT'
-            ? Math.max(0, availableFeet - activeAllocatedFeet)
-          : 0;
+      : fallbackPlanningFeet;
   const lastCheckoutWorkScope = String(
     (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutWorkScope ??
       (box as Box & { lastCheckoutWorkScope?: unknown; lastCheckoutSections?: unknown }).lastCheckoutSections ??

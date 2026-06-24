@@ -65,4 +65,21 @@ describe('box allocation cache material-flow helpers', () => {
     expect(updated.allocatableNowFeet).toBe(100);
     expect(updated.allocationPlanningFeet).toBe(100);
   });
+
+  it('applies allocation claims to checked-out boxes using unclaimed planning LF without changing physical LF', () => {
+    const updated = applyPlanningAllocationToCachedBox(
+      buildBox({
+        status: 'CHECKED_OUT',
+        feetAvailable: 71,
+        physicalFeetAvailable: 71,
+        allocatableNowFeet: null,
+        allocationPlanningFeet: 42
+      }),
+      12
+    );
+
+    expect(updated.feetAvailable).toBe(71);
+    expect(updated.allocatableNowFeet).toBe(30);
+    expect(updated.allocationPlanningFeet).toBe(30);
+  });
 });

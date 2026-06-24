@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0169_checked_out_box_allocatable_lf.sql';
+const LATEST_MIGRATION = '0171_checked_out_allocation_apply_guard.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -371,6 +371,17 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'app_api.assert_film_box_allocation_capacity(uuid, text, text)',
+    includes: [
+      "when v_status = 'ORDERED' then greatest(coalesce(v_box.initial_feet, 0), 0)",
+      "when v_status = 'CHECKED_OUT' then greatest(coalesce(app_api.box_physical_feet_available(v_box), 0), 0)",
+      'app_api.active_film_allocated_feet_for_box(p_org_id, v_box.box_id, p_allocation_id)'
+    ],
+    excludes: [
+      "upper(coalesce(v_box.status::text, '')) in ('ORDERED', 'CHECKED_OUT') then greatest(coalesce(v_box.initial_feet, 0), 0)"
+    ]
+  },
+  {
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
     includes: [
       'v_locked_allocated_feet := app_api.physical_film_commitment_feet_for_box(p_org_id, v_lookup_box_id);',
@@ -534,11 +545,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'if not app_api.requirement_film_is_compatible(',
       'when v_requirement_id is not null then app_api.requirement_film_is_compatible(',
       'Extra box %s must use a compatible film and meet the requested width for this allocation.',
-      "Only in-stock, ordered, or transfer boxes can be allocated.",
+      "Only in-stock, checked-out, ordered, or transfer boxes can be allocated.",
+      "not in ('IN_STOCK', 'ORDERED', 'TRANSFER', 'CHECKED_OUT')",
+      "in ('IN_STOCK', 'ORDERED', 'TRANSFER', 'CHECKED_OUT')",
       "'filmOrderId', ''::text"
     ],
     excludes: [
       'Only in-stock, ordered, or matching transfer boxes can be allocated.',
+      'Only in-stock, ordered, or transfer boxes can be allocated.',
       'is in transfer status but no pending transfer was found.',
       'is transferring to %s and cannot be allocated to a job in %s.',
       'Created from a shortage while trying to allocate',

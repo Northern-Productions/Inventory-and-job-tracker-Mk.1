@@ -6,7 +6,10 @@ import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonic
 import { inventoryKeys } from '../hooks/inventoryQueryKeys';
 
 export function getBoxAllocationPlanningFeet(
-  box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable' | 'allocatableNowFeet'>
+  box: Pick<Box, 'status' | 'initialFeet' | 'feetAvailable'> &
+    Partial<Pick<Box, 'physicalFeetAvailable' | 'allocatableNowFeet'>> & {
+      allocationPlanningFeet?: number | null;
+    }
 ) {
   if (
     box.allocatableNowFeet !== undefined &&
@@ -22,6 +25,24 @@ export function getBoxAllocationPlanningFeet(
 
   if (box.status === 'ORDERED') {
     return Math.max(0, Number(box.initialFeet || 0));
+  }
+
+  if (box.status === 'CHECKED_OUT') {
+    if (
+      box.allocationPlanningFeet !== undefined &&
+      box.allocationPlanningFeet !== null &&
+      Number.isFinite(Number(box.allocationPlanningFeet))
+    ) {
+      return Math.max(0, Number(box.allocationPlanningFeet || 0));
+    }
+
+    const physicalFeet =
+      box.physicalFeetAvailable !== undefined &&
+      box.physicalFeetAvailable !== null &&
+      Number.isFinite(Number(box.physicalFeetAvailable))
+        ? box.physicalFeetAvailable
+        : box.feetAvailable;
+    return Math.max(0, Number(physicalFeet || 0));
   }
 
   return 0;
