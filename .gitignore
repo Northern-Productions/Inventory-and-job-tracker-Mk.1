@@ -26,7 +26,12 @@ backend/backend-dev.stderr.log
 
 # Local verification artifacts
 test-results/
+playwright-report/
+frontend/test-results/
+frontend/playwright-report/
 .codex-runlogs/
+**/chrome-profile*/
+**/playwright-profile*/
 
 # Supabase local env
 supabase/.env

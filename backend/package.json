@@ -33,6 +33,7 @@
     "smoke:cleanup:dry": "node scripts/cleanup-codex-smoke-users.mjs",
     "smoke:cleanup:apply": "node scripts/cleanup-codex-smoke-users.mjs --apply",
     "smoke:token": "node scripts/print-smoke-auth-token.mjs",
+    "browser-auth:dev": "node scripts/create-dev-browser-auth-state.mjs",
     "smoke:routes": "node scripts/smoke-backend-routes.mjs",
     "smoke:box-reconciliation": "node scripts/smoke-box-checkin-reconciliation-flow.mjs",
     "smoke:caulk:cleanup": "node scripts/cleanup-caulk-smoke-artifacts.mjs",
