@@ -1106,6 +1106,67 @@ describe('BoxDetailsPage', () => {
     expect(screen.queryByRole('button', { name: 'Check In' })).toBeNull();
   });
 
+  it('shows a scan fallback notice when a checked-out job number cannot be resolved', async () => {
+    currentSearchParams = 'scanNotice=checkout-job-unresolved';
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: '000123',
+        lastCheckoutJobId: '',
+        feetAvailable: 0,
+        allocationPlanningFeet: 0,
+        physicalFeetAvailable: 20
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Open the job to check in this box',
+          description:
+            'Box IL1-1234 is checked out to job 000123, but the app could not resolve one current job record for that job number. Open the related job or search Jobs to check it in.',
+          variant: 'warning'
+        })
+      )
+    );
+    expect(toastPushMock.mock.calls[0]?.[0]?.description).not.toContain('canonical job link');
+  });
+
+  it('shows an ambiguity scan fallback notice without guessing a checked-out job', async () => {
+    currentSearchParams = 'scanNotice=checkout-job-ambiguous';
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        status: 'CHECKED_OUT',
+        lastCheckoutJob: '000123',
+        lastCheckoutJobId: '',
+        feetAvailable: 0,
+        allocationPlanningFeet: 0,
+        physicalFeetAvailable: 20
+      }),
+      error: null
+    });
+
+    renderInteractivePage();
+
+    await waitFor(() =>
+      expect(toastPushMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Open the job to check in this box',
+          description:
+            'Box IL1-1234 is checked out to job 000123, but that job number matches multiple jobs. Open the correct job from Jobs to check it in.',
+          variant: 'warning'
+        })
+      )
+    );
+  });
+
   it('does not expose legacy last checkout job navigation in the cleaned top summary', () => {
     useBoxMock.mockReturnValueOnce({
       isLoading: false,

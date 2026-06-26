@@ -319,22 +319,34 @@ export function useBoxDetailsPageModel() {
   }, [boxId]);
 
   useEffect(() => {
-    if (searchParams.get('scanNotice') !== 'checkout-job-unknown' || !box) {
+    const scanNotice = searchParams.get('scanNotice');
+    const supportedScanNotices = new Set([
+      'checkout-job-unknown',
+      'checkout-job-unresolved',
+      'checkout-job-ambiguous'
+    ]);
+    if (!scanNotice || !supportedScanNotices.has(scanNotice) || !box) {
       return;
     }
 
-    const noticeKey = `${box.boxId}:checkout-job-unknown`;
+    const noticeKey = `${box.boxId}:${scanNotice}`;
     if (didHandleScanNotice.current === noticeKey) {
       return;
     }
 
     didHandleScanNotice.current = noticeKey;
     const checkoutJob = String(box.lastCheckoutJob || '').trim();
+    const description =
+      scanNotice === 'checkout-job-ambiguous' && checkoutJob
+        ? `Box ${box.boxId} is checked out to job ${checkoutJob}, but that job number matches multiple jobs. Open the correct job from Jobs to check it in.`
+        : scanNotice === 'checkout-job-unresolved' && checkoutJob
+          ? `Box ${box.boxId} is checked out to job ${checkoutJob}, but the app could not resolve one current job record for that job number. Open the related job or search Jobs to check it in.`
+          : checkoutJob
+            ? `Box ${box.boxId} is checked out to job ${checkoutJob}, but the scan did not include enough job context to open the check-in workflow automatically.`
+            : `Box ${box.boxId} is checked out, but the scan did not include enough job context to open the check-in workflow automatically.`;
     toast.push({
       title: 'Open the job to check in this box',
-      description: checkoutJob
-        ? `Box ${box.boxId} is checked out to job ${checkoutJob}, but the scan did not include a canonical job link. Open the related job or search Jobs to check it in.`
-        : `Box ${box.boxId} is checked out, but the scan did not include enough job context to open the check-in workflow automatically.`,
+      description,
       variant: 'warning'
     });
   }, [box, searchParams, toast]);
