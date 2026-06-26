@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import CaulkStockDetailsPage from './CaulkStockDetailsPage';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 
@@ -13,6 +13,25 @@ const listPendingCaulkTransfersMock = vi.fn();
 const mutateCaulkStockMock = vi.fn();
 const receiveCaulkTransferMock = vi.fn();
 const cancelCaulkTransferMock = vi.fn();
+const changeOwnerMutationMock = {
+  mutateAsync: vi.fn(),
+  isPending: false
+};
+const ownerCompaniesQueryMock = {
+  data: [] as Array<{
+    ownerCompanyId: string;
+    code: string;
+    displayName: string;
+    isActive: boolean;
+  }>,
+  isLoading: false,
+  error: null as Error | null
+};
+const authState = {
+  isAuthenticated: false,
+  isOwner: false,
+  hasFeatureAccess: vi.fn(() => true)
+};
 
 vi.mock('../../../components/Toast', () => ({
   useToast: () => ({ push: toastPushMock })
@@ -28,9 +47,14 @@ vi.mock('../../../api/features/caulkClient', () => ({
 }));
 
 vi.mock('../../auth/AuthContext', () => ({
-  useAuth: () => ({
-    hasFeatureAccess: () => true
-  })
+  useAuth: () => authState
+}));
+
+vi.mock('../../inventory/hooks/useInventoryQueries', () => ({
+  useChangeCaulkStockOwner: () => changeOwnerMutationMock,
+  useOwnerCompanies: () => ownerCompaniesQueryMock,
+  usePendingCancelCaulkTransferIds: () => new Set<string>(),
+  usePendingReceiveCaulkTransferIds: () => new Set<string>()
 }));
 
 vi.mock('../../inventory/hooks/useWarehouseRegistry', () => ({
@@ -50,13 +74,29 @@ function createQueryClient() {
   });
 }
 
-function renderPage() {
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="route-location">{location.pathname}</span>;
+}
+
+function fieldControl<T extends HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+  label: string,
+  selector: string
+) {
+  const control = screen.getByText(label).closest('label')?.querySelector(selector);
+  expect(control).toBeTruthy();
+  return control as T;
+}
+
+function renderPage(initialEntry = '/caulk/IL1/p1') {
   const queryClient = createQueryClient();
   const view = render(
-    <MemoryRouter initialEntries={['/caulk/IL1/p1']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <QueryClientProvider client={queryClient}>
+        <LocationProbe />
         <Routes>
           <Route path="/caulk/:warehouse/:productId" element={<CaulkStockDetailsPage />} />
+          <Route path="/caulk/stock/:stockId" element={<CaulkStockDetailsPage />} />
         </Routes>
       </QueryClientProvider>
     </MemoryRouter>
@@ -77,15 +117,36 @@ describe('CaulkStockDetailsPage', () => {
     mutateCaulkStockMock.mockReset();
     receiveCaulkTransferMock.mockReset();
     cancelCaulkTransferMock.mockReset();
+    changeOwnerMutationMock.mutateAsync.mockReset();
+    changeOwnerMutationMock.mutateAsync.mockResolvedValue({
+      changedCount: 1,
+      batchId: 'ownership-batch-1',
+      events: []
+    });
+    changeOwnerMutationMock.isPending = false;
+    ownerCompaniesQueryMock.data = [
+      { ownerCompanyId: 'owner-mgt', code: 'MGT', displayName: 'MGT', isActive: true },
+      { ownerCompanyId: 'owner-kam', code: 'KAM', displayName: 'KAM', isActive: true }
+    ];
+    ownerCompaniesQueryMock.isLoading = false;
+    ownerCompaniesQueryMock.error = null;
+    authState.isAuthenticated = false;
+    authState.isOwner = false;
+    authState.hasFeatureAccess.mockReturnValue(true);
 
     listCaulkStockMock.mockResolvedValue([
       {
+        stockId: 'stock-p1-mgt',
         warehouse: 'IL1',
         productId: 'p1',
         manufacturerId: 'm1',
         manufacturer: '3M',
         productName: '3M IPA White',
         productCode: 'IPA-W',
+        ownerCompanyId: 'owner-mgt',
+        ownerCompanyCode: 'MGT',
+        ownerCompanyDisplayName: 'MGT',
+        ownerCompanyIsActive: true,
         tubesPerCase: 16,
         tubesOnHand: 33,
         casesOnHand: 2,
@@ -427,6 +488,82 @@ describe('CaulkStockDetailsPage', () => {
       )
     );
     expect(mutateCaulkStockMock).not.toHaveBeenCalled();
+
+    queryClient.clear();
+  });
+
+  it('routes to the surviving caulk stock row when an owner change merges with an existing owner row', async () => {
+    authState.isAuthenticated = true;
+    authState.isOwner = true;
+    const sourceRow = {
+      stockId: 'stock-source',
+      warehouse: 'IL1',
+      productId: 'p1',
+      manufacturerId: 'm1',
+      manufacturer: '3M',
+      productName: '3M IPA White',
+      productCode: 'IPA-W',
+      ownerCompanyId: 'owner-mgt',
+      ownerCompanyCode: 'MGT',
+      ownerCompanyDisplayName: 'MGT',
+      ownerCompanyIsActive: true,
+      tubesPerCase: 16,
+      tubesOnHand: 8,
+      casesOnHand: 0,
+      looseTubes: 8,
+      updatedAt: '2026-04-08T12:00:00Z',
+      updatedBy: 'tester'
+    };
+    const targetRow = {
+      ...sourceRow,
+      stockId: 'stock-target',
+      ownerCompanyId: 'owner-kam',
+      ownerCompanyCode: 'KAM',
+      ownerCompanyDisplayName: 'KAM',
+      tubesOnHand: 41,
+      looseTubes: 9
+    };
+    listCaulkStockMock.mockImplementation((params: { stockId?: string; warehouse?: string; productId?: string }) => {
+      if (params.stockId === 'stock-source') {
+        return Promise.resolve([sourceRow]);
+      }
+      if (params.stockId === 'stock-target') {
+        return Promise.resolve([targetRow]);
+      }
+      if (params.warehouse === 'IL1' && params.productId === 'p1') {
+        return Promise.resolve([targetRow]);
+      }
+      return Promise.resolve([]);
+    });
+    listPendingCaulkTransfersMock.mockResolvedValueOnce([]);
+    listCaulkTransactionsMock.mockResolvedValue([]);
+    const { queryClient } = renderPage('/caulk/stock/stock-source');
+
+    expect(await screen.findByText('MGT')).toBeTruthy();
+    fireEvent.change(fieldControl<HTMLSelectElement>('Owner Company', 'select'), { target: { value: 'owner-kam' } });
+    await screen.findByText('Ownership Note');
+    fireEvent.change(fieldControl<HTMLInputElement>('Ownership Note', 'input'), {
+      target: { value: 'merge into existing KAM row' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Ownership' }));
+
+    await waitFor(() =>
+      expect(changeOwnerMutationMock.mutateAsync).toHaveBeenCalledWith({
+        stockId: 'stock-source',
+        ownerCompanyId: 'owner-kam',
+        note: 'merge into existing KAM row'
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('route-location').textContent).toBe('/caulk/stock/stock-target')
+    );
+    expect(await screen.findByText('KAM')).toBeTruthy();
+    expect(toastPushMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Caulk owner updated',
+        variant: 'success'
+      })
+    );
 
     queryClient.clear();
   });

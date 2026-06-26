@@ -310,7 +310,7 @@ async function findCaulkStockRow(client, orgId, stockId) {
        and current_owner.id = s.owner_company_id
       where s.org_id = $1::uuid
         and s.id = $2::uuid
-      for update
+      for update of s
     `,
     [orgId, requireUuid(stockId, 'stockId')]
   );

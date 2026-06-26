@@ -264,7 +264,7 @@ async function fixtureCounts(client, orgId, tag, ids = {}) {
   const result = await client.query(
     `
       select jsonb_build_object(
-        'ownerCompanies', (select count(*)::integer from app.owner_companies where org_id = $1::uuid and (id = any($2::uuid[]) or created_by = $9::text or updated_by = $9::text)),
+        'ownerCompanies', (select count(*)::integer from app.owner_companies where org_id = $1::uuid and (id = any($2::uuid[]) or created_by = $9::text or updated_by = $9::text or display_name ilike ('%' || $9::text || '%'))),
         'boxes', (select count(*)::integer from app.boxes where org_id = $1::uuid and (box_id = any($3::text[]) or notes = $9::text or lot_run = $9::text)),
         'jobs', (select count(*)::integer from app.jobs where org_id = $1::uuid and (id = any($4::uuid[]) or job_number = any($5::text[]) or notes = $9::text or created_by = $9::text)),
         'allocations', (select count(*)::integer from app.caulk_job_allocations where org_id = $1::uuid and (id = any($6::uuid[]) or job_id = any($4::uuid[]) or notes = $9::text or created_by = $9::text)),
@@ -374,7 +374,7 @@ async function cleanupInventoryOwnershipFixture(client, orgId, tag, ids = {}) {
     },
     {
       label: 'owner_companies',
-      sql: `delete from app.owner_companies where org_id = $1::uuid and (id = any($2::uuid[]) or created_by = $3::text or updated_by = $3::text) and lookup_key not in ('mgt', 'edh', 'kam')`,
+      sql: `delete from app.owner_companies where org_id = $1::uuid and (id = any($2::uuid[]) or created_by = $3::text or updated_by = $3::text or display_name ilike ('%' || $3::text || '%')) and lookup_key not in ('mgt', 'edh', 'kam')`,
       params: [orgId, ids.ownerCompanyIds || [], tag],
     },
     {

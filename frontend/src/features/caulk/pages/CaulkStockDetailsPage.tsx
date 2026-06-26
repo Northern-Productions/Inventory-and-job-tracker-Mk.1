@@ -313,9 +313,12 @@ export default function CaulkStockDetailsPage() {
     }
 
     try {
+      const nextOwnerCompanyId = ownerCompanyId;
+      const sourceWarehouse = String(stockEntry.warehouse || '').trim() as Warehouse;
+      const sourceProductId = stockEntry.productId;
       await changeOwnerMutation.mutateAsync({
         stockId,
-        ownerCompanyId,
+        ownerCompanyId: nextOwnerCompanyId,
         note: ownershipNote.trim() || undefined
       });
       setOwnershipNote('');
@@ -323,6 +326,14 @@ export default function CaulkStockDetailsPage() {
         queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
         queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
       ]);
+      const refreshedRows =
+        sourceWarehouse && sourceProductId
+          ? await listCaulkStock({ warehouse: sourceWarehouse, productId: sourceProductId })
+          : [];
+      const nextStockRow = refreshedRows.find((entry) => entry.ownerCompanyId === nextOwnerCompanyId);
+      if (nextStockRow?.stockId && nextStockRow.stockId !== stockId) {
+        navigate(`/caulk/stock/${encodeURIComponent(nextStockRow.stockId)}`, { replace: true });
+      }
       toast.push({
         title: 'Caulk owner updated',
         description: `${stockEntry.productName} ownership was updated without changing stock counts.`,
