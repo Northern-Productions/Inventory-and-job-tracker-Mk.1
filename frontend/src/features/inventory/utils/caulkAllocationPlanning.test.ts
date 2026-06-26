@@ -32,12 +32,16 @@ function createRequirement(overrides: Partial<JobCaulkRequirementLine> = {}): Jo
 
 function createStockEntry(overrides: Partial<CaulkStockEntry> = {}): CaulkStockEntry {
   return {
+    stockId: overrides.stockId || `stock-${overrides.warehouse || 'IL1'}-${overrides.ownerCompanyCode || 'MGT'}`,
     warehouse: 'IL1',
     productId: 'product-1',
     manufacturerId: 'manufacturer-1',
     manufacturer: 'DOW',
     productName: '995 Black',
     productCode: 'DOW-995',
+    ownerCompanyId: 'owner-mgt',
+    ownerCompanyCode: 'MGT',
+    ownerCompanyDisplayName: 'MGT',
     tubesPerCase: 16,
     tubesOnHand: 58,
     casesOnHand: 3,
@@ -167,6 +171,51 @@ describe('caulkAllocationPlanning', () => {
       shortageTubes: 3
     });
     expect(transferPlan.eligibleSourceStock.map((entry) => entry.warehouse)).toEqual(['IL1']);
+  });
+
+  it('aggregates same-warehouse stock across owners for planning while keeping exact source rows', () => {
+    const transferPlan = getCaulkAllocationTransferPlan({
+      mode: 'add',
+      productId: 'product-1',
+      warehouse: 'IL1',
+      allocatedTubesInput: '13',
+      stockEntries: [
+        createStockEntry({
+          stockId: 'stock-il1-mgt',
+          warehouse: 'IL1',
+          ownerCompanyId: 'owner-mgt',
+          ownerCompanyCode: 'MGT',
+          ownerCompanyDisplayName: 'MGT',
+          tubesOnHand: 5
+        }),
+        createStockEntry({
+          stockId: 'stock-il1-edh',
+          warehouse: 'IL1',
+          ownerCompanyId: 'owner-edh',
+          ownerCompanyCode: 'EDH',
+          ownerCompanyDisplayName: 'EDH',
+          tubesOnHand: 4
+        }),
+        createStockEntry({
+          stockId: 'stock-ms1-kam',
+          warehouse: 'MS1',
+          ownerCompanyId: 'owner-kam',
+          ownerCompanyCode: 'KAM',
+          ownerCompanyDisplayName: 'KAM',
+          tubesOnHand: 4
+        })
+      ]
+    });
+
+    expect(transferPlan).toMatchObject({
+      targetWarehouseTubesOnHand: 9,
+      shortageTubes: 4
+    });
+    expect(transferPlan.eligibleSourceStock).toHaveLength(1);
+    expect(transferPlan.eligibleSourceStock[0]).toMatchObject({
+      stockId: 'stock-ms1-kam',
+      ownerCompanyCode: 'KAM'
+    });
   });
 
   it('uses only the incremental reserve delta when editing the same product and warehouse', () => {

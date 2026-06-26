@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { queryRow } from '../../db/client.mjs';
+import { queryRow, queryRows } from '../../db/client.mjs';
 import { HttpError } from '../../lib/http.mjs';
 import {
   asTrimmedString,
@@ -129,6 +129,80 @@ async function requireCaulkWarehouse(client, orgId, warehouse) {
   return normalized;
 }
 
+async function requireOwnerCompany(client, orgId, ownerCompanyId, fieldName = 'OwnerCompanyId') {
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.owner_companies
+      where org_id = $1::uuid
+        and id = $2::uuid
+      limit 1
+    `,
+    [orgId, requireUuid(ownerCompanyId, fieldName)]
+  );
+
+  if (!row) {
+    throw new HttpError(400, 'Owner company was not found.');
+  }
+  if (row.is_active !== true) {
+    throw new HttpError(400, 'Owner company is inactive and cannot be selected for new assignments.');
+  }
+  return row;
+}
+
+async function resolveCaulkStockOwner(client, orgId, productId, warehouse, payload = {}) {
+  const normalizedWarehouse = await requireCaulkWarehouse(client, orgId, warehouse);
+  const stockId = asTrimmedString(payload.stockId || payload.sourceStockId);
+  if (stockId) {
+    const row = await queryRow(
+      client,
+      `
+        select owner_company_id
+        from app.caulk_stock
+        where org_id = $1::uuid
+          and id = $2::uuid
+          and product_id = $3::uuid
+          and warehouse = $4::text
+        limit 1
+      `,
+      [orgId, requireUuid(stockId, 'stockId'), productId, normalizedWarehouse]
+    );
+    if (!row) {
+      throw new HttpError(400, 'Selected caulk stock row was not found for this product and warehouse.');
+    }
+    return row.owner_company_id;
+  }
+
+  const ownerCompanyId = asTrimmedString(payload.ownerCompanyId || payload.sourceOwnerCompanyId);
+  if (ownerCompanyId) {
+    const owner = await requireOwnerCompany(client, orgId, ownerCompanyId);
+    return owner.id;
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select owner_company_id
+      from app.caulk_stock
+      where org_id = $1::uuid
+        and product_id = $2::uuid
+        and warehouse = $3::text
+      order by updated_at desc, id desc
+    `,
+    [orgId, productId, normalizedWarehouse]
+  );
+
+  if (rows.length === 1) {
+    return rows[0].owner_company_id;
+  }
+
+  throw new HttpError(
+    400,
+    'Multiple owner rows exist for this caulk product and warehouse. Select an exact owner row.'
+  );
+}
+
 async function createLogId(client) {
   const row = await queryRow(client, 'select app_api.create_log_id() as id');
   const id = asTrimmedString(row?.id);
@@ -153,6 +227,7 @@ async function applyCaulkDelta(
   actor,
   productId,
   warehouse,
+  ownerCompanyId,
   action,
   deltaTubes,
   reason,
@@ -163,20 +238,21 @@ async function applyCaulkDelta(
   await queryRow(
     client,
     `
-      select app_api.caulk_apply_stock_delta(
+      select app_api.caulk_apply_stock_delta_for_owner(
         $1::uuid,
         $2::text,
         $3::uuid,
         $4::text,
-        $5::text,
-        $6::integer,
-        $7::text,
+        $5::uuid,
+        $6::text,
+        $7::integer,
         $8::text,
         $9::text,
-        $10::text
+        $10::text,
+        $11::text
       ) as result
     `,
-    [orgId, actor, productId, warehouse, action, deltaTubes, reason, transferId, sourceBoxId, notes]
+    [orgId, actor, productId, warehouse, ownerCompanyId, action, deltaTubes, reason, transferId, sourceBoxId, notes]
   );
 }
 
@@ -337,14 +413,16 @@ async function requireLockedAllocationByRowId(client, orgId, allocationRowId) {
   return row;
 }
 
-async function seedCaulkStockRow(client, orgId, actor, productId, warehouse) {
+async function seedCaulkStockRow(client, orgId, actor, productId, warehouse, ownerCompanyId) {
   const normalizedWarehouse = await requireCaulkWarehouse(client, orgId, warehouse);
+  const owner = await requireOwnerCompany(client, orgId, ownerCompanyId);
   await client.query(
     `
       insert into app.caulk_stock (
         org_id,
         product_id,
         warehouse,
+        owner_company_id,
         tubes_on_hand,
         updated_by
       )
@@ -352,18 +430,19 @@ async function seedCaulkStockRow(client, orgId, actor, productId, warehouse) {
         $1::uuid,
         $2::uuid,
         $3::text,
+        $4::uuid,
         0,
-        $4::text
+        $5::text
       )
-      on conflict (org_id, product_id, warehouse) do nothing
+      on conflict (org_id, product_id, warehouse, owner_company_id) do nothing
     `,
-    [orgId, productId, normalizedWarehouse, asTrimmedString(actor)]
+    [orgId, productId, normalizedWarehouse, owner.id, asTrimmedString(actor)]
   );
 
   return normalizedWarehouse;
 }
 
-async function lockCaulkStockRow(client, orgId, productId, warehouse) {
+async function lockCaulkStockRow(client, orgId, productId, warehouse, ownerCompanyId) {
   return queryRow(
     client,
     `
@@ -372,9 +451,10 @@ async function lockCaulkStockRow(client, orgId, productId, warehouse) {
       where s.org_id = $1::uuid
         and s.product_id = $2::uuid
         and s.warehouse = $3::text
+        and s.owner_company_id = $4::uuid
       for update
     `,
-    [orgId, productId, warehouse]
+    [orgId, productId, warehouse, ownerCompanyId]
   );
 }
 
@@ -457,6 +537,7 @@ async function saveCaulkTransferRecord(client, orgId, transfer) {
         job_id,
         job_number,
         product_id,
+        owner_company_id,
         source_warehouse,
         destination_warehouse,
         pending_tubes,
@@ -478,21 +559,23 @@ async function saveCaulkTransferRecord(client, orgId, transfer) {
         nullif($4::text, '')::uuid,
         $5::text,
         $6::uuid,
-        $7::text,
+        $7::uuid,
         $8::text,
-        $9::integer,
-        $10::app.caulk_transfer_status,
-        $11::text,
-        $12::timestamptz,
-        $13::text,
-        nullif($14::text, '')::timestamptz,
-        $15::text,
-        nullif($16::text, '')::timestamptz,
-        $17::text,
-        $18::timestamptz,
-        $19::text
+        $9::text,
+        $10::integer,
+        $11::app.caulk_transfer_status,
+        $12::text,
+        $13::timestamptz,
+        $14::text,
+        nullif($15::text, '')::timestamptz,
+        $16::text,
+        nullif($17::text, '')::timestamptz,
+        $18::text,
+        $19::timestamptz,
+        $20::text
       )
       on conflict (org_id, transfer_id) do update set
+        owner_company_id = excluded.owner_company_id,
         pending_tubes = excluded.pending_tubes,
         status = excluded.status,
         notes = excluded.notes,
@@ -511,6 +594,7 @@ async function saveCaulkTransferRecord(client, orgId, transfer) {
       asTrimmedString(transfer.jobId),
       asTrimmedString(transfer.jobNumber),
       transfer.productId,
+      transfer.ownerCompanyId,
       asTrimmedString(transfer.sourceWarehouse).toUpperCase(),
       asTrimmedString(transfer.destinationWarehouse).toUpperCase(),
       integerOrZero(transfer.pendingTubes),
@@ -534,6 +618,7 @@ async function reserveLocalCaulkTubes(
   actor,
   productId,
   targetWarehouse,
+  ownerCompanyId,
   reserveTubes,
   reserveAction,
   reserveReason,
@@ -552,9 +637,10 @@ async function reserveLocalCaulkTubes(
     orgId,
     normalizedActor,
     productId,
-    targetWarehouse
+    targetWarehouse,
+    ownerCompanyId
   );
-  const targetStock = await lockCaulkStockRow(client, orgId, productId, normalizedTargetWarehouse);
+  const targetStock = await lockCaulkStockRow(client, orgId, productId, normalizedTargetWarehouse, ownerCompanyId);
   const targetAvailable = integerOrZero(targetStock?.tubes_on_hand);
   const reservedTubes = Math.min(targetAvailable, reserveTubes);
   const shortage = Math.max(reserveTubes - reservedTubes, 0);
@@ -566,6 +652,7 @@ async function reserveLocalCaulkTubes(
       normalizedActor,
       productId,
       normalizedTargetWarehouse,
+      ownerCompanyId,
       reserveAction,
       -reservedTubes,
       reserveReason,
@@ -592,6 +679,7 @@ async function startPendingCaulkTransfer(
     jobId,
     jobNumber,
     productId,
+    ownerCompanyId,
     fromWarehouse,
     toWarehouse,
     pendingTubes,
@@ -612,7 +700,8 @@ async function startPendingCaulkTransfer(
     orgId,
     normalizedActor,
     productId,
-    toWarehouse
+    toWarehouse,
+    ownerCompanyId
   );
   const requestedSourceWarehouse = asTrimmedString(fromWarehouse);
   if (!requestedSourceWarehouse) {
@@ -627,13 +716,14 @@ async function startPendingCaulkTransfer(
     orgId,
     normalizedActor,
     productId,
-    requestedSourceWarehouse
+    requestedSourceWarehouse,
+    ownerCompanyId
   );
   if (normalizedSourceWarehouse === normalizedDestinationWarehouse) {
     throw new HttpError(400, 'Transfer source and destination warehouse must differ.');
   }
 
-  const sourceStock = await lockCaulkStockRow(client, orgId, productId, normalizedSourceWarehouse);
+  const sourceStock = await lockCaulkStockRow(client, orgId, productId, normalizedSourceWarehouse, ownerCompanyId);
   const sourceAvailable = integerOrZero(sourceStock?.tubes_on_hand);
   if (sourceAvailable < pendingTubes) {
     throw new HttpError(
@@ -649,6 +739,7 @@ async function startPendingCaulkTransfer(
     normalizedActor,
     productId,
     normalizedSourceWarehouse,
+    ownerCompanyId,
     'TRANSFER_OUT',
     -pendingTubes,
     `Started caulk transfer from ${normalizedSourceWarehouse} to ${normalizedDestinationWarehouse} for job ${asTrimmedString(jobNumber)}.`,
@@ -662,6 +753,7 @@ async function startPendingCaulkTransfer(
     jobId,
     jobNumber,
     productId,
+    ownerCompanyId,
     sourceWarehouse: normalizedSourceWarehouse,
     destinationWarehouse: normalizedDestinationWarehouse,
     pendingTubes,
@@ -706,6 +798,7 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
       normalizedActor,
       transfer.product_id,
       asTrimmedString(transfer.source_warehouse).toUpperCase(),
+      transfer.owner_company_id,
       'TRANSFER_IN',
       pendingTubes,
       normalizedReason,
@@ -721,6 +814,7 @@ async function cancelPendingCaulkTransferInternal(client, orgId, actor, transfer
     jobId: selectedJob?.id || transfer.job_id,
     jobNumber: selectedJob?.job_number || transfer.job_number,
     productId: transfer.product_id,
+    ownerCompanyId: transfer.owner_company_id,
     sourceWarehouse: transfer.source_warehouse,
     destinationWarehouse: transfer.destination_warehouse,
     pendingTubes,
@@ -766,7 +860,8 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
     orgId,
     normalizedActor,
     transfer.product_id,
-    transfer.destination_warehouse
+    transfer.destination_warehouse,
+    transfer.owner_company_id
   );
   const pendingTubes = integerOrZero(transfer.pending_tubes);
 
@@ -777,6 +872,7 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
       normalizedActor,
       transfer.product_id,
       destinationWarehouse,
+      transfer.owner_company_id,
       'TRANSFER_IN',
       pendingTubes,
       `Received caulk transfer into ${destinationWarehouse} for job ${asTrimmedString(selectedJob?.job_number || allocation.job_number)}.`,
@@ -790,6 +886,7 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
       normalizedActor,
       transfer.product_id,
       destinationWarehouse,
+      transfer.owner_company_id,
       'JOB_ALLOCATE_EDIT_INC',
       -pendingTubes,
       `Received pending caulk transfer for allocation ${asTrimmedString(allocation.caulk_allocation_id)}.`,
@@ -818,6 +915,7 @@ async function receivePendingCaulkTransferInternal(client, orgId, actor, transfe
     jobId: selectedJob?.id || transfer.job_id,
     jobNumber: selectedJob?.job_number || transfer.job_number,
     productId: transfer.product_id,
+    ownerCompanyId: transfer.owner_company_id,
     sourceWarehouse: transfer.source_warehouse,
     destinationWarehouse: transfer.destination_warehouse,
     pendingTubes,
@@ -883,6 +981,10 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
   const allocationId = await createLogId(client);
   const allocationRowId = crypto.randomUUID();
   const warehouse = await requireCaulkWarehouse(client, orgId, payload?.warehouse);
+  const ownerCompanyId = await resolveCaulkStockOwner(client, orgId, productId, warehouse, {
+    ownerCompanyId: payload?.ownerCompanyId || payload?.sourceOwnerCompanyId,
+    stockId: payload?.stockId,
+  });
   const normalizedActor = asTrimmedString(actor);
   const localReservation = await reserveLocalCaulkTubes(
     client,
@@ -890,6 +992,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     normalizedActor,
     productId,
     warehouse,
+    ownerCompanyId,
     allocatedTubes,
     'JOB_ALLOCATE',
     `Allocated caulk to job ${asTrimmedString(job.job_number)}.`,
@@ -907,6 +1010,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
         job_number,
         requirement_id,
         product_id,
+        owner_company_id,
         warehouse,
         allocated_tubes,
         reserved_tubes_remaining,
@@ -923,27 +1027,28 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
         notes
       )
       values (
-        $11::uuid,
+        $12::uuid,
         $1::uuid,
         $2::text,
         $3::uuid,
         $4::text,
         nullif($5::text, '')::uuid,
         $6::uuid,
-        $7::text,
-        $8::integer,
+        $7::uuid,
+        $8::text,
         $9::integer,
+        $10::integer,
         0,
         0,
         0,
         0,
         'ACTIVE',
         now(),
-        $10::text,
+        $11::text,
         now(),
-        $10::text,
+        $11::text,
         'MANUAL',
-        $12::text
+        $13::text
       )
     `,
     [
@@ -953,6 +1058,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
       asTrimmedString(job.job_number),
       requirementIdRaw,
       productId,
+      ownerCompanyId,
       warehouse,
       allocatedTubes,
       localReservation.reservedTubes,
@@ -968,6 +1074,7 @@ export async function addCaulkAllocation(client, orgId, actor, payload) {
     jobId: job.id,
     jobNumber: asTrimmedString(job.job_number),
     productId,
+    ownerCompanyId,
     fromWarehouse: payload?.transferFromWarehouse,
     toWarehouse: warehouse,
     pendingTubes: localReservation.shortageTubes,
@@ -1015,8 +1122,9 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
   const hasWarehouse = Object.prototype.hasOwnProperty.call(payload || {}, 'warehouse');
   const hasAllocatedTubes = Object.prototype.hasOwnProperty.call(payload || {}, 'allocatedTubes');
   const hasNotes = Object.prototype.hasOwnProperty.call(payload || {}, 'notes');
+  const hasOwnerCompany = Boolean(asTrimmedString(payload?.ownerCompanyId || payload?.sourceOwnerCompanyId));
   const hasTransferSelection = asTrimmedString(payload?.transferFromWarehouse).length > 0;
-  const hasMaterialEdit = hasProductId || hasWarehouse || hasAllocatedTubes || hasTransferSelection;
+  const hasMaterialEdit = hasProductId || hasWarehouse || hasAllocatedTubes || hasTransferSelection || hasOwnerCompany;
 
   if (pendingTransfer && hasMaterialEdit) {
     assertNoPendingTransferForEditOrCheckout(pendingTransfer, 'editing');
@@ -1030,6 +1138,13 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
   const nextWarehouse = hasWarehouse
     ? await requireCaulkWarehouse(client, orgId, payload?.warehouse)
     : asTrimmedString(allocation.warehouse).toUpperCase();
+  const nextOwnerCompanyId =
+    hasProductId || hasWarehouse || hasOwnerCompany
+      ? await resolveCaulkStockOwner(client, orgId, nextProductId, nextWarehouse, {
+          ownerCompanyId: payload?.ownerCompanyId || payload?.sourceOwnerCompanyId,
+          stockId: payload?.stockId,
+        })
+      : allocation.owner_company_id;
   const nextAllocatedTubes = hasAllocatedTubes
     ? parseIntegerInput(payload?.allocatedTubes, 'allocatedTubes')
     : integerOrZero(allocation.allocated_tubes);
@@ -1050,7 +1165,11 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
   const normalizedActor = asTrimmedString(actor);
 
   if (checkedOutTubesTotal > 0) {
-    if (nextProductId !== allocation.product_id || nextWarehouse !== currentWarehouse) {
+    if (
+      nextProductId !== allocation.product_id ||
+      nextWarehouse !== currentWarehouse ||
+      nextOwnerCompanyId !== allocation.owner_company_id
+    ) {
       throw new HttpError(400, 'Product and warehouse cannot be changed after checkout starts.');
     }
     if (nextAllocatedTubes < allocatedTubes) {
@@ -1060,7 +1179,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
 
   let warnings = [];
 
-  if (nextProductId !== allocation.product_id || nextWarehouse !== currentWarehouse) {
+  if (nextProductId !== allocation.product_id || nextWarehouse !== currentWarehouse || nextOwnerCompanyId !== allocation.owner_company_id) {
     if (checkedOutTubesTotal > 0) {
       throw new HttpError(400, 'Product and warehouse cannot be changed after checkout starts.');
     }
@@ -1072,6 +1191,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
         normalizedActor,
         allocation.product_id,
         currentWarehouse,
+        allocation.owner_company_id,
         'JOB_ALLOCATE_EDIT_DEC',
         reservedTubesRemaining,
         `Edited caulk allocation ${caulkAllocationId}.`,
@@ -1087,6 +1207,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
       normalizedActor,
       nextProductId,
       nextWarehouse,
+      nextOwnerCompanyId,
       nextAllocatedTubes,
       'JOB_ALLOCATE_EDIT_INC',
       `Edited caulk allocation ${caulkAllocationId}.`,
@@ -1099,6 +1220,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
       jobId: selectedJob.id,
       jobNumber: asTrimmedString(selectedJob.job_number),
       productId: nextProductId,
+      ownerCompanyId: nextOwnerCompanyId,
       fromWarehouse: payload?.transferFromWarehouse,
       toWarehouse: nextWarehouse,
       pendingTubes: localReservation.shortageTubes,
@@ -1111,12 +1233,13 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
         update app.caulk_job_allocations
         set
           product_id = $3::uuid,
-          warehouse = $4::text,
-          allocated_tubes = $5::integer,
-          reserved_tubes_remaining = $6::integer,
-          notes = $7::text,
+          owner_company_id = $4::uuid,
+          warehouse = $5::text,
+          allocated_tubes = $6::integer,
+          reserved_tubes_remaining = $7::integer,
+          notes = $8::text,
           updated_at = now(),
-          updated_by = $8::text
+          updated_by = $9::text
         where id = $1::uuid
           and org_id = $2::uuid
       `,
@@ -1124,6 +1247,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
         allocation.id,
         orgId,
         nextProductId,
+        nextOwnerCompanyId,
         nextWarehouse,
         nextAllocatedTubes,
         localReservation.reservedTubes,
@@ -1147,6 +1271,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
         normalizedActor,
         allocation.product_id,
         currentWarehouse,
+        allocation.owner_company_id,
         additionalCoverageNeeded,
         'JOB_ALLOCATE_EDIT_INC',
         `Increased caulk allocation ${caulkAllocationId}.`,
@@ -1160,6 +1285,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
         jobId: selectedJob.id,
         jobNumber: asTrimmedString(selectedJob.job_number),
         productId: allocation.product_id,
+        ownerCompanyId: allocation.owner_company_id,
         fromWarehouse: payload?.transferFromWarehouse,
         toWarehouse: currentWarehouse,
         pendingTubes: localReservation.shortageTubes,
@@ -1175,6 +1301,7 @@ export async function updateCaulkAllocation(client, orgId, actor, payload) {
           normalizedActor,
           allocation.product_id,
           currentWarehouse,
+          allocation.owner_company_id,
           'JOB_ALLOCATE_EDIT_DEC',
           releaseTubes,
           `Reduced caulk allocation ${caulkAllocationId}.`,
@@ -1267,6 +1394,7 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
       normalizedActor,
       allocation.product_id,
       currentWarehouse,
+      allocation.owner_company_id,
       'JOB_CHECKOUT_OVERAGE',
       -overageTubes,
       `Over-checkout on caulk allocation ${caulkAllocationId}.`,
@@ -1285,6 +1413,7 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
         caulk_allocation_id,
         job_number,
         product_id,
+        owner_company_id,
         warehouse,
         checkout_tubes,
         overage_tubes,
@@ -1300,13 +1429,14 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
         $3::uuid,
         $4::text,
         $5::uuid,
-        $6::text,
-        $7::integer,
+        $6::uuid,
+        $7::text,
         $8::integer,
+        $9::integer,
         'OPEN',
         now(),
-        $9::text,
-        $10::text
+        $10::text,
+        $11::text
       )
     `,
     [
@@ -1315,6 +1445,7 @@ export async function checkoutCaulkAllocation(client, orgId, actor, payload) {
       allocation.id,
       asTrimmedString(selectedJob.job_number),
       allocation.product_id,
+      allocation.owner_company_id,
       currentWarehouse,
       checkoutTubes,
       overageTubes,

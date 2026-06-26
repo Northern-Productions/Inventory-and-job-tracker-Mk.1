@@ -150,10 +150,21 @@ async function resolveWarehouseFromBoxId(client, orgId, boxId) {
 function buildBoxSelectColumns(alias) {
   return `
     ${alias}.*,
+    owner_company.code as owner_company_code,
+    owner_company.display_name as owner_company_display_name,
+    owner_company.is_active as owner_company_is_active,
     coalesce(active_allocations.active_allocated_feet, 0)::integer as active_allocated_feet,
     app_api.box_physical_feet_available(${alias})::integer as physical_feet_available,
     app_api.box_allocatable_now_feet(${alias})::integer as allocatable_now_feet,
     app_api.box_allocatable_now_feet(${alias})::integer as allocation_planning_feet
+  `;
+}
+
+function buildOwnerCompanyJoin(boxAlias) {
+  return `
+      left join app.owner_companies owner_company
+        on owner_company.org_id = ${boxAlias}.org_id
+       and owner_company.id = ${boxAlias}.owner_company_id
   `;
 }
 
@@ -191,6 +202,7 @@ async function listBoxes(client, orgId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
+      ${buildOwnerCompanyJoin('b')}
       ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
     `,
@@ -217,6 +229,7 @@ async function listBoxesByWarehouses(client, orgId, warehouses) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
+      ${buildOwnerCompanyJoin('b')}
       ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.warehouse = any($2::text[])
@@ -245,6 +258,7 @@ async function listBoxesByIds(client, orgId, boxIds) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
+      ${buildOwnerCompanyJoin('b')}
       ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.box_id = any($2::text[])
@@ -262,6 +276,7 @@ async function findBoxById(client, orgId, boxId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
+      ${buildOwnerCompanyJoin('b')}
       ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.box_id = $2
@@ -328,6 +343,7 @@ async function saveBoxRecord(client, orgId, box) {
           org_id,
           box_id,
           warehouse,
+          owner_company_id,
           dealer,
           manufacturer,
           film_name,
@@ -359,19 +375,20 @@ async function saveBoxRecord(client, orgId, box) {
           zeroed_by
         )
         values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-          nullif($13, '')::date,
-          $14,$15,
-          nullif($16, '')::date,
-          $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,
-          nullif($27, '')::uuid,
-          $28,
-          nullif($29, '')::date,
+          $1,$2,$3,nullif($4, '')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+          nullif($14, '')::date,
+          $15,$16,
+          nullif($17, '')::date,
+          $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
+          nullif($28, '')::uuid,
+          $29,
           nullif($30, '')::date,
-          $31,$32
+          nullif($31, '')::date,
+          $32,$33
         )
         on conflict (org_id, box_id) do update set
           warehouse = excluded.warehouse,
+          owner_company_id = coalesce(excluded.owner_company_id, app.boxes.owner_company_id),
           dealer = excluded.dealer,
           manufacturer = excluded.manufacturer,
           film_name = excluded.film_name,
@@ -405,12 +422,14 @@ async function saveBoxRecord(client, orgId, box) {
       )
       select ${buildBoxSelectColumns('saved_box')}
       from saved_box
+      ${buildOwnerCompanyJoin('saved_box')}
       ${buildReservationAllocationLateral('saved_box')}
     `,
     [
       orgId,
       box.boxId,
       box.warehouse,
+      box.ownerCompanyId || '',
       dealer,
       manufacturer,
       filmName,
@@ -456,6 +475,7 @@ async function findBoxByRecordId(client, orgId, boxRecordId) {
     `
       select ${buildBoxSelectColumns('b')}
       from app.boxes b
+      ${buildOwnerCompanyJoin('b')}
       ${buildReservationAllocationLateral('b')}
       where b.org_id = $1
         and b.id = $2::uuid

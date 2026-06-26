@@ -116,7 +116,9 @@ interface BoxDetailHeroSectionProps {
   isAuthenticated: boolean;
   clientIdConfigured: boolean;
   canWriteInventory: boolean;
+  canManageOwnership: boolean;
   deletePending: boolean;
+  ownerChangePending: boolean;
   statusPending: boolean;
   allocationsLoading: boolean;
   currentFeetOnRoll: number | null;
@@ -145,7 +147,9 @@ export function BoxDetailHeroSection({
   isAuthenticated,
   clientIdConfigured,
   canWriteInventory,
+  canManageOwnership,
   deletePending,
+  ownerChangePending,
   statusPending,
   allocationsLoading,
   currentFeetOnRoll,
@@ -242,6 +246,9 @@ export function BoxDetailHeroSection({
   ]
     .filter((entry) => String(entry || '').trim())
     .join(' \u00b7 ');
+  const ownerDisplayName = box.ownerCompanyCode
+    ? `${box.ownerCompanyCode}${box.ownerCompanyDisplayName && box.ownerCompanyDisplayName !== box.ownerCompanyCode ? ` - ${box.ownerCompanyDisplayName}` : ''}`
+    : '';
   const notesText = String(box.notes || '').trim();
   const hasNotes = Boolean(notesText && notesText !== '--');
   const checkoutJobLabel = box.lastCheckoutJob
@@ -271,10 +278,21 @@ export function BoxDetailHeroSection({
           <h2>{box.boxId}</h2>
           {filmIdentityLine ? <p className="box-detail-subtitle">{filmIdentityLine}</p> : null}
           {warehouseStatusLine ? <p className="box-detail-subtitle box-detail-subtitle-muted">{warehouseStatusLine}</p> : null}
+          {ownerDisplayName ? (
+            <p className="box-detail-subtitle box-detail-subtitle-muted">
+              Owner: {ownerDisplayName}
+              {box.ownerCompanyIsActive === false ? ' (inactive)' : ''}
+            </p>
+          ) : null}
         </div>
         <div className="box-detail-header-meta">
           <div className="box-detail-action-row">
             <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+            {ownerDisplayName ? (
+              <span className="badge badge-muted" title="Inventory owner company">
+                {box.ownerCompanyCode}
+              </span>
+            ) : null}
             {!pendingTransfer && box.status === 'ORDERED' ? (
               <Button
                 type="button"
@@ -286,9 +304,14 @@ export function BoxDetailHeroSection({
               </Button>
             ) : null}
             <Button type="button" onClick={onStartEdit} disabled={!canEditBox}>
-              Edit
+              {ownerChangePending ? 'Saving Owner...' : 'Edit'}
             </Button>
           </div>
+          {!canManageOwnership && ownerDisplayName ? (
+            <p className="muted-text box-detail-owner-note">
+              Owner changes require an owner-role account.
+            </p>
+          ) : null}
         </div>
       </div>
 

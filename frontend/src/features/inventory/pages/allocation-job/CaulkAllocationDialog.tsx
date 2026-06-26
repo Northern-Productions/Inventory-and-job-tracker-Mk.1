@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, type Dispatch, type SetStateAction } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listCaulkStock } from '../../../../api/features/caulkClient';
 import { Button } from '../../../../components/Button';
@@ -130,8 +130,18 @@ export function CaulkAllocationDialog({
 
   const requiresTransferAssist = transferPlan.shortageTubes > 0;
   const dialogMode = editor?.mode || 'add';
-  const selectedTransferWarehouseIsEligible = transferPlan.eligibleSourceStock.some(
-    (entry) => entry.warehouse === editor?.transferFromWarehouse
+  const targetStockRows = useMemo(
+    () =>
+      caulkAllocationStockRows.filter(
+        (entry) => entry.productId === selectedCaulkAllocationProductId && entry.warehouse === editor?.warehouse
+      ),
+    [caulkAllocationStockRows, editor?.warehouse, selectedCaulkAllocationProductId]
+  );
+  const selectedTargetStock = targetStockRows.find(
+    (entry) => entry.stockId && entry.stockId === editor?.stockId
+  );
+  const selectedTransferStockIsEligible = transferPlan.eligibleSourceStock.some(
+    (entry) => entry.stockId && entry.stockId === editor?.sourceStockId
   );
   const saveLabel = requiresTransferAssist
     ? dialogMode === 'add'
@@ -140,7 +150,40 @@ export function CaulkAllocationDialog({
     : dialogMode === 'add'
       ? 'Add Allocation'
       : 'Save Allocation';
-  const saveDisabled = pending || (requiresTransferAssist && !selectedTransferWarehouseIsEligible);
+  const saveDisabled = pending || (requiresTransferAssist && !selectedTransferStockIsEligible);
+
+  useEffect(() => {
+    if (!editor || !selectedCaulkAllocationProductId) {
+      return;
+    }
+
+    const currentTargetStillValid = targetStockRows.some((entry) => entry.stockId === editor.stockId);
+    if (targetStockRows.length === 1 && !currentTargetStillValid) {
+      const onlyRow = targetStockRows[0];
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              stockId: onlyRow.stockId,
+              ownerCompanyId: onlyRow.ownerCompanyId
+            }
+          : current
+      );
+      return;
+    }
+
+    if (targetStockRows.length !== 1 && editor.stockId && !currentTargetStillValid) {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              stockId: '',
+              ownerCompanyId: ''
+            }
+          : current
+      );
+    }
+  }, [editor, selectedCaulkAllocationProductId, setEditor, targetStockRows]);
 
   if (!editor) {
     return null;
@@ -191,6 +234,10 @@ export function CaulkAllocationDialog({
                         ...current,
                         requirementId: nextRequirementId,
                         productId: nextValues?.productId || current.productId,
+                        stockId: '',
+                        ownerCompanyId: '',
+                        sourceStockId: '',
+                        sourceOwnerCompanyId: '',
                         transferFromWarehouse: '',
                         allocatedTubes: nextValues?.allocatedTubes || current.allocatedTubes
                       }
@@ -218,7 +265,17 @@ export function CaulkAllocationDialog({
             onChange={(event) => {
               const nextProductId = event.target.value;
               setEditor((current) =>
-                current ? { ...current, productId: nextProductId, transferFromWarehouse: '' } : current
+                current
+                  ? {
+                      ...current,
+                      productId: nextProductId,
+                      stockId: '',
+                      ownerCompanyId: '',
+                      sourceStockId: '',
+                      sourceOwnerCompanyId: '',
+                      transferFromWarehouse: ''
+                    }
+                  : current
               );
               setError('');
             }}
@@ -243,7 +300,17 @@ export function CaulkAllocationDialog({
             onChange={(event) => {
               const nextWarehouse = event.target.value as Warehouse;
               setEditor((current) =>
-                current ? { ...current, warehouse: nextWarehouse, transferFromWarehouse: '' } : current
+                current
+                  ? {
+                      ...current,
+                      warehouse: nextWarehouse,
+                      stockId: '',
+                      ownerCompanyId: '',
+                      sourceStockId: '',
+                      sourceOwnerCompanyId: '',
+                      transferFromWarehouse: ''
+                    }
+                  : current
               );
               setError('');
             }}
@@ -265,7 +332,15 @@ export function CaulkAllocationDialog({
           onChange={(event) => {
             const value = event.target.value.replace(/[^0-9]/g, '');
             setEditor((current) =>
-              current ? { ...current, allocatedTubes: value, transferFromWarehouse: '' } : current
+              current
+                ? {
+                    ...current,
+                    allocatedTubes: value,
+                    sourceStockId: '',
+                    sourceOwnerCompanyId: '',
+                    transferFromWarehouse: ''
+                  }
+                : current
             );
             setError('');
           }}
@@ -289,23 +364,31 @@ export function CaulkAllocationDialog({
                 </p>
                 {transferPlan.eligibleSourceStock.length ? (
                   <label className="field caulk-allocation-transfer-field">
-                    <span className="field-label">Transfer From</span>
+                    <span className="field-label">Transfer From Owner Row</span>
                     <select
                       className="field-input"
-                      value={editor.transferFromWarehouse}
+                      value={editor.sourceStockId}
                       onChange={(event) => {
+                        const nextStockId = event.target.value;
+                        const sourceRow =
+                          transferPlan.eligibleSourceStock.find((entry) => entry.stockId === nextStockId) || null;
                         setEditor((current) =>
                           current
-                            ? { ...current, transferFromWarehouse: event.target.value as Warehouse | '' }
+                            ? {
+                                ...current,
+                                sourceStockId: sourceRow?.stockId || '',
+                                sourceOwnerCompanyId: sourceRow?.ownerCompanyId || '',
+                                transferFromWarehouse: sourceRow?.warehouse || ''
+                              }
                             : current
                         );
                         setError('');
                       }}
                     >
-                      <option value="">Select warehouse</option>
+                      <option value="">Select source row</option>
                       {transferPlan.eligibleSourceStock.map((entry) => (
-                        <option key={entry.warehouse} value={entry.warehouse}>
-                          {entry.warehouse} ({entry.tubesOnHand} tubes available)
+                        <option key={entry.stockId || `${entry.warehouse}:${entry.ownerCompanyId}`} value={entry.stockId}>
+                          {entry.warehouse} / {entry.ownerCompanyCode || 'Owner'} ({entry.tubesOnHand} tubes available)
                         </option>
                       ))}
                     </select>
@@ -320,6 +403,43 @@ export function CaulkAllocationDialog({
                   </p>
                 )}
               </div>
+            ) : null}
+            {targetStockRows.length > 1 ? (
+              <label className="field">
+                <span className="field-label">Use Owner Row</span>
+                <select
+                  className="field-input"
+                  value={editor.stockId}
+                  onChange={(event) => {
+                    const nextStockId = event.target.value;
+                    const targetRow = targetStockRows.find((entry) => entry.stockId === nextStockId) || null;
+                    setEditor((current) =>
+                      current
+                        ? {
+                            ...current,
+                            stockId: targetRow?.stockId || '',
+                            ownerCompanyId: targetRow?.ownerCompanyId || ''
+                          }
+                        : current
+                    );
+                    setError('');
+                  }}
+                >
+                  <option value="">Select owner row</option>
+                  {targetStockRows.map((entry) => (
+                    <option key={entry.stockId || entry.ownerCompanyId} value={entry.stockId}>
+                      {entry.ownerCompanyCode || 'Owner'} ({entry.tubesOnHand} tubes available)
+                    </option>
+                  ))}
+                </select>
+                <span className="field-hint">
+                  Multiple owner rows exist in {editor.warehouse}; choose the exact row this mutation should reserve from.
+                </span>
+              </label>
+            ) : selectedTargetStock ? (
+              <p className="muted-text">
+                Reserving from {selectedTargetStock.ownerCompanyCode || 'owner row'} in {editor.warehouse}.
+              </p>
             ) : null}
             {caulkAllocationStockQuery.isLoading || caulkAllocationStockQuery.isFetching ? (
               <p className="muted-text">Loading available stock...</p>
@@ -337,6 +457,7 @@ export function CaulkAllocationDialog({
                   <thead>
                     <tr>
                       <th>Warehouse</th>
+                      <th>Owner</th>
                       <th>Available Tubes</th>
                       <th>Full Cases</th>
                       <th>Loose Tubes</th>
@@ -348,10 +469,11 @@ export function CaulkAllocationDialog({
 
                       return (
                         <tr
-                          key={`${entry.warehouse}:${entry.productId}`}
+                          key={entry.stockId || `${entry.warehouse}:${entry.productId}:${entry.ownerCompanyId}`}
                           className={isSelectedWarehouse ? 'caulk-stock-row-selected' : undefined}
                         >
                           <td>{entry.warehouse}</td>
+                          <td>{entry.ownerCompanyCode || '--'}</td>
                           <td>{entry.tubesOnHand}</td>
                           <td>{entry.casesOnHand}</td>
                           <td>{entry.looseTubes}</td>

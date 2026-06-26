@@ -47,6 +47,15 @@ function mapDbBoxRow(row) {
     orgId: readValue('org_id', 'orgId'),
     boxId: asTrimmedString(readValue('box_id', 'boxId')),
     warehouse: asTrimmedString(readValue('warehouse')),
+    ownerCompanyId: asTrimmedString(readValue('owner_company_id', 'ownerCompanyId')),
+    ownerCompanyCode: asTrimmedString(readValue('owner_company_code', 'ownerCompanyCode')).toUpperCase(),
+    ownerCompanyDisplayName: asTrimmedString(
+      readValue('owner_company_display_name', 'ownerCompanyDisplayName', 'owner_company_name', 'ownerCompanyName')
+    ),
+    ownerCompanyIsActive:
+      readValue('owner_company_is_active', 'ownerCompanyIsActive') === undefined
+        ? undefined
+        : readValue('owner_company_is_active', 'ownerCompanyIsActive') === true,
     dealer: asTrimmedString(readValue('dealer')),
     manufacturer: canonicalizeManufacturerLabel(readValue('manufacturer')),
     filmName: asTrimmedString(readValue('film_name', 'filmName')),
@@ -150,6 +159,11 @@ function toPublicBox(box) {
   const publicBox = {
     boxId: box.boxId,
     warehouse: box.warehouse,
+    ownerCompanyId: asTrimmedString(box.ownerCompanyId),
+    ownerCompanyCode: asTrimmedString(box.ownerCompanyCode).toUpperCase(),
+    ownerCompanyDisplayName:
+      asTrimmedString(box.ownerCompanyDisplayName) || asTrimmedString(box.ownerCompanyCode).toUpperCase(),
+    ...(box.ownerCompanyIsActive === undefined ? {} : { ownerCompanyIsActive: box.ownerCompanyIsActive === true }),
     dealer: asTrimmedString(box.dealer),
     manufacturer: box.manufacturer,
     filmName: box.filmName,
@@ -789,7 +803,15 @@ function mapCaulkStockRow(row) {
   const looseTubes = Math.max(0, tubesOnHand - casesOnHand * 16);
 
   return {
+    stockId: asTrimmedString(row.stock_id || row.id),
     warehouse: asTrimmedString(row.warehouse).toUpperCase(),
+    ownerCompanyId: asTrimmedString(row.owner_company_id),
+    ownerCompanyCode: asTrimmedString(row.owner_company_code).toUpperCase(),
+    ownerCompanyDisplayName:
+      asTrimmedString(row.owner_company_display_name || row.owner_company_name) ||
+      asTrimmedString(row.owner_company_code).toUpperCase(),
+    ownerCompanyIsActive:
+      row.owner_company_is_active === undefined ? undefined : row.owner_company_is_active === true,
     productId: asTrimmedString(row.product_id),
     manufacturerId: asTrimmedString(row.manufacturer_id),
     manufacturer: asTrimmedString(row.manufacturer),
@@ -819,6 +841,11 @@ function mapCaulkTransactionRow(row) {
     transactionId: asTrimmedString(row.transaction_id),
     productId: asTrimmedString(row.product_id),
     warehouse: asTrimmedString(row.warehouse).toUpperCase(),
+    ownerCompanyId: asTrimmedString(row.owner_company_id),
+    ownerCompanyCode: asTrimmedString(row.owner_company_code).toUpperCase(),
+    ownerCompanyDisplayName:
+      asTrimmedString(row.owner_company_display_name || row.owner_company_name) ||
+      asTrimmedString(row.owner_company_code).toUpperCase(),
     manufacturer: asTrimmedString(row.manufacturer),
     productName: asTrimmedString(row.product_name),
     productCode: asTrimmedString(row.product_code),
@@ -851,6 +878,12 @@ function normalizeCaulkCaseMath(result) {
 
   return {
     ...result,
+    stockId: asTrimmedString(result.stockId ?? result.stock_id),
+    ownerCompanyId: asTrimmedString(result.ownerCompanyId ?? result.owner_company_id),
+    ownerCompanyCode: asTrimmedString(result.ownerCompanyCode ?? result.owner_company_code).toUpperCase(),
+    ownerCompanyDisplayName:
+      asTrimmedString(result.ownerCompanyDisplayName ?? result.owner_company_display_name) ||
+      asTrimmedString(result.ownerCompanyCode ?? result.owner_company_code).toUpperCase(),
     tubesOnHand,
     casesOnHand,
     looseTubes,

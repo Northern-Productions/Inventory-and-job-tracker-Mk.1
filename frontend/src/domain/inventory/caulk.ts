@@ -26,6 +26,9 @@ export interface CaulkTransferEntry {
   productName: string;
   productCode: string;
   tubesPerCase: number;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
   sourceWarehouse: Warehouse;
   destinationWarehouse: Warehouse;
   pendingTubes: number;
@@ -78,6 +81,10 @@ export interface CaulkJobAllocationEntry {
   productName: string;
   productCode: string;
   tubesPerCase: number;
+  stockId?: string;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
   warehouse: Warehouse;
   allocatedTubes: number;
   reservedTubesRemaining: number;
@@ -153,13 +160,19 @@ export interface UpsertCaulkProductPayload {
   productName: string;
   productCode?: string;
   warehouse?: Warehouse;
+  ownerCompanyId?: string;
   tubesPerCase?: number;
   isActive?: boolean;
   notes?: string;
 }
 
 export interface CaulkStockEntry {
+  stockId?: string;
   warehouse: Warehouse;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
+  ownerCompanyIsActive?: boolean;
   productId: string;
   manufacturerId: string;
   manufacturer: string;
@@ -174,9 +187,11 @@ export interface CaulkStockEntry {
 }
 
 export interface ListCaulkStockParams {
+  stockId?: string;
   warehouse?: Warehouse | 'ALL' | '';
   manufacturer?: string;
   productId?: string;
+  ownerCompanyId?: string;
   q?: string;
 }
 
@@ -188,6 +203,9 @@ export interface CaulkTransactionEntry {
   productName: string;
   productCode: string;
   action: 'RECEIVE' | 'USE' | 'ADJUST' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'BACKFILL_MIGRATE' | string;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
   deltaTubes: number;
   resultingTubesOnHand: number;
   tubesPerCase: number;
@@ -207,6 +225,7 @@ export interface CaulkTransactionEntry {
 export interface ListCaulkTransactionsParams {
   warehouse?: Warehouse | 'ALL' | '';
   productId?: string;
+  ownerCompanyId?: string;
   limit?: number;
 }
 
@@ -217,8 +236,10 @@ export interface ListPendingCaulkTransfersParams {
 
 export interface MutateCaulkStockPayload {
   action: 'RECEIVE' | 'USE' | 'ADJUST';
+  stockId?: string;
   productId: string;
   warehouse: Warehouse;
+  ownerCompanyId?: string;
   cases?: number;
   tubes?: number;
   deltaTubes?: number;
@@ -227,9 +248,11 @@ export interface MutateCaulkStockPayload {
 }
 
 export interface TransferCaulkStockPayload {
+  stockId?: string;
   productId: string;
   fromWarehouse: Warehouse;
   toWarehouse: Warehouse;
+  ownerCompanyId?: string;
   cases?: number;
   tubes?: number;
   deltaTubes?: number;
@@ -239,7 +262,11 @@ export interface TransferCaulkStockPayload {
 
 export interface CaulkMutationResult {
   transactionId: string;
+  stockId?: string;
   productId: string;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
   manufacturer: string;
   productName: string;
   productCode: string;
@@ -265,6 +292,10 @@ export interface AddCaulkJobAllocationPayload {
   jobNumber: string;
   requirementId?: string;
   productId: string;
+  stockId?: string;
+  ownerCompanyId?: string;
+  sourceStockId?: string;
+  sourceOwnerCompanyId?: string;
   warehouse: Warehouse;
   transferFromWarehouse?: Warehouse;
   allocatedTubes: number;
@@ -274,6 +305,10 @@ export interface AddCaulkJobAllocationPayload {
 export interface UpdateCaulkJobAllocationPayload {
   caulkAllocationId: string;
   productId?: string;
+  stockId?: string;
+  ownerCompanyId?: string;
+  sourceStockId?: string;
+  sourceOwnerCompanyId?: string;
   warehouse?: Warehouse;
   transferFromWarehouse?: Warehouse;
   allocatedTubes?: number;

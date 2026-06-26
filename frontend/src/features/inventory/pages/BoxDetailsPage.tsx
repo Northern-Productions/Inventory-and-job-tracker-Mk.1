@@ -13,9 +13,11 @@ export default function BoxDetailsPage() {
     auth,
     boxQuery,
     box,
+    ownerCompaniesQuery,
     pendingTransfer,
     isAddBoxPending,
     updateMutation,
+    changeFilmBoxOwnerMutation,
     deleteMutation,
     statusMutation,
     receiveOrderedMutation,
@@ -98,6 +100,10 @@ export default function BoxDetailsPage() {
           filmCatalogEntries={filmCatalogQuery.data}
           filmCatalogLoading={filmCatalogQuery.isLoading}
           filmCatalogError={filmCatalogQuery.error}
+          ownerCompanies={ownerCompaniesQuery.data}
+          ownerCompaniesLoading={ownerCompaniesQuery.isLoading}
+          ownerCompaniesError={ownerCompaniesQuery.error}
+          canEditExistingOwner={auth.isOwner}
           onSubmit={boxActions.handleEditSubmit}
           onCancel={() => {
             boxActions.resetEditWorkflow();
@@ -120,6 +126,8 @@ export default function BoxDetailsPage() {
         isAuthenticated={auth.isAuthenticated}
         clientIdConfigured={auth.clientIdConfigured}
         canWriteInventory={canWriteInventory}
+        canManageOwnership={auth.isOwner}
+        ownerChangePending={changeFilmBoxOwnerMutation.isPending}
         deletePending={deleteMutation.isPending}
         statusPending={statusMutation.isPending || receiveOrderedMutation.isPending}
         allocationsLoading={allocationsQuery.isLoading}

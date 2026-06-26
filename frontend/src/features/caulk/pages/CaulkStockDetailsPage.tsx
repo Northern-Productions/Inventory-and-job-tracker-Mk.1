@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { Input, TextArea } from '../../../components/Input';
+import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
 import {
   cancelCaulkTransfer,
@@ -19,6 +20,8 @@ import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
 import {
   usePendingCancelCaulkTransferIds,
+  useChangeCaulkStockOwner,
+  useOwnerCompanies,
   usePendingReceiveCaulkTransferIds
 } from '../../inventory/hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
@@ -68,36 +71,53 @@ export default function CaulkStockDetailsPage() {
   const toast = useToast();
   const auth = useAuth();
   const warehouseRegistry = useWarehouseRegistry();
-  const { warehouse: rawWarehouse = '', productId: rawProductId = '' } = useParams();
-  const warehouse = String(rawWarehouse || '').trim() as Warehouse;
-  const productId = String(rawProductId || '').trim();
+  const { warehouse: rawWarehouse = '', productId: rawProductId = '', stockId: rawStockId = '' } = useParams();
+  const routeStockId = String(rawStockId || '').trim();
+  const routeWarehouse = String(rawWarehouse || '').trim() as Warehouse;
+  const routeProductId = String(rawProductId || '').trim();
   const [casesInput, setCasesInput] = useState('');
   const [looseTubesInput, setLooseTubesInput] = useState('');
   const [notes, setNotes] = useState('');
+  const [ownerCompanyId, setOwnerCompanyId] = useState('');
+  const [ownershipNote, setOwnershipNote] = useState('');
   const [formError, setFormError] = useState('');
   const pendingReceiveCaulkTransferIds = usePendingReceiveCaulkTransferIds();
   const pendingCancelCaulkTransferIds = usePendingCancelCaulkTransferIds();
+  const ownerCompaniesQuery = useOwnerCompanies({ enabled: auth.isAuthenticated, includeInactive: true });
+  const changeOwnerMutation = useChangeCaulkStockOwner();
 
   const stockQuery = useQuery({
-    queryKey: ['caulk', 'stock', 'detail', warehouse, productId],
-    queryFn: () => listCaulkStock({ warehouse, productId }),
-    enabled: Boolean(warehouse && productId)
+    queryKey: ['caulk', 'stock', 'detail', { stockId: routeStockId, warehouse: routeWarehouse, productId: routeProductId }],
+    queryFn: () =>
+      routeStockId
+        ? listCaulkStock({ stockId: routeStockId })
+        : listCaulkStock({ warehouse: routeWarehouse, productId: routeProductId }),
+    enabled: Boolean(routeStockId || (routeWarehouse && routeProductId))
   });
+  const stockEntry = (stockQuery.data || [])[0] || null;
+  const warehouse = stockEntry?.warehouse || routeWarehouse;
+  const productId = stockEntry?.productId || routeProductId;
   const transactionsQuery = useQuery({
-    queryKey: ['caulk', 'transactions', warehouse, productId, 50],
-    queryFn: () => listCaulkTransactions({ warehouse, productId, limit: 50 }),
-    enabled: Boolean(warehouse && productId)
+    queryKey: ['caulk', 'transactions', warehouse, productId, stockEntry?.ownerCompanyId || '', 50],
+    queryFn: () =>
+      listCaulkTransactions({
+        warehouse,
+        productId,
+        ownerCompanyId: stockEntry?.ownerCompanyId,
+        limit: 50
+      }),
+    enabled: Boolean(stockEntry?.warehouse && stockEntry?.productId)
   });
   const pendingTransfersQuery = useQuery({
     queryKey: ['caulk', 'transfers', { warehouse, productId }],
     queryFn: () => listPendingCaulkTransfers({ warehouse, productId }),
-    enabled: Boolean(warehouse && productId)
+    enabled: Boolean(stockEntry?.warehouse && stockEntry?.productId)
   });
-  const stockEntry = (stockQuery.data || [])[0] || null;
   const tubesPerCase = stockEntry?.tubesPerCase || 16;
   const warehouseLabel =
     warehouseRegistry.entries.find((entry) => entry.code === warehouse)?.name || warehouse;
   const canEdit = auth.hasFeatureAccess('inventory', 'write');
+  const canChangeOwner = auth.isOwner;
 
   useEffect(() => {
     if (!stockEntry) {
@@ -106,7 +126,9 @@ export default function CaulkStockDetailsPage() {
 
     setCasesInput(String(toFullCasesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)));
     setLooseTubesInput(String(toLooseTubesFromTubes(stockEntry.tubesOnHand, stockEntry.tubesPerCase)));
-  }, [stockEntry?.productId, stockEntry?.tubesOnHand, stockEntry?.tubesPerCase, stockEntry?.warehouse]);
+    setOwnerCompanyId(stockEntry.ownerCompanyId || '');
+    setOwnershipNote('');
+  }, [stockEntry?.ownerCompanyId, stockEntry?.productId, stockEntry?.stockId, stockEntry?.tubesOnHand, stockEntry?.tubesPerCase, stockEntry?.warehouse]);
 
   const desiredTotalResult = useMemo(() => {
     const normalizedCases = normalizeWholeNumberInput(casesInput);
@@ -154,8 +176,10 @@ export default function CaulkStockDetailsPage() {
       const adjustmentNotes = notes.trim();
       return mutateCaulkStock({
         action: 'ADJUST',
+        stockId: stockEntry.stockId,
         productId: stockEntry.productId,
         warehouse: stockEntry.warehouse,
+        ownerCompanyId: stockEntry.ownerCompanyId,
         deltaTubes,
         reason: adjustmentNotes || 'Inventory edit',
         notes: adjustmentNotes
@@ -265,6 +289,54 @@ export default function CaulkStockDetailsPage() {
     void saveMutation.mutateAsync();
   }
 
+  async function handleOwnerChange() {
+    if (!stockEntry) {
+      return;
+    }
+
+    if (!ownerCompanyId || ownerCompanyId === stockEntry.ownerCompanyId) {
+      toast.push({
+        title: 'No ownership change',
+        description: 'Choose a different owner company before saving ownership.',
+        variant: 'warning'
+      });
+      return;
+    }
+    const stockId = String(stockEntry.stockId || '').trim();
+    if (!stockId) {
+      toast.push({
+        title: 'Unable to update caulk owner',
+        description: 'This caulk row is missing its stock identifier. Refresh and try again.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    try {
+      await changeOwnerMutation.mutateAsync({
+        stockId,
+        ownerCompanyId,
+        note: ownershipNote.trim() || undefined
+      });
+      setOwnershipNote('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'stock'] }),
+        queryClient.invalidateQueries({ queryKey: ['caulk', 'transactions'] })
+      ]);
+      toast.push({
+        title: 'Caulk owner updated',
+        description: `${stockEntry.productName} ownership was updated without changing stock counts.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to update caulk owner',
+        description: error instanceof Error ? error.message : 'The caulk owner could not be updated.',
+        variant: 'error'
+      });
+    }
+  }
+
   function handleReceiveTransfer(transferId: string) {
     void receiveTransferMutation.mutateAsync(transferId);
   }
@@ -288,14 +360,14 @@ export default function CaulkStockDetailsPage() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => navigate(`/?inventoryView=caulk&warehouse=${encodeURIComponent(warehouse)}`)}
+              onClick={() => navigate(`/?inventoryView=caulk&warehouse=${encodeURIComponent(warehouse || routeWarehouse)}`)}
             >
               Back
             </Button>
           </div>
         </div>
 
-        {!warehouse || !productId ? (
+        {!routeStockId && (!routeWarehouse || !routeProductId) ? (
           <p className="error-text">The caulk detail route is missing a warehouse or product identifier.</p>
         ) : null}
         {stockQuery.isError ? (
@@ -396,6 +468,17 @@ export default function CaulkStockDetailsPage() {
                 <dd>{stockEntry.productCode || '--'}</dd>
               </div>
               <div className="key-value">
+                <dt>Owner</dt>
+                <dd>
+                  <span className="badge badge-muted" title={stockEntry.ownerCompanyDisplayName || 'Owner company'}>
+                    {stockEntry.ownerCompanyCode || '--'}
+                  </span>
+                  {stockEntry.ownerCompanyIsActive === false ? (
+                    <span className="muted-text"> inactive</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="key-value">
                 <dt>Tubes / Case</dt>
                 <dd>{stockEntry.tubesPerCase}</dd>
               </div>
@@ -420,6 +503,66 @@ export default function CaulkStockDetailsPage() {
                 <dd>{stockEntry.updatedBy || '--'}</dd>
               </div>
             </div>
+
+            <div className="panel-title-row">
+              <div>
+                <h2>Ownership</h2>
+                <p className="muted-text">
+                  Ownership is accounting-only and does not change warehouse, counts, or allocation state.
+                </p>
+              </div>
+            </div>
+            <div className="form-grid">
+              <Select
+                label="Owner Company"
+                value={ownerCompanyId}
+                onChange={(event) => setOwnerCompanyId(event.target.value)}
+                options={[
+                  { value: '', label: 'Select owner company' },
+                  ...(ownerCompaniesQuery.data || [])
+                    .filter((entry) => entry.isActive || entry.ownerCompanyId === stockEntry.ownerCompanyId)
+                    .map((entry) => ({
+                      value: entry.ownerCompanyId,
+                      label: `${entry.code} - ${entry.displayName}${entry.isActive ? '' : ' (inactive)'}`
+                    }))
+                ]}
+                disabled={!canChangeOwner || ownerCompaniesQuery.isLoading || changeOwnerMutation.isPending}
+                hint={
+                  canChangeOwner
+                    ? 'Optional ownership-only change. Counts and material-flow state are preserved.'
+                    : 'Only owner-role users can change existing caulk ownership.'
+                }
+              />
+              {canChangeOwner && ownerCompanyId && ownerCompanyId !== stockEntry.ownerCompanyId ? (
+                <Input
+                  label="Ownership Note"
+                  value={ownershipNote}
+                  onChange={(event) => setOwnershipNote(event.target.value)}
+                  placeholder="Optional reason for ownership change"
+                  disabled={changeOwnerMutation.isPending}
+                />
+              ) : null}
+            </div>
+            {ownerCompaniesQuery.error ? <p className="error-text">Owner companies could not be loaded.</p> : null}
+            {canChangeOwner ? (
+              <div className="detail-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void handleOwnerChange()}
+                  disabled={
+                    !stockEntry.stockId ||
+                    !ownerCompanyId ||
+                    ownerCompanyId === stockEntry.ownerCompanyId ||
+                    changeOwnerMutation.isPending
+                  }
+                  loading={changeOwnerMutation.isPending}
+                  loadingLabel="Saving owner..."
+                >
+                  Save Ownership
+                </Button>
+              </div>
+            ) : null}
 
             <div className="panel-title-row">
               <div>

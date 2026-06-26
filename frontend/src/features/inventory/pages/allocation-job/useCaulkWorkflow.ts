@@ -222,6 +222,10 @@ export function useCaulkWorkflow({
       caulkAllocationId: '',
       requirementId: defaultAllocation.requirementId,
       productId: defaultAllocation.productId,
+      stockId: '',
+      ownerCompanyId: '',
+      sourceStockId: '',
+      sourceOwnerCompanyId: '',
       warehouse: defaultAllocation.warehouse,
       transferFromWarehouse: '',
       allocatedTubes: defaultAllocation.allocatedTubes,
@@ -249,6 +253,10 @@ export function useCaulkWorkflow({
       caulkAllocationId: entry.caulkAllocationId,
       requirementId: entry.requirementId || '',
       productId: entry.productId,
+      stockId: entry.stockId || '',
+      ownerCompanyId: entry.ownerCompanyId || '',
+      sourceStockId: '',
+      sourceOwnerCompanyId: '',
       warehouse: entry.warehouse,
       transferFromWarehouse: '',
       allocatedTubes: String(entry.allocatedTubes),
@@ -299,6 +307,21 @@ export function useCaulkWorkflow({
       return;
     }
 
+    if (
+      !caulkAllocationEditor.lockProductWarehouse &&
+      !caulkAllocationEditor.stockId &&
+      !caulkAllocationEditor.ownerCompanyId &&
+      !caulkAllocationEditor.sourceStockId
+    ) {
+      setCaulkAllocationEditorError('Choose the exact owner stock row for this caulk allocation.');
+      return;
+    }
+
+    if (caulkAllocationEditor.transferFromWarehouse && !caulkAllocationEditor.sourceStockId) {
+      setCaulkAllocationEditorError('Choose the exact owner stock row to transfer from.');
+      return;
+    }
+
     try {
       const editorSnapshot = {
         ...caulkAllocationEditor
@@ -312,6 +335,13 @@ export function useCaulkWorkflow({
           jobNumber,
           requirementId: selectedRequirement?.requirementId || undefined,
           productId: selectedProductId,
+          stockId: caulkAllocationEditor.stockId || undefined,
+          ownerCompanyId:
+            caulkAllocationEditor.ownerCompanyId ||
+            caulkAllocationEditor.sourceOwnerCompanyId ||
+            undefined,
+          sourceStockId: caulkAllocationEditor.sourceStockId || undefined,
+          sourceOwnerCompanyId: caulkAllocationEditor.sourceOwnerCompanyId || undefined,
           warehouse: caulkAllocationEditor.warehouse,
           transferFromWarehouse: caulkAllocationEditor.transferFromWarehouse || undefined,
           allocatedTubes: parsedAllocatedTubes,
@@ -350,10 +380,17 @@ export function useCaulkWorkflow({
 
         if (!caulkAllocationEditor.lockProductWarehouse) {
           payload.productId = selectedProductId;
+          payload.stockId = caulkAllocationEditor.stockId || undefined;
+          payload.ownerCompanyId =
+            caulkAllocationEditor.ownerCompanyId ||
+            caulkAllocationEditor.sourceOwnerCompanyId ||
+            undefined;
           payload.warehouse = caulkAllocationEditor.warehouse;
         }
         if (caulkAllocationEditor.transferFromWarehouse) {
           payload.transferFromWarehouse = caulkAllocationEditor.transferFromWarehouse;
+          payload.sourceStockId = caulkAllocationEditor.sourceStockId || undefined;
+          payload.sourceOwnerCompanyId = caulkAllocationEditor.sourceOwnerCompanyId || undefined;
         }
 
         const savePromise = updateCaulkAllocation(payload);

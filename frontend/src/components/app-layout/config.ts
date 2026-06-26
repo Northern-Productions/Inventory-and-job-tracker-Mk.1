@@ -123,6 +123,22 @@ export const navItems: NavItem[] = [
     adminConsoleOnly: true
   },
   {
+    to: '/owner/companies',
+    desktopLabel: 'Owner Companies',
+    mobileLabel: 'Owner Companies',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    ownerOnly: true
+  },
+  {
+    to: '/owner/bulk-ownership-transfer',
+    desktopLabel: 'Ownership Transfer',
+    mobileLabel: 'Ownership Transfer',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    ownerOnly: true
+  },
+  {
     to: '/owner/notification-preferences',
     desktopLabel: 'Owner Alerts',
     mobileLabel: 'Owner Alerts',

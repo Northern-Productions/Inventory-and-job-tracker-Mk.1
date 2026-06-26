@@ -544,6 +544,31 @@ const readHandlers: Record<string, ReadHandler> = {
     });
     return ok(preferences);
   },
+  "/owner-companies/list": async ({ client, orgId, params }, deps) => {
+    const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_owner_companies_list", {
+      p_org_id: orgId,
+      p_include_inactive:
+        params.includeInactive === true ||
+        deps.asTrimmedString(params.includeInactive).toLowerCase() === "true",
+    });
+    const entries = (entriesRaw || []).map((entry) => {
+      const code = deps.asTrimmedString(entry.code).toUpperCase();
+      return {
+        ownerCompanyId: deps.asTrimmedString(entry.owner_company_id || entry.id),
+        code,
+        displayName: deps.asTrimmedString(entry.display_name) || code,
+        lookupKey: deps.asTrimmedString(entry.lookup_key).toLowerCase(),
+        isActive: entry.is_active === true || deps.asTrimmedString(entry.is_active).toLowerCase() === "true",
+        createdAt: deps.asTrimmedString(entry.created_at),
+        createdBy: deps.asTrimmedString(entry.created_by),
+        updatedAt: deps.asTrimmedString(entry.updated_at),
+        updatedBy: deps.asTrimmedString(entry.updated_by),
+        deactivatedAt: deps.asTrimmedString(entry.deactivated_at),
+        deactivatedBy: deps.asTrimmedString(entry.deactivated_by),
+      };
+    });
+    return ok({ entries });
+  },
   "/warehouses/list": async ({ client, orgId }, deps) => {
     const entries = await deps.rpcOrThrow<any[]>(client, "api_acl_list_warehouses", {
       p_org_id: orgId,
@@ -606,12 +631,16 @@ const readHandlers: Record<string, ReadHandler> = {
       p_warehouse: deps.asTrimmedString(params.warehouse),
       p_manufacturer: deps.asTrimmedString(params.manufacturer),
       p_q: deps.asTrimmedString(params.q),
+      p_product_id: deps.asTrimmedString(params.productId) || null,
+      p_stock_id: deps.asTrimmedString(params.stockId) || null,
+      p_owner_company_id: deps.asTrimmedString(params.ownerCompanyId) || null,
     });
     const entries = (entriesRaw || []).map((entry) => {
       const tubesOnHand = Math.max(0, deps.integerOrZero(entry.tubes_on_hand));
       const casesOnHand = Math.floor(tubesOnHand / 16);
       const looseTubes = Math.max(0, tubesOnHand - (casesOnHand * 16));
       return {
+        stockId: deps.asTrimmedString(entry.stock_id),
         warehouse: deps.asTrimmedString(entry.warehouse).toUpperCase(),
         productId: deps.asTrimmedString(entry.product_id),
         manufacturerId: deps.asTrimmedString(entry.manufacturer_id),
@@ -619,6 +648,16 @@ const readHandlers: Record<string, ReadHandler> = {
         productName: deps.asTrimmedString(entry.product_name),
         productCode: deps.asTrimmedString(entry.product_code),
         tubesPerCase: deps.integerOrZero(entry.tubes_per_case),
+        ownerCompanyId: deps.asTrimmedString(entry.owner_company_id),
+        ownerCompanyCode: deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
+        ownerCompanyDisplayName:
+          deps.asTrimmedString(entry.owner_company_display_name) ||
+          deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
+        ownerCompanyIsActive:
+          entry.owner_company_is_active === undefined
+            ? undefined
+            : entry.owner_company_is_active === true ||
+              deps.asTrimmedString(entry.owner_company_is_active).toLowerCase() === "true",
         tubesOnHand,
         casesOnHand,
         looseTubes,
@@ -648,6 +687,11 @@ const readHandlers: Record<string, ReadHandler> = {
       manufacturer: deps.asTrimmedString(entry.manufacturer),
       productName: deps.asTrimmedString(entry.product_name),
       productCode: deps.asTrimmedString(entry.product_code),
+      ownerCompanyId: deps.asTrimmedString(entry.owner_company_id),
+      ownerCompanyCode: deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
+      ownerCompanyDisplayName:
+        deps.asTrimmedString(entry.owner_company_display_name) ||
+        deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
       action: deps.asTrimmedString(entry.action),
       deltaTubes: deps.integerOrZero(entry.delta_tubes),
       resultingTubesOnHand: deps.integerOrZero(entry.resulting_tubes_on_hand),
@@ -693,6 +737,11 @@ const readHandlers: Record<string, ReadHandler> = {
       productName: deps.asTrimmedString(entry.product_name),
       productCode: deps.asTrimmedString(entry.product_code),
       tubesPerCase: deps.integerOrZero(entry.tubes_per_case),
+      ownerCompanyId: deps.asTrimmedString(entry.owner_company_id),
+      ownerCompanyCode: deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
+      ownerCompanyDisplayName:
+        deps.asTrimmedString(entry.owner_company_display_name) ||
+        deps.asTrimmedString(entry.owner_company_code).toUpperCase(),
       sourceWarehouse: deps.asTrimmedString(entry.source_warehouse).toUpperCase(),
       destinationWarehouse: deps.asTrimmedString(entry.destination_warehouse).toUpperCase(),
       pendingTubes: deps.integerOrZero(entry.pending_tubes),

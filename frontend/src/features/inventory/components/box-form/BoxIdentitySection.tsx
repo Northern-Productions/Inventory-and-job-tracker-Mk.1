@@ -1,5 +1,5 @@
 import { Input } from '../../../../components/Input';
-import type { FilmCatalogEntry } from '../../../../domain';
+import type { FilmCatalogEntry, OwnerCompanyEntry } from '../../../../domain';
 import type { BoxDraft } from '../../utils/boxHelpers';
 import { FilmNameAutocompleteInput } from '../FilmNameAutocompleteInput';
 
@@ -16,6 +16,11 @@ interface BoxIdentitySectionProps {
   manufacturerOptions: string[];
   manufacturerSelectValue: string;
   mode: 'create' | 'edit';
+  ownerCompanies?: OwnerCompanyEntry[];
+  ownerCompaniesError?: unknown;
+  ownerCompaniesLoading?: boolean;
+  originalOwnerCompanyId?: string;
+  canEditExistingOwner?: boolean;
   showCurrentFeetField: boolean;
   widthButtonValues: readonly WidthButtonValue[];
   widthMode: string;
@@ -25,6 +30,8 @@ interface BoxIdentitySectionProps {
   onInitialFeetChange: (value: string) => void;
   onLotRunChange: (value: string) => void;
   onManufacturerChange: (value: string) => void;
+  onOwnerCompanyChange: (value: string) => void;
+  onOwnershipNoteChange: (value: string) => void;
   onWidthButtonClick: (value: WidthButtonValue) => void;
 }
 
@@ -38,6 +45,11 @@ export function BoxIdentitySection({
   manufacturerOptions,
   manufacturerSelectValue,
   mode,
+  ownerCompanies = [],
+  ownerCompaniesError,
+  ownerCompaniesLoading = false,
+  originalOwnerCompanyId = '',
+  canEditExistingOwner = false,
   showCurrentFeetField,
   widthButtonValues,
   widthMode,
@@ -47,8 +59,22 @@ export function BoxIdentitySection({
   onInitialFeetChange,
   onLotRunChange,
   onManufacturerChange,
+  onOwnerCompanyChange,
+  onOwnershipNoteChange,
   onWidthButtonClick
 }: BoxIdentitySectionProps) {
+  const selectedOwnerId = String(draft.ownerCompanyId || '').trim();
+  const ownerOptions = ownerCompanies
+    .filter((entry) => entry.isActive || entry.ownerCompanyId === selectedOwnerId)
+    .slice()
+    .sort((left, right) => left.code.localeCompare(right.code, undefined, { sensitivity: 'base' }));
+  const ownerFieldDisabled = ownerCompaniesLoading || (mode === 'edit' && !canEditExistingOwner);
+  const ownerChanged =
+    mode === 'edit' &&
+    selectedOwnerId &&
+    originalOwnerCompanyId &&
+    selectedOwnerId !== originalOwnerCompanyId;
+
   return (
     <div className={`form-section ${mode === 'create' ? 'form-section-first' : ''}`.trim()}>
       <div className="form-section-header">
@@ -63,6 +89,40 @@ export function BoxIdentitySection({
           disabled={mode === 'edit'}
           required
         />
+        <label className="field">
+          <span className="field-label">Owner Company</span>
+          <select
+            className="field-input"
+            value={selectedOwnerId}
+            onChange={(event) => onOwnerCompanyChange(event.target.value)}
+            disabled={ownerFieldDisabled}
+            required={mode === 'create'}
+          >
+            <option value="">
+              {ownerCompaniesLoading ? 'Loading owner companies...' : 'Select owner company'}
+            </option>
+            {ownerOptions.map((entry) => (
+              <option key={entry.ownerCompanyId} value={entry.ownerCompanyId}>
+                {entry.code} - {entry.displayName}
+                {entry.isActive ? '' : ' (inactive)'}
+              </option>
+            ))}
+          </select>
+          {ownerCompaniesError ? (
+            <span className="field-error">Owner companies could not be loaded.</span>
+          ) : null}
+          {mode === 'edit' && !canEditExistingOwner ? (
+            <span className="field-hint">Only owner-role users can change existing inventory ownership.</span>
+          ) : null}
+        </label>
+        {mode === 'edit' && canEditExistingOwner && ownerChanged ? (
+          <Input
+            label="Ownership Note"
+            value={draft.ownershipNote}
+            onChange={(event) => onOwnershipNoteChange(event.target.value)}
+            placeholder="Optional reason for ownership change"
+          />
+        ) : null}
         <label className="field">
           <span className="field-label">Manufacturer</span>
           <select

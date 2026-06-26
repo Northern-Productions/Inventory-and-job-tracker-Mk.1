@@ -1,5 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { mapCaulkTransactionEntry, mapCaulkTransferEntry } from './sharedClient';
+import { mapCaulkStockEntry, mapCaulkTransactionEntry, mapCaulkTransferEntry } from './sharedClient';
+
+describe('mapCaulkStockEntry', () => {
+  it('preserves owner identity for owner-separated stock rows', () => {
+    const entry = mapCaulkStockEntry({
+      stockId: 'stock-1',
+      productId: 'product-1',
+      warehouse: 'il1',
+      manufacturerId: 'manufacturer-1',
+      manufacturer: '3M',
+      productName: 'IPA White',
+      productCode: 'IPA-W',
+      ownerCompanyId: 'owner-mgt',
+      ownerCompanyCode: 'mgt',
+      ownerCompanyDisplayName: 'MGT',
+      ownerCompanyIsActive: true,
+      tubesPerCase: 16,
+      tubesOnHand: 18,
+      updatedAt: '2026-06-26T00:00:00Z',
+      updatedBy: 'tester'
+    });
+
+    expect(entry).toMatchObject({
+      stockId: 'stock-1',
+      warehouse: 'IL1',
+      ownerCompanyId: 'owner-mgt',
+      ownerCompanyCode: 'MGT',
+      ownerCompanyDisplayName: 'MGT',
+      ownerCompanyIsActive: true,
+      tubesOnHand: 18,
+      casesOnHand: 1,
+      looseTubes: 2
+    });
+  });
+});
 
 describe('mapCaulkTransferEntry', () => {
   it('maps job warehouse for pending caulk transfer entries', () => {
@@ -16,6 +50,9 @@ describe('mapCaulkTransferEntry', () => {
       tubesPerCase: 16,
       sourceWarehouse: 'MS1',
       destinationWarehouse: 'IL1',
+      ownerCompanyId: 'owner-edh',
+      ownerCompanyCode: 'edh',
+      ownerCompanyDisplayName: 'EDH',
       pendingTubes: 6,
       status: 'PENDING',
       createdAt: '2026-04-17T00:00:00Z',
@@ -30,6 +67,11 @@ describe('mapCaulkTransferEntry', () => {
     });
 
     expect(entry?.jobWarehouse).toBe('IL1');
+    expect(entry).toMatchObject({
+      ownerCompanyId: 'owner-edh',
+      ownerCompanyCode: 'EDH',
+      ownerCompanyDisplayName: 'EDH'
+    });
   });
 
   it('preserves optional job identity and scope fields additively', () => {
@@ -83,6 +125,9 @@ describe('mapCaulkTransactionEntry', () => {
       deltaTubes: 6,
       resultingTubesOnHand: 10,
       tubesPerCase: 16,
+      ownerCompanyId: 'owner-kam',
+      ownerCompanyCode: 'kam',
+      ownerCompanyDisplayName: 'KAM',
       reason: 'Transfer',
       notes: '',
       transferId: 'transfer-1',
@@ -102,6 +147,11 @@ describe('mapCaulkTransactionEntry', () => {
       jobWarehouse: 'IL1',
       workScope: 'Lobby',
       sections: 'Lobby'
+    });
+    expect(entry).toMatchObject({
+      ownerCompanyId: 'owner-kam',
+      ownerCompanyCode: 'KAM',
+      ownerCompanyDisplayName: 'KAM'
     });
   });
 

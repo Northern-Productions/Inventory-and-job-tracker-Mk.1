@@ -51,6 +51,7 @@ import {
   listFilmWeightProfiles,
   listOpenFilmWeightPendingReviews,
 } from '../services/filmWeightProfiles.mjs';
+import { listOwnerCompanies } from '../services/ownership.mjs';
 import { listWarehouses } from '../services/warehouses.mjs';
 import { applyAuthenticatedSessionContext } from '../services/access.mjs';
 import {
@@ -229,6 +230,8 @@ const readHandlers = {
     ok(await getOwnerNotificationPreferencesInternal(client, orgId, authContext.userId)),
   '/warehouses/list': async ({ client, orgId, authContext }) =>
     ok({ entries: await listWarehouses(client, orgId, authContext) }),
+  '/owner-companies/list': async ({ client, orgId, params }) =>
+    ok({ entries: await listOwnerCompanies(client, orgId, params) }),
   '/boxes/search': async ({ client, orgId, params }) => ok(await buildSearchBoxes(client, orgId, params)),
   '/boxes/suggest-next-id': async ({ client, orgId, params }) =>
     ok(await suggestNextBoxId(client, orgId, requireString(params.warehouse, 'Warehouse'))),

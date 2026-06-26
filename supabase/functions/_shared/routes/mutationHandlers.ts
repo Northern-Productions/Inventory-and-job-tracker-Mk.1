@@ -438,6 +438,56 @@ const mutationHandlers: Record<string, MutationHandler> = {
     );
     return ok(result);
   },
+  "/owner/owner-companies/upsert": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_owner_companies_upsert",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
+  "/owner/owner-companies/deactivate": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_owner_companies_deactivate",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
+  "/owner/inventory-ownership/box": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_inventory_ownership_update_box",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
+  "/owner/inventory-ownership/caulk-stock": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_inventory_ownership_update_caulk_stock",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
+  "/owner/inventory-ownership/bulk-transfer": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(
+      client,
+      "api_acl_inventory_ownership_bulk_transfer",
+      orgId,
+      actor,
+      normalizedPayload,
+    );
+    return ok(result);
+  },
   "/owner/caulk/manufacturers/upsert": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(
       client,

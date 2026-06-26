@@ -45,3 +45,10 @@ export {
   useSetJobStagedForPickup,
   useCheckoutAllJobMaterials
 } from './mutations/planning/jobMaterialWorkflowMutations';
+export {
+  useBulkOwnershipTransfer,
+  useChangeCaulkStockOwner,
+  useChangeFilmBoxOwner,
+  useDeactivateOwnerCompany,
+  useUpsertOwnerCompany
+} from './mutations/ownershipMutations';

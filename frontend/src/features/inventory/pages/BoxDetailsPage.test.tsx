@@ -23,6 +23,7 @@ const useStartBoxTransferMock = vi.fn();
 const useReceiveBoxTransferMock = vi.fn();
 const useCancelBoxTransferMock = vi.fn();
 const useBoxDealersMock = vi.fn();
+const useOwnerCompaniesMock = vi.fn();
 const useFilmOrdersMock = vi.fn();
 const useJobSummariesByNumbersMock = vi.fn();
 const useReceiveOrderedBoxMock = vi.fn();
@@ -30,6 +31,7 @@ const useSetBoxStatusMock = vi.fn();
 const useUndoAuditMock = vi.fn();
 const useUpsertBoxDealerMock = vi.fn();
 const useUpdateBoxMock = vi.fn();
+const useChangeFilmBoxOwnerMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
 const parseUpdateBoxDraftMock = vi.fn();
 const qrCodeToDataUrlMock = vi.fn();
@@ -70,6 +72,7 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useBoxTransferPlan: (params: unknown) => useBoxTransferPlanMock(params),
   useBoxAllocations: () => useBoxAllocationsMock(),
   useBoxDealers: () => useBoxDealersMock(),
+  useOwnerCompanies: () => useOwnerCompaniesMock(),
   useFilmCatalog: () => useFilmCatalogMock(),
   useFilmOrders: () => useFilmOrdersMock(),
   useIsAddBoxPending: () => useIsAddBoxPendingMock(),
@@ -82,7 +85,8 @@ vi.mock('../hooks/useInventoryQueries', () => ({
   useSetBoxStatus: () => useSetBoxStatusMock(),
   useUndoAudit: () => useUndoAuditMock(),
   useUpsertBoxDealer: () => useUpsertBoxDealerMock(),
-  useUpdateBox: () => useUpdateBoxMock()
+  useUpdateBox: () => useUpdateBoxMock(),
+  useChangeFilmBoxOwner: () => useChangeFilmBoxOwnerMock()
 }));
 
 vi.mock('../hooks/useWarehouseRegistry', () => ({
@@ -175,6 +179,10 @@ function buildBox(overrides: Partial<Box> = {}): Box {
     pricePerLf: 1.25,
     purchaseCost: 625,
     notes: 'Keep dry',
+    ownerCompanyId: 'owner-mgt',
+    ownerCompanyCode: 'MGT',
+    ownerCompanyDisplayName: 'MGT',
+    ownerCompanyIsActive: true,
     hasEverBeenCheckedOut: true,
     lastCheckoutJob: '000123',
     lastCheckoutDate: '2026-03-22',
@@ -304,8 +312,10 @@ describe('BoxDetailsPage', () => {
     qrCodeToDataUrlMock.mockReset();
     useBoxTransferPlanMock.mockReset();
     useBoxDealersMock.mockReset();
+    useOwnerCompaniesMock.mockReset();
     useFilmOrdersMock.mockReset();
     useUpsertBoxDealerMock.mockReset();
+    useChangeFilmBoxOwnerMock.mockReset();
     qrCodeToDataUrlMock.mockResolvedValue('data:image/png;base64,qr');
     nextBoxFormSubmitDraft = { dealer: '' };
     currentSearchParams = '';
@@ -334,6 +344,20 @@ describe('BoxDetailsPage', () => {
     });
     useBoxDealersMock.mockReturnValue({
       data: [],
+      isLoading: false,
+      error: null
+    });
+    useOwnerCompaniesMock.mockReturnValue({
+      data: [
+        {
+          ownerCompanyId: 'owner-mgt',
+          code: 'MGT',
+          displayName: 'MGT',
+          isActive: true,
+          createdAt: '2026-06-26T00:00:00Z',
+          updatedAt: '2026-06-26T00:00:00Z'
+        }
+      ],
       isLoading: false,
       error: null
     });
@@ -382,6 +406,7 @@ describe('BoxDetailsPage', () => {
     useSetBoxStatusMock.mockReturnValue(buildMutationState());
     useUndoAuditMock.mockReturnValue(buildMutationState());
     useUpsertBoxDealerMock.mockReturnValue(buildMutationState());
+    useChangeFilmBoxOwnerMock.mockReturnValue(buildMutationState());
     useUpdateBoxMock.mockReturnValue(buildMutationState());
     useWarehouseRegistryMock.mockReturnValue({
       entries: [

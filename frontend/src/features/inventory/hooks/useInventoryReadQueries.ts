@@ -33,6 +33,7 @@ export {
   useFilmWeightPendingReviews,
   useFilmWeightProfiles
 } from './queries/planningQueries';
+export { useOwnerCompanies } from './queries/ownershipQueries';
 export {
   useAuditList,
   useOwnerAssetTotalCostReport,

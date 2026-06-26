@@ -23,6 +23,13 @@ import {
 import { createFilmOrder, deleteFilmOrder, manualFulfillFilmOrder } from '../services/filmOrders.mjs';
 import { resolveFilmWeightPendingReview } from '../services/filmWeightProfiles.mjs';
 import {
+  bulkTransferOwnership,
+  changeCaulkStockOwner,
+  changeFilmBoxOwner,
+  deactivateOwnerCompany,
+  upsertOwnerCompany,
+} from '../services/ownership.mjs';
+import {
   buildJobDetail,
   buildJobDetailById,
   cancelJob,
@@ -114,6 +121,16 @@ const mutationHandlers = {
     ),
   '/owner/warehouses/add': async ({ client, orgId, authContext, params }) =>
     ok(await addWarehouse(client, orgId, authContext.actor, params)),
+  '/owner/owner-companies/upsert': async ({ client, orgId, authContext, params }) =>
+    ok(await upsertOwnerCompany(client, orgId, authContext.actor, params)),
+  '/owner/owner-companies/deactivate': async ({ client, orgId, authContext, params }) =>
+    ok(await deactivateOwnerCompany(client, orgId, authContext.actor, params)),
+  '/owner/inventory-ownership/box': async ({ client, orgId, authContext, params }) =>
+    ok(await changeFilmBoxOwner(client, orgId, authContext.actor, params)),
+  '/owner/inventory-ownership/caulk-stock': async ({ client, orgId, authContext, params }) =>
+    ok(await changeCaulkStockOwner(client, orgId, authContext.actor, params)),
+  '/owner/inventory-ownership/bulk-transfer': async ({ client, orgId, authContext, params }) =>
+    ok(await bulkTransferOwnership(client, orgId, authContext.actor, params)),
   '/owner/caulk/manufacturers/upsert': async ({ client, orgId, authContext, params }) =>
     ok(await ownerUpsertCaulkManufacturer(client, orgId, authContext.actor, params)),
   '/box-dealers/upsert': async ({ client, orgId, authContext, params }) =>

@@ -152,7 +152,14 @@ export function sortCaulkStockEntriesForAllocation(
       return leftSelected - rightSelected;
     }
 
-    return left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
+    const warehouseSort = left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
+    if (warehouseSort !== 0) {
+      return warehouseSort;
+    }
+
+    return (left.ownerCompanyCode || '').localeCompare(right.ownerCompanyCode || '', undefined, {
+      sensitivity: 'base'
+    });
   });
 }
 
@@ -177,10 +184,9 @@ export function getCaulkAllocationTransferPlan({
     };
   }
 
-  const targetWarehouseTubesOnHand = Math.max(
-    stockEntries.find((entry) => entry.warehouse === normalizedWarehouse)?.tubesOnHand || 0,
-    0
-  );
+  const targetWarehouseTubesOnHand = stockEntries
+    .filter((entry) => entry.productId === normalizedProductId && entry.warehouse === normalizedWarehouse)
+    .reduce((total, entry) => total + Math.max(entry.tubesOnHand, 0), 0);
 
   let reserveDeltaTubes = nextAllocatedTubes;
   if (mode === 'edit' && existingAllocation) {
@@ -212,7 +218,14 @@ export function getCaulkAllocationTransferPlan({
               return right.tubesOnHand - left.tubesOnHand;
             }
 
-            return left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
+            const warehouseSort = left.warehouse.localeCompare(right.warehouse, undefined, { sensitivity: 'base' });
+            if (warehouseSort !== 0) {
+              return warehouseSort;
+            }
+
+            return (left.ownerCompanyCode || '').localeCompare(right.ownerCompanyCode || '', undefined, {
+              sensitivity: 'base'
+            });
           });
 
   return {

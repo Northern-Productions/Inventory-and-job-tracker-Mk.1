@@ -19,6 +19,17 @@ const upsertBoxDealerMock = vi.fn();
 const getFilmCatalogMock = vi.fn();
 const getFilmOrdersMock = vi.fn();
 
+const sampleOwnerCompanies = [
+  {
+    ownerCompanyId: '11111111-1111-4111-8111-111111111111',
+    code: 'MGT',
+    displayName: 'MGT',
+    isActive: true,
+    createdAt: '2026-06-26T00:00:00Z',
+    updatedAt: '2026-06-26T00:00:00Z'
+  }
+];
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
@@ -237,6 +248,8 @@ function renderPage(
   queryClient: QueryClient,
   initialEntry = '/inventory/add'
 ) {
+  queryClient.setQueryData(inventoryKeys.ownerCompanies({ includeInactive: false }), sampleOwnerCompanies);
+
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -256,11 +269,18 @@ const MISSING_DEALER_MESSAGE =
   "You didn't enter the dealer this film was purchased through. Enter a dealer or explain why there is no dealer.";
 
 function fillRequiredCreateFields() {
+  selectOwnerCompany();
   fireEvent.change(screen.getByLabelText('New Manufacturer'), {
     target: { value: '3M Solar' }
   });
   fireEvent.change(screen.getByRole('combobox', { name: 'Film Name' }), {
     target: { value: 'Prestige 60' }
+  });
+}
+
+function selectOwnerCompany() {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Owner Company' }), {
+    target: { value: '11111111-1111-4111-8111-111111111111' }
   });
 }
 
@@ -492,6 +512,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '100' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
     expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
     submitMissingDealerDialog();
@@ -584,6 +605,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '125' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
     expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
     submitMissingDealerDialog();
@@ -671,6 +693,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '125' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
     expect(screen.getByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
     submitMissingDealerDialog();
@@ -733,6 +756,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '100' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
     expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
     submitMissingDealerDialog();
@@ -793,6 +817,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '100' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
     expect(await screen.findByText(MISSING_DEALER_MESSAGE)).toBeTruthy();
     submitMissingDealerDialog();
@@ -886,6 +911,7 @@ describe('AddBoxPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /New Dealer/ }), {
       target: { value: '  Decorative Films  ' }
     });
+    selectOwnerCompany();
     fireEvent.click(screen.getByRole('button', { name: 'Create Box' }));
 
     await waitFor(() => {

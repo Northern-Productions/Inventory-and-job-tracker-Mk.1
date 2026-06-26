@@ -26,6 +26,7 @@ function createEditDraft() {
   return {
     ...createEmptyBoxDraft('3M Solar'),
     boxId: 'IL1-6735',
+    ownerCompanyId: 'owner-mgt',
     filmName: '3M S140',
     widthIn: '60',
     initialFeet: '100',
@@ -47,9 +48,52 @@ function createValidCreateDraft() {
   return {
     ...createEmptyBoxDraft('3M Solar'),
     boxId: 'IL1-7001',
+    ownerCompanyId: 'owner-mgt',
     filmName: 'Prestige 60'
   };
 }
+
+const ownerCompanies = [
+  {
+    ownerCompanyId: 'owner-edh',
+    code: 'EDH',
+    displayName: 'EDH',
+    lookupKey: 'edh',
+    isActive: true,
+    createdAt: '2026-06-26T00:00:00Z',
+    createdBy: 'tester',
+    updatedAt: '2026-06-26T00:00:00Z',
+    updatedBy: 'tester',
+    deactivatedAt: '',
+    deactivatedBy: ''
+  },
+  {
+    ownerCompanyId: 'owner-mgt',
+    code: 'MGT',
+    displayName: 'MGT',
+    lookupKey: 'mgt',
+    isActive: true,
+    createdAt: '2026-06-26T00:00:00Z',
+    createdBy: 'tester',
+    updatedAt: '2026-06-26T00:00:00Z',
+    updatedBy: 'tester',
+    deactivatedAt: '',
+    deactivatedBy: ''
+  },
+  {
+    ownerCompanyId: 'owner-old',
+    code: 'OLD',
+    displayName: 'Old Owner',
+    lookupKey: 'old',
+    isActive: false,
+    createdAt: '2026-06-26T00:00:00Z',
+    createdBy: 'tester',
+    updatedAt: '2026-06-26T00:00:00Z',
+    updatedBy: 'tester',
+    deactivatedAt: '2026-06-26T00:00:00Z',
+    deactivatedBy: 'tester'
+  }
+];
 
 describe('BoxForm', () => {
   beforeEach(() => {
@@ -106,6 +150,68 @@ describe('BoxForm', () => {
 
     expect(html).toContain('value="IL1-7001"');
     expect(html).toContain('disabled=""');
+  });
+
+  it('renders active owner companies as selectable choices for new boxes', () => {
+    render(
+      <BoxForm
+        initialDraft={createEmptyBoxDraft()}
+        resetKey="create-owner"
+        mode="create"
+        submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const ownerSelect = screen.getByRole('combobox', { name: /Owner Company/ }) as HTMLSelectElement;
+    const optionLabels = within(ownerSelect)
+      .getAllByRole('option')
+      .map((option) => option.textContent?.trim());
+
+    expect(ownerSelect.required).toBe(true);
+    expect(optionLabels).toEqual(['Select owner company', 'EDH - EDH', 'MGT - MGT']);
+    expect(optionLabels).not.toContain('OLD - Old Owner (inactive)');
+  });
+
+  it('keeps existing inactive owners visible but locked in non-owner edit mode', () => {
+    render(
+      <BoxForm
+        initialDraft={{ ...createEditDraft(), ownerCompanyId: 'owner-old' }}
+        resetKey="edit-owner-locked"
+        mode="edit"
+        submitLabel="Save Changes"
+        ownerCompanies={ownerCompanies}
+        canEditExistingOwner={false}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const ownerSelect = screen.getByRole('combobox', { name: /Owner Company/ }) as HTMLSelectElement;
+
+    expect(ownerSelect.disabled).toBe(true);
+    expect(ownerSelect.value).toBe('owner-old');
+    expect(screen.getByRole('option', { name: 'OLD - Old Owner (inactive)' })).toBeTruthy();
+    expect(screen.getByText('Only owner-role users can change existing inventory ownership.')).toBeTruthy();
+  });
+
+  it('reveals an ownership note when an owner-role user changes existing ownership', () => {
+    render(
+      <BoxForm
+        initialDraft={createEditDraft()}
+        resetKey="edit-owner-change"
+        mode="edit"
+        submitLabel="Save Changes"
+        ownerCompanies={ownerCompanies}
+        canEditExistingOwner
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const ownerSelect = screen.getByRole('combobox', { name: /Owner Company/ }) as HTMLSelectElement;
+    fireEvent.change(ownerSelect, { target: { value: 'owner-edh' } });
+
+    expect(screen.getByLabelText('Ownership Note')).toBeTruthy();
   });
 
   it('auto-fills roll weight from current feet until the weight field is manually edited', () => {
@@ -226,6 +332,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         onSubmit={onSubmit}
       />
     );
@@ -249,6 +356,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer-cancel"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         onSubmit={onSubmit}
       />
     );
@@ -273,6 +381,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer-saved"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         dealerEntries={[
           {
             dealerId: 'dealer-1',
@@ -309,6 +418,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer-custom"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         dealerEntries={[
           {
             dealerId: 'dealer-1',
@@ -345,6 +455,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer-default-reason"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         onSubmit={onSubmit}
       />
     );
@@ -366,6 +477,7 @@ describe('BoxForm', () => {
         resetKey="create-missing-dealer-custom-reason"
         mode="create"
         submitLabel="Create Box"
+        ownerCompanies={ownerCompanies}
         onSubmit={onSubmit}
       />
     );

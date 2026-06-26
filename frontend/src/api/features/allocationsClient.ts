@@ -112,8 +112,20 @@ function normalizeJobDetailSummary(summary: JobDetail['summary']): JobDetail['su
 }
 
 function normalizeCaulkAllocationEntry<T extends CaulkJobAllocationEntry>(entry: T): T {
+  const source = entry as T & Record<string, unknown>;
   return {
     ...entry,
+    stockId: String(source.stockId || source.stock_id || '').trim() || undefined,
+    ownerCompanyId: String(source.ownerCompanyId || source.owner_company_id || '').trim() || undefined,
+    ownerCompanyCode: String(source.ownerCompanyCode || source.owner_company_code || '').trim().toUpperCase() || undefined,
+    ownerCompanyDisplayName:
+      String(
+        source.ownerCompanyDisplayName ||
+          source.owner_company_display_name ||
+          source.ownerCompanyCode ||
+          source.owner_company_code ||
+          ''
+      ).trim() || undefined,
     allocationSource: normalizeAllocationSource(entry.allocationSource)
   };
 }

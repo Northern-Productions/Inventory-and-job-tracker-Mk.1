@@ -11,6 +11,7 @@ function buildDraft(overrides: Partial<BoxDraft> = {}): BoxDraft {
     ...createEmptyBoxDraft('3M Solar'),
     boxId: 'IL1-100',
     filmName: 'Crystalline 70',
+    ownerCompanyId: 'owner-mgt',
     widthIn: '48',
     initialFeet: resolvedInitialFeet,
     currentFeetOnRoll: overrides.currentFeetOnRoll ?? resolvedInitialFeet,
@@ -173,6 +174,28 @@ describe('boxSchemas price derivation', () => {
 
     expect(payload.purchaseCost).toBeNull();
     expect(payload.pricePerLf).toBe(4.4444);
+  });
+
+  it('requires owner company on add payloads', () => {
+    expect(() =>
+      parseAddBoxDraft(
+        buildDraft({
+          ownerCompanyId: ''
+        })
+      )
+    ).toThrowError('Required.');
+  });
+
+  it('keeps ownership out of normal edit metadata payloads', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        ownerCompanyId: 'owner-edh'
+      }),
+      buildBox({ ownerCompanyId: 'owner-mgt' }),
+      []
+    );
+
+    expect('ownerCompanyId' in payload).toBe(false);
   });
 
   it('derives received-box feet from roll weight and locked allocations on edit', () => {

@@ -29,6 +29,14 @@ export {
 } from './features/accessClient';
 export { addWarehouse, listWarehouses } from './features/warehouseClient';
 export {
+  bulkTransferOwnership,
+  changeCaulkStockOwner,
+  changeFilmBoxOwner,
+  deactivateOwnerCompany,
+  listOwnerCompanies,
+  upsertOwnerCompany
+} from './features/ownershipClient';
+export {
   listCaulkManufacturers,
   listCaulkProducts,
   listCaulkStock,

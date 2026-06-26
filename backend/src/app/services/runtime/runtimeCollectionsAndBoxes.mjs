@@ -262,8 +262,41 @@ function buildRequirementRowsForReplace(jobNumber, requirementEntries, existingB
   return rows;
 }
 
+async function requireActiveOwnerCompany(client, orgId, ownerCompanyId, fieldName = 'OwnerCompanyId') {
+  const normalizedOwnerCompanyId = requireUuid(ownerCompanyId, fieldName);
+  const row = await queryRow(
+    client,
+    `
+      select
+        id,
+        code,
+        display_name,
+        is_active
+      from app.owner_companies
+      where org_id = $1::uuid
+        and id = $2::uuid
+      limit 1
+    `,
+    [orgId, normalizedOwnerCompanyId]
+  );
+
+  if (!row) {
+    throw new HttpError(400, 'Owner company was not found.');
+  }
+  if (row.is_active !== true) {
+    throw new HttpError(400, 'Owner company is inactive and cannot be selected for new inventory.');
+  }
+  return row;
+}
+
 async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox) {
   const boxId = existingBox ? existingBox.boxId : requireString(payload.boxId, 'BoxID');
+  const ownerCompanyId = existingBox
+    ? asTrimmedString(existingBox.ownerCompanyId)
+    : asTrimmedString(payload.ownerCompanyId);
+  if (!existingBox) {
+    await requireActiveOwnerCompany(client, orgId, ownerCompanyId, 'OwnerCompanyId');
+  }
   const sourceManufacturer = requireString(payload.manufacturer, 'Manufacturer');
   const sourceFilmName = requireString(payload.filmName, 'FilmName');
   assertAveryNaturaShadeForWrite(sourceManufacturer, sourceFilmName, 'FilmName');
@@ -666,6 +699,7 @@ async function buildBoxFromPayload(client, orgId, payload, warnings, existingBox
   return {
     boxId,
     warehouse: await resolveWarehouseFromBoxId(client, orgId, boxId),
+    ownerCompanyId,
     dealer:
       payload && Object.prototype.hasOwnProperty.call(payload, 'dealer')
         ? asTrimmedString(payload.dealer)

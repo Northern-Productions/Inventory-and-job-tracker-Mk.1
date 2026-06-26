@@ -44,6 +44,96 @@ async function requireConfiguredWarehouse(client, orgId, warehouse, fieldName) {
   return normalized;
 }
 
+async function requireOwnerCompany(client, orgId, ownerCompanyId, fieldName = 'OwnerCompanyId') {
+  const normalizedOwnerCompanyId = requireUuid(ownerCompanyId, fieldName);
+  const row = await queryRow(
+    client,
+    `
+      select *
+      from app.owner_companies
+      where org_id = $1::uuid
+        and id = $2::uuid
+      limit 1
+    `,
+    [orgId, normalizedOwnerCompanyId]
+  );
+
+  if (!row) {
+    throw new HttpError(400, 'Owner company was not found.');
+  }
+  if (row.is_active !== true) {
+    throw new HttpError(400, 'Owner company is inactive and cannot be selected for new assignments.');
+  }
+  return row;
+}
+
+async function resolveCaulkStockOwner(client, orgId, productId, warehouse, payload = {}) {
+  const stockIdRaw = asTrimmedString(payload.stockId);
+  if (stockIdRaw) {
+    const row = await queryRow(
+      client,
+      `
+        select owner_company_id
+        from app.caulk_stock
+        where org_id = $1::uuid
+          and id = $2::uuid
+          and product_id = $3::uuid
+          and warehouse = $4::text
+        limit 1
+      `,
+      [orgId, requireUuid(stockIdRaw, 'stockId'), productId, warehouse]
+    );
+    if (!row) {
+      throw new HttpError(400, 'Caulk stock row was not found for this product and warehouse.');
+    }
+    return row.owner_company_id;
+  }
+
+  const ownerCompanyIdRaw = asTrimmedString(payload.ownerCompanyId);
+  if (ownerCompanyIdRaw) {
+    const owner = await requireOwnerCompany(client, orgId, ownerCompanyIdRaw);
+    return owner.id;
+  }
+
+  const rows = await queryRows(
+    client,
+    `
+      select owner_company_id
+      from app.caulk_stock
+      where org_id = $1::uuid
+        and product_id = $2::uuid
+        and warehouse = $3::text
+      order by updated_at desc, id desc
+    `,
+    [orgId, productId, warehouse]
+  );
+
+  if (rows.length === 1) {
+    return rows[0].owner_company_id;
+  }
+  if (rows.length === 0) {
+    const owner = await queryRow(
+      client,
+      `
+        select id
+        from app.owner_companies
+        where org_id = $1::uuid
+          and lookup_key = lower(app_api.default_owner_company_code_for_warehouse($2::text))
+        limit 1
+      `,
+      [orgId, warehouse]
+    );
+    if (owner?.id) {
+      return owner.id;
+    }
+  }
+
+  throw new HttpError(
+    400,
+    'Multiple owner rows exist for this caulk product and warehouse. Select an exact owner row.'
+  );
+}
+
 async function listCaulkManufacturers(client, orgId) {
   const rows = await queryRows(
     client,
@@ -101,12 +191,17 @@ async function listCaulkStock(client, orgId, params) {
   const manufacturerFilter = asTrimmedString(params.manufacturer);
   const productIdRaw = asTrimmedString(params.productId);
   const productId = productIdRaw ? requireUuid(productIdRaw, 'ProductId') : null;
+  const stockIdRaw = asTrimmedString(params.stockId);
+  const stockId = stockIdRaw ? requireUuid(stockIdRaw, 'stockId') : null;
+  const ownerCompanyIdRaw = asTrimmedString(params.ownerCompanyId);
+  const ownerCompanyId = ownerCompanyIdRaw ? requireUuid(ownerCompanyIdRaw, 'OwnerCompanyId') : null;
   const queryText = asTrimmedString(params.q);
 
   const rows = await queryRows(
     client,
     `
       select
+        s.id as stock_id,
         s.warehouse,
         p.id as product_id,
         p.manufacturer_id,
@@ -114,6 +209,10 @@ async function listCaulkStock(client, orgId, params) {
         p.name as product_name,
         p.code as product_code,
         p.tubes_per_case,
+        s.owner_company_id,
+        owner_company.code as owner_company_code,
+        owner_company.display_name as owner_company_display_name,
+        owner_company.is_active as owner_company_is_active,
         s.tubes_on_hand,
         floor(s.tubes_on_hand::numeric / p.tubes_per_case::numeric)::integer as cases_on_hand,
         mod(s.tubes_on_hand, p.tubes_per_case) as loose_tubes,
@@ -126,19 +225,24 @@ async function listCaulkStock(client, orgId, params) {
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
+      join app.owner_companies owner_company
+        on owner_company.org_id = s.org_id
+       and owner_company.id = s.owner_company_id
       where s.org_id = $1::uuid
         and ($2::text = '' or s.warehouse = $2::text)
         and ($3::text = '' or lower(m.name) = lower($3::text))
         and ($5::uuid is null or p.id = $5::uuid)
+        and ($6::uuid is null or s.id = $6::uuid)
+        and ($7::uuid is null or s.owner_company_id = $7::uuid)
         and (
           $4::text = ''
           or p.name ilike ('%' || $4::text || '%')
           or p.code ilike ('%' || $4::text || '%')
           or m.name ilike ('%' || $4::text || '%')
         )
-      order by s.warehouse asc, lower(m.name), lower(p.name), lower(p.code)
+      order by s.warehouse asc, owner_company.code asc, lower(m.name), lower(p.name), lower(p.code)
     `,
-    [orgId, warehouseFilter, manufacturerFilter, queryText, productId]
+    [orgId, warehouseFilter, manufacturerFilter, queryText, productId, stockId, ownerCompanyId]
   );
 
   return rows.map(mapCaulkStockRow);
@@ -162,6 +266,9 @@ async function listCaulkTransactions(client, orgId, params) {
         t.transaction_id,
         t.product_id,
         t.warehouse,
+        t.owner_company_id,
+        owner_company.code as owner_company_code,
+        owner_company.display_name as owner_company_display_name,
         m.name as manufacturer,
         p.name as product_name,
         p.code as product_code,
@@ -194,6 +301,9 @@ async function listCaulkTransactions(client, orgId, params) {
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
+      left join app.owner_companies owner_company
+        on owner_company.org_id = t.org_id
+       and owner_company.id = t.owner_company_id
       left join app.caulk_job_allocations source_allocation
         on source_allocation.org_id = t.org_id
        and source_allocation.caulk_allocation_id = t.source_box_id
@@ -238,7 +348,10 @@ async function listPendingCaulkTransfers(client, orgId, params) {
         m.name as manufacturer,
         p.name as product_name,
         p.code as product_code,
-        p.tubes_per_case
+        p.tubes_per_case,
+        t.owner_company_id,
+        owner_company.code as owner_company_code,
+        owner_company.display_name as owner_company_display_name
       from app.caulk_transfers t
       join app.caulk_job_allocations a
         on a.org_id = t.org_id
@@ -256,6 +369,9 @@ async function listPendingCaulkTransfers(client, orgId, params) {
       join app.caulk_manufacturers m
         on m.org_id = p.org_id
        and m.id = p.manufacturer_id
+      left join app.owner_companies owner_company
+        on owner_company.org_id = t.org_id
+       and owner_company.id = t.owner_company_id
       where t.org_id = $1::uuid
         and t.status = 'PENDING'
         and t.destination_warehouse = $2::text
@@ -319,6 +435,7 @@ async function upsertCaulkProduct(client, orgId, actor, payload) {
 
   if (warehouseRaw && row?.id) {
     const warehouse = await requireConfiguredWarehouse(client, orgId, warehouseRaw, 'Warehouse');
+    const owner = await requireOwnerCompany(client, orgId, payload.ownerCompanyId);
     await queryRow(
       client,
       `
@@ -326,6 +443,7 @@ async function upsertCaulkProduct(client, orgId, actor, payload) {
           org_id,
           product_id,
           warehouse,
+          owner_company_id,
           tubes_on_hand,
           updated_by
         )
@@ -333,13 +451,14 @@ async function upsertCaulkProduct(client, orgId, actor, payload) {
           $1::uuid,
           $2::uuid,
           $3::text,
+          $4::uuid,
           0,
-          $4::text
+          $5::text
         )
-        on conflict (org_id, product_id, warehouse) do nothing
+        on conflict (org_id, product_id, warehouse, owner_company_id) do nothing
         returning id
       `,
-      [orgId, row.id, warehouse, actor]
+      [orgId, row.id, warehouse, owner.id, actor]
     );
   }
 
@@ -387,6 +506,7 @@ async function applyCaulkDelta(
   actor,
   productId,
   warehouse,
+  ownerCompanyId,
   action,
   deltaTubes,
   reason,
@@ -397,20 +517,21 @@ async function applyCaulkDelta(
   const row = await queryRow(
     client,
     `
-      select app_api.caulk_apply_stock_delta(
+      select app_api.caulk_apply_stock_delta_for_owner(
         $1::uuid,
         $2::text,
         $3::uuid,
         $4::text,
-        $5::text,
-        $6::integer,
-        $7::text,
+        $5::uuid,
+        $6::text,
+        $7::integer,
         $8::text,
         $9::text,
-        $10::text
+        $10::text,
+        $11::text
       ) as result
     `,
-    [orgId, actor, productId, warehouse, action, deltaTubes, reason, transferId, sourceBoxId, notes]
+    [orgId, actor, productId, warehouse, ownerCompanyId, action, deltaTubes, reason, transferId, sourceBoxId, notes]
   );
 
   return normalizeCaulkCaseMathFromMappers(row?.result || {});
@@ -424,6 +545,7 @@ async function mutateCaulkStock(client, orgId, actor, payload) {
 
   const productId = requireUuid(payload.productId, 'ProductId');
   const warehouse = await requireConfiguredWarehouse(client, orgId, payload.warehouse, 'Warehouse');
+  const ownerCompanyId = await resolveCaulkStockOwner(client, orgId, productId, warehouse, payload);
   const tubesPerCase = await getCaulkProductTubesPerCase(client, orgId, productId);
   const cases = payload.cases === undefined || payload.cases === '' ? 0 : parseIntegerInput(payload.cases, 'Cases');
   const tubes = payload.tubes === undefined || payload.tubes === '' ? 0 : parseIntegerInput(payload.tubes, 'Tubes');
@@ -442,25 +564,65 @@ async function mutateCaulkStock(client, orgId, actor, payload) {
     if (delta <= 0) {
       throw new HttpError(400, 'Receive requires a positive quantity.');
     }
-    return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'RECEIVE', delta, reason, '', '', notes);
+    return applyCaulkDelta(
+      client,
+      orgId,
+      actor,
+      productId,
+      warehouse,
+      ownerCompanyId,
+      'RECEIVE',
+      delta,
+      reason,
+      '',
+      '',
+      notes
+    );
   }
   if (action === 'USE') {
     if (delta <= 0) {
       throw new HttpError(400, 'Use requires a positive quantity.');
     }
-    return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'USE', -delta, reason, '', '', notes);
+    return applyCaulkDelta(
+      client,
+      orgId,
+      actor,
+      productId,
+      warehouse,
+      ownerCompanyId,
+      'USE',
+      -delta,
+      reason,
+      '',
+      '',
+      notes
+    );
   }
 
   if (delta === 0) {
     throw new HttpError(400, 'Adjust requires a non-zero delta.');
   }
-  return applyCaulkDelta(client, orgId, actor, productId, warehouse, 'ADJUST', delta, reason, '', '', notes);
+  return applyCaulkDelta(
+    client,
+    orgId,
+    actor,
+    productId,
+    warehouse,
+    ownerCompanyId,
+    'ADJUST',
+    delta,
+    reason,
+    '',
+    '',
+    notes
+  );
 }
 
 async function transferCaulkStock(client, orgId, actor, payload) {
   const productId = requireUuid(payload.productId, 'ProductId');
   const fromWarehouse = await requireConfiguredWarehouse(client, orgId, payload.fromWarehouse, 'FromWarehouse');
   const toWarehouse = await requireConfiguredWarehouse(client, orgId, payload.toWarehouse, 'ToWarehouse');
+  const ownerCompanyId = await resolveCaulkStockOwner(client, orgId, productId, fromWarehouse, payload);
   if (fromWarehouse === toWarehouse) {
     throw new HttpError(400, 'Transfer source and destination warehouse must differ.');
   }
@@ -487,6 +649,7 @@ async function transferCaulkStock(client, orgId, actor, payload) {
     actor,
     productId,
     fromWarehouse,
+    ownerCompanyId,
     'TRANSFER_OUT',
     -delta,
     reason,
@@ -500,6 +663,7 @@ async function transferCaulkStock(client, orgId, actor, payload) {
     actor,
     productId,
     toWarehouse,
+    ownerCompanyId,
     'TRANSFER_IN',
     delta,
     reason,

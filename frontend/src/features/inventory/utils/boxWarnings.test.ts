@@ -69,6 +69,7 @@ describe('boxWarnings', () => {
   it('builds edit warnings for suspicious date and zero mismatches', () => {
     const payload: AddBoxPayload = {
       boxId: '2',
+      ownerCompanyId: 'owner-mgt',
       manufacturer: '3M Fasara',
       filmName: 'Prestige 40',
       widthIn: 36,

@@ -154,6 +154,18 @@ function normalizeBox(box: Box): Box {
 
   return {
     ...box,
+    ownerCompanyId: String((box as Box & { ownerCompanyId?: unknown }).ownerCompanyId || '').trim(),
+    ownerCompanyCode: String((box as Box & { ownerCompanyCode?: unknown }).ownerCompanyCode || '').trim().toUpperCase(),
+    ownerCompanyDisplayName: String(
+      (box as Box & { ownerCompanyDisplayName?: unknown }).ownerCompanyDisplayName ||
+        (box as Box & { ownerCompanyCode?: unknown }).ownerCompanyCode ||
+        ''
+    ).trim(),
+    ownerCompanyIsActive:
+      (box as Box & { ownerCompanyIsActive?: unknown }).ownerCompanyIsActive === undefined
+        ? undefined
+        : (box as Box & { ownerCompanyIsActive?: unknown }).ownerCompanyIsActive === true ||
+          String((box as Box & { ownerCompanyIsActive?: unknown }).ownerCompanyIsActive).toLowerCase() === 'true',
     dealer: String(box.dealer || '').trim(),
     directToJobSite: box.directToJobSite === true,
     initialFeet,

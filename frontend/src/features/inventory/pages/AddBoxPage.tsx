@@ -15,6 +15,7 @@ import {
   useBoxDealers,
   useFilmCatalog,
   useFilmOrders,
+  useOwnerCompanies,
   useSearchBoxesWithOptions,
   useSuggestedNextBoxId,
   useUpsertBoxDealer
@@ -62,6 +63,7 @@ export default function AddBoxPage() {
   const addBoxMutation = useAddBox();
   const boxDealersQuery = useBoxDealers({ enabled: auth.isAuthenticated });
   const filmCatalogQuery = useFilmCatalog();
+  const ownerCompaniesQuery = useOwnerCompanies({ enabled: auth.isAuthenticated });
   const filmOrdersQuery = useFilmOrders({
     enabled: auth.isAuthenticated && Boolean(searchParams.get('filmOrderId'))
   });
@@ -306,6 +308,15 @@ export default function AddBoxPage() {
         return;
       }
 
+      if (!draft.ownerCompanyId.trim()) {
+        toast.push({
+          title: 'Owner company is required',
+          description: 'Select the company that owns this box before saving.',
+          variant: 'error'
+        });
+        return;
+      }
+
       const payload = parseAddBoxDraft(draft);
       payload.warehouse = warehouse;
       const auditNote = submitContext?.auditNote?.trim();
@@ -513,7 +524,7 @@ export default function AddBoxPage() {
           <p className="muted-text">Your role does not allow creating new boxes.</p>
         </section>
       ) : null}
-      <BoxForm
+        <BoxForm
         initialDraft={initialDraft}
         resetKey={resetKey}
         mode="create"
@@ -525,10 +536,13 @@ export default function AddBoxPage() {
         dealerEntries={boxDealersQuery.data}
         dealerLoading={boxDealersQuery.isLoading}
         dealerError={boxDealersQuery.error}
-        filmCatalogEntries={filmCatalogQuery.data}
-        filmCatalogLoading={filmCatalogQuery.isLoading}
-        filmCatalogError={filmCatalogQuery.error}
-        onSubmit={handleSubmit}
+          filmCatalogEntries={filmCatalogQuery.data}
+          filmCatalogLoading={filmCatalogQuery.isLoading}
+          filmCatalogError={filmCatalogQuery.error}
+          ownerCompanies={ownerCompaniesQuery.data}
+          ownerCompaniesLoading={ownerCompaniesQuery.isLoading}
+          ownerCompaniesError={ownerCompaniesQuery.error}
+          onSubmit={handleSubmit}
       />
     </>
   );

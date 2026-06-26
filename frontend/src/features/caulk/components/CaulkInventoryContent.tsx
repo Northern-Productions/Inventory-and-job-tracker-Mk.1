@@ -14,6 +14,7 @@ import {
 import type { Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
+import { useOwnerCompanies } from '../../inventory/hooks/useInventoryQueries';
 import {
   ALL_WAREHOUSES_LABEL,
   ALL_WAREHOUSES_OPTION_VALUE,
@@ -35,6 +36,7 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
   const warehouseRegistry = useWarehouseRegistry();
   const warehouseEntries = warehouseRegistry.entries;
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
+  const ownerCompaniesQuery = useOwnerCompanies({ enabled: auth.isAuthenticated });
 
   const [warehouseFilter, setWarehouseFilter] = useState<string>(() =>
     toWarehouseFilterOptionValue(initialWarehouse)
@@ -85,7 +87,7 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
         description: `${result.productName} is now listed for ${variables.warehouse}.`,
         variant: 'success'
       });
-      navigate(`/caulk/${encodeURIComponent(variables.warehouse || '')}/${encodeURIComponent(result.productId)}`);
+      navigate(`/?inventoryView=caulk&warehouse=${encodeURIComponent(variables.warehouse || '')}`);
     },
     onError: (error) => {
       const message =
@@ -195,6 +197,7 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
                   <th>WAREHOUSE</th>
                   <th>MANUFACTURER</th>
                   <th>PRODUCT</th>
+                  <th>OWNER</th>
                   <th>TUBES</th>
                   <th>CASES</th>
                 </tr>
@@ -202,23 +205,32 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
               <tbody>
                 {stockRows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="muted-text">
+                    <td colSpan={6} className="muted-text">
                       No caulk rows matched the current filters.
                     </td>
                   </tr>
                 ) : (
                   stockRows.map((entry) => (
-                    <tr key={`${entry.warehouse}:${entry.productId}`}>
+                    <tr key={entry.stockId || `${entry.warehouse}:${entry.productId}:${entry.ownerCompanyId}`}>
                       <td>
                         <Link
                           className="caulk-stock-warehouse-link"
-                          to={`/caulk/${encodeURIComponent(entry.warehouse)}/${encodeURIComponent(entry.productId)}`}
+                          to={
+                            entry.stockId
+                              ? `/caulk/stock/${encodeURIComponent(entry.stockId)}`
+                              : `/caulk/${encodeURIComponent(entry.warehouse)}/${encodeURIComponent(entry.productId)}`
+                          }
                         >
                           {entry.warehouse}
                         </Link>
                       </td>
                       <td>{entry.manufacturer}</td>
                       <td>{entry.productName}</td>
+                      <td>
+                        <span className="badge badge-muted" title={entry.ownerCompanyDisplayName || 'Owner company'}>
+                          {entry.ownerCompanyCode || '--'}
+                        </span>
+                      </td>
                       <td>{entry.tubesOnHand}</td>
                       <td>{toFullCasesFromTubes(entry.tubesOnHand, entry.tubesPerCase)}</td>
                     </tr>
@@ -236,6 +248,9 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
         error={newProductError}
         manufacturers={manufacturers}
         warehouseEntries={warehouseEntries}
+        ownerCompanies={ownerCompaniesQuery.data}
+        ownerCompaniesLoading={ownerCompaniesQuery.isLoading}
+        ownerCompaniesError={ownerCompaniesQuery.error}
         lockedWarehouse={selectedWarehouseForNewProduct}
         onClose={() => {
           if (createProductMutation.isPending) {

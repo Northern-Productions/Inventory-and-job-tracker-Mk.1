@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../../../components/Button';
-import type { BoxDealerEntry, FilmCatalogEntry, Warehouse } from '../../../domain';
+import type { BoxDealerEntry, FilmCatalogEntry, OwnerCompanyEntry, Warehouse } from '../../../domain';
 import type { BoxDraft } from '../utils/boxHelpers';
 import { BoxIdentitySection } from './box-form/BoxIdentitySection';
 import { CustomWidthDialog } from './box-form/CustomWidthDialog';
@@ -39,6 +39,10 @@ interface BoxFormProps {
   filmCatalogEntries?: FilmCatalogEntry[];
   filmCatalogLoading?: boolean;
   filmCatalogError?: unknown;
+  ownerCompanies?: OwnerCompanyEntry[];
+  ownerCompaniesLoading?: boolean;
+  ownerCompaniesError?: unknown;
+  canEditExistingOwner?: boolean;
   onSubmit: (draft: BoxDraft, context?: BoxFormSubmitContext) => void;
   onCancel?: () => void;
   onDelete?: () => void;
@@ -64,6 +68,10 @@ export function BoxForm({
   filmCatalogEntries,
   filmCatalogLoading = false,
   filmCatalogError,
+  ownerCompanies,
+  ownerCompaniesLoading = false,
+  ownerCompaniesError,
+  canEditExistingOwner = false,
   onSubmit,
   onCancel,
   onDelete,
@@ -219,6 +227,11 @@ export function BoxForm({
           manufacturerOptions={manufacturerOptions}
           manufacturerSelectValue={manufacturerSelectValue}
           mode={mode}
+          ownerCompanies={ownerCompanies}
+          ownerCompaniesError={ownerCompaniesError}
+          ownerCompaniesLoading={ownerCompaniesLoading}
+          originalOwnerCompanyId={initialDraft.ownerCompanyId}
+          canEditExistingOwner={canEditExistingOwner}
           showCurrentFeetField={showCurrentFeetField}
           widthButtonValues={widthButtonValues}
           widthMode={widthMode}
@@ -228,6 +241,8 @@ export function BoxForm({
           onInitialFeetChange={handleInitialFeetChange}
           onLotRunChange={(value) => updateField('lotRun', value)}
           onManufacturerChange={(value) => updateField('manufacturer', value)}
+          onOwnerCompanyChange={(value) => updateField('ownerCompanyId', value)}
+          onOwnershipNoteChange={(value) => updateField('ownershipNote', value)}
           onWidthButtonClick={handleWidthButtonClick}
         />
 

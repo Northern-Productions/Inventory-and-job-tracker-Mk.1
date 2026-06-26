@@ -9,12 +9,14 @@ import {
   useBox,
   useBoxDealers,
   useBoxTransfer,
+  useChangeFilmBoxOwner,
   useCancelBoxTransfer,
   useDeleteBox,
   useFilmCatalog,
   useFilmOrders,
   useIsAddBoxPending,
   useJobSummariesByNumbers,
+  useOwnerCompanies,
   useReceiveOrderedBox,
   useReceiveBoxTransfer,
   useStartBoxTransfer,
@@ -65,6 +67,7 @@ export function useBoxDetailsPageModel() {
   const isGuidedOrderedReceive = searchParams.get('receiveOrdered') === '1' && Boolean(guidedFilmOrderId);
   const boxTransferQuery = useBoxTransfer(boxId, { enabled: !isAddBoxPending });
   const updateMutation = useUpdateBox();
+  const changeFilmBoxOwnerMutation = useChangeFilmBoxOwner();
   const deleteMutation = useDeleteBox();
   const statusMutation = useSetBoxStatus();
   const receiveOrderedMutation = useReceiveOrderedBox();
@@ -73,6 +76,10 @@ export function useBoxDetailsPageModel() {
   const cancelTransferMutation = useCancelBoxTransfer();
   const undoMutation = useUndoAudit();
   const boxDealersQuery = useBoxDealers({ enabled: auth.isAuthenticated });
+  const ownerCompaniesQuery = useOwnerCompanies({
+    enabled: auth.isAuthenticated,
+    includeInactive: true
+  });
   const filmCatalogQuery = useFilmCatalog();
   const filmOrdersQuery = useFilmOrders({
     enabled: auth.isAuthenticated && isGuidedOrderedReceive
@@ -227,6 +234,7 @@ export function useBoxDetailsPageModel() {
     pushToast: toast.push,
     onEditComplete: () => setIsEditing(false),
     updateBox: updateMutation.mutateAsync,
+    changeFilmBoxOwner: changeFilmBoxOwnerMutation.mutateAsync,
     deleteBox: deleteMutation.mutateAsync,
     setBoxStatus: statusMutation.mutateAsync,
     receiveOrderedBox: receiveOrderedMutation.mutateAsync,
@@ -387,9 +395,11 @@ export function useBoxDetailsPageModel() {
     auth,
     boxQuery,
     box,
+    ownerCompaniesQuery,
     pendingTransfer,
     isAddBoxPending,
     updateMutation,
+    changeFilmBoxOwnerMutation,
     deleteMutation,
     statusMutation,
     receiveOrderedMutation,

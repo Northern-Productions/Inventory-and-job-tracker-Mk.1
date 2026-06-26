@@ -5,6 +5,7 @@ import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import type {
   CaulkManufacturerEntry,
+  OwnerCompanyEntry,
   UpsertCaulkProductPayload,
   Warehouse,
   WarehouseEntry
@@ -16,6 +17,9 @@ interface NewCaulkProductDialogProps {
   error: string;
   manufacturers: CaulkManufacturerEntry[];
   warehouseEntries: WarehouseEntry[];
+  ownerCompanies?: OwnerCompanyEntry[];
+  ownerCompaniesLoading?: boolean;
+  ownerCompaniesError?: unknown;
   lockedWarehouse?: Warehouse | '';
   onClose: () => void;
   onClearError: () => void;
@@ -28,6 +32,9 @@ export function NewCaulkProductDialog({
   error,
   manufacturers,
   warehouseEntries,
+  ownerCompanies = [],
+  ownerCompaniesLoading = false,
+  ownerCompaniesError,
   lockedWarehouse = '',
   onClose,
   onClearError,
@@ -44,6 +51,7 @@ export function NewCaulkProductDialog({
   const [productName, setProductName] = useState('');
   const [productCode, setProductCode] = useState('');
   const [warehouse, setWarehouse] = useState<Warehouse | ''>(lockedWarehouse);
+  const [ownerCompanyId, setOwnerCompanyId] = useState('');
   const [localError, setLocalError] = useState('');
 
   useEffect(() => {
@@ -55,6 +63,7 @@ export function NewCaulkProductDialog({
     setProductName('');
     setProductCode('');
     setWarehouse(lockedWarehouse);
+    setOwnerCompanyId('');
     setLocalError('');
   }, [defaultManufacturerId, lockedWarehouse, open]);
 
@@ -71,6 +80,14 @@ export function NewCaulkProductDialog({
 
   const displayError = localError || error;
   const warehouseIsLocked = Boolean(lockedWarehouse);
+  const selectableOwnerCompanies = useMemo(
+    () =>
+      ownerCompanies
+        .filter((entry) => entry.isActive)
+        .slice()
+        .sort((left, right) => left.code.localeCompare(right.code, undefined, { sensitivity: 'base' })),
+    [ownerCompanies]
+  );
 
   function clearErrors() {
     if (localError) {
@@ -100,12 +117,18 @@ export function NewCaulkProductDialog({
       return;
     }
 
+    if (!ownerCompanyId) {
+      setLocalError('Choose the company that owns this caulk stock.');
+      return;
+    }
+
     clearErrors();
     onSubmit({
       manufacturerId,
       productName: trimmedProductName,
       productCode: trimmedProductCode || undefined,
       warehouse,
+      ownerCompanyId,
       tubesPerCase: 16
     });
   }
@@ -194,6 +217,27 @@ export function NewCaulkProductDialog({
               ? 'This product will be created for the warehouse currently selected in the CAUC inventory filter.'
               : 'The product will be added at zero stock in the warehouse you choose.'
           }
+        />
+
+        <Select
+          label="Owner Company"
+          value={ownerCompanyId}
+          onChange={(event) => {
+            setOwnerCompanyId(event.target.value);
+            clearErrors();
+          }}
+          options={[
+            {
+              value: '',
+              label: ownerCompaniesLoading ? 'Loading owner companies...' : 'Select owner company'
+            },
+            ...selectableOwnerCompanies.map((entry) => ({
+              value: entry.ownerCompanyId,
+              label: `${entry.code} - ${entry.displayName}`
+            }))
+          ]}
+          disabled={pending || ownerCompaniesLoading}
+          error={ownerCompaniesError ? 'Owner companies could not be loaded.' : ''}
         />
       </div>
 

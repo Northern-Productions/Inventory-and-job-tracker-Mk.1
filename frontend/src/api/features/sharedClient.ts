@@ -13,6 +13,8 @@ import type {
   FeatureAccessMap,
   FeatureAccessMode,
   FeatureArea,
+  OwnerCompanyEntry,
+  OwnershipEventEntry,
   Role,
   UsernameChangeRequestEntry,
   Warehouse,
@@ -227,6 +229,64 @@ export function mapCaulkProductEntry(value: unknown): CaulkProductEntry | null {
   };
 }
 
+export function mapOwnerCompanyEntry(value: unknown): OwnerCompanyEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const ownerCompanyId = String(source.ownerCompanyId || source.owner_company_id || source.id || '').trim();
+  const code = String(source.code || '').trim().toUpperCase();
+  if (!ownerCompanyId || !code) {
+    return null;
+  }
+
+  return {
+    ownerCompanyId,
+    code,
+    displayName: String(source.displayName || source.display_name || source.name || code).trim() || code,
+    lookupKey: String(source.lookupKey || source.lookup_key || code).trim().toLowerCase(),
+    isActive: source.isActive === true || String(source.isActive ?? source.is_active).toLowerCase() === 'true',
+    createdAt: String(source.createdAt || source.created_at || '').trim(),
+    createdBy: String(source.createdBy || source.created_by || '').trim(),
+    updatedAt: String(source.updatedAt || source.updated_at || '').trim(),
+    updatedBy: String(source.updatedBy || source.updated_by || '').trim(),
+    deactivatedAt: String(source.deactivatedAt || source.deactivated_at || '').trim(),
+    deactivatedBy: String(source.deactivatedBy || source.deactivated_by || '').trim()
+  };
+}
+
+export function mapOwnershipEventEntry(value: unknown): OwnershipEventEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const eventId = String(source.eventId || source.event_id || '').trim();
+  const resourceType = String(source.resourceType || source.resource_type || '').trim();
+  const resourceId = String(source.resourceId || source.resource_id || '').trim();
+  if (!eventId || !resourceType || !resourceId) {
+    return null;
+  }
+
+  return {
+    eventId,
+    resourceType: resourceType === 'caulk_stock' ? 'caulk_stock' : 'film_box',
+    resourceId,
+    resourceLabel: String(source.resourceLabel || source.resource_label || '').trim(),
+    oldOwnerCompanyId: String(source.oldOwnerCompanyId || source.old_owner_company_id || '').trim(),
+    oldOwnerCode: String(source.oldOwnerCode || source.old_owner_code || '').trim(),
+    oldOwnerDisplayName: String(source.oldOwnerDisplayName || source.old_owner_display_name || '').trim(),
+    newOwnerCompanyId: String(source.newOwnerCompanyId || source.new_owner_company_id || '').trim(),
+    newOwnerCode: String(source.newOwnerCode || source.new_owner_code || '').trim(),
+    newOwnerDisplayName: String(source.newOwnerDisplayName || source.new_owner_display_name || '').trim(),
+    actor: String(source.actor || '').trim(),
+    note: String(source.note || '').trim(),
+    batchId: String(source.batchId || source.batch_id || '').trim(),
+    createdAt: String(source.createdAt || source.created_at || '').trim()
+  };
+}
+
 export function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -235,6 +295,7 @@ export function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
   const source = value as Record<string, unknown>;
   const productId = String(source.productId || '').trim();
   const warehouse = String(source.warehouse || '').trim().toUpperCase();
+  const stockId = String(source.stockId || source.stock_id || '').trim();
   if (!productId || !warehouse) {
     return null;
   }
@@ -245,7 +306,18 @@ export function mapCaulkStockEntry(value: unknown): CaulkStockEntry | null {
   const looseTubes = Math.max(0, normalizedTubesOnHand - (casesOnHand * CAULK_FULL_CASE_TUBE_COUNT));
 
   return {
+    stockId,
     warehouse,
+    ownerCompanyId: String(source.ownerCompanyId || source.owner_company_id || '').trim(),
+    ownerCompanyCode: String(source.ownerCompanyCode || source.owner_company_code || '').trim().toUpperCase(),
+    ownerCompanyDisplayName: String(
+      source.ownerCompanyDisplayName || source.owner_company_display_name || source.ownerCompanyCode || source.owner_company_code || ''
+    ).trim(),
+    ownerCompanyIsActive:
+      source.ownerCompanyIsActive === undefined && source.owner_company_is_active === undefined
+        ? undefined
+        : source.ownerCompanyIsActive === true ||
+          String(source.ownerCompanyIsActive ?? source.owner_company_is_active).toLowerCase() === 'true',
     productId,
     manufacturerId: String(source.manufacturerId || '').trim(),
     manufacturer: String(source.manufacturer || '').trim(),
@@ -280,6 +352,11 @@ export function mapCaulkTransactionEntry(value: unknown): CaulkTransactionEntry 
     productName: String(source.productName || '').trim(),
     productCode: String(source.productCode || '').trim(),
     action: String(source.action || '').trim().toUpperCase(),
+    ownerCompanyId: String(source.ownerCompanyId || source.owner_company_id || '').trim(),
+    ownerCompanyCode: String(source.ownerCompanyCode || source.owner_company_code || '').trim().toUpperCase(),
+    ownerCompanyDisplayName: String(
+      source.ownerCompanyDisplayName || source.owner_company_display_name || source.ownerCompanyCode || source.owner_company_code || ''
+    ).trim(),
     deltaTubes: Number(source.deltaTubes || 0) || 0,
     resultingTubesOnHand: Number(source.resultingTubesOnHand || 0) || 0,
     tubesPerCase: Number(source.tubesPerCase || 0) || 0,
@@ -324,6 +401,11 @@ export function mapCaulkTransferEntry(value: unknown): CaulkTransferEntry | null
     productName: String(source.productName || '').trim(),
     productCode: String(source.productCode || '').trim(),
     tubesPerCase: Number(source.tubesPerCase || 0) || 0,
+    ownerCompanyId: String(source.ownerCompanyId || source.owner_company_id || '').trim(),
+    ownerCompanyCode: String(source.ownerCompanyCode || source.owner_company_code || '').trim().toUpperCase(),
+    ownerCompanyDisplayName: String(
+      source.ownerCompanyDisplayName || source.owner_company_display_name || source.ownerCompanyCode || source.owner_company_code || ''
+    ).trim(),
     sourceWarehouse: String(source.sourceWarehouse || '').trim().toUpperCase() as Warehouse,
     destinationWarehouse: String(source.destinationWarehouse || '').trim().toUpperCase() as Warehouse,
     pendingTubes: Math.max(0, Number(source.pendingTubes || 0) || 0),

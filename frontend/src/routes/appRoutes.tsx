@@ -26,6 +26,8 @@ const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessP
 const OwnerNotificationPreferencesPage = lazy(
   () => import('../features/access/pages/OwnerNotificationPreferencesPage')
 );
+const OwnerCompaniesPage = lazy(() => import('../features/ownership/pages/OwnerCompaniesPage'));
+const BulkOwnershipTransferPage = lazy(() => import('../features/ownership/pages/BulkOwnershipTransferPage'));
 
 function withSuspense(element: ReactNode) {
   return <Suspense fallback={<DeferredLoadingState when />}>{element}</Suspense>;
@@ -109,6 +111,10 @@ export const appRoutes: RouteObject[] = [
         element: withFeatureRoute(<Navigate to="/?inventoryView=caulk" replace />, 'inventory', 'read')
       },
       {
+        path: '/caulk/stock/:stockId',
+        element: withFeatureRoute(<CaulkStockDetailsPage />, 'inventory', 'read')
+      },
+      {
         path: '/caulk/:warehouse/:productId',
         element: withFeatureRoute(<CaulkStockDetailsPage />, 'inventory', 'read')
       },
@@ -123,6 +129,22 @@ export const appRoutes: RouteObject[] = [
       {
         path: '/owner/admin-permissions',
         element: <Navigate to="/admin/access" replace />
+      },
+      {
+        path: '/owner/companies',
+        element: withSuspense(
+          <AccessRoute requireOwner>
+            <OwnerCompaniesPage />
+          </AccessRoute>
+        )
+      },
+      {
+        path: '/owner/bulk-ownership-transfer',
+        element: withSuspense(
+          <AccessRoute requireOwner>
+            <BulkOwnershipTransferPage />
+          </AccessRoute>
+        )
       },
       {
         path: '/owner/notification-preferences',

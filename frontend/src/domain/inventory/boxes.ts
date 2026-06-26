@@ -1,5 +1,6 @@
 import type { Warehouse } from './warehouses';
 import type { BoxCoreType, BoxStatus, BoxTransferStatus } from './statuses';
+import type { OwnerCompanyEntry } from './ownership';
 
 export interface BoxPendingTransferSummary {
   transferId: string;
@@ -24,6 +25,10 @@ export interface BoxOrderedForJob {
 export interface Box {
   boxId: string;
   warehouse: Warehouse;
+  ownerCompanyId?: string;
+  ownerCompanyCode?: string;
+  ownerCompanyDisplayName?: string;
+  ownerCompanyIsActive?: boolean;
   dealer?: string;
   manufacturer: string;
   filmName: string;
@@ -83,6 +88,7 @@ export interface SuggestedBoxIdResponse {
 export interface AddBoxPayload {
   boxId: string;
   warehouse?: Warehouse;
+  ownerCompanyId: string;
   dealer?: string;
   manufacturer: string;
   filmName: string;
@@ -103,12 +109,14 @@ export interface AddBoxPayload {
   purchaseCost?: number | null;
   notes?: string;
   auditNote?: string;
+  ownershipNote?: string;
   filmOrderId?: string;
   shipDirectToJobSite?: boolean;
 }
 
-export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId'> {
+export interface UpdateBoxPayload extends Omit<AddBoxPayload, 'boxId' | 'ownerCompanyId' | 'ownershipNote'> {
   boxId: string;
+  ownerCompanyId?: string;
   currentFeetOnRoll?: number;
   moveToZeroed?: boolean;
   reactivateFromZeroed?: boolean;
@@ -203,8 +211,11 @@ export type AuditAction =
   | 'START_TRANSFER'
   | 'RECEIVE_TRANSFER'
   | 'CANCEL_TRANSFER'
+  | 'OWNER_CHANGE'
   | 'UNDO'
   | 'UNDO_ADD_DELETE';
+
+export type { OwnerCompanyEntry };
 
 export interface AuditEntry {
   logId: string;

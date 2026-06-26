@@ -7,6 +7,7 @@ import { addCaulkAllocation } from '../../src/app/services/caulkAllocations.mjs'
 class FakeCaulkClient {
   constructor() {
     this.jobId = '33333333-3333-4333-8333-333333333333';
+    this.ownerCompanyId = '44444444-4444-4444-8444-444444444444';
     this.warehouses = new Set(['IL1', 'MS1']);
     this.jobs = new Map([
       ['4761', { id: this.jobId, job_number: '4761', lifecycle_status: 'ACTIVE' }],
@@ -93,6 +94,29 @@ class FakeCaulkClient {
       return { rows: [{ warehouse }] };
     }
 
+    if (sql.includes('select * from app.owner_companies where org_id = $1::uuid and id = $2::uuid limit 1')) {
+      return {
+        rows: params[1] === this.ownerCompanyId
+          ? [
+              {
+                id: this.ownerCompanyId,
+                code: 'MGT',
+                display_name: 'MGT',
+                is_active: true,
+              },
+            ]
+          : [],
+      };
+    }
+
+    if (sql.includes('select owner_company_id from app.caulk_stock where org_id = $1::uuid and product_id = $2::uuid and warehouse = $3::text order by updated_at desc, id desc')) {
+      return {
+        rows: this.stock.has(this.stockKey(params[1], params[2]))
+          ? [{ owner_company_id: this.ownerCompanyId }]
+          : [],
+      };
+    }
+
     if (sql.includes('insert into app.caulk_stock (')) {
       const [, productId, warehouse] = params;
       const key = this.stockKey(productId, warehouse);
@@ -102,7 +126,7 @@ class FakeCaulkClient {
       return { rows: [] };
     }
 
-    if (sql.includes('select * from app.caulk_stock s where s.org_id = $1::uuid and s.product_id = $2::uuid and s.warehouse = $3::text for update')) {
+    if (sql.includes('select * from app.caulk_stock s where s.org_id = $1::uuid and s.product_id = $2::uuid and s.warehouse = $3::text and s.owner_company_id = $4::uuid for update')) {
       const [, productId, warehouse] = params;
       return {
         rows: [
@@ -110,6 +134,7 @@ class FakeCaulkClient {
             org_id: params[0],
             product_id: productId,
             warehouse,
+            owner_company_id: params[3],
             tubes_on_hand: this.getStock(productId, warehouse),
           },
         ],
@@ -121,8 +146,8 @@ class FakeCaulkClient {
       return { rows: [{ transfer_id: `TX-${this.transferIdCounter}` }] };
     }
 
-    if (sql.includes('select app_api.caulk_apply_stock_delta(')) {
-      const [, actor, productId, warehouse, action, deltaTubes, reason, transferId, sourceBoxId, notes] = params;
+    if (sql.includes('select app_api.caulk_apply_stock_delta_for_owner(')) {
+      const [, actor, productId, warehouse, ownerCompanyId, action, deltaTubes, reason, transferId, sourceBoxId, notes] = params;
       const before = this.getStock(productId, warehouse);
       const after = before + Number(deltaTubes);
       if (after < 0) {
@@ -133,6 +158,7 @@ class FakeCaulkClient {
         actor,
         productId,
         warehouse,
+        ownerCompanyId,
         action,
         deltaTubes: Number(deltaTubes),
         reason,
@@ -144,7 +170,7 @@ class FakeCaulkClient {
     }
 
     if (sql.includes('insert into app.caulk_job_allocations (')) {
-      const [orgId, allocationId, jobId, jobNumber, requirementId, productId, warehouse, allocatedTubes, reservedTubesRemaining, actor, allocationRowId, notes] =
+      const [orgId, allocationId, jobId, jobNumber, requirementId, productId, ownerCompanyId, warehouse, allocatedTubes, reservedTubesRemaining, actor, allocationRowId, notes] =
         params;
       this.allocations.push({
         id: allocationRowId,
@@ -154,6 +180,7 @@ class FakeCaulkClient {
         job_number: jobNumber,
         requirement_id: requirementId || null,
         product_id: productId,
+        owner_company_id: ownerCompanyId,
         warehouse,
         allocated_tubes: allocatedTubes,
         reserved_tubes_remaining: reservedTubesRemaining,
@@ -173,6 +200,7 @@ class FakeCaulkClient {
         jobId,
         jobNumber,
         productId,
+        ownerCompanyId,
         sourceWarehouse,
         destinationWarehouse,
         pendingTubes,
@@ -194,6 +222,7 @@ class FakeCaulkClient {
         job_id: jobId || null,
         job_number: jobNumber,
         product_id: productId,
+        owner_company_id: ownerCompanyId,
         source_warehouse: sourceWarehouse,
         destination_warehouse: destinationWarehouse,
         pending_tubes: pendingTubes,

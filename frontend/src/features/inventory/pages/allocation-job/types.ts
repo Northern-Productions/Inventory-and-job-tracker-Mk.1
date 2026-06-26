@@ -5,6 +5,10 @@ export interface CaulkAllocationEditorState {
   caulkAllocationId: string;
   requirementId: string;
   productId: string;
+  stockId?: string;
+  ownerCompanyId?: string;
+  sourceStockId?: string;
+  sourceOwnerCompanyId?: string;
   warehouse: Warehouse;
   transferFromWarehouse: Warehouse | '';
   allocatedTubes: string;

@@ -20,6 +20,7 @@ import type {
   UndoMutationResult,
   UpdateBoxPayload
 } from '../../../../domain';
+import type { OwnershipMutationResult } from '../../../../domain';
 import type { BoxDraft, FilmCheckinDraft, OrderedBoxReceiveDraft } from '../../utils/boxHelpers';
 import {
   buildReceiveOrderedBoxPayload,
@@ -43,6 +44,7 @@ import { parseUpdateBoxDraft } from '../../schemas/boxSchemas';
 import { createStatusConfirmState, type CheckoutJobOption } from './helpers';
 import type {
   ConfirmState,
+  PendingOwnerChange,
   PendingZeroedEditState,
   PendingZeroedReactivationState
 } from './types';
@@ -69,6 +71,11 @@ type UndoMutationFn = (payload: UndoAuditPayload) => Promise<{
   warnings: string[];
 }>;
 type UpsertDealerMutationFn = (payload: UpsertBoxDealerPayload) => Promise<BoxDealerEntry>;
+type ChangeFilmBoxOwnerMutationFn = (payload: {
+  boxId: string;
+  ownerCompanyId: string;
+  note?: string;
+}) => Promise<OwnershipMutationResult>;
 
 const ORDERED_RECEIVE_PLANNER_WARNING_SUMMARY =
   'Box received with planner warnings. Some legacy reservations may need review.';
@@ -86,6 +93,7 @@ interface UseBoxDetailActionsArgs {
   pushToast: PushToast;
   onEditComplete: () => void;
   updateBox: UpdateMutationFn;
+  changeFilmBoxOwner?: ChangeFilmBoxOwnerMutationFn;
   deleteBox: DeleteMutationFn;
   setBoxStatus: SetStatusMutationFn;
   receiveOrderedBox: ReceiveOrderedMutationFn;
@@ -106,6 +114,7 @@ export function useBoxDetailActions({
   pushToast,
   onEditComplete,
   updateBox,
+  changeFilmBoxOwner,
   deleteBox,
   setBoxStatus,
   receiveOrderedBox,
@@ -221,6 +230,7 @@ export function useBoxDetailActions({
       if (didTransitionToZeroed) {
         navigate('/');
       }
+      return true;
     } catch (error) {
       pushToast({
         title: 'Update failed',
@@ -230,21 +240,69 @@ export function useBoxDetailActions({
             : 'The update could not be completed.',
         variant: 'error'
       });
+      return false;
     }
   }
 
   async function runStandardUpdateFlow(payload: UpdateBoxPayload) {
     const addOrEditWarnings = getAddOrEditWarnings(payload, box, allocations);
     if (!confirmWarnings(addOrEditWarnings)) {
-      return;
+      return false;
     }
 
-    await submitUpdate({
+    return submitUpdate({
       ...payload,
       auditNote:
         payload.auditNote?.trim() ||
         (payload.moveToZeroed ? 'Confirmed zeroed inventory edit save' : 'Inventory metadata update')
     });
+  }
+
+  async function applyOwnerChange(ownerChange: PendingOwnerChange | undefined) {
+    if (!ownerChange) {
+      return true;
+    }
+
+    if (!changeFilmBoxOwner) {
+      pushToast({
+        title: 'Owner company was not updated',
+        description: 'The owner update action is unavailable. Refresh and try again.',
+        variant: 'error'
+      });
+      return false;
+    }
+
+    try {
+      await changeFilmBoxOwner(ownerChange);
+      pushToast({
+        title: 'Owner company updated',
+        description: `${ownerChange.boxId} ownership was updated without changing warehouse, status, or footage.`,
+        variant: 'success'
+      });
+      return true;
+    } catch (error) {
+      pushToast({
+        title: 'Owner company update failed',
+        description:
+          error instanceof APIError || error instanceof Error
+            ? error.message
+            : 'The owner company could not be updated.',
+        variant: 'error'
+      });
+      return false;
+    }
+  }
+
+  async function runStandardUpdateAndOwnerFlow(
+    payload: UpdateBoxPayload,
+    ownerChange: PendingOwnerChange | undefined
+  ) {
+    const updateSucceeded = await runStandardUpdateFlow(payload);
+    if (!updateSucceeded) {
+      return false;
+    }
+
+    return applyOwnerChange(ownerChange);
   }
 
   async function normalizeDraftDealer(draft: BoxDraft) {
@@ -293,9 +351,22 @@ export function useBoxDetailActions({
 
       const nextDraft = await normalizeDraftDealer(draft);
       const payload = parseUpdateBoxDraft(nextDraft, box, allocations);
+      const requestedOwnerCompanyId = String(nextDraft.ownerCompanyId || '').trim();
+      const currentOwnerCompanyId = String(box?.ownerCompanyId || '').trim();
+      const shouldChangeOwner =
+        Boolean(box && requestedOwnerCompanyId && requestedOwnerCompanyId !== currentOwnerCompanyId);
+      const ownerChange: PendingOwnerChange | undefined =
+        shouldChangeOwner && box
+          ? {
+              boxId: box.boxId,
+              ownerCompanyId: requestedOwnerCompanyId,
+              note: nextDraft.ownershipNote.trim() || undefined
+            }
+          : undefined;
       if (shouldPromptZeroedInventoryReactivationOnEdit(box, payload)) {
         setPendingZeroedReactivationState({
-          payload: buildZeroedInventoryReactivationPayloadForEdit(payload)
+          payload: buildZeroedInventoryReactivationPayloadForEdit(payload),
+          ownerChange
         });
         return;
       }
@@ -306,13 +377,14 @@ export function useBoxDetailActions({
         setPendingZeroedEditState({
           activePayload: payload,
           zeroedPayload: buildZeroedInventoryPayloadForEdit(box, payload, zeroedTrigger),
+          ownerChange,
           missingFields: getIncompleteBoxHistoryFieldsForZeroedEdit(box, payload),
           trigger: zeroedTrigger
         });
         return;
       }
 
-      await runStandardUpdateFlow(payload);
+      await runStandardUpdateAndOwnerFlow(payload, ownerChange);
     } catch (error) {
       pushToast({
         title: 'Validation failed',
@@ -509,13 +581,15 @@ export function useBoxDetailActions({
   }
 
   function handleKeepActiveZeroedEdit(payload: PendingZeroedEditState['activePayload']) {
+    const ownerChange = pendingZeroedEditState?.ownerChange;
     resetEditWorkflow();
-    void runStandardUpdateFlow(payload);
+    void runStandardUpdateAndOwnerFlow(payload, ownerChange);
   }
 
   function handleConfirmZeroedEdit(payload: PendingZeroedEditState['zeroedPayload']) {
+    const ownerChange = pendingZeroedEditState?.ownerChange;
     resetEditWorkflow();
-    void runStandardUpdateFlow(payload);
+    void runStandardUpdateAndOwnerFlow(payload, ownerChange);
   }
 
   function handleCancelZeroedReactivation() {
@@ -523,8 +597,9 @@ export function useBoxDetailActions({
   }
 
   function handleConfirmZeroedReactivation(payload: PendingZeroedReactivationState['payload']) {
+    const ownerChange = pendingZeroedReactivationState?.ownerChange;
     resetEditWorkflow();
-    void runStandardUpdateFlow(payload);
+    void runStandardUpdateAndOwnerFlow(payload, ownerChange);
   }
 
   return {

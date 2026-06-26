@@ -152,7 +152,7 @@ test('caulk add jobId scope migration keeps non-scope workflows and duplicate gu
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0171_checked_out_allocation_apply_guard\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0172_inventory_ownership\.sql';/);
 
   assert.match(schemaCheck, /public\.api_acl_allocations_caulk_add\(uuid, text, jsonb\)/);
 });

@@ -51,6 +51,10 @@ const sampleStockRows = [
     manufacturer: '3M',
     productName: '995 White',
     productCode: '995-W',
+    ownerCompanyId: 'owner-mgt',
+    ownerCompanyCode: 'MGT',
+    ownerCompanyDisplayName: 'MGT',
+    ownerCompanyIsActive: true,
     tubesPerCase: 16,
     tubesOnHand: 33,
     casesOnHand: 2,
@@ -121,6 +125,7 @@ describe('CaulkInventoryContent', () => {
       'WAREHOUSE',
       'MANUFACTURER',
       'PRODUCT',
+      'OWNER',
       'TUBES',
       'CASES'
     ]);

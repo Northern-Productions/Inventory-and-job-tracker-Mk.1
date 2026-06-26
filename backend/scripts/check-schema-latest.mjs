@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0171_checked_out_allocation_apply_guard.sql';
+const LATEST_MIGRATION = '0172_inventory_ownership.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -16,7 +16,15 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.admin_feature_permissions' },
   { kind: 'table', signature: 'app.owner_notification_preferences' },
   { kind: 'table', signature: 'app.user_preferences' },
+  { kind: 'table', signature: 'app.owner_companies' },
+  { kind: 'table', signature: 'app.inventory_ownership_events' },
   { kind: 'column', signature: 'app.user_preferences.default_warehouse' },
+  { kind: 'column', signature: 'app.boxes.owner_company_id' },
+  { kind: 'column', signature: 'app.caulk_stock.owner_company_id' },
+  { kind: 'column', signature: 'app.caulk_transactions.owner_company_id' },
+  { kind: 'column', signature: 'app.caulk_job_allocations.owner_company_id' },
+  { kind: 'column', signature: 'app.caulk_transfers.owner_company_id' },
+  { kind: 'column', signature: 'app.caulk_job_checkouts.owner_company_id' },
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'column', signature: 'app.jobs.work_scope_key' },
@@ -57,6 +65,17 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.film_weight_pending_reviews.user_action_hint' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
+  { kind: 'function', signature: 'app_api.default_owner_company_code_for_warehouse(text)' },
+  { kind: 'function', signature: 'app_api.default_owner_company_id_for_warehouse(uuid, text)' },
+  { kind: 'function', signature: 'app_api.require_owner_company(uuid, uuid, boolean)' },
+  { kind: 'function', signature: 'app_api.resolve_caulk_stock_owner_company_id(uuid, uuid, text, uuid, uuid)' },
+  { kind: 'function', signature: 'app_api.caulk_apply_stock_delta_for_owner(uuid, text, uuid, text, uuid, text, integer, text, text, text, text)' },
+  { kind: 'function', signature: 'public.api_acl_owner_companies_list(uuid, boolean)' },
+  { kind: 'function', signature: 'public.api_acl_owner_companies_upsert(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_owner_companies_deactivate(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_inventory_ownership_update_box(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_inventory_ownership_update_caulk_stock(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_inventory_ownership_bulk_transfer(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_list_access_requests(uuid, text)' },
   { kind: 'function', signature: 'public.api_approve_access_request(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_deny_access_request(uuid, text, jsonb)' },
@@ -1310,6 +1329,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'perform app_api.upsert_box_dealer(p_box.org_id, p_box.dealer);',
       'dealer = excluded.dealer',
+      'p_box.owner_company_id',
+      'owner_company_id = coalesce(excluded.owner_company_id',
       'coalesce(p_box.has_label, true)',
       'has_label = excluded.has_label'
     ],
@@ -1317,7 +1338,12 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'app_api.public_box_json(app.boxes)',
-    includes: ["'dealer', coalesce(p_box.dealer, '')", "'hasLabel', coalesce(p_box.has_label, true)"],
+    includes: [
+      "'dealer', coalesce(p_box.dealer, '')",
+      "'ownerCompanyId', coalesce(p_box.owner_company_id::text, '')",
+      "'ownerCompanyCode'",
+      "'hasLabel', coalesce(p_box.has_label, true)"
+    ],
     excludes: []
   },
   {
@@ -1388,6 +1414,12 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_update_user_default_warehouse(uuid, text, jsonb)',
   'public.api_acl_list_film_orders(uuid, text)',
   'public.api_acl_list_jobs(uuid, text)',
+  'public.api_acl_owner_companies_list(uuid, boolean)',
+  'public.api_acl_owner_companies_upsert(uuid, text, jsonb)',
+  'public.api_acl_owner_companies_deactivate(uuid, text, jsonb)',
+  'public.api_acl_inventory_ownership_update_box(uuid, text, jsonb)',
+  'public.api_acl_inventory_ownership_update_caulk_stock(uuid, text, jsonb)',
+  'public.api_acl_inventory_ownership_bulk_transfer(uuid, text, jsonb)',
 ];
 
 function sqlLiteral(value) {

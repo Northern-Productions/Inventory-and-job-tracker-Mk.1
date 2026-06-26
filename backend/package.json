@@ -47,6 +47,7 @@
     "verify:allocation-film-parity": "node scripts/verify-allocation-film-match-parity.mjs",
     "verify:caulk-transaction-reasons": "node scripts/verify-caulk-transaction-reasons.mjs",
     "verify:internal-exports": "node scripts/verify-internal-exports.mjs",
+    "verify:inventory-ownership:dev": "node scripts/verify-inventory-ownership-dev.mjs",
     "verify:job-summary-parity": "node scripts/verify-job-summary-parity.mjs",
     "verify:ordered-box-local-fallback-routes": "node scripts/verify-ordered-box-local-fallback-routes.mjs",
     "verify:ordered-box-allocation-flow": "node scripts/verify-ordered-box-allocation-flow.mjs",

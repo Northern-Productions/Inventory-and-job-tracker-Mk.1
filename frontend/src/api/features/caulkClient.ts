@@ -53,9 +53,11 @@ export async function listCaulkProducts(): Promise<CaulkProductEntry[]> {
 export async function listCaulkStock(params: ListCaulkStockParams): Promise<CaulkStockEntry[]> {
   assertFeatureAccess('inventory', 'read');
   const body = {
+    stockId: params.stockId || '',
     warehouse: params.warehouse || 'ALL',
     manufacturer: params.manufacturer || '',
     productId: params.productId || '',
+    ownerCompanyId: params.ownerCompanyId || '',
     q: params.q || ''
   };
   const query = { ...body };
@@ -72,11 +74,13 @@ export async function listCaulkTransactions(
   const body = {
     warehouse: params.warehouse || 'ALL',
     productId: params.productId || '',
+    ownerCompanyId: params.ownerCompanyId || '',
     limit: params.limit || 200
   };
   const query = {
     warehouse: body.warehouse,
     productId: body.productId,
+    ownerCompanyId: body.ownerCompanyId,
     limit: body.limit
   };
   const data = await requestReadWithFallback<{ entries: unknown[] }>(

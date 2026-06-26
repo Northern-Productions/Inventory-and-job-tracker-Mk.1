@@ -18,6 +18,8 @@ export interface BoxDraft {
   dealer: string;
   manufacturer: string;
   filmName: string;
+  ownerCompanyId: string;
+  ownershipNote: string;
   widthIn: string;
   initialFeet: string;
   currentFeetOnRoll: string;
@@ -55,6 +57,8 @@ export function createEmptyBoxDraft(defaultManufacturer = ''): BoxDraft {
     dealer: '',
     manufacturer: defaultManufacturer,
     filmName: '',
+    ownerCompanyId: '',
+    ownershipNote: '',
     widthIn: '36',
     initialFeet: '100',
     currentFeetOnRoll: '100',
@@ -88,6 +92,8 @@ export function createDraftFromBox(
     dealer: box.dealer || '',
     manufacturer: box.manufacturer,
     filmName: box.filmName,
+    ownerCompanyId: box.ownerCompanyId || '',
+    ownershipNote: '',
     widthIn: String(box.widthIn),
     initialFeet: String(box.initialFeet),
     currentFeetOnRoll: String(currentFeetOnRoll ?? Math.max(box.feetAvailable, 0)),

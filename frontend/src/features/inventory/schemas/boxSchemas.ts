@@ -55,6 +55,7 @@ const addSchema = z.object({
   dealer: optionalString,
   manufacturer: addManufacturerString,
   filmName: requiredString,
+  ownerCompanyId: requiredString,
   widthIn: z.number().min(0, 'Width must be zero or greater.'),
   initialFeet: z.number().min(0, 'Initial feet must be zero or greater.'),
   feetAvailable: z.number(),
@@ -73,7 +74,7 @@ const addSchema = z.object({
   notes: optionalString
 });
 
-const updateSchema = addSchema.extend({
+const updateSchema = addSchema.omit({ ownerCompanyId: true }).extend({
   boxId: requiredString,
   manufacturer: requiredString,
   currentFeetOnRoll: z.number().min(0, 'Current feet must be zero or greater.').optional()
@@ -141,6 +142,7 @@ export function parseAddBoxDraft(draft: BoxDraft): AddBoxPayload {
     dealer: draft.dealer,
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,
+    ownerCompanyId: draft.ownerCompanyId,
     widthIn: parseRequiredNumber(draft.widthIn, 'Width'),
     initialFeet,
     feetAvailable: deriveCreateFeetAvailable(initialFeet, draft.receivedDate),
