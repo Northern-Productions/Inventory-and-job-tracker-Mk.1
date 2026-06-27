@@ -618,6 +618,10 @@ Deno.test("Edge public box mapper exposes additive ordered-for and checkout job 
   const publicBox = repositories.toPublicBox({
     boxId: "IL1-1234",
     warehouse: "IL1",
+    ownerCompanyId: "owner-mgt",
+    ownerCompanyCode: "mgt",
+    ownerCompanyDisplayName: "MGT",
+    ownerCompanyIsActive: true,
     status: "IN_STOCK",
     initialFeet: 500,
     feetAvailable: 420,
@@ -643,6 +647,10 @@ Deno.test("Edge public box mapper exposes additive ordered-for and checkout job 
     ],
   }) as any;
 
+  assertEquals(publicBox.ownerCompanyId, "owner-mgt", "Expected public box mapper to expose owner id.");
+  assertEquals(publicBox.ownerCompanyCode, "MGT", "Expected public box mapper to normalize owner code.");
+  assertEquals(publicBox.ownerCompanyDisplayName, "MGT", "Expected public box mapper to expose owner display name.");
+  assertEquals(publicBox.ownerCompanyIsActive, true, "Expected public box mapper to expose active owner state.");
   assertEquals(
     publicBox.orderedForJobs,
     [
@@ -680,6 +688,10 @@ Deno.test("Edge box repository preserves raw stored feet separately from public 
       assertEquals(fn, "api_acl_find_box_by_id", "Expected lookup to use the public ACL box read.");
       return {
         boxId: "IL1-P3C2D-S2-05191440",
+        owner_company_id: "owner-edh",
+        owner_company_code: "edh",
+        owner_company_display_name: "Eastside Holdings",
+        owner_company_is_active: false,
         status: "CHECKED_OUT",
         initialFeet: 20,
         feetAvailable: 0,
@@ -715,6 +727,10 @@ Deno.test("Edge box repository preserves raw stored feet separately from public 
 
   assertEquals(box?.feetAvailable, 0, "Expected public allocatable feet to remain public availability.");
   assertEquals(box?.storedFeetAvailable, 12, "Expected checked-out physical projection to retain raw stored feet.");
+  assertEquals(box?.ownerCompanyId, "owner-edh", "Expected Edge box mapper to preserve owner id.");
+  assertEquals(box?.ownerCompanyCode, "EDH", "Expected Edge box mapper to normalize owner code.");
+  assertEquals(box?.ownerCompanyDisplayName, "Eastside Holdings", "Expected Edge box mapper to preserve owner display name.");
+  assertEquals(box?.ownerCompanyIsActive, false, "Expected Edge box mapper to preserve inactive owner state.");
 });
 
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {

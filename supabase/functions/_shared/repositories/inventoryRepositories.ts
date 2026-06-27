@@ -91,6 +91,15 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       orgId: readValue("org_id", "orgId"),
       boxId: deps.asTrimmedString(readValue("box_id", "boxId")),
       warehouse: deps.asTrimmedString(readValue("warehouse")),
+      ownerCompanyId: deps.asTrimmedString(readValue("owner_company_id", "ownerCompanyId")),
+      ownerCompanyCode: deps.asTrimmedString(readValue("owner_company_code", "ownerCompanyCode")).toUpperCase(),
+      ownerCompanyDisplayName: deps.asTrimmedString(
+        readValue("owner_company_display_name", "ownerCompanyDisplayName", "owner_company_name", "ownerCompanyName"),
+      ),
+      ownerCompanyIsActive:
+        readValue("owner_company_is_active", "ownerCompanyIsActive") === undefined
+          ? undefined
+          : readValue("owner_company_is_active", "ownerCompanyIsActive") === true,
       dealer: deps.asTrimmedString(readValue("dealer")),
       manufacturer: deps.asTrimmedString(readValue("manufacturer")),
       filmName: deps.asTrimmedString(readValue("film_name", "filmName")),
@@ -225,6 +234,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const publicBox = {
       boxId: box.boxId,
       warehouse: box.warehouse,
+      ownerCompanyId: deps.asTrimmedString(box.ownerCompanyId),
+      ownerCompanyCode: deps.asTrimmedString(box.ownerCompanyCode).toUpperCase(),
+      ownerCompanyDisplayName:
+        deps.asTrimmedString(box.ownerCompanyDisplayName) || deps.asTrimmedString(box.ownerCompanyCode).toUpperCase(),
+      ...(box.ownerCompanyIsActive === undefined ? {} : { ownerCompanyIsActive: box.ownerCompanyIsActive === true }),
       dealer: deps.asTrimmedString(box.dealer),
       manufacturer: box.manufacturer,
       filmName: box.filmName,

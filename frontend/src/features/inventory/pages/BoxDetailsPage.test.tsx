@@ -491,6 +491,38 @@ describe('BoxDetailsPage', () => {
     expect(html).not.toContain('Owner: MGT - MGT');
   });
 
+  it('shows inactive owner company state on Box Details without duplicating identical labels', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        ownerCompanyCode: 'EDH',
+        ownerCompanyDisplayName: 'EDH',
+        ownerCompanyIsActive: false
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Owner: EDH (inactive)');
+    expect(html).not.toContain('Owner: EDH - EDH');
+  });
+
+  it('shows owner company information to normal users with Box Details read access', () => {
+    useAuthMock.mockReturnValue({
+      clientIdConfigured: true,
+      isAuthenticated: true,
+      isOwner: false,
+      hasFeatureAccess: () => true
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Owner: MGT');
+    expect(html).not.toContain('Owner: MGT - MGT');
+  });
+
   it('opens and closes Box Technical Details from a labeled button', () => {
     renderInteractivePage();
 
