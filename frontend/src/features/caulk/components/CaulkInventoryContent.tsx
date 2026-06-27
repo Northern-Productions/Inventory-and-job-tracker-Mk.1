@@ -11,7 +11,7 @@ import {
   listCaulkStock,
   upsertCaulkProduct
 } from '../../../api/features/caulkClient';
-import type { Warehouse } from '../../../domain';
+import { formatOwnerCompanyLabel, type Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
 import { useOwnerCompanies } from '../../inventory/hooks/useInventoryQueries';
@@ -227,8 +227,11 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
                       <td>{entry.manufacturer}</td>
                       <td>{entry.productName}</td>
                       <td>
-                        <span className="badge badge-muted" title={entry.ownerCompanyDisplayName || 'Owner company'}>
-                          {entry.ownerCompanyCode || '--'}
+                        <span className="badge badge-muted" title="Owner company">
+                          {formatOwnerCompanyLabel({
+                            code: entry.ownerCompanyCode,
+                            displayName: entry.ownerCompanyDisplayName
+                          }) || '--'}
                         </span>
                       </td>
                       <td>{entry.tubesOnHand}</td>

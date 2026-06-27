@@ -3,6 +3,7 @@ import { Button } from '../../../components/Button';
 import { TextArea } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
+import { formatOwnerCompanyLabel } from '../../../domain';
 import {
   useBulkOwnershipTransfer,
   useOwnerCompanies
@@ -112,7 +113,7 @@ export default function BulkOwnershipTransferPage() {
               .filter((entry) => entry.isActive)
               .map((entry) => ({
                 value: entry.ownerCompanyId,
-                label: `${entry.code} - ${entry.displayName}`
+                label: formatOwnerCompanyLabel(entry)
               }))
           ]}
           disabled={ownerCompaniesQuery.isLoading || bulkTransferMutation.isPending}
@@ -159,7 +160,7 @@ export default function BulkOwnershipTransferPage() {
           <p>
             Confirm transfer of {filmBoxIds.length} film box{filmBoxIds.length === 1 ? '' : 'es'} and{' '}
             {caulkStockIds.length} caulk stock row{caulkStockIds.length === 1 ? '' : 's'} to{' '}
-            {selectedOwner ? `${selectedOwner.code} - ${selectedOwner.displayName}` : 'the selected owner'}.
+            {selectedOwner ? formatOwnerCompanyLabel(selectedOwner) : 'the selected owner'}.
           </p>
         ) : (
           <p>

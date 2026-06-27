@@ -170,7 +170,9 @@ describe('BoxForm', () => {
       .map((option) => option.textContent?.trim());
 
     expect(ownerSelect.required).toBe(true);
-    expect(optionLabels).toEqual(['Select owner company', 'EDH - EDH', 'MGT - MGT']);
+    expect(optionLabels).toEqual(['Select owner company', 'EDH', 'MGT']);
+    expect(optionLabels).not.toContain('EDH - EDH');
+    expect(optionLabels).not.toContain('MGT - MGT');
     expect(optionLabels).not.toContain('OLD - Old Owner (inactive)');
   });
 

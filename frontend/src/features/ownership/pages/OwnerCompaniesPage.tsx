@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '../../../components/Button';
 import { Input } from '../../../components/Input';
 import { useToast } from '../../../components/Toast';
+import { formatOwnerCompanyLabel } from '../../../domain';
 import {
   useDeactivateOwnerCompany,
   useOwnerCompanies,
@@ -139,7 +140,7 @@ export default function OwnerCompaniesPage() {
                 </tr>
               ) : (
                 ownerCompanies.map((entry) => {
-                  const label = `${entry.code} - ${entry.displayName}`;
+                  const label = formatOwnerCompanyLabel(entry);
                   return (
                     <tr key={entry.ownerCompanyId}>
                       <td>{entry.code}</td>

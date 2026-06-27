@@ -10,6 +10,7 @@ import type {
   Warehouse,
   WarehouseEntry
 } from '../../../domain';
+import { formatOwnerCompanyLabel } from '../../../domain';
 
 interface NewCaulkProductDialogProps {
   open: boolean;
@@ -233,7 +234,7 @@ export function NewCaulkProductDialog({
             },
             ...selectableOwnerCompanies.map((entry) => ({
               value: entry.ownerCompanyId,
-              label: `${entry.code} - ${entry.displayName}`
+              label: formatOwnerCompanyLabel(entry)
             }))
           ]}
           disabled={pending || ownerCompaniesLoading}

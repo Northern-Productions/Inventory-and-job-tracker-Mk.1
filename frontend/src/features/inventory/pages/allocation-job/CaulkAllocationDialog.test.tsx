@@ -138,7 +138,7 @@ describe('CaulkAllocationDialog', () => {
         productCode: 'IPA-W',
         ownerCompanyId: 'owner-mgt',
         ownerCompanyCode: 'MGT',
-        ownerCompanyDisplayName: 'MGT',
+        ownerCompanyDisplayName: 'Management Group',
         tubesPerCase: 16,
         tubesOnHand: 6,
         casesOnHand: 0,
@@ -168,7 +168,8 @@ describe('CaulkAllocationDialog', () => {
     expect(screen.getByText('MS1 is short 3 tubes for this allocation.')).toBeTruthy();
     expect(screen.getByText('Transfer From Owner Row')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Transfer + Add Allocation' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'IL1 / MGT (6 tubes available)' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'IL1 / MGT - Management Group (6 tubes available)' })).toBeTruthy();
+    expect(screen.queryByText('MGT - MGT')).toBeNull();
     expect(screen.queryByRole('option', { name: 'AZ1 / EDH (2 tubes available)' })).toBeNull();
   });
 

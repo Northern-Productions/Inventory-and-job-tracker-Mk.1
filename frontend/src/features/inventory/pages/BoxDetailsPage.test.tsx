@@ -427,6 +427,8 @@ describe('BoxDetailsPage', () => {
     expect(html).toContain('30&quot;');
     expect(html).toContain('Wauconda IL1 warehouse');
     expect(html).toContain('IN STOCK');
+    expect(html).toContain('Owner: MGT');
+    expect(html).not.toContain('Owner: MGT - MGT');
     expect(html).toContain('>Edit</button>');
     expect(html).toContain('QR Code');
     expect(html).toContain('Feet Summary');
@@ -470,6 +472,23 @@ describe('BoxDetailsPage', () => {
     expect(html.indexOf('Notes')).toBeLessThan(html.indexOf('Allocations'));
     expect(html.indexOf('Allocations')).toBeLessThan(html.indexOf('Dates &amp; Roll Info'));
     expect(html.indexOf('Dates &amp; Roll Info')).toBeLessThan(html.indexOf('Box Technical Details'));
+  });
+
+  it('combines different owner company code and display name on Box Details', () => {
+    useBoxMock.mockReturnValueOnce({
+      isLoading: false,
+      isError: false,
+      data: buildBox({
+        ownerCompanyCode: 'MGT',
+        ownerCompanyDisplayName: 'Management Group'
+      }),
+      error: null
+    });
+
+    const html = renderPage();
+
+    expect(html).toContain('Owner: MGT - Management Group');
+    expect(html).not.toContain('Owner: MGT - MGT');
   });
 
   it('opens and closes Box Technical Details from a labeled button', () => {

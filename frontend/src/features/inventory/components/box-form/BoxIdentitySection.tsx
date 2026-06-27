@@ -1,5 +1,5 @@
 import { Input } from '../../../../components/Input';
-import type { FilmCatalogEntry, OwnerCompanyEntry } from '../../../../domain';
+import { formatOwnerCompanyLabel, type FilmCatalogEntry, type OwnerCompanyEntry } from '../../../../domain';
 import type { BoxDraft } from '../../utils/boxHelpers';
 import { FilmNameAutocompleteInput } from '../FilmNameAutocompleteInput';
 
@@ -103,7 +103,7 @@ export function BoxIdentitySection({
             </option>
             {ownerOptions.map((entry) => (
               <option key={entry.ownerCompanyId} value={entry.ownerCompanyId}>
-                {entry.code} - {entry.displayName}
+                {formatOwnerCompanyLabel(entry)}
                 {entry.isActive ? '' : ' (inactive)'}
               </option>
             ))}

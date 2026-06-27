@@ -65,3 +65,30 @@ export interface OwnershipMutationResult {
   batchId: string;
   events: OwnershipEventEntry[];
 }
+
+export function formatOwnerCompanyLabel({
+  code,
+  displayName,
+  name
+}: {
+  code?: string | null;
+  displayName?: string | null;
+  name?: string | null;
+} = {}) {
+  const normalizedCode = String(code || '').trim();
+  const normalizedName = String(displayName || name || '').trim();
+
+  if (!normalizedCode) {
+    return normalizedName;
+  }
+
+  if (!normalizedName) {
+    return normalizedCode;
+  }
+
+  if (normalizedCode.toLocaleLowerCase() === normalizedName.toLocaleLowerCase()) {
+    return normalizedCode;
+  }
+
+  return `${normalizedCode} - ${normalizedName}`;
+}

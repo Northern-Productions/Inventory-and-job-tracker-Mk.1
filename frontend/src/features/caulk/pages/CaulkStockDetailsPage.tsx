@@ -14,7 +14,7 @@ import {
   mutateCaulkStock,
   receiveCaulkTransfer
 } from '../../../api/features/caulkClient';
-import type { Warehouse } from '../../../domain';
+import { formatOwnerCompanyLabel, type Warehouse } from '../../../domain';
 import { useAuth } from '../../auth/AuthContext';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { formatMutationWarningDescription } from '../../../lib/mutationWarnings';
@@ -118,6 +118,10 @@ export default function CaulkStockDetailsPage() {
     warehouseRegistry.entries.find((entry) => entry.code === warehouse)?.name || warehouse;
   const canEdit = auth.hasFeatureAccess('inventory', 'write');
   const canChangeOwner = auth.isOwner;
+  const stockOwnerLabel = formatOwnerCompanyLabel({
+    code: stockEntry?.ownerCompanyCode,
+    displayName: stockEntry?.ownerCompanyDisplayName
+  });
 
   useEffect(() => {
     if (!stockEntry) {
@@ -481,8 +485,8 @@ export default function CaulkStockDetailsPage() {
               <div className="key-value">
                 <dt>Owner</dt>
                 <dd>
-                  <span className="badge badge-muted" title={stockEntry.ownerCompanyDisplayName || 'Owner company'}>
-                    {stockEntry.ownerCompanyCode || '--'}
+                  <span className="badge badge-muted" title="Owner company">
+                    {stockOwnerLabel || '--'}
                   </span>
                   {stockEntry.ownerCompanyIsActive === false ? (
                     <span className="muted-text"> inactive</span>
@@ -534,7 +538,7 @@ export default function CaulkStockDetailsPage() {
                     .filter((entry) => entry.isActive || entry.ownerCompanyId === stockEntry.ownerCompanyId)
                     .map((entry) => ({
                       value: entry.ownerCompanyId,
-                      label: `${entry.code} - ${entry.displayName}${entry.isActive ? '' : ' (inactive)'}`
+                      label: `${formatOwnerCompanyLabel(entry)}${entry.isActive ? '' : ' (inactive)'}`
                     }))
                 ]}
                 disabled={!canChangeOwner || ownerCompaniesQuery.isLoading || changeOwnerMutation.isPending}

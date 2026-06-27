@@ -1,7 +1,7 @@
 import { type ReactNode, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../../../components/Button';
-import { getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
+import { formatOwnerCompanyLabel, getWarehouseLabel, type Box, type BoxTransferEntry } from '../../../../domain';
 import { formatDate } from '../../../../lib/date';
 import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 import { buildAllocationJobRoute } from '../../utils/jobRoutes';
@@ -246,9 +246,10 @@ export function BoxDetailHeroSection({
   ]
     .filter((entry) => String(entry || '').trim())
     .join(' \u00b7 ');
-  const ownerDisplayName = box.ownerCompanyCode
-    ? `${box.ownerCompanyCode}${box.ownerCompanyDisplayName && box.ownerCompanyDisplayName !== box.ownerCompanyCode ? ` - ${box.ownerCompanyDisplayName}` : ''}`
-    : '';
+  const ownerDisplayName = formatOwnerCompanyLabel({
+    code: box.ownerCompanyCode,
+    displayName: box.ownerCompanyDisplayName
+  });
   const notesText = String(box.notes || '').trim();
   const hasNotes = Boolean(notesText && notesText !== '--');
   const checkoutJobLabel = box.lastCheckoutJob
@@ -290,7 +291,7 @@ export function BoxDetailHeroSection({
             <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
             {ownerDisplayName ? (
               <span className="badge badge-muted" title="Inventory owner company">
-                {box.ownerCompanyCode}
+                {ownerDisplayName}
               </span>
             ) : null}
             {!pendingTransfer && box.status === 'ORDERED' ? (

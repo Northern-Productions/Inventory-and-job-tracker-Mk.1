@@ -246,6 +246,8 @@ describe('CaulkStockDetailsPage', () => {
 
     expect(await screen.findByText('Caulk Details')).toBeTruthy();
     expect(await screen.findByText('3M IPA White')).toBeTruthy();
+    expect(screen.getAllByText('MGT').length).toBeGreaterThan(0);
+    expect(screen.queryByText('MGT - MGT')).toBeNull();
     expect(await screen.findByText('Recent Transactions')).toBeTruthy();
     expect(screen.getByText('Action')).toBeTruthy();
     expect(screen.getByText('Delta Tubes')).toBeTruthy();
@@ -255,6 +257,36 @@ describe('CaulkStockDetailsPage', () => {
     expect(await screen.findByText('Checked in unused caulk from job 18782.')).toBeTruthy();
     expect(await screen.findByText('physical count after shelf audit')).toBeTruthy();
     expect(screen.queryByText(/20260323212436379-623/)).toBeNull();
+
+    queryClient.clear();
+  });
+
+  it('combines different caulk owner code and display name on details', async () => {
+    listCaulkStockMock.mockResolvedValueOnce([
+      {
+        stockId: 'stock-p1-mgt',
+        warehouse: 'IL1',
+        productId: 'p1',
+        manufacturerId: 'm1',
+        manufacturer: '3M',
+        productName: '3M IPA White',
+        productCode: 'IPA-W',
+        ownerCompanyId: 'owner-mgt',
+        ownerCompanyCode: 'MGT',
+        ownerCompanyDisplayName: 'Management Group',
+        ownerCompanyIsActive: true,
+        tubesPerCase: 16,
+        tubesOnHand: 33,
+        casesOnHand: 2,
+        looseTubes: 1,
+        updatedAt: '2026-04-08T12:00:00Z',
+        updatedBy: 'tester'
+      }
+    ]);
+    const { queryClient } = renderPage();
+
+    expect(await screen.findByText('MGT - Management Group')).toBeTruthy();
+    expect(screen.queryByText('MGT - MGT')).toBeNull();
 
     queryClient.clear();
   });
@@ -539,7 +571,7 @@ describe('CaulkStockDetailsPage', () => {
     listCaulkTransactionsMock.mockResolvedValue([]);
     const { queryClient } = renderPage('/caulk/stock/stock-source');
 
-    expect(await screen.findByText('MGT')).toBeTruthy();
+    expect((await screen.findAllByText('MGT')).length).toBeGreaterThan(0);
     fireEvent.change(fieldControl<HTMLSelectElement>('Owner Company', 'select'), { target: { value: 'owner-kam' } });
     await screen.findByText('Ownership Note');
     fireEvent.change(fieldControl<HTMLInputElement>('Ownership Note', 'input'), {
@@ -557,7 +589,7 @@ describe('CaulkStockDetailsPage', () => {
     await waitFor(() =>
       expect(screen.getByTestId('route-location').textContent).toBe('/caulk/stock/stock-target')
     );
-    expect(await screen.findByText('KAM')).toBeTruthy();
+    expect((await screen.findAllByText('KAM')).length).toBeGreaterThan(0);
     expect(toastPushMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Caulk owner updated',

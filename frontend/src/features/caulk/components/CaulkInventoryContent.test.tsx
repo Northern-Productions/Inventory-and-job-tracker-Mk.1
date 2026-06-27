@@ -138,6 +138,8 @@ describe('CaulkInventoryContent', () => {
 
     expect(html).toContain('href="/caulk/IL1/p1"');
     expect(html).toContain('>IL1</a>');
+    expect(html).toContain('>MGT</span>');
+    expect(html).not.toContain('MGT - MGT');
   });
 
   it('keeps the row count badge for read-only users', () => {

@@ -4,7 +4,13 @@ import { listCaulkStock } from '../../../../api/features/caulkClient';
 import { Button } from '../../../../components/Button';
 import { DialogSurface } from '../../../../components/DialogSurface';
 import { Input } from '../../../../components/Input';
-import type { CaulkJobAllocationEntry, CaulkProductEntry, JobCaulkRequirementLine, Warehouse } from '../../../../domain';
+import {
+  formatOwnerCompanyLabel,
+  type CaulkJobAllocationEntry,
+  type CaulkProductEntry,
+  type JobCaulkRequirementLine,
+  type Warehouse
+} from '../../../../domain';
 import {
   buildCaulkAllocationValuesForRequirement,
   getCaulkAllocationTransferPlan,
@@ -388,7 +394,12 @@ export function CaulkAllocationDialog({
                       <option value="">Select source row</option>
                       {transferPlan.eligibleSourceStock.map((entry) => (
                         <option key={entry.stockId || `${entry.warehouse}:${entry.ownerCompanyId}`} value={entry.stockId}>
-                          {entry.warehouse} / {entry.ownerCompanyCode || 'Owner'} ({entry.tubesOnHand} tubes available)
+                          {entry.warehouse} /{' '}
+                          {formatOwnerCompanyLabel({
+                            code: entry.ownerCompanyCode,
+                            displayName: entry.ownerCompanyDisplayName
+                          }) || 'Owner'}{' '}
+                          ({entry.tubesOnHand} tubes available)
                         </option>
                       ))}
                     </select>
@@ -428,7 +439,11 @@ export function CaulkAllocationDialog({
                   <option value="">Select owner row</option>
                   {targetStockRows.map((entry) => (
                     <option key={entry.stockId || entry.ownerCompanyId} value={entry.stockId}>
-                      {entry.ownerCompanyCode || 'Owner'} ({entry.tubesOnHand} tubes available)
+                      {formatOwnerCompanyLabel({
+                        code: entry.ownerCompanyCode,
+                        displayName: entry.ownerCompanyDisplayName
+                      }) || 'Owner'}{' '}
+                      ({entry.tubesOnHand} tubes available)
                     </option>
                   ))}
                 </select>
@@ -438,7 +453,12 @@ export function CaulkAllocationDialog({
               </label>
             ) : selectedTargetStock ? (
               <p className="muted-text">
-                Reserving from {selectedTargetStock.ownerCompanyCode || 'owner row'} in {editor.warehouse}.
+                Reserving from{' '}
+                {formatOwnerCompanyLabel({
+                  code: selectedTargetStock.ownerCompanyCode,
+                  displayName: selectedTargetStock.ownerCompanyDisplayName
+                }) || 'owner row'}{' '}
+                in {editor.warehouse}.
               </p>
             ) : null}
             {caulkAllocationStockQuery.isLoading || caulkAllocationStockQuery.isFetching ? (
@@ -473,7 +493,12 @@ export function CaulkAllocationDialog({
                           className={isSelectedWarehouse ? 'caulk-stock-row-selected' : undefined}
                         >
                           <td>{entry.warehouse}</td>
-                          <td>{entry.ownerCompanyCode || '--'}</td>
+                          <td>
+                            {formatOwnerCompanyLabel({
+                              code: entry.ownerCompanyCode,
+                              displayName: entry.ownerCompanyDisplayName
+                            }) || '--'}
+                          </td>
                           <td>{entry.tubesOnHand}</td>
                           <td>{entry.casesOnHand}</td>
                           <td>{entry.looseTubes}</td>
