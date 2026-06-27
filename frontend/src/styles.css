@@ -2768,6 +2768,25 @@ td.col-available-linear-ft {
   justify-items: center;
 }
 
+.owner-companies-table {
+  table-layout: fixed;
+}
+
+.owner-companies-table th,
+.owner-companies-table td {
+  overflow-wrap: anywhere;
+}
+
+.owner-companies-table th:nth-child(2),
+.owner-companies-table td:nth-child(2) {
+  width: 7rem;
+}
+
+.owner-companies-table th:nth-child(3),
+.owner-companies-table td:nth-child(3) {
+  width: 8rem;
+}
+
 .stock-flag {
   display: inline-flex;
   width: fit-content;

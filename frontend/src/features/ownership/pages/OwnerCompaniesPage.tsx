@@ -9,20 +9,33 @@ import {
   useUpsertOwnerCompany
 } from '../../inventory/hooks/useInventoryQueries';
 
+const MAX_OWNER_COMPANY_CODE_LENGTH = 16;
+
+function deriveOwnerCompanyCode(companyName: string) {
+  return companyName
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, '')
+    .toUpperCase()
+    .slice(0, MAX_OWNER_COMPANY_CODE_LENGTH);
+}
+
 export default function OwnerCompaniesPage() {
   const toast = useToast();
   const ownerCompaniesQuery = useOwnerCompanies({ includeInactive: true });
   const upsertMutation = useUpsertOwnerCompany();
   const deactivateMutation = useDeactivateOwnerCompany();
-  const [code, setCode] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [error, setError] = useState('');
 
   async function handleCreate() {
-    const normalizedCode = code.trim().toUpperCase();
-    const normalizedDisplayName = displayName.trim();
+    const normalizedCompanyName = companyName.trim();
+    const normalizedCode = deriveOwnerCompanyCode(normalizedCompanyName);
+    if (!normalizedCompanyName) {
+      setError('Company name is required.');
+      return;
+    }
     if (!normalizedCode) {
-      setError('Owner company code is required.');
+      setError('Company name must include at least one letter or number.');
       return;
     }
 
@@ -30,13 +43,12 @@ export default function OwnerCompaniesPage() {
       setError('');
       await upsertMutation.mutateAsync({
         code: normalizedCode,
-        displayName: normalizedDisplayName || undefined
+        displayName: normalizedCompanyName
       });
-      setCode('');
-      setDisplayName('');
+      setCompanyName('');
       toast.push({
         title: 'Owner company saved',
-        description: `${normalizedCode} is available for inventory ownership.`,
+        description: `${normalizedCompanyName} is available for inventory ownership.`,
         variant: 'success'
       });
     } catch (requestError) {
@@ -83,15 +95,9 @@ export default function OwnerCompaniesPage() {
         </div>
         <div className="form-grid">
           <Input
-            label="Code"
-            value={code}
-            onChange={(event) => setCode(event.target.value.toUpperCase())}
-            placeholder="MGT"
-          />
-          <Input
-            label="Display Name"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
+            label="Company Name"
+            value={companyName}
+            onChange={(event) => setCompanyName(event.target.value)}
             placeholder="MGT"
           />
         </div>
@@ -120,21 +126,19 @@ export default function OwnerCompaniesPage() {
               : 'Owner companies failed to load.'}
           </p>
         ) : null}
-        <div className="table-wrap">
-          <table className="inventory-table">
+        <div className="table-wrap owner-companies-table-wrap">
+          <table className="inventory-table owner-companies-table">
             <thead>
               <tr>
-                <th>Code</th>
                 <th>Name</th>
                 <th>Status</th>
-                <th>Updated</th>
-                <th>Actions</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {ownerCompanies.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="muted-text">
+                  <td colSpan={3} className="muted-text">
                     No owner companies are available yet.
                   </td>
                 </tr>
@@ -143,14 +147,12 @@ export default function OwnerCompaniesPage() {
                   const label = formatOwnerCompanyLabel(entry);
                   return (
                     <tr key={entry.ownerCompanyId}>
-                      <td>{entry.code}</td>
                       <td>{entry.displayName}</td>
                       <td>
                         <span className={`badge ${entry.isActive ? 'badge-IN_STOCK' : 'badge-muted'}`}>
                           {entry.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td>{entry.updatedAt || '--'}</td>
                       <td>
                         {entry.isActive ? (
                           <Button
