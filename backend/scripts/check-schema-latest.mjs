@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid.sql';
+const LATEST_MIGRATION = '0175_caulk_cancel_return_owner_resolution.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -69,6 +69,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.default_owner_company_id_for_warehouse(uuid, text)' },
   { kind: 'function', signature: 'app_api.require_owner_company(uuid, uuid, boolean)' },
   { kind: 'function', signature: 'app_api.resolve_caulk_stock_owner_company_id(uuid, uuid, text, uuid, uuid)' },
+  { kind: 'function', signature: 'app_api.caulk_apply_stock_delta(uuid, text, uuid, text, text, integer, text, text, text, text)' },
   { kind: 'function', signature: 'app_api.caulk_apply_stock_delta_for_owner(uuid, text, uuid, text, uuid, text, integer, text, text, text, text)' },
   { kind: 'function', signature: 'public.api_acl_owner_companies_list(uuid, boolean)' },
   { kind: 'function', signature: 'public.api_acl_owner_companies_upsert(uuid, text, jsonb)' },
@@ -246,6 +247,27 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Multiple owner rows exist for this caulk product and warehouse. Select an exact owner row.'
     ],
     excludes: ['min(s.owner_company_id)']
+  },
+  {
+    signature: 'app_api.caulk_apply_stock_delta_for_owner(uuid, text, uuid, text, uuid, text, integer, text, text, text, text)',
+    includes: [
+      "'JOB_ALLOCATION_CANCEL_RETURN'",
+      'Unsupported caulk stock action.',
+      'and s.owner_company_id = v_owner.id',
+      'for update',
+      'app_api.require_owner_company(p_org_id, p_owner_company_id, false)'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.caulk_apply_stock_delta(uuid, text, uuid, text, text, integer, text, text, text, text)',
+    includes: [
+      "v_action = 'JOB_ALLOCATION_CANCEL_RETURN'",
+      'app_api.caulk_owner_from_allocation_public_id(p_org_id, p_source_box_id)',
+      'app_api.resolve_caulk_stock_owner_company_id',
+      'app_api.caulk_apply_stock_delta_for_owner'
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.resolve_box_id_alias(uuid, text, timestamp with time zone)',

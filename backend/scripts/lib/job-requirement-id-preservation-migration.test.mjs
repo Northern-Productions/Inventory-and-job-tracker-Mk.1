@@ -44,7 +44,7 @@ test('latest schema guard requires job requirement id preservation release objec
   assert.match(
     schemaGuard,
 
-    /const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid\.sql';/,
+    /const LATEST_MIGRATION = '0175_caulk_cancel_return_owner_resolution\.sql';/,
 
     'Expected the schema guard to name the new latest backend migration.'
   );
