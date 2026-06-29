@@ -186,7 +186,31 @@ describe('boxSchemas price derivation', () => {
     ).toThrowError('Required.');
   });
 
-  it('keeps ownership out of normal edit metadata payloads', () => {
+  it('preserves owner company in normal edit metadata payloads', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        ownerCompanyId: 'owner-mgt'
+      }),
+      buildBox({ ownerCompanyId: 'owner-mgt' }),
+      []
+    );
+
+    expect(payload.ownerCompanyId).toBe('owner-mgt');
+  });
+
+  it('falls back to the stored owner company when an edit draft is missing it', () => {
+    const payload = parseUpdateBoxDraft(
+      buildDraft({
+        ownerCompanyId: ''
+      }),
+      buildBox({ ownerCompanyId: 'owner-mgt' }),
+      []
+    );
+
+    expect(payload.ownerCompanyId).toBe('owner-mgt');
+  });
+
+  it('allows owner-role edit drafts to carry the requested owner for the owner-change flow', () => {
     const payload = parseUpdateBoxDraft(
       buildDraft({
         ownerCompanyId: 'owner-edh'
@@ -195,7 +219,7 @@ describe('boxSchemas price derivation', () => {
       []
     );
 
-    expect('ownerCompanyId' in payload).toBe(false);
+    expect(payload.ownerCompanyId).toBe('owner-edh');
   });
 
   it('derives received-box feet from roll weight and locked allocations on edit', () => {

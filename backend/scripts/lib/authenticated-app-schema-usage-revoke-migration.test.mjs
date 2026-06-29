@@ -41,7 +41,7 @@ test('latest schema check points to the authenticated app schema usage revoke', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0175_caulk_cancel_return_owner_resolution\.sql/);
+  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
 
   assert.match(schemaCheck, /authenticated_app_schema_usage/);
   assert.match(schemaCheck, /service_role_app_schema_usage/);

@@ -32,7 +32,7 @@ test('film weight profiles migration stays mirrored and schema-guarded', async (
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0175_caulk_cancel_return_owner_resolution\.sql/);
+  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);

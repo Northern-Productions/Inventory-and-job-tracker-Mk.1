@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0175_caulk_cancel_return_owner_resolution.sql';
+const LATEST_MIGRATION = '0177_edit_box_add_preserve_owner_company.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -1388,7 +1388,11 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'public.api_boxes_add(uuid, text, jsonb)',
-    includes: ["v_box.dealer := app_api.trim_text(p_payload->>'dealer');"],
+    includes: [
+      "v_box.dealer := app_api.trim_text(p_payload->>'dealer');",
+      "v_box.owner_company_id := nullif(app_api.trim_text(p_payload->>'ownerCompanyId'), '')::uuid;",
+      'perform app_api.require_owner_company(p_org_id, v_box.owner_company_id, true);'
+    ],
     excludes: []
   },
   {
@@ -1397,6 +1401,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_box.dealer := case',
       "then app_api.trim_text(p_payload->>'dealer')",
       "else coalesce(v_existing.dealer, '')",
+      'v_box.owner_company_id := v_existing.owner_company_id;',
       "if v_box.status <> 'CHECKED_OUT' then",
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
     ],

@@ -44,7 +44,7 @@ test('schema check keeps manual-only planner semantics after later hotfix migrat
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0175_caulk_cancel_return_owner_resolution\.sql/);
+  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
 
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /'manualOnly', true/);

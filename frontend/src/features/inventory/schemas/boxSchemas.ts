@@ -74,7 +74,7 @@ const addSchema = z.object({
   notes: optionalString
 });
 
-const updateSchema = addSchema.omit({ ownerCompanyId: true }).extend({
+const updateSchema = addSchema.extend({
   boxId: requiredString,
   manufacturer: requiredString,
   currentFeetOnRoll: z.number().min(0, 'Current feet must be zero or greater.').optional()
@@ -215,6 +215,7 @@ export function parseUpdateBoxDraft(
 
   return updateSchema.parse({
     boxId: normalizeTrailingLetterBoxId(draft.boxId),
+    ownerCompanyId: draft.ownerCompanyId || currentBox?.ownerCompanyId || '',
     dealer: draft.dealer,
     manufacturer: draft.manufacturer,
     filmName: draft.filmName,

@@ -50,7 +50,7 @@ test('latest schema check still validates the roll history overload hotfix seman
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0175_caulk_cancel_return_owner_resolution\.sql/);
+  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
 
   assert.match(schemaCheck, /insert into app\.roll_weight_log \(/);
   assert.match(schemaCheck, /created_at\\n  \)/);

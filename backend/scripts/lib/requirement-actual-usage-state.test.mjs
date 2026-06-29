@@ -55,7 +55,7 @@ test('requirement usage state migration is mirrored and guarded by schema latest
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0175_caulk_cancel_return_owner_resolution\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0177_edit_box_add_preserve_owner_company\.sql';/);
 
   assert.match(backendMigration, /actual_used_feet integer not null default 0/);
   assert.match(backendMigration, /status text not null default 'ACTIVE'/);

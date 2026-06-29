@@ -149,7 +149,7 @@ test('schema latest guard catches stale box update partial receiving function dr
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0175_caulk_cancel_return_owner_resolution\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0177_edit_box_add_preserve_owner_company\.sql';/);
 
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);
