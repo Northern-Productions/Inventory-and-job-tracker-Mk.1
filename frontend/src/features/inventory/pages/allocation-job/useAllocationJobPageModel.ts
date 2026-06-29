@@ -889,12 +889,22 @@ export function useAllocationJobPageModel() {
         productId: requirement.productId
       });
       const warehouseKey = summary.warehouse.trim().toUpperCase();
-      const stockRow =
-        stockRows.find(
-          (entry) =>
-            entry.productId === requirement.productId &&
-            String(entry.warehouse || '').trim().toUpperCase() === warehouseKey
-        ) || null;
+      const matchingStockRows = stockRows.filter(
+        (entry) =>
+          entry.productId === requirement.productId &&
+          String(entry.warehouse || '').trim().toUpperCase() === warehouseKey
+      );
+      if (matchingStockRows.length > 1) {
+        toast.push({
+          title: 'Choose exact caulk owner',
+          description:
+            'Multiple owner rows exist for this caulk product and warehouse. Use Add Caulk to choose the exact owner stock row.',
+          variant: 'error'
+        });
+        return;
+      }
+
+      const stockRow = matchingStockRows[0] || null;
       const availableTubes = Math.max(0, Math.floor(Number(stockRow?.tubesOnHand || 0)));
       const allocatedTubes = Math.min(remainingTubes, availableTubes);
       if (allocatedTubes <= 0) {
@@ -911,6 +921,8 @@ export function useAllocationJobPageModel() {
         jobNumber: summary.jobNumber,
         requirementId: requirement.requirementId,
         productId: requirement.productId,
+        stockId: stockRow?.stockId || undefined,
+        ownerCompanyId: stockRow?.ownerCompanyId || undefined,
         warehouse: summary.warehouse,
         allocatedTubes,
         notes: 'Auto allocated from requirement row.'

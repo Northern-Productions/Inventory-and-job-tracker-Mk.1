@@ -88,7 +88,7 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0172_inventory_ownership\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid\.sql';/);
 
   assert.match(backendMigration, /create table if not exists app\.job_phases/);
   assert.match(backendMigration, /add column phase_id uuid/);
@@ -107,7 +107,7 @@ test('phase edit hotfix migration qualifies ordinality for phase payload parsing
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0172_inventory_ownership\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid\.sql';/);
 
   assert.match(backendMigration, /with ordinality as phase\(value, phase_ordinality\)/);
   assert.match(backendMigration, /coalesce\(phase\.value->>'phaseNumber', phase\.phase_ordinality::text\)/);

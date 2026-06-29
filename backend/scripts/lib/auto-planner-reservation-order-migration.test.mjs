@@ -39,7 +39,7 @@ test('latest schema check forbids reservation-order planner internals after manu
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0172_inventory_ownership\.sql/);
+  assert.match(schemaCheck, /0173_caulk_owner_resolution_no_min_uuid\.sql/);
 
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /perform app_api\.reconcile_auto_planned_allocations/);

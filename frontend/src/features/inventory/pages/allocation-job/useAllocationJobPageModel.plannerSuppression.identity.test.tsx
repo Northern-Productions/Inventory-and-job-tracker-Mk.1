@@ -12,6 +12,9 @@ const useJobMock = vi.fn();
 const useJobByIdMock = vi.fn();
 const clearSuppressionMutateAsyncMock = vi.fn();
 const createFilmOrderMutateAsyncMock = vi.fn();
+const addCaulkAllocationMutateAsyncMock = vi.fn();
+const listCaulkStockMock = vi.fn();
+const pushToastMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
@@ -20,7 +23,11 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../../../../components/Toast', () => ({
-  useToast: () => ({ push: vi.fn() })
+  useToast: () => ({ push: pushToastMock })
+}));
+
+vi.mock('../../../../api/features/caulkClient', () => ({
+  listCaulkStock: (...args: unknown[]) => listCaulkStockMock(...args)
 }));
 
 vi.mock('../../../../hooks/useIsPhoneLayout', () => ({
@@ -55,7 +62,8 @@ function buildMutationState(overrides: Record<string, unknown> = {}) {
 }
 
 vi.mock('../../hooks/useInventoryQueries', () => ({
-  useAddCaulkJobAllocation: () => buildMutationState(),
+  useAddCaulkJobAllocation: () =>
+    buildMutationState({ mutateAsync: addCaulkAllocationMutateAsyncMock }),
   useAllocateBox: () => buildMutationState(),
   useCancelCaulkTransfer: () => buildMutationState(),
   useCancelBoxTransfer: () => buildMutationState(),
@@ -221,6 +229,11 @@ describe('useAllocationJobPageModel planner suppression identity', () => {
     setSearchParamsMock.mockReset();
     useJobMock.mockReset();
     useJobByIdMock.mockReset();
+    pushToastMock.mockReset();
+    addCaulkAllocationMutateAsyncMock.mockReset();
+    addCaulkAllocationMutateAsyncMock.mockResolvedValue({ warnings: [] });
+    listCaulkStockMock.mockReset();
+    listCaulkStockMock.mockResolvedValue([]);
     clearSuppressionMutateAsyncMock.mockReset();
     clearSuppressionMutateAsyncMock.mockResolvedValue({ warnings: [] });
     createFilmOrderMutateAsyncMock.mockReset();
@@ -310,5 +323,72 @@ describe('useAllocationJobPageModel planner suppression identity', () => {
       requestedFeet: 100
     });
     expect(createFilmOrderMutateAsyncMock.mock.calls[0][0]).not.toHaveProperty('jobId');
+  });
+
+  it('canonical caulk auto allocate sends exact stock row identity when one owner row matches', async () => {
+    listCaulkStockMock.mockResolvedValue([
+      {
+        stockId: 'stock-il1-owner-a',
+        ownerCompanyId: 'owner-company-a',
+        productId: 'product-1',
+        warehouse: 'IL1',
+        tubesOnHand: 9
+      }
+    ]);
+    const { result } = renderModel({ canonical: true });
+
+    await act(async () => {
+      await result.current.handleAutoAllocateCaulkRequirement(
+        buildCaulkRequirement({ requiredTubes: 12, remainingTubes: 5 })
+      );
+    });
+
+    expect(listCaulkStockMock).toHaveBeenCalledWith({
+      warehouse: 'IL1',
+      productId: 'product-1'
+    });
+    expect(addCaulkAllocationMutateAsyncMock).toHaveBeenCalledWith({
+      jobId: JOB_ID,
+      jobNumber: '000123',
+      requirementId: 'req-caulk-1',
+      productId: 'product-1',
+      stockId: 'stock-il1-owner-a',
+      ownerCompanyId: 'owner-company-a',
+      warehouse: 'IL1',
+      allocatedTubes: 5,
+      notes: 'Auto allocated from requirement row.'
+    });
+  });
+
+  it('caulk auto allocate blocks ambiguous owner rows without sending an allocation mutation', async () => {
+    listCaulkStockMock.mockResolvedValue([
+      {
+        stockId: 'stock-il1-owner-a',
+        ownerCompanyId: 'owner-company-a',
+        productId: 'product-1',
+        warehouse: 'IL1',
+        tubesOnHand: 9
+      },
+      {
+        stockId: 'stock-il1-owner-b',
+        ownerCompanyId: 'owner-company-b',
+        productId: 'product-1',
+        warehouse: 'IL1',
+        tubesOnHand: 7
+      }
+    ]);
+    const { result } = renderModel({ canonical: true });
+
+    await act(async () => {
+      await result.current.handleAutoAllocateCaulkRequirement(buildCaulkRequirement());
+    });
+
+    expect(addCaulkAllocationMutateAsyncMock).not.toHaveBeenCalled();
+    expect(pushToastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Choose exact caulk owner',
+        variant: 'error'
+      })
+    );
   });
 });

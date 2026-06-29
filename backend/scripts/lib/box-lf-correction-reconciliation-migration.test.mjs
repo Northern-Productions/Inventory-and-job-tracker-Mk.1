@@ -55,7 +55,7 @@ test('receive ordered accepts current LF and reconciles before and after linked 
 test('schema latest guards box LF correction semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0172_inventory_ownership\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid\.sql';/);
   assert.match(schemaLatest, /v_received_feet_text text/);
   assert.match(schemaLatest, /p_payload->>'currentFeetOnRoll'/);
   assert.match(schemaLatest, /CurrentFeetOnRoll cannot be lower than the box''s active allocated feet/);

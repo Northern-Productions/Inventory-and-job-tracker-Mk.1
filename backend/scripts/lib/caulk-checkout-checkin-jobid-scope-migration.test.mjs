@@ -134,7 +134,7 @@ test('caulk checkout/check-in jobId scope migration keeps non-scope workflows an
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0172_inventory_ownership\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid\.sql';/);
 
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
   assert.match(schemaCheck, /'caulkProductWarehousePairs'/);

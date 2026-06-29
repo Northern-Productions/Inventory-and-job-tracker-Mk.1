@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0172_inventory_ownership.sql';
+const LATEST_MIGRATION = '0173_caulk_owner_resolution_no_min_uuid.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -237,6 +237,16 @@ const REQUIRED_OBJECTS = [
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'app_api.resolve_caulk_stock_owner_company_id(uuid, uuid, text, uuid, uuid)',
+    includes: [
+      'select count(*)::integer',
+      'if v_count = 1 then',
+      'select s.owner_company_id',
+      'Multiple owner rows exist for this caulk product and warehouse. Select an exact owner row.'
+    ],
+    excludes: ['min(s.owner_company_id)']
+  },
   {
     signature: 'app_api.resolve_box_id_alias(uuid, text, timestamp with time zone)',
     includes: [
