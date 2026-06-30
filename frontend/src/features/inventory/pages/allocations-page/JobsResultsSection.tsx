@@ -12,6 +12,10 @@ import { JobsCalendarView } from '../../components/JobsCalendarView';
 import { getJobListDisplayStatus } from '../../utils/jobSorts';
 
 function formatStatusLabel(status: string) {
+  if (status === 'NEEDS_ALLOCATION') {
+    return 'Needs Allocation';
+  }
+
   return status.replace(/_/g, ' ');
 }
 

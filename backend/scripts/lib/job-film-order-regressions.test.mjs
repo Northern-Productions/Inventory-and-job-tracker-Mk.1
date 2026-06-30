@@ -209,7 +209,7 @@ test('deriveInStockReadinessStatus derives film readiness from strict stored all
       allocations: [],
       allBoxes: base.allBoxes.map((box) => ({ ...box, status: 'IN_STOCK', feetAvailable: 100 }))
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
   assert.equal(
     deriveInStockReadinessStatus({
@@ -221,6 +221,26 @@ test('deriveInStockReadinessStatus derives film readiness from strict stored all
           coveredFeet: 25
         }
       ]
+    }),
+    'NEEDS_ALLOCATION'
+  );
+  assert.equal(
+    deriveInStockReadinessStatus({
+      ...base,
+      allocations: [],
+      filmOrders: [
+        {
+          filmOrderId: 'fo-active',
+          requirementId: 'req-1',
+          jobNumber: '19413',
+          manufacturer: 'Security',
+          filmName: 'Madico Safetyshield 800',
+          widthIn: 60,
+          requestedFeet: 40,
+          status: 'FILM_ORDER'
+        }
+      ],
+      allBoxes: base.allBoxes.map((box) => ({ ...box, status: 'IN_STOCK', feetAvailable: 100 }))
     }),
     'FILM_ORDER'
   );
@@ -333,7 +353,7 @@ test('deriveInStockReadinessStatus excludes invalid film allocation coverage', (
         ...base,
         allocations: [allocation]
       }),
-      'FILM_ORDER'
+      'NEEDS_ALLOCATION'
     );
   }
 
@@ -358,7 +378,7 @@ test('deriveInStockReadinessStatus excludes invalid film allocation coverage', (
       allBoxes: [{ ...base.allBoxes[0], filmName: 'Different Film' }],
       allocations: [validAllocation]
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
   assert.equal(
     deriveInStockReadinessStatus({
@@ -366,7 +386,7 @@ test('deriveInStockReadinessStatus excludes invalid film allocation coverage', (
       allBoxes: [{ ...base.allBoxes[0], widthIn: 48 }],
       allocations: [validAllocation]
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
 });
 
@@ -434,7 +454,7 @@ test('deriveInStockReadinessStatus requires every material requirement to be cov
         }
       ]
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
 
   assert.equal(
@@ -531,7 +551,7 @@ test('deriveInStockReadinessStatus derives caulk readiness from canonical linked
       caulkAllocations: [],
       caulkStockEntries: [{ productId: 'product-1', warehouse: 'IL1', tubesOnHand: 60 }]
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
   assert.equal(
     deriveInStockReadinessStatus({
@@ -548,7 +568,7 @@ test('deriveInStockReadinessStatus derives caulk readiness from canonical linked
       ],
       caulkStockEntries: []
     }),
-    'FILM_ORDER'
+    'NEEDS_ALLOCATION'
   );
 });
 

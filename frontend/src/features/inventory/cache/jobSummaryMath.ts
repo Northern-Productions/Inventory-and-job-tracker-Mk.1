@@ -27,7 +27,7 @@ export function computeOptimisticJobStatus(
     return 'READY';
   }
 
-  return requiredFeet > 0 || requiredTubes > 0 ? 'FILM_ORDER' : 'READY';
+  return requiredFeet > 0 || requiredTubes > 0 ? 'NEEDS_ALLOCATION' : 'READY';
 }
 
 function buildOptimisticJobRequirements(

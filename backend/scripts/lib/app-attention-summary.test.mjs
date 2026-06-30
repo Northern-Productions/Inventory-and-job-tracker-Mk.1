@@ -20,9 +20,10 @@ function buildJob(overrides = {}) {
   };
 }
 
-test('jobs attention flags scheduled Film Order and Ordered jobs with remaining material needs', () => {
+test('jobs attention flags scheduled Film Order, Ordered, and Needs Allocation jobs with remaining material needs', () => {
   assert.equal(isJobNeedingAllocationAttention(buildJob({ status: 'FILM_ORDER' })), true);
   assert.equal(isJobNeedingAllocationAttention(buildJob({ status: 'ORDERED', remainingFeet: 0, remainingTubes: 1 })), true);
+  assert.equal(isJobNeedingAllocationAttention(buildJob({ status: 'NEEDS_ALLOCATION' })), true);
 });
 
 test('jobs attention ignores Ready, unscheduled, inactive, and fully covered jobs', () => {
@@ -32,14 +33,14 @@ test('jobs attention ignores Ready, unscheduled, inactive, and fully covered job
   assert.equal(isJobNeedingAllocationAttention(buildJob({ remainingFeet: 0, remainingTubes: 0 })), false);
 });
 
-test('Edge jobs attention source mirrors scheduled Film Order and Ordered guard', async () => {
+test('Edge jobs attention source mirrors scheduled actionable material status guard', async () => {
   const source = await readFile(edgeApiHandlerPath, 'utf8');
   const bodyStart = source.indexOf('async function hasActiveJobsNeedingAllocationForAttentionSummary');
   const bodyEnd = source.indexOf('/**', bodyStart + 1);
   const body = source.slice(bodyStart, bodyEnd);
 
   assert.ok(bodyStart >= 0 && bodyEnd > bodyStart, 'Expected jobs attention helper body.');
-  assert.match(body, /status === "FILM_ORDER" \|\| status === "ORDERED"/);
+  assert.match(body, /status === "FILM_ORDER" \|\| status === "ORDERED" \|\| status === "NEEDS_ALLOCATION"/);
   assert.match(body, /installDate/);
   assert.match(body, /buildJobsList/);
 });

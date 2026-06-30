@@ -86,7 +86,7 @@ test('complete caulk requirements do not create material demand, and active rows
     [],
     { jobNumber: '5143', jobWarehouse: 'IL1' }
   );
-  assert.equal(activeStatus, 'FILM_ORDER');
+  assert.equal(activeStatus, 'NEEDS_ALLOCATION');
 });
 
 test('active caulk allocation coverage fulfills only active caulk requirements', () => {

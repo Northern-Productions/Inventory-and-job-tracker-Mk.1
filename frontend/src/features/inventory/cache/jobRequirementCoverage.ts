@@ -339,7 +339,9 @@ function computeOptimisticExistingJobStatus(
     return 'ORDERED' as const;
   }
 
-  return 'FILM_ORDER' as const;
+  return activeScopedFilmOrders.some((entry) => entry.status === 'FILM_ORDER')
+    ? 'FILM_ORDER'
+    : 'NEEDS_ALLOCATION';
 }
 
 function recomputeOptimisticJobDetail(detail: JobDetail): JobDetail {

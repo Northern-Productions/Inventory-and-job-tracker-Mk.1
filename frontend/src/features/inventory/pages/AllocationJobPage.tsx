@@ -12,6 +12,7 @@ import { JobConfirmationDialogs } from './allocation-job/JobConfirmationDialogs'
 import { JobOverviewHeroSection } from './allocation-job/JobOverviewHeroSection';
 import { JobWorkflowDialogs } from './allocation-job/JobWorkflowDialogs';
 import { RelatedFilmOrdersSection } from './allocation-job/RelatedFilmOrdersSection';
+import { formatBadgeLabel } from './allocation-job/helpers';
 import { useAllocationJobPageModel } from './allocation-job/useAllocationJobPageModel';
 
 export default function AllocationJobPage() {
@@ -171,7 +172,7 @@ export default function AllocationJobPage() {
                   <td>
                     {candidate.status || candidate.lifecycleStatus ? (
                       <span className={`badge badge-${candidate.status || candidate.lifecycleStatus}`}>
-                        {candidate.status || candidate.lifecycleStatus}
+                        {formatBadgeLabel(candidate.status || candidate.lifecycleStatus || '')}
                       </span>
                     ) : (
                       '--'

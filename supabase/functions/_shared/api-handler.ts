@@ -4838,6 +4838,10 @@ function isOpenMaterialFilmOrder(entry: any) {
   return status === "FILM_ORDER" || status === "FILM_ON_THE_WAY";
 }
 
+function isActiveMaterialFilmOrder(entry: any) {
+  return asTrimmedString(entry?.status).toUpperCase() === "FILM_ORDER";
+}
+
 function getRequirementId(requirement: any): string {
   return asTrimmedString(requirement?.requirementId || requirement?.id);
 }
@@ -4940,7 +4944,7 @@ function deriveInStockReadinessStatus(params: {
 }) {
   /**
    * PURPOSE:
-   * Mirrors backend READY/FILM_ORDER derivation for Supabase Edge reads using
+   * Mirrors backend READY/FILM_ORDER/NEEDS_ALLOCATION derivation for Supabase Edge reads using
    * canonical caulk coverage: requirement-linked allocations first, then
    * deterministic same-product fallback for unbound caulk allocations.
    *
@@ -5045,6 +5049,7 @@ function deriveInStockReadinessStatus(params: {
     return "READY";
   }
 
+  const hasActiveFilmOrder = filmOrders.some(isActiveMaterialFilmOrder);
   const filmOrdered = requirements.every((requirement) => {
     if (isRequirementComplete(requirement)) {
       return true;
@@ -5060,7 +5065,11 @@ function deriveInStockReadinessStatus(params: {
     return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(filmOrders, requirement) >= missingFeet;
   });
 
-  return caulkReady && filmOrdered ? "ORDERED" : "FILM_ORDER";
+  if (caulkReady && filmOrdered) {
+    return "ORDERED";
+  }
+
+  return hasActiveFilmOrder ? "FILM_ORDER" : "NEEDS_ALLOCATION";
 }
 
 function resolveAllocationJobMetadata(allocations: any[], filmOrders: any[]) {
@@ -5170,8 +5179,10 @@ function buildAllocationJobSummary(
       status = "READY";
     } else if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(requirements, filmOrders)) {
       status = "ORDERED";
-    } else {
+    } else if (hasFilmOrder) {
       status = "FILM_ORDER";
+    } else {
+      status = "NEEDS_ALLOCATION";
     }
   } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = "READY";
@@ -5506,6 +5517,9 @@ function combinePhaseGroupStatus(phases: any[]) {
   }
   if (statuses.includes("ORDERED")) {
     return "ORDERED";
+  }
+  if (statuses.includes("NEEDS_ALLOCATION")) {
+    return "NEEDS_ALLOCATION";
   }
   if (statuses.includes("COMPLETED")) {
     return "COMPLETED";
@@ -7493,7 +7507,7 @@ async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, or
   return activeJobs.some((job) => {
     const status = asTrimmedString((job as Record<string, unknown>).status).toUpperCase();
     return Boolean(asTrimmedString((job as Record<string, unknown>).installDate)) &&
-      (status === "FILM_ORDER" || status === "ORDERED");
+      (status === "FILM_ORDER" || status === "ORDERED" || status === "NEEDS_ALLOCATION");
   });
 }
 

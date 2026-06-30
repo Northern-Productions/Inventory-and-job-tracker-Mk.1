@@ -2589,7 +2589,8 @@ textarea {
   color: #1b4f9c;
 }
 
-.badge-CHECKED_OUT {
+.badge-CHECKED_OUT,
+.badge-NEEDS_ALLOCATION {
   background: #fff0d8;
   color: #8a5a04;
 }
@@ -5301,7 +5302,9 @@ td.col-available-linear-ft {
 
 .job-calendar-job-link.job-calendar-job-link-status-allocate,
 .job-calendar-event-bar.job-calendar-job-link-status-allocate {
-  color: #c47b2d;
+  border-color: rgba(138, 90, 4, 0.28);
+  background: #fff0d8;
+  color: #8a5a04;
 }
 
 .job-calendar-job-link.job-calendar-job-link-status-conflict,
@@ -6770,6 +6773,13 @@ th {
   color: #dbeaff;
 }
 
+:root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-allocate,
+:root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-allocate {
+  border-color: rgba(255, 203, 117, 0.34);
+  background: rgba(255, 203, 117, 0.18);
+  color: #ffe1a8;
+}
+
 :root[data-theme="dark"] .job-calendar-job-link.job-calendar-job-link-status-neutral,
 :root[data-theme="dark"] .job-calendar-event-bar.job-calendar-job-link-status-neutral {
   background: var(--color-surface-2);
@@ -6895,7 +6905,8 @@ th {
 }
 
 :root[data-theme="dark"] .badge-INCOMPLETE,
-:root[data-theme="dark"] .badge-CHECKED_OUT {
+:root[data-theme="dark"] .badge-CHECKED_OUT,
+:root[data-theme="dark"] .badge-NEEDS_ALLOCATION {
   background: rgba(255, 203, 117, 0.18);
   color: #ffe1a8;
 }

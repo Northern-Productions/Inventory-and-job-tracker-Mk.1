@@ -239,7 +239,7 @@ describe('jobRequirementCoverage caulk fallback coverage', () => {
       allocatedTubes: 0,
       remainingTubes: 20
     });
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
   });
 });
 
@@ -505,6 +505,6 @@ describe('jobRequirementCoverage requirement usage state', () => {
       completionResult: '',
       remainingTubes: 11
     });
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
   });
 });

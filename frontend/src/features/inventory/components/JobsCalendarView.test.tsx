@@ -61,6 +61,11 @@ describe('JobsCalendarView', () => {
               installDate: '2026-03-24',
               status: 'ORDERED',
               hasOrderedAllocations: true
+            }),
+            buildJob({
+              jobNumber: '10005',
+              installDate: '2026-03-24',
+              status: 'NEEDS_ALLOCATION'
             })
           ]}
           navigationStatus={{ kind: 'loading', label: 'Loading Mar 29 - Apr 4, 2026...' }}
@@ -93,6 +98,7 @@ describe('JobsCalendarView', () => {
     expect(html).toContain('job-calendar-job-link-status-ready');
     expect(html).toContain('job-calendar-job-link-status-film-order');
     expect(html).toContain('job-calendar-job-link-status-ordered');
+    expect(html).toContain('job-calendar-job-link-status-allocate');
     expect(html).toContain('job-calendar-stage-mark');
     expect(html).toContain('job-calendar-job-link-status-completed');
     expect(html).toContain('job-calendar-day-modal');

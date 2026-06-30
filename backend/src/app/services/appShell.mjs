@@ -17,7 +17,7 @@ export function isJobNeedingAllocationAttention(entry) {
   return Boolean(
     entry?.lifecycleStatus === 'ACTIVE' &&
     String(entry?.installDate || '').trim() &&
-    (status === 'FILM_ORDER' || status === 'ORDERED') &&
+    (status === 'FILM_ORDER' || status === 'ORDERED' || status === 'NEEDS_ALLOCATION') &&
     (Number(entry?.remainingFeet || 0) > 0 || Number(entry?.remainingTubes || 0) > 0)
   );
 }

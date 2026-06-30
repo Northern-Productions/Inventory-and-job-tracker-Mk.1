@@ -1271,8 +1271,10 @@ function buildAllocationJobSummary(
       status = 'READY';
     } else if (!hasRemainingCaulk && areFilmShortagesFullyOnTheWay(requirements, filmOrders)) {
       status = 'ORDERED';
-    } else {
+    } else if (hasFilmOrder) {
       status = 'FILM_ORDER';
+    } else {
+      status = 'NEEDS_ALLOCATION';
     }
   } else if (isLaborOnly || requirements.length || caulkRequirements.length) {
     status = 'READY';

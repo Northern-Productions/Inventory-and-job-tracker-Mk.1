@@ -10,6 +10,10 @@ export function renderDateTime(value: string) {
 }
 
 export function formatBadgeLabel(value: string) {
+  if (value === 'NEEDS_ALLOCATION') {
+    return 'Needs Allocation';
+  }
+
   return value.replace(/_/g, ' ');
 }
 

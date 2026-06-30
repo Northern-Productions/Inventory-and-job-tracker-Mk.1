@@ -198,7 +198,7 @@ test('future phase controls status after the nearer phase is complete', () => {
     }
   );
 
-  assert.equal(summary.status, 'FILM_ORDER');
+  assert.equal(summary.status, 'NEEDS_ALLOCATION');
   assert.equal(summary.phaseNumber, 2);
   assert.equal(summary.remainingFeet, 25);
 });
@@ -272,7 +272,7 @@ test('active phase stays ready when actual used plus backed allocation covers re
   assert.equal(summary.phases[1].status, 'READY');
 });
 
-test('same-date phase group uses Film Order over Ready and expands both phases', () => {
+test('same-date phase group uses Needs Allocation over Ready and expands both phases', () => {
   const summary = buildJobListEntry(
     buildHeader(),
     [
@@ -305,7 +305,7 @@ test('same-date phase group uses Film Order over Ready and expands both phases',
     }
   );
 
-  assert.equal(summary.status, 'FILM_ORDER');
+  assert.equal(summary.status, 'NEEDS_ALLOCATION');
   assert.deepEqual(
     summary.phases.map((phase) => ({
       phaseNumber: phase.phaseNumber,

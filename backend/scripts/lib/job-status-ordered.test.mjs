@@ -44,7 +44,7 @@ test('job status derives ORDERED when missing film is fully on the way', () => {
   assert.equal(status, 'ORDERED');
 });
 
-test('job status remains FILM_ORDER when on-the-way film does not cover the shortage', () => {
+test('job status derives NEEDS_ALLOCATION when on-the-way film does not cover the shortage', () => {
   const status = computeJobStatusFromRequirements(
     'ACTIVE',
     false,
@@ -56,7 +56,7 @@ test('job status remains FILM_ORDER when on-the-way film does not cover the shor
     { jobNumber: '9001' }
   );
 
-  assert.equal(status, 'FILM_ORDER');
+  assert.equal(status, 'NEEDS_ALLOCATION');
 });
 
 test('job status uses orderedFeet before requestedFeet for on-the-way coverage', () => {
@@ -71,7 +71,7 @@ test('job status uses orderedFeet before requestedFeet for on-the-way coverage',
     { jobNumber: '9001' }
   );
 
-  assert.equal(status, 'FILM_ORDER');
+  assert.equal(status, 'NEEDS_ALLOCATION');
 });
 
 test('job status does not match unbound on-the-way film orders to bound requirements', () => {
@@ -86,7 +86,7 @@ test('job status does not match unbound on-the-way film orders to bound requirem
     { jobNumber: '9001' }
   );
 
-  assert.equal(status, 'FILM_ORDER');
+  assert.equal(status, 'NEEDS_ALLOCATION');
 });
 
 test('job status does not treat editable FILM_ORDER rows as ORDERED', () => {

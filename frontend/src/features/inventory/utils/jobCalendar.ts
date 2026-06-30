@@ -429,6 +429,10 @@ export function getCalendarJobStatusClass(
     return 'job-calendar-job-link-status-film-order';
   }
 
+  if (displayStatus === 'NEEDS_ALLOCATION') {
+    return 'job-calendar-job-link-status-allocate';
+  }
+
   if (displayStatus === 'READY') {
     return 'job-calendar-job-link-status-ready';
   }

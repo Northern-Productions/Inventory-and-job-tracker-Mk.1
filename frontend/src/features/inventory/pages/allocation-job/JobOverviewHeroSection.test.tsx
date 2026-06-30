@@ -119,4 +119,10 @@ describe('JobOverviewHeroSection', () => {
 
     expect(screen.queryByText('ON ORDER')).toBeNull();
   });
+
+  it('renders the Needs Allocation status label for uncovered material with no active order', () => {
+    renderHero({ status: 'NEEDS_ALLOCATION', remainingFeet: 20 });
+
+    expect(screen.getByText('Needs Allocation')).toBeTruthy();
+  });
 });

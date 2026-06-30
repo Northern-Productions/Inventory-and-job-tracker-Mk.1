@@ -176,6 +176,9 @@ describe('jobCalendar', () => {
       getCalendarJobStatusClass(buildJob({ jobNumber: '70002', status: 'FILM_ORDER' }))
     ).toBe('job-calendar-job-link-status-film-order');
     expect(
+      getCalendarJobStatusClass(buildJob({ jobNumber: '70005', status: 'NEEDS_ALLOCATION' }))
+    ).toBe('job-calendar-job-link-status-allocate');
+    expect(
       getCalendarJobStatusClass(buildJob({ jobNumber: '70003', status: 'READY', hasOrderedAllocations: true }))
     ).toBe('job-calendar-job-link-status-ready');
     expect(

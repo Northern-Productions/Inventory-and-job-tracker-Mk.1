@@ -110,7 +110,7 @@ test('complete requirements do not create material demand, and active rows only 
     [],
     { jobNumber: '9001' }
   );
-  assert.equal(activeStatus, 'FILM_ORDER');
+  assert.equal(activeStatus, 'NEEDS_ALLOCATION');
 
   const overusedActiveStatus = computeJobStatusFromRequirements(
     'ACTIVE',
@@ -137,12 +137,21 @@ test('complete requirements do not create material demand, and active rows only 
   assert.equal(orderedStatus, 'ORDERED');
 });
 
-test('red dot rule still depends on install date plus Film Order or Ordered with remaining material', () => {
+test('red dot rule still depends on install date plus actionable material status with remaining material', () => {
   assert.equal(
     isJobNeedingAllocationAttention({
       lifecycleStatus: 'ACTIVE',
       installDate: '2026-05-21',
       status: 'FILM_ORDER',
+      remainingFeet: 10,
+    }),
+    true
+  );
+  assert.equal(
+    isJobNeedingAllocationAttention({
+      lifecycleStatus: 'ACTIVE',
+      installDate: '2026-05-21',
+      status: 'NEEDS_ALLOCATION',
       remainingFeet: 10,
     }),
     true

@@ -103,6 +103,19 @@ export function describeJobSort(sort: JobSortOption) {
   }
 }
 
+function rankJobForFilmOrderSort(displayStatus: string) {
+  if (displayStatus === 'FILM_ORDER') {
+    return 0;
+  }
+  if (displayStatus === 'NEEDS_ALLOCATION') {
+    return 1;
+  }
+  if (displayStatus === 'ORDERED') {
+    return 2;
+  }
+  return 3;
+}
+
 export function compareJobsBySort(left: JobListEntry, right: JobListEntry, sort: JobSortOption) {
   switch (sort) {
     case 'install_date_asc':
@@ -119,8 +132,8 @@ export function compareJobsBySort(left: JobListEntry, right: JobListEntry, sort:
     case 'film_order': {
       const leftDisplayStatus = getJobListDisplayStatus(left.status, left.filmOrderCount);
       const rightDisplayStatus = getJobListDisplayStatus(right.status, right.filmOrderCount);
-      const leftRank = leftDisplayStatus === 'FILM_ORDER' ? 0 : leftDisplayStatus === 'ORDERED' ? 1 : 2;
-      const rightRank = rightDisplayStatus === 'FILM_ORDER' ? 0 : rightDisplayStatus === 'ORDERED' ? 1 : 2;
+      const leftRank = rankJobForFilmOrderSort(leftDisplayStatus);
+      const rightRank = rankJobForFilmOrderSort(rightDisplayStatus);
       return compareNumbers(leftRank, rightRank) || compareInstallDateAscending(left, right);
     }
     default:

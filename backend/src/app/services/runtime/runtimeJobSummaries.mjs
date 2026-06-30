@@ -316,6 +316,10 @@ function isOpenMaterialFilmOrder(entry) {
   return status === 'FILM_ORDER' || status === 'FILM_ON_THE_WAY';
 }
 
+function isActiveMaterialFilmOrder(entry) {
+  return asTrimmedString(entry?.status).toUpperCase() === 'FILM_ORDER';
+}
+
 function getRequirementId(requirement) {
   return asTrimmedString(requirement?.requirementId || requirement?.id);
 }
@@ -457,6 +461,7 @@ function deriveInStockReadinessStatus({
     return 'READY';
   }
 
+  const hasActiveFilmOrder = normalizedFilmOrders.some(isActiveMaterialFilmOrder);
   const filmOrdered = normalizedRequirements.every((requirement) => {
     if (isRequirementComplete(requirement)) {
       return true;
@@ -474,7 +479,11 @@ function deriveInStockReadinessStatus({
     return missingFeet <= 0 || getFilmOnTheWayFeetForRequirement(normalizedFilmOrders, requirement) >= missingFeet;
   });
 
-  return caulkReady && filmOrdered ? 'ORDERED' : 'FILM_ORDER';
+  if (caulkReady && filmOrdered) {
+    return 'ORDERED';
+  }
+
+  return hasActiveFilmOrder ? 'FILM_ORDER' : 'NEEDS_ALLOCATION';
 }
 
 function computeJobStatusFromRequirements(
@@ -761,6 +770,9 @@ function combinePhaseGroupStatus(phases) {
   }
   if (statuses.includes('ORDERED')) {
     return 'ORDERED';
+  }
+  if (statuses.includes('NEEDS_ALLOCATION')) {
+    return 'NEEDS_ALLOCATION';
   }
   if (statuses.includes('COMPLETED')) {
     return 'COMPLETED';

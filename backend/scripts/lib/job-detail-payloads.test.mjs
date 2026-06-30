@@ -364,7 +364,7 @@ test('buildJobDetailPayload preserves linked boxes, usage history, and transfer 
   assert.equal(payload.summary.workScope, 'Sections 4, 5');
   assert.equal(payload.summary.sections, 'Sections 4, 5');
   assert.equal(payload.summary.installDate, '2026-04-15');
-  assert.equal(payload.summary.status, 'FILM_ORDER');
+  assert.equal(payload.summary.status, 'NEEDS_ALLOCATION');
   assert.equal(Object.hasOwn(payload.summary, 'isLaborAssigned'), false);
   assert.deepEqual(payload.caulkTransferAlerts || [], []);
   assert.equal(payload.filmTransferAlerts[0]?.state, 'TRANSFER_PENDING');

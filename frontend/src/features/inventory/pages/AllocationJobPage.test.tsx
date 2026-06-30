@@ -1289,7 +1289,7 @@ describe('AllocationJobPage', () => {
 
     const html = renderPage(detail);
 
-    expect(html).toContain('badge-FILM_ORDER');
+    expect(html).toContain('badge-NEEDS_ALLOCATION');
     expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, staleRequirement);
   });
@@ -1365,14 +1365,14 @@ describe('AllocationJobPage', () => {
     expect(html).toContain('<td>0</td><td>8</td><td>12</td>');
   });
 
-  it('keeps mixed detail in FILM_ORDER when caulk coverage is partial', () => {
+  it('keeps mixed detail in NEEDS_ALLOCATION when caulk coverage is partial without an active film order', () => {
     const staleRequirement = buildCaulkRequirement({
       allocatedTubes: 0,
       remainingTubes: 20
     });
     const detail: JobDetail = buildMaterialJobDetail({
       summary: buildSummary({
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         requiredFeet: 8,
         allocatedFeet: 8,
         remainingFeet: 0,
@@ -1404,7 +1404,7 @@ describe('AllocationJobPage', () => {
       remainingTubes: 10
     };
 
-    expect(html).toContain('badge-FILM_ORDER');
+    expect(html).toContain('badge-NEEDS_ALLOCATION');
     expectOverviewMaterialTotalsHidden(html);
     expectCaulkRequirementTableTotals(html, repairedRequirement);
   });
@@ -1418,7 +1418,7 @@ describe('AllocationJobPage', () => {
     const detail: JobDetail = {
       ...baseDetail,
       summary: buildSummary({
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         requiredTubes: 20,
         allocatedTubes: 0,
         remainingTubes: 20

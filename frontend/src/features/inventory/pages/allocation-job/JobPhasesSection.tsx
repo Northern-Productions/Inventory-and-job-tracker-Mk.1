@@ -4,6 +4,7 @@ import type { FilmOrderEntry, JobCaulkRequirementLine, JobPhase, JobRequirementL
 import { formatDate } from '../../../../lib/date';
 import { CaulkRequirementsSection } from './CaulkRequirementsSection';
 import { FilmRequirementsSection } from './FilmRequirementsSection';
+import { formatBadgeLabel } from './helpers';
 
 interface JobPhasesSectionProps {
   phases: JobPhase[];
@@ -449,7 +450,7 @@ export function JobPhasesSection({
                     <span>{formatDate(phase.installDate || '')}</span>
                     <span>{phase.crewLeader || 'No crew leader'}</span>
                     {isPlaceholderPhase ? <span className="badge badge-muted">Placeholder</span> : null}
-                    <span className={`badge badge-${phase.status}`}>{phase.status}</span>
+                    <span className={`badge badge-${phase.status}`}>{formatBadgeLabel(phase.status)}</span>
                   </div>
                 </div>
                 <div className="job-phase-header-actions">

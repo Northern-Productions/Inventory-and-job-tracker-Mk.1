@@ -203,7 +203,7 @@ describe('inventoryMutationUtils', () => {
       ]
     );
 
-    expect(detail.summary.status).toBe('FILM_ORDER');
+    expect(detail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(detail.summary.requiredFeet).toBe(44);
     expect(detail.summary.remainingFeet).toBe(44);
     expect(detail.summary.requiredTubes).toBe(58);
@@ -338,7 +338,7 @@ describe('inventoryMutationUtils', () => {
       allocatedFeet: 40,
       remainingFeet: 0
     });
-    expect(mismatchedFilmDetail.summary.status).toBe('FILM_ORDER');
+    expect(mismatchedFilmDetail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(mismatchedFilmDetail.summary.remainingFeet).toBe(40);
   });
 
@@ -391,7 +391,7 @@ describe('inventoryMutationUtils', () => {
 
     const nextDetail = createOptimisticJobDetailAfterAllocationAddition(detail, [allocation]);
 
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(nextDetail.summary.remainingFeet).toBe(40);
     expect(coreRequirementFields(nextDetail.requirements)).toEqual([
       expect.objectContaining({ requirementId: 'req-48', allocatedFeet: 0, remainingFeet: 20 }),
@@ -439,7 +439,7 @@ describe('inventoryMutationUtils', () => {
         sections: null,
         installDate: '2026-04-13',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         lifecycleStatus: 'ACTIVE',
         isLaborOnly: false,
         isStagedForPickup: false,
@@ -477,7 +477,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         installDate: '2026-04-13',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -500,7 +500,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '2941',
         installDate: '2026-04-13',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -581,7 +581,7 @@ describe('inventoryMutationUtils', () => {
         sections: null,
         installDate: '2026-04-13',
         crewLeader: 'Napo',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         lifecycleStatus: 'ACTIVE',
         isLaborOnly: false,
         isStagedForPickup: false,
@@ -930,7 +930,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '18798',
         installDate: '',
         crewLeader: '',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -1393,7 +1393,7 @@ describe('inventoryMutationUtils', () => {
 
     expect(removedAllocation?.boxId).toBe('IL1-6552');
     expect(nextDetail.allocations).toHaveLength(1);
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(nextDetail.summary.allocatedFeet).toBe(9);
     expect(nextDetail.summary.remainingFeet).toBe(11);
     expect(nextDetail.summary.allocationCount).toBe(1);
@@ -1780,7 +1780,7 @@ describe('inventoryMutationUtils', () => {
       ])
     );
 
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(nextDetail.summary.allocatedFeet).toBe(12);
     expect(nextDetail.summary.remainingFeet).toBe(2);
     expect(nextDetail.summary.allocationCount).toBe(2);
@@ -2310,7 +2310,7 @@ describe('inventoryMutationUtils', () => {
       ])
     );
 
-    expect(nextDetail.summary.status).toBe('FILM_ORDER');
+    expect(nextDetail.summary.status).toBe('NEEDS_ALLOCATION');
     expect(nextDetail.summary.allocatedFeet).toBe(32);
     expect(nextDetail.summary.remainingFeet).toBe(2);
     expect(nextDetail.summary.allocatedFeet).not.toBe(12);
@@ -2387,7 +2387,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '4803',
         installDate: '2026-04-06',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -2645,7 +2645,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '29003',
         installDate: '2026-04-03',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -3060,7 +3060,7 @@ describe('inventoryMutationUtils', () => {
     });
     expect(queryClient.getQueryData(inventoryKeys.job('555'))).toMatchObject({
       summary: {
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         allocatedFeet: 9,
         remainingFeet: 11,
         allocationCount: 1
@@ -3079,7 +3079,7 @@ describe('inventoryMutationUtils', () => {
     });
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('555'))).toMatchObject({
       summary: {
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 9,
         boxCount: 1,
         hasOrderedAllocations: false
@@ -3100,7 +3100,7 @@ describe('inventoryMutationUtils', () => {
       queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))
     ).toEqual([
       expect.objectContaining({
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         allocatedFeet: 9,
         remainingFeet: 11,
         allocationCount: 1
@@ -3158,7 +3158,7 @@ describe('inventoryMutationUtils', () => {
         jobNumber: '29050',
         installDate: '2026-04-06',
         crewLeader: 'Crew',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         fulfilledAllocatedFeet: 0,
         requiredTubes: 0,
@@ -4019,7 +4019,7 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.filmOrders)).toEqual([]);
     expect(queryClient.getQueryData(inventoryKeys.job('2941'))).toMatchObject({
       summary: {
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         allocatedFeet: 0,
         remainingFeet: 60,
         allocationCount: 0,
@@ -4038,7 +4038,7 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' }))).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         filmOrderCount: 0,
         hasOrderedAllocations: false,
         allocatedFeet: 0,
@@ -4047,7 +4047,7 @@ describe('inventoryMutationUtils', () => {
     ]);
     expect(queryClient.getQueryData(inventoryKeys.allocationJob('2941'))).toMatchObject({
       summary: {
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         openFilmOrderCount: 0,
         boxCount: 0,
@@ -4059,7 +4059,7 @@ describe('inventoryMutationUtils', () => {
     expect(queryClient.getQueryData(inventoryKeys.allocationJobs)).toEqual([
       expect.objectContaining({
         jobNumber: '2941',
-        status: 'FILM_ORDER',
+        status: 'NEEDS_ALLOCATION',
         activeAllocatedFeet: 0,
         openFilmOrderCount: 0,
         boxCount: 0,
