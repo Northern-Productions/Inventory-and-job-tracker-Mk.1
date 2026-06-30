@@ -4056,6 +4056,58 @@ td.col-available-linear-ft {
   gap: 0.5rem;
 }
 
+.film-order-intake-boxes {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.85rem;
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.9rem;
+  background: var(--color-surface-muted);
+}
+
+.film-order-intake-boxes-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.film-order-intake-boxes-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.film-order-intake-boxes-table-wrap {
+  margin: 0;
+  border-radius: 0.7rem;
+}
+
+.film-order-intake-boxes-table {
+  min-width: 0;
+}
+
+.film-order-intake-boxes-table th,
+.film-order-intake-boxes-table td {
+  padding: 0.65rem 0.75rem;
+}
+
+.film-order-intake-box-state {
+  border-radius: 999px;
+  display: inline-flex;
+  padding: 0.2rem 0.55rem;
+  background: rgba(39, 98, 110, 0.12);
+  color: var(--color-text-2);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.film-order-intake-empty {
+  margin: 0;
+}
+
 .film-order-actions--stacked {
   align-items: start;
 }

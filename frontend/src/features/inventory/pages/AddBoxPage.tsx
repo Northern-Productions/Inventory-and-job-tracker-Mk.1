@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { APIError } from '../../../api/http';
 import { useToast } from '../../../components/Toast';
 import { isWarehouse, parseWarehouse, type Warehouse } from '../../../domain';
@@ -30,7 +30,6 @@ import {
   getNextBoxIdForWarehouse,
   type BoxDraft
 } from '../utils/boxHelpers';
-import { buildAllocationJobRoute } from '../utils/jobRoutes';
 import { getWarehousePrefix } from '../utils/warehouseOptions';
 
 interface FilmOrderPrefill {
@@ -51,6 +50,15 @@ interface AddBoxRetryState {
   retryDraft: BoxDraft;
   retryWarehouse: Warehouse;
   retryNonce: number;
+}
+
+interface FilmOrderIntakeLinkedBox {
+  boxId: string;
+  widthIn: number | null;
+  orderedFeet: number;
+  isReceived: boolean;
+  isDirectToJobSite: boolean;
+  isPending?: boolean;
 }
 
 export default function AddBoxPage() {
@@ -88,9 +96,11 @@ export default function AddBoxPage() {
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const [filmOrderDraftSeed, setFilmOrderDraftSeed] = useState<BoxDraft | null>(null);
   const [filmOrderRemainingFeet, setFilmOrderRemainingFeet] = useState<number | null>(null);
+  const [confirmedFilmOrderBoxes, setConfirmedFilmOrderBoxes] = useState<FilmOrderIntakeLinkedBox[]>([]);
+  const [pendingFilmOrderBox, setPendingFilmOrderBox] = useState<FilmOrderIntakeLinkedBox | null>(null);
   const [filmOrderResetNonce, setFilmOrderResetNonce] = useState(0);
   const [shipDirectToJobSite, setShipDirectToJobSite] = useState(false);
-  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCreatingBox = addBoxMutation.isPending || upsertBoxDealerMutation.isPending;
   const linkedFilmOrder = useMemo(
     () =>
       (filmOrdersQuery.data || []).find((entry) => entry.filmOrderId === filmOrderPrefill.filmOrderId) || null,
@@ -193,8 +203,26 @@ export default function AddBoxPage() {
     [filmOrderPrefill.filmOrderId, filmOrderResetNonce, prefillToken, retryState?.retryNonce]
   );
   const displayedRemainingToOrderFeet = filmOrderPrefill.filmOrderId
-    ? formatRemainingToOrderFeetValue(filmOrderRemainingFeet, filmOrderPrefill.remainingToOrderFeet)
+    ? formatRemainingToOrderFeetValue(
+        linkedFilmOrder ? Math.max(0, Number(linkedFilmOrder.remainingToOrderFeet || 0)) : filmOrderRemainingFeet,
+        filmOrderPrefill.remainingToOrderFeet
+      )
     : '';
+  const intakeLinkedBoxes = useMemo(
+    () =>
+      buildFilmOrderIntakeLinkedBoxes({
+        linkedFilmOrder,
+        prefillWidthIn: filmOrderPrefill.widthIn,
+        confirmedBoxes: confirmedFilmOrderBoxes,
+        pendingBox: pendingFilmOrderBox
+      }),
+    [
+      confirmedFilmOrderBoxes,
+      filmOrderPrefill.widthIn,
+      linkedFilmOrder,
+      pendingFilmOrderBox
+    ]
+  );
   const filmOrderJobLabel = useMemo(
     () =>
       formatJobDisplayLabel({
@@ -227,20 +255,17 @@ export default function AddBoxPage() {
 
     setFilmOrderDraftSeed(baseInitialDraft);
     setFilmOrderRemainingFeet(parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet));
+    setConfirmedFilmOrderBoxes([]);
+    setPendingFilmOrderBox(null);
     setFilmOrderResetNonce((current) => current + 1);
     setShipDirectToJobSite(false);
   }, [baseInitialDraft, filmOrderPrefill.filmOrderId, filmOrderPrefill.remainingToOrderFeet]);
 
-  useEffect(
-    () => () => {
-      if (redirectTimerRef.current !== null) {
-        clearTimeout(redirectTimerRef.current);
-      }
-    },
-    []
-  );
-
   async function handleSubmit(draft: BoxDraft, submitContext?: BoxFormSubmitContext) {
+    if (isCreatingBox) {
+      return;
+    }
+
     if (!auth.clientIdConfigured) {
       toast.push({
         title: 'Sign-in is not configured',
@@ -355,11 +380,31 @@ export default function AddBoxPage() {
       }
 
       if (filmOrderPrefill.filmOrderId) {
+        const pendingLinkedBox = buildPendingFilmOrderIntakeBox({
+          boxId: payload.boxId,
+          widthIn: payload.widthIn,
+          orderedFeet: payload.initialFeet,
+          isReceived: Boolean(payload.receivedDate),
+          isDirectToJobSite: Boolean(payload.shipDirectToJobSite)
+        });
+        setPendingFilmOrderBox(pendingLinkedBox);
         const { result, warnings } = await addBoxMutation.mutateAsync(payload);
         const currentRemainingFeet =
-          filmOrderRemainingFeet ?? parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet) ?? 0;
+          (linkedFilmOrder
+            ? Math.max(0, Number(linkedFilmOrder.remainingToOrderFeet || 0))
+            : filmOrderRemainingFeet) ??
+          parseRemainingFeetValue(filmOrderPrefill.remainingToOrderFeet) ??
+          0;
         const nextRemainingFeet = Math.max(currentRemainingFeet - payload.initialFeet, 0);
 
+        setPendingFilmOrderBox(null);
+        setConfirmedFilmOrderBoxes((current) =>
+          upsertFilmOrderIntakeLinkedBox(current, {
+            ...pendingLinkedBox,
+            boxId: result.box.boxId,
+            isPending: false
+          })
+        );
         setFilmOrderRemainingFeet(nextRemainingFeet);
         const jobIdentity = {
           jobId: filmOrderPrefill.jobId,
@@ -368,22 +413,14 @@ export default function AddBoxPage() {
         void invalidateJobLifecycleQueries(queryClient, jobIdentity);
 
         if (nextRemainingFeet <= 0) {
+          setFilmOrderDraftSeed(buildNextFilmOrderDraft(nextDraft));
+          setFilmOrderResetNonce((current) => current + 1);
           toast.push({
             title: 'Film Order Covered',
-            description: 'closing order',
+            description: 'Connected boxes and remaining LF are updated.',
             variant: 'success',
             durationMs: 2000
           });
-
-          if (redirectTimerRef.current !== null) {
-            clearTimeout(redirectTimerRef.current);
-          }
-
-          redirectTimerRef.current = setTimeout(() => {
-            navigate(buildAllocationJobRoute(jobIdentity), {
-              replace: true
-            });
-          }, 2000);
           return;
         }
 
@@ -408,6 +445,10 @@ export default function AddBoxPage() {
       const { result } = await savePromise;
       navigate(`/inventory/${encodeURIComponent(result.box.boxId)}?showQr=1`, { replace: true });
     } catch (error) {
+      if (filmOrderPrefill.filmOrderId) {
+        setPendingFilmOrderBox(null);
+      }
+
       if (!filmOrderPrefill.filmOrderId) {
         navigate('/inventory/add', {
           replace: true,
@@ -484,6 +525,62 @@ export default function AddBoxPage() {
               <dd>{displayedRemainingToOrderFeet || '--'}</dd>
             </div>
           </div>
+          <section className="film-order-intake-boxes" aria-labelledby="film-order-intake-boxes-title">
+            <div className="film-order-intake-boxes-header">
+              <h3 id="film-order-intake-boxes-title">Created boxes</h3>
+              <span className="muted-text">
+                {intakeLinkedBoxes.length} box{intakeLinkedBoxes.length === 1 ? '' : 'es'}
+              </span>
+            </div>
+            {intakeLinkedBoxes.length ? (
+              <div className="table-wrap film-order-intake-boxes-table-wrap">
+                <table className="film-order-intake-boxes-table">
+                  <thead>
+                    <tr>
+                      <th>Box ID</th>
+                      <th>Width</th>
+                      <th>LF</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {intakeLinkedBoxes.map((linkedBox) => (
+                      <tr key={linkedBox.boxId}>
+                        <td>
+                          {linkedBox.isPending ? (
+                            <span>{linkedBox.boxId}</span>
+                          ) : (
+                            <Link to={`/inventory/${encodeURIComponent(linkedBox.boxId)}`}>
+                              {linkedBox.boxId}
+                            </Link>
+                          )}
+                        </td>
+                        <td>{linkedBox.widthIn ?? '--'}</td>
+                        <td>{linkedBox.orderedFeet}</td>
+                        <td>
+                          <span className="film-order-intake-box-state">
+                            {linkedBox.isPending
+                              ? 'Saving...'
+                              : linkedBox.isDirectToJobSite
+                                ? 'Direct to site'
+                                : linkedBox.isReceived
+                                  ? 'Received'
+                                  : 'Ordered'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted-text film-order-intake-empty">
+                {filmOrdersQuery.isLoading
+                  ? 'Loading created boxes...'
+                  : 'No boxes have been created for this film order yet.'}
+              </p>
+            )}
+          </section>
           <div className="panel panel-subtle" style={{ marginTop: '1rem' }}>
             <label
               htmlFor="ship-direct-to-job-site"
@@ -529,7 +626,7 @@ export default function AddBoxPage() {
         resetKey={resetKey}
         mode="create"
         submitLabel="Create Box"
-        submitting={addBoxMutation.isPending}
+        submitting={isCreatingBox}
         disabled={!canWriteInventory}
         createWarehouse={warehouse}
         nextBoxIdForCreateWarehouse={nextBoxIdForCreateWarehouse}
@@ -621,6 +718,106 @@ function buildNextFilmOrderDraft(currentDraft: BoxDraft): BoxDraft {
     currentFeetOnRollManuallyEdited: false,
     lastRollWeightLbsManuallyEdited: false
   };
+}
+
+function buildPendingFilmOrderIntakeBox(entry: {
+  boxId: string;
+  widthIn: number;
+  orderedFeet: number;
+  isReceived: boolean;
+  isDirectToJobSite: boolean;
+}): FilmOrderIntakeLinkedBox {
+  return {
+    boxId: String(entry.boxId || '').trim().toUpperCase(),
+    widthIn: Number.isFinite(Number(entry.widthIn)) ? Number(entry.widthIn) : null,
+    orderedFeet: Math.max(0, Math.trunc(Number(entry.orderedFeet || 0))),
+    isReceived: entry.isReceived,
+    isDirectToJobSite: entry.isDirectToJobSite,
+    isPending: true
+  };
+}
+
+function upsertFilmOrderIntakeLinkedBox(
+  current: FilmOrderIntakeLinkedBox[],
+  nextBox: FilmOrderIntakeLinkedBox
+) {
+  const normalizedBoxId = String(nextBox.boxId || '').trim().toUpperCase();
+  if (!normalizedBoxId) {
+    return current;
+  }
+
+  const nextEntry = {
+    ...nextBox,
+    boxId: normalizedBoxId
+  };
+  const existingIndex = current.findIndex((entry) => entry.boxId === normalizedBoxId);
+  if (existingIndex === -1) {
+    return [...current, nextEntry];
+  }
+
+  return current.map((entry) => (entry.boxId === normalizedBoxId ? nextEntry : entry));
+}
+
+function buildFilmOrderIntakeLinkedBoxes(options: {
+  linkedFilmOrder: {
+    widthIn?: number;
+    linkedBoxes?: Array<{
+      boxId: string;
+      orderedFeet?: number;
+      initialFeet?: number;
+      isReceived?: boolean;
+      isDirectToJobSite?: boolean;
+    }>;
+  } | null;
+  prefillWidthIn: string;
+  confirmedBoxes: FilmOrderIntakeLinkedBox[];
+  pendingBox: FilmOrderIntakeLinkedBox | null;
+}): FilmOrderIntakeLinkedBox[] {
+  const entriesByBoxId = new Map<string, FilmOrderIntakeLinkedBox>();
+  const fallbackWidth = Number(options.prefillWidthIn);
+  const orderWidth = Number(options.linkedFilmOrder?.widthIn);
+  const widthIn = Number.isFinite(orderWidth) && orderWidth > 0
+    ? orderWidth
+    : Number.isFinite(fallbackWidth) && fallbackWidth > 0
+      ? fallbackWidth
+      : null;
+
+  function addEntry(entry: FilmOrderIntakeLinkedBox | null) {
+    const boxId = String(entry?.boxId || '').trim().toUpperCase();
+    if (!boxId || !entry) {
+      return;
+    }
+
+    const previous = entriesByBoxId.get(boxId);
+    entriesByBoxId.set(boxId, {
+      boxId,
+      widthIn: entry.widthIn ?? previous?.widthIn ?? widthIn,
+      orderedFeet: Math.max(entry.orderedFeet, previous?.orderedFeet || 0),
+      isReceived: Boolean(entry.isReceived || previous?.isReceived),
+      isDirectToJobSite: Boolean(entry.isDirectToJobSite || previous?.isDirectToJobSite),
+      isPending: Boolean(entry.isPending || previous?.isPending)
+    });
+  }
+
+  for (const linkedBox of options.linkedFilmOrder?.linkedBoxes || []) {
+    const orderedFeet = Number(linkedBox.orderedFeet ?? linkedBox.initialFeet ?? 0);
+    addEntry({
+      boxId: linkedBox.boxId,
+      widthIn,
+      orderedFeet: Number.isFinite(orderedFeet) ? Math.max(0, Math.trunc(orderedFeet)) : 0,
+      isReceived: Boolean(linkedBox.isReceived),
+      isDirectToJobSite: Boolean(linkedBox.isDirectToJobSite),
+      isPending: false
+    });
+  }
+
+  for (const confirmedBox of options.confirmedBoxes) {
+    addEntry(confirmedBox);
+  }
+
+  addEntry(options.pendingBox);
+
+  return Array.from(entriesByBoxId.values()).sort((left, right) => left.boxId.localeCompare(right.boxId));
 }
 
 function readRetryState(state: unknown): AddBoxRetryState | null {

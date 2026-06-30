@@ -402,6 +402,36 @@ describe('AddBoxPage', () => {
     expect((await screen.findAllByText(/IL1-2941.*Lobby Glass/)).length).toBeGreaterThan(0);
   });
 
+  it('shows boxes already connected to the film order in the intake card', async () => {
+    const queryClient = createQueryClient();
+    searchBoxesMock.mockResolvedValue([buildBox()]);
+    getFilmOrdersMock.mockResolvedValue([
+      buildFilmOrderEntry({
+        linkedBoxes: [
+          {
+            boxId: 'IL1-0020',
+            dealer: 'Dealer',
+            orderedFeet: 80,
+            autoAllocatedFeet: 0,
+            isReceived: true
+          }
+        ]
+      })
+    ]);
+
+    renderPage(
+      queryClient,
+      '/inventory/add?filmOrderId=FO-1&jobNumber=2941&warehouse=IL1&manufacturer=3M%20Solar&filmName=Prestige%2060&width=72&remainingToOrderFeet=43&notes=Ordered%20for%20job%202941%20via%20FO-1'
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Created boxes' })).toBeTruthy();
+    const boxLink = await screen.findByRole('link', { name: 'IL1-0020' });
+    expect(screen.getByText('1 box')).toBeTruthy();
+    expect(boxLink.getAttribute('href')).toBe('/inventory/IL1-0020');
+    expect(screen.getByRole('row', { name: /IL1-0020\s+72\s+80\s+Received/ })).toBeTruthy();
+    expect(screen.queryByText('No boxes have been created for this film order yet.')).toBeNull();
+  });
+
   it('keeps the ordinary add-box flow seeded at 100 LF', async () => {
     const queryClient = createQueryClient();
     searchBoxesMock.mockResolvedValue([buildBox()]);
@@ -521,6 +551,13 @@ describe('AddBoxPage', () => {
       const optimisticBoxes = queryClient.getQueryData<Box[]>(searchKey) || [];
       expect(optimisticBoxes.some((entry) => entry.boxId === 'IL1-0006')).toBe(true);
     });
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+    expect(screen.getByRole('row', { name: /IL1-0006\s+72\s+100\s+Saving/ })).toBeTruthy();
+    expect(screen.getByText('23')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Saving...' }));
+    expect(addBoxMock).toHaveBeenCalledTimes(1);
 
     const optimisticFilmOrder = queryClient
       .getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)
@@ -558,13 +595,15 @@ describe('AddBoxPage', () => {
       expect(getInput('Initial Linear Feet').value).toBe('');
     });
     expect(screen.getByText('23')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'IL1-0006' }).getAttribute('href')).toBe('/inventory/IL1-0006');
+    expect(screen.getByRole('row', { name: /IL1-0006\s+72\s+100\s+Ordered/ })).toBeTruthy();
     await waitFor(() => {
       expect(getInput('BoxID').value).toBe('IL1-0007');
     });
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('shows the covered toast and redirects to the job page after 2 seconds when the receipt closes the order', async () => {
+  it('shows the covered toast and stays on film-order intake when the receipt closes the order', async () => {
     const queryClient = createQueryClient();
     const filmOrder = buildFilmOrderEntry();
     const initialBoxes = [buildBox()];
@@ -599,8 +638,6 @@ describe('AddBoxPage', () => {
     await waitFor(() => {
       expect(getInput('BoxID').value).toBe('IL1-0006');
     });
-
-    vi.useFakeTimers();
 
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '125' }
@@ -645,21 +682,20 @@ describe('AddBoxPage', () => {
     expect(toastPushMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Film Order Covered',
-        description: 'closing order',
+        description: 'Connected boxes and remaining LF are updated.',
         durationMs: 2000,
         variant: 'success'
       })
     );
     expect(navigateMock).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(2000);
+    expect(screen.getByText('0')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'IL1-0006' }).getAttribute('href')).toBe('/inventory/IL1-0006');
+    await waitFor(() => {
+      expect(getInput('Initial Linear Feet').value).toBe('');
     });
-
-    expect(navigateMock).toHaveBeenCalledWith('/allocations/2941', { replace: true });
   });
 
-  it('uses canonical job identity for film-order cover invalidation and redirect when jobId is prefilled', async () => {
+  it('uses canonical job identity for film-order cover invalidation when jobId is prefilled', async () => {
     const queryClient = createQueryClient();
     const jobId = '11111111-1111-4111-8111-111111111111';
     const filmOrder = buildFilmOrderEntry({ jobId });
@@ -687,8 +723,6 @@ describe('AddBoxPage', () => {
     await waitFor(() => {
       expect(getInput('BoxID').value).toBe('IL1-0006');
     });
-
-    vi.useFakeTimers();
 
     fireEvent.change(getInput('Initial Linear Feet'), {
       target: { value: '125' }
@@ -718,12 +752,7 @@ describe('AddBoxPage', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: inventoryKeys.jobById(jobId) });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: inventoryKeys.job('2941') });
-
-    await act(async () => {
-      vi.advanceTimersByTime(2000);
-    });
-
-    expect(navigateMock).toHaveBeenCalledWith(`/allocations/jobs/${jobId}`, { replace: true });
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('keeps the draft on the film-order intake page and rolls optimistic changes back when the add fails', async () => {
@@ -765,6 +794,7 @@ describe('AddBoxPage', () => {
       const optimisticBoxes = queryClient.getQueryData<Box[]>(searchKey) || [];
       expect(optimisticBoxes.some((entry) => entry.boxId === 'IL1-0006')).toBe(true);
     });
+    expect(screen.getByRole('row', { name: /IL1-0006\s+72\s+100\s+Saving/ })).toBeTruthy();
 
     deferred.reject(new Error('The request failed.'));
 
@@ -786,6 +816,7 @@ describe('AddBoxPage', () => {
     expect(
       queryClient.getQueryData<FilmOrderEntry[]>(inventoryKeys.filmOrders)?.[0].linkedBoxes
     ).toEqual([]);
+    expect(screen.queryByRole('row', { name: /IL1-0006\s+72\s+100/ })).toBeNull();
   });
 
   it('shows Ship Directly to Job Site only for film-order intake and submits the approved flag without optimistic stock changes', async () => {
