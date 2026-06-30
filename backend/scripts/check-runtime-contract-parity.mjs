@@ -5,6 +5,10 @@ import {
   READ_PATHS,
   ROUTE_FEATURE_MAP
 } from '../../shared/domain/runtimeContract.mjs';
+import {
+  collectPlannerRouteSetParity,
+  formatPlannerRouteSetMismatches,
+} from './lib/planner-route-set-parity.mjs';
 
 function extractRoutesFromEdgeHandler(text) {
   const routes = new Set();
@@ -92,8 +96,14 @@ for (const frontendPath of frontendApiPaths) {
 const missingInEdge = [...contractRoutes].filter((route) => !edgeRoutes.has(route)).sort();
 const missingInClient = [...contractRoutes].filter((route) => !edgeRoutes.has(route) && clientRoutes.has(route)).sort();
 const clientNotInContract = [...clientRoutes].filter((route) => !contractRoutes.has(route)).sort();
+const plannerRouteSetParity = collectPlannerRouteSetParity();
 
-if (missingInEdge.length || missingInClient.length || clientNotInContract.length) {
+if (
+  missingInEdge.length ||
+  missingInClient.length ||
+  clientNotInContract.length ||
+  plannerRouteSetParity.mismatches.length
+) {
   console.error('[contract:parity] parity check failed');
   if (missingInEdge.length) {
     console.error('[contract:parity] missing in edge:', missingInEdge);
@@ -103,6 +113,12 @@ if (missingInEdge.length || missingInClient.length || clientNotInContract.length
   }
   if (clientNotInContract.length) {
     console.error('[contract:parity] client routes not in contract:', clientNotInContract);
+  }
+  if (plannerRouteSetParity.mismatches.length) {
+    console.error(
+      '[contract:parity] planner route-set mismatch:\n' +
+        formatPlannerRouteSetMismatches(plannerRouteSetParity.mismatches)
+    );
   }
   process.exit(1);
 }

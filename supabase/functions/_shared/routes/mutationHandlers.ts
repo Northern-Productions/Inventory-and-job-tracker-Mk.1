@@ -116,6 +116,7 @@ const PLANNER_MUTATION_ROUTES = new Set([
   "/boxes/transfer/cancel",
   "/allocations/add",
   "/allocations/apply",
+  "/allocations/remove-box",
   "/jobs/create",
   "/jobs/update",
   "/jobs/requirement-state",
