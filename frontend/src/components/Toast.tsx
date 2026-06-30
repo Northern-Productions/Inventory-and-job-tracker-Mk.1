@@ -3,12 +3,14 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren
 } from 'react';
 import { Button } from './Button';
 
 type ToastVariant = 'success' | 'error' | 'warning';
+const TOAST_EXIT_ANIMATION_MS = 220;
 
 interface ToastItem {
   id: number;
@@ -18,6 +20,7 @@ interface ToastItem {
   durationMs: number;
   actionLabel?: string;
   onAction?: () => void | Promise<void>;
+  isClosing: boolean;
 }
 
 interface ToastInput {
@@ -49,9 +52,21 @@ function getToastSymbol(variant: ToastVariant) {
 
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const closingToastIdsRef = useRef<Set<number>>(new Set());
 
   const dismiss = useCallback((id: number) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
+    if (closingToastIdsRef.current.has(id)) {
+      return;
+    }
+
+    closingToastIdsRef.current.add(id);
+    setToasts((current) =>
+      current.map((toast) => (toast.id === id ? { ...toast, isClosing: true } : toast))
+    );
+    window.setTimeout(() => {
+      closingToastIdsRef.current.delete(id);
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, TOAST_EXIT_ANIMATION_MS);
   }, []);
 
   const push = useCallback(
@@ -64,7 +79,8 @@ export function ToastProvider({ children }: PropsWithChildren) {
         variant: toast.variant ?? 'success',
         durationMs: toast.durationMs ?? 6000,
         actionLabel: toast.actionLabel,
-        onAction: toast.onAction
+        onAction: toast.onAction,
+        isClosing: false
       };
 
       setToasts((current) => [...current, nextToast]);
@@ -80,7 +96,11 @@ export function ToastProvider({ children }: PropsWithChildren) {
       {children}
       <div className="toast-stack" aria-live="polite">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.variant}`}>
+          <div
+            key={toast.id}
+            className={`toast toast-${toast.variant}${toast.isClosing ? ' toast-exit' : ''}`}
+            role={toast.variant === 'error' ? 'alert' : 'status'}
+          >
             <div className="toast-body">
               <span className="toast-symbol" aria-hidden="true">
                 {getToastSymbol(toast.variant)}

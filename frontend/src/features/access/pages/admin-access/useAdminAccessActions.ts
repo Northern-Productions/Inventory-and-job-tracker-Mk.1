@@ -247,7 +247,8 @@ export function useAdminAccessActions({
       if (!auth.isOwner) {
         toast.push({
           title: 'Owner required',
-          description: 'Only owners can change role status.'
+          description: 'Only owners can change role status.',
+          variant: 'warning'
         });
         return Promise.resolve();
       }
@@ -256,7 +257,8 @@ export function useAdminAccessActions({
         if (currentRole !== 'admin') {
           toast.push({
             title: 'Admin required',
-            description: 'Only admin accounts can be promoted to owner.'
+            description: 'Only admin accounts can be promoted to owner.',
+            variant: 'warning'
           });
           return Promise.resolve();
         }

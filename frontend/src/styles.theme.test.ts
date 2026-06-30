@@ -128,6 +128,23 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('uses soft status color variables and lively motion for toast variants', () => {
+    expect(css).toMatch(
+      /\.toast\s*{[^}]*animation:\s*toast-pop-in 520ms[\s\S]*toast-radiate 2600ms/s
+    );
+    expect(css).toMatch(/\.toast-success\s*{[^}]*--toast-bg:\s*#effaf4;[^}]*--toast-glow:/s);
+    expect(css).toMatch(/\.toast-error\s*{[^}]*--toast-bg:\s*#fff0ef;[^}]*--toast-glow:/s);
+    expect(css).toMatch(/\.toast-warning\s*{[^}]*--toast-bg:\s*#fff7ec;[^}]*--toast-glow:/s);
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\.toast-success\s*{[^}]*--toast-text:\s*#e4ffec;/s);
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\.toast-error\s*{[^}]*--toast-text:\s*#ffe4de;/s);
+  });
+
+  it('respects reduced-motion preferences for toast animation', () => {
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion:\s*reduce\)\s*{[\s\S]*\.toast\s*{[^}]*animation:\s*toast-fade-in 120ms ease-out both;[\s\S]*\.toast-exit\s*{[^}]*animation:\s*none;/s
+    );
+  });
+
   it('uses a sticky desktop nav instead of compact header selectors', () => {
     expect(css).toMatch(
       /\.app-header-nav-wrap\s*{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*width:\s*auto;[^}]*margin:\s*0 calc\(50% - 50vw\) 1rem;[^}]*padding:\s*calc\(0\.45rem \+ env\(safe-area-inset-top\)\) var\(--app-shell-inline-padding\) 0\.6rem;[^}]*background:\s*var\(--color-header-pinned-bg\);/s
