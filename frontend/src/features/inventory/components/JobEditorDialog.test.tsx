@@ -60,6 +60,33 @@ function buildDialogTree(
   );
 }
 
+function buildDialogTreeWithLauncher(
+  queryClient: QueryClient,
+  open: boolean,
+  props: Partial<ComponentProps<typeof JobEditorDialog>> = {}
+): ReactElement {
+  return (
+    <>
+      <button type="button" data-testid="new-job-launcher">
+        New Job +
+      </button>
+      <QueryClientProvider client={queryClient}>
+        <JobEditorDialog
+          open={open}
+          mode="create"
+          title="New Job"
+          submitLabel="Save Job"
+          filmCatalogEntries={[]}
+          caulkProductEntries={[]}
+          onCancel={() => undefined}
+          onSubmit={() => undefined}
+          {...props}
+        />
+      </QueryClientProvider>
+    </>
+  );
+}
+
 function expectNoUiPhaseKeysInSubmitPayload(payload: unknown) {
   const serializedPayload = JSON.stringify(payload);
   expect(serializedPayload).not.toContain('"primary"');
@@ -89,6 +116,46 @@ describe('JobEditorDialog', () => {
     expect(document.querySelectorAll('.job-editor-requirement-builder')).toHaveLength(2);
     expect(document.querySelector('.job-editor-film-requirement-builder')).not.toBeNull();
     expect(document.querySelector('.dialog-actions.dialog-actions-sticky-footer')).not.toBeNull();
+    queryClient.clear();
+  });
+
+  it('keeps focused create fields stable when parent callbacks refresh while the dialog is scrolled', () => {
+    const queryClient = createQueryClient();
+    const view = render(buildDialogTreeWithLauncher(queryClient, false));
+    const launcher = screen.getByTestId('new-job-launcher') as HTMLButtonElement;
+    launcher.focus();
+
+    view.rerender(
+      buildDialogTreeWithLauncher(queryClient, true, {
+        onCancel: vi.fn(),
+        onSubmit: vi.fn()
+      })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'New Job' }) as HTMLElement;
+    const focusTargets = [
+      () => screen.getByRole('textbox', { name: /Work Scope/i }) as HTMLInputElement,
+      () => screen.getByRole('combobox', { name: /^Manufacturer$/i }) as HTMLSelectElement,
+      () => screen.getByRole('combobox', { name: /Film Name/i }) as HTMLInputElement
+    ];
+
+    for (const getTarget of focusTargets) {
+      const target = getTarget();
+      dialog.scrollTop = 480;
+      target.focus();
+      expect(document.activeElement).toBe(target);
+
+      view.rerender(
+        buildDialogTreeWithLauncher(queryClient, true, {
+          onCancel: vi.fn(),
+          onSubmit: vi.fn()
+        })
+      );
+
+      expect(document.activeElement).toBe(target);
+      expect(dialog.scrollTop).toBe(480);
+    }
+
     queryClient.clear();
   });
 

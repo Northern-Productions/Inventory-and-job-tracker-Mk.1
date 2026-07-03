@@ -62,10 +62,17 @@ export function DialogSurface({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const dialogIdRef = useRef('');
+  const onCloseRef = useRef(onClose);
+  const closeOnEscapeRef = useRef(closeOnEscape);
 
   if (!dialogIdRef.current) {
     dialogIdRef.current = createDialogSurfaceId();
   }
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    closeOnEscapeRef.current = closeOnEscape;
+  }, [closeOnEscape, onClose]);
 
   useIsomorphicLayoutEffect(() => {
     if (!open || typeof document === 'undefined') {
@@ -111,9 +118,10 @@ export function DialogSurface({
         return;
       }
 
-      if (event.key === 'Escape' && closeOnEscape && onClose) {
+      const latestOnClose = onCloseRef.current;
+      if (event.key === 'Escape' && closeOnEscapeRef.current && latestOnClose) {
         event.preventDefault();
-        onClose();
+        latestOnClose();
         return;
       }
 
@@ -174,7 +182,7 @@ export function DialogSurface({
         }
       }
     };
-  }, [closeOnEscape, onClose, open]);
+  }, [open]);
 
   if (!open) {
     return null;
