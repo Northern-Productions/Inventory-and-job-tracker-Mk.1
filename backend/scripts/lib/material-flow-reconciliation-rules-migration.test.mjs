@@ -77,7 +77,7 @@ test('material-flow migration hooks box edits into reconciliation', async () => 
 test('schema latest checks material-flow migration semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0177_edit_box_add_preserve_owner_company\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0178_film_allocation_remove_preserve_physical_lf\.sql';/);
   assert.match(schemaLatest, /app_api\.compute_covered_feet_from_allocation\(/);
   assert.match(schemaLatest, /coalesce\(b\.initial_feet, l\.ordered_feet, 0\)/);
   assert.match(schemaLatest, /v_material_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);

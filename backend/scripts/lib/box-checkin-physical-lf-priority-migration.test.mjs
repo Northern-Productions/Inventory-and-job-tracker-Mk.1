@@ -56,7 +56,7 @@ test('latest schema check requires physical LF reconciliation priority semantics
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
+  assert.match(schemaCheck, /0178_film_allocation_remove_preserve_physical_lf\.sql/);
 
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(schemaCheck, /case when a\.job_date is not null then 0 else 1 end/);

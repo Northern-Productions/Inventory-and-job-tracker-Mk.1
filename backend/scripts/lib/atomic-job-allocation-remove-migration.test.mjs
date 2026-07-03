@@ -64,9 +64,12 @@ test('latest schema check requires atomic allocation remove RPCs', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0177_edit_box_add_preserve_owner_company\.sql/);
+  assert.match(schemaCheck, /0178_film_allocation_remove_preserve_physical_lf\.sql/);
 
   assert.match(schemaCheck, /public\.api_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /public\.api_acl_allocations_remove_box\(uuid, text, jsonb\)/);
-  assert.match(schemaCheck, /perform app_api\.recalculate_physical_box_allocatable_now\(p_org_id, v_box\.box_id\);/);
+  assert.match(
+    schemaCheck,
+    /perform app_api\.recalculate_physical_box_allocatable_now\(p_org_id, v_box\.box_id, v_preserved_physical_feet\);/
+  );
 });

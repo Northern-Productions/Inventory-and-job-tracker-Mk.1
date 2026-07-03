@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0177_edit_box_add_preserve_owner_company.sql';
+const LATEST_MIGRATION = '0178_film_allocation_remove_preserve_physical_lf.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -626,7 +626,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'where org_id = p_org_id',
       'and allocation_id = v_allocation.allocation_id',
       'perform app_api.record_auto_planned_allocation_suppression(',
-      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box.box_id);',
+      'v_preserved_physical_feet integer := null;',
+      'v_preserved_physical_feet := app_api.box_physical_feet_available(v_box);',
+      'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_box.box_id, v_preserved_physical_feet);',
       'perform app_api.recalculate_film_order(p_org_id, v_film_order_id, v_actor);',
       'perform app_api.reconcile_auto_planned_allocations(',
       "'jobIds', jsonb_build_array(v_job.id)",

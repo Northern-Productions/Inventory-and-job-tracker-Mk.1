@@ -176,7 +176,7 @@ test('audit checkout projection source avoids note parsing, migrations, and dupl
   assert.match(baseSchema, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuard, /Job %s already exists/);
 
-  assert.match(schemaLatest, /0177_edit_box_add_preserve_owner_company\.sql/);
+  assert.match(schemaLatest, /0178_film_allocation_remove_preserve_physical_lf\.sql/);
 
 
   const backendMigrations = await readdir(migrationsPath);
