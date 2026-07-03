@@ -159,7 +159,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0178_film_allocation_remove_preserve_physical_lf\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0179_film_weight_initial_values_only\.sql';/);
 
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);

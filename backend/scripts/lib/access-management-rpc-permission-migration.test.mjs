@@ -67,7 +67,7 @@ test('latest schema check guards the access-management RPC permission surface', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0178_film_allocation_remove_preserve_physical_lf\.sql/);
+  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
 
   assert.match(schemaCheck, /REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);

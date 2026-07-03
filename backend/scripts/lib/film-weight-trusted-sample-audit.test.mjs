@@ -21,6 +21,7 @@ function row(overrides = {}) {
     received_date: '2026-04-05',
     last_weighed_date: '2026-04-06',
     created_at: '2026-04-01T12:00:00Z',
+    initial_weight_lbs: 14.5,
     last_roll_weight_lbs: 14.5,
     core_type: 'White plastic',
     core_weight_lbs: 1.6667,
@@ -57,6 +58,25 @@ test('trusted sample filter accepts complete ordered received samples after cuto
   assert.equal(audit.trustedSamples[0].lbsPerSqFt, 0.0256666);
 });
 
+test('trusted sample candidates use initial weight and ignore lower last roll weight', () => {
+  const candidate = buildTrustedSampleCandidate(
+    row({
+      box_id: 'INITIAL-ONLY',
+      initial_feet: 100,
+      initial_weight_lbs: 50,
+      last_roll_weight_lbs: 20,
+      core_weight_lbs: 2,
+    })
+  );
+
+  assert.equal(candidate.trustedUsable, true);
+  assert.equal(candidate.measuredRollWeightLbs, 50);
+  assert.equal(candidate.lf, 100);
+  assert.equal(candidate.filmOnlyWeightLbs, 48);
+  assert.equal(candidate.normalizedLbsPerInchFoot, 0.008);
+  assert.equal(candidate.lbsPerSqFt, 0.096);
+});
+
 test('missing core type or core weight makes a sample pending review', () => {
   const audit = buildTrustedSampleAudit({
     rows: [
@@ -76,13 +96,15 @@ test('first trusted sample creates a starter profile and later in-tolerance samp
   const first = row({
     box_id: 'STARTER',
     last_weighed_date: '2026-04-06',
-    last_roll_weight_lbs: 14.5,
+    initial_weight_lbs: 14.5,
+    last_roll_weight_lbs: 8,
   });
   const second = row({
     box_id: 'FOLLOW-UP',
     last_weighed_date: '2026-04-07',
     initial_feet: 100,
-    last_roll_weight_lbs: 14.9,
+    initial_weight_lbs: 14.9,
+    last_roll_weight_lbs: 7,
   });
   const audit = buildTrustedSampleAudit({ rows: [second, first], toleranceLf: 10 });
   const profile = audit.simulatedProfiles[0];
@@ -104,13 +126,15 @@ test('later sample outside 10 LF tolerance goes pending and does not update aver
     box_id: 'STARTER',
     last_weighed_date: '2026-04-06',
     initial_feet: 100,
-    last_roll_weight_lbs: 14.5,
+    initial_weight_lbs: 14.5,
+    last_roll_weight_lbs: 8,
   });
   const bad = row({
     box_id: 'BAD-LF',
     last_weighed_date: '2026-04-07',
     initial_feet: 100,
-    last_roll_weight_lbs: 25,
+    initial_weight_lbs: 25,
+    last_roll_weight_lbs: 8,
   });
   const audit = buildTrustedSampleAudit({ rows: [first, bad], toleranceLf: 10 });
   const profile = audit.simulatedProfiles[0];
@@ -160,7 +184,7 @@ test('pending review includes missing LF, measured weight, and film identity rea
   const audit = buildTrustedSampleAudit({
     rows: [
       row({ box_id: 'NO-LF', initial_feet: 0 }),
-      row({ box_id: 'NO-WEIGHT', last_roll_weight_lbs: null }),
+      row({ box_id: 'NO-WEIGHT', initial_weight_lbs: null, last_roll_weight_lbs: 14.5 }),
       row({ box_id: 'NO-FILM', film_name: '' }),
     ],
   });

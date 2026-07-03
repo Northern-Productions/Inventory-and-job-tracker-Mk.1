@@ -21,23 +21,47 @@ const supabaseMigrationPath = path.join(
   'migrations',
   '20260603100000_film_weight_profiles_foundation.sql'
 );
+const backendInitialOnlyMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0179_film_weight_initial_values_only.sql'
+);
+const supabaseInitialOnlyMigrationPath = path.join(
+  repoRoot,
+  'supabase',
+  'migrations',
+  '20260629106000_film_weight_initial_values_only.sql'
+);
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 
 test('film weight profiles migration stays mirrored and schema-guarded', async () => {
-  const [backendMigration, supabaseMigration, schemaCheck] = await Promise.all([
-    readFile(backendMigrationPath, 'utf8'),
-    readFile(supabaseMigrationPath, 'utf8'),
-    readFile(schemaCheckPath, 'utf8'),
-  ]);
+  const [backendMigration, supabaseMigration, backendInitialOnlyMigration, supabaseInitialOnlyMigration, schemaCheck] =
+    await Promise.all([
+      readFile(backendMigrationPath, 'utf8'),
+      readFile(supabaseMigrationPath, 'utf8'),
+      readFile(backendInitialOnlyMigrationPath, 'utf8'),
+      readFile(supabaseInitialOnlyMigrationPath, 'utf8'),
+      readFile(schemaCheckPath, 'utf8'),
+    ]);
 
   assert.equal(supabaseMigration, backendMigration);
+  assert.equal(supabaseInitialOnlyMigration, backendInitialOnlyMigration);
+  assert.match(backendInitialOnlyMigration, /app_api\.record_film_weight_sample_from_box/);
+  assert.match(backendInitialOnlyMigration, /v_measured_roll_weight_lbs := v_box\.initial_weight_lbs;/);
+  assert.match(
+    backendInitialOnlyMigration,
+    /v_old_weight_source text := '  v_measured_roll_weight_lbs := coalesce\(v_box\.last_roll_weight_lbs, v_box\.initial_weight_lbs\);';/
+  );
 
-  assert.match(schemaCheck, /0178_film_allocation_remove_preserve_physical_lf\.sql/);
+  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_pending_reviews'/);
   assert.match(schemaCheck, /signature: 'app_api\.record_film_weight_sample_from_box/);
+  assert.match(schemaCheck, /v_measured_roll_weight_lbs := v_box\.initial_weight_lbs;/);
+  assert.match(schemaCheck, /coalesce\(v_box\.last_roll_weight_lbs, v_box\.initial_weight_lbs\)/);
   assert.match(schemaCheck, /signature: 'app_api\.resolve_film_weight_pending_review/);
 });
 

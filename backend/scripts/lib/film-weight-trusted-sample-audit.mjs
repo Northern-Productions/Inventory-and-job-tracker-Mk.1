@@ -183,9 +183,7 @@ function buildTrustedSampleCandidate(row, aliasMap = new Map()) {
   const dateSelection = selectTrustedSampleDate(row);
   const widthIn = asNumber(row.widthIn ?? row.width_in);
   const lf = asNumber(row.initialFeet ?? row.initial_feet ?? row.orderedFeet ?? row.ordered_feet);
-  const measuredRollWeightLbs = asNumber(
-    row.lastRollWeightLbs ?? row.last_roll_weight_lbs ?? row.initialWeightLbs ?? row.initial_weight_lbs
-  );
+  const measuredRollWeightLbs = asNumber(row.initialWeightLbs ?? row.initial_weight_lbs);
   const coreType = normalizeCoreType(row.coreType ?? row.core_type);
   const coreWeightLbs = asNumber(row.coreWeightLbs ?? row.core_weight_lbs);
   const canonical = resolveCanonicalFilmIdentity(row, aliasMap);

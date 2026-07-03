@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0178_film_allocation_remove_preserve_physical_lf.sql';
+const LATEST_MIGRATION = '0179_film_weight_initial_values_only.sql';
 
 
 const REQUIRED_OBJECTS = [
@@ -238,6 +238,14 @@ const REQUIRED_OBJECTS = [
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)',
+    includes: [
+      'v_recorded_lf := v_box.initial_feet;',
+      'v_measured_roll_weight_lbs := v_box.initial_weight_lbs;'
+    ],
+    excludes: ['v_measured_roll_weight_lbs := coalesce(v_box.last_roll_weight_lbs, v_box.initial_weight_lbs);']
+  },
   {
     signature: 'app_api.resolve_caulk_stock_owner_company_id(uuid, uuid, text, uuid, uuid)',
     includes: [
