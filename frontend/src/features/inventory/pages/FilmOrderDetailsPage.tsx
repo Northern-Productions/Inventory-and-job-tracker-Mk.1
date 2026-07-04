@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { getBox } from '../../../api/features/inventoryClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
-import type { FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
+import type { Box, FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../lib/url';
-import { useFilmOrderDetail } from '../hooks/useInventoryQueries';
+import { inventoryKeys, useFilmOrderDetail } from '../hooks/useInventoryQueries';
 import { useManualFulfillFilmOrder } from '../hooks/mutations/planning/filmOrderMutations';
 import { formatFilmOrderDealerLabel } from '../utils/filmOrders';
 
@@ -40,6 +42,45 @@ function formatPhaseLabel(order: FilmOrderDetail) {
   return workScope ? `Phase ${phaseNumber} - ${workScope}` : `Phase ${phaseNumber}`;
 }
 
+const USD_CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD'
+});
+
+function formatInitialCost(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? USD_CURRENCY_FORMATTER.format(value) : '--';
+}
+
+interface LinkedBoxInitialCostLookup {
+  box: Box | null;
+  isLoading: boolean;
+}
+
+function renderInitialCost(lookup: LinkedBoxInitialCostLookup | undefined) {
+  if (lookup?.isLoading) {
+    return '...';
+  }
+
+  return formatInitialCost(lookup?.box?.purchaseCost);
+}
+
+function renderInitialCostSummary(summary: {
+  total: number;
+  knownCount: number;
+  missingCount: number;
+  loadingCount: number;
+}) {
+  if (summary.knownCount > 0) {
+    return formatInitialCost(summary.total);
+  }
+
+  if (summary.loadingCount > 0 && summary.missingCount === 0) {
+    return '...';
+  }
+
+  return '--';
+}
+
 function renderChangedData(value: Record<string, unknown> | null | undefined) {
   if (!value || typeof value !== 'object') {
     return null;
@@ -66,6 +107,52 @@ export default function FilmOrderDetailsPage() {
   const manualFulfillMutation = useManualFulfillFilmOrder();
   const [manualFulfillOpen, setManualFulfillOpen] = useState(false);
   const order = detailQuery.data;
+  const linkedBoxIds = useMemo(() => {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const linkedBox of order?.linkedBoxes || []) {
+      const boxId = String(linkedBox?.boxId || '').trim().toUpperCase();
+      if (boxId && !seen.has(boxId)) {
+        seen.add(boxId);
+        ids.push(boxId);
+      }
+    }
+    return ids;
+  }, [order?.linkedBoxes]);
+  const linkedBoxCostQueries = useQueries({
+    queries: linkedBoxIds.map((boxId) => ({
+      queryKey: inventoryKeys.box(boxId),
+      queryFn: () => getBox(boxId),
+      enabled: Boolean(order && boxId)
+    }))
+  });
+  const linkedBoxCostById = new Map<string, LinkedBoxInitialCostLookup>();
+  for (let index = 0; index < linkedBoxIds.length; index += 1) {
+    const query = linkedBoxCostQueries[index];
+    linkedBoxCostById.set(linkedBoxIds[index], {
+      box: query?.data ?? null,
+      isLoading: Boolean(query?.isLoading || (query?.isFetching && !query.data))
+    });
+  }
+  const linkedBoxCostSummary = (order?.linkedBoxes || []).reduce(
+    (summary, linkedBox) => {
+      const linkedBoxId = String(linkedBox?.boxId || '').trim().toUpperCase();
+      const lookup = linkedBoxCostById.get(linkedBoxId);
+      const purchaseCost = lookup?.box?.purchaseCost;
+      if (lookup?.isLoading) {
+        summary.loadingCount += 1;
+        return summary;
+      }
+      if (typeof purchaseCost === 'number' && Number.isFinite(purchaseCost)) {
+        summary.total += purchaseCost;
+        summary.knownCount += 1;
+      } else {
+        summary.missingCount += 1;
+      }
+      return summary;
+    },
+    { total: 0, knownCount: 0, missingCount: 0, loadingCount: 0 }
+  );
 
   async function handleManualFulfillConfirm() {
     if (!order) {
@@ -200,21 +287,49 @@ export default function FilmOrderDetailsPage() {
                       <th>Initial LF</th>
                       <th>Ordered LF</th>
                       <th>Received</th>
+                      <th>Initial Cost</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {order.linkedBoxes.map((box) => (
-                      <tr key={box.boxId}>
-                        <td>
-                          <Link to={`/inventory/${encodeURIComponent(box.boxId)}`}>{box.boxId}</Link>
-                        </td>
-                        <td>{box.status}</td>
-                        <td>{box.initialFeet}</td>
-                        <td>{box.orderedFeet}</td>
-                        <td>{box.receivedDate ? formatDate(box.receivedDate) : 'Not received'}</td>
-                      </tr>
-                    ))}
+                    {order.linkedBoxes.map((box) => {
+                      const linkedBoxId = String(box.boxId || '').trim().toUpperCase();
+
+                      return (
+                        <tr key={box.boxId}>
+                          <td>
+                            <Link to={`/inventory/${encodeURIComponent(box.boxId)}`}>{box.boxId}</Link>
+                          </td>
+                          <td>{box.status}</td>
+                          <td>{box.initialFeet}</td>
+                          <td>{box.orderedFeet}</td>
+                          <td>{box.receivedDate ? formatDate(box.receivedDate) : 'Not received'}</td>
+                          <td>{renderInitialCost(linkedBoxCostById.get(linkedBoxId))}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <th scope="row" colSpan={5}>
+                        Total Initial Cost
+                      </th>
+                      <td>
+                        {renderInitialCostSummary(linkedBoxCostSummary)}
+                        {linkedBoxCostSummary.missingCount > 0 ? (
+                          <span className="muted-text">
+                            {' '}
+                            ({linkedBoxCostSummary.missingCount} missing)
+                          </span>
+                        ) : null}
+                        {linkedBoxCostSummary.loadingCount > 0 ? (
+                          <span className="muted-text">
+                            {' '}
+                            ({linkedBoxCostSummary.loadingCount} loading)
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             ) : (

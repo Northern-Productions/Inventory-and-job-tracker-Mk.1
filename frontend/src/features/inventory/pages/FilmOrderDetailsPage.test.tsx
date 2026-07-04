@@ -4,10 +4,11 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FilmOrderDetail } from '../../../domain';
+import type { Box, FilmOrderDetail } from '../../../domain';
 import FilmOrderDetailsPage from './FilmOrderDetailsPage';
 
 const getFilmOrderDetailMock = vi.fn();
+const getBoxMock = vi.fn();
 const manualFulfillFilmOrderMock = vi.fn();
 const toastPushMock = vi.fn();
 
@@ -19,6 +20,10 @@ vi.mock('../../../api/features/filmOrdersClient', () => ({
   cancelJob: vi.fn(),
   deleteFilmOrder: vi.fn(),
   manualFulfillFilmOrder: (...args: unknown[]) => manualFulfillFilmOrderMock(...args)
+}));
+
+vi.mock('../../../api/features/inventoryClient', () => ({
+  getBox: (...args: unknown[]) => getBoxMock(...args)
 }));
 
 vi.mock('../../../components/Toast', () => ({
@@ -126,6 +131,39 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
   };
 }
 
+function buildBoxCost(boxId: string, purchaseCost: number | null): Box {
+  return {
+    boxId,
+    warehouse: 'IL1',
+    manufacturer: '3M',
+    filmName: 'Security',
+    widthIn: 60,
+    initialFeet: 100,
+    feetAvailable: 100,
+    allocationPlanningFeet: 100,
+    lotRun: '',
+    status: 'IN_STOCK',
+    orderDate: '2026-05-18',
+    receivedDate: '2026-05-20',
+    initialWeightLbs: null,
+    lastRollWeightLbs: null,
+    lastWeighedDate: '',
+    filmKey: '3m|security',
+    coreType: '',
+    coreWeightLbs: null,
+    lfWeightLbsPerFt: null,
+    pricePerLf: null,
+    purchaseCost,
+    notes: '',
+    hasEverBeenCheckedOut: false,
+    lastCheckoutJob: '',
+    lastCheckoutDate: '',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: ''
+  };
+}
+
 function renderPage() {
   const queryClient = createQueryClient();
   return render(
@@ -146,9 +184,11 @@ describe('FilmOrderDetailsPage', () => {
 
   beforeEach(() => {
     getFilmOrderDetailMock.mockReset();
+    getBoxMock.mockReset();
     manualFulfillFilmOrderMock.mockReset();
     toastPushMock.mockReset();
     getFilmOrderDetailMock.mockResolvedValue(buildDetail());
+    getBoxMock.mockImplementation((boxId: string) => Promise.resolve(buildBoxCost(boxId, 1200)));
     manualFulfillFilmOrderMock.mockResolvedValue({
       result: {
         ...buildDetail(),
@@ -178,6 +218,148 @@ describe('FilmOrderDetailsPage', () => {
     ).toBe(true);
     expect(screen.getAllByRole('link', { name: 'IL1-100' })).toHaveLength(2);
     expect(screen.getByText('LINKED BOX INITIAL FEET CHANGED')).toBeTruthy();
+  });
+
+  it('renders connected box initial costs and a total for known costs', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        linkedBoxes: [
+          {
+            linkId: 'link-1',
+            boxId: 'IL1-100',
+            dealer: 'Dealer One',
+            orderedFeet: 100,
+            autoAllocatedFeet: 0,
+            isReceived: true,
+            isDirectToJobSite: false,
+            initialFeet: 100,
+            feetAvailable: 100,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: '2026-05-20'
+          },
+          {
+            linkId: 'link-2',
+            boxId: 'IL1-101',
+            dealer: 'Dealer One',
+            orderedFeet: 75,
+            autoAllocatedFeet: 0,
+            isReceived: true,
+            isDirectToJobSite: false,
+            initialFeet: 75,
+            feetAvailable: 75,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: '2026-05-20'
+          }
+        ]
+      })
+    );
+    getBoxMock.mockImplementation((boxId: string) =>
+      Promise.resolve(buildBoxCost(boxId, boxId === 'IL1-100' ? 1250 : 675.5))
+    );
+
+    renderPage();
+
+    const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
+      'table'
+    ) as HTMLTableElement;
+    expect(table).toBeTruthy();
+    await waitFor(() => expect(within(table).getByText('$1,250.00')).toBeTruthy());
+    expect(within(table).getByText('$675.50')).toBeTruthy();
+    expect(within(table).getByText('Total Initial Cost')).toBeTruthy();
+    expect(within(table).getByText('$1,925.50')).toBeTruthy();
+    expect(within(table).getByRole('link', { name: 'IL1-100' }).getAttribute('href')).toBe('/inventory/IL1-100');
+    expect(within(table).getByRole('link', { name: 'IL1-101' }).getAttribute('href')).toBe('/inventory/IL1-101');
+  });
+
+  it('keeps true zero costs distinct from missing connected box costs', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        linkedBoxes: [
+          {
+            linkId: 'link-zero',
+            boxId: 'IL1-ZERO',
+            dealer: 'Dealer One',
+            orderedFeet: 100,
+            autoAllocatedFeet: 0,
+            isReceived: true,
+            isDirectToJobSite: false,
+            initialFeet: 100,
+            feetAvailable: 100,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: '2026-05-20'
+          },
+          {
+            linkId: 'link-missing',
+            boxId: 'IL1-MISSING',
+            dealer: 'Dealer One',
+            orderedFeet: 75,
+            autoAllocatedFeet: 0,
+            isReceived: true,
+            isDirectToJobSite: false,
+            initialFeet: 75,
+            feetAvailable: 75,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: '2026-05-20'
+          }
+        ]
+      })
+    );
+    getBoxMock.mockImplementation((boxId: string) =>
+      Promise.resolve(buildBoxCost(boxId, boxId === 'IL1-ZERO' ? 0 : null))
+    );
+
+    renderPage();
+
+    const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
+      'table'
+    ) as HTMLTableElement;
+    const zeroRow = within(table).getByRole('link', { name: 'IL1-ZERO' }).closest('tr') as HTMLTableRowElement;
+    const missingRow = within(table).getByRole('link', { name: 'IL1-MISSING' }).closest('tr') as HTMLTableRowElement;
+    const summaryRow = within(table).getByText('Total Initial Cost').closest('tr') as HTMLTableRowElement;
+
+    await waitFor(() => expect(within(zeroRow).getByText('$0.00')).toBeTruthy());
+    expect(within(missingRow).getByText('--')).toBeTruthy();
+    expect(within(summaryRow).getByText('$0.00')).toBeTruthy();
+    expect(within(summaryRow).getByText('(1 missing)')).toBeTruthy();
+  });
+
+  it('does not show a zero-dollar total when all connected box costs are missing', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        linkedBoxes: [
+          {
+            linkId: 'link-missing',
+            boxId: 'IL1-MISSING',
+            dealer: 'Dealer One',
+            orderedFeet: 75,
+            autoAllocatedFeet: 0,
+            isReceived: true,
+            isDirectToJobSite: false,
+            initialFeet: 75,
+            feetAvailable: 75,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: '2026-05-20'
+          }
+        ]
+      })
+    );
+    getBoxMock.mockResolvedValue(buildBoxCost('IL1-MISSING', null));
+
+    renderPage();
+
+    const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
+      'table'
+    ) as HTMLTableElement;
+    const summaryRow = within(table).getByText('Total Initial Cost').closest('tr') as HTMLTableRowElement;
+
+    await waitFor(() => expect(within(summaryRow).getByText('--')).toBeTruthy());
+    expect(within(summaryRow).queryByText('$0.00')).toBeNull();
+    expect(within(summaryRow).getByText('(1 missing)')).toBeTruthy();
   });
 
   it('confirms manual fulfillment without navigating to the Add Box flow', async () => {

@@ -4629,7 +4629,13 @@ td.col-available-linear-ft {
 }
 
 .film-order-detail-table {
-  min-width: 42rem;
+  min-width: 50rem;
+}
+
+.film-order-detail-table tfoot th,
+.film-order-detail-table tfoot td {
+  border-top: 1px solid var(--color-border-soft);
+  font-weight: 700;
 }
 
 .film-order-history-list {
