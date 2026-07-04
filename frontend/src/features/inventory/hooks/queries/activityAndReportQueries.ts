@@ -14,10 +14,14 @@ export function useAuditList(params: AuditListParams) {
   });
 }
 
-export function useReportsSummary(filters: ReportsSummaryFilters) {
+export function useReportsSummary(
+  filters: ReportsSummaryFilters,
+  options: { enabled?: boolean } = {}
+) {
   return useInventoryReadQuery({
     queryKey: inventoryKeys.reports(filters),
-    queryFn: () => getReportsSummary(filters)
+    queryFn: () => getReportsSummary(filters),
+    enabled: options.enabled ?? true
   });
 }
 

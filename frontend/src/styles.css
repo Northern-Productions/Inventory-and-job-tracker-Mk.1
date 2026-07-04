@@ -3844,6 +3844,36 @@ td.col-available-linear-ft {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.ownership-report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.ownership-report-summary .summary-card {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 0.5rem;
+  background: var(--color-surface-muted);
+  padding: 0.875rem 1rem;
+}
+
+.ownership-report-summary .summary-label {
+  display: block;
+  color: var(--color-text-2);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ownership-report-summary strong {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-text-1);
+  font-size: 1.35rem;
+}
+
 .film-orders-filters {
   margin-bottom: 1rem;
 }

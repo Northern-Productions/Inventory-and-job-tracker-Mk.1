@@ -43,9 +43,13 @@ function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
   };
 }
 
-export function useOfflineInventorySearch(warehouse: Warehouse | '') {
+export function useOfflineInventorySearch(
+  warehouse: Warehouse | '',
+  options: { enabled?: boolean } = {}
+) {
   const queryClient = useQueryClient();
   const auth = useAuth();
+  const enabled = options.enabled ?? true;
   const isSyncingRef = useRef(false);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
@@ -72,7 +76,8 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
   const offlineScopeKey = buildOfflineInventoryScopeKey(offlineScope);
   const snapshotQuery = useQuery({
     queryKey: offlineInventoryKeys.snapshot(offlineScopeKey, warehouse),
-    queryFn: () => getOfflineInventorySnapshotBoxes(offlineScope, warehouse)
+    queryFn: () => getOfflineInventorySnapshotBoxes(offlineScope, warehouse),
+    enabled
   });
   const metaQuery = useQuery({
     queryKey: offlineInventoryKeys.meta(offlineScopeKey, selectedWarehouses),
@@ -81,7 +86,8 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
         await Promise.all(
           selectedWarehouses.map((warehouse) => getOfflineInventorySyncMeta(offlineScope, warehouse))
         )
-      )
+      ),
+    enabled
   });
   const hasSnapshot = Boolean(metaQuery.data?.lastSyncedAt);
   const isInitialLoad =
@@ -93,6 +99,10 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
       isSyncing);
 
   const syncNow = useCallback(async () => {
+    if (!enabled) {
+      return;
+    }
+
     const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
 
     if (isSyncingRef.current) {
@@ -125,7 +135,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [offlineScope, offlineScopeKey, queryClient, warehouse]);
+  }, [enabled, offlineScope, offlineScopeKey, queryClient, warehouse]);
 
   useEffect(() => {
     function handleStatusChange() {
@@ -142,12 +152,12 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
   }, []);
 
   useEffect(() => {
-    if (!isOnline) {
+    if (!enabled || !isOnline) {
       return;
     }
 
     void syncNow();
-  }, [isOnline, syncNow]);
+  }, [enabled, isOnline, syncNow]);
 
   useEffect(() => {
     function handleWindowFocus() {
@@ -155,7 +165,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
         setIsOnline(navigator.onLine);
       }
 
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (!enabled || (typeof navigator !== 'undefined' && !navigator.onLine)) {
         return;
       }
 
@@ -171,7 +181,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
         setIsOnline(navigator.onLine);
       }
 
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (!enabled || (typeof navigator !== 'undefined' && !navigator.onLine)) {
         return;
       }
 
@@ -185,7 +195,7 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [syncNow]);
+  }, [enabled, syncNow]);
 
   return {
     snapshotBoxes: snapshotQuery.data || [],

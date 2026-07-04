@@ -3,11 +3,19 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReportsPage from './ReportsPage';
-import { useReportsPageModel } from './reports/useReportsPageModel';
+import { NO_OWNER_FILTER_VALUE, useReportsPageModel } from './reports/useReportsPageModel';
+
+const navigateMock = vi.fn();
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigateMock
+}));
 
 vi.mock('./reports/useReportsPageModel', () => ({
+  NO_OWNER_FILTER_VALUE: '__NO_OWNER__',
   REPORT_TYPE_TITLES: {
-    most_used_film: 'Most Used Film'
+    most_used_film: 'Most Used Film',
+    ownership: 'Ownership'
   },
   useReportsPageModel: vi.fn()
 }));
@@ -30,6 +38,7 @@ vi.mock('../components/WarehouseSelectField', () => ({
 
 const useReportsPageModelMock = vi.mocked(useReportsPageModel);
 const patchMostUsedFilmFiltersMock = vi.fn();
+const patchOwnershipFiltersMock = vi.fn();
 
 function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> = {}) {
   return {
@@ -44,9 +53,21 @@ function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> =
       customTo: '',
       rankBy: 'actual_used_lf'
     },
+    ownershipFilters: {
+      warehouse: '',
+      manufacturer: '',
+      filmName: '',
+      width: '',
+      status: '',
+      q: '',
+      ownerCompanyId: ''
+    },
     reportType: 'most_used_film',
     setReportType: vi.fn(),
-    reportTypeOptions: [{ label: 'Most Used Film', value: 'most_used_film' }],
+    reportTypeOptions: [
+      { label: 'Most Used Film', value: 'most_used_film' },
+      { label: 'Ownership', value: 'ownership' }
+    ],
     dateRangeOptions: [
       { label: 'Custom date range', value: 'custom' },
       { label: 'All time', value: 'all_time' },
@@ -71,10 +92,101 @@ function buildModel(overrides: Partial<ReturnType<typeof useReportsPageModel>> =
     manufacturerOptions: ['3M Solar'],
     filmNameOptions: ['Prestige 70'],
     widthOptions: [60],
+    ownershipManufacturerOptions: ['3M Solar', 'Llumar'],
+    ownershipWidthOptions: [36, 60],
+    ownerCompanyOptions: [
+      { label: 'All Owners', value: '' },
+      { label: 'MGT', value: 'owner-mgt' },
+      { label: 'EDH - Eastside Holdings (inactive)', value: 'owner-edh' },
+      { label: 'No owner assigned', value: NO_OWNER_FILTER_VALUE }
+    ],
+    ownershipBoxes: [
+      {
+        boxId: '1001',
+        warehouse: 'IL1',
+        ownerCompanyId: 'owner-mgt',
+        ownerCompanyCode: 'MGT',
+        ownerCompanyDisplayName: 'MGT',
+        ownerCompanyIsActive: true,
+        dealer: '',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 70',
+        widthIn: 60,
+        initialFeet: 100,
+        feetAvailable: 75,
+        physicalFeetAvailable: 80,
+        allocatableNowFeet: 75,
+        allocationPlanningFeet: 75,
+        lotRun: '',
+        status: 'IN_STOCK',
+        orderDate: '2026-05-01',
+        receivedDate: '2026-05-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '2026-05-03',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: 625,
+        notes: '',
+        hasEverBeenCheckedOut: false,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      },
+      {
+        boxId: '2001',
+        warehouse: 'MS1',
+        ownerCompanyId: '',
+        ownerCompanyCode: '',
+        ownerCompanyDisplayName: '',
+        ownerCompanyIsActive: undefined,
+        dealer: '',
+        manufacturer: 'Llumar',
+        filmName: 'Vista',
+        widthIn: 36,
+        initialFeet: 100,
+        feetAvailable: 20,
+        physicalFeetAvailable: 20,
+        allocatableNowFeet: 20,
+        allocationPlanningFeet: 20,
+        lotRun: '',
+        status: 'CHECKED_OUT',
+        orderDate: '2026-05-01',
+        receivedDate: '2026-05-02',
+        initialWeightLbs: null,
+        lastRollWeightLbs: null,
+        lastWeighedDate: '',
+        filmKey: '',
+        coreType: '',
+        coreWeightLbs: null,
+        lfWeightLbsPerFt: null,
+        pricePerLf: null,
+        purchaseCost: null,
+        notes: '',
+        hasEverBeenCheckedOut: true,
+        lastCheckoutJob: '',
+        lastCheckoutDate: '',
+        zeroedDate: '',
+        zeroedReason: '',
+        zeroedBy: ''
+      }
+    ],
+    ownershipCountsByOwner: [
+      { key: 'owner-mgt', label: 'MGT', count: 1 },
+      { key: NO_OWNER_FILTER_VALUE, label: 'No owner assigned', count: 1 }
+    ],
     showReportLoading: false,
+    showOwnershipLoading: false,
     reportError: null,
+    ownershipError: null,
     dateRangeError: '',
     patchMostUsedFilmFilters: patchMostUsedFilmFiltersMock,
+    patchOwnershipFilters: patchOwnershipFiltersMock,
     ...overrides
   } as ReturnType<typeof useReportsPageModel>;
 }
@@ -84,17 +196,20 @@ describe('ReportsPage', () => {
 
   beforeEach(() => {
     patchMostUsedFilmFiltersMock.mockReset();
+    patchOwnershipFiltersMock.mockReset();
     useReportsPageModelMock.mockReset();
+    navigateMock.mockReset();
   });
 
-  it('exposes only the Most Used Film report and renders requested columns', () => {
+  it('exposes the report types and renders Most Used Film columns by default', () => {
     useReportsPageModelMock.mockReturnValue(buildModel());
 
     render(<ReportsPage />);
 
     const reportType = screen.getByLabelText('Report Type') as HTMLSelectElement;
     expect(Array.from(reportType.options).map((option) => option.textContent)).toEqual([
-      'Most Used Film'
+      'Most Used Film',
+      'Ownership'
     ]);
     expect(screen.queryByText('Received But Never Checked Out')).toBeNull();
     expect(screen.queryByText('All Zeroed Boxes')).toBeNull();
@@ -124,6 +239,77 @@ describe('ReportsPage', () => {
     expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ rankBy: 'jobs_using_it' });
     expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ manufacturer: '3M Solar' });
     expect(patchMostUsedFilmFiltersMock).toHaveBeenCalledWith({ width: '60' });
+  });
+
+  it('renders Ownership filters, summary, row data, and box links', () => {
+    useReportsPageModelMock.mockReturnValue(buildModel({ reportType: 'ownership' }));
+
+    render(<ReportsPage />);
+
+    expect(screen.getByRole('heading', { name: 'Ownership' })).toBeTruthy();
+    expect(screen.getByLabelText('Owner Company')).toBeTruthy();
+    expect(screen.getByLabelText('Search')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Owner Company' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Current LF' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Initial Cost' })).toBeTruthy();
+    expect(screen.getByText('Matching Boxes')).toBeTruthy();
+    expect(screen.getAllByText('MGT').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('No owner assigned').length).toBeGreaterThan(0);
+    expect(screen.getByText('$625.00')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Owner Company'), { target: { value: 'owner-mgt' } });
+    fireEvent.change(screen.getByLabelText('Warehouse'), { target: { value: 'IL1' } });
+    fireEvent.change(screen.getByLabelText('Manufacturer'), { target: { value: 'Llumar' } });
+    fireEvent.change(screen.getByLabelText('Film Name'), { target: { value: 'Vista' } });
+
+    expect(patchOwnershipFiltersMock).toHaveBeenCalledWith({ ownerCompanyId: 'owner-mgt' });
+    expect(patchOwnershipFiltersMock).toHaveBeenCalledWith({ warehouse: 'IL1' });
+    expect(patchOwnershipFiltersMock).toHaveBeenCalledWith({ manufacturer: 'Llumar' });
+    expect(patchOwnershipFiltersMock).toHaveBeenCalledWith({ filmName: 'Vista' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'IL1-1001' }));
+
+    expect(navigateMock).toHaveBeenCalledWith('/inventory/IL1-1001');
+  });
+
+  it('keeps inactive and no-owner options visible in Ownership', () => {
+    useReportsPageModelMock.mockReturnValue(
+      buildModel({
+        reportType: 'ownership',
+        ownershipFilters: {
+          warehouse: '',
+          manufacturer: '',
+          filmName: '',
+          width: '',
+          status: '',
+          q: '',
+          ownerCompanyId: 'owner-edh'
+        }
+      })
+    );
+
+    render(<ReportsPage />);
+
+    const ownerSelect = screen.getByLabelText('Owner Company') as HTMLSelectElement;
+    expect(Array.from(ownerSelect.options).map((option) => option.textContent)).toContain(
+      'EDH - Eastside Holdings (inactive)'
+    );
+    expect(Array.from(ownerSelect.options).map((option) => option.textContent)).toContain('No owner assigned');
+    expect(ownerSelect.value).toBe('owner-edh');
+  });
+
+  it('renders the Ownership empty state safely', () => {
+    useReportsPageModelMock.mockReturnValue(
+      buildModel({
+        reportType: 'ownership',
+        ownershipBoxes: [],
+        ownershipCountsByOwner: []
+      })
+    );
+
+    render(<ReportsPage />);
+
+    expect(screen.getByText('No matching boxes found.')).toBeTruthy();
   });
 
   it('shows custom date inputs and the actual-usage empty state', () => {
