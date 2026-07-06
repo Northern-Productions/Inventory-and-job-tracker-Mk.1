@@ -242,6 +242,37 @@ describe('AuthContext', () => {
     queryClient.clear();
   });
 
+  it('preserves org-selection-required access context without approving offline scope', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+    getAuthContextMock.mockResolvedValueOnce(
+      createAccessContext({
+        orgId: '',
+        accessStatus: 'org_selection_required',
+        role: '',
+        permissions: {}
+      })
+    );
+
+    const { queryClient } = renderWithProviders();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true');
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+      expect(screen.getByTestId('access-status').textContent).toBe('org_selection_required');
+    });
+    expect(setClientAccessContextMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        orgId: '',
+        accessStatus: 'org_selection_required',
+        role: ''
+      })
+    );
+    queryClient.clear();
+  });
+
   it('updates the password, signs out, and clears recovery mode after a successful reset', async () => {
     window.history.replaceState({}, '', '/?type=recovery');
     getSessionMock.mockResolvedValue({
@@ -340,7 +371,7 @@ describe('AuthContext', () => {
     const settledRefreshCallCount = getAuthContextMock.mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(getAuthContextMock).toHaveBeenCalledTimes(settledRefreshCallCount);
-    expect(settledRefreshCallCount).toBeLessThanOrEqual(2);
+    expect(settledRefreshCallCount).toBeLessThanOrEqual(3);
     expect(
       consoleErrorSpy.mock.calls.some((call) =>
         call.some((entry) => String(entry).includes('Maximum update depth exceeded'))

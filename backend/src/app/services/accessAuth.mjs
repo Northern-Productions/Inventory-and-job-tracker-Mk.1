@@ -14,6 +14,10 @@ import {
   inferFeatureForRoute as inferFeatureForRouteContract,
   isOwnerOnlyRoute as isOwnerOnlyRouteContract,
 } from '../../../../shared/domain/runtimeContract.mjs';
+import {
+  buildSafeAccessContext,
+  resolvePilotOrgAccess,
+} from '../../../../shared/domain/authOrgResolution.mjs';
 import { asTrimmedString, deriveNameFromEmail, integerOrZero } from '../core/helpers.mjs';
 
 function createDeniedFeaturePermissions() {
@@ -310,6 +314,18 @@ function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
   }
 
   if (authContext.accessStatus !== 'approved') {
+    if (authContext.accessStatus === 'org_selection_required') {
+      throw new HttpError(
+        403,
+        'Your account belongs to more than one organization. Organization selection is not available yet.'
+      );
+    }
+    if (authContext.accessStatus === 'no_access') {
+      throw new HttpError(
+        403,
+        'No organization access is available for this account. Contact an owner for help.'
+      );
+    }
     throw new HttpError(
       403,
       authContext.accessStatus === 'denied'
@@ -435,39 +451,40 @@ async function resolveAuthContext(headers, bodyJson) {
     const memberships = await queryRows(
       client,
       `
-        select org_id, role
+        select org_id, role, created_at
         from app.organization_members
         where user_id = $1
         order by created_at asc, org_id asc
       `,
       [identity.userId]
     );
+    const accessRequests = await queryRows(
+      client,
+      `
+        select org_id, status, requested_at
+        from app.access_requests
+        where user_id = $1
+        order by requested_at asc, org_id asc
+      `,
+      [identity.userId]
+    );
 
-    let orgId = DEFAULT_ORG_ID;
-    if (!orgId) {
-      if (memberships.length === 1) {
-        orgId = memberships[0].org_id;
-      } else if (memberships.length > 1) {
-        throw new HttpError(
-          500,
-          'DEFAULT_ORG_ID is required because this user belongs to multiple organizations.'
-        );
-      } else {
-        throw new HttpError(
-          500,
-          'DEFAULT_ORG_ID must be configured before handling pending approvals.'
-        );
-      }
-    }
-
-    if (memberships.length > 0) {
-      const found = memberships.some((entry) => entry.org_id === orgId);
-      if (!found && DEFAULT_ORG_ID) {
-        throw new HttpError(403, 'DEFAULT_ORG_ID is not assigned to the authenticated user.');
-      }
-    }
-
+    const decision = resolvePilotOrgAccess({
+      defaultOrgId: DEFAULT_ORG_ID,
+      memberships,
+      accessRequests,
+    });
     const actor = `${identity.name} <${identity.email}>`;
+
+    if (decision.kind !== 'approved') {
+      return buildSafeAccessContext({
+        identity,
+        decision,
+        actor,
+      });
+    }
+
+    const orgId = decision.orgId;
     const membership = memberships.find((entry) => entry.org_id === orgId) || null;
     await ensureGeneralFeaturePermissions(client, orgId, actor);
 

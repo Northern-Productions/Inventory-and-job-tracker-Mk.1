@@ -15,7 +15,7 @@ export interface AuthSession {
   expiresAt: number;
 }
 
-export type AccessStatus = 'approved' | 'pending' | 'denied';
+export type AccessStatus = 'approved' | 'pending' | 'denied' | 'org_selection_required' | 'no_access';
 export type Role = 'owner' | 'admin' | 'member' | '';
 export type FeatureArea =
   | 'inventory'

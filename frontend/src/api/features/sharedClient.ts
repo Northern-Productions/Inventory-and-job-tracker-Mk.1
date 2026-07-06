@@ -58,7 +58,13 @@ export function ensureRole(value: unknown): Role {
 
 export function ensureAccessStatus(value: unknown): AccessStatus {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'approved' || normalized === 'pending' || normalized === 'denied') {
+  if (
+    normalized === 'approved' ||
+    normalized === 'pending' ||
+    normalized === 'denied' ||
+    normalized === 'org_selection_required' ||
+    normalized === 'no_access'
+  ) {
     return normalized;
   }
   return 'pending';

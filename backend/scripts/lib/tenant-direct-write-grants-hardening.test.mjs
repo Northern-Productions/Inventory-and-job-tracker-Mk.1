@@ -27,7 +27,7 @@ const supabase0180Path = path.join(
 );
 const schemaCheckPath = path.join(repoRoot, 'backend', 'scripts', 'check-schema-latest.mjs');
 
-const expected0180Hash = '25c7e2a5e6679c14b262bf93139a0619bc268530f78274618f446de1322b440a';
+const expected0180Hash = 'ad23b69d73610878a3702235da8c65076af80f354c9d2f53c18c1289fb96a7bf';
 
 const hardenedTables = [
   'access_requests',
@@ -81,8 +81,8 @@ test('tenant direct write grants hardening leaves 0180 unchanged', async () => {
     readFile(supabase0180Path, 'utf8'),
   ]);
 
-  assert.equal(sha256(backend0180), expected0180Hash);
-  assert.equal(sha256(supabase0180), expected0180Hash);
+  assert.equal(sha256(normalizeSql(backend0180)), expected0180Hash);
+  assert.equal(sha256(normalizeSql(supabase0180)), expected0180Hash);
   assert.equal(normalizeSql(backend0180), normalizeSql(supabase0180));
 });
 

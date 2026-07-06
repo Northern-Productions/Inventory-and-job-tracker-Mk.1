@@ -166,4 +166,38 @@ describe('App', () => {
     expect(screen.getByText('ACCESS_SPLASH:denied')).toBeTruthy();
     expect(screen.queryByText('ROUTER_PROVIDER')).toBeNull();
   });
+
+  it('renders the org selection safe state without mounting protected routes', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: buildAccessContext({ accessStatus: 'org_selection_required', role: '' }),
+        accessStatus: 'org_selection_required',
+        isAccessReady: true,
+        isApproved: false,
+        isAuthenticated: true
+      })
+    );
+
+    render(<App />);
+
+    expect(screen.getByText('ACCESS_SPLASH:org_selection_required')).toBeTruthy();
+    expect(screen.queryByText('ROUTER_PROVIDER')).toBeNull();
+  });
+
+  it('renders the no-access safe state without mounting protected routes', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: buildAccessContext({ accessStatus: 'no_access', role: '' }),
+        accessStatus: 'no_access',
+        isAccessReady: true,
+        isApproved: false,
+        isAuthenticated: true
+      })
+    );
+
+    render(<App />);
+
+    expect(screen.getByText('ACCESS_SPLASH:no_access')).toBeTruthy();
+    expect(screen.queryByText('ROUTER_PROVIDER')).toBeNull();
+  });
 });

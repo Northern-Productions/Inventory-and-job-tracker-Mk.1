@@ -2,6 +2,37 @@
 import { DEFAULT_ORG_ID, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.ts";
 import { HttpError } from "./http.ts";
 import type { AuthIdentity } from "./types.ts";
+import {
+  buildSafeAccessContext,
+  resolvePilotOrgAccess,
+} from "../../../shared/domain/authOrgResolution.mjs";
+
+type PilotOrgResolutionDecision = {
+  kind: string;
+  orgId: string;
+  reason?: string;
+  candidateOrgIds?: string[];
+};
+
+type PilotOrgResolutionInput = {
+  defaultOrgId?: string;
+  memberships?: Array<{ org_id: string; role?: string; created_at?: string }>;
+  accessRequests?: Array<{ org_id: string; status: string; requested_at?: string }>;
+};
+
+const resolvePilotOrgAccessTyped = resolvePilotOrgAccess as (
+  input: PilotOrgResolutionInput,
+) => PilotOrgResolutionDecision;
+const buildSafeAccessContextTyped = buildSafeAccessContext as (input: {
+  identity: {
+    userId: string;
+    email: string;
+    name: string;
+    token: string;
+  };
+  decision: PilotOrgResolutionDecision;
+  actor: string;
+}) => AuthIdentity;
 
 type FetchAuthIdentityDeps = {
   asTrimmedString: (value: unknown) => string;
@@ -12,6 +43,9 @@ type ResolveAuthContextDeps = FetchAuthIdentityDeps & {
   pruneAuthIdentityCache: () => void;
   authIdentityCache: Map<string, { expiresAt: number; identity: AuthIdentity }>;
   createUserScopedClient: (token: string) => any;
+  listAccessRequestsForUser: (
+    userId: string,
+  ) => Promise<Array<{ org_id: string; status: string; requested_at?: string }>>;
   rpcOrThrow: <T>(client: any, fn: string, params?: Record<string, unknown>) => Promise<T>;
   parseFeaturePermissions: (value: unknown) => Record<string, { read: boolean; write: boolean }>;
   sendNewAccessRequestNotification: (
@@ -76,26 +110,32 @@ export async function resolveAuthContext(
 
   const client = deps.createUserScopedClient(token);
 
-  let orgId = DEFAULT_ORG_ID;
-  if (!orgId) {
-    const memberships = await deps.rpcOrThrow<Array<{ org_id: string }>>(client, "api_list_memberships");
-    if (!memberships.length) {
-      throw new HttpError(
-        500,
-        "DEFAULT_ORG_ID must be configured before handling pending approvals.",
-      );
-    }
+  const memberships = await deps.rpcOrThrow<Array<{ org_id: string; role?: string; created_at?: string }>>(
+    client,
+    "api_list_memberships",
+  );
+  const accessRequests = await deps.listAccessRequestsForUser(user.userId);
+  const decision = resolvePilotOrgAccessTyped({
+    defaultOrgId: DEFAULT_ORG_ID,
+    memberships,
+    accessRequests,
+  });
+  const actor = `${user.name} <${user.email}>`;
 
-    if (memberships.length === 1) {
-      orgId = memberships[0].org_id;
-    } else {
-      throw new HttpError(
-        500,
-        "DEFAULT_ORG_ID is required because this user belongs to multiple organizations.",
-      );
-    }
+  if (decision.kind !== "approved") {
+    const identity = buildSafeAccessContextTyped({
+      identity: user,
+      decision,
+      actor,
+    });
+    deps.authIdentityCache.set(token, {
+      identity,
+      expiresAt: Date.now() + 60_000,
+    });
+    return { identity, client };
   }
 
+  const orgId = decision.orgId;
   const accessContext = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_get_auth_context", {
     p_org_id: orgId,
   });
@@ -105,7 +145,7 @@ export async function resolveAuthContext(
   const identity: AuthIdentity = {
     ...user,
     orgId,
-    actor: `${user.name} <${user.email}>`,
+    actor,
     accessStatus:
       accessStatusRaw === "approved" || accessStatusRaw === "denied"
         ? (accessStatusRaw as "approved" | "denied")

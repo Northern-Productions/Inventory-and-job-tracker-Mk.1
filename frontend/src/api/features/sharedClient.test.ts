@@ -89,6 +89,32 @@ describe('getClientOfflineInventoryScope', () => {
     });
 
     expect(getClientOfflineInventoryScope()).toBeNull();
+
+    setClientAccessContext({
+      orgId: '',
+      accessStatus: 'org_selection_required',
+      role: '',
+      permissions: createDefaultFeatureAccessMap(),
+      isAdminConsoleAllowed: false,
+      pendingCount: 0,
+      receivesInAppNotifications: false,
+      defaultWarehouse: ''
+    });
+
+    expect(getClientOfflineInventoryScope()).toBeNull();
+
+    setClientAccessContext({
+      orgId: '',
+      accessStatus: 'no_access',
+      role: '',
+      permissions: createDefaultFeatureAccessMap(),
+      isAdminConsoleAllowed: false,
+      pendingCount: 0,
+      receivesInAppNotifications: false,
+      defaultWarehouse: ''
+    });
+
+    expect(getClientOfflineInventoryScope()).toBeNull();
   });
 });
 

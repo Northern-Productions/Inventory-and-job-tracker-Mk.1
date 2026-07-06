@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
+  AccessStatus,
   AuthSession,
   EffectiveAccessContext,
   FeatureAccessMode,
@@ -26,7 +27,7 @@ import { buildAuthScopeSignature } from './authSession';
 interface AuthContextValue {
   accessContext: EffectiveAccessContext | null;
   accessRefreshError: string;
-  accessStatus: 'approved' | 'pending' | 'denied' | '';
+  accessStatus: AccessStatus | '';
   canAccessAdminConsole: boolean;
   clientIdConfigured: boolean;
   errorMessage: string;

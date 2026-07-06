@@ -1126,6 +1126,28 @@ function createServiceRoleClient() {
   });
 }
 
+async function listAccessRequestsForUser(userId: string): Promise<Array<{ org_id: string; status: string; requested_at?: string }>> {
+  const normalizedUserId = asTrimmedString(userId);
+  if (!normalizedUserId) {
+    return [];
+  }
+  const serviceClient = createServiceRoleClient();
+  if (!serviceClient) {
+    throw new HttpError(500, "SUPABASE_SERVICE_ROLE_KEY is required for auth organization resolution.");
+  }
+
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("access_requests")
+    .select("org_id,status,requested_at")
+    .eq("user_id", normalizedUserId)
+    .order("requested_at", { ascending: true })
+    .order("org_id", { ascending: true });
+
+  throwOnSupabaseError(error, "Unable to resolve organization access requests");
+  return Array.isArray(data) ? data : [];
+}
+
 function parseFeaturePermissions(value: unknown): Record<string, { read: boolean; write: boolean }> {
   if (!value || typeof value !== "object") {
     return {};
@@ -1662,6 +1684,7 @@ async function resolveAuthContext(request: Request): Promise<{ identity: AuthIde
     pruneAuthIdentityCache,
     authIdentityCache,
     createUserScopedClient,
+    listAccessRequestsForUser,
     rpcOrThrow,
     parseFeaturePermissions,
     sendNewAccessRequestNotification,

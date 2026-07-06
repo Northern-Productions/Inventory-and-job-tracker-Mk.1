@@ -17,6 +17,15 @@ export function ensureEffectiveRouteAccess(identity: AuthIdentity, method: strin
   }
 
   if (identity.accessStatus !== "approved") {
+    if (identity.accessStatus === "org_selection_required") {
+      throw new HttpError(
+        403,
+        "Your account belongs to more than one organization. Organization selection is not available yet.",
+      );
+    }
+    if (identity.accessStatus === "no_access") {
+      throw new HttpError(403, "No organization access is available for this account. Contact an owner for help.");
+    }
     throw new HttpError(
       403,
       identity.accessStatus === "denied"

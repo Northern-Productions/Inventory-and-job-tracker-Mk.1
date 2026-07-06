@@ -23,7 +23,7 @@
     "codex:refresh": "node scripts/codex-task-refresh.mjs",
     "codex:classify": "node scripts/codex-classify-changes.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
-    "edge:test": "cd ../frontend && deno test --allow-env ../supabase/functions/_shared/acl.test.ts ../supabase/functions/_shared/api-handler.test.ts ../supabase/functions/_shared/route-timing.test.ts ../supabase/functions/_shared/routes/mutationHandlers.test.ts ../supabase/functions/_shared/services/appAttention.test.ts",
+    "edge:test": "cd ../frontend && deno test --allow-env --allow-read=../supabase/functions/_shared/auth.ts ../supabase/functions/_shared/acl.test.ts ../supabase/functions/_shared/auth-resolution.test.ts ../supabase/functions/_shared/api-handler.test.ts ../supabase/functions/_shared/route-timing.test.ts ../supabase/functions/_shared/routes/mutationHandlers.test.ts ../supabase/functions/_shared/services/appAttention.test.ts",
     "env:check:dev": "node scripts/check-env-target.mjs --env .env.dev --expect dev",
     "env:check:prod": "node scripts/check-env-target.mjs --env ../.secrets/prod.env --expect prod --allow-prod",
     "fixtures:dev:create": "node scripts/dev-fixtures/create-dev-fixture.mjs",

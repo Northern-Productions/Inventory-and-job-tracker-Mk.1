@@ -7,7 +7,7 @@ export type AuthIdentity = {
   orgId: string;
   actor: string;
   role: "owner" | "admin" | "member" | "";
-  accessStatus: "approved" | "pending" | "denied";
+  accessStatus: "approved" | "pending" | "denied" | "org_selection_required" | "no_access";
   permissions: Record<string, { read: boolean; write: boolean }>;
   isAdminConsoleAllowed: boolean;
   pendingCount: number;

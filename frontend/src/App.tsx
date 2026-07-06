@@ -69,11 +69,15 @@ export default function App() {
     );
   }
 
-  if (auth.accessStatus === 'pending') {
+  if (
+    auth.accessStatus === 'pending' ||
+    auth.accessStatus === 'org_selection_required' ||
+    auth.accessStatus === 'no_access'
+  ) {
     return (
       <>
         <PwaUpdateBanner />
-        <AccessSplash mode="pending" />
+        <AccessSplash mode={auth.accessStatus} />
       </>
     );
   }
